@@ -12,7 +12,6 @@
     "shared"
   ],
   "scripts": {
-    "dev": "./scripts/dev.sh",
     "build": "./scripts/build.sh",
     "tauri": "cargo tauri",
     "install:all": "yarn install && yarn workspaces foreach run install"

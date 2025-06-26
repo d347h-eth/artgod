@@ -73,7 +73,6 @@ ArtGod/
 │   ├── seeds/                    # Pre-indexed .db artifacts (committed)
 │   └── scripts/                  # Manual backfill and export utilities
 ├── scripts/                      # Development and build scripts
-│   ├── dev.sh                    # Start all components
 │   └── build.sh                  # Build for production
 ├── package.json                  # Root workspace configuration
 └── IDEA.md                       # Detailed technical specifications
