@@ -6,6 +6,7 @@
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "./scripts/dev.sh",
     "beforeBuildCommand": "yarn build"
   },
   "app": {

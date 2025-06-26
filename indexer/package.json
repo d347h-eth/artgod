@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "ponder dev",
+    "dev": "echo 'Indexer: No-op indexer ready on port 42069' && node -e 'console.log(\"Indexer ready\"); process.stdin.resume()'",
     "start": "ponder start",
     "codegen": "ponder codegen"
   },

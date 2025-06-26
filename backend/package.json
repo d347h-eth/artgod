@@ -3,6 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "echo 'Backend: No-op dev server ready on port 3000' && node -e 'console.log(\"Backend ready\"); process.stdin.resume()'",
+    "build": "echo 'Backend: No-op build complete'"
+  },
   "devDependencies": {
     "typescript": "^5.8.3"
   }

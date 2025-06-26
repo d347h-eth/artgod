@@ -1,0 +1,6 @@
+.env
+
+.yarn/install-state.gz
+
+logs
+*.log

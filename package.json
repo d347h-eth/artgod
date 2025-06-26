@@ -12,12 +12,14 @@
     "shared"
   ],
   "scripts": {
+    "dev": "./scripts/dev.sh",
     "build": "./scripts/build.sh",
     "tauri": "cargo tauri",
     "install:all": "yarn install && yarn workspaces foreach run install"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.6.0",
+    "concurrently": "^9.1.0",
     "typescript": "^5.8.3"
   },
   "engines": {
