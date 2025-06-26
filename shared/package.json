@@ -1,0 +1,14 @@
+{
+  "name": "@artgod/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./types/index.ts",
+  "exports": {
+    "./types": "./types/index.ts",
+    "./utils": "./utils/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
