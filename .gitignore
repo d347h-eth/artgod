@@ -2,9 +2,45 @@
 
 .pnp.cjs
 .pnp.loader.mjs
+
+# Yarn cache and temporary files (Yarn SDK is committed)
 .yarn/cache/
 .yarn/install-state.gz
 .yarn/unplugged/
 
+# Database files (keep migrations and scripts, ignore database data)
+database/artgod.db/
+
 logs
 *.log
+
+# TypeScript build artifacts
+*.tsbuildinfo
+build/
+dist/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE/Editor files (keep .vscode/ for workspace settings)
+.idea/
+*.swp
+*.swo
+*~
+
+# Personal VS Code settings (keep workspace settings)
+.vscode/launch.json
+.vscode/tasks.json
+.vscode/*.code-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

@@ -2,13 +2,12 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "outDir": "./build",
-    "rootDir": "./src",
+    "rootDir": "./",
+    "allowImportingTsExtensions": true,
     "composite": true,
-    "noEmit": false
+    "noEmit": false,
+    "emitDeclarationOnly": true
   },
-  "references": [
-    { "path": "../shared" }
-  ],
-  "include": ["src/**/*"],
+  "include": ["**/*"],
   "exclude": ["node_modules", "build"]
-}
+} 

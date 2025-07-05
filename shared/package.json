@@ -6,9 +6,17 @@
   "main": "./types/index.ts",
   "exports": {
     "./types": "./types/index.ts",
-    "./utils": "./utils/index.ts"
+    "./utils": "./utils/index.ts",
+    "./utils/paths": "./utils/paths.ts",
+    "./database": "./database/db.ts",
+    "./migrations": "./database/migrations.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.4"
   },
   "devDependencies": {
+    "@types/emscripten": "^1.39.13",
+    "@types/node": "^24.0.0",
     "typescript": "^5.8.3"
   }
 }

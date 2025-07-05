@@ -34,48 +34,61 @@ yarn install
 # Start all components in development mode
 yarn dev
 
-# Build all components for production
-yarn build
+# Start desktop app with all components
+cargo tauri dev
 
 # Individual component development
-cd backend && yarn dev    # API server
+cd backend && yarn dev    # API server with database
 cd frontend && yarn dev   # Svelte app  
-cd indexer && yarn dev    # Ponder indexer
+cd indexer && yarn dev    # Ponder indexer (no-op currently)
 ```
 
 ### Technology Stack
-- TypeScript with ES2022 target and Node.js modules
-- Yarn package manager
-- pglite for local database
+- TypeScript with ES2022 target and Node.js ESM modules
+- Yarn package manager with PnP (Plug'n'Play) mode and workspaces
+- pglite for local embedded PostgreSQL database
+- Custom SQL migration system with automatic execution
+- SvelteKit frontend with Tailwind CSS
+- Tauri for cross-platform desktop distribution
 - Ponder for blockchain indexing (planned)
-- Tauri for desktop distribution (planned)
 
 ## Project Structure
 
 ```
 ArtGod/
-├── src-tauri/                    # Tauri Rust application (to be initialized)
+├── src-tauri/                    # Tauri Rust desktop application
+│   ├── src/                      # Rust source code
+│   ├── Cargo.toml
+│   └── tauri.conf.json           # Tauri configuration
 ├── backend/                      # Node.js API server
-│   ├── src/                      # TypeScript source (compiles to ./build)
+│   ├── src/index.ts              # Main server entry point
+│   ├── build/                    # Compiled JavaScript output
 │   ├── package.json
 │   └── tsconfig.json
-├── frontend/                     # Svelte web application  
-│   ├── src/{lib,routes,stores}/
-│   └── package.json
+├── frontend/                     # SvelteKit web application  
+│   ├── src/{lib,routes,stores}/  # Svelte components and pages
+│   ├── dist/                     # Built frontend assets
+│   ├── package.json
+│   └── vite.config.ts
 ├── indexer/                      # Ponder blockchain indexer
-│   ├── src/handlers/             # Event handlers per project
+│   └── package.json              # No-op placeholder currently
+├── shared/                       # Shared TypeScript utilities
+│   ├── build/                    # Compiled shared modules
+│   ├── database/                 # Database connection and migrations
+│   │   ├── db.ts                 # pglite connection singleton
+│   │   └── migrations.ts         # Migration runner
+│   ├── utils/                    # Shared utility functions
 │   └── package.json
-├── shared/                       # Shared TypeScript types/utilities
-│   ├── types/
-│   └── utils/
-├── database/                     # Database setup and pre-indexed data
-│   ├── migrations/               # Schema definitions
-│   ├── seeds/                    # Pre-indexed .db artifacts (committed)
-│   └── scripts/                  # Manual backfill and export utilities
-├── scripts/                      # Development and build scripts
-│   └── build.sh                  # Build for production
+├── database/                     # Database infrastructure
+│   ├── artgod.db/                # pglite database files (auto-generated)
+│   ├── migrations/               # SQL schema migration files
+│   │   └── 001_initial_schema.sql
+│   └── package.json
+├── scripts/                      # Development scripts
+│   └── dev.sh                    # Concurrent startup script
 ├── package.json                  # Root workspace configuration
-└── IDEA.md                       # Detailed technical specifications
+├── tsconfig.json                 # Root TypeScript project references
+└── yarn.lock                     # Dependency lockfile
 ```
 
 ## Target Features
@@ -96,23 +109,40 @@ ArtGod/
 - In-app and OS notifications
 - Third-party integrations (Telegram, Discord)
 
+## Database & Migration Management
+
+### Database Architecture
+The project uses **pglite** (embedded PostgreSQL) as a single shared database:
+
+- **`./database/artgod.db/`** - Actual pglite database files (auto-generated)
+- **`./database/migrations/`** - SQL schema migration files
+- **`./shared/database/`** - Runtime connection singleton and migration runner
+- **Automatic migrations** - Run on backend startup via `shared/database/migrations.ts`
+
+### Migration Workflow
+1. Create numbered SQL files in `database/migrations/` (e.g., `002_add_users.sql`)
+2. Migrations run automatically when backend starts
+3. Migration tracking table prevents duplicate execution
+4. All components share the same database instance
+
+### Usage Pattern
+```typescript
+// Import database in any component
+import { db } from '@artgod/shared/database';
+
+// Execute queries
+const result = await db.query('SELECT * FROM projects');
+```
+
 ## Development Notes
 
-- Project is early-stage with backend scaffolding only
-- No source code exists yet in backend/src/
-- Frontend (Svelte) and desktop app (Tauri) components not yet implemented
-- Core focus is on Ethereum NFT data indexing and trading automation
-
-## Pre-indexing Strategy
-
-**Manual Process** (not automated in CI/CD):
-1. Developer runs: `yarn workspace database backfill --contract=terraforms`
-2. Export data: `yarn workspace database export --contract=terraforms`
-3. Commit seed files: `database/seeds/*.db` stored in git
-4. Build process: Seed data bundled into app distribution
-5. App startup: Restores from seed data, then syncs incrementally
-
-This avoids slow blockchain indexing in build pipelines while ensuring users get immediate access to historical data.
+- **Yarn PnP enabled** with proper workspace TypeScript project references
+- **All components functional** with shared pglite database
+- **Backend** runs TypeScript with tsx, includes automatic migrations
+- **Frontend** uses SvelteKit with Tailwind CSS and Vite
+- **Desktop app** packages all components via Tauri
+- **Indexer** is placeholder (no-op) pending Ponder integration
+- **Core focus** is on Ethereum NFT data indexing and trading automation
 
 ## Architecture Constraints
 

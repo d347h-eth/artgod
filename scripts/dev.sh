@@ -2,10 +2,10 @@
 
 echo "🚀 Starting ArtGod development environment..."
 
-# Start all services in parallel, using exec to replace the process
+# Start all services in parallel using workspace commands for PnP compatibility
 exec yarn concurrently \
   --names "backend,indexer,frontend" \
   --prefix-colors "blue,green,yellow" \
-  "cd backend && yarn dev" \
-  "cd indexer && yarn dev" \
-  "cd frontend && yarn dev"
+  "yarn workspace @artgod/backend run dev" \
+  "yarn workspace @artgod/indexer run dev" \
+  "yarn workspace @artgod/frontend run dev"
