@@ -4,16 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'Indexer: No-op indexer ready on port 42069' && node -e 'console.log(\"Indexer ready\"); process.stdin.resume()'",
-    "start": "ponder start",
-    "codegen": "ponder codegen"
-  },
-  "dependencies": {
-    "@ponder/core": "^0.6.0",
-    "hono": "^4.8.4",
-    "viem": "^2.0.0"
+    "dev": "echo 'Indexer: No-op indexer ready on port 42069' && node -e 'console.log(\"Indexer ready\"); process.stdin.resume()'"
   },
   "devDependencies": {
+    "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   }
 }

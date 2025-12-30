@@ -1,6 +1,3 @@
--- Initial database schema for ArtGod
--- Created: 2025-07-04
-
 -- Create migrations tracking table
 CREATE TABLE IF NOT EXISTS migrations (
   id SERIAL PRIMARY KEY,

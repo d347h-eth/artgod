@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to LLMs when working with code in this repository.
 
 ## Project Overview
 
-ArtGod is a cross-platform desktop application for Ethereum NFT trading and indexing. The project is in early development phase with only backend scaffolding currently present.
+ArtGod is a cross-platform desktop application for blockchain NFT trading and indexing. The project is in early development phase with only backend scaffolding currently present.
 
 **Important**: ArtGod is designed as strictly local-focused, peer-to-peer software with no centralized server infrastructure. All processes run locally on the user's machine.
 
@@ -20,7 +20,7 @@ The application follows a multi-component architecture:
 ### Key Components
 
 - **Backend API** (`backend/`): Node.js server with TypeScript, serves frontend and provides data APIs
-- **Indexer Worker**: Planned integration with Ponder for blockchain data processing
+- **Indexer Worker**: For blockchain data processing
 - **Configuration**: Native OS window for immediate access to app settings
 - **Future Trading Worker**: Integration with NFT marketplaces (Seaport OS, Blur, Payment Processor)
 
@@ -40,7 +40,7 @@ cargo tauri dev
 # Individual component development
 cd backend && yarn dev    # API server with database
 cd frontend && yarn dev   # Svelte app  
-cd indexer && yarn dev    # Ponder indexer (no-op currently)
+cd indexer && yarn dev    # worker for blockchain indexing (no-op currently)
 ```
 
 ### Technology Stack
@@ -50,7 +50,7 @@ cd indexer && yarn dev    # Ponder indexer (no-op currently)
 - Custom SQL migration system with automatic execution
 - SvelteKit frontend with Tailwind CSS
 - Tauri for cross-platform desktop distribution
-- Ponder for blockchain indexing (planned)
+- Indexer for blockchain indexing (planned)
 
 ## Project Structure
 
@@ -70,7 +70,7 @@ ArtGod/
 │   ├── dist/                     # Built frontend assets
 │   ├── package.json
 │   └── vite.config.ts
-├── indexer/                      # Ponder blockchain indexer
+├── indexer/                      # Blockchain indexer
 │   └── package.json              # No-op placeholder currently
 ├── shared/                       # Shared TypeScript utilities
 │   ├── build/                    # Compiled shared modules
@@ -141,7 +141,7 @@ const result = await db.query('SELECT * FROM projects');
 - **Backend** runs TypeScript with tsx, includes automatic migrations
 - **Frontend** uses SvelteKit with Tailwind CSS and Vite
 - **Desktop app** packages all components via Tauri
-- **Indexer** is placeholder (no-op) pending Ponder integration
+- **Indexer** is placeholder (no-op)
 - **Core focus** is on Ethereum NFT data indexing and trading automation
 
 ## Architecture Constraints

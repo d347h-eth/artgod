@@ -1,29 +1,55 @@
 {
-  "name": "artgod",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
-  "author": "d347h.eth <wagdie.dev@gmail.com>",
-  "license": "MIT",
-  "workspaces": [
-    "backend",
-    "database",
-    "frontend",
-    "indexer",
-    "shared"
-  ],
-  "scripts": {
-    "dev": "./scripts/dev.sh",
-    "tauri": "cargo tauri",
-    "install:all": "yarn install && yarn workspaces foreach run install"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.6.0",
-    "@types/node": "^24.0.10",
-    "concurrently": "^9.1.0",
-    "typescript": "^5.8.3"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+    "name": "artgod",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "author": "d347h.eth <wagdie.dev@gmail.com>",
+    "license": "AGPL-3.0-only",
+    "packageManager": "yarn@4.12.0",
+    "engines": {
+        "node": "24.3.0"
+    },
+    "workspaces": [
+        "backend",
+        "database",
+        "frontend",
+        "indexer",
+        "shared"
+    ],
+    "scripts": {
+        "dev": "./scripts/dev.sh",
+        "tauri": "cargo tauri",
+        "install:all": "yarn install && yarn workspaces foreach run install",
+        "format": "prettier . --write",
+        "format:check": "prettier . --check",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "better-sqlite3": "^v12.2.0",
+        "dotenv": "^16.4.5",
+        "viem": "^2.39.3"
+    },
+    "dependenciesMeta": {
+        "better-sqlite3": {
+            "built": true
+        },
+        "esbuild": {
+            "built": true
+        }
+    },
+    "devDependencies": {
+        "@tauri-apps/cli": "^2.6.0",
+        "@types/better-sqlite3": "^7.6.12",
+        "@types/node": "24.3.3",
+        "@vitest/coverage-v8": "4.0.13",
+        "concurrently": "^9.1.0",
+        "prettier": "3.3.3",
+        "tsx": "4.20.5",
+        "typescript": "5.9.2",
+        "vitest": "4.0.13"
+    },
+    "prettier": {
+        "tabWidth": 4,
+        "useTabs": false
+    }
 }
