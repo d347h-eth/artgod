@@ -1,9 +1,12 @@
-# Yarn cache and temporary files (Yarn SDK is committed)
-.yarn/cache/
-.yarn/install-state.gz
-.yarn/unplugged/
+# Node / Yarn
 .pnp.cjs
 .pnp.loader.mjs
+.yarn/**
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
 
 # TypeScript build artifacts
 *.tsbuildinfo
