@@ -12,10 +12,10 @@
     "./migrations": "./database/migrations.ts"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.3.4"
+    "better-sqlite3": "^v12.2.0"
   },
   "devDependencies": {
-    "@types/emscripten": "^1.39.13",
+    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^24.0.0",
     "typescript": "^5.8.3"
   }

@@ -15,7 +15,7 @@ The application follows a multi-component architecture:
 1. **Tauri** - Cross-platform distribution layer that packages all components into a desktop app binary
 2. **Node.js Backend** - API server, event streaming via SSE, and worker process management
 3. **Svelte Frontend** - Web UI served by backend and opened in native browser at localhost:427906
-4. **pglite** - Local database for migrations, user settings, contracts/projects data, and worker jobs
+4. **SQLite (better-sqlite3)** - Local database for migrations, user settings, contracts/projects data, and worker jobs
 
 ### Key Components
 
@@ -46,7 +46,7 @@ cd indexer && yarn dev    # worker for blockchain indexing (no-op currently)
 ### Technology Stack
 - TypeScript with ES2022 target and Node.js ESM modules
 - Yarn package manager with PnP (Plug'n'Play) mode and workspaces
-- pglite for local embedded PostgreSQL database
+- SQLite via better-sqlite3 for local embedded database
 - Custom SQL migration system with automatic execution
 - SvelteKit frontend with Tailwind CSS
 - Tauri for cross-platform desktop distribution
@@ -75,12 +75,12 @@ ArtGod/
 ├── shared/                       # Shared TypeScript utilities
 │   ├── build/                    # Compiled shared modules
 │   ├── database/                 # Database connection and migrations
-│   │   ├── db.ts                 # pglite connection singleton
+│   │   ├── db.ts                 # sqlite connection singleton
 │   │   └── migrations.ts         # Migration runner
 │   ├── utils/                    # Shared utility functions
 │   └── package.json
 ├── database/                     # Database infrastructure
-│   ├── artgod.db/                # pglite database files (auto-generated)
+│   ├── artgod.sqlite             # SQLite database file (auto-generated)
 │   ├── migrations/               # SQL schema migration files
 │   │   └── 001_initial_schema.sql
 │   └── package.json
@@ -112,9 +112,9 @@ ArtGod/
 ## Database & Migration Management
 
 ### Database Architecture
-The project uses **pglite** (embedded PostgreSQL) as a single shared database:
+The project uses **SQLite (better-sqlite3)** as a single shared database:
 
-- **`./database/artgod.db/`** - Actual pglite database files (auto-generated)
+- **`./database/artgod.sqlite`** - Actual SQLite database file (auto-generated)
 - **`./database/migrations/`** - SQL schema migration files
 - **`./shared/database/`** - Runtime connection singleton and migration runner
 - **Automatic migrations** - Run on backend startup via `shared/database/migrations.ts`
@@ -131,13 +131,13 @@ The project uses **pglite** (embedded PostgreSQL) as a single shared database:
 import { db } from '@artgod/shared/database';
 
 // Execute queries
-const result = await db.query('SELECT * FROM projects');
+const result = db.prepare('SELECT * FROM projects').all();
 ```
 
 ## Development Notes
 
 - **Yarn PnP enabled** with proper workspace TypeScript project references
-- **All components functional** with shared pglite database
+- **All components functional** with shared sqlite database
 - **Backend** runs TypeScript with tsx, includes automatic migrations
 - **Frontend** uses SvelteKit with Tailwind CSS and Vite
 - **Desktop app** packages all components via Tauri

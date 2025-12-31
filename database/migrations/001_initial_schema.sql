@@ -1,9 +1,5 @@
--- Create migrations tracking table
-CREATE TABLE IF NOT EXISTS migrations (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255) NOT NULL UNIQUE,
-  executed_at TIMESTAMP DEFAULT NOW()
+-- Initial schema placeholder
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
-
--- Insert this migration into the tracking table
-INSERT INTO migrations (name) VALUES ('001_initial_schema') ON CONFLICT (name) DO NOTHING;

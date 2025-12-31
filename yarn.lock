@@ -27,8 +27,6 @@ __metadata:
   resolution: "@artgod/backend@workspace:backend"
   dependencies:
     "@artgod/shared": "workspace:*"
-    "@electric-sql/pglite": "npm:^0.3.4"
-    "@types/emscripten": "npm:^1.39.13"
     "@types/node": "npm:^24.0.0"
     tsx: "npm:^4.19.2"
     typescript: "npm:^5.8.3"
@@ -89,9 +87,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@artgod/shared@workspace:shared"
   dependencies:
-    "@electric-sql/pglite": "npm:^0.3.4"
-    "@types/emscripten": "npm:^1.39.13"
+    "@types/better-sqlite3": "npm:^7.6.12"
     "@types/node": "npm:^24.0.0"
+    better-sqlite3: "npm:^v12.2.0"
     typescript: "npm:^5.8.3"
   languageName: unknown
   linkType: soft
@@ -160,13 +158,6 @@ __metadata:
   version: 1.0.2
   resolution: "@bcoe/v8-coverage@npm:1.0.2"
   checksum: 10/46600b2dde460269b07a8e4f12b72e418eae1337b85c979f43af3336c9a1c65b04e42508ab6b245f1e0e3c64328e1c38d8cd733e4a7cebc4fbf9cf65c6e59937
-  languageName: node
-  linkType: hard
-
-"@electric-sql/pglite@npm:^0.3.4":
-  version: 0.3.4
-  resolution: "@electric-sql/pglite@npm:0.3.4"
-  checksum: 10/27f563f3ed9326254a0b95f0106925d9d6e3ee9f1c2375a03f20977e38a59450d18644e656770647c5da2bcd91a33f0c505f7479edf8f4d61bff7e6a4385c2bd
   languageName: node
   linkType: hard
 
@@ -1492,13 +1483,6 @@ __metadata:
   version: 4.0.2
   resolution: "@types/deep-eql@npm:4.0.2"
   checksum: 10/249a27b0bb22f6aa28461db56afa21ec044fa0e303221a62dff81831b20c8530502175f1a49060f7099e7be06181078548ac47c668de79ff9880241968d43d0c
-  languageName: node
-  linkType: hard
-
-"@types/emscripten@npm:^1.39.13":
-  version: 1.40.1
-  resolution: "@types/emscripten@npm:1.40.1"
-  checksum: 10/d1aa8b91416c0d8ea7d2f3b99c8c40327350dff632ad98cb67f9df9afa13efd4d755c273b49a37797390a94180c7cc98397bbbe1d8def4ea1d5d3bff9c816ac9
   languageName: node
   linkType: hard
 

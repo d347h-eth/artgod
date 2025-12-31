@@ -11,7 +11,7 @@ build/
 dist/
 
 # Database files (keep migrations and scripts, ignore database data)
-database/artgod.db/
+database/sqlite/
 
 tmp/
 
