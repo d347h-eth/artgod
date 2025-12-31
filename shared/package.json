@@ -8,6 +8,8 @@
     "./types": "./types/index.ts",
     "./utils": "./utils/index.ts",
     "./utils/paths": "./utils/paths.ts",
+    "./utils/logger": "./utils/logger.ts",
+    "./utils/time": "./utils/time.ts",
     "./database": "./database/db.ts",
     "./migrations": "./database/migrations.ts"
   },

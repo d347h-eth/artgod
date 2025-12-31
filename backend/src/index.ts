@@ -1,9 +1,13 @@
 import { db } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { logger } from "@artgod/shared/utils";
 
 async function main() {
   try {
-    console.log('🚀 ArtGod Backend starting...');
+    logger.info("Backend starting", {
+      component: "Backend",
+      action: "main",
+    });
     
     // Initialize database
     const migrationRunner = createMigrationRunner();
@@ -13,14 +17,26 @@ async function main() {
     const result = db
       .prepare("SELECT datetime('now') as current_time")
       .get() as { current_time: string } | undefined;
-    console.log('📊 Database connected:', result?.current_time ?? 'unknown');
+    logger.info("Database connected", {
+      component: "Backend",
+      action: "main",
+      currentTime: result?.current_time ?? "unknown",
+    });
     
-    console.log('✅ Backend ready on port 3000');
+    logger.info("Backend ready", {
+      component: "Backend",
+      action: "main",
+      port: 3000,
+    });
     
     // Keep process running
     process.stdin.resume();
   } catch (error) {
-    console.error('❌ Backend startup failed:', error);
+    logger.error("Backend startup failed", {
+      component: "Backend",
+      action: "main",
+      error: String(error),
+    });
     process.exit(1);
   }
 }
