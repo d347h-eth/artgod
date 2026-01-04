@@ -27,7 +27,7 @@
     "dependencies": {
         "better-sqlite3": "^v12.2.0",
         "dotenv": "^16.4.5",
-        "viem": "^2.39.3"
+        "viem": "2.41.2"
     },
     "dependenciesMeta": {
         "better-sqlite3": {

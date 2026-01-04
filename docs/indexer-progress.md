@@ -7,6 +7,7 @@ This document tracks the execution plan for the ArtGod indexer, derived from the
 - Local-first, no centralized services; all infra runs on the user's machine.
 - NATS + JetStream is the durable queue backend from day one.
 - Separate runtimes: event emitters and queue consumers are independent processes.
+- Scheduler is the sole publisher for realtime sync jobs; WS + poller feed it.
 - Ports & adapters everywhere (RPC, queues, storage, cache); no direct coupling.
 - Jobs are idempotent across processes; at-least-once delivery is assumed.
 - Reorg handling starts with "reprocess last N blocks" and evolves later.
@@ -34,11 +35,15 @@ Job envelope (baseline):
 - `jobId`, `kind`, `queue`, `payload`, `attempt`, `scheduledAt`, `traceId`,
   `collectionId`, `chainId`.
 
+Queue dedupe (baseline):
+- Use broker dedupe headers (e.g., `Nats-Msg-Id = chainId:blockNumber:queue`).
+- Backstop with DB uniqueness in persistence.
+
 ## Config Surface (Initial)
 
 - Chain ID
 - RPC URLs (primary + backfill)
-- Target collections (address, start block)
+- Target collections (address, deployment block metadata)
 - Reorg depth / confirmations depth
 - Backfill batch size / log chunk size
 - Queue config (NATS URL, stream names, consumer names)
@@ -89,13 +94,15 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 3 - Sync Pipeline (Minimal On-Chain)
 
-- [ ] Implement block poller (head tracking, enqueue realtime jobs).
-- [ ] Implement backfill range scheduler (batching).
-- [ ] Implement sync worker:
-  - [ ] Fetch block + logs
-  - [ ] Decode ERC721/1155 Transfer logs
+- [~] Implement scheduler (single publisher) with WS + poller head sources.
+- [x] Implement block poller (authoritative head tracking + gap fill).
+- [x] Implement backfill range scheduler (batching for user-triggered ranges).
+- [x] Publish realtime sync jobs with queue dedupe keys (`chainId:blockNumber`).
+- [x] Implement sync worker:
+  - [x] Fetch logs
+  - [x] Decode ERC721/1155 Transfer logs
   - [ ] Group by tx (if needed)
-  - [ ] Accumulate `OnChainData` (transfers, balance deltas)
+  - [x] Accumulate `OnChainData` (transfers, balance deltas)
 
 ### Phase 4 - Persistence (SQLite)
 

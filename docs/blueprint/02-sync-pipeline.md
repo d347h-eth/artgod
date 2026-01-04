@@ -9,14 +9,20 @@ The Sync Pipeline is the heart of the indexer. It transforms raw blockchain data
 ### Components
 *   **BlockPoller:** Periodically queries `eth_blockNumber`.
 *   **WebSocketListener:** Subscribes to `newHeads`.
+*   **Scheduler:** Single authority that merges heads from WS + poller, de-duplicates, and fills gaps.
 *   **BackfillAPI:** Accepts manual ranges via Admin API.
 
 ### Logic
 1.  **Realtime:**
     *   Detect new block height `N`.
-    *   Publish `SyncJob(block: N)` to `realtime-queue`.
-    *   *Optimization:* Cache `eth_getBlock` result in Redis immediately to save RPC calls for workers.
-2.  **Backfill:**
+    *   Scheduler publishes `SyncJob(block: N)` to `realtime-queue`.
+    *   De-duplicate at queue level (e.g., NATS `Nats-Msg-Id = chainId:blockN`) and again at persistence level.
+    *   *Optimization:* Cache `eth_getBlock` result immediately (in-memory or Redis) to save RPC calls for workers.
+2.  **Polling as authority:**
+    *   Poller periodically fetches head and calls scheduler.
+    *   If WS misses blocks, scheduler gap-fills `[lastScheduled+1, head]`.
+    *   If WS is ahead, poller still confirms and fills any gaps.
+3.  **Backfill:**
     *   Split range `[Start, End]` into batches (e.g., 50 blocks).
     *   Publish `BackfillJob(from: A, to: B)` to `backfill-queue`.
 

@@ -1,6 +1,6 @@
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { QueueName } from "../domain/queues.js";
-import type { QueuePort } from "../ports/queue.js";
+import type { QueueMessage, QueuePort } from "../ports/queue.js";
 
 export type WorkerOptions = {
     queue: QueueName;
@@ -15,9 +15,9 @@ export async function runWorker<TPayload>(
     options: WorkerOptions,
     handler: (job: JobEnvelope<TPayload>) => Promise<void>,
 ): Promise<() => Promise<void>> {
-    return queue.subscribe(
+    return queue.subscribe<TPayload>(
         options.queue,
-        async (message) => {
+        async (message: QueueMessage<TPayload>) => {
             const now = Date.now();
             if (message.data.scheduledAt > now) {
                 await message.nack({

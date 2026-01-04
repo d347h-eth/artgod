@@ -2,6 +2,7 @@ import { createPublicClient, http } from "viem";
 import type { Metrics } from "../../metrics/types.js";
 import type { CachePort } from "../../ports/cache.js";
 import type {
+    Hex,
     RpcBlock,
     RpcLog,
     RpcLogFilter,
@@ -20,14 +21,15 @@ export type ViemRpcConfig = {
 };
 
 export class ViemRpcProvider implements RpcProviderPort {
-    private client = createPublicClient({
-        transport: http(this.config.url),
-    });
+    private client: ReturnType<typeof createPublicClient>;
     private cache?: CachePort;
     private metrics?: Metrics;
     private retryPolicy: RetryPolicy;
 
     constructor(private config: ViemRpcConfig) {
+        this.client = createPublicClient({
+            transport: http(this.config.url),
+        });
         this.cache = config.cache;
         this.metrics = config.metrics;
         this.retryPolicy = config.retryPolicy ?? defaultRetryPolicy;
@@ -56,10 +58,10 @@ export class ViemRpcProvider implements RpcProviderPort {
 
         const mapped: RpcBlock = {
             number: toSafeNumber(block.number ?? BigInt(blockNumber), "block.number"),
-            hash: block.hash ?? "",
-            parentHash: block.parentHash ?? "",
+            hash: (block.hash ?? "0x") as Hex,
+            parentHash: (block.parentHash ?? "0x") as Hex,
             timestamp: toSafeNumber(block.timestamp, "block.timestamp"),
-            transactions: block.transactions.map((tx) => String(tx)),
+            transactions: block.transactions.map((tx) => String(tx) as Hex),
         };
 
         this.cache?.set("block", String(blockNumber), mapped);
@@ -77,10 +79,10 @@ export class ViemRpcProvider implements RpcProviderPort {
         });
 
         const mapped: RpcTransaction = {
-            hash: tx.hash,
-            from: tx.from,
-            to: tx.to ?? null,
-            input: tx.input,
+            hash: tx.hash as Hex,
+            from: tx.from as Hex,
+            to: (tx.to ?? null) as Hex | null,
+            input: tx.input as Hex,
         };
 
         this.cache?.set("tx", txHash, mapped);
@@ -94,13 +96,14 @@ export class ViemRpcProvider implements RpcProviderPort {
         const chunkSize = Math.max(1, this.config.logChunkSize);
         for (let start = filter.fromBlock; start <= filter.toBlock; start += chunkSize) {
             const end = Math.min(filter.toBlock, start + chunkSize - 1);
+            const params = {
+                address: filter.address as any,
+                events: filter.events as any,
+                fromBlock: BigInt(start),
+                toBlock: BigInt(end),
+            };
             const chunk = await this.withRetry(() =>
-                this.client.getLogs({
-                    address: filter.address as any,
-                    topics: filter.topics as any,
-                    fromBlock: BigInt(start),
-                    toBlock: BigInt(end),
-                }),
+                this.client.getLogs(params as any),
             );
             logs.push(...chunk.map(mapLog));
         }
@@ -127,12 +130,12 @@ export class ViemRpcProvider implements RpcProviderPort {
 
 function mapLog(log: any): RpcLog {
     return {
-        address: log.address,
-        data: log.data,
-        topics: log.topics ?? [],
+        address: (log.address ?? "0x") as Hex,
+        data: (log.data ?? "0x") as Hex,
+        topics: (log.topics ?? []) as Hex[],
         blockNumber: toSafeNumber(log.blockNumber ?? 0n, "log.blockNumber"),
-        blockHash: log.blockHash ?? "",
-        transactionHash: log.transactionHash ?? "",
+        blockHash: (log.blockHash ?? "0x") as Hex,
+        transactionHash: (log.transactionHash ?? "0x") as Hex,
         logIndex: toSafeNumber(log.logIndex ?? 0n, "log.logIndex"),
     };
 }

@@ -1,6 +1,10 @@
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
+import { startScheduler } from "../application/scheduler.js";
+import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
+import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import { noopMetrics } from "../metrics/noop.js";
 
 async function main() {
     try {
@@ -9,6 +13,19 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const cache = new InMemoryCache({
+            maxEntries: config.cache.maxEntries,
+            ttlMs: config.cache.ttlMs,
+            metrics: noopMetrics,
+        });
+        const rpc = new ViemRpcProvider({
+            url: config.rpc.primaryUrl,
+            logChunkSize: config.sync.logChunkSize,
+            cache,
+            metrics: noopMetrics,
+        });
+
+        const stopScheduler = await startScheduler(rpc, queue, config);
 
         logger.info("Scheduler ready", {
             component: "IndexerScheduler",
@@ -20,6 +37,7 @@ async function main() {
                 component: "IndexerScheduler",
                 action: "shutdown",
             });
+            await stopScheduler();
             await queue.close();
             process.exit(0);
         };

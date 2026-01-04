@@ -2,7 +2,6 @@ import {
     connect,
     consumerOpts,
     createInbox,
-    DeliverPolicy,
     JSONCodec,
     RetentionPolicy,
     StorageType,
@@ -50,7 +49,9 @@ export class NatsJetStreamQueue implements QueuePort {
         await this.ensureStream();
         const subject = this.subjectForQueue(queue);
         const codec = JSONCodec<JobEnvelope<TPayload>>();
-        await this.js.publish(subject, codec.encode(message));
+        await this.js.publish(subject, codec.encode(message), {
+            msgID: message.jobId,
+        });
     }
 
     async subscribe<TPayload>(
@@ -68,7 +69,7 @@ export class NatsJetStreamQueue implements QueuePort {
         opts.ackExplicit();
         opts.deliverTo(createInbox());
         opts.filterSubject(subject);
-        opts.deliverPolicy(DeliverPolicy.All);
+        opts.deliverAll();
         if (options.maxInFlight !== undefined) {
             opts.maxAckPending(options.maxInFlight);
         }

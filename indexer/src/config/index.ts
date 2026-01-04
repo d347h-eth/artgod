@@ -6,7 +6,7 @@ dotenv.config({ path: resolveProjectPath(".env") });
 export type CollectionConfig = {
     id: string;
     address: string;
-    startBlock: number;
+    deploymentBlock: number;
 };
 
 export type IndexerConfig = {
@@ -68,12 +68,14 @@ function parseCollections(value: string | undefined): CollectionConfig[] {
             throw new Error(`Invalid collection address: ${address}`);
         }
         const id = String(record.id ?? address);
-        const startBlock = parseNumber(
-            record.startBlock !== undefined ? String(record.startBlock) : "0",
-            `TARGET_COLLECTIONS[${index}].startBlock`,
+        const deploymentBlock = parseNumber(
+            record.deploymentBlock !== undefined
+                ? String(record.deploymentBlock)
+                : "0",
+            `TARGET_COLLECTIONS[${index}].deploymentBlock`,
             0,
         );
-        return { id, address, startBlock };
+        return { id, address, deploymentBlock };
     });
 }
 

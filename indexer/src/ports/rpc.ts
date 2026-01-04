@@ -1,32 +1,45 @@
+export type Hex = `0x${string}`;
+
+export type RpcEvent = {
+    type: "event";
+    name: string;
+    inputs: readonly {
+        indexed?: boolean;
+        name: string;
+        type: string;
+    }[];
+    anonymous?: boolean;
+};
+
 export type RpcLogFilter = {
     fromBlock: number;
     toBlock: number;
-    address?: string | string[];
-    topics?: Array<string | string[] | null>;
+    address?: Hex | Hex[];
+    events?: readonly RpcEvent[];
 };
 
 export type RpcBlock = {
     number: number;
-    hash: string;
-    parentHash: string;
+    hash: Hex;
+    parentHash: Hex;
     timestamp: number;
-    transactions: string[];
+    transactions: Hex[];
 };
 
 export type RpcTransaction = {
-    hash: string;
-    from: string;
-    to: string | null;
-    input: string;
+    hash: Hex;
+    from: Hex;
+    to: Hex | null;
+    input: Hex;
 };
 
 export type RpcLog = {
-    address: string;
-    data: string;
-    topics: string[];
+    address: Hex;
+    data: Hex;
+    topics: Hex[];
     blockNumber: number;
-    blockHash: string;
-    transactionHash: string;
+    blockHash: Hex;
+    transactionHash: Hex;
     logIndex: number;
 };
 

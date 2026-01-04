@@ -7,7 +7,9 @@ The system relies heavily on asynchronous processing to decouple sync (latency-s
 *   **Infrastructure:** Distributed Task Queue (e.g., RabbitMQ with Delayed Message Plugin).
 *   **Patterns:**
     *   **Delayed Jobs:** "Retry this in 30 seconds."
-    *   **Deduplication:** "Don't queue `RefreshMetadata(Token X)` if it's already pending." (Implemented via Redis locks using `jobId`).
+    *   **Deduplication:** "Don't queue `RefreshMetadata(Token X)` if it's already pending."
+        *   Queue-level: use broker dedupe keys (e.g., NATS `Nats-Msg-Id`).
+        *   Storage-level: unique constraints ensure idempotent inserts.
     *   **Batched Consumption:** Workers pull N jobs at once for throughput.
 
 ## Core Job Categories

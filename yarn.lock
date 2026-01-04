@@ -83,6 +83,7 @@ __metadata:
     nats: "npm:^2.29.1"
     tsx: "npm:^4.20.3"
     typescript: "npm:^5.8.3"
+    viem: "npm:2.41.2"
   languageName: unknown
   linkType: soft
 
@@ -2029,7 +2030,7 @@ __metadata:
     prettier: "npm:3.3.3"
     tsx: "npm:4.20.5"
     typescript: "npm:5.9.2"
-    viem: "npm:^2.39.3"
+    viem: "npm:2.41.2"
     vitest: "npm:4.0.13"
   dependenciesMeta:
     better-sqlite3:
@@ -5208,9 +5209,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"viem@npm:^2.39.3":
-  version: 2.40.3
-  resolution: "viem@npm:2.40.3"
+"viem@npm:2.41.2":
+  version: 2.41.2
+  resolution: "viem@npm:2.41.2"
   dependencies:
     "@noble/curves": "npm:1.9.1"
     "@noble/hashes": "npm:1.8.0"
@@ -5225,7 +5226,7 @@ __metadata:
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10/42b7cc3d799923cf6aaddf7aefee59a1e390e5d84f42f334866a501505aadc5d08fd6b3356ba7fd345fe8ece5a9a3d1f5b2d0ebc7b9020e514a18ff65a73810e
+  checksum: 10/235d0a4c4f9ba27747388fdb45d7c54cd096f3b9d172179d90f6971ecbed710a0232385c37019a72812bba5e4db4be8c1a4d8381e8cb6e9210b900369f801e77
   languageName: node
   linkType: hard
 

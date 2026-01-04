@@ -19,3 +19,5 @@ database/sqlite/
 tmp/
 
 .env
+
+docs/blueprint/db-schema/
