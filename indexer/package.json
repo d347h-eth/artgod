@@ -12,7 +12,8 @@
   "dependencies": {
     "@artgod/shared": "workspace:*",
     "dotenv": "^16.4.5",
-    "nats": "^2.29.1"
+    "nats": "^2.29.1",
+    "viem": "^2.39.3"
   },
   "devDependencies": {
     "tsx": "^4.20.3",

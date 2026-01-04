@@ -82,10 +82,10 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 2 - RPC & Chain Access
 
-- [ ] Define `RpcProviderPort` (getBlock, getLogs, getTx).
-- [ ] Implement viem-based adapter with rate limiting.
-- [ ] Add basic in-memory cache + metrics hooks.
-- [ ] Add log chunking and backoff defaults.
+- [x] Define `RpcProviderPort` (getBlock, getLogs, getTx).
+- [x] Implement viem-based adapter with rate limiting.
+- [x] Add basic in-memory cache + metrics hooks.
+- [x] Add log chunking and backoff defaults.
 
 ### Phase 3 - Sync Pipeline (Minimal On-Chain)
 
