@@ -15,6 +15,7 @@
     "references": [
         { "path": "./backend" },
         { "path": "./frontend" },
+        { "path": "./indexer" },
         { "path": "./shared" }
     ],
     "files": [],

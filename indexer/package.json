@@ -4,7 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'Indexer: No-op indexer ready on port 42069' && node -e 'console.log(\"Indexer ready\"); process.stdin.resume()'"
+    "dev": "echo 'Indexer: run dev:scheduler or dev:sync-worker' && node -e 'process.stdin.resume()'",
+    "dev:scheduler": "tsx src/runtime/scheduler.ts",
+    "dev:sync-worker": "tsx src/runtime/sync-worker.ts",
+    "dev:domain-worker": "tsx src/runtime/domain-worker.ts"
+  },
+  "dependencies": {
+    "@artgod/shared": "workspace:*",
+    "dotenv": "^16.4.5",
+    "nats": "^2.29.1"
   },
   "devDependencies": {
     "tsx": "^4.20.3",

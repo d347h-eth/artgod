@@ -21,21 +21,42 @@ VSCode (Yarn PnP):
 yarn dlx @yarnpkg/sdks vscode
 ```
 
+## Local Development
+
+Start local infra (NATS + JetStream):
+
+```sh
+docker compose up -d
+```
+
+Create your env file:
+
+```sh
+cp .env.example .env
+```
+
+Then run indexer runtimes as needed:
+
+```sh
+yarn workspace @artgod/indexer run dev:scheduler
+yarn workspace @artgod/indexer run dev:sync-worker
+```
+
 ## Project Structure
 
-- `backend/` Node.js API server (TypeScript, ESM)
-- `frontend/` SvelteKit UI (Tailwind, Vite)
-- `shared/` shared TypeScript utilities and database access
-- `database/` SQLite file + SQL migrations
-- `indexer/` blockchain indexing worker
-- `src-tauri/` Tauri desktop wrapper
-- `scripts/` dev scripts
+-   `backend/` Node.js API server (TypeScript, ESM)
+-   `frontend/` SvelteKit UI (Tailwind, Vite)
+-   `shared/` shared TypeScript utilities and database access
+-   `database/` SQLite file + SQL migrations
+-   `indexer/` blockchain indexing worker
+-   `src-tauri/` Tauri desktop wrapper
+-   `scripts/` dev scripts
 
 ## Database
 
-- SQLite file: `database/sqlite/sqlite` (auto-generated)
-- Migrations: `database/migrations/*.sql`
-- Migrations run on backend startup
+-   SQLite file: `database/sqlite/sqlite` (auto-generated)
+-   Migrations: `database/migrations/*.sql`
+-   Migrations run on backend startup
 
 ## Common Commands
 

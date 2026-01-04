@@ -1,3 +1,3 @@
-export * from "./paths.ts";
-export * from "./logger.ts";
-export * from "./time.ts";
+export * from "./paths.js";
+export * from "./logger.js";
+export * from "./time.js";

@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
-import { db } from "./db.ts";
+import { db } from "./db.js";
 
 export class MigrationRunner {
     constructor(private migrationsDir: string) {}
