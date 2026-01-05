@@ -7,15 +7,17 @@ import type {
 } from "../domain/sync-jobs.js";
 import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
 import type { JobEnvelope } from "../domain/jobs.js";
+import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 
 export type SchedulerOptions = {
     pollIntervalMs?: number;
+    headSource?: HeadSourcePort;
 };
 
 // Scheduler runtime: perform a blocking bootstrap (head fetch + initial schedule),
-// then start a non-blocking poll loop to enqueue new heads in the background.
+// then start non-blocking WS/poller loops that enqueue new heads in the background.
 export async function startScheduler(
     rpc: RpcProviderPort,
     queue: QueuePort,
@@ -27,6 +29,7 @@ export async function startScheduler(
     let lastScheduled: number | null = null;
     let stopped = false;
     let timer: ReturnType<typeof setInterval> | undefined;
+    let stopHeadSource: (() => Promise<void>) | undefined;
 
     if (config.collections.length === 0) {
         logger.warn("No target collections configured", {
@@ -44,20 +47,56 @@ export async function startScheduler(
     await scheduleRealtimeRange(queue, config.chainId, realtimeStart, head);
     lastScheduled = head;
 
-    const poll = async () => {
-        if (stopped) return;
-        // Poller is authoritative and fills any gaps missed by the WS path.
-        const current = await rpc.getBlockNumber();
-        // No-op if we are already up-to-date or bootstrap hasn't completed.
-        if (lastScheduled === null || current <= lastScheduled) return;
+    const handleHead = async (headNumber: number) => {
+        // Ignore head events until bootstrap completed.
+        if (lastScheduled === null || headNumber <= lastScheduled) return;
         // Schedule only the new head range; dedupe happens at the broker via jobId.
         await scheduleRealtimeRange(
             queue,
             config.chainId,
             lastScheduled + 1,
-            current,
+            headNumber,
         );
-        lastScheduled = current;
+        lastScheduled = headNumber;
+    };
+
+    if (options.headSource) {
+        // Non-blocking: WS head listener pushes new heads into the scheduler.
+        stopHeadSource = await options.headSource.start(
+            (headNumber) => {
+                logger.debug("Scheduler WS head received", {
+                    component: "IndexerScheduler",
+                    action: "wsHead",
+                    headNumber,
+                });
+                handleHead(headNumber).catch((err) => {
+                    logger.warn("Scheduler WS head failed", {
+                        component: "IndexerScheduler",
+                        action: "wsHead",
+                        error: String(err),
+                    });
+                });
+            },
+            (error) => {
+                logger.warn("Scheduler WS listener error", {
+                    component: "IndexerScheduler",
+                    action: "wsHead",
+                    error: String(error),
+                });
+            },
+        );
+    }
+
+    const poll = async () => {
+        if (stopped) return;
+        // Poller is authoritative and fills any gaps missed by the WS path.
+        const current = await rpc.getBlockNumber();
+        logger.debug("Scheduler poll head received", {
+            component: "IndexerScheduler",
+            action: "poll",
+            headNumber: current,
+        });
+        await handleHead(current);
     };
 
     // Non-blocking: the timer drives polling while the caller continues.
@@ -74,6 +113,9 @@ export async function startScheduler(
     return async () => {
         stopped = true;
         if (timer) clearInterval(timer);
+        if (stopHeadSource) {
+            await stopHeadSource();
+        }
     };
 }
 

@@ -42,7 +42,7 @@ Queue dedupe (baseline):
 ## Config Surface (Initial)
 
 - Chain ID
-- RPC URLs (primary + backfill)
+- RPC URLs (primary + backfill + websocket)
 - Target collections (address, deployment block metadata)
 - Reorg depth / confirmations depth
 - Backfill batch size / log chunk size
@@ -94,7 +94,7 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 3 - Sync Pipeline (Minimal On-Chain)
 
-- [~] Implement scheduler (single publisher) with WS + poller head sources.
+- [x] Implement scheduler (single publisher) with WS + poller head sources.
 - [x] Implement block poller (authoritative head tracking + gap fill).
 - [x] Implement backfill range scheduler (batching for user-triggered ranges).
 - [x] Publish realtime sync jobs with queue dedupe keys (`chainId:blockNumber`).

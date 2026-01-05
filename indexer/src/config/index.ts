@@ -14,6 +14,7 @@ export type IndexerConfig = {
     rpc: {
         primaryUrl: string;
         backfillUrl?: string;
+        wsUrl?: string;
     };
     queue: {
         natsUrl: string;
@@ -94,6 +95,7 @@ export function loadConfig(
         rpc: {
             primaryUrl: rpcUrl,
             backfillUrl: env.RPC_BACKFILL_URL,
+            wsUrl: env.RPC_WS_URL,
         },
         queue: {
             natsUrl: env.NATS_URL ?? "nats://127.0.0.1:4222",

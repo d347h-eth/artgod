@@ -4,6 +4,7 @@ import { startScheduler } from "../application/scheduler.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import { ViemWebSocketHeadSource } from "../infra/rpc/viem-ws.js";
 import { noopMetrics } from "../metrics/noop.js";
 
 async function main() {
@@ -25,7 +26,12 @@ async function main() {
             metrics: noopMetrics,
         });
 
-        const stopScheduler = await startScheduler(rpc, queue, config);
+        const headSource = config.rpc.wsUrl
+            ? new ViemWebSocketHeadSource(config.rpc.wsUrl)
+            : undefined;
+        const stopScheduler = await startScheduler(rpc, queue, config, {
+            headSource,
+        });
 
         logger.info("Scheduler ready", {
             component: "IndexerScheduler",
