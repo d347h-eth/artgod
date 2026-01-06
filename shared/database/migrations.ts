@@ -11,7 +11,6 @@ export class MigrationRunner {
         const files = await this.getMigrationFiles();
         for (const file of files) {
             const name = path.basename(file);
-            if (this.hasRun(name)) continue;
             await this.runSingle(file, name);
         }
     }
@@ -45,8 +44,12 @@ export class MigrationRunner {
 
     private async runSingle(filePath: string, name: string) {
         const sql = await fs.readFile(filePath, "utf8");
-        db.exec("BEGIN");
+        db.exec("BEGIN IMMEDIATE");
         try {
+            if (this.hasRun(name)) {
+                db.exec("ROLLBACK");
+                return;
+            }
             db.exec(sql);
             const insert = db.prepare<[string]>(
                 "INSERT INTO migrations (name) VALUES (?)",

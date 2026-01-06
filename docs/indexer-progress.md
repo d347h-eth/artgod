@@ -106,10 +106,10 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 4 - Persistence (SQLite)
 
-- [ ] Define minimal schema (blocks, sync_state, nft_transfer_events, nft_balances).
-- [ ] Add migrations.
-- [ ] Implement storage adapter (batch inserts + upserts).
-- [ ] Add idempotency constraints (tx_hash + log_index, etc).
+- [x] Define minimal schema (blocks, sync_state, nft_transfer_events, nft_balances).
+- [x] Add migrations.
+- [x] Implement storage adapter (batch inserts + upserts).
+- [x] Add idempotency constraints (tx_hash + log_index, etc).
 
 ### Phase 5 - Reorg Handling (Minimal)
 

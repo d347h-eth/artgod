@@ -1,6 +1,7 @@
+import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
-import { loadConfig } from "../config/index.js";
-import { syncRange } from "../application/sync.js";
+import { loadConfig, type CollectionConfig } from "../config/index.js";
+import { syncRange, type SyncRange } from "../application/sync.js";
 import { runWorker } from "../application/worker-runner.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
@@ -9,14 +10,18 @@ import type {
     BackfillSyncPayload,
     RealtimeSyncPayload,
 } from "../domain/sync-jobs.js";
+import type { RpcBlock, RpcProviderPort } from "../ports/rpc.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { noopMetrics } from "../metrics/noop.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const migrations = createMigrationRunner();
+        await migrations.runMigrations();
         const queue = await NatsJetStreamQueue.connect({
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
@@ -32,6 +37,7 @@ async function main() {
             cache,
             metrics: noopMetrics,
         });
+        const storage = new SqliteStorage();
 
         const stopRealtime = await runWorker(
             queue,
@@ -42,12 +48,22 @@ async function main() {
             },
             async (job: JobEnvelope<RealtimeSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.RealtimeBlock) return;
-                const range = { fromBlock: job.payload.blockNumber, toBlock: job.payload.blockNumber };
-                const data = await syncRange(rpc, config.collections, range);
+                const range: SyncRange = {
+                    fromBlock: job.payload.blockNumber,
+                    toBlock: job.payload.blockNumber,
+                };
+                const { data, blocks } = await processRange(
+                    rpc,
+                    storage,
+                    config.chainId,
+                    config.collections,
+                    range,
+                );
                 logger.info("Sync block processed", {
                     component: "IndexerSyncWorker",
                     action: "syncBlock",
                     blockNumber: job.payload.blockNumber,
+                    blocks: blocks.length,
                     transfers: data.nftTransferEvents.length,
                     balanceDeltas: data.nftBalanceDeltas.length,
                 });
@@ -63,13 +79,23 @@ async function main() {
             },
             async (job: JobEnvelope<BackfillSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
-                const range = { fromBlock: job.payload.fromBlock, toBlock: job.payload.toBlock };
-                const data = await syncRange(rpc, config.collections, range);
+                const range: SyncRange = {
+                    fromBlock: job.payload.fromBlock,
+                    toBlock: job.payload.toBlock,
+                };
+                const { data, blocks } = await processRange(
+                    rpc,
+                    storage,
+                    config.chainId,
+                    config.collections,
+                    range,
+                );
                 logger.info("Backfill range processed", {
                     component: "IndexerSyncWorker",
                     action: "backfillRange",
                     fromBlock: job.payload.fromBlock,
                     toBlock: job.payload.toBlock,
+                    blocks: blocks.length,
                     transfers: data.nftTransferEvents.length,
                     balanceDeltas: data.nftBalanceDeltas.length,
                 });
@@ -106,3 +132,28 @@ async function main() {
 }
 
 main();
+
+async function processRange(
+    rpc: RpcProviderPort,
+    storage: SqliteStorage,
+    chainId: number,
+    collections: CollectionConfig[],
+    range: SyncRange,
+): Promise<{ data: Awaited<ReturnType<typeof syncRange>>; blocks: RpcBlock[] }> {
+    const data = await syncRange(rpc, collections, range);
+    const blocks = await fetchBlocks(rpc, range);
+    storage.persistSyncResult(chainId, blocks, data);
+    return { data, blocks };
+}
+
+async function fetchBlocks(
+    rpc: RpcProviderPort,
+    range: SyncRange,
+): Promise<RpcBlock[]> {
+    if (range.fromBlock > range.toBlock) return [];
+    const blocks: RpcBlock[] = [];
+    for (let block = range.fromBlock; block <= range.toBlock; block += 1) {
+        blocks.push(await rpc.getBlock(block));
+    }
+    return blocks;
+}
