@@ -7,6 +7,7 @@
     "dev": "echo 'Indexer: run dev:scheduler or dev:sync-worker' && node -e 'process.stdin.resume()'",
     "dev:scheduler": "tsx src/runtime/scheduler.ts",
     "dev:sync-worker": "tsx src/runtime/sync-worker.ts",
+    "dev:reorg-worker": "tsx src/runtime/reorg-worker.ts",
     "dev:domain-worker": "tsx src/runtime/domain-worker.ts"
   },
   "dependencies": {

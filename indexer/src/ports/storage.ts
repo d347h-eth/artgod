@@ -7,4 +7,6 @@ export interface StoragePort {
         blocks: RpcBlock[],
         data: OnChainData,
     ): void;
+    getBlockHash(chainId: number, blockNumber: number): string | null;
+    rollbackFromBlock(chainId: number, fromBlock: number): void;
 }

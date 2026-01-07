@@ -144,6 +144,12 @@ const result = db.prepare('SELECT * FROM projects').all();
 - **Indexer** is placeholder (no-op)
 - **Core focus** is on Ethereum NFT data indexing and trading automation
 
+## Coding Guidelines
+
+- Keep top-level runtime flows linear and readable: separate distinct business actions into named helpers.
+- Avoid mixing unrelated concerns inside a single block; use whitespace and clear names to show intent.
+- Follow KISS/DRY/SOLID both across components and within a function body.
+
 ## Architecture Constraints
 
 - **No centralized servers**: All functionality must be self-contained within the desktop application

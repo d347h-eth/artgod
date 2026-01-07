@@ -4,6 +4,21 @@ import type { StoragePort } from "../../ports/storage.js";
 import type { RpcBlock } from "../../ports/rpc.js";
 
 type BalanceRow = { amount: string };
+type BlockHashRow = { block_hash: string };
+type TransferRow = {
+    contract: string;
+    from_address: string;
+    to_address: string;
+    token_id: string;
+    amount: string;
+    block_number: number;
+    block_hash: string;
+    tx_hash: string;
+    log_index: number;
+    kind: "erc721" | "erc1155";
+};
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class SqliteStorage implements StoragePort {
     private insertBlock = db.prepare<
@@ -37,6 +52,18 @@ export class SqliteStorage implements StoragePort {
     >(
         "SELECT amount FROM nft_balances WHERE chain_id = ? AND contract = ? AND token_id = ? AND owner = ?",
     );
+    private selectBlockHash = db.prepare<
+        [number, number]
+    >(
+        "SELECT block_hash FROM blocks WHERE chain_id = ? AND block_number = ?",
+    );
+    private selectTransfersFromBlock = db.prepare<
+        [number, number]
+    >(
+        "SELECT contract, from_address, to_address, token_id, amount, block_number, block_hash, tx_hash, log_index, kind " +
+            "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? " +
+            "ORDER BY block_number DESC, log_index DESC",
+    );
     private upsertBalance = db.prepare<
         [number, string, string, string, string]
     >(
@@ -45,6 +72,12 @@ export class SqliteStorage implements StoragePort {
     );
     private deleteBalance = db.prepare<[number, string, string, string]>(
         "DELETE FROM nft_balances WHERE chain_id = ? AND contract = ? AND token_id = ? AND owner = ?",
+    );
+    private deleteTransfersFromBlock = db.prepare<[number, number]>(
+        "DELETE FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ?",
+    );
+    private deleteBlocksFromBlock = db.prepare<[number, number]>(
+        "DELETE FROM blocks WHERE chain_id = ? AND block_number >= ?",
     );
 
     persistSyncResult(
@@ -56,6 +89,29 @@ export class SqliteStorage implements StoragePort {
             this.persistBlocks(chainId, blocks);
             const inserted = this.persistTransfers(chainId, data);
             this.applyBalanceUpdatesFromEvents(chainId, inserted);
+        });
+        run();
+    }
+
+    getBlockHash(chainId: number, blockNumber: number): string | null {
+        const row = this.selectBlockHash.get(
+            chainId,
+            blockNumber,
+        ) as BlockHashRow | undefined;
+        return row?.block_hash ?? null;
+    }
+
+    rollbackFromBlock(chainId: number, fromBlock: number): void {
+        const run = db.raw.transaction(() => {
+            const events = this.selectTransfersFromBlock.all(
+                chainId,
+                fromBlock,
+            ) as TransferRow[];
+            for (const event of events) {
+                this.applyTransferRollback(chainId, event);
+            }
+            this.deleteTransfersFromBlock.run(chainId, fromBlock);
+            this.deleteBlocksFromBlock.run(chainId, fromBlock);
         });
         run();
     }
@@ -105,52 +161,107 @@ export class SqliteStorage implements StoragePort {
         events: OnChainData["nftTransferEvents"],
     ): void {
         // Only apply balance deltas for newly inserted transfers (idempotent).
-        const zero = "0x0000000000000000000000000000000000000000";
         for (const event of events) {
             const contract = event.contract.toLowerCase();
             const from = event.from.toLowerCase();
             const to = event.to.toLowerCase();
 
             if (event.kind === "erc721") {
-                if (from !== zero) {
-                    this.deleteBalance.run(
-                        chainId,
-                        contract,
-                        event.tokenId,
-                        from,
-                    );
-                }
-                if (to !== zero) {
-                    this.upsertBalance.run(
-                        chainId,
-                        contract,
-                        event.tokenId,
-                        to,
-                        "1",
-                    );
-                }
-                continue;
-            }
-
-            const amount = BigInt(event.amount);
-            if (from !== zero) {
-                this.applyBalanceDelta(
+                this.applyErc721Transfer(
                     chainId,
                     contract,
                     event.tokenId,
                     from,
-                    -amount,
-                );
-            }
-            if (to !== zero) {
-                this.applyBalanceDelta(
-                    chainId,
-                    contract,
-                    event.tokenId,
                     to,
-                    amount,
                 );
+                continue;
             }
+
+            const amount = BigInt(event.amount);
+            this.applyErc1155Transfer(
+                chainId,
+                contract,
+                event.tokenId,
+                from,
+                to,
+                amount,
+            );
+        }
+    }
+
+    private applyTransferRollback(chainId: number, event: TransferRow): void {
+        const contract = event.contract.toLowerCase();
+        const from = event.from_address.toLowerCase();
+        const to = event.to_address.toLowerCase();
+
+        if (event.kind === "erc721") {
+            this.applyErc721Transfer(
+                chainId,
+                contract,
+                event.token_id,
+                to,
+                from,
+            );
+            return;
+        }
+
+        const amount = BigInt(event.amount);
+        this.applyErc1155Transfer(
+            chainId,
+            contract,
+            event.token_id,
+            to,
+            from,
+            amount,
+        );
+    }
+
+    private applyErc721Transfer(
+        chainId: number,
+        contract: string,
+        tokenId: string,
+        from: string,
+        to: string,
+    ): void {
+        if (from !== ZERO_ADDRESS) {
+            this.deleteBalance.run(chainId, contract, tokenId, from);
+        }
+        if (to !== ZERO_ADDRESS) {
+            this.upsertBalance.run(
+                chainId,
+                contract,
+                tokenId,
+                to,
+                "1",
+            );
+        }
+    }
+
+    private applyErc1155Transfer(
+        chainId: number,
+        contract: string,
+        tokenId: string,
+        from: string,
+        to: string,
+        amount: bigint,
+    ): void {
+        if (from !== ZERO_ADDRESS) {
+            this.applyBalanceDelta(
+                chainId,
+                contract,
+                tokenId,
+                from,
+                -amount,
+            );
+        }
+        if (to !== ZERO_ADDRESS) {
+            this.applyBalanceDelta(
+                chainId,
+                contract,
+                tokenId,
+                to,
+                amount,
+            );
         }
     }
 

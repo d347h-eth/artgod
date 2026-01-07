@@ -18,6 +18,7 @@ This document tracks the execution plan for the ArtGod indexer, derived from the
 
 - `indexer-scheduler`: polls chain head, schedules sync/backfill jobs.
 - `indexer-sync-worker`: consumes sync jobs, parses logs, persists on-chain data.
+- `indexer-reorg-worker`: validates recent blocks, rolls back on reorgs.
 - `indexer-domain-workers`: consume derived jobs (orders, metadata, activities).
 - `queue-broker`: local NATS server with JetStream enabled.
 - `database`: SQLite for all state and indexer data.
@@ -113,9 +114,10 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 5 - Reorg Handling (Minimal)
 
-- [ ] Track recent block hashes in DB.
-- [ ] Reprocess last N blocks on each new head.
-- [ ] Add optional `block-check` job (delayed verification).
+- [x] Track recent block hashes in DB.
+- [x] Detect reorgs via `block-check` jobs (hash compare).
+- [x] Roll back orphaned blocks and resync range.
+- [x] Schedule `block-check` jobs as blocks reach reorg depth.
 
 ### Phase 6 - Domain Skeletons (Orders / Metadata / Activities)
 
