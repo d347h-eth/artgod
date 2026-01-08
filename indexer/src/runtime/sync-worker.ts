@@ -5,12 +5,18 @@ import { syncRange, type SyncRange } from "../application/sync.js";
 import { runWorker } from "../application/worker-runner.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
+import {
+    DOMAIN_JOB_KIND,
+    type DomainSyncMode,
+    type DomainSyncPayload,
+} from "../domain/domain-jobs.js";
 import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
 import type {
     BackfillSyncPayload,
     RealtimeSyncPayload,
 } from "../domain/sync-jobs.js";
 import type { RpcBlock, RpcProviderPort } from "../ports/rpc.js";
+import type { QueuePort } from "../ports/queue.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
@@ -59,6 +65,13 @@ async function main() {
                     config.collections,
                     range,
                 );
+                await publishDomainJobs(
+                    queue,
+                    config.chainId,
+                    range,
+                    job,
+                    "realtime",
+                );
                 logger.info("Sync block processed", {
                     component: "IndexerSyncWorker",
                     action: "syncBlock",
@@ -89,6 +102,13 @@ async function main() {
                     config.chainId,
                     config.collections,
                     range,
+                );
+                await publishDomainJobs(
+                    queue,
+                    config.chainId,
+                    range,
+                    job,
+                    "backfill",
                 );
                 logger.info("Backfill range processed", {
                     component: "IndexerSyncWorker",
@@ -156,4 +176,52 @@ async function fetchBlocks(
         blocks.push(await rpc.getBlock(block));
     }
     return blocks;
+}
+
+async function publishDomainJobs<TPayload>(
+    queue: QueuePort,
+    chainId: number,
+    range: SyncRange,
+    job: JobEnvelope<TPayload>,
+    mode: DomainSyncMode,
+): Promise<void> {
+    const payload: DomainSyncPayload = {
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+        mode,
+        sourceJobId: job.jobId,
+        sourceKind: job.kind,
+    };
+
+    const ordersJob: JobEnvelope<DomainSyncPayload> = {
+        jobId: `domain:orders:${job.jobId}`,
+        kind: DOMAIN_JOB_KIND.OrdersSync,
+        queue: QUEUE_NAMES.OrdersDomain,
+        payload,
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId,
+    };
+    const metadataJob: JobEnvelope<DomainSyncPayload> = {
+        jobId: `domain:metadata:${job.jobId}`,
+        kind: DOMAIN_JOB_KIND.MetadataSync,
+        queue: QUEUE_NAMES.MetadataDomain,
+        payload,
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId,
+    };
+    const activityJob: JobEnvelope<DomainSyncPayload> = {
+        jobId: `domain:activity:${job.jobId}`,
+        kind: DOMAIN_JOB_KIND.ActivitySync,
+        queue: QUEUE_NAMES.ActivityDomain,
+        payload,
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId,
+    };
+
+    await queue.publish(QUEUE_NAMES.OrdersDomain, ordersJob);
+    await queue.publish(QUEUE_NAMES.MetadataDomain, metadataJob);
+    await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
 }

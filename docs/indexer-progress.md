@@ -121,9 +121,9 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 6 - Domain Skeletons (Orders / Metadata / Activities)
 
-- [ ] Define domain handler ports and empty adapters.
-- [ ] Create queue definitions and no-op workers.
-- [ ] Wire fan-out from sync worker to domain queues.
+- [x] Define domain handler ports and empty adapters.
+- [x] Create queue definitions and no-op workers.
+- [x] Wire fan-out from sync worker to domain queues.
 
 ### Phase 7 - Orders Domain (First Pass)
 
