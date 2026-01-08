@@ -4,3 +4,4 @@ export * from "./rpc/viem.js";
 export * from "./rpc/viem-ws.js";
 export * from "./storage/sqlite.js";
 export * from "./domain/noop.js";
+export * from "./domain/orders.js";

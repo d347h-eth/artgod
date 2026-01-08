@@ -1,3 +1,4 @@
+import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -8,21 +9,20 @@ import {
     type DomainSyncPayload,
 } from "../domain/domain-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import {
-    NoopActivityDomain,
-    NoopMetadataDomain,
-    NoopOrdersDomain,
-} from "../infra/domain/noop.js";
+import { NoopActivityDomain, NoopMetadataDomain } from "../infra/domain/noop.js";
+import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const migrations = createMigrationRunner();
+        await migrations.runMigrations();
         const queue = await NatsJetStreamQueue.connect({
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
-        const ordersDomain = new NoopOrdersDomain();
+        const ordersDomain = new SqliteOrdersDomain();
         const metadataDomain = new NoopMetadataDomain();
         const activityDomain = new NoopActivityDomain();
 

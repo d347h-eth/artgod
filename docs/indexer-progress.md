@@ -127,9 +127,9 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 7 - Orders Domain (First Pass)
 
-- [ ] Define minimal order event model.
+- [x] Define minimal order event model.
 - [ ] Implement on-chain order event capture (if applicable).
-- [ ] Persist order state tables (lean subset of blueprint schema).
+- [x] Persist order state tables (lean subset of blueprint schema).
 
 ### Phase 8 - Metadata Domain (First Pass)
 
