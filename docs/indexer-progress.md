@@ -133,9 +133,9 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 8 - Metadata Domain (First Pass)
 
-- [ ] Token URI fetcher port + adapter.
-- [ ] Metadata normalization and persistence.
-- [ ] Metrics for fetch latency and failures.
+- [x] Token URI fetcher port + adapter.
+- [x] Metadata normalization and persistence.
+- [x] Metrics for fetch latency and failures.
 
 ### Phase 9 - Activities Domain (First Pass)
 

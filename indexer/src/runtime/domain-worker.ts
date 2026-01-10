@@ -9,9 +9,13 @@ import {
     type DomainSyncPayload,
 } from "../domain/domain-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import { NoopActivityDomain, NoopMetadataDomain } from "../infra/domain/noop.js";
+import { NoopActivityDomain } from "../infra/domain/noop.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
+import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
+import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
+import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
+import { noopMetrics } from "../metrics/noop.js";
 
 async function main() {
     try {
@@ -23,7 +27,17 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const ordersDomain = new SqliteOrdersDomain();
-        const metadataDomain = new NoopMetadataDomain();
+        const metadataResolver = new ViemTokenUriResolver({
+            url: config.rpc.primaryUrl,
+            metrics: noopMetrics,
+        });
+        const metadataFetcher = new HttpMetadataFetcher({
+            metrics: noopMetrics,
+        });
+        const metadataDomain = new SqliteMetadataDomain(
+            metadataResolver,
+            metadataFetcher,
+        );
         const activityDomain = new NoopActivityDomain();
 
         const stopOrders = await runWorker(

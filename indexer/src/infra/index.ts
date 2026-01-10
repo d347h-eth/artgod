@@ -5,3 +5,6 @@ export * from "./rpc/viem-ws.js";
 export * from "./storage/sqlite.js";
 export * from "./domain/noop.js";
 export * from "./domain/orders.js";
+export * from "./domain/metadata.js";
+export * from "./metadata/http-fetcher.js";
+export * from "./metadata/viem-token-uri.js";
