@@ -76,6 +76,9 @@ export class SqliteStorage implements StoragePort {
     private deleteTransfersFromBlock = db.prepare<[number, number]>(
         "DELETE FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ?",
     );
+    private deleteActivitiesFromBlock = db.prepare<[number, number]>(
+        "DELETE FROM activities WHERE chain_id = ? AND block_number >= ?",
+    );
     private deleteBlocksFromBlock = db.prepare<[number, number]>(
         "DELETE FROM blocks WHERE chain_id = ? AND block_number >= ?",
     );
@@ -111,6 +114,7 @@ export class SqliteStorage implements StoragePort {
                 this.applyTransferRollback(chainId, event);
             }
             this.deleteTransfersFromBlock.run(chainId, fromBlock);
+            this.deleteActivitiesFromBlock.run(chainId, fromBlock);
             this.deleteBlocksFromBlock.run(chainId, fromBlock);
         });
         run();

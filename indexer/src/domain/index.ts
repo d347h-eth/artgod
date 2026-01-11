@@ -1,5 +1,6 @@
 export * from "./jobs.js";
 export * from "./domain-jobs.js";
+export * from "./activities.js";
 export * from "./metadata.js";
 export * from "./orders.js";
 export * from "./onchain.js";

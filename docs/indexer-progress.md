@@ -139,9 +139,9 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 9 - Activities Domain (First Pass)
 
-- [ ] Define activity event model.
-- [ ] Produce activity events from transfers/fills.
-- [ ] Persist activity feed.
+-   [x] Define activity event model.
+-   [x] Produce activity events from transfers (fills later).
+-   [x] Persist activity feed.
 
 ### Phase 10 - Hardening
 

@@ -9,13 +9,13 @@ import {
     type DomainSyncPayload,
 } from "../domain/domain-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import { NoopActivityDomain } from "../infra/domain/noop.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { noopMetrics } from "../metrics/noop.js";
+import { SqliteActivityDomain } from "../infra/domain/activities.js";
 
 async function main() {
     try {
@@ -38,7 +38,7 @@ async function main() {
             metadataResolver,
             metadataFetcher,
         );
-        const activityDomain = new NoopActivityDomain();
+        const activityDomain = new SqliteActivityDomain();
 
         const stopOrders = await runWorker(
             queue,
