@@ -87,6 +87,12 @@ export class NatsJetStreamQueue implements QueuePort {
                     let data: JobEnvelope<TPayload>;
                     try {
                         data = codec.decode(msg.data);
+                        const deliveryCount =
+                            (msg as any)?.info?.redeliveryCount ?? 0;
+                        data.attempt = Math.max(
+                            data.attempt ?? 0,
+                            deliveryCount + 1,
+                        );
                     } catch {
                         msg.term();
                         return;

@@ -37,6 +37,8 @@ async function main() {
                 queue: QUEUE_NAMES.BlockCheck,
                 consumerName: `reorg-check-${config.chainId}`,
                 maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job: JobEnvelope<BlockCheckPayload>) => {
                 if (job.kind !== REORG_JOB_KIND.BlockCheck) return;

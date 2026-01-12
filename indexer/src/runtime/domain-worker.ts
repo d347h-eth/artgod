@@ -46,6 +46,8 @@ async function main() {
                 queue: QUEUE_NAMES.OrdersDomain,
                 consumerName: `orders-domain-${config.chainId}`,
                 maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job: JobEnvelope<DomainSyncPayload>) => {
                 if (job.kind !== DOMAIN_JOB_KIND.OrdersSync) return;
@@ -59,6 +61,8 @@ async function main() {
                 queue: QUEUE_NAMES.MetadataDomain,
                 consumerName: `metadata-domain-${config.chainId}`,
                 maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job: JobEnvelope<DomainSyncPayload>) => {
                 if (job.kind !== DOMAIN_JOB_KIND.MetadataSync) return;
@@ -72,6 +76,8 @@ async function main() {
                 queue: QUEUE_NAMES.ActivityDomain,
                 consumerName: `activity-domain-${config.chainId}`,
                 maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job: JobEnvelope<DomainSyncPayload>) => {
                 if (job.kind !== DOMAIN_JOB_KIND.ActivitySync) return;

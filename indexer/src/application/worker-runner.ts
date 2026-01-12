@@ -1,6 +1,7 @@
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { QueueName } from "../domain/queues.js";
 import type { QueueMessage, QueuePort } from "../ports/queue.js";
+import { DEAD_LETTER_KIND, type DeadLetterPayload } from "../domain/dead-letter.js";
 
 export type WorkerOptions = {
     queue: QueueName;
@@ -8,6 +9,8 @@ export type WorkerOptions = {
     maxInFlight?: number;
     ackWaitMs?: number;
     extendLeaseMs?: number;
+    maxAttempts?: number;
+    deadLetterQueue?: QueueName;
 };
 
 export async function runWorker<TPayload>(
@@ -37,6 +40,34 @@ export async function runWorker<TPayload>(
                 await handler(message.data);
                 await message.ack();
             } catch (err) {
+                const maxAttempts = options.maxAttempts;
+                const deadLetterQueue = options.deadLetterQueue;
+                const attempt = message.data.attempt ?? 1;
+
+                if (
+                    maxAttempts !== undefined &&
+                    deadLetterQueue &&
+                    attempt >= maxAttempts
+                ) {
+                    const payload: DeadLetterPayload = {
+                        original: message.data as JobEnvelope<unknown>,
+                        error: String(err),
+                        failedAt: Date.now(),
+                    };
+                    const dlqJob: JobEnvelope<DeadLetterPayload> = {
+                        jobId: `dlq:${message.data.jobId}:${Date.now()}`,
+                        kind: DEAD_LETTER_KIND,
+                        queue: deadLetterQueue,
+                        payload,
+                        attempt: 0,
+                        scheduledAt: Date.now(),
+                        chainId: message.data.chainId,
+                    };
+                    await queue.publish(deadLetterQueue, dlqJob);
+                    await message.ack();
+                    return;
+                }
+
                 await message.nack({ reason: String(err) });
             } finally {
                 if (leaseTimer) clearInterval(leaseTimer);

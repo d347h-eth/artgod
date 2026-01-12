@@ -8,7 +8,8 @@
     "dev:scheduler": "tsx src/runtime/scheduler.ts",
     "dev:sync-worker": "tsx src/runtime/sync-worker.ts",
     "dev:reorg-worker": "tsx src/runtime/reorg-worker.ts",
-    "dev:domain-worker": "tsx src/runtime/domain-worker.ts"
+    "dev:domain-worker": "tsx src/runtime/domain-worker.ts",
+    "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts"
   },
   "dependencies": {
     "@artgod/shared": "workspace:*",

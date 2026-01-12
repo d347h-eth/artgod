@@ -145,8 +145,8 @@ Legend: [ ] not started, [~] in progress, [x] done
 
 ### Phase 10 - Hardening
 
-- [ ] Dead-letter handling & inspection tooling.
-- [ ] Graceful shutdown semantics (flush + ack).
+- [x] Dead-letter handling & inspection tooling.
+- [x] Graceful shutdown semantics (flush + ack).
 - [ ] Smoke tests with local node.
 - [ ] Baseline load test (block spike).
 

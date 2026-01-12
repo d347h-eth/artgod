@@ -51,6 +51,8 @@ async function main() {
                 queue: QUEUE_NAMES.RealtimeSync,
                 consumerName: `sync-realtime-${config.chainId}`,
                 maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job: JobEnvelope<RealtimeSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.RealtimeBlock) return;
@@ -89,6 +91,8 @@ async function main() {
                 queue: QUEUE_NAMES.BackfillSync,
                 consumerName: `sync-backfill-${config.chainId}`,
                 maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job: JobEnvelope<BackfillSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
