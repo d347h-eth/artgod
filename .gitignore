@@ -13,11 +13,15 @@
 build/
 dist/
 
+# vitest cache
+.vitest
+
 # Database files (keep migrations and scripts, ignore database data)
 database/sqlite/
 
 tmp/
 
-.env
+.env*
+!.env*.example
 
 docs/blueprint/db-schema/

@@ -35,6 +35,19 @@ Create your env file:
 cp .env.example .env
 ```
 
+For tests (smoke):
+
+```sh
+cp .env.test.example .env.test
+```
+
+Set the SQLite path (required):
+
+```sh
+# Example
+ARTGOD_DB_PATH=database/sqlite/main/db
+```
+
 Then run indexer runtimes as needed:
 
 ```sh
@@ -54,7 +67,7 @@ yarn workspace @artgod/indexer run dev:sync-worker
 
 ## Database
 
--   SQLite file: `database/sqlite/sqlite` (auto-generated)
+-   SQLite file: `ARTGOD_DB_PATH` (required)
 -   Migrations: `database/migrations/*.sql`
 -   Migrations run on backend startup
 

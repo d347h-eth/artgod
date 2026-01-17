@@ -8,7 +8,7 @@ export type BetterSqlite3Statement<TArgs extends any[] = any[]> =
     Database.Statement<TArgs>;
 
 let currentDb: BetterSqlite3Database | null = null;
-let currentPath = resolveProjectPath("database/sqlite/sqlite");
+let currentPath: string | null = null;
 
 function applyPragmas(conn: BetterSqlite3Database) {
     conn.pragma("journal_mode = WAL");
@@ -19,6 +19,9 @@ function applyPragmas(conn: BetterSqlite3Database) {
 
 function ensureConnection(): BetterSqlite3Database {
     if (!currentDb) {
+        if (!currentPath) {
+            currentPath = resolveDbPath(getEnvDbPath());
+        }
         try {
             fs.mkdirSync(path.dirname(currentPath), { recursive: true });
         } catch {}
@@ -36,7 +39,20 @@ export function setDbPath(newPath: string): void {
         } catch {}
         currentDb = null;
     }
-    currentPath = newPath;
+    currentPath = resolveDbPath(newPath);
+}
+
+function resolveDbPath(pathValue: string): string {
+    if (path.isAbsolute(pathValue)) return pathValue;
+    return resolveProjectPath(pathValue);
+}
+
+function getEnvDbPath(): string {
+    const value = process.env.ARTGOD_DB_PATH;
+    if (!value) {
+        throw new Error("Missing ARTGOD_DB_PATH");
+    }
+    return value;
 }
 
 export const db = {
