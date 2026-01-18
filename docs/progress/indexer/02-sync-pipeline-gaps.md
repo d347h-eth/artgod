@@ -1,0 +1,29 @@
+# Blueprint Gaps: Sync Pipeline
+
+This file lists items described in `docs/blueprint/02-sync-pipeline.md` that are not fully implemented yet.
+
+## Scheduling and Head Management
+
+- Backfill API for manual range submission is not implemented (only internal helpers exist).
+- No scheduler-side cache of `eth_getBlock` results to reuse in workers.
+- No explicit gap check after persistence ("if block N-1 missing, schedule it").
+- No retry rule for blocks with zero logs but non-empty transactions.
+
+## Sync Execution
+
+- `getTransaction()` is not called during sync; no calldata parsing or tx-aware logic.
+- No event batching by transaction. Transfers are processed per log.
+- No separate backfill RPC provider usage even though config supports `RPC_BACKFILL_URL`.
+- No write buffer queue or dedicated writer for backfill workloads.
+- No focus-mode filtering after decode (only address filtering in `getLogs`).
+
+## Domain Handling
+
+- No Seaport/Blur handlers or payment handlers.
+- No generalized `EnhancedEvent` structure with base params and decoded params.
+- No order fill, cancel, or payment extraction.
+
+## Post-Processing Hooks
+
+- Transaction cache for realtime mode is not implemented.
+- Block-check scheduling is not tied to per-block persistence; it is driven by scheduler only.
