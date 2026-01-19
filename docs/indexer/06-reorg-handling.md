@@ -47,6 +47,7 @@ If a fork point is found:
 - Roll back from `forkPoint + 1` in SQLite.
 - Delete blocks, transfer events, and activity rows from the rollback block onward.
 - Reverse balance changes using the transfer history.
+- Delete persisted transactions for orphaned blocks.
 
 ## Resync After Rollback
 

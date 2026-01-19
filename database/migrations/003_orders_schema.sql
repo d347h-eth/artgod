@@ -13,7 +13,12 @@ CREATE TABLE IF NOT EXISTS orders (
   valid_until INTEGER,
   fillability_status TEXT NOT NULL,
   block_number INTEGER,
+  block_hash TEXT,
+  block_timestamp INTEGER,
   tx_hash TEXT,
+  tx_from TEXT,
+  tx_to TEXT,
+  tx_input TEXT,
   log_index INTEGER,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP

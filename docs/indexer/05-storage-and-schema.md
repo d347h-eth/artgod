@@ -44,6 +44,17 @@ blocks(chain_id, block_number, block_hash, parent_hash, timestamp)
 - Primary key: `(chain_id, block_number)`.
 - Used for reorg detection and persistence of head metadata.
 
+### transactions
+
+```
+transactions(chain_id, tx_hash, from_address, to_address, input,
+             block_number, block_hash, block_timestamp)
+```
+
+- Primary key: `(chain_id, tx_hash)`.
+- Stores calldata only for transactions that emitted relevant events.
+- Indexed by `(chain_id, block_number)` for rollback cleanup.
+
 ### sync_state
 
 ```
@@ -57,21 +68,25 @@ sync_state(key, value)
 
 ```
 nft_transfer_events(chain_id, contract, from_address, to_address, token_id, amount,
-                    block_number, block_hash, tx_hash, log_index, kind)
+                    block_number, block_hash, block_timestamp, tx_hash, log_index, kind)
 ```
 
 - Unique constraint on `(chain_id, tx_hash, log_index, contract, token_id)`.
 - Indexed by `(chain_id, contract, token_id)` and `(chain_id, tx_hash)`.
 - `amount` stored as TEXT to preserve large integer precision.
+- `block_timestamp` records the canonical block time for analytics.
 
 ### nft_balances
 
 ```
-nft_balances(chain_id, contract, token_id, owner, amount)
+nft_balances(chain_id, contract, token_id, owner, amount,
+             last_block_number, last_block_hash, last_block_timestamp,
+             last_tx_hash, last_log_index)
 ```
 
 - Primary key: `(chain_id, contract, token_id, owner)`.
 - `amount` stored as TEXT to preserve large integer precision.
+- Attribution columns capture the last on-chain event that changed the balance.
 
 ## Domain Tables
 
@@ -81,6 +96,9 @@ nft_balances(chain_id, contract, token_id, owner, amount)
 
 - `orders` table stores a minimal order model.
 - Current usage is limited to invalidating orders when balances change.
+- Additional attribution columns are reserved for future order ingestion:
+  - `block_hash`, `block_timestamp`, `tx_from`, `tx_to`, `tx_input`.
+  - These fields are nullable and only expected to be populated for on-chain orderbooks.
 
 ### Metadata
 

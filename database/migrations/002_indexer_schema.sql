@@ -9,6 +9,22 @@ CREATE TABLE IF NOT EXISTS blocks (
   PRIMARY KEY (chain_id, block_number)
 );
 
+CREATE TABLE IF NOT EXISTS transactions (
+  chain_id INTEGER NOT NULL,
+  tx_hash TEXT NOT NULL,
+  from_address TEXT NOT NULL,
+  to_address TEXT,
+  input TEXT NOT NULL,
+  block_number INTEGER NOT NULL,
+  block_hash TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (chain_id, tx_hash)
+);
+
+CREATE INDEX IF NOT EXISTS transactions_block_idx
+  ON transactions (chain_id, block_number);
+
 CREATE TABLE IF NOT EXISTS sync_state (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -24,6 +40,7 @@ CREATE TABLE IF NOT EXISTS nft_transfer_events (
   amount TEXT NOT NULL,
   block_number INTEGER NOT NULL,
   block_hash TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL,
   tx_hash TEXT NOT NULL,
   log_index INTEGER NOT NULL,
   kind TEXT NOT NULL,
@@ -42,6 +59,11 @@ CREATE TABLE IF NOT EXISTS nft_balances (
   token_id TEXT NOT NULL,
   owner TEXT NOT NULL,
   amount TEXT NOT NULL,
+  last_block_number INTEGER NOT NULL,
+  last_block_hash TEXT NOT NULL,
+  last_block_timestamp INTEGER NOT NULL,
+  last_tx_hash TEXT NOT NULL,
+  last_log_index INTEGER NOT NULL,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (chain_id, contract, token_id, owner)
 );

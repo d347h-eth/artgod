@@ -11,8 +11,6 @@ This file lists items described in `docs/blueprint/02-sync-pipeline.md` that are
 
 ## Sync Execution
 
-- `getTransaction()` is not called during sync; no calldata parsing or tx-aware logic.
-- No event batching by transaction. Transfers are processed per log.
 - No separate backfill RPC provider usage even though config supports `RPC_BACKFILL_URL`.
 - No write buffer queue or dedicated writer for backfill workloads.
 - No focus-mode filtering after decode (only address filtering in `getLogs`).
@@ -20,7 +18,6 @@ This file lists items described in `docs/blueprint/02-sync-pipeline.md` that are
 ## Domain Handling
 
 - No Seaport/Blur handlers or payment handlers.
-- No generalized `EnhancedEvent` structure with base params and decoded params.
 - No order fill, cancel, or payment extraction.
 
 ## Post-Processing Hooks

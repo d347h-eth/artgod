@@ -10,3 +10,5 @@ Files:
 - `docs/progress/indexer/04-job-queueing-gaps.md`
 - `docs/progress/indexer/05-offchain-indexing-gaps.md`
 - `docs/progress/indexer/06-fault-tolerance-gaps.md`
+- `docs/progress/indexer/07-short-term-roadmap.md`
+- `docs/progress/indexer/08-deferred.md`

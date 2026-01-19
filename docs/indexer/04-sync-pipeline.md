@@ -40,6 +40,9 @@ The sync logic lives in `indexer/src/application/sync.ts`:
 - Uses viem `getLogs()` with `events` filtering (Transfer events only).
 - Supports both ERC721 and ERC1155 transfers.
 - Logs are decoded with `decodeEventLog` against the ABI defined in `indexer/src/abi/index.ts`.
+- Each log is converted into a minimal `EnhancedEvent` structure containing:
+  - Base params (block, tx, log index, contract).
+  - Decoded params (from, to, tokenId, amount, standard).
 
 The resulting data is returned as:
 
@@ -47,10 +50,17 @@ The resulting data is returned as:
 OnChainData = {
   nftTransferEvents: NftTransferEvent[];
   nftBalanceDeltas: NftBalanceDelta[];
+  transactions: TransactionRecord[];
 }
 ```
 
 Balance deltas are produced for each transfer event. ERC721 generates +/-1 deltas; ERC1155 uses the transfer amount.
+
+## Transaction Grouping
+
+Before accumulating `OnChainData`, decoded events are grouped by transaction hash and sorted by log index (and batch index for ERC1155 batches). The sync worker fetches each transaction once and keeps the grouped order stable for future domain handlers that need atomic, tx-scoped processing.
+
+Transactions associated with transfer events are persisted into SQLite so downstream order-fill logic can reuse calldata without re-fetching.
 
 ## Persisting Sync Results
 
