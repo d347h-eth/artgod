@@ -18,6 +18,7 @@
     ],
     "scripts": {
         "dev": "./scripts/dev.sh",
+        "dev:indexer": "./scripts/indexer-dev.sh",
         "tauri": "cargo tauri",
         "install:all": "yarn install && yarn workspaces foreach run install",
         "format": "prettier . --write",
