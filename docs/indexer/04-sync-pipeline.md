@@ -26,10 +26,10 @@ The sync worker:
 2. Connects to NATS and the RPC provider.
 3. Consumes realtime and backfill queues (one worker each).
 4. For each job:
-   - Fetches logs for the target block/range.
-   - Fetches full block details for the same range.
-   - Persists results via SQLite storage.
-   - Publishes domain sync jobs (orders, metadata, activities).
+    - Fetches logs for the target block/range.
+    - Fetches full block details for the same range.
+    - Persists results via SQLite storage.
+    - Publishes domain sync jobs (orders, metadata, activities).
 
 The worker uses `maxInFlight = 1` to keep block processing strictly ordered within each queue.
 
@@ -41,8 +41,8 @@ The sync logic lives in `indexer/src/application/sync.ts`:
 - Supports both ERC721 and ERC1155 transfers.
 - Logs are decoded with `decodeEventLog` against the ABI defined in `indexer/src/abi/index.ts`.
 - Each log is converted into a minimal `EnhancedEvent` structure containing:
-  - Base params (block, tx, log index, contract).
-  - Decoded params (from, to, tokenId, amount, standard).
+    - Base params (block, tx, log index, contract).
+    - Decoded params (from, to, tokenId, amount, standard).
 
 The resulting data is returned as:
 

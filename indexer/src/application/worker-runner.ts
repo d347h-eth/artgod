@@ -1,7 +1,10 @@
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { QueueName } from "../domain/queues.js";
 import type { QueueMessage, QueuePort } from "../ports/queue.js";
-import { DEAD_LETTER_KIND, type DeadLetterPayload } from "../domain/dead-letter.js";
+import {
+    DEAD_LETTER_KIND,
+    type DeadLetterPayload,
+} from "../domain/dead-letter.js";
 
 export type WorkerOptions = {
     queue: QueueName;

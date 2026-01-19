@@ -12,32 +12,35 @@ Context:
 
 Options and trade-offs:
 
-1) Per-tx fetch by hash (current behavior)
-- Pros:
-  - Only fetches the txs we actually need (event-scoped).
-  - Keeps payload sizes small and predictable for public nodes.
-  - Works with any standard JSON-RPC endpoint.
-- Cons:
-  - Many HTTP round-trips when a block has many relevant logs.
-  - Latency adds up for backfill ranges.
+1. Per-tx fetch by hash (current behavior)
 
-2) JSON-RPC batching for per-tx fetch
 - Pros:
-  - Preserves the event-scoped model while reducing network round-trips.
-  - Supported by viem via `http({ batch: { batchSize, wait } })`.
-  - Good default for local nodes and many providers.
+    - Only fetches the txs we actually need (event-scoped).
+    - Keeps payload sizes small and predictable for public nodes.
+    - Works with any standard JSON-RPC endpoint.
 - Cons:
-  - Some public providers disable batching or limit batch size.
-  - Needs careful tuning (small batch size, low wait) to avoid large payloads.
+    - Many HTTP round-trips when a block has many relevant logs.
+    - Latency adds up for backfill ranges.
 
-3) Full block fetch with transactions (`getBlock(..., includeTransactions=true)`)
+2. JSON-RPC batching for per-tx fetch
+
 - Pros:
-  - One call per block; fewer round-trips for dense backfills.
-  - Strong consistency within a block; all tx inputs available in one response.
+    - Preserves the event-scoped model while reducing network round-trips.
+    - Supported by viem via `http({ batch: { batchSize, wait } })`.
+    - Good default for local nodes and many providers.
 - Cons:
-  - Large payloads; can time out or hit rate limits on public nodes.
-  - Fetches many txs we do not need during live sync.
-  - Not suitable for public nodes without explicit opt-in.
+    - Some public providers disable batching or limit batch size.
+    - Needs careful tuning (small batch size, low wait) to avoid large payloads.
+
+3. Full block fetch with transactions (`getBlock(..., includeTransactions=true)`)
+
+- Pros:
+    - One call per block; fewer round-trips for dense backfills.
+    - Strong consistency within a block; all tx inputs available in one response.
+- Cons:
+    - Large payloads; can time out or hit rate limits on public nodes.
+    - Fetches many txs we do not need during live sync.
+    - Not suitable for public nodes without explicit opt-in.
 
 Recommended approach (deferred):
 

@@ -1,29 +1,29 @@
 {
-  "name": "@artgod/indexer",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "echo 'Indexer: run dev:scheduler or dev:sync-worker' && node -e 'process.stdin.resume()'",
-    "dev:scheduler": "tsx src/runtime/scheduler.ts",
-    "dev:sync-worker": "tsx src/runtime/sync-worker.ts",
-    "dev:reorg-worker": "tsx src/runtime/reorg-worker.ts",
-    "dev:domain-worker": "tsx src/runtime/domain-worker.ts",
-    "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts",
-    "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "dependencies": {
-    "@artgod/shared": "workspace:*",
-    "dotenv": "^16.4.5",
-    "nats": "^2.29.1",
-    "viem": "2.41.2"
-  },
-  "devDependencies": {
-    "execa": "^9.5.2",
-    "testcontainers": "^10.21.0",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3",
-    "vitest": "^2.0.5"
-  }
+    "name": "@artgod/indexer",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "echo 'Indexer: run dev:scheduler or dev:sync-worker' && node -e 'process.stdin.resume()'",
+        "dev:scheduler": "tsx src/runtime/scheduler.ts",
+        "dev:sync-worker": "tsx src/runtime/sync-worker.ts",
+        "dev:reorg-worker": "tsx src/runtime/reorg-worker.ts",
+        "dev:domain-worker": "tsx src/runtime/domain-worker.ts",
+        "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "dependencies": {
+        "@artgod/shared": "workspace:*",
+        "dotenv": "^16.4.5",
+        "nats": "^2.29.1",
+        "viem": "2.41.2"
+    },
+    "devDependencies": {
+        "execa": "^9.5.2",
+        "testcontainers": "^10.21.0",
+        "tsx": "^4.20.3",
+        "typescript": "^5.8.3",
+        "vitest": "^2.0.5"
+    }
 }

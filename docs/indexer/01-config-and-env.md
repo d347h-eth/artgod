@@ -13,24 +13,24 @@ Config is loaded in `indexer/src/config/index.ts` and returned as an explicit `I
 Key types:
 
 - `CollectionConfig` (per target collection):
-  - `id`: user-defined identifier.
-  - `address`: 0x-prefixed contract address.
-  - `deploymentBlock`: used as metadata only (not used for auto-backfill).
+    - `id`: user-defined identifier.
+    - `address`: 0x-prefixed contract address.
+    - `deploymentBlock`: used as metadata only (not used for auto-backfill).
 
 - `IndexerConfig`:
-  - `chainId`
-  - `rpc`: `primaryUrl`, optional `backfillUrl`, optional `wsUrl`
-  - `queue`: NATS URL and stream prefix
-  - `sync`: reorg depth, backfill batch size, log chunk size
-  - `cache`: max entries and TTL
-  - `collections`: parsed from `TARGET_COLLECTIONS` JSON
+    - `chainId`
+    - `rpc`: `primaryUrl`, optional `backfillUrl`, optional `wsUrl`
+    - `queue`: NATS URL and stream prefix
+    - `sync`: reorg depth, backfill batch size, log chunk size
+    - `cache`: max entries and TTL
+    - `collections`: parsed from `TARGET_COLLECTIONS` JSON
 
 ## Environment Variables (.env)
 
 The indexer reads these variables from the root `.env`:
 
 - `ARTGOD_DB_PATH` (required)
-  - Path to SQLite file. Relative paths are resolved from repo root.
+    - Path to SQLite file. Relative paths are resolved from repo root.
 - `CHAIN_ID` (default: 1)
 - `RPC_URL` (required)
 - `RPC_BACKFILL_URL` (optional)

@@ -1,23 +1,23 @@
 {
-  "search.exclude": {
-    "**/.yarn": true,
-    "**/.pnp.*": true
-  },
-  "typescript.tsdk": ".yarn/sdks/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true,
-  "terminal.integrated.env.linux": {
-    "PATH": "${workspaceFolder}/.yarn/sdks/typescript/bin:${env:PATH}"
-  },
-  "terminal.integrated.env.osx": {
-    "PATH": "${workspaceFolder}/.yarn/sdks/typescript/bin:${env:PATH}"
-  },
-  "terminal.integrated.env.windows": {
-    "PATH": "${workspaceFolder}/.yarn/sdks/typescript/bin;${env:PATH}"
-  },
-  "editor.tabSize": 4,
-  "editor.insertSpaces": true,
-  "editor.detectIndentation": false,
-  "editor.formatOnSave": true,
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
-  "prettier.prettierPath": ".yarn/sdks/prettier/index.cjs"
+    "search.exclude": {
+        "**/.yarn": true,
+        "**/.pnp.*": true
+    },
+    "typescript.tsdk": ".yarn/sdks/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    "terminal.integrated.env.linux": {
+        "PATH": "${workspaceFolder}/.yarn/sdks/typescript/bin:${env:PATH}"
+    },
+    "terminal.integrated.env.osx": {
+        "PATH": "${workspaceFolder}/.yarn/sdks/typescript/bin:${env:PATH}"
+    },
+    "terminal.integrated.env.windows": {
+        "PATH": "${workspaceFolder}/.yarn/sdks/typescript/bin;${env:PATH}"
+    },
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false,
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "prettier.prettierPath": ".yarn/sdks/prettier/index.cjs"
 }

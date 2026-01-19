@@ -49,12 +49,12 @@ If scheduling would fall below block 1, the scheduler logs a warning and skips t
 The scheduler supports two head sources:
 
 1. **WebSocket head source** (`ViemWebSocketHeadSource`)
-   - Non-blocking, event-driven.
-   - Emits heads to the scheduler as soon as the node announces them.
+    - Non-blocking, event-driven.
+    - Emits heads to the scheduler as soon as the node announces them.
 
 2. **HTTP poller**
-   - Runs on a fixed interval (default 12s).
-   - Authoritative: fills gaps if the WS path misses a block.
+    - Runs on a fixed interval (default 12s).
+    - Authoritative: fills gaps if the WS path misses a block.
 
 The WS path and poller both call the same `handleHead()` function.
 

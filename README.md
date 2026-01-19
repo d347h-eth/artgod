@@ -57,19 +57,19 @@ yarn workspace @artgod/indexer run dev:sync-worker
 
 ## Project Structure
 
--   `backend/` Node.js API server (TypeScript, ESM)
--   `frontend/` SvelteKit UI (Tailwind, Vite)
--   `shared/` shared TypeScript utilities and database access
--   `database/` SQLite file + SQL migrations
--   `indexer/` blockchain indexing worker
--   `src-tauri/` Tauri desktop wrapper
--   `scripts/` dev scripts
+- `backend/` Node.js API server (TypeScript, ESM)
+- `frontend/` SvelteKit UI (Tailwind, Vite)
+- `shared/` shared TypeScript utilities and database access
+- `database/` SQLite file + SQL migrations
+- `indexer/` blockchain indexing worker
+- `src-tauri/` Tauri desktop wrapper
+- `scripts/` dev scripts
 
 ## Database
 
--   SQLite file: `ARTGOD_DB_PATH` (required)
--   Migrations: `database/migrations/*.sql`
--   Migrations run on backend startup
+- SQLite file: `ARTGOD_DB_PATH` (required)
+- Migrations: `database/migrations/*.sql`
+- Migrations run on backend startup
 
 ## Common Commands
 

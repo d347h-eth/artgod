@@ -163,7 +163,10 @@ async function processRange(
     chainId: number,
     collections: CollectionConfig[],
     range: SyncRange,
-): Promise<{ data: Awaited<ReturnType<typeof syncRange>>; blocks: RpcBlock[] }> {
+): Promise<{
+    data: Awaited<ReturnType<typeof syncRange>>;
+    blocks: RpcBlock[];
+}> {
     const data = await syncRange(rpc, collections, range);
     const blocks = await fetchBlocks(rpc, range);
     storage.persistSyncResult(chainId, blocks, data);

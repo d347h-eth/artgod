@@ -57,8 +57,8 @@ Implementation: `indexer/src/infra/queue/nats.ts`.
 Behavior:
 
 - Creates a single JetStream stream per `streamPrefix`.
-  - Stream name: `${streamPrefix}-jobs`
-  - Subjects: `${streamPrefix}.jobs.>`
+    - Stream name: `${streamPrefix}-jobs`
+    - Subjects: `${streamPrefix}.jobs.>`
 - Retention policy: `Workqueue` (each message consumed once).
 - Storage type: file-backed.
 - Max age: 7 days.
@@ -83,8 +83,8 @@ Worker retry and DLQ behavior are handled in `indexer/src/application/worker-run
 - If a handler throws, the message is nacked.
 - The NATS adapter updates `attempt` based on redelivery count.
 - If `attempt >= maxAttempts` and a `deadLetterQueue` is configured:
-  - A dead-letter job is published with the original job and error info.
-  - The original message is acked (removed from the stream).
+    - A dead-letter job is published with the original job and error info.
+    - The original message is acked (removed from the stream).
 
 DLQ payload:
 
@@ -93,15 +93,15 @@ DLQ payload:
 ## Current Job Types
 
 - Sync jobs (`indexer/src/domain/sync-jobs.ts`):
-  - `sync.realtime.block`
-  - `sync.backfill.range`
+    - `sync.realtime.block`
+    - `sync.backfill.range`
 
 - Reorg jobs (`indexer/src/domain/reorg-jobs.ts`):
-  - `reorg.block-check`
+    - `reorg.block-check`
 
 - Domain jobs (`indexer/src/domain/domain-jobs.ts`):
-  - `domain.orders.sync`
-  - `domain.metadata.sync`
-  - `domain.activity.sync`
+    - `domain.orders.sync`
+    - `domain.metadata.sync`
+    - `domain.activity.sync`
 
 These jobs are produced by the scheduler and sync worker, and consumed by the sync, reorg, and domain runtimes.

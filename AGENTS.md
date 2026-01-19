@@ -19,10 +19,10 @@ The application follows a multi-component architecture:
 
 ### Key Components
 
--   **Backend API** (`backend/`): Node.js server with TypeScript, serves frontend and provides data APIs
--   **Indexer Worker**: For blockchain data processing
--   **Configuration**: Native OS window for immediate access to app settings
--   **Future Trading Worker**: Integration with NFT marketplaces (Seaport OS, Blur, Payment Processor)
+- **Backend API** (`backend/`): Node.js server with TypeScript, serves frontend and provides data APIs
+- **Indexer Worker**: For blockchain data processing
+- **Configuration**: Native OS window for immediate access to app settings
+- **Future Trading Worker**: Integration with NFT marketplaces (Seaport OS, Blur, Payment Processor)
 
 ## Development Setup
 
@@ -46,13 +46,13 @@ cd indexer && yarn dev    # worker for blockchain indexing (no-op currently)
 
 ### Technology Stack
 
--   TypeScript with ES2022 target and Node.js ESM modules
--   Yarn package manager with PnP (Plug'n'Play) mode and workspaces
--   SQLite via better-sqlite3 for local embedded database
--   Custom SQL migration system with automatic execution
--   SvelteKit frontend with Tailwind CSS
--   Tauri for cross-platform desktop distribution
--   Indexer for blockchain indexing (planned)
+- TypeScript with ES2022 target and Node.js ESM modules
+- Yarn package manager with PnP (Plug'n'Play) mode and workspaces
+- SQLite via better-sqlite3 for local embedded database
+- Custom SQL migration system with automatic execution
+- SvelteKit frontend with Tailwind CSS
+- Tauri for cross-platform desktop distribution
+- Indexer for blockchain indexing (planned)
 
 ## Project Structure
 
@@ -97,22 +97,22 @@ ArtGod/
 
 ### Core Functionality
 
--   Ethereum JSON-RPC gateway management
--   Blockchain data indexing for specific NFT projects (Terraforms, WCSG, Angelus)
--   Real-time blockchain synchronization
--   Data export/import for faster setup
+- Ethereum JSON-RPC gateway management
+- Blockchain data indexing for specific NFT projects (Terraforms, WCSG, Angelus)
+- Real-time blockchain synchronization
+- Data export/import for faster setup
 
 ### Trading Features (Future)
 
--   Multi-marketplace integration (Seaport OS, Blur)
--   Bidding strategies (single/multiple IDs, collections, traits)
--   Listing and sniping functionality
--   Secure wallet management
+- Multi-marketplace integration (Seaport OS, Blur)
+- Bidding strategies (single/multiple IDs, collections, traits)
+- Listing and sniping functionality
+- Secure wallet management
 
 ### Notifications
 
--   In-app and OS notifications
--   Third-party integrations (Telegram, Discord)
+- In-app and OS notifications
+- Third-party integrations (Telegram, Discord)
 
 ## Database & Migration Management
 
@@ -120,10 +120,10 @@ ArtGod/
 
 The project uses **SQLite (better-sqlite3)** as a single shared database:
 
--   **`./database/artgod.sqlite`** - Actual SQLite database file (auto-generated)
--   **`./database/migrations/`** - SQL schema migration files
--   **`./shared/database/`** - Runtime connection singleton and migration runner
--   **Automatic migrations** - Run on backend startup via `shared/database/migrations.ts`
+- **`./database/artgod.sqlite`** - Actual SQLite database file (auto-generated)
+- **`./database/migrations/`** - SQL schema migration files
+- **`./shared/database/`** - Runtime connection singleton and migration runner
+- **Automatic migrations** - Run on backend startup via `shared/database/migrations.ts`
 
 ### Migration Workflow
 
@@ -144,27 +144,27 @@ const result = db.prepare("SELECT * FROM projects").all();
 
 ## Development Notes
 
--   **Yarn PnP enabled** with proper workspace TypeScript project references
--   **All components functional** with shared sqlite database
--   **Backend** runs TypeScript with tsx, includes automatic migrations
--   **Frontend** uses SvelteKit with Tailwind CSS and Vite
--   **Desktop app** packages all components via Tauri
--   **Indexer** is placeholder (no-op)
--   **Core focus** is on Ethereum NFT data indexing and trading automation
+- **Yarn PnP enabled** with proper workspace TypeScript project references
+- **All components functional** with shared sqlite database
+- **Backend** runs TypeScript with tsx, includes automatic migrations
+- **Frontend** uses SvelteKit with Tailwind CSS and Vite
+- **Desktop app** packages all components via Tauri
+- **Indexer** is placeholder (no-op)
+- **Core focus** is on Ethereum NFT data indexing and trading automation
 
 ## Coding Guidelines
 
--   Keep top-level runtime flows linear and readable: separate distinct business actions into named helpers.
--   Avoid mixing unrelated concerns inside a single block; use whitespace and clear names to show intent.
--   Follow KISS/DRY/SOLID both across components and within a function body.
--   Tests must not silently skip on missing config; fail fast with explicit errors.
--   If code depends on config (runtime or test), treat it as required with no implicit defaults.
--   Config should be an explicit TypeScript object created from a single env loader (no scattered `process.env` reads).
+- Keep top-level runtime flows linear and readable: separate distinct business actions into named helpers.
+- Avoid mixing unrelated concerns inside a single block; use whitespace and clear names to show intent.
+- Follow KISS/DRY/SOLID both across components and within a function body.
+- Tests must not silently skip on missing config; fail fast with explicit errors.
+- If code depends on config (runtime or test), treat it as required with no implicit defaults.
+- Config should be an explicit TypeScript object created from a single env loader (no scattered `process.env` reads).
 
 ## Architecture Constraints
 
--   **No centralized servers**: All functionality must be self-contained within the desktop application
--   **Local-only operation**: Backend API, workers, and database run entirely on user's machine
--   **P2P design**: Any network communication should be direct peer-to-peer or with public blockchain/marketplace APIs
--   **Offline capability**: Core functionality should work without internet connectivity where possible
--   **Distribution**: Updates and data sharing must work without proprietary server infrastructure
+- **No centralized servers**: All functionality must be self-contained within the desktop application
+- **Local-only operation**: Backend API, workers, and database run entirely on user's machine
+- **P2P design**: Any network communication should be direct peer-to-peer or with public blockchain/marketplace APIs
+- **Offline capability**: Core functionality should work without internet connectivity where possible
+- **Distribution**: Updates and data sharing must work without proprietary server infrastructure

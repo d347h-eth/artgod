@@ -97,8 +97,8 @@ nft_balances(chain_id, contract, token_id, owner, amount,
 - `orders` table stores a minimal order model.
 - Current usage is limited to invalidating orders when balances change.
 - Additional attribution columns are reserved for future order ingestion:
-  - `block_hash`, `block_timestamp`, `tx_from`, `tx_to`, `tx_input`.
-  - These fields are nullable and only expected to be populated for on-chain orderbooks.
+    - `block_hash`, `block_timestamp`, `tx_from`, `tx_to`, `tx_input`.
+    - These fields are nullable and only expected to be populated for on-chain orderbooks.
 
 ### Metadata
 
@@ -121,16 +121,16 @@ nft_balances(chain_id, contract, token_id, owner, amount,
 Key operations:
 
 - `persistSyncResult()`
-  - Writes blocks.
-  - Inserts transfer events (ignore duplicates).
-  - Applies balance updates only for newly inserted transfers.
+    - Writes blocks.
+    - Inserts transfer events (ignore duplicates).
+    - Applies balance updates only for newly inserted transfers.
 
 - `getBlockHash()`
-  - Reads block hash for reorg verification.
+    - Reads block hash for reorg verification.
 
 - `rollbackFromBlock()`
-  - Loads transfers at and above a block.
-  - Applies reverse transfers to balances.
-  - Deletes transfers, activities, and blocks from that block onward.
+    - Loads transfers at and above a block.
+    - Applies reverse transfers to balances.
+    - Deletes transfers, activities, and blocks from that block onward.
 
 ERC721 balance updates are done via delete/insert to enforce single-owner semantics. ERC1155 uses balance deltas in place.

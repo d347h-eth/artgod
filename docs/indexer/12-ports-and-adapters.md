@@ -43,9 +43,9 @@ Provides basic in-memory caching for RPC calls with metric hooks.
 
 - Interface: `indexer/src/ports/domain-handlers.ts`
 - Adapters:
-  - Orders: `indexer/src/infra/domain/orders.ts`
-  - Metadata: `indexer/src/infra/domain/metadata.ts`
-  - Activities: `indexer/src/infra/domain/activities.ts`
+    - Orders: `indexer/src/infra/domain/orders.ts`
+    - Metadata: `indexer/src/infra/domain/metadata.ts`
+    - Activities: `indexer/src/infra/domain/activities.ts`
 
 These ports allow the sync pipeline to remain independent of domain-specific persistence logic.
 
@@ -53,7 +53,7 @@ These ports allow the sync pipeline to remain independent of domain-specific per
 
 - Interface: `indexer/src/ports/metadata.ts`
 - Adapters:
-  - `indexer/src/infra/metadata/viem-token-uri.ts`
-  - `indexer/src/infra/metadata/http-fetcher.ts`
+    - `indexer/src/infra/metadata/viem-token-uri.ts`
+    - `indexer/src/infra/metadata/http-fetcher.ts`
 
 These ports keep metadata resolution and HTTP fetching swappable.

@@ -11,7 +11,11 @@ import {
 } from "nats";
 import type { QueueName } from "../../domain/queues.js";
 import type { JobEnvelope } from "../../domain/jobs.js";
-import type { QueueMessage, QueuePort, SubscribeOptions } from "../../ports/queue.js";
+import type {
+    QueueMessage,
+    QueuePort,
+    SubscribeOptions,
+} from "../../ports/queue.js";
 
 export type NatsQueueConfig = {
     natsUrl: string;

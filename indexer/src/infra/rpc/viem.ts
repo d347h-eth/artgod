@@ -57,7 +57,10 @@ export class ViemRpcProvider implements RpcProviderPort {
         });
 
         const mapped: RpcBlock = {
-            number: toSafeNumber(block.number ?? BigInt(blockNumber), "block.number"),
+            number: toSafeNumber(
+                block.number ?? BigInt(blockNumber),
+                "block.number",
+            ),
             hash: (block.hash ?? "0x") as Hex,
             parentHash: (block.parentHash ?? "0x") as Hex,
             timestamp: toSafeNumber(block.timestamp, "block.timestamp"),
@@ -73,7 +76,9 @@ export class ViemRpcProvider implements RpcProviderPort {
         if (cached) return cached;
 
         const start = Date.now();
-        const tx = await this.client.getTransaction({ hash: txHash as `0x${string}` });
+        const tx = await this.client.getTransaction({
+            hash: txHash as `0x${string}`,
+        });
         this.metrics?.histogram("rpc.latency", Date.now() - start, {
             method: "getTransaction",
         });
@@ -94,7 +99,11 @@ export class ViemRpcProvider implements RpcProviderPort {
 
         const logs: RpcLog[] = [];
         const chunkSize = Math.max(1, this.config.logChunkSize);
-        for (let start = filter.fromBlock; start <= filter.toBlock; start += chunkSize) {
+        for (
+            let start = filter.fromBlock;
+            start <= filter.toBlock;
+            start += chunkSize
+        ) {
             const end = Math.min(filter.toBlock, start + chunkSize - 1);
             const params = {
                 address: filter.address as any,

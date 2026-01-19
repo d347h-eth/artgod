@@ -19,16 +19,12 @@ type TokenRow = {
 type MetadataRow = { uri: string };
 
 export class SqliteMetadataDomain implements MetadataDomainPort {
-    private selectTokens = db.prepare<
-        [number, number, number]
-    >(
+    private selectTokens = db.prepare<[number, number, number]>(
         "SELECT contract, token_id, kind FROM nft_transfer_events " +
             "WHERE chain_id = ? AND block_number >= ? AND block_number <= ? " +
             "GROUP BY contract, token_id, kind",
     );
-    private selectMetadata = db.prepare<
-        [number, string, string]
-    >(
+    private selectMetadata = db.prepare<[number, string, string]>(
         "SELECT uri FROM token_metadata WHERE chain_id = ? AND contract = ? AND token_id = ? LIMIT 1",
     );
     private upsertMetadata = db.prepare<
@@ -124,11 +120,9 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         contract: string,
         tokenId: string,
     ): boolean {
-        const row = this.selectMetadata.get(
-            chainId,
-            contract,
-            tokenId,
-        ) as MetadataRow | undefined;
+        const row = this.selectMetadata.get(chainId, contract, tokenId) as
+            | MetadataRow
+            | undefined;
         return Boolean(row?.uri);
     }
 

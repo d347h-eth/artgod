@@ -15,9 +15,7 @@ type TransferRow = {
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class SqliteOrdersDomain implements OrdersDomainPort {
-    private selectTransfers = db.prepare<
-        [number, number, number, string]
-    >(
+    private selectTransfers = db.prepare<[number, number, number, string]>(
         "SELECT contract, from_address, token_id FROM nft_transfer_events " +
             "WHERE chain_id = ? AND block_number >= ? AND block_number <= ? AND from_address != ?",
     );

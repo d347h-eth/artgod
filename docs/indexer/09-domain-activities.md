@@ -19,10 +19,10 @@ The activities domain consumes `domain.activity.sync` jobs and reads transfer ev
 For each transfer event row:
 
 - Insert an activity record with:
-  - `kind = transfer`
-  - `contract`, `token_id`
-  - `from_address`, `to_address`
-  - `amount`, `block_number`, `tx_hash`, `log_index`
+    - `kind = transfer`
+    - `contract`, `token_id`
+    - `from_address`, `to_address`
+    - `amount`, `block_number`, `tx_hash`, `log_index`
 
 The insert is `INSERT OR IGNORE` against a unique constraint to remain idempotent.
 

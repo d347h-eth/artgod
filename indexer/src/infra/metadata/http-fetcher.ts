@@ -1,7 +1,10 @@
 import { logger } from "@artgod/shared/utils";
 import type { Metrics } from "../../metrics/types.js";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
-import type { MetadataAttribute, TokenMetadata } from "../../domain/metadata.js";
+import type {
+    MetadataAttribute,
+    TokenMetadata,
+} from "../../domain/metadata.js";
 
 export type HttpMetadataFetcherConfig = {
     timeoutMs?: number;
@@ -137,12 +140,8 @@ function normalizeAttributes(value: unknown): MetadataAttribute[] {
     for (const item of value) {
         if (!item || typeof item !== "object") continue;
         const record = item as Record<string, unknown>;
-        const traitType = asString(
-            record.trait_type ?? record.traitType,
-        );
-        const displayType = asString(
-            record.display_type ?? record.displayType,
-        );
+        const traitType = asString(record.trait_type ?? record.traitType);
+        const displayType = asString(record.display_type ?? record.displayType);
         const rawValue = record.value;
         if (
             rawValue === null ||

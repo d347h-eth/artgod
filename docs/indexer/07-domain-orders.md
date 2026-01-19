@@ -28,8 +28,8 @@ The current implementation:
 1. Reads all transfers in the range where `from_address != ZERO_ADDRESS`.
 2. Builds unique keys `(maker, contract, tokenId)` for each outgoing transfer.
 3. For each unique key, updates orders where:
-   - `chain_id`, `maker`, `contract`, `token_id` match.
-   - `fillability_status != 'no-balance'`.
+    - `chain_id`, `maker`, `contract`, `token_id` match.
+    - `fillability_status != 'no-balance'`.
 4. Sets `fillability_status` to `no-balance` and updates `updated_at`.
 
 This keeps order invalidation simple and idempotent.

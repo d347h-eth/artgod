@@ -4,7 +4,10 @@ import { loadConfig } from "../config/index.js";
 import { runWorker } from "../application/worker-runner.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import { REORG_JOB_KIND, type BlockCheckPayload } from "../domain/reorg-jobs.js";
+import {
+    REORG_JOB_KIND,
+    type BlockCheckPayload,
+} from "../domain/reorg-jobs.js";
 import {
     SYNC_JOB_KIND,
     type BackfillSyncPayload,

@@ -34,9 +34,7 @@ type BalanceContext = {
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class SqliteStorage implements StoragePort {
-    private insertBlock = db.prepare<
-        [number, number, string, string, number]
-    >(
+    private insertBlock = db.prepare<[number, number, string, string, number]>(
         "INSERT INTO blocks (chain_id, block_number, block_hash, parent_hash, timestamp) VALUES (?, ?, ?, ?, ?) " +
             "ON CONFLICT(chain_id, block_number) DO UPDATE SET " +
             "block_hash = excluded.block_hash, parent_hash = excluded.parent_hash, timestamp = excluded.timestamp",
@@ -68,19 +66,13 @@ export class SqliteStorage implements StoragePort {
             "(chain_id, contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
-    private selectBalance = db.prepare<
-        [number, string, string, string]
-    >(
+    private selectBalance = db.prepare<[number, string, string, string]>(
         "SELECT amount FROM nft_balances WHERE chain_id = ? AND contract = ? AND token_id = ? AND owner = ?",
     );
-    private selectBlockHash = db.prepare<
-        [number, number]
-    >(
+    private selectBlockHash = db.prepare<[number, number]>(
         "SELECT block_hash FROM blocks WHERE chain_id = ? AND block_number = ?",
     );
-    private selectTransfersFromBlock = db.prepare<
-        [number, number]
-    >(
+    private selectTransfersFromBlock = db.prepare<[number, number]>(
         "SELECT contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? " +
             "ORDER BY block_number DESC, log_index DESC",
@@ -139,10 +131,9 @@ export class SqliteStorage implements StoragePort {
     }
 
     getBlockHash(chainId: number, blockNumber: number): string | null {
-        const row = this.selectBlockHash.get(
-            chainId,
-            blockNumber,
-        ) as BlockHashRow | undefined;
+        const row = this.selectBlockHash.get(chainId, blockNumber) as
+            | BlockHashRow
+            | undefined;
         return row?.block_hash ?? null;
     }
 
@@ -360,9 +351,7 @@ export class SqliteStorage implements StoragePort {
             tokenId,
             owner,
         ) as BalanceRow | undefined;
-        const currentAmount = current
-            ? BigInt(current.amount)
-            : 0n;
+        const currentAmount = current ? BigInt(current.amount) : 0n;
         const nextAmount = currentAmount + delta;
 
         if (nextAmount === 0n) {

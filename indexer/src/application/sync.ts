@@ -27,7 +27,11 @@ const [ERC1155_TRANSFER_BATCH_TOPIC] = encodeEventTopics({
     abi: ERC1155_ABI,
     eventName: "TransferBatch",
 }) as [Hex];
-const TRANSFER_EVENTS = [ERC721_ABI[0], ERC1155_ABI[0], ERC1155_ABI[1]] as const;
+const TRANSFER_EVENTS = [
+    ERC721_ABI[0],
+    ERC1155_ABI[0],
+    ERC1155_ABI[1],
+] as const;
 
 /**
  * Fetch logs for a block range and convert them into transaction-scoped transfer data.
@@ -38,9 +42,15 @@ export async function syncRange(
     collections: CollectionConfig[],
     range: SyncRange,
 ): Promise<OnChainData> {
-    const addresses = collections.map((collection) => collection.address as Hex);
+    const addresses = collections.map(
+        (collection) => collection.address as Hex,
+    );
     if (addresses.length === 0) {
-        return { nftTransferEvents: [], nftBalanceDeltas: [], transactions: [] };
+        return {
+            nftTransferEvents: [],
+            nftBalanceDeltas: [],
+            transactions: [],
+        };
     }
 
     // Query only transfer events for tracked collections within the range.
@@ -306,9 +316,7 @@ function toTransferEvent(
 /**
  * Convert an EnhancedTransaction into a persisted transaction record.
  */
-function toTransactionRecord(
-    tx: EnhancedTransaction,
-): TransactionRecord {
+function toTransactionRecord(tx: EnhancedTransaction): TransactionRecord {
     return {
         hash: tx.transaction.hash,
         from: tx.transaction.from,
@@ -322,9 +330,12 @@ function toTransactionRecord(
 /**
  * Strip a raw RpcTransaction down to a serializable summary.
  */
-function toTransactionSummary(
-    tx: { hash: Hex; from: Hex; to: Hex | null; input: Hex },
-): TransactionSummary {
+function toTransactionSummary(tx: {
+    hash: Hex;
+    from: Hex;
+    to: Hex | null;
+    input: Hex;
+}): TransactionSummary {
     return {
         hash: tx.hash,
         from: tx.from,
@@ -349,7 +360,10 @@ function compareEvents(a: EnhancedEvent, b: EnhancedEvent): number {
 /**
  * Translate a transfer event into +/- balance deltas (ignores zero address).
  */
-function pushBalanceDeltas(data: OnChainData, event: OnChainData["nftTransferEvents"][number]) {
+function pushBalanceDeltas(
+    data: OnChainData,
+    event: OnChainData["nftTransferEvents"][number],
+) {
     const amount = BigInt(event.amount);
     const zero = zeroAddress.toLowerCase();
     if (event.from.toLowerCase() !== zero) {

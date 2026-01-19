@@ -18,25 +18,25 @@ The system currently focuses on on-chain NFT transfer data (ERC721 and ERC1155),
 Each runtime is an independent Node.js process. There is no shared memory across runtimes.
 
 - Scheduler runtime (`indexer/src/runtime/scheduler.ts`)
-  - Tracks chain head via WebSocket (optional) and HTTP polling.
-  - Schedules realtime block sync and block-check (reorg) jobs.
+    - Tracks chain head via WebSocket (optional) and HTTP polling.
+    - Schedules realtime block sync and block-check (reorg) jobs.
 
 - Sync worker runtime (`indexer/src/runtime/sync-worker.ts`)
-  - Consumes realtime/backfill sync jobs.
-  - Fetches logs, decodes transfers, persists blocks/transfers/balances.
-  - Fan-outs domain jobs (orders, metadata, activities).
+    - Consumes realtime/backfill sync jobs.
+    - Fetches logs, decodes transfers, persists blocks/transfers/balances.
+    - Fan-outs domain jobs (orders, metadata, activities).
 
 - Reorg worker runtime (`indexer/src/runtime/reorg-worker.ts`)
-  - Consumes block-check jobs.
-  - Detects reorgs and rolls back orphaned blocks.
-  - Schedules backfill jobs to resync the rolled-back range.
+    - Consumes block-check jobs.
+    - Detects reorgs and rolls back orphaned blocks.
+    - Schedules backfill jobs to resync the rolled-back range.
 
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
-  - Consumes domain jobs (orders, metadata, activities).
-  - Writes domain-specific tables derived from transfer events.
+    - Consumes domain jobs (orders, metadata, activities).
+    - Writes domain-specific tables derived from transfer events.
 
 - Dead-letter runtime (`indexer/src/runtime/dead-letter-worker.ts`)
-  - Consumes dead-letter jobs and logs failures.
+    - Consumes dead-letter jobs and logs failures.
 
 Queue broker:
 
@@ -51,35 +51,35 @@ Database:
 These are the assumptions that the implementation relies on and should be preserved in future work:
 
 1. **Only the scheduler publishes realtime sync jobs.**
-   - WebSocket listeners and pollers can notify the scheduler, but the scheduler is the sole publisher.
+    - WebSocket listeners and pollers can notify the scheduler, but the scheduler is the sole publisher.
 
 2. **Idempotent processing everywhere.**
-   - Jobs can be redelivered; persistence uses unique constraints and upserts.
+    - Jobs can be redelivered; persistence uses unique constraints and upserts.
 
 3. **No implicit full historical backfill on startup.**
-   - Startup schedules only the recent reorg window. Full backfills are user-triggered.
+    - Startup schedules only the recent reorg window. Full backfills are user-triggered.
 
 4. **Ports and adapters at process boundaries.**
-   - Runtime logic depends on interfaces in `indexer/src/ports/`.
-   - Infrastructure implementations live in `indexer/src/infra/`.
+    - Runtime logic depends on interfaces in `indexer/src/ports/`.
+    - Infrastructure implementations live in `indexer/src/infra/`.
 
 5. **Explicit configuration and contracts.**
-   - Config is loaded from `.env` into explicit TypeScript objects.
-   - Cross-process contracts are defined in domain types and job envelopes.
+    - Config is loaded from `.env` into explicit TypeScript objects.
+    - Cross-process contracts are defined in domain types and job envelopes.
 
 ## High-Level Data Flow
 
 1. Scheduler observes head updates.
 2. Scheduler publishes `events-sync-realtime` jobs for each new block.
 3. Sync worker consumes sync jobs:
-   - Fetches block + logs.
-   - Decodes transfers.
-   - Writes blocks/transfers/balances.
-   - Publishes domain jobs for the same range.
+    - Fetches block + logs.
+    - Decodes transfers.
+    - Writes blocks/transfers/balances.
+    - Publishes domain jobs for the same range.
 4. Domain worker consumes domain jobs:
-   - Orders domain invalidates orders based on transfers.
-   - Metadata domain fetches and stores token metadata.
-   - Activity domain writes activity records.
+    - Orders domain invalidates orders based on transfers.
+    - Metadata domain fetches and stores token metadata.
+    - Activity domain writes activity records.
 5. Scheduler publishes `block-check` jobs once blocks are old enough.
 6. Reorg worker verifies block hashes and rolls back on mismatch.
 

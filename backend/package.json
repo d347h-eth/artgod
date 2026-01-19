@@ -1,17 +1,17 @@
 {
-  "name": "@artgod/backend",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "tsx src/index.ts"
-  },
-  "dependencies": {
-    "@artgod/shared": "workspace:*"
-  },
-  "devDependencies": {
-    "@types/node": "^24.0.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.8.3"
-  }
+    "name": "@artgod/backend",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "tsx src/index.ts"
+    },
+    "dependencies": {
+        "@artgod/shared": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.0",
+        "tsx": "^4.19.2",
+        "typescript": "^5.8.3"
+    }
 }

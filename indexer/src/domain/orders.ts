@@ -6,8 +6,7 @@ export const ORDER_STATUS = {
     NoBalance: "no-balance",
 } as const;
 
-export type OrderStatus =
-    (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
+export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 
 export type OrderRecord = {
     id: string;

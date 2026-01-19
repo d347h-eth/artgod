@@ -3,8 +3,7 @@ export const ACTIVITY_KIND = {
     Fill: "fill",
 } as const;
 
-export type ActivityKind =
-    (typeof ACTIVITY_KIND)[keyof typeof ACTIVITY_KIND];
+export type ActivityKind = (typeof ACTIVITY_KIND)[keyof typeof ACTIVITY_KIND];
 
 export type ActivityRecord = {
     chainId: number;

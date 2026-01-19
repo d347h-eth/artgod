@@ -10,7 +10,10 @@ import type { JobEnvelope } from "../domain/jobs.js";
 import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
-import { REORG_JOB_KIND, type BlockCheckPayload } from "../domain/reorg-jobs.js";
+import {
+    REORG_JOB_KIND,
+    type BlockCheckPayload,
+} from "../domain/reorg-jobs.js";
 
 export type SchedulerOptions = {
     pollIntervalMs?: number;
@@ -148,7 +151,9 @@ export async function startScheduler(
         lastScheduled = headNumber;
     }
 
-    async function scheduleBlockChecksForHead(headNumber: number): Promise<void> {
+    async function scheduleBlockChecksForHead(
+        headNumber: number,
+    ): Promise<void> {
         const targetCheck = getReorgCheckBlock(headNumber, reorgDepth);
         if (targetCheck < 0) return;
         const startCheck = lastChecked + 1;
