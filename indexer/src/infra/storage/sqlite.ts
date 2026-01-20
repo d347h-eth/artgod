@@ -2,6 +2,7 @@ import { db } from "@artgod/shared/database";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
 import type { RpcBlock } from "../../ports/rpc.js";
+import { ORDER_STATUS } from "../../domain/orders.js";
 
 type BalanceRow = { amount: string };
 type BlockHashRow = { block_hash: string };
@@ -111,6 +112,19 @@ export class SqliteStorage implements StoragePort {
     private deleteActivitiesFromBlock = db.prepare<[number, number]>(
         "DELETE FROM activities WHERE chain_id = ? AND block_number >= ?",
     );
+    private deleteMetadataFromBlock = db.prepare<[number, number]>(
+        "DELETE FROM token_metadata WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
+    );
+    private deleteOrdersFromBlock = db.prepare<[number, number]>(
+        "DELETE FROM orders WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
+    );
+    private resetOrderFillability = db.prepare<
+        [string, number, string, string, string, string]
+    >(
+        "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = ? AND maker = ? AND contract = ? AND token_id = ? " +
+            "AND fillability_status = ?",
+    );
     private deleteBlocksFromBlock = db.prepare<[number, number]>(
         "DELETE FROM blocks WHERE chain_id = ? AND block_number >= ?",
     );
@@ -145,9 +159,12 @@ export class SqliteStorage implements StoragePort {
             ) as TransferRow[];
             for (const event of events) {
                 this.applyTransferRollback(chainId, event);
+                this.resetOrderFromTransfer(chainId, event);
             }
             this.deleteTransfersFromBlock.run(chainId, fromBlock);
             this.deleteActivitiesFromBlock.run(chainId, fromBlock);
+            this.deleteMetadataFromBlock.run(chainId, fromBlock);
+            this.deleteOrdersFromBlock.run(chainId, fromBlock);
             this.deleteTransactionsFromBlock.run(chainId, fromBlock);
             this.deleteBlocksFromBlock.run(chainId, fromBlock);
         });
@@ -276,6 +293,21 @@ export class SqliteStorage implements StoragePort {
             from,
             amount,
             context,
+        );
+    }
+
+    private resetOrderFromTransfer(chainId: number, event: TransferRow): void {
+        const maker = event.from_address.toLowerCase();
+        const contract = event.contract.toLowerCase();
+        const tokenId = event.token_id;
+        if (maker === ZERO_ADDRESS) return;
+        this.resetOrderFillability.run(
+            ORDER_STATUS.Fillable,
+            chainId,
+            maker,
+            contract,
+            tokenId,
+            ORDER_STATUS.NoBalance,
         );
     }
 

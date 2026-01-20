@@ -54,6 +54,8 @@ The current implementation:
 
 This keeps order invalidation simple and idempotent.
 
+On reorg rollback, orders that were invalidated by transfers in orphaned blocks are reset back to `fillable` (best-effort), and on-chain orders in the rolled-back range are deleted.
+
 ## Current Scope and Limits
 
 - Only invalidation is implemented; no order creation or fill capture yet.

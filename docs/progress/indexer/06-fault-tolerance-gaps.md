@@ -4,7 +4,6 @@ This file lists items described in `docs/blueprint/06-fault-tolerance.md` that a
 
 ## Reorg Handling
 
-- Rollback does not delete orders or metadata rows for orphaned blocks.
 - Resync uses backfill jobs rather than an explicit realtime resync pipeline.
 - No time-delayed block checks (checks are scheduled by depth, not by time).
 

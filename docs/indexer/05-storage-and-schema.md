@@ -106,6 +106,7 @@ nft_balances(chain_id, contract, token_id, owner, amount,
 
 - `token_metadata` table stores resolved metadata and attributes.
 - `attributes_json` and `raw_json` are stored as JSON strings.
+- Attribution columns (`block_number`, `block_hash`, `block_timestamp`, `tx_hash`, `log_index`) capture the on-chain event that triggered the fetch.
 
 ### Activities
 

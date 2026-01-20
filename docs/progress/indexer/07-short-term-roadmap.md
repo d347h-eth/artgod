@@ -46,8 +46,8 @@ This roadmap ranks the most important missing capabilities from the blueprint an
 
 ### Phase 4: Reorg Consistency
 
-[ ] Rollback deletes or resets derived domain rows (orders, metadata)
-[ ] Ensure resync path rehydrates domain state after rollback
+[x] Rollback deletes or resets derived domain rows (orders, metadata)
+[x] Ensure resync path rehydrates domain state after rollback
 
 ### Phase 5: Sync Reliability
 
