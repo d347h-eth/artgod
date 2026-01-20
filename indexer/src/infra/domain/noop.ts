@@ -5,6 +5,10 @@ import type {
     MetadataDomainPort,
     OrdersDomainPort,
 } from "../../ports/domain-handlers.js";
+import type {
+    OrderUpdateByIdPayload,
+    OrderUpdateByMakerPayload,
+} from "../../domain/order-jobs.js";
 
 export class NoopOrdersDomain implements OrdersDomainPort {
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
@@ -12,6 +16,26 @@ export class NoopOrdersDomain implements OrdersDomainPort {
             component: "OrdersDomain",
             action: "handleDomainSync",
             ...context,
+        });
+    }
+
+    async handleOrderUpdateByMaker(
+        payload: OrderUpdateByMakerPayload,
+    ): Promise<void> {
+        logger.debug("Orders update-by-maker noop", {
+            component: "OrdersDomain",
+            action: "handleOrderUpdateByMaker",
+            ...payload,
+        });
+    }
+
+    async handleOrderUpdateById(
+        payload: OrderUpdateByIdPayload,
+    ): Promise<void> {
+        logger.debug("Orders update-by-id noop", {
+            component: "OrdersDomain",
+            action: "handleOrderUpdateById",
+            ...payload,
         });
     }
 }

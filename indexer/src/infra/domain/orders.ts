@@ -2,6 +2,10 @@ import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { ORDER_STATUS } from "../../domain/orders.js";
 import type {
+    OrderUpdateByIdPayload,
+    OrderUpdateByMakerPayload,
+} from "../../domain/order-jobs.js";
+import type {
     DomainSyncContext,
     OrdersDomainPort,
 } from "../../ports/domain-handlers.js";
@@ -69,6 +73,28 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             toBlock,
             transfers: rows.length,
             invalidatedOrders: invalidated,
+        });
+    }
+
+    async handleOrderUpdateByMaker(
+        payload: OrderUpdateByMakerPayload,
+    ): Promise<void> {
+        // Maker triggers indicate fillability changed (not an explicit cancel).
+        logger.debug("Orders update-by-maker received", {
+            component: "OrdersDomain",
+            action: "handleOrderUpdateByMaker",
+            ...payload,
+        });
+    }
+
+    async handleOrderUpdateById(
+        payload: OrderUpdateByIdPayload,
+    ): Promise<void> {
+        // Order updates by id handle explicit cancels/fills or on-chain order creation.
+        logger.debug("Orders update-by-id received", {
+            component: "OrdersDomain",
+            action: "handleOrderUpdateById",
+            ...payload,
         });
     }
 }

@@ -4,6 +4,7 @@ export * from "./activities.js";
 export * from "./dead-letter.js";
 export * from "./metadata.js";
 export * from "./orders.js";
+export * from "./order-jobs.js";
 export * from "./onchain.js";
 export * from "./queues.js";
 export * from "./reorg-jobs.js";

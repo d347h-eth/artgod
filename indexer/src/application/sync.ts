@@ -50,6 +50,10 @@ export async function syncRange(
             nftTransferEvents: [],
             nftBalanceDeltas: [],
             transactions: [],
+            fillEvents: [],
+            cancelEvents: [],
+            orderInfos: [],
+            makerInfos: [],
         };
     }
 
@@ -279,6 +283,10 @@ function accumulateOnChainData(
         nftTransferEvents: [],
         nftBalanceDeltas: [],
         transactions: [],
+        fillEvents: [],
+        cancelEvents: [],
+        orderInfos: [],
+        makerInfos: [],
     };
 
     for (const tx of transactions) {
@@ -289,6 +297,9 @@ function accumulateOnChainData(
             pushBalanceDeltas(data, transfer);
         }
     }
+
+    // Maker triggers are derived from transfers for now (other triggers added later).
+    data.makerInfos = deriveMakerInfosFromTransfers(data.nftTransferEvents);
 
     return data;
 }
@@ -388,4 +399,30 @@ function pushBalanceDeltas(
             logIndex: event.logIndex,
         });
     }
+}
+
+/**
+ * Derive maker triggers from transfer events.
+ * Maker triggers are not cancels: they request order fillability re-validation.
+ */
+function deriveMakerInfosFromTransfers(
+    transfers: OnChainData["nftTransferEvents"],
+): OnChainData["makerInfos"] {
+    const out: OnChainData["makerInfos"] = [];
+    const zero = zeroAddress.toLowerCase();
+    for (const event of transfers) {
+        const from = event.from.toLowerCase();
+        if (from === zero) continue;
+        out.push({
+            maker: from,
+            contract: event.contract,
+            tokenId: event.tokenId,
+            reason: "nft-transfer",
+            blockNumber: event.blockNumber,
+            blockHash: event.blockHash,
+            txHash: event.txHash,
+            logIndex: event.logIndex,
+        });
+    }
+    return out;
 }

@@ -21,6 +21,26 @@ The orders domain consumes `domain.orders.sync` jobs. Each job provides:
 
 The domain reads transfer events from `nft_transfer_events` within the block range.
 
+## Trigger Meanings
+
+The indexer uses four trigger categories to keep the orderbook correct:
+
+- **Fill**: on-chain execution of an order (Seaport/Blur/on-chain orderbooks).
+- **Cancel**: explicit on-chain invalidation (e.g. Seaport cancel/counter).
+- **Order**: on-chain creation/listing for orderbooks that emit order data on-chain.
+- **Maker trigger**: maker’s fillability changed (balance/approval/ownership), requires re-validation.
+
+Maker triggers are _not_ cancels. Spending WETH or revoking approval should enqueue maker updates, not cancels, because the order can become fillable again if funds/approvals return.
+
+## Order Update Queues
+
+Two queues are reserved for order maintenance:
+
+- `order-updates-by-maker`: re-validate all orders affected by maker state changes.
+- `order-updates-by-id`: update a specific order after fill/cancel/on-chain order creation.
+
+Handlers are currently stubs but the queues are wired end-to-end for future logic.
+
 ## Logic
 
 The current implementation:

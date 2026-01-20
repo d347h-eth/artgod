@@ -21,6 +21,52 @@ export type NftBalanceDelta = {
     logIndex: number;
 };
 
+export type ChainAttribution = {
+    blockNumber: number;
+    blockHash: string;
+    txHash: string;
+    logIndex: number;
+};
+
+// Fill = an on-chain execution of an order (Seaport/Blur/on-chain orderbooks).
+export type FillEvent = ChainAttribution & {
+    orderId?: string;
+    kind?: string;
+    maker?: string;
+    taker?: string;
+    contract?: string;
+    tokenId?: string;
+    amount?: string;
+    price?: string;
+    currency?: string;
+};
+
+// Cancel = explicit on-chain invalidation of an order (e.g. Seaport cancel/counter).
+export type CancelEvent = ChainAttribution & {
+    orderId?: string;
+    kind?: string;
+    maker?: string;
+};
+
+// Order = on-chain creation/listing for orderbooks that emit orders on-chain.
+export type OrderInfo = ChainAttribution & {
+    orderId?: string;
+    kind?: string;
+    maker?: string;
+    contract?: string;
+    tokenId?: string;
+    price?: string;
+    currency?: string;
+};
+
+// Maker trigger = maker's fillability changed (balance/approval/ownership).
+export type MakerInfo = ChainAttribution & {
+    maker: string;
+    contract?: string;
+    tokenId?: string;
+    reason: "nft-transfer" | "erc20-balance" | "approval-change";
+};
+
 export type TransactionRecord = {
     hash: string;
     from: string;
@@ -34,6 +80,10 @@ export type OnChainData = {
     nftTransferEvents: NftTransferEvent[];
     nftBalanceDeltas: NftBalanceDelta[];
     transactions: TransactionRecord[];
+    fillEvents: FillEvent[];
+    cancelEvents: CancelEvent[];
+    orderInfos: OrderInfo[];
+    makerInfos: MakerInfo[];
 };
 
 export type EventBase = {

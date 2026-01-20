@@ -3,6 +3,8 @@ export const QUEUE_NAMES = {
     BackfillSync: "events-sync-backfill",
     BlockCheck: "block-check",
     OrdersDomain: "orders-domain",
+    OrdersUpdateByMaker: "order-updates-by-maker",
+    OrdersUpdateById: "order-updates-by-id",
     MetadataDomain: "metadata-domain",
     ActivityDomain: "activity-domain",
     DeadLetter: "dead-letter",

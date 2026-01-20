@@ -4,8 +4,6 @@ This file lists items described in `docs/blueprint/04-job-queueing.md` that are 
 
 ## Queue Categories Not Implemented
 
-- `order-updates-by-maker`
-- `order-updates-by-id`
 - `orderbook-orders-queue`
 - `opensea-listings-queue`
 - `token-updates-mint-queue`

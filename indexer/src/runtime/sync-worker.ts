@@ -10,6 +10,7 @@ import {
     type DomainSyncMode,
     type DomainSyncPayload,
 } from "../domain/domain-jobs.js";
+import type { OnChainData } from "../domain/onchain.js";
 import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
 import type {
     BackfillSyncPayload,
@@ -22,6 +23,11 @@ import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { noopMetrics } from "../metrics/noop.js";
+import {
+    ORDER_JOB_KIND,
+    type OrderUpdateByIdPayload,
+    type OrderUpdateByMakerPayload,
+} from "../domain/order-jobs.js";
 
 async function main() {
     try {
@@ -73,6 +79,7 @@ async function main() {
                     range,
                     job,
                     "realtime",
+                    data,
                 );
                 logger.info("Sync block processed", {
                     component: "IndexerSyncWorker",
@@ -113,6 +120,7 @@ async function main() {
                     range,
                     job,
                     "backfill",
+                    data,
                 );
                 logger.info("Backfill range processed", {
                     component: "IndexerSyncWorker",
@@ -191,6 +199,7 @@ async function publishDomainJobs<TPayload>(
     range: SyncRange,
     job: JobEnvelope<TPayload>,
     mode: DomainSyncMode,
+    data: OnChainData,
 ): Promise<void> {
     const payload: DomainSyncPayload = {
         fromBlock: range.fromBlock,
@@ -231,4 +240,102 @@ async function publishDomainJobs<TPayload>(
     await queue.publish(QUEUE_NAMES.OrdersDomain, ordersJob);
     await queue.publish(QUEUE_NAMES.MetadataDomain, metadataJob);
     await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
+
+    await publishOrderUpdateJobs(queue, chainId, data);
+}
+
+// Order update jobs are triggered by fills/cancels/on-chain orders or maker state changes.
+async function publishOrderUpdateJobs(
+    queue: QueuePort,
+    chainId: number,
+    data: OnChainData,
+): Promise<void> {
+    for (const makerInfo of data.makerInfos) {
+        const maker = makerInfo.maker.toLowerCase();
+        const contract = makerInfo.contract?.toLowerCase() ?? "all";
+        const tokenId = makerInfo.tokenId ?? "all";
+        const job: JobEnvelope<OrderUpdateByMakerPayload> = {
+            jobId: `orders:update:maker:${chainId}:${maker}:${contract}:${tokenId}:${makerInfo.blockNumber}:${makerInfo.logIndex}`,
+            kind: ORDER_JOB_KIND.UpdateByMaker,
+            queue: QUEUE_NAMES.OrdersUpdateByMaker,
+            payload: {
+                maker: makerInfo.maker,
+                contract: makerInfo.contract,
+                tokenId: makerInfo.tokenId,
+                reason: makerInfo.reason,
+                blockNumber: makerInfo.blockNumber,
+                blockHash: makerInfo.blockHash,
+                txHash: makerInfo.txHash,
+                logIndex: makerInfo.logIndex,
+            },
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+        };
+        await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, job);
+    }
+
+    for (const fill of data.fillEvents) {
+        if (!fill.orderId) continue;
+        await publishOrderUpdateById(
+            queue,
+            chainId,
+            fill.orderId,
+            "fill",
+            fill,
+        );
+    }
+
+    for (const cancel of data.cancelEvents) {
+        if (!cancel.orderId) continue;
+        await publishOrderUpdateById(
+            queue,
+            chainId,
+            cancel.orderId,
+            "cancel",
+            cancel,
+        );
+    }
+
+    for (const order of data.orderInfos) {
+        if (!order.orderId) continue;
+        await publishOrderUpdateById(
+            queue,
+            chainId,
+            order.orderId,
+            "order",
+            order,
+        );
+    }
+}
+
+async function publishOrderUpdateById(
+    queue: QueuePort,
+    chainId: number,
+    orderId: string,
+    reason: string,
+    attribution: {
+        blockNumber: number;
+        blockHash: string;
+        txHash: string;
+        logIndex: number;
+    },
+): Promise<void> {
+    const job: JobEnvelope<OrderUpdateByIdPayload> = {
+        jobId: `orders:update:id:${chainId}:${orderId}:${attribution.blockNumber}:${attribution.logIndex}`,
+        kind: ORDER_JOB_KIND.UpdateById,
+        queue: QUEUE_NAMES.OrdersUpdateById,
+        payload: {
+            orderId,
+            reason,
+            blockNumber: attribution.blockNumber,
+            blockHash: attribution.blockHash,
+            txHash: attribution.txHash,
+            logIndex: attribution.logIndex,
+        },
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId,
+    };
+    await queue.publish(QUEUE_NAMES.OrdersUpdateById, job);
 }

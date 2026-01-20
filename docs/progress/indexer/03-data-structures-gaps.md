@@ -4,20 +4,21 @@ This file lists items described in `docs/blueprint/03-data-structures.md` that a
 
 ## OnChainData Coverage
 
-The current `OnChainData` only includes:
+The current `OnChainData` includes:
 
 - `nftTransferEvents`
 - `nftBalanceDeltas`
+- `transactions`
+- `fillEvents` (stubbed, no extraction yet)
+- `cancelEvents` (stubbed, no extraction yet)
+- `orderInfos` (stubbed, no extraction yet)
+- `makerInfos` (derived from NFT transfers only)
 
-Missing fields from the blueprint accumulator:
+Still missing from the blueprint accumulator:
 
 - `mintInfos`
-- `fillEvents`
-- `cancelEvents`
 - `bulkCancelEvents`
 - `nonceCancelEvents`
-- `orderInfos`
-- `makerInfos`
 - `ftTransferEvents`
 - `shards`
 
@@ -28,8 +29,8 @@ Missing fields from the blueprint accumulator:
 
 ## Maker Trigger Pattern
 
-- No `makerInfos` generation.
-- No `order-updates-by-maker` job pipeline.
+- Maker triggers exist and are derived from NFT transfers only.
+- No ERC20 balance/approval-based maker triggers yet.
 
 ## Transfer Uniqueness
 

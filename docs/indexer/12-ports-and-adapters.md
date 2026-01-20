@@ -49,6 +49,8 @@ Provides basic in-memory caching for RPC calls with metric hooks.
 
 These ports allow the sync pipeline to remain independent of domain-specific persistence logic.
 
+Orders domain also exposes update-by-maker and update-by-id handlers for fillability and explicit order events.
+
 ## Metadata Ports
 
 - Interface: `indexer/src/ports/metadata.ts`

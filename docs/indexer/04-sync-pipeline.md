@@ -51,6 +51,10 @@ OnChainData = {
   nftTransferEvents: NftTransferEvent[];
   nftBalanceDeltas: NftBalanceDelta[];
   transactions: TransactionRecord[];
+  fillEvents: FillEvent[];
+  cancelEvents: CancelEvent[];
+  orderInfos: OrderInfo[];
+  makerInfos: MakerInfo[];
 }
 ```
 
@@ -61,6 +65,8 @@ Balance deltas are produced for each transfer event. ERC721 generates +/-1 delta
 Before accumulating `OnChainData`, decoded events are grouped by transaction hash and sorted by log index (and batch index for ERC1155 batches). The sync worker fetches each transaction once and keeps the grouped order stable for future domain handlers that need atomic, tx-scoped processing.
 
 Transactions associated with transfer events are persisted into SQLite so downstream order-fill logic can reuse calldata without re-fetching.
+
+Maker triggers are currently derived from NFT transfers and are published as order update jobs; other trigger types (fills, cancels, on-chain orders) are defined but not yet extracted.
 
 ## Persisting Sync Results
 

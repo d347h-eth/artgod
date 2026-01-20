@@ -16,6 +16,11 @@ import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { noopMetrics } from "../metrics/noop.js";
 import { SqliteActivityDomain } from "../infra/domain/activities.js";
+import {
+    ORDER_JOB_KIND,
+    type OrderUpdateByIdPayload,
+    type OrderUpdateByMakerPayload,
+} from "../domain/order-jobs.js";
 
 async function main() {
     try {
@@ -52,6 +57,36 @@ async function main() {
             async (job: JobEnvelope<DomainSyncPayload>) => {
                 if (job.kind !== DOMAIN_JOB_KIND.OrdersSync) return;
                 await ordersDomain.handleDomainSync(toDomainContext(job));
+            },
+        );
+
+        const stopOrderUpdatesByMaker = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.OrdersUpdateByMaker,
+                consumerName: `orders-update-by-maker-${config.chainId}`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job: JobEnvelope<OrderUpdateByMakerPayload>) => {
+                if (job.kind !== ORDER_JOB_KIND.UpdateByMaker) return;
+                await ordersDomain.handleOrderUpdateByMaker(job.payload);
+            },
+        );
+
+        const stopOrderUpdatesById = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.OrdersUpdateById,
+                consumerName: `orders-update-by-id-${config.chainId}`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job: JobEnvelope<OrderUpdateByIdPayload>) => {
+                if (job.kind !== ORDER_JOB_KIND.UpdateById) return;
+                await ordersDomain.handleOrderUpdateById(job.payload);
             },
         );
 
@@ -96,6 +131,8 @@ async function main() {
                 action: "shutdown",
             });
             await stopOrders();
+            await stopOrderUpdatesByMaker();
+            await stopOrderUpdatesById();
             await stopMetadata();
             await stopActivity();
             await queue.close();

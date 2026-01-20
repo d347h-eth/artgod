@@ -40,9 +40,9 @@ This roadmap ranks the most important missing capabilities from the blueprint an
 
 ### Phase 3: OnChainData + Orderbook Scaffolding
 
-[ ] Extend OnChainData with fill/cancel/order/maker triggers (stubs allowed)
-[ ] Add order update queues (by maker / by id)
-[ ] Wire new domain jobs from sync worker (no-op handlers ok)
+[x] Extend OnChainData with fill/cancel/order/maker triggers (stubs allowed)
+[x] Add order update queues (by maker / by id)
+[x] Wire new domain jobs from sync worker (no-op handlers ok)
 
 ### Phase 4: Reorg Consistency
 

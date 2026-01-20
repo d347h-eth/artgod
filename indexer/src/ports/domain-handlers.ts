@@ -1,4 +1,8 @@
 import type { DomainSyncMode } from "../domain/domain-jobs.js";
+import type {
+    OrderUpdateByIdPayload,
+    OrderUpdateByMakerPayload,
+} from "../domain/order-jobs.js";
 
 export type DomainSyncContext = {
     chainId: number;
@@ -11,6 +15,8 @@ export type DomainSyncContext = {
 
 export interface OrdersDomainPort {
     handleDomainSync(context: DomainSyncContext): Promise<void>;
+    handleOrderUpdateByMaker(payload: OrderUpdateByMakerPayload): Promise<void>;
+    handleOrderUpdateById(payload: OrderUpdateByIdPayload): Promise<void>;
 }
 
 export interface MetadataDomainPort {
