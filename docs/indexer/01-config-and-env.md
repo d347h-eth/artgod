@@ -44,6 +44,8 @@ The indexer reads these variables from the root `.env`:
 - `CACHE_TTL_MS` (default: 30000)
 - `TARGET_COLLECTIONS` (JSON array of collection configs)
 
+`RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
+
 Example (from `.env.example`):
 
 ```

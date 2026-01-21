@@ -43,12 +43,20 @@ async function main() {
             ttlMs: config.cache.ttlMs,
             metrics: noopMetrics,
         });
-        const rpc = new ViemRpcProvider({
+        const primaryRpc = new ViemRpcProvider({
             url: config.rpc.primaryUrl,
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: noopMetrics,
         });
+        const backfillRpc = config.rpc.backfillUrl
+            ? new ViemRpcProvider({
+                  url: config.rpc.backfillUrl,
+                  logChunkSize: config.sync.logChunkSize,
+                  cache,
+                  metrics: noopMetrics,
+              })
+            : primaryRpc;
         const storage = new SqliteStorage();
 
         const stopRealtime = await runWorker(
@@ -67,11 +75,17 @@ async function main() {
                     toBlock: job.payload.blockNumber,
                 };
                 const { data, blocks } = await processRange(
-                    rpc,
+                    primaryRpc,
                     storage,
                     config.chainId,
                     config.collections,
                     range,
+                );
+                await scheduleGapBackfill(
+                    queue,
+                    storage,
+                    config.chainId,
+                    blocks,
                 );
                 await publishDomainJobs(
                     queue,
@@ -108,7 +122,7 @@ async function main() {
                     toBlock: job.payload.toBlock,
                 };
                 const { data, blocks } = await processRange(
-                    rpc,
+                    backfillRpc,
                     storage,
                     config.chainId,
                     config.collections,
@@ -242,6 +256,32 @@ async function publishDomainJobs<TPayload>(
     await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
 
     await publishOrderUpdateJobs(queue, chainId, data);
+}
+
+// Gap check: if a processed block's predecessor is missing, enqueue a backfill job.
+async function scheduleGapBackfill(
+    queue: QueuePort,
+    storage: SqliteStorage,
+    chainId: number,
+    blocks: RpcBlock[],
+): Promise<void> {
+    for (const block of blocks) {
+        const previous = block.number - 1;
+        if (previous <= 0) continue;
+        const existing = storage.getBlockHash(chainId, previous);
+        if (existing) continue;
+
+        const job: JobEnvelope<BackfillSyncPayload> = {
+            jobId: `sync:gap:${chainId}:${previous}`,
+            kind: SYNC_JOB_KIND.BackfillRange,
+            queue: QUEUE_NAMES.BackfillSync,
+            payload: { fromBlock: previous, toBlock: previous },
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+        };
+        await queue.publish(QUEUE_NAMES.BackfillSync, job);
+    }
 }
 
 // Order update jobs are triggered by fills/cancels/on-chain orders or maker state changes.

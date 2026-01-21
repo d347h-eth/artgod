@@ -33,6 +33,8 @@ The sync worker:
 
 The worker uses `maxInFlight = 1` to keep block processing strictly ordered within each queue.
 
+Backfill jobs use `RPC_BACKFILL_URL` when configured; realtime jobs always use `RPC_URL`.
+
 ## Log Fetching and Decoding
 
 The sync logic lives in `indexer/src/application/sync.ts`:
@@ -67,6 +69,10 @@ Before accumulating `OnChainData`, decoded events are grouped by transaction has
 Transactions associated with transfer events are persisted into SQLite so downstream order-fill logic can reuse calldata without re-fetching.
 
 Maker triggers are currently derived from NFT transfers and are published as order update jobs; other trigger types (fills, cancels, on-chain orders) are defined but not yet extracted.
+
+## Gap Check
+
+After persisting a realtime block, the sync worker checks whether the previous block exists in SQLite. If it is missing, the worker enqueues a single-block backfill job to close the gap.
 
 ## Persisting Sync Results
 

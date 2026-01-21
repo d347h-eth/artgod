@@ -51,9 +51,9 @@ This roadmap ranks the most important missing capabilities from the blueprint an
 
 ### Phase 5: Sync Reliability
 
-[ ] Gap check for missing blocks after persistence
+[x] Gap check for missing blocks after persistence
 [ ] Zero-log retry when txs exist but logs missing
-[ ] Optional backfill RPC usage for range sync
+[x] Optional backfill RPC usage for range sync
 
 ## Later (Outside Short-Term Scope)
 

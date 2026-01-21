@@ -23,5 +23,4 @@ This file lists items described in `docs/blueprint/06-fault-tolerance.md` that a
 
 ## Resilience Gates
 
-- No gap check after persistence to requeue missing blocks.
 - No special handling for RPC eventual consistency (zero-log retry).
