@@ -2,6 +2,28 @@
 
 This document collects intentionally deferred work so it stays visible without blocking current phases.
 
+## Zero-Log Retry (Targeted Indexer)
+
+Context:
+
+- The blueprint assumes full-range indexing: if a block has transactions but returns zero logs, it may be an eventual-consistency issue worth retrying.
+- ArtGod currently indexes only specific contracts (address-filtered `getLogs`), so most blocks will naturally have zero relevant logs.
+
+Why deferred:
+
+- The naive rule would re-fetch almost every block with transactions, creating noise and unnecessary load.
+- We currently lack a cheap, reliable predicate to say a block *should* have emitted relevant logs.
+
+Possible future predicates:
+
+- A prefilter that inspects tx `to` for tracked contracts (requires extra tx fetches).
+- A side-channel signal that a tracked contract was touched (e.g., a mempool or on-chain hint).
+- Full-range indexing mode (no address filter) where the original blueprint rule applies.
+
+Decision:
+
+- Defer until we add a reliable predicate or switch modes. Keep the pipeline simple and event-driven for now.
+
 ## Tx Calldata Fetch Strategy (Batching vs Full Block)
 
 Context:

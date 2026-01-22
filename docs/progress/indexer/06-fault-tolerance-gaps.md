@@ -23,4 +23,4 @@ This file lists items described in `docs/blueprint/06-fault-tolerance.md` that a
 
 ## Resilience Gates
 
-- No special handling for RPC eventual consistency (zero-log retry).
+- No special handling for RPC eventual consistency (zero-log retry). See `docs/progress/indexer/08-deferred.md`.

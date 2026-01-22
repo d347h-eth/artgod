@@ -6,7 +6,6 @@ This file lists items described in `docs/blueprint/02-sync-pipeline.md` that are
 
 - Backfill API for manual range submission is not implemented (only internal helpers exist).
 - No scheduler-side cache of `eth_getBlock` results to reuse in workers.
-- No retry rule for blocks with zero logs but non-empty transactions.
 
 ## Sync Execution
 
