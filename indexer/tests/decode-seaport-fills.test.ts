@@ -94,6 +94,7 @@ async function readTxDump(relativePath: string): Promise<TxDump> {
 }
 
 function toEnhancedTransaction(dump: TxDump): EnhancedTransaction {
+    const receiptLogs = toReceiptLogs(dump);
     return {
         txHash: dump.tx.hash,
         transaction: {
@@ -103,6 +104,7 @@ function toEnhancedTransaction(dump: TxDump): EnhancedTransaction {
             input: dump.tx.input,
         },
         events: extractTransferEvents(dump),
+        receiptLogs,
         blockNumber: Number(dump.tx.blockNumber),
         blockHash: dump.tx.blockHash,
     };
@@ -128,6 +130,19 @@ function extractTransferEvents(dump: TxDump) {
         );
     }
     return events;
+}
+
+function toReceiptLogs(dump: TxDump): RpcLog[] {
+    const logs = dump.receipt?.logs ?? [];
+    return logs.map((log) => ({
+        address: log.address,
+        data: log.data,
+        topics: log.topics,
+        blockNumber: Number(log.blockNumber),
+        blockHash: log.blockHash,
+        transactionHash: log.transactionHash,
+        logIndex: log.logIndex,
+    }));
 }
 
 function parseEther(value: string): bigint {

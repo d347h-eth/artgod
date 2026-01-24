@@ -276,9 +276,12 @@ async function buildEnhancedTransactions(
     }
 
     const transactions = new Map<string, TransactionSummary>();
+    const receipts = new Map<string, RpcLog[]>();
     for (const txHash of order) {
         const tx = await rpc.getTransaction(txHash);
         transactions.set(txHash, toTransactionSummary(tx));
+        const receipt = await rpc.getTransactionReceipt(txHash);
+        receipts.set(txHash, receipt.logs);
     }
 
     return order.map((txHash) => {
@@ -291,6 +294,7 @@ async function buildEnhancedTransactions(
             txHash,
             transaction: transactions.get(txHash)!,
             events: eventGroup,
+            receiptLogs: receipts.get(txHash) ?? [],
             blockNumber: base.blockNumber,
             blockHash: base.blockHash,
         };

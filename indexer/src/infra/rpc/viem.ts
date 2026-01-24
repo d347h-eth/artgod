@@ -8,6 +8,7 @@ import type {
     RpcLogFilter,
     RpcProviderPort,
     RpcTransaction,
+    RpcTransactionReceipt,
 } from "../../ports/rpc.js";
 import type { RetryPolicy } from "../../domain/retry.js";
 import { defaultRetryPolicy, getRetryDelayMs } from "../../domain/retry.js";
@@ -91,6 +92,32 @@ export class ViemRpcProvider implements RpcProviderPort {
         };
 
         this.cache?.set("tx", txHash, mapped);
+        return mapped;
+    }
+
+    async getTransactionReceipt(
+        txHash: string,
+    ): Promise<RpcTransactionReceipt> {
+        const cached = this.cache?.get<RpcTransactionReceipt>(
+            "receipt",
+            txHash,
+        );
+        if (cached) return cached;
+
+        const start = Date.now();
+        const receipt = await this.client.getTransactionReceipt({
+            hash: txHash as `0x${string}`,
+        });
+        this.metrics?.histogram("rpc.latency", Date.now() - start, {
+            method: "getTransactionReceipt",
+        });
+
+        const mapped: RpcTransactionReceipt = {
+            transactionHash: receipt.transactionHash as Hex,
+            logs: receipt.logs.map(mapLog),
+        };
+
+        this.cache?.set("receipt", txHash, mapped);
         return mapped;
     }
 

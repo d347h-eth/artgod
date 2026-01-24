@@ -1,4 +1,4 @@
-import type { Hex } from "../ports/rpc.js";
+import type { Hex, RpcLog } from "../ports/rpc.js";
 
 export type NftTransferEvent = {
     contract: string;
@@ -127,6 +127,7 @@ export type EnhancedTransaction = {
     txHash: string;
     transaction: TransactionSummary;
     events: EnhancedEvent[];
+    receiptLogs: RpcLog[];
     blockNumber: number;
     blockHash: string;
 };

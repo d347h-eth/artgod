@@ -33,6 +33,11 @@ export type RpcTransaction = {
     input: Hex;
 };
 
+export type RpcTransactionReceipt = {
+    transactionHash: Hex;
+    logs: RpcLog[];
+};
+
 export type RpcLog = {
     address: Hex;
     data: Hex;
@@ -48,4 +53,5 @@ export interface RpcProviderPort {
     getBlock(blockNumber: number): Promise<RpcBlock>;
     getLogs(filter: RpcLogFilter): Promise<RpcLog[]>;
     getTransaction(txHash: string): Promise<RpcTransaction>;
+    getTransactionReceipt(txHash: string): Promise<RpcTransactionReceipt>;
 }

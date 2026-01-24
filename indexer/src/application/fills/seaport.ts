@@ -1,4 +1,9 @@
-import { decodeFunctionData, zeroAddress } from "viem";
+import {
+    decodeEventLog,
+    decodeFunctionData,
+    encodeEventTopics,
+    zeroAddress,
+} from "viem";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
@@ -229,6 +234,24 @@ export const SEAPORT_EXCHANGE_ADDRESSES = new Set(
     ].map((address) => address.toLowerCase()),
 );
 
+const ERC20_TRANSFER_ABI = [
+    {
+        type: "event",
+        name: "Transfer",
+        inputs: [
+            { indexed: true, name: "from", type: "address" },
+            { indexed: true, name: "to", type: "address" },
+            { indexed: false, name: "value", type: "uint256" },
+        ],
+        anonymous: false,
+    },
+] as const;
+
+const [ERC20_TRANSFER_TOPIC] = encodeEventTopics({
+    abi: ERC20_TRANSFER_ABI,
+    eventName: "Transfer",
+}) as [Hex];
+
 // Decode Seaport fills using calldata only (no traces or Seaport logs).
 export function decodeSeaportFill(
     tx: EnhancedTransaction,
@@ -255,16 +278,71 @@ export function decodeSeaportFill(
     ) {
         const order = decoded.args[0] as BasicOrderParameters | undefined;
         if (!order) return null;
-        return decodeBasicOrderFill(tx, order, collections);
+        const fill = decodeBasicOrderFill(tx, order, collections);
+        return fill ? enrichFillWithErc20Transfers(tx, fill) : null;
     }
 
     if (decoded.functionName === "fulfillAdvancedOrder") {
         const advanced = decoded.args[0] as AdvancedOrder | undefined;
         if (!advanced) return null;
-        return decodeAdvancedOrderFill(tx, advanced, collections);
+        const fill = decodeAdvancedOrderFill(tx, advanced, collections);
+        return fill ? enrichFillWithErc20Transfers(tx, fill) : null;
     }
 
     return null;
+}
+
+function enrichFillWithErc20Transfers(
+    tx: EnhancedTransaction,
+    fill: FillEvent,
+): FillEvent {
+    // For ERC20-denominated fills, use receipt logs to infer the actual paid
+    // amount (fees included) by summing transfers from the payer address.
+    const currency = fill.currency?.toLowerCase();
+    if (!currency || currency === zeroAddress) return fill;
+    const payer = resolvePayer(fill);
+    if (!payer) return fill;
+
+    const total = sumErc20Transfers(tx.receiptLogs, currency, payer);
+    if (total === 0n) return fill;
+    return { ...fill, price: total.toString() };
+}
+
+function resolvePayer(fill: FillEvent): string | null {
+    if (fill.orderSide === "sell") {
+        return fill.taker?.toLowerCase() ?? null;
+    }
+    if (fill.orderSide === "buy") {
+        return fill.maker?.toLowerCase() ?? null;
+    }
+    return null;
+}
+
+function sumErc20Transfers(
+    logs: EnhancedTransaction["receiptLogs"],
+    token: string,
+    payer: string,
+): bigint {
+    let total = 0n;
+    for (const log of logs) {
+        if (log.address.toLowerCase() !== token) continue;
+        if (log.topics[0] !== ERC20_TRANSFER_TOPIC) continue;
+        try {
+            const decoded = decodeEventLog({
+                abi: ERC20_TRANSFER_ABI,
+                eventName: "Transfer",
+                data: log.data,
+                topics: log.topics as [Hex, ...Hex[]],
+            });
+            const from = (decoded.args.from as string).toLowerCase();
+            if (from !== payer) continue;
+            const value = decoded.args.value as bigint;
+            total += value;
+        } catch {
+            continue;
+        }
+    }
+    return total;
 }
 
 function decodeBasicOrderFill(

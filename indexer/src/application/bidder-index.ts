@@ -18,7 +18,9 @@ export class BidderIndex {
 
     async refresh(): Promise<BidderIndexState> {
         const makers = await this.source.load(this.chainId);
-        this.makers = makers;
+        this.makers = new Set(
+            Array.from(makers, (maker) => maker.toLowerCase()),
+        );
         this.ready = true;
         this.lastRefreshAt = Date.now();
         return this.getState();

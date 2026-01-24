@@ -16,7 +16,7 @@ Provides publish/subscribe semantics with explicit ack/nack/touch.
 - Interface: `indexer/src/ports/rpc.ts`
 - Adapter: `indexer/src/infra/rpc/viem.ts`
 
-Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction` with log chunking and retry behavior.
+Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction`, and `getTransactionReceipt` with log chunking and retry behavior.
 
 ## Head Source Port
 
