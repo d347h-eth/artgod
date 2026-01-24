@@ -81,3 +81,35 @@ Guardrails:
 
 - If a provider rejects batching, fall back to non-batched requests and log a warning.
 - Full block mode should be opt-in and ideally tied to a known, trusted node.
+
+## Blur Fills Without Traces
+
+Context:
+
+- The reference indexer relies on transaction traces to locate Blur executions and map maker/taker.
+- ArtGod targets public JSON-RPC nodes with no `debug/trace` support, so we must decode fills from calldata alone.
+- Blur v2 uses explicit `takeBid*` / `takeAsk*` selectors and calldata includes the full order payload, so decoding is possible when the tx calls the exchange directly.
+
+Why deferred:
+
+- Many Blur fills are routed through aggregators or delegatecalls where the exchange is not the direct `to` address.
+- Without traces, we cannot reliably walk internal calls or resolve delegatecall contexts.
+- Heuristic parsing of calldata blobs is possible but brittle, especially across router upgrades.
+
+What could be done later (heuristic-only path):
+
+- Detect direct exchange calls by matching tx `to` against Blur exchange addresses.
+- Decode calldata by selector for:
+  - v2: `takeAsk`, `takeAskSingle`, `takeAskPool`, `takeAskSinglePool`, `takeBid`, `takeBidSingle`
+  - v1: `execute` / `_execute` (if still used in direct calls)
+- If the tx calls a known router, attempt router-specific ABI decode to extract the embedded exchange call.
+- Maintain a list of supported router addresses/selectors; log and skip unknown router flows.
+
+Impact if deferred:
+
+- We will decode Seaport/OpenSea fills first (main priority).
+- Blur fills will be missing unless they are simple direct calls and we add the selector-based decode later.
+
+Decision:
+
+- Defer Blur fill decoding until Seaport is stable and we have a clear, maintainable heuristic strategy for router calls without traces.

@@ -22,8 +22,10 @@ This roadmap picks the next most important gaps after Phase 5. It focuses on get
 ## Phased Plan (Part 2)
 
 ### Phase 1: On-Chain Order Extraction
-[ ] Decode Seaport/Blur events into `fillEvents`, `cancelEvents`, `orderInfos`.
-[ ] Include block/tx attribution for each derived event.
+[x] Decode Seaport fills via calldata (no traces) into `fillEvents`.
+[ ] Decode Blur fills without traces (heuristic/selector-based; deferred for now).
+[ ] Add cancels/orders into `cancelEvents`/`orderInfos`.
+[x] Include block/tx attribution for each derived event.
 
 ### Phase 2: Fills Persistence and Order Status
 [ ] Add `fills` table with price/currency attribution.

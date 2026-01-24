@@ -1,3 +1,5 @@
+import type { Hex } from "../ports/rpc.js";
+
 export type NftTransferEvent = {
     contract: string;
     from: string;
@@ -32,6 +34,7 @@ export type ChainAttribution = {
 export type FillEvent = ChainAttribution & {
     orderId?: string;
     kind?: string;
+    orderSide?: "sell" | "buy";
     maker?: string;
     taker?: string;
     contract?: string;
@@ -113,7 +116,7 @@ export type TransactionSummary = {
     hash: string;
     from: string;
     to: string | null;
-    input: string;
+    input: Hex;
 };
 
 export type EnhancedTransaction = {

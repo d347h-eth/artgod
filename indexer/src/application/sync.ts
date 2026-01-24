@@ -9,6 +9,7 @@ import type {
     TransactionRecord,
 } from "../domain/onchain.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
+import { decodeSeaportFill } from "./fills/seaport.js";
 
 export type SyncRange = {
     fromBlock: number;
@@ -71,7 +72,10 @@ export async function syncRange(
     }
 
     const transactions = await buildEnhancedTransactions(rpc, enhancedEvents);
-    return accumulateOnChainData(transactions);
+    const collectionSet = new Set(
+        collections.map((collection) => collection.address.toLowerCase()),
+    );
+    return accumulateOnChainData(transactions, collectionSet);
 }
 
 /**
@@ -278,6 +282,7 @@ async function buildEnhancedTransactions(
  */
 function accumulateOnChainData(
     transactions: EnhancedTransaction[],
+    collections: Set<string>,
 ): OnChainData {
     const data: OnChainData = {
         nftTransferEvents: [],
@@ -295,6 +300,11 @@ function accumulateOnChainData(
             const transfer = toTransferEvent(event);
             data.nftTransferEvents.push(transfer);
             pushBalanceDeltas(data, transfer);
+        }
+        // Seaport fills are decoded from calldata (no traces) and attached per tx.
+        const fill = decodeSeaportFill(tx, collections);
+        if (fill) {
+            data.fillEvents.push(fill);
         }
     }
 

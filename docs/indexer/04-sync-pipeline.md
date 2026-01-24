@@ -68,7 +68,9 @@ Before accumulating `OnChainData`, decoded events are grouped by transaction has
 
 Transactions associated with transfer events are persisted into SQLite so downstream order-fill logic can reuse calldata without re-fetching.
 
-Maker triggers are currently derived from NFT transfers and are published as order update jobs; other trigger types (fills, cancels, on-chain orders) are defined but not yet extracted.
+Seaport fills are currently decoded from transaction calldata (no traces) and emitted as `fillEvents` when the tx calls a Seaport exchange and references a tracked collection. Cancels and on-chain order creation are still stubs.
+
+Maker triggers are derived from NFT transfers and are published as order update jobs; other trigger types (fills, cancels, on-chain orders) are defined but only Seaport fills are extracted so far.
 
 ## Gap Check
 
