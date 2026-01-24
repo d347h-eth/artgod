@@ -3,6 +3,8 @@ import { logger } from "@artgod/shared/utils";
 import { loadConfig, type CollectionConfig } from "../config/index.js";
 import { syncRange, type SyncRange } from "../application/sync.js";
 import { runWorker } from "../application/worker-runner.js";
+import { BidderIndex } from "../application/bidder-index.js";
+import { decodeWethMakerInfos, WETH_EVENT_FILTERS } from "../application/ft/weth.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
@@ -28,6 +30,10 @@ import {
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
 } from "../domain/order-jobs.js";
+import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
+import type { Hex } from "../ports/rpc.js";
+
+const BIDDER_INDEX_REFRESH_MS = 30_000;
 
 async function main() {
     try {
@@ -58,6 +64,40 @@ async function main() {
               })
             : primaryRpc;
         const storage = new SqliteStorage();
+        const bidderIndex = new BidderIndex(
+            new SqliteBidderIndex(),
+            config.chainId,
+        );
+        try {
+            const initialIndex = await bidderIndex.refresh();
+            logger.info("Bidder index refreshed", {
+                component: "IndexerSyncWorker",
+                action: "bidderIndexRefresh",
+                ...initialIndex,
+            });
+        } catch (error) {
+            logger.warn("Bidder index refresh failed", {
+                component: "IndexerSyncWorker",
+                action: "bidderIndexRefresh",
+                error: String(error),
+            });
+        }
+        const bidderRefreshTimer = setInterval(async () => {
+            try {
+                const state = await bidderIndex.refresh();
+                logger.debug("Bidder index refreshed", {
+                    component: "IndexerSyncWorker",
+                    action: "bidderIndexRefresh",
+                    ...state,
+                });
+            } catch (error) {
+                logger.warn("Bidder index refresh failed", {
+                    component: "IndexerSyncWorker",
+                    action: "bidderIndexRefresh",
+                    error: String(error),
+                });
+            }
+        }, BIDDER_INDEX_REFRESH_MS);
 
         const stopRealtime = await runWorker(
             queue,
@@ -80,6 +120,8 @@ async function main() {
                     config.chainId,
                     config.collections,
                     range,
+                    bidderIndex,
+                    config.tokens.wethAddress,
                 );
                 await scheduleGapBackfill(
                     queue,
@@ -127,6 +169,8 @@ async function main() {
                     config.chainId,
                     config.collections,
                     range,
+                    bidderIndex,
+                    config.tokens.wethAddress,
                 );
                 await publishDomainJobs(
                     queue,
@@ -158,6 +202,7 @@ async function main() {
                 component: "IndexerSyncWorker",
                 action: "shutdown",
             });
+            clearInterval(bidderRefreshTimer);
             await stopRealtime();
             await stopBackfill();
             await queue.close();
@@ -185,6 +230,8 @@ async function processRange(
     chainId: number,
     collections: CollectionConfig[],
     range: SyncRange,
+    bidderIndex: BidderIndex,
+    wethAddress: string,
 ): Promise<{
     data: Awaited<ReturnType<typeof syncRange>>;
     blocks: RpcBlock[];
@@ -192,6 +239,13 @@ async function processRange(
     const data = await syncRange(rpc, collections, range);
     const blocks = await fetchBlocks(rpc, range);
     storage.persistSyncResult(chainId, blocks, data);
+    await appendWethMakerInfos(
+        rpc,
+        range,
+        wethAddress,
+        bidderIndex,
+        data,
+    );
     return { data, blocks };
 }
 
@@ -347,6 +401,26 @@ async function publishOrderUpdateJobs(
             order,
         );
     }
+}
+
+async function appendWethMakerInfos(
+    rpc: RpcProviderPort,
+    range: SyncRange,
+    wethAddress: string,
+    bidderIndex: BidderIndex,
+    data: OnChainData,
+): Promise<void> {
+    if (!bidderIndex.isActive()) return;
+    if (range.fromBlock > range.toBlock) return;
+
+    const logs = await rpc.getLogs({
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+        address: wethAddress as Hex,
+        events: WETH_EVENT_FILTERS,
+    });
+    const makers = decodeWethMakerInfos(logs, bidderIndex);
+    data.makerInfos.push(...makers);
 }
 
 async function publishOrderUpdateById(

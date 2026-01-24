@@ -110,6 +110,6 @@ DLQ payload:
     - `orders.update-by-maker`
     - `orders.update-by-id`
 
-Order update jobs are emitted by the sync worker whenever maker state changes (from transfers) or when explicit fill/cancel/on-chain order events are detected.
+Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected.
 
 These jobs are produced by the scheduler and sync worker, and consumed by the sync, reorg, and domain runtimes.

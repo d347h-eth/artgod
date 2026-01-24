@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
   chain_id INTEGER NOT NULL,
   kind TEXT NOT NULL,
+  side TEXT,
   maker TEXT NOT NULL,
   taker TEXT,
   contract TEXT NOT NULL,

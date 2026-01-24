@@ -35,6 +35,7 @@ describe("indexer smoke", () => {
             NATS_URL: nats.url,
             NATS_STREAM_PREFIX: streamPrefix,
             RPC_URL: config.rpcUrl,
+            WETH_ADDRESS: runtimeEnv.WETH_ADDRESS,
             CHAIN_ID: String(config.chainId),
             TARGET_COLLECTIONS: config.collections,
             REORG_DEPTH: "3",

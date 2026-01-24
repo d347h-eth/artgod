@@ -12,6 +12,7 @@ export type OrderRecord = {
     id: string;
     chainId: number;
     kind: string;
+    side?: "buy" | "sell" | null;
     maker: string;
     taker?: string | null;
     contract: string;

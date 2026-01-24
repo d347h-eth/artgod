@@ -70,6 +70,8 @@ Transactions associated with transfer events are persisted into SQLite so downst
 
 Seaport fills are decoded from transaction calldata (no traces) and emitted as `fillEvents` when the tx calls a Seaport exchange and references a tracked collection. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `cancelEvents`/`orderInfos` (criteria-based orders are skipped for now). Counter increments emit maker triggers (`order-counter`).
 
+WETH transfer/approval logs are decoded into maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the bidder index is ready and non-empty (quiet default). When the index is empty or not yet loaded, WETH logs are skipped and no maker triggers are emitted.
+
 Maker triggers are derived from NFT transfers and are published as order update jobs; other trigger types (fills, cancels, on-chain orders) are defined but only Seaport fills are extracted so far.
 
 ## Gap Check

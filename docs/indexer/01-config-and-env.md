@@ -20,6 +20,7 @@ Key types:
 - `IndexerConfig`:
     - `chainId`
     - `rpc`: `primaryUrl`, optional `backfillUrl`, optional `wsUrl`
+    - `tokens`: `wethAddress`
     - `queue`: NATS URL and stream prefix
     - `sync`: reorg depth, backfill batch size, log chunk size
     - `cache`: max entries and TTL
@@ -35,6 +36,7 @@ The indexer reads these variables from the root `.env`:
 - `RPC_URL` (required)
 - `RPC_BACKFILL_URL` (optional)
 - `RPC_WS_URL` (optional)
+- `WETH_ADDRESS` (required)
 - `NATS_URL` (default: `nats://127.0.0.1:4222`)
 - `NATS_STREAM_PREFIX` (default: `artgod`)
 - `REORG_DEPTH` (default: 20)
@@ -52,6 +54,7 @@ Example (from `.env.example`):
 ARTGOD_DB_PATH=database/sqlite/main/db
 CHAIN_ID=1
 RPC_URL=http://127.0.0.1:8545
+WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 NATS_URL=nats://127.0.0.1:4222
 NATS_STREAM_PREFIX=artgod
 REORG_DEPTH=32
@@ -69,6 +72,7 @@ The smoke tests use a separate `.env.test` file loaded by `indexer/tests/helpers
 - `ARTGOD_DB_PATH` (required)
 - `SMOKE_NATS_PORT` (required, host port for the NATS container)
 - `SMOKE_RPC_URL` (required)
+- `WETH_ADDRESS` (required)
 - `SMOKE_TARGET_COLLECTIONS` (required JSON string)
 - `SMOKE_RANGE_FROM` (required)
 - `SMOKE_RANGE_TO` (required)
@@ -80,6 +84,7 @@ Example (from `.env.test.example`):
 ARTGOD_DB_PATH=database/sqlite/test/db
 SMOKE_NATS_PORT=10247
 SMOKE_RPC_URL=http://127.0.0.1:8545
+WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 SMOKE_TARGET_COLLECTIONS='[{"id":"terraforms","address":"0x4E1f41613c9084FdB9E34E11fAE9412427480e56","deploymentBlock":13823015}]'
 SMOKE_RANGE_FROM=24193425
 SMOKE_RANGE_TO=24193425

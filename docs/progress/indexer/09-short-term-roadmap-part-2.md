@@ -34,8 +34,8 @@ This roadmap picks the next most important gaps after Phase 5. It focuses on get
 
 ### Phase 3: ERC20 Payment + Maker Triggers
 [ ] Track ERC20 transfers related to fills (WETH/USDC) for pricing.
-[ ] Track ERC20 approvals or allowance changes to drive maker re-validation.
-[ ] Extend maker triggers beyond NFT transfers.
+[x] Track WETH approvals and transfers to drive maker re-validation (quiet default).
+[x] Extend maker triggers beyond NFT transfers.
 
 ### Phase 4: Offchain Orders (Skeleton)
 [ ] Add OpenSea stream listener and raw payload queue.

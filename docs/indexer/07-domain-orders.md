@@ -32,6 +32,14 @@ The indexer uses four trigger categories to keep the orderbook correct:
 
 Maker triggers are _not_ cancels. Spending WETH or revoking approval should enqueue maker updates, not cancels, because the order can become fillable again if funds/approvals return.
 
+## Bidder Index (Quiet Default)
+
+WETH transfer/approval logs can trigger maker updates, but to avoid queue spam we gate these triggers behind a bidder index:
+
+- The index is refreshed from the `orders` table (`side = buy`).
+- If the index is **not ready** (never loaded) or **empty**, WETH-triggered maker updates are **not emitted** (quiet default).
+- When non-empty, only makers in the index receive WETH-triggered updates.
+
 ## Order Update Queues
 
 Two queues are reserved for order maintenance:

@@ -51,6 +51,13 @@ These ports allow the sync pipeline to remain independent of domain-specific per
 
 Orders domain also exposes update-by-maker and update-by-id handlers for fillability and explicit order events.
 
+## Bidder Index Port
+
+- Interface: `indexer/src/ports/bidder-index.ts`
+- Adapter: `indexer/src/infra/bidder-index/sqlite.ts`
+
+Provides a refreshable set of bid makers (currently sourced from the `orders` table) used to gate WETH-triggered maker updates.
+
 ## Metadata Ports
 
 - Interface: `indexer/src/ports/metadata.ts`

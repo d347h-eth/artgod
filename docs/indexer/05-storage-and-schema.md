@@ -99,6 +99,7 @@ nft_balances(chain_id, contract, token_id, owner, amount,
 - Additional attribution columns are reserved for future order ingestion:
     - `block_hash`, `block_timestamp`, `tx_from`, `tx_to`, `tx_input`.
     - These fields are nullable and only expected to be populated for on-chain orderbooks.
+- `side` (buy/sell) is used by the bidder index to scope WETH-triggered maker updates.
 
 ### Metadata
 

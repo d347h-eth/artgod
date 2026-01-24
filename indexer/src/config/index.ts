@@ -16,6 +16,9 @@ export type IndexerConfig = {
         backfillUrl?: string;
         wsUrl?: string;
     };
+    tokens: {
+        wethAddress: string;
+    };
     queue: {
         natsUrl: string;
         streamPrefix: string;
@@ -80,6 +83,16 @@ function parseCollections(value: string | undefined): CollectionConfig[] {
     });
 }
 
+function parseAddress(value: string | undefined, name: string): string {
+    if (!value) {
+        throw new Error(`Missing ${name}`);
+    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    return value;
+}
+
 export function loadConfig(
     env: Record<string, string | undefined> = process.env,
 ): IndexerConfig {
@@ -96,6 +109,9 @@ export function loadConfig(
             primaryUrl: rpcUrl,
             backfillUrl: env.RPC_BACKFILL_URL,
             wsUrl: env.RPC_WS_URL,
+        },
+        tokens: {
+            wethAddress: parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS"),
         },
         queue: {
             natsUrl: env.NATS_URL ?? "nats://127.0.0.1:4222",

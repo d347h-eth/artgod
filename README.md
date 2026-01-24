@@ -48,6 +48,13 @@ Set the SQLite path (required):
 ARTGOD_DB_PATH=database/sqlite/main/db
 ```
 
+Set WETH address (required for bid re-validation triggers):
+
+```sh
+# Mainnet WETH
+WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+```
+
 Then run indexer runtimes as needed:
 
 ```sh
