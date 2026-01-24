@@ -1,6 +1,6 @@
 # Activities Domain
 
-The activities domain builds a simple activity feed derived from transfer events.
+The activities domain builds a simple activity feed derived from transfer events and fills.
 
 Primary file:
 
@@ -12,7 +12,7 @@ Schema:
 
 ## Inputs
 
-The activities domain consumes `domain.activity.sync` jobs and reads transfer events in the specified block range.
+The activities domain consumes `domain.activity.sync` jobs and reads transfer events and fills in the specified block range.
 
 ## Logic
 
@@ -26,7 +26,15 @@ For each transfer event row:
 
 The insert is `INSERT OR IGNORE` against a unique constraint to remain idempotent.
 
+For each fill row:
+
+- Insert an activity record with:
+    - `kind = fill`
+    - `contract`, `token_id`
+    - `from_address` = seller, `to_address` = buyer (derived from `order_side`)
+    - `amount`, `block_number`, `tx_hash`, `log_index`
+
 ## Current Scope
 
-- Only transfer activities are emitted.
-- Fill activities are defined in the domain types but not yet produced.
+- Transfer and fill activities are emitted.
+- Fill activities depend on the fills table populated by the sync pipeline.

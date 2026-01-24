@@ -67,6 +67,30 @@ export class SqliteStorage implements StoragePort {
             "(chain_id, contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
+    private insertFill = db.prepare<
+        [
+            number,
+            string,
+            string | null,
+            string | null,
+            string | null,
+            string | null,
+            string,
+            string,
+            string | null,
+            string | null,
+            string | null,
+            number,
+            string,
+            number,
+            string,
+            number,
+        ]
+    >(
+        "INSERT OR IGNORE INTO fills " +
+            "(chain_id, kind, order_id, order_side, maker, taker, contract, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
     private selectBalance = db.prepare<[number, string, string, string]>(
         "SELECT amount FROM nft_balances WHERE chain_id = ? AND contract = ? AND token_id = ? AND owner = ?",
     );
@@ -109,6 +133,9 @@ export class SqliteStorage implements StoragePort {
     private deleteTransfersFromBlock = db.prepare<[number, number]>(
         "DELETE FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ?",
     );
+    private deleteFillsFromBlock = db.prepare<[number, number]>(
+        "DELETE FROM fills WHERE chain_id = ? AND block_number >= ?",
+    );
     private deleteActivitiesFromBlock = db.prepare<[number, number]>(
         "DELETE FROM activities WHERE chain_id = ? AND block_number >= ?",
     );
@@ -139,6 +166,7 @@ export class SqliteStorage implements StoragePort {
             this.persistBlocks(chainId, blocks);
             this.persistTransactions(chainId, data.transactions, blockMeta);
             const inserted = this.persistTransfers(chainId, data, blockMeta);
+            this.persistFills(chainId, data, blockMeta);
             this.applyBalanceUpdatesFromEvents(chainId, inserted, blockMeta);
         });
         run();
@@ -162,6 +190,7 @@ export class SqliteStorage implements StoragePort {
                 this.resetOrderFromTransfer(chainId, event);
             }
             this.deleteTransfersFromBlock.run(chainId, fromBlock);
+            this.deleteFillsFromBlock.run(chainId, fromBlock);
             this.deleteActivitiesFromBlock.run(chainId, fromBlock);
             this.deleteMetadataFromBlock.run(chainId, fromBlock);
             this.deleteOrdersFromBlock.run(chainId, fromBlock);
@@ -215,6 +244,38 @@ export class SqliteStorage implements StoragePort {
             }
         }
         return inserted;
+    }
+
+    private persistFills(
+        chainId: number,
+        data: OnChainData,
+        blockMeta: Map<number, BlockMeta>,
+    ): void {
+        for (const fill of data.fillEvents) {
+            if (!fill.contract || !fill.tokenId) continue;
+            const blockTimestamp = resolveBlockTimestamp(
+                blockMeta,
+                fill.blockNumber,
+            );
+            this.insertFill.run(
+                chainId,
+                fill.kind ?? "unknown",
+                fill.orderId ?? null,
+                fill.orderSide ?? null,
+                fill.maker?.toLowerCase() ?? null,
+                fill.taker?.toLowerCase() ?? null,
+                fill.contract.toLowerCase(),
+                fill.tokenId,
+                fill.amount ?? null,
+                fill.price ?? null,
+                fill.currency?.toLowerCase() ?? null,
+                fill.blockNumber,
+                fill.blockHash,
+                blockTimestamp,
+                fill.txHash,
+                fill.logIndex,
+            );
+        }
     }
 
     private applyBalanceUpdatesFromEvents(

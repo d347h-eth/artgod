@@ -82,6 +82,7 @@ After persisting a realtime block, the sync worker checks whether the previous b
 
 - Writes blocks to `blocks` table.
 - Inserts transfer events into `nft_transfer_events`.
+- Inserts fill events into `fills`.
 - Applies balance updates for newly inserted transfers.
 
 The storage layer is idempotent:

@@ -112,8 +112,15 @@ nft_balances(chain_id, contract, token_id, owner, amount,
 
 `database/migrations/005_activities_schema.sql`:
 
-- `activities` table stores transfer activities (fills are future work).
+- `activities` table stores transfer and fill activities.
 - Unique constraint prevents duplicate activity rows.
+
+### Fills
+
+`database/migrations/006_fills_schema.sql`:
+
+- `fills` table stores decoded on-chain fills with price/currency attribution.
+- Unique constraint on `(chain_id, tx_hash, log_index, contract, token_id, kind)` keeps inserts idempotent.
 
 ## Storage Adapter Behavior
 
@@ -124,6 +131,7 @@ Key operations:
 - `persistSyncResult()`
     - Writes blocks.
     - Inserts transfer events (ignore duplicates).
+    - Inserts fills (ignore duplicates).
     - Applies balance updates only for newly inserted transfers.
 
 - `getBlockHash()`
@@ -132,6 +140,6 @@ Key operations:
 - `rollbackFromBlock()`
     - Loads transfers at and above a block.
     - Applies reverse transfers to balances.
-    - Deletes transfers, activities, and blocks from that block onward.
+    - Deletes transfers, fills, activities, and blocks from that block onward.
 
 ERC721 balance updates are done via delete/insert to enforce single-owner semantics. ERC1155 uses balance deltas in place.

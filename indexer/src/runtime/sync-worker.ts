@@ -366,6 +366,7 @@ async function publishOrderUpdateById(
         kind: ORDER_JOB_KIND.UpdateById,
         queue: QUEUE_NAMES.OrdersUpdateById,
         payload: {
+            chainId,
             orderId,
             reason,
             blockNumber: attribution.blockNumber,

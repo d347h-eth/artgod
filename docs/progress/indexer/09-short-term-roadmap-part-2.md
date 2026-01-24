@@ -28,9 +28,9 @@ This roadmap picks the next most important gaps after Phase 5. It focuses on get
 [x] Include block/tx attribution for each derived event.
 
 ### Phase 2: Fills Persistence and Order Status
-[ ] Add `fills` table with price/currency attribution.
-[ ] Update `orders.fillability_status` on fill/cancel events (partial fill later).
-[ ] Emit activity records for fills using persisted data.
+[x] Add `fills` table with price/currency attribution.
+[x] Update `orders.fillability_status` on fill/cancel events (partial fill later).
+[x] Emit activity records for fills using persisted data.
 
 ### Phase 3: ERC20 Payment + Maker Triggers
 [ ] Track ERC20 transfers related to fills (WETH/USDC) for pricing.

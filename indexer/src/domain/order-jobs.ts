@@ -17,6 +17,7 @@ export type OrderUpdateByMakerPayload = {
 
 // Order update by id = explicit fill/cancel/on-chain order create for a single order.
 export type OrderUpdateByIdPayload = {
+    chainId: number;
     orderId: string;
     reason: string;
     blockNumber: number;

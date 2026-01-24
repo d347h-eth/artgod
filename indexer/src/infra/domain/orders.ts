@@ -30,6 +30,10 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "WHERE chain_id = ? AND maker = ? AND contract = ? AND token_id = ? " +
             "AND fillability_status != ?",
     );
+    private updateOrderStatus = db.prepare<[string, number, string]>(
+        "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = ? AND id = ?",
+    );
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
         const { chainId, fromBlock, toBlock } = context;
@@ -91,10 +95,36 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         payload: OrderUpdateByIdPayload,
     ): Promise<void> {
         // Order updates by id handle explicit cancels/fills or on-chain order creation.
-        logger.debug("Orders update-by-id received", {
+        const status =
+            payload.reason === "fill"
+                ? ORDER_STATUS.Filled
+                : payload.reason === "cancel"
+                  ? ORDER_STATUS.Cancelled
+                  : payload.reason === "order"
+                    ? ORDER_STATUS.Fillable
+                    : null;
+
+        if (!status) {
+            logger.debug("Orders update-by-id ignored", {
+                component: "OrdersDomain",
+                action: "handleOrderUpdateById",
+                ...payload,
+            });
+            return;
+        }
+
+        const result = this.updateOrderStatus.run(
+            status,
+            payload.chainId,
+            payload.orderId,
+        );
+
+        logger.debug("Orders update-by-id applied", {
             component: "OrdersDomain",
             action: "handleOrderUpdateById",
             ...payload,
+            status,
+            updated: result.changes,
         });
     }
 }

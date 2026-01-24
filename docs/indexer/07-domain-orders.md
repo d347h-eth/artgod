@@ -39,7 +39,7 @@ Two queues are reserved for order maintenance:
 - `order-updates-by-maker`: re-validate all orders affected by maker state changes.
 - `order-updates-by-id`: update a specific order after fill/cancel/on-chain order creation.
 
-Handlers are currently stubs but the queues are wired end-to-end for future logic.
+Handlers now update order status by id for `fill`, `cancel`, and `order` triggers (best-effort, no insertion yet). Maker-based updates remain minimal and only log.
 
 ## Logic
 
@@ -58,6 +58,6 @@ On reorg rollback, orders that were invalidated by transfers in orphaned blocks 
 
 ## Current Scope and Limits
 
-- Only invalidation is implemented; no order creation or fill capture yet.
+- Order invalidation and status updates are implemented; order creation is still a stub (no insert yet).
 - The schema supports richer fields (price, currency, validity), but they are not populated at this stage.
 - This domain is intentionally minimal to keep the pipeline lean for MVP.
