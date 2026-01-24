@@ -40,7 +40,7 @@ const CASES = [
     {
         name: "seaport take bid (fulfillAdvancedOrder)",
         dumpPath:
-            "tmp/tx/0xff81723998672fc56590b551ce13ac409cb3f365219e2aef20fcf194652b7d00.json",
+            "indexer/tests/fixtures/tx/0xff81723998672fc56590b551ce13ac409cb3f365219e2aef20fcf194652b7d00.json",
         expected: {
             orderSide: "buy",
             maker: "0x8790aa2c89aece345bd8fe757bf8a675ea31af3c",
@@ -54,7 +54,7 @@ const CASES = [
     {
         name: "seaport take ask (fulfillBasicOrder_efficient_6GL6yc)",
         dumpPath:
-            "tmp/tx/0x30e4c9eabe1a74cb71ea2d9f4405318d277f0d0e5590f31d450704c5c98803cd.json",
+            "indexer/tests/fixtures/tx/0x30e4c9eabe1a74cb71ea2d9f4405318d277f0d0e5590f31d450704c5c98803cd.json",
         expected: {
             orderSide: "sell",
             maker: "0x3f51e7af7cf3e4be9af7b8f58324d0b085f4e4d9",
