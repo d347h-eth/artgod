@@ -5,16 +5,18 @@ import type {
     FillEvent,
 } from "../../domain/onchain.js";
 import type { Hex } from "../../ports/rpc.js";
+import {
+    findTrackedNftItem,
+    hasTrackedNft,
+    isCurrencyItem,
+    normalizeCurrency,
+    sumAmounts,
+    type SeaportItem,
+} from "./seaport-shared.js";
 
 type OrderSide = "sell" | "buy";
 
-type OfferItem = {
-    itemType: number;
-    token: Hex;
-    identifierOrCriteria: bigint;
-    startAmount: bigint;
-    endAmount: bigint;
-};
+type OfferItem = SeaportItem & { endAmount: bigint };
 
 type ConsiderationItem = OfferItem & { recipient: Hex };
 
@@ -218,7 +220,7 @@ const SEAPORT_ABI = [
     },
 ] as const;
 
-const SEAPORT_EXCHANGE_ADDRESSES = new Set(
+export const SEAPORT_EXCHANGE_ADDRESSES = new Set(
     [
         "0x00000000006c3852cbef3e08e8df289169ede581",
         "0x00000000000001ad428e4906ae43d8f9852d0dd6",
@@ -383,38 +385,6 @@ function decodeAdvancedOrderFill(
     };
 }
 
-// Ignore criteria-based items (itemType 4/5) until we add resolvers or logs-based matching.
-function findTrackedNftItem<T extends OfferItem | ConsiderationItem>(
-    items: T[],
-    collections: Set<string>,
-): { contract: string; tokenId: string; amount: string } | null {
-    for (const item of items) {
-        if (!isNftItem(item.itemType)) continue;
-        if (item.itemType >= 4) continue;
-        const token = item.token.toLowerCase();
-        if (!collections.has(token)) continue;
-        return {
-            contract: token,
-            tokenId: item.identifierOrCriteria.toString(),
-            amount: item.startAmount.toString(),
-        };
-    }
-    return null;
-}
-
-function hasTrackedNft<T extends OfferItem | ConsiderationItem>(
-    items: T[],
-    collections: Set<string>,
-): boolean {
-    for (const item of items) {
-        if (!isNftItem(item.itemType)) continue;
-        const token = item.token.toLowerCase();
-        if (!collections.has(token)) continue;
-        return true;
-    }
-    return false;
-}
-
 function resolveNftFromTransfers(
     events: EnhancedEvent[],
     collections: Set<string>,
@@ -433,21 +403,4 @@ function resolveNftFromTransfers(
 
 function firstTransferLogIndex(events: EnhancedEvent[]): number {
     return events[0]?.base.logIndex ?? 0;
-}
-
-function isCurrencyItem(itemType: number): boolean {
-    return itemType === 0 || itemType === 1;
-}
-
-function isNftItem(itemType: number): boolean {
-    return itemType >= 2 && itemType <= 5;
-}
-
-function sumAmounts(values: bigint[]): bigint {
-    return values.reduce((acc, value) => acc + value, 0n);
-}
-
-function normalizeCurrency(currency: string): string {
-    const lowered = currency.toLowerCase();
-    return lowered === zeroAddress ? zeroAddress : lowered;
 }

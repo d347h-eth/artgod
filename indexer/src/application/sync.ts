@@ -10,6 +10,11 @@ import type {
 } from "../domain/onchain.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
 import { decodeSeaportFill } from "./fills/seaport.js";
+import {
+    decodeSeaportOrderEvents,
+    getSeaportLogAddresses,
+    SEAPORT_EVENT_FILTERS,
+} from "./fills/seaport-events.js";
 
 export type SyncRange = {
     fromBlock: number;
@@ -66,6 +71,13 @@ export async function syncRange(
         events: TRANSFER_EVENTS,
     });
 
+    const seaportLogs = await rpc.getLogs({
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+        address: getSeaportLogAddresses(),
+        events: SEAPORT_EVENT_FILTERS,
+    });
+
     const enhancedEvents: EnhancedEvent[] = [];
     for (const log of logs) {
         enhancedEvents.push(...decodeTransferLog(log));
@@ -75,7 +87,15 @@ export async function syncRange(
     const collectionSet = new Set(
         collections.map((collection) => collection.address.toLowerCase()),
     );
-    return accumulateOnChainData(transactions, collectionSet);
+    const data = accumulateOnChainData(transactions, collectionSet);
+    const seaportEvents = decodeSeaportOrderEvents(
+        seaportLogs,
+        collectionSet,
+    );
+    data.cancelEvents.push(...seaportEvents.cancels);
+    data.orderInfos.push(...seaportEvents.orders);
+    data.makerInfos.push(...seaportEvents.makerInfos);
+    return data;
 }
 
 /**

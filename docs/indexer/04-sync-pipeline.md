@@ -68,7 +68,7 @@ Before accumulating `OnChainData`, decoded events are grouped by transaction has
 
 Transactions associated with transfer events are persisted into SQLite so downstream order-fill logic can reuse calldata without re-fetching.
 
-Seaport fills are currently decoded from transaction calldata (no traces) and emitted as `fillEvents` when the tx calls a Seaport exchange and references a tracked collection. Cancels and on-chain order creation are still stubs.
+Seaport fills are decoded from transaction calldata (no traces) and emitted as `fillEvents` when the tx calls a Seaport exchange and references a tracked collection. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `cancelEvents`/`orderInfos` (criteria-based orders are skipped for now). Counter increments emit maker triggers (`order-counter`).
 
 Maker triggers are derived from NFT transfers and are published as order update jobs; other trigger types (fills, cancels, on-chain orders) are defined but only Seaport fills are extracted so far.
 

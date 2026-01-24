@@ -62,12 +62,16 @@ export type OrderInfo = ChainAttribution & {
     currency?: string;
 };
 
-// Maker trigger = maker's fillability changed (balance/approval/ownership).
+// Maker trigger = maker's fillability changed (balance/approval/ownership/counter).
 export type MakerInfo = ChainAttribution & {
     maker: string;
     contract?: string;
     tokenId?: string;
-    reason: "nft-transfer" | "erc20-balance" | "approval-change";
+    reason:
+        | "nft-transfer"
+        | "erc20-balance"
+        | "approval-change"
+        | "order-counter";
 };
 
 export type TransactionRecord = {
