@@ -13,6 +13,7 @@ export type OrderRecord = {
     chainId: number;
     kind: string;
     side?: "buy" | "sell" | null;
+    source?: string | null;
     maker: string;
     taker?: string | null;
     contract: string;
@@ -22,6 +23,7 @@ export type OrderRecord = {
     validFrom?: number | null;
     validUntil?: number | null;
     fillabilityStatus: OrderStatus;
+    rawData?: string | null;
     blockNumber?: number | null;
     txHash?: string | null;
     logIndex?: number | null;

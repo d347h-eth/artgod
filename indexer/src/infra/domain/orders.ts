@@ -4,6 +4,7 @@ import { ORDER_STATUS } from "../../domain/orders.js";
 import type {
     OrderUpdateByIdPayload,
     OrderUpdateByMakerPayload,
+    OrderUpsertPayload,
 } from "../../domain/order-jobs.js";
 import type {
     DomainSyncContext,
@@ -33,6 +34,40 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     private updateOrderStatus = db.prepare<[string, number, string]>(
         "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = ? AND id = ?",
+    );
+    private upsertOrder = db.prepare<{
+        id: string;
+        chainId: number;
+        kind: string;
+        side: string;
+        source: string;
+        maker: string;
+        taker: string | null;
+        contract: string;
+        tokenId: string;
+        price: string | null;
+        currency: string | null;
+        validFrom: number | null;
+        validUntil: number | null;
+        fillabilityStatus: string;
+        rawData: string | null;
+    }>(
+        "INSERT INTO orders (id, chain_id, kind, side, source, maker, taker, contract, token_id, price, currency, valid_from, valid_until, fillability_status, raw_data) " +
+            "VALUES (@id, @chainId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @rawData) " +
+            "ON CONFLICT(id) DO UPDATE SET " +
+            "kind = excluded.kind, " +
+            "side = excluded.side, " +
+            "source = excluded.source, " +
+            "maker = excluded.maker, " +
+            "taker = excluded.taker, " +
+            "contract = excluded.contract, " +
+            "token_id = excluded.token_id, " +
+            "price = excluded.price, " +
+            "currency = excluded.currency, " +
+            "valid_from = excluded.valid_from, " +
+            "valid_until = excluded.valid_until, " +
+            "raw_data = excluded.raw_data, " +
+            "updated_at = CURRENT_TIMESTAMP",
     );
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
@@ -124,6 +159,39 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             action: "handleOrderUpdateById",
             ...payload,
             status,
+            updated: result.changes,
+        });
+    }
+
+    async handleOrderUpsert(payload: OrderUpsertPayload): Promise<void> {
+        const rawData = payload.rawData
+            ? JSON.stringify(payload.rawData)
+            : null;
+        const result = this.upsertOrder.run({
+            id: payload.orderId,
+            chainId: payload.chainId,
+            kind: payload.kind,
+            side: payload.side,
+            source: payload.source,
+            maker: payload.maker,
+            taker: payload.taker ?? null,
+            contract: payload.contract,
+            tokenId: payload.tokenId,
+            price: payload.price ?? null,
+            currency: payload.currency ?? null,
+            validFrom: payload.validFrom ?? null,
+            validUntil: payload.validUntil ?? null,
+            fillabilityStatus: ORDER_STATUS.Fillable,
+            rawData,
+        });
+
+        logger.debug("Orders upsert applied", {
+            component: "OrdersDomain",
+            action: "handleOrderUpsert",
+            orderId: payload.orderId,
+            chainId: payload.chainId,
+            kind: payload.kind,
+            side: payload.side,
             updated: result.changes,
         });
     }

@@ -20,6 +20,7 @@ import {
     ORDER_JOB_KIND,
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
+    type OrderUpsertPayload,
 } from "../domain/order-jobs.js";
 
 async function main() {
@@ -90,6 +91,21 @@ async function main() {
             },
         );
 
+        const stopOrderUpserts = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.OrdersUpsert,
+                consumerName: `orders-upsert-${config.chainId}`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job: JobEnvelope<OrderUpsertPayload>) => {
+                if (job.kind !== ORDER_JOB_KIND.Upsert) return;
+                await ordersDomain.handleOrderUpsert(job.payload);
+            },
+        );
+
         const stopMetadata = await runWorker(
             queue,
             {
@@ -133,6 +149,7 @@ async function main() {
             await stopOrders();
             await stopOrderUpdatesByMaker();
             await stopOrderUpdatesById();
+            await stopOrderUpserts();
             await stopMetadata();
             await stopActivity();
             await queue.close();

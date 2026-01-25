@@ -21,6 +21,8 @@ The orders domain consumes `domain.orders.sync` jobs. Each job provides:
 
 The domain reads transfer events from `nft_transfer_events` within the block range.
 
+The orders domain also consumes `orders.upsert` jobs for offchain order ingestion. These jobs carry a normalized order payload (maker/side/price/token) and are persisted directly into the `orders` table.
+
 ## Trigger Meanings
 
 The indexer uses four trigger categories to keep the orderbook correct:
@@ -42,12 +44,13 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam w
 
 ## Order Update Queues
 
-Two queues are reserved for order maintenance:
+Order queues used by the domain:
 
+- `orders-upsert`: insert/update normalized offchain orders.
 - `order-updates-by-maker`: re-validate all orders affected by maker state changes.
 - `order-updates-by-id`: update a specific order after fill/cancel/on-chain order creation.
 
-Handlers now update order status by id for `fill`, `cancel`, and `order` triggers (best-effort, no insertion yet). Maker-based updates remain minimal and only log.
+Handlers now update order status by id for `fill`, `cancel`, and `order` triggers. Maker-based updates remain minimal and only log.
 
 ## Logic
 
@@ -66,6 +69,6 @@ On reorg rollback, orders that were invalidated by transfers in orphaned blocks 
 
 ## Current Scope and Limits
 
-- Order invalidation and status updates are implemented; order creation is still a stub (no insert yet).
-- The schema supports richer fields (price, currency, validity), but they are not populated at this stage.
+- Order invalidation, status updates, and offchain order upserts are implemented.
+- The schema supports richer fields (price, currency, validity), but only the normalized subset is populated.
 - This domain is intentionally minimal to keep the pipeline lean for MVP.

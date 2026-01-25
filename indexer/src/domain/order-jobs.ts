@@ -1,6 +1,7 @@
 export const ORDER_JOB_KIND = {
     UpdateByMaker: "orders.update-by-maker",
     UpdateById: "orders.update-by-id",
+    Upsert: "orders.upsert",
 } as const;
 
 // Maker update = fillability changed (balance/approval/ownership), re-validate orders.
@@ -24,4 +25,21 @@ export type OrderUpdateByIdPayload = {
     blockHash: string;
     txHash: string;
     logIndex: number;
+};
+
+export type OrderUpsertPayload = {
+    chainId: number;
+    orderId: string;
+    kind: string;
+    side: "buy" | "sell";
+    maker: string;
+    taker?: string | null;
+    contract: string;
+    tokenId: string;
+    price?: string | null;
+    currency?: string | null;
+    validFrom?: number | null;
+    validUntil?: number | null;
+    source: string;
+    rawData?: unknown;
 };

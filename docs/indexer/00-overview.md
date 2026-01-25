@@ -35,6 +35,10 @@ Each runtime is an independent Node.js process. There is no shared memory across
     - Consumes domain jobs (orders, metadata, activities).
     - Writes domain-specific tables derived from transfer events.
 
+- Offchain ingest runtime (`indexer/src/runtime/offchain-ingest-worker.ts`)
+    - Consumes raw offchain order payloads.
+    - Validates and normalizes them into order upsert jobs.
+
 - Dead-letter runtime (`indexer/src/runtime/dead-letter-worker.ts`)
     - Consumes dead-letter jobs and logs failures.
 
@@ -84,6 +88,8 @@ These are the assumptions that the implementation relies on and should be preser
 6. Reorg worker verifies block hashes and rolls back on mismatch.
 
 This flow is designed to be minimal and durable without requiring centralized services.
+
+Offchain orders follow a separate ingestion path (raw queue → normalize → orders upsert) and then join the same order maintenance pipeline.
 
 ## Code Map
 

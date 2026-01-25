@@ -35,6 +35,7 @@ start_worker "indexer-scheduler" "dev:scheduler"
 start_worker "indexer-sync-worker" "dev:sync-worker"
 start_worker "indexer-reorg-worker" "dev:reorg-worker"
 start_worker "indexer-domain-worker" "dev:domain-worker"
+start_worker "indexer-offchain-ingest" "dev:offchain-ingest"
 start_worker "indexer-dead-letter-worker" "dev:dead-letter-worker"
 
 echo "Indexer workers running. Logs: $LOG_DIR"

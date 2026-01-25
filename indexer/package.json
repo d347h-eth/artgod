@@ -9,6 +9,7 @@
         "dev:sync-worker": "tsx src/runtime/sync-worker.ts",
         "dev:reorg-worker": "tsx src/runtime/reorg-worker.ts",
         "dev:domain-worker": "tsx src/runtime/domain-worker.ts",
+        "dev:offchain-ingest": "tsx src/runtime/offchain-ingest-worker.ts",
         "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts",
         "test": "vitest run",
         "test:watch": "vitest"

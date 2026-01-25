@@ -9,7 +9,9 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `events-sync-realtime`
 - `events-sync-backfill`
 - `block-check`
+- `offchain-orders-raw`
 - `orders-domain`
+- `orders-upsert`
 - `order-updates-by-maker`
 - `order-updates-by-id`
 - `metadata-domain`
@@ -107,9 +109,13 @@ DLQ payload:
     - `domain.activity.sync`
 
 - Order update jobs (`indexer/src/domain/order-jobs.ts`):
+    - `orders.upsert`
     - `orders.update-by-maker`
     - `orders.update-by-id`
 
 Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected.
 
-These jobs are produced by the scheduler and sync worker, and consumed by the sync, reorg, and domain runtimes.
+- Offchain ingestion jobs (`indexer/src/domain/offchain-jobs.ts`):
+    - `offchain.order.raw`
+
+These jobs are produced by the scheduler, sync worker, and offchain ingest worker, and consumed by the sync, reorg, and domain runtimes.
