@@ -1,0 +1,91 @@
+{
+    "payload": {
+        "asset_contract_criteria": {
+            "address": "0x4e1f41613c9084fdb9e34e11fae9412427480e56"
+        },
+        "base_price": "310000000000000000",
+        "chain": "ethereum",
+        "collection": {
+            "slug": "terraforms"
+        },
+        "collection_criteria": {
+            "slug": "terraforms"
+        },
+        "created_date": "2026-01-07T23:51:45.000000Z",
+        "event_timestamp": "2026-01-07T23:51:45.780558Z",
+        "expiration_date": "2026-01-08T00:51:45.000000Z",
+        "item": {},
+        "maker": {
+            "address": "0x05063421b914020dbac2bc004c9f2111fff937ba"
+        },
+        "order_hash": "0x1c8b83a8b0c76f0b8634c2b133c0addc3222783c71d996167513c5d143e5f671",
+        "payment_token": {
+            "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+            "decimals": 18,
+            "eth_price": "0.31",
+            "name": "WETH",
+            "symbol": "WETH",
+            "usd_price": "980.61529541516915975209354747438077"
+        },
+        "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+        "protocol_data": {
+            "parameters": {
+                "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                "consideration": [
+                    {
+                        "endAmount": "1",
+                        "identifierOrCriteria": "56736643180383186124848522525180634484082910046725719939923125349989338275881",
+                        "itemType": 4,
+                        "recipient": "0x05063421b914020dbac2bc004c9f2111fff937ba",
+                        "startAmount": "1",
+                        "token": "0x4e1f41613c9084fdb9e34e11fae9412427480e56"
+                    },
+                    {
+                        "endAmount": "3100000000000000",
+                        "identifierOrCriteria": "0",
+                        "itemType": 1,
+                        "recipient": "0x0000a26b00c1f0df003000390027140000faa719",
+                        "startAmount": "3100000000000000",
+                        "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+                    }
+                ],
+                "counter": "0x0",
+                "endTime": "1767833505",
+                "offer": [
+                    {
+                        "endAmount": "310000000000000000",
+                        "identifierOrCriteria": "0",
+                        "itemType": 1,
+                        "startAmount": "310000000000000000",
+                        "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+                    }
+                ],
+                "offerer": "0x05063421b914020dbac2bc004c9f2111fff937ba",
+                "orderType": 3,
+                "salt": "887778",
+                "startTime": "1767829905",
+                "totalOriginalConsiderationItems": 2,
+                "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+                "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "signature": "0xe52fd5f3134e302eea948a99ea19975a62efc11faf358463eacb5f8c9d2aa7bf3c55b025c5040620796d10cf71984525d6ebb76690efb992ff7ef2f761d60a8d"
+        },
+        "quantity": 1,
+        "taker": {
+            "address": "0x0000000000000000000000000000000000000000"
+        },
+        "trait_criteria": null,
+        "trait_criteria_list": [
+            {
+                "trait_name": "81",
+                "trait_type": "Biome"
+            },
+            {
+                "trait_name": "Terrain",
+                "trait_type": "Mode"
+            }
+        ]
+    },
+    "event_type": "trait_offer",
+    "sent_at": "2026-01-07T23:51:57.288963Z"
+}

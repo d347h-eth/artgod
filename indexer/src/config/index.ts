@@ -35,7 +35,7 @@ export type IndexerConfig = {
     collections: CollectionConfig[];
 };
 
-function parseNumber(
+export function parseNumber(
     value: string | undefined,
     name: string,
     defaultValue?: number,
@@ -49,6 +49,16 @@ function parseNumber(
         throw new Error(`Invalid ${name}: ${value}`);
     }
     return parsed;
+}
+
+export function parseRequiredString(
+    value: string | undefined,
+    name: string,
+): string {
+    if (!value) {
+        throw new Error(`Missing ${name}`);
+    }
+    return value;
 }
 
 function parseCollections(value: string | undefined): CollectionConfig[] {

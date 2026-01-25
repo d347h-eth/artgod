@@ -38,7 +38,7 @@ This roadmap picks the next most important gaps after Phase 5. It focuses on get
 [x] Extend maker triggers beyond NFT transfers.
 
 ### Phase 4: Offchain Orders (Skeleton)
-[ ] Add OpenSea stream listener and raw payload queue.
+[x] Add OpenSea stream listener (fixture replay stub) and raw payload queue.
 [ ] Validate and normalize payloads into `orders` rows.
 [ ] Trigger `order-updates-by-id` for immediate re-validation.
 

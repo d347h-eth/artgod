@@ -1,0 +1,8 @@
+{
+    "chain": { "name": "ethereum" },
+    "collection": { "slug": "pudgypenguins" },
+    "event_timestamp": "2023-06-02T19:47:50.950428+00:00",
+    "item": {},
+    "order_hash": "0xeb3f34e967bc969932d1c4b55c49d7160dc3fa2c899745f42dbe383b98f60ec0",
+    "protocol_address": "0x00000000000000adc04c56bf30ac9d3c0aaf14dc"
+}

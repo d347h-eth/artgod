@@ -1,0 +1,34 @@
+{
+    "event": "item_transferred",
+    "sent_at": "2022-12-01T16:54:22.678783+00:00",
+    "payload": {
+        "event_type": "item_transferred",
+        "payload": {
+            "collection": {
+                "slug": "nekozuma-eth"
+            },
+            "event_timestamp": "2022-12-01T16:54:22.483931+00:00",
+            "from_account": {
+                "address": "0x0000000000000000000000000000000000000000"
+            },
+            "item": {
+                "chain": {
+                    "name": "ethereum"
+                },
+                "metadata": {
+                    "animation_url": null,
+                    "image_url": "https://i.seadn.io/gae/Ru9zC_9EwLdxjXTau9SpwkRFlSYoV635M2q1hDp6BTOBQnsWlWRp0ZRJ5dWS2A0HVgb7ix38M8ywrCrjLj9blCbuDivi1qtNt6CV87w?w=500&auto=format",
+                    "metadata_url": null,
+                    "name": "Nekozuma #8484"
+                },
+                "nft_id": "ethereum/0x495f947276749ce646f68ac8c248420045cb7b5e/91577084333317265455693574180089203123053062749515767918158455086200710496257",
+                "permalink": "https://opensea.io/assets/ethereum/0x495f947276749ce646f68ac8c248420045cb7b5e/91577084333317265455693574180089203123053062749515767918158455086200710496257"
+            },
+            "quantity": 1,
+            "to_account": {
+                "address": "0xca76cafcb62c22f9c59a36287f0a6e0979834e04"
+            },
+            "transaction": null
+        }
+    }
+}

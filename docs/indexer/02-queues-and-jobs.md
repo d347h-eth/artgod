@@ -118,4 +118,6 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 - Offchain ingestion jobs (`indexer/src/domain/offchain-jobs.ts`):
     - `offchain.order.raw`
 
+`offchain.order.raw` jobs are produced by the OpenSea stream worker (fixture stub today) and consumed by the offchain ingest worker.
+
 These jobs are produced by the scheduler, sync worker, and offchain ingest worker, and consumed by the sync, reorg, and domain runtimes.

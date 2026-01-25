@@ -1,0 +1,13 @@
+{
+    "event_type": "item_metadata_updated",
+    "sent_at": "2022-04-25T23:32:14.486643+00:00",
+    "payload": {
+        "name": "Doodle #222",
+        "description": "A community-driven collectibles project featuring art by Burnt Toast. Doodles come...",
+        "image_preview_url": "https://lh3.googleusercontent.com/R7wtoDNdmM7GhTvVjr4JGA6q60z44Hn2nIymPjAEXcjnD8oBPxQYPA1GkrCnvepPM1Sc8DlIHZql4Yucj4ger1jnWmxmuRFwIC_JRw",
+        "animation_url": null,
+        "background_color": "#000000",
+        "metadata_url": "https://opensea.mypinata.cloud/ipfs/QmPMc4tcBsMqLRuCQtPmPe84bpSjrC3Ky7t3JWuHXYB4aS/222",
+        "traits": []
+    }
+}

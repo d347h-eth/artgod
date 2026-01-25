@@ -4,7 +4,7 @@ This document describes the explicit configuration model used by the indexer and
 
 ## Runtime Config Loader
 
-Config is loaded in `indexer/src/config/index.ts` and returned as an explicit `IndexerConfig` object. There are no scattered `process.env` reads in runtime logic; values are pulled once and passed through.
+Config is loaded in `indexer/src/config/index.ts` (sync/scheduler/domain workers) and `indexer/src/config/offchain.ts` (offchain stream worker). There are no scattered `process.env` reads in runtime logic; values are pulled once and passed through.
 
 - `.env` is loaded at startup via `dotenv`.
 - `loadConfig()` reads the current environment and produces a typed config object.
@@ -48,6 +48,14 @@ The indexer reads these variables from the root `.env`:
 
 `RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
 
+### Offchain Stream (.env)
+
+The OpenSea stream stub uses a separate config loader (`indexer/src/config/offchain.ts`) and requires:
+
+- `OPENSEA_STREAM_MODE` (required, current supported value: `fixtures`)
+- `OPENSEA_FIXTURES_DIR` (required, directory with JSON payloads)
+- `OPENSEA_FIXTURE_DELAY_MS` (optional, delay between fixture events)
+
 Example (from `.env.example`):
 
 ```
@@ -63,6 +71,9 @@ LOG_CHUNK_SIZE=2000
 CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
 TARGET_COLLECTIONS=[]
+OPENSEA_STREAM_MODE=fixtures
+OPENSEA_FIXTURES_DIR=indexer/tests/fixtures/opensea-event-payloads
+OPENSEA_FIXTURE_DELAY_MS=0
 ```
 
 ## Test Environment (.env.test)

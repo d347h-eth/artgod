@@ -1,0 +1,88 @@
+{
+    "event_type": "trait_offer",
+    "sent_at": "2022-12-01T16:09:09.819426+00:00",
+    "payload": {
+        "asset_contract_criteria": {
+            "address": "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e"
+        },
+        "base_price": "6765100000000000000",
+        "collection": {
+            "slug": "doodles-official"
+        },
+        "collection_criteria": {
+            "slug": "doodles-official"
+        },
+        "created_date": "2022-12-01T16:09:05.000000+00:00",
+        "event_timestamp": "2022-12-01T16:09:09.698051+00:00",
+        "expiration_date": "2022-12-01T16:38:56.000000+00:00",
+        "item": {},
+        "maker": {
+            "address": "0xca9c5d7be1ab0e85791682234873445e0cdff91a"
+        },
+        "order_hash": "0x3fd21a47a5de18c9ec2adfb5ae902586a03a2171014e90dfa7ea1d1baa91277c",
+        "payment_token": {
+            "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+            "decimals": 18,
+            "eth_price": "1.000000000000000",
+            "name": "Wrapped Ether",
+            "symbol": "WETH",
+            "usd_price": "1215.779999999999973000"
+        },
+        "protocol_data": {
+            "parameters": {
+                "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                "consideration": [
+                    {
+                        "endAmount": 1,
+                        "identifierOrCriteria": 1.0153774396642053e77,
+                        "itemType": 4,
+                        "recipient": "0xcA9C5D7Be1aB0e85791682234873445e0CDfF91a",
+                        "startAmount": 1,
+                        "token": "0x8a90CAb2b38dba80c64b7734e58Ee1dB38B8992e"
+                    },
+                    {
+                        "endAmount": 169127500000000000,
+                        "identifierOrCriteria": 0,
+                        "itemType": 1,
+                        "recipient": "0x0000a26b00c1F0DF003000390027140000fAa719",
+                        "startAmount": 169127500000000000,
+                        "token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                    },
+                    {
+                        "endAmount": 338255000000000000,
+                        "identifierOrCriteria": 0,
+                        "itemType": 1,
+                        "recipient": "0xd1F124cc900624e1ff2d923180b3924147364380",
+                        "startAmount": 338255000000000000,
+                        "token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                    }
+                ],
+                "counter": 0,
+                "endTime": 1669912736,
+                "offer": [
+                    {
+                        "endAmount": 6765100000000000000,
+                        "identifierOrCriteria": 0,
+                        "itemType": 1,
+                        "startAmount": 6765100000000000000,
+                        "token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                    }
+                ],
+                "offerer": "0xcA9C5D7Be1aB0e85791682234873445e0CDfF91a",
+                "orderType": 2,
+                "salt": 2.444686030276174e76,
+                "startTime": 1669910945,
+                "totalOriginalConsiderationItems": 3,
+                "zone": "0x004C00500000aD104D7DBd00e3ae0A5C00560C00",
+                "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "signature": "0xfcf9251daed3f056a2f493e84e45fee453238a366b8743b94e93e7f99354c9164c67b83cc153b627f3821497f9efb80293e264d4c085d0da0da4f005a08d8f0a1b"
+        },
+        "quantity": 1,
+        "taker": null,
+        "trait_criteria": {
+            "trait_name": "airpod",
+            "trait_type": "piercing"
+        }
+    }
+}

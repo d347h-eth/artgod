@@ -1,0 +1,93 @@
+{
+    "event": "item_received_bid",
+    "sent_at": "2022-12-01T16:09:45.682302+00:00",
+    "payload": {
+        "event_type": "item_received_bid",
+        "payload": {
+            "base_price": "6700000000000000000",
+            "collection": {
+                "slug": "doodles-official"
+            },
+            "created_date": "2022-12-01T16:06:02.000000+00:00",
+            "event_timestamp": "2022-12-01T16:09:45.323409+00:00",
+            "expiration_date": "2022-12-01T18:05:57.000000+00:00",
+            "item": {
+                "chain": {
+                    "name": "ethereum"
+                },
+                "metadata": {
+                    "animation_url": null,
+                    "image_url": "https://i.seadn.io/gae/vN4OHaxW-8w20AvXuV6ivA-mxVa65lyfNeqJnUZGh-XGfDaQ47t2YHTwPlBLsjPKF1SUlLu5ecEfY1IlC1kZvL8rMDArkId2ICXKgxI?w=500&auto=format",
+                    "metadata_url": "https://opensea.mypinata.cloud/ipfs/QmPMc4tcBsMqLRuCQtPmPe84bpSjrC3Ky7t3JWuHXYB4aS/5470",
+                    "name": "Doodle #5470"
+                },
+                "nft_id": "ethereum/0x8a90cab2b38dba80c64b7734e58ee1db38b8992e/5470",
+                "permalink": "https://opensea.io/assets/ethereum/0x8a90cab2b38dba80c64b7734e58ee1db38b8992e/5470"
+            },
+            "maker": {
+                "address": "0xd71d23b29d7ba769c0d9d96c35ec4360e7009208"
+            },
+            "order_hash": "0x517c578fbd8b1c62fd082a8ac36505c663125a130df4f348100ef092142e0696",
+            "payment_token": {
+                "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                "decimals": 18,
+                "eth_price": "1.000000000000000",
+                "name": "Wrapped Ether",
+                "symbol": "WETH",
+                "usd_price": "1215.779999999999973000"
+            },
+            "protocol_data": {
+                "parameters": {
+                    "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                    "consideration": [
+                        {
+                            "endAmount": 1,
+                            "identifierOrCriteria": 5470,
+                            "itemType": 2,
+                            "recipient": "0xD71D23b29d7BA769C0D9D96c35ec4360e7009208",
+                            "startAmount": 1,
+                            "token": "0x8a90CAb2b38dba80c64b7734e58Ee1dB38B8992e"
+                        },
+                        {
+                            "endAmount": 167500000000000000,
+                            "identifierOrCriteria": 0,
+                            "itemType": 1,
+                            "recipient": "0x0000a26b00c1F0DF003000390027140000fAa719",
+                            "startAmount": 167500000000000000,
+                            "token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                        },
+                        {
+                            "endAmount": 335000000000000000,
+                            "identifierOrCriteria": 0,
+                            "itemType": 1,
+                            "recipient": "0xd1F124cc900624e1ff2d923180b3924147364380",
+                            "startAmount": 335000000000000000,
+                            "token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                        }
+                    ],
+                    "counter": 4,
+                    "endTime": 1669917957,
+                    "offer": [
+                        {
+                            "endAmount": 6700000000000000000,
+                            "identifierOrCriteria": 0,
+                            "itemType": 1,
+                            "startAmount": 6700000000000000000,
+                            "token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                        }
+                    ],
+                    "offerer": "0xD71D23b29d7BA769C0D9D96c35ec4360e7009208",
+                    "orderType": 3,
+                    "salt": 1.6131127139061878e38,
+                    "startTime": 1669910762,
+                    "totalOriginalConsiderationItems": 3,
+                    "zone": "0x004C00500000aD104D7DBd00e3ae0A5C00560C00",
+                    "zoneHash": "0x3400000000000000000000000000000000000000000000000000000000000000"
+                },
+                "signature": "0xe65c22e99dbde18697bb2a1c90b867f3fbb510004a3b040f945f182bf5fa7b6d770f99b31de68eebc68f1a813073ad2245d05b42ffd12787a33a3466dd409dd9"
+            },
+            "quantity": 1,
+            "taker": null
+        }
+    }
+}

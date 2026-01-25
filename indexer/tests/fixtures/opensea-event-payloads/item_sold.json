@@ -1,0 +1,100 @@
+{
+    "event": "item_sold",
+    "sent_at": "2022-12-01T16:54:27.741979+00:00",
+    "payload": {
+        "event_type": "item_sold",
+        "payload": {
+            "closing_date": "2022-12-01T16:54:23.000000+00:00",
+            "collection": {
+                "slug": "sneakerheadsofficial"
+            },
+            "event_timestamp": "2022-12-01T16:54:23.000000+00:00",
+            "is_private": false,
+            "item": {
+                "chain": {
+                    "name": "ethereum"
+                },
+                "metadata": {
+                    "animation_url": null,
+                    "image_url": "https://i.seadn.io/gae/7k408lJucpd0xYOlfvucW50zsXfa53YvdhsRZ_Y_mkmR1mUcNxPKoUphLbgHjLE7-qd5fvnYKBkyGxPsIyV2zQhLy2jjH4KVr8gqeg?w=500&auto=format",
+                    "metadata_url": "https://api.sneakerheads.xyz/sneaker/3884",
+                    "name": "SNEAKERHEADS #3884"
+                },
+                "nft_id": "ethereum/0x8dc7b6ec6fafa36085ee9ec8e39112428d3360aa/3884",
+                "permalink": "https://opensea.io/assets/ethereum/0x8dc7b6ec6fafa36085ee9ec8e39112428d3360aa/3884"
+            },
+            "listing_type": null,
+            "maker": {
+                "address": "0x16ce6c6662510faf7c34bb1406fd8c20641db9e3"
+            },
+            "order_hash": "0x2fba6c445b08e38e013a96463b69242cfed5b41459a9635fed28eff3809ce9b8",
+            "payment_token": {
+                "address": "0x0000000000000000000000000000000000000000",
+                "decimals": 18,
+                "eth_price": "1.000000000000000",
+                "name": "Ether",
+                "symbol": "ETH",
+                "usd_price": "1287.160000000000082000"
+            },
+            "protocol_data": {
+                "parameters": {
+                    "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                    "consideration": [
+                        {
+                            "endAmount": 138750000000000000,
+                            "identifierOrCriteria": 0,
+                            "itemType": 0,
+                            "recipient": "0x16Ce6c6662510faF7C34bb1406fd8c20641db9E3",
+                            "startAmount": 138750000000000000,
+                            "token": "0x0000000000000000000000000000000000000000"
+                        },
+                        {
+                            "endAmount": 3750000000000000,
+                            "identifierOrCriteria": 0,
+                            "itemType": 0,
+                            "recipient": "0x0000a26b00c1F0DF003000390027140000fAa719",
+                            "startAmount": 3750000000000000,
+                            "token": "0x0000000000000000000000000000000000000000"
+                        },
+                        {
+                            "endAmount": 7500000000000000,
+                            "identifierOrCriteria": 0,
+                            "itemType": 0,
+                            "recipient": "0x025B188919DC10b42aE5bC85134300628F834E96",
+                            "startAmount": 7500000000000000,
+                            "token": "0x0000000000000000000000000000000000000000"
+                        }
+                    ],
+                    "counter": 0,
+                    "endTime": 1671471291,
+                    "offer": [
+                        {
+                            "endAmount": 1,
+                            "identifierOrCriteria": 3884,
+                            "itemType": 2,
+                            "startAmount": 1,
+                            "token": "0x8dC7b6EC6FafA36085EE9ec8e39112428D3360aa"
+                        }
+                    ],
+                    "offerer": "0x16Ce6c6662510faF7C34bb1406fd8c20641db9E3",
+                    "orderType": 2,
+                    "salt": 2.444686030276174e76,
+                    "startTime": 1669555611,
+                    "totalOriginalConsiderationItems": 3,
+                    "zone": "0x004C00500000aD104D7DBd00e3ae0A5C00560C00",
+                    "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                "signature": "0x"
+            },
+            "quantity": 1,
+            "sale_price": "150000000000000000",
+            "taker": {
+                "address": "0xa16f1cba10737adff9b7ed6f12bd3fcfe93c2d8e"
+            },
+            "transaction": {
+                "hash": "0x27b04793393f06f5529bed99bfb35f8af2487a478a7ace121ebc1f057c77c6b1",
+                "timestamp": "2022-12-01T16:54:23.000000+00:00"
+            }
+        }
+    }
+}

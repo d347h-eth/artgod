@@ -1,0 +1,28 @@
+{
+    "event_type": "item_cancelled",
+    "sent_at": "2022-04-25T23:32:14.486643+00:00",
+    "payload": {
+        "base_price": "24840000000000000000",
+        "event_timestamp": "2022-04-21T16:46:46.240222+00:00",
+        "expiration_date": "2022-05-17T04:36:50.000000+00:00",
+        "is_private": false,
+        "listing_date": "2022-04-21T17:10:54.000000+00:00",
+        "listing_type": null,
+        "maker": { "address": "0xc4b08a8009763dab8c2fb44a59d8f1c23e8c11e5" },
+        "order_hash": "0xe7385bf786154848873d89e0b4e2e03406e396ee9d3cb4da47f801f719c0a792",
+        "payment_token": {
+            "address": "0x0000000000000000000000000000000000000000",
+            "decimals": 18,
+            "eth_price": "1",
+            "name": "Ether",
+            "symbol": "ETH",
+            "usd_price": "3070.02"
+        },
+        "quantity": 1,
+        "taker": null,
+        "transaction": {
+            "hash": "0x5220ed591129adca7bac908b135a14fa1c88ee190cee9e88324c6af8f7c693e3",
+            "timestamp": "2022-04-21T18:51:43.000000+00:00"
+        }
+    }
+}

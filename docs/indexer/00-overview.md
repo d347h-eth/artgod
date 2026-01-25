@@ -39,6 +39,9 @@ Each runtime is an independent Node.js process. There is no shared memory across
     - Consumes raw offchain order payloads.
     - Validates and normalizes them into order upsert jobs.
 
+- OpenSea stream runtime (`indexer/src/runtime/opensea-stream-worker.ts`)
+    - Replays OpenSea fixture payloads into the raw offchain queue (stub).
+
 - Dead-letter runtime (`indexer/src/runtime/dead-letter-worker.ts`)
     - Consumes dead-letter jobs and logs failures.
 
