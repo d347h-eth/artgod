@@ -1,96 +1,95 @@
 {
-    "event": "item_listed",
-    "sent_at": "2022-12-01T16:54:24.212517+00:00",
     "payload": {
-        "event_type": "item_listed",
-        "payload": {
-            "base_price": "5000000000000000",
-            "collection": {
-                "slug": "boredfrens"
+        "base_price": "989199990000000000",
+        "chain": "ethereum",
+        "collection": { "slug": "milady" },
+        "event_timestamp": "2026-01-25T23:21:37.342026Z",
+        "expiration_date": "2026-01-25T23:36:37.000000Z",
+        "is_private": false,
+        "item": {
+            "chain": { "name": "ethereum" },
+            "metadata": {
+                "animation_url": null,
+                "background_color": null,
+                "description": "[Milady Maker](https://www.miladymaker.net) is a collection of 10,000 generative pfpNFT's in a neochibi aesthetic inspired by Tokyo street style tribes.",
+                "image_url": "https://i2c.seadn.io/ethereum/0x5af0d9827e0c53e4799bb226655a1de152a425a5/6d2462f04562fff2618a6223eadc7086.png",
+                "metadata_url": null,
+                "name": "Milady 2522",
+                "traits": [
+                    { "trait_type": "Core", "value": "gyaru" },
+                    { "trait_type": "Eyes", "value": "dilated" },
+                    { "trait_type": "Hair", "value": "og green" },
+                    { "trait_type": "Race", "value": "tan" },
+                    { "trait_type": "Shirt", "value": "jesus tank" },
+                    { "trait_type": "Number", "value": "2522" },
+                    { "trait_type": "Earring", "value": "loop chain earring" },
+                    { "trait_type": "Eye Color", "value": "blue" },
+                    { "trait_type": "Background", "value": "casino" },
+                    { "trait_type": "Drip Grade", "value": "normal" },
+                    { "trait_type": "Drip Score", "value": "25" }
+                ]
             },
-            "event_timestamp": "2022-12-01T16:54:23.974726+00:00",
-            "expiration_date": "2022-12-02T16:54:22.000000+00:00",
-            "is_private": false,
-            "item": {
-                "chain": {
-                    "name": "ethereum"
-                },
-                "metadata": {
-                    "animation_url": null,
-                    "image_url": "https://i.seadn.io/gae/6X_iRBPw33gDSZFlHxBBs6pSfQU8Z8c1ECpRV_Nru-fDvO6ORUky5GhpXeAtTR2ZNvkf8vElpW5-4NbdVOBOPr3aF1P_1Z-Mid6LLF8?w=500&auto=format",
-                    "metadata_url": null,
-                    "name": "Devil Frens #18682"
-                },
-                "nft_id": "ethereum/0x495f947276749ce646f68ac8c248420045cb7b5e/74630152366364009569833059154376861594951644105207272687495389092116791558145",
-                "permalink": "https://opensea.io/assets/ethereum/0x495f947276749ce646f68ac8c248420045cb7b5e/74630152366364009569833059154376861594951644105207272687495389092116791558145"
+            "nft_id": "ethereum/0x5af0d9827e0c53e4799bb226655a1de152a425a5/2522",
+            "permalink": "https://opensea.io/item/ethereum/0x5af0d9827e0c53e4799bb226655a1de152a425a5/2522"
+        },
+        "listing_date": "2026-01-25T23:21:37.000000Z",
+        "listing_type": null,
+        "maker": { "address": "0xcdbef8775bba8578b8c7e89071b9d2ee3c336296" },
+        "order_hash": "0x27c086e5028d11931d7fa0bc47762dbf22d3cee845d2cc9191d7686f0a2bcc9b",
+        "payment_token": {
+            "address": "0x0000000000000000000000000000000000000000",
+            "decimals": 18,
+            "eth_price": "0.98919999",
+            "name": "Ethereum",
+            "symbol": "ETH",
+            "usd_price": "2773.72441342827893853654226675113043992213"
+        },
+        "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+        "protocol_data": {
+            "parameters": {
+                "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                "consideration": [
+                    {
+                        "endAmount": "979307990100000000",
+                        "identifierOrCriteria": "0",
+                        "itemType": 0,
+                        "recipient": "0xcdbef8775bba8578b8c7e89071b9d2ee3c336296",
+                        "startAmount": "979307990100000000",
+                        "token": "0x0000000000000000000000000000000000000000"
+                    },
+                    {
+                        "endAmount": "9891999900000000",
+                        "identifierOrCriteria": "0",
+                        "itemType": 0,
+                        "recipient": "0x0000a26b00c1f0df003000390027140000faa719",
+                        "startAmount": "9891999900000000",
+                        "token": "0x0000000000000000000000000000000000000000"
+                    }
+                ],
+                "counter": "0x0",
+                "endTime": "1769384197",
+                "offer": [
+                    {
+                        "endAmount": "1",
+                        "identifierOrCriteria": "2522",
+                        "itemType": 2,
+                        "startAmount": "1",
+                        "token": "0x5af0d9827e0c53e4799bb226655a1de152a425a5"
+                    }
+                ],
+                "offerer": "0xcdbef8775bba8578b8c7e89071b9d2ee3c336296",
+                "orderType": 2,
+                "salt": "962915912372867160254678931920598626653268441494381",
+                "startTime": "1769383297",
+                "totalOriginalConsiderationItems": 2,
+                "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+                "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
             },
-            "listing_date": "2022-12-01T16:54:22.000000+00:00",
-            "listing_type": null,
-            "maker": {
-                "address": "0xa4ff2b59d72f76ee51051196d25e3998cdc579c6"
-            },
-            "order_hash": "0xccbf2c8bc22d06fc16e118e5a865377d8b2fe4ea485cd0cb713899cca17d8964",
-            "payment_token": {
-                "address": "0x0000000000000000000000000000000000000000",
-                "decimals": 18,
-                "eth_price": "1.000000000000000",
-                "name": "Ether",
-                "symbol": "ETH",
-                "usd_price": "1287.160000000000082000"
-            },
-            "protocol_data": {
-                "parameters": {
-                    "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
-                    "consideration": [
-                        {
-                            "endAmount": 4375000000000000,
-                            "identifierOrCriteria": 0,
-                            "itemType": 0,
-                            "recipient": "0xa4fF2b59D72f76eE51051196D25e3998CDC579c6",
-                            "startAmount": 4375000000000000,
-                            "token": "0x0000000000000000000000000000000000000000"
-                        },
-                        {
-                            "endAmount": 125000000000000,
-                            "identifierOrCriteria": 0,
-                            "itemType": 0,
-                            "recipient": "0x0000a26b00c1F0DF003000390027140000fAa719",
-                            "startAmount": 125000000000000,
-                            "token": "0x0000000000000000000000000000000000000000"
-                        },
-                        {
-                            "endAmount": 500000000000000,
-                            "identifierOrCriteria": 0,
-                            "itemType": 0,
-                            "recipient": "0xa7d5053684Aa3BbD60A6473fC97B5942E35020b7",
-                            "startAmount": 500000000000000,
-                            "token": "0x0000000000000000000000000000000000000000"
-                        }
-                    ],
-                    "counter": 0,
-                    "endTime": 1670000062,
-                    "offer": [
-                        {
-                            "endAmount": 1,
-                            "identifierOrCriteria": 7.463015236636401e76,
-                            "itemType": 3,
-                            "startAmount": 1,
-                            "token": "0xA604060890923Ff400e8c6f5290461A83AEDACec"
-                        }
-                    ],
-                    "offerer": "0xa4fF2b59D72f76eE51051196D25e3998CDC579c6",
-                    "orderType": 3,
-                    "salt": 9.481733903281769e37,
-                    "startTime": 1669913662,
-                    "totalOriginalConsiderationItems": 3,
-                    "zone": "0x004C00500000aD104D7DBd00e3ae0A5C00560C00",
-                    "zoneHash": "0x3000000000000000000000000000000000000000000000000000000000000000"
-                },
-                "signature": "0xd45d9cf39dc06cbd5c6b5419bf959f0a33e8d6ba3bec0891825f3e126ff1fc5d55b80c8c642e542cdb76c93f3886fd0de1f2254f32a08f06d655ebd58c359f53",
-                "use_lazy_mint_adapter_for_shared_storefront": true
-            },
-            "quantity": 1,
-            "taker": null
-        }
-    }
+            "signature": "0x4a02955b3d1b3f24610cc2f3fe742c19e284a7e10abf5777ecb74601556130f7011cdf9b1c1f637a9e93692d2f38bf4d76f3afa6d0e0f8d4b7201e2440d096001c"
+        },
+        "quantity": 1,
+        "taker": { "address": "0x0000000000000000000000000000000000000000" }
+    },
+    "event_type": "item_listed",
+    "sent_at": "2026-01-25T23:21:37.357675Z"
 }

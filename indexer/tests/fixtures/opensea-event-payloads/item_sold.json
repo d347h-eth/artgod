@@ -1,100 +1,101 @@
 {
-    "event": "item_sold",
-    "sent_at": "2022-12-01T16:54:27.741979+00:00",
     "payload": {
-        "event_type": "item_sold",
-        "payload": {
-            "closing_date": "2022-12-01T16:54:23.000000+00:00",
-            "collection": {
-                "slug": "sneakerheadsofficial"
+        "chain": "ethereum",
+        "closing_date": "2026-01-26T00:04:11.000000Z",
+        "collection": { "slug": "milady" },
+        "event_timestamp": "2026-01-26T00:04:11.000000Z",
+        "is_private": false,
+        "item": {
+            "chain": { "name": "ethereum" },
+            "metadata": {
+                "animation_url": null,
+                "background_color": null,
+                "description": "Milady Maker is a collection of 10,000 generative pfpNFT's in a neochibi aesthetic inspired by street style tribes.",
+                "image_url": "https://i2c.seadn.io/ethereum/0x5af0d9827e0c53e4799bb226655a1de152a425a5/9f484dadfa8844fa99d6305cdab511ff.png",
+                "metadata_url": null,
+                "name": "Milady 832",
+                "traits": [
+                    { "trait_type": "Core", "value": "gyaru" },
+                    { "trait_type": "Eyes", "value": "classic" },
+                    { "trait_type": "Hair", "value": "tuft purple" },
+                    { "trait_type": "Race", "value": "pale" },
+                    { "trait_type": "Shirt", "value": "mouse tank" },
+                    { "trait_type": "Number", "value": "832" },
+                    {
+                        "trait_type": "Necklace",
+                        "value": "mestwood pearl necklace"
+                    },
+                    { "trait_type": "Eye Color", "value": "brown" },
+                    { "trait_type": "Background", "value": "sunrise" },
+                    { "trait_type": "Drip Grade", "value": "normal" },
+                    { "trait_type": "Drip Score", "value": "22" }
+                ]
             },
-            "event_timestamp": "2022-12-01T16:54:23.000000+00:00",
-            "is_private": false,
-            "item": {
-                "chain": {
-                    "name": "ethereum"
-                },
-                "metadata": {
-                    "animation_url": null,
-                    "image_url": "https://i.seadn.io/gae/7k408lJucpd0xYOlfvucW50zsXfa53YvdhsRZ_Y_mkmR1mUcNxPKoUphLbgHjLE7-qd5fvnYKBkyGxPsIyV2zQhLy2jjH4KVr8gqeg?w=500&auto=format",
-                    "metadata_url": "https://api.sneakerheads.xyz/sneaker/3884",
-                    "name": "SNEAKERHEADS #3884"
-                },
-                "nft_id": "ethereum/0x8dc7b6ec6fafa36085ee9ec8e39112428d3360aa/3884",
-                "permalink": "https://opensea.io/assets/ethereum/0x8dc7b6ec6fafa36085ee9ec8e39112428d3360aa/3884"
+            "nft_id": "ethereum/0x5af0d9827e0c53e4799bb226655a1de152a425a5/832",
+            "permalink": "https://opensea.io/item/ethereum/0x5af0d9827e0c53e4799bb226655a1de152a425a5/832"
+        },
+        "listing_type": null,
+        "maker": { "address": "0x44d3376971080f0716ef1f498093521d412b8dec" },
+        "order_hash": "0x1f8622e3ac13442daa31ce49c7a5e3ae6086f857a435017eb37aed4901cd7c96",
+        "payment_token": {
+            "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+            "decimals": 18,
+            "eth_price": "0.999506746070953",
+            "name": "Wrapped Ether",
+            "symbol": "WETH",
+            "usd_price": "2815.598679160074766136811775792102"
+        },
+        "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+        "protocol_data": {
+            "parameters": {
+                "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                "consideration": [
+                    {
+                        "endAmount": "1",
+                        "identifierOrCriteria": "0",
+                        "itemType": 4,
+                        "recipient": "0x3baa9afd5ff032c5816c947706550bc612998732",
+                        "startAmount": "1",
+                        "token": "0x5af0d9827e0c53e4799bb226655a1de152a425a5"
+                    },
+                    {
+                        "endAmount": "9540000000000000",
+                        "identifierOrCriteria": "0",
+                        "itemType": 1,
+                        "recipient": "0x0000a26b00c1f0df003000390027140000faa719",
+                        "startAmount": "9540000000000000",
+                        "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+                    }
+                ],
+                "counter": "0x0",
+                "endTime": "1769600300",
+                "offer": [
+                    {
+                        "endAmount": "954000000000000000",
+                        "identifierOrCriteria": "0",
+                        "itemType": 1,
+                        "startAmount": "954000000000000000",
+                        "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+                    }
+                ],
+                "offerer": "0x3baa9afd5ff032c5816c947706550bc612998732",
+                "orderType": 2,
+                "salt": "27855337018906766782546881864045825683096516384821792734246059726891697719417",
+                "startTime": "1768995500",
+                "totalOriginalConsiderationItems": 2,
+                "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+                "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
             },
-            "listing_type": null,
-            "maker": {
-                "address": "0x16ce6c6662510faf7c34bb1406fd8c20641db9e3"
-            },
-            "order_hash": "0x2fba6c445b08e38e013a96463b69242cfed5b41459a9635fed28eff3809ce9b8",
-            "payment_token": {
-                "address": "0x0000000000000000000000000000000000000000",
-                "decimals": 18,
-                "eth_price": "1.000000000000000",
-                "name": "Ether",
-                "symbol": "ETH",
-                "usd_price": "1287.160000000000082000"
-            },
-            "protocol_data": {
-                "parameters": {
-                    "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
-                    "consideration": [
-                        {
-                            "endAmount": 138750000000000000,
-                            "identifierOrCriteria": 0,
-                            "itemType": 0,
-                            "recipient": "0x16Ce6c6662510faF7C34bb1406fd8c20641db9E3",
-                            "startAmount": 138750000000000000,
-                            "token": "0x0000000000000000000000000000000000000000"
-                        },
-                        {
-                            "endAmount": 3750000000000000,
-                            "identifierOrCriteria": 0,
-                            "itemType": 0,
-                            "recipient": "0x0000a26b00c1F0DF003000390027140000fAa719",
-                            "startAmount": 3750000000000000,
-                            "token": "0x0000000000000000000000000000000000000000"
-                        },
-                        {
-                            "endAmount": 7500000000000000,
-                            "identifierOrCriteria": 0,
-                            "itemType": 0,
-                            "recipient": "0x025B188919DC10b42aE5bC85134300628F834E96",
-                            "startAmount": 7500000000000000,
-                            "token": "0x0000000000000000000000000000000000000000"
-                        }
-                    ],
-                    "counter": 0,
-                    "endTime": 1671471291,
-                    "offer": [
-                        {
-                            "endAmount": 1,
-                            "identifierOrCriteria": 3884,
-                            "itemType": 2,
-                            "startAmount": 1,
-                            "token": "0x8dC7b6EC6FafA36085EE9ec8e39112428D3360aa"
-                        }
-                    ],
-                    "offerer": "0x16Ce6c6662510faF7C34bb1406fd8c20641db9E3",
-                    "orderType": 2,
-                    "salt": 2.444686030276174e76,
-                    "startTime": 1669555611,
-                    "totalOriginalConsiderationItems": 3,
-                    "zone": "0x004C00500000aD104D7DBd00e3ae0A5C00560C00",
-                    "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-                },
-                "signature": "0x"
-            },
-            "quantity": 1,
-            "sale_price": "150000000000000000",
-            "taker": {
-                "address": "0xa16f1cba10737adff9b7ed6f12bd3fcfe93c2d8e"
-            },
-            "transaction": {
-                "hash": "0x27b04793393f06f5529bed99bfb35f8af2487a478a7ace121ebc1f057c77c6b1",
-                "timestamp": "2022-12-01T16:54:23.000000+00:00"
-            }
+            "signature": "0xa7eaa92dab01609312c40d13cbbeb974b594cf47e98d9194cfa514e532c01d7b1cef0b536244f1b67be3f823d5ee1268407410d415832ea6e54da7cd68940c9d1b"
+        },
+        "quantity": 1,
+        "sale_price": "954000000000000000",
+        "taker": { "address": "0x3baa9afd5ff032c5816c947706550bc612998732" },
+        "transaction": {
+            "hash": "0xe0066ad18c4678c965bb311720562aec6ae9ccac8c2a2175f0a51bb169a9cdc2",
+            "timestamp": "1769385851"
         }
-    }
+    },
+    "event_type": "item_sold",
+    "sent_at": "2026-01-26T00:04:13.874344Z"
 }

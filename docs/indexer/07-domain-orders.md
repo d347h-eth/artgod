@@ -21,7 +21,7 @@ The orders domain consumes `domain.orders.sync` jobs. Each job provides:
 
 The domain reads transfer events from `nft_transfer_events` within the block range.
 
-The orders domain also consumes `orders.upsert` jobs for offchain order ingestion. These jobs carry a normalized order payload (maker/side/price/token) and are persisted directly into the `orders` table.
+The orders domain also consumes `orders.upsert` jobs for offchain order ingestion. These jobs carry a normalized order payload (maker/side/price/token) and are persisted directly into the `orders` table. The OpenSea normalizer currently supports `item_listed` and `item_received_bid` events; collection and trait offers are ignored for now.
 
 ## Trigger Meanings
 

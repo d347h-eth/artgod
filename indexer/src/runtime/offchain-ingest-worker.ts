@@ -38,6 +38,16 @@ async function main() {
             async (job: JobEnvelope<OffchainOrderRawPayload>) => {
                 if (job.kind !== OFFCHAIN_JOB_KIND.OrderRaw) return;
                 const normalized = normalizeOffchainOrder(job.payload);
+                if (!normalized) {
+                    // Unsupported offchain event types are ignored (no retry).
+                    logger.debug("Offchain order ignored", {
+                        component: "OffchainIngestWorker",
+                        action: "normalize",
+                        source: job.payload.source,
+                        chainId: job.payload.chainId,
+                    });
+                    return;
+                }
                 const upsertJob: JobEnvelope<OrderUpsertPayload> = {
                     jobId: `orders:upsert:${normalized.chainId}:${normalized.orderId}:${job.payload.receivedAt}`,
                     kind: ORDER_JOB_KIND.Upsert,
