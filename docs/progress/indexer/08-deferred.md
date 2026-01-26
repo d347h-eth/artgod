@@ -113,3 +113,20 @@ Impact if deferred:
 Decision:
 
 - Defer Blur fill decoding until Seaport is stable and we have a clear, maintainable heuristic strategy for router calls without traces.
+
+## Backfill Write Buffer
+
+Context:
+
+- The reference indexer serializes ownership writes during backfill to avoid DB deadlocks.
+- ArtGod plans to bootstrap collections with an ownership snapshot + short backfill, so full historical backfills are not expected for normal use.
+
+Why deferred:
+
+- A write buffer would add a new queue + worker and would still not make partial backfills "correct" while they are running.
+- Our correctness story is anchored on the snapshot block; a write buffer is more about throughput than correctness.
+
+Decision:
+
+- Defer the write buffer until full historical backfills become common or we see real contention.
+- If reintroduced, it should be paired with explicit API gating to signal "ownership state in progress" during long backfills.

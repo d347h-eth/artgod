@@ -107,3 +107,5 @@ The most important directories:
 - `indexer/tests/`: smoke test and test helpers.
 
 The rest of the docs in this folder go deeper into each segment.
+
+See `docs/indexer/14-collection-bootstrap.md` for the per‑collection bootstrap sequence (ownership snapshot + short backfill) that replaces full historical backfill for normal usage.
