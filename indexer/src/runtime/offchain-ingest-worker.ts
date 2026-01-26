@@ -52,7 +52,10 @@ async function main() {
                     jobId: `orders:upsert:${normalized.chainId}:${normalized.orderId}:${job.payload.receivedAt}`,
                     kind: ORDER_JOB_KIND.Upsert,
                     queue: QUEUE_NAMES.OrdersUpsert,
-                    payload: normalized,
+                    payload: {
+                        ...normalized,
+                        validateAfterUpsert: true,
+                    },
                     attempt: 0,
                     scheduledAt: Date.now(),
                     chainId: normalized.chainId,

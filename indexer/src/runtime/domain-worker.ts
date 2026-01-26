@@ -103,6 +103,30 @@ async function main() {
             async (job: JobEnvelope<OrderUpsertPayload>) => {
                 if (job.kind !== ORDER_JOB_KIND.Upsert) return;
                 await ordersDomain.handleOrderUpsert(job.payload);
+                if (job.payload.validateAfterUpsert) {
+                    const validationJob: JobEnvelope<OrderUpdateByIdPayload> = {
+                        jobId: `orders:update:id:upsert:${job.payload.chainId}:${job.payload.orderId}:${job.jobId}`,
+                        kind: ORDER_JOB_KIND.UpdateById,
+                        queue: QUEUE_NAMES.OrdersUpdateById,
+                        payload: {
+                            chainId: job.payload.chainId,
+                            orderId: job.payload.orderId,
+                            reason: "order",
+                            blockNumber: 0,
+                            blockHash: "0x0",
+                            txHash: "0x0",
+                            logIndex: 0,
+                        },
+                        attempt: 0,
+                        scheduledAt: Date.now(),
+                        chainId: job.payload.chainId,
+                        traceId: job.traceId ?? job.jobId,
+                    };
+                    await queue.publish(
+                        QUEUE_NAMES.OrdersUpdateById,
+                        validationJob,
+                    );
+                }
             },
         );
 

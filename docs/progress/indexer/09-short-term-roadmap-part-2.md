@@ -40,7 +40,7 @@ This roadmap picks the next most important gaps after Phase 5. It focuses on get
 ### Phase 4: Offchain Orders (Skeleton)
 [x] Add OpenSea stream listener (fixture replay stub) and raw payload queue.
 [x] Validate and normalize payloads into `orders` rows (item_listed, item_received_bid).
-[ ] Trigger `order-updates-by-id` for immediate re-validation.
+[x] Trigger `order-updates-by-id` for immediate re-validation (post-upsert, gated by `validateAfterUpsert`).
 
 ### Phase 5: Backfill Write Buffer
 [ ] Add a write-buffer queue for `nft_balances` updates during backfill.

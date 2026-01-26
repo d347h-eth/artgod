@@ -50,7 +50,7 @@ Order queues used by the domain:
 - `order-updates-by-maker`: re-validate all orders affected by maker state changes.
 - `order-updates-by-id`: update a specific order after fill/cancel/on-chain order creation.
 
-Handlers now update order status by id for `fill`, `cancel`, and `order` triggers. Maker-based updates remain minimal and only log.
+Handlers now update order status by id for `fill`, `cancel`, and `order` triggers. After `orders-upsert`, the domain worker will emit `orders.update-by-id` when `validateAfterUpsert` is set (currently used by offchain ingestion). Maker-based updates remain minimal and only log.
 
 ## Logic
 

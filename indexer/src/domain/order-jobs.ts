@@ -42,4 +42,5 @@ export type OrderUpsertPayload = {
     validUntil?: number | null;
     source: string;
     rawData?: unknown;
+    validateAfterUpsert: boolean;
 };
