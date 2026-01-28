@@ -1,6 +1,6 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
-import { loadConfig, type CollectionConfig } from "../config/index.js";
+import { loadConfig } from "../config/index.js";
 import { syncRange, type SyncRange } from "../application/sync.js";
 import { runWorker } from "../application/worker-runner.js";
 import { BidderIndex } from "../application/bidder-index.js";
@@ -32,6 +32,8 @@ import {
 } from "../domain/order-jobs.js";
 import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
 import type { Hex } from "../ports/rpc.js";
+import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
+import type { CollectionRecord } from "../domain/collections.js";
 
 const BIDDER_INDEX_REFRESH_MS = 30_000;
 
@@ -64,6 +66,7 @@ async function main() {
               })
             : primaryRpc;
         const storage = new SqliteStorage();
+        const collectionRegistry = new SqliteCollectionRegistry();
         const bidderIndex = new BidderIndex(
             new SqliteBidderIndex(),
             config.chainId,
@@ -110,6 +113,18 @@ async function main() {
             },
             async (job: JobEnvelope<RealtimeSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.RealtimeBlock) return;
+                const collections = collectionRegistry.listCollectionsForSync(
+                    config.chainId,
+                    "realtime",
+                );
+                if (collections.length === 0) {
+                    logger.debug("No live collections for realtime sync", {
+                        component: "IndexerSyncWorker",
+                        action: "syncBlock",
+                        blockNumber: job.payload.blockNumber,
+                    });
+                    return;
+                }
                 const range: SyncRange = {
                     fromBlock: job.payload.blockNumber,
                     toBlock: job.payload.blockNumber,
@@ -118,7 +133,7 @@ async function main() {
                     primaryRpc,
                     storage,
                     config.chainId,
-                    config.collections,
+                    collections,
                     range,
                     bidderIndex,
                     config.tokens.wethAddress,
@@ -159,6 +174,19 @@ async function main() {
             },
             async (job: JobEnvelope<BackfillSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
+                const collections = collectionRegistry.listCollectionsForSync(
+                    config.chainId,
+                    "backfill",
+                );
+                if (collections.length === 0) {
+                    logger.debug("No collections for backfill sync", {
+                        component: "IndexerSyncWorker",
+                        action: "backfillRange",
+                        fromBlock: job.payload.fromBlock,
+                        toBlock: job.payload.toBlock,
+                    });
+                    return;
+                }
                 const range: SyncRange = {
                     fromBlock: job.payload.fromBlock,
                     toBlock: job.payload.toBlock,
@@ -167,7 +195,7 @@ async function main() {
                     backfillRpc,
                     storage,
                     config.chainId,
-                    config.collections,
+                    collections,
                     range,
                     bidderIndex,
                     config.tokens.wethAddress,
@@ -228,7 +256,7 @@ async function processRange(
     rpc: RpcProviderPort,
     storage: SqliteStorage,
     chainId: number,
-    collections: CollectionConfig[],
+    collections: CollectionRecord[],
     range: SyncRange,
     bidderIndex: BidderIndex,
     wethAddress: string,

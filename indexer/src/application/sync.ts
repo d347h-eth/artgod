@@ -1,6 +1,6 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
 import { ERC1155_ABI, ERC721_ABI } from "../abi/index.js";
-import type { CollectionConfig } from "../config/index.js";
+import type { CollectionRecord } from "../domain/collections.js";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
@@ -45,7 +45,7 @@ const TRANSFER_EVENTS = [
  */
 export async function syncRange(
     rpc: RpcProviderPort,
-    collections: CollectionConfig[],
+    collections: CollectionRecord[],
     range: SyncRange,
 ): Promise<OnChainData> {
     const addresses = collections.map(

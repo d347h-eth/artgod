@@ -10,13 +10,6 @@ Config is loaded in `indexer/src/config/index.ts` (sync/scheduler/domain workers
 - `loadConfig()` reads the current environment and produces a typed config object.
 - Errors are thrown immediately for missing required values.
 
-Key types:
-
-- `CollectionConfig` (per target collection):
-    - `id`: user-defined identifier.
-    - `address`: 0x-prefixed contract address.
-    - `deploymentBlock`: used as metadata only (not used for auto-backfill).
-
 - `IndexerConfig`:
     - `chainId`
     - `rpc`: `primaryUrl`, optional `backfillUrl`, optional `wsUrl`
@@ -24,7 +17,7 @@ Key types:
     - `queue`: NATS URL and stream prefix
     - `sync`: reorg depth, backfill batch size, log chunk size
     - `cache`: max entries and TTL
-    - `collections`: parsed from `TARGET_COLLECTIONS` JSON
+    - collections are stored in SQLite (`collections` table), not in env
 
 ## Environment Variables (.env)
 
@@ -44,7 +37,6 @@ The indexer reads these variables from the root `.env`:
 - `LOG_CHUNK_SIZE` (default: 2000)
 - `CACHE_MAX_ENTRIES` (default: 5000)
 - `CACHE_TTL_MS` (default: 30000)
-- `TARGET_COLLECTIONS` (JSON array of collection configs)
 
 `RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
 
@@ -70,7 +62,6 @@ BACKFILL_BATCH_SIZE=50
 LOG_CHUNK_SIZE=2000
 CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
-TARGET_COLLECTIONS=[]
 OPENSEA_STREAM_MODE=fixtures
 OPENSEA_FIXTURES_DIR=indexer/tests/fixtures/opensea-event-payloads
 OPENSEA_FIXTURE_DELAY_MS=0
@@ -88,6 +79,8 @@ The smoke tests use a separate `.env.test` file loaded by `indexer/tests/helpers
 - `SMOKE_RANGE_FROM` (required)
 - `SMOKE_RANGE_TO` (required)
 - `SMOKE_CHAIN_ID` (optional, default 1)
+
+`SMOKE_TARGET_COLLECTIONS` is used to seed the `collections` table before the smoke test runs.
 
 Example (from `.env.test.example`):
 

@@ -37,13 +37,6 @@ export async function startScheduler(
     let timer: ReturnType<typeof setInterval> | undefined;
     let stopHeadSource: (() => Promise<void>) | undefined;
 
-    if (config.collections.length === 0) {
-        logger.warn("No target collections configured", {
-            component: "IndexerScheduler",
-            action: "start",
-        });
-    }
-
     await bootstrapRealtimeScheduling();
     await bootstrapBlockChecks();
 

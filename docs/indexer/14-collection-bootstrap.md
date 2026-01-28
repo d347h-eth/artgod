@@ -17,6 +17,7 @@ Each collection starts in a "not indexed" state. When a user adds a collection, 
 
 1) **Register collection**
     - Persist collection config (address, chain, optional metadata).
+    - Store state in the `collections` table with `status = bootstrapping`.
     - Create internal state record for bootstrap progress.
 
 2) **Pick anchor block**
@@ -25,8 +26,8 @@ Each collection starts in a "not indexed" state. When a user adds a collection, 
 
 3) **Ownership snapshot (anchor)**
     - Query the chain at the anchor block:
-        - ERC-721: `ownerOf(tokenId)` for every token.
-        - ERC-1155: `balanceOf(owner, tokenId)` for relevant owners (or use events + supply where possible).
+        - **ERC-721 only**: `ownerOf(tokenId)` for every token.
+    - ERC-1155 and ERC-20 support are **out of scope for now**.
     - Persist snapshot rows to a dedicated table (planned).
     - Snapshot data is **read‑only** and used as the base truth.
 
@@ -36,7 +37,7 @@ Each collection starts in a "not indexed" state. When a user adds a collection, 
     - This range is small, so it finishes quickly.
 
 5) **Live sync**
-    - Switch the collection to realtime indexing.
+    - Switch the collection to realtime indexing (`status = live`).
     - `nft_balances` now stays correct from this point forward.
 
 6) **Optional full historical backfill (later)**
@@ -61,3 +62,16 @@ While a bootstrap is running, ownership reads should be treated as **incomplete*
     - Keep anchored truth distinct from delta‑applied state.
     - Delete or ignore snapshot rows once `nft_balances` becomes fully consistent.
 - The snapshot anchor block should be recorded and exposed in API responses so clients can reason about timing.
+
+## Collection Registry Table
+
+Bootstrap state is tracked in SQLite:
+
+- Table: `collections`
+- Key columns:
+    - `chain_id`, `collection_id`, `address`
+    - `status` (`bootstrapping` or `live` today; future: `paused`, `disabled`)
+    - `deployment_block` (metadata only)
+    - `bootstrap_anchor_block` (anchor block for snapshot)
+
+Realtime sync uses only `status = live`. Backfill jobs can include `bootstrapping` collections while their short-range bootstrap backfill runs.

@@ -3,12 +3,6 @@ import { resolveProjectPath } from "@artgod/shared/utils";
 
 dotenv.config({ path: resolveProjectPath(".env") });
 
-export type CollectionConfig = {
-    id: string;
-    address: string;
-    deploymentBlock: number;
-};
-
 export type IndexerConfig = {
     chainId: number;
     rpc: {
@@ -32,7 +26,6 @@ export type IndexerConfig = {
         maxEntries: number;
         ttlMs: number;
     };
-    collections: CollectionConfig[];
 };
 
 export function parseNumber(
@@ -61,38 +54,6 @@ export function parseRequiredString(
     return value;
 }
 
-function parseCollections(value: string | undefined): CollectionConfig[] {
-    if (!value) return [];
-    let data: unknown;
-    try {
-        data = JSON.parse(value);
-    } catch (err) {
-        throw new Error(`Invalid TARGET_COLLECTIONS JSON: ${String(err)}`);
-    }
-    if (!Array.isArray(data)) {
-        throw new Error("TARGET_COLLECTIONS must be a JSON array");
-    }
-    return data.map((item, index) => {
-        if (!item || typeof item !== "object") {
-            throw new Error(`TARGET_COLLECTIONS[${index}] is not an object`);
-        }
-        const record = item as Record<string, unknown>;
-        const address = String(record.address ?? "");
-        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-            throw new Error(`Invalid collection address: ${address}`);
-        }
-        const id = String(record.id ?? address);
-        const deploymentBlock = parseNumber(
-            record.deploymentBlock !== undefined
-                ? String(record.deploymentBlock)
-                : "0",
-            `TARGET_COLLECTIONS[${index}].deploymentBlock`,
-            0,
-        );
-        return { id, address, deploymentBlock };
-    });
-}
-
 function parseAddress(value: string | undefined, name: string): string {
     if (!value) {
         throw new Error(`Missing ${name}`);
@@ -111,7 +72,6 @@ export function loadConfig(
     if (!rpcUrl) {
         throw new Error("Missing RPC_URL");
     }
-    const collections = parseCollections(env.TARGET_COLLECTIONS);
 
     return {
         chainId,
@@ -148,6 +108,5 @@ export function loadConfig(
             ),
             ttlMs: parseNumber(env.CACHE_TTL_MS, "CACHE_TTL_MS", 30_000),
         },
-        collections,
     };
 }

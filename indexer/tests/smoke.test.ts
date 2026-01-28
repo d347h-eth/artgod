@@ -26,6 +26,7 @@ describe("indexer smoke", () => {
         setDbPath(dbPath);
         const migrations = createMigrationRunner();
         await migrations.runMigrations();
+        seedCollections(config.chainId, config.collections);
 
         const nats = await startNats(config.natsPort);
         const streamPrefix = `artgod-test-${Date.now()}`;
@@ -37,7 +38,6 @@ describe("indexer smoke", () => {
             RPC_URL: config.rpcUrl,
             WETH_ADDRESS: runtimeEnv.WETH_ADDRESS,
             CHAIN_ID: String(config.chainId),
-            TARGET_COLLECTIONS: config.collections,
             REORG_DEPTH: "3",
             BACKFILL_BATCH_SIZE: "3",
             LOG_CHUNK_SIZE: "500",
@@ -95,4 +95,43 @@ function count(table: string): number {
         count: number;
     };
     return row.count;
+}
+
+function seedCollections(chainId: number, collectionsJson: string): void {
+    const parsed = JSON.parse(collectionsJson) as Array<
+        Partial<{
+            id: string;
+            address: string;
+            deploymentBlock: number;
+        }>
+    >;
+    const insert = db.prepare<{
+        chainId: number;
+        id: string;
+        address: string;
+        standard: string;
+        status: string;
+        deploymentBlock: number | null;
+        bootstrapAnchorBlock: number | null;
+    }>(
+        "INSERT INTO collections " +
+            "(chain_id, collection_id, address, standard, status, deployment_block, bootstrap_anchor_block) " +
+            "VALUES (@chainId, @id, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock) " +
+            "ON CONFLICT(chain_id, collection_id) DO UPDATE SET " +
+            "address = excluded.address, standard = excluded.standard, status = excluded.status, " +
+            "deployment_block = excluded.deployment_block, bootstrap_anchor_block = excluded.bootstrap_anchor_block, " +
+            "updated_at = CURRENT_TIMESTAMP",
+    );
+    for (const entry of parsed) {
+        if (!entry?.address) continue;
+        insert.run({
+            chainId,
+            id: entry.id ?? entry.address,
+            address: entry.address,
+            standard: "erc721",
+            status: "live",
+            deploymentBlock: entry.deploymentBlock ?? null,
+            bootstrapAnchorBlock: null,
+        });
+    }
 }

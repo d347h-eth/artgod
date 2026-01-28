@@ -35,6 +35,9 @@ Required keys:
 
 If any required value is missing, the test fails immediately (no silent skipping).
 
+`SMOKE_TARGET_COLLECTIONS` is written into the `collections` table before the
+workers start so sync has a live collection to process.
+
 ## NATS Test Container
 
 `startNats()` uses `testcontainers` to run a local NATS server with JetStream enabled:
