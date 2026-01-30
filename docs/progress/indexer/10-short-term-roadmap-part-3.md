@@ -13,7 +13,7 @@ This roadmap follows Part 2 and reflects the ArtGod approach: **bootstrap collec
 
 [x] Add collection bootstrap state model (initial `bootstrapping | live | paused | disabled`).
 [ ] Persist per-collection bootstrap metadata (anchor block, started/finished timestamps, last synced block).
-[ ] Add bootstrap job queue + worker runtime to orchestrate steps.
+[x] Add bootstrap job queue + worker runtime to orchestrate steps.
 [x] Gate live sync per collection until bootstrap is complete.
 
 ## Phase 2: Ownership Snapshot Pipeline

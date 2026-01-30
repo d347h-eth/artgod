@@ -37,6 +37,7 @@ start_worker "indexer-reorg-worker" "dev:reorg-worker"
 start_worker "indexer-domain-worker" "dev:domain-worker"
 start_worker "indexer-offchain-ingest" "dev:offchain-ingest"
 start_worker "indexer-opensea-stream" "dev:opensea-stream"
+start_worker "indexer-bootstrap-worker" "dev:bootstrap-worker"
 start_worker "indexer-dead-letter-worker" "dev:dead-letter-worker"
 
 echo "Indexer workers running. Logs: $LOG_DIR"

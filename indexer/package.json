@@ -11,6 +11,7 @@
         "dev:domain-worker": "tsx src/runtime/domain-worker.ts",
         "dev:offchain-ingest": "tsx src/runtime/offchain-ingest-worker.ts",
         "dev:opensea-stream": "tsx src/runtime/opensea-stream-worker.ts",
+        "dev:bootstrap-worker": "tsx src/runtime/bootstrap-worker.ts",
         "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts",
         "test": "vitest run",
         "test:watch": "vitest"

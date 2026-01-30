@@ -1,4 +1,5 @@
 export * from "./jobs.js";
+export * from "./bootstrap-jobs.js";
 export * from "./domain-jobs.js";
 export * from "./activities.js";
 export * from "./dead-letter.js";

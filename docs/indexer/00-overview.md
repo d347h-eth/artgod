@@ -21,6 +21,10 @@ Each runtime is an independent Node.js process. There is no shared memory across
     - Tracks chain head via WebSocket (optional) and HTTP polling.
     - Schedules realtime block sync and block-check (reorg) jobs.
 
+- Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
+    - Consumes collection bootstrap jobs.
+    - Orchestrates per-collection bootstrap steps (anchor snapshot + short backfill).
+
 - Sync worker runtime (`indexer/src/runtime/sync-worker.ts`)
     - Consumes realtime/backfill sync jobs.
     - Fetches logs, decodes transfers, persists blocks/transfers/balances.

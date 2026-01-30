@@ -9,6 +9,7 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `events-sync-realtime`
 - `events-sync-backfill`
 - `block-check`
+- `collection-bootstrap`
 - `offchain-orders-raw`
 - `orders-domain`
 - `orders-upsert`
@@ -120,4 +121,9 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 
 `offchain.order.raw` jobs are produced by the OpenSea stream worker (fixture stub today) and consumed by the offchain ingest worker.
 
-These jobs are produced by the scheduler, sync worker, and offchain ingest worker, and consumed by the sync, reorg, and domain runtimes.
+- Bootstrap jobs (`indexer/src/domain/bootstrap-jobs.ts`):
+    - `bootstrap.collection.start`
+
+`bootstrap.collection.start` jobs are produced by future API/UI actions and consumed by the collection bootstrap worker runtime.
+
+These jobs are produced by the scheduler, sync worker, offchain ingest/stream workers, and future API/UI actions, and consumed by the sync, reorg, domain, offchain ingest, and bootstrap runtimes.

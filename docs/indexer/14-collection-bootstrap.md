@@ -19,6 +19,7 @@ Each collection starts in a "not indexed" state. When a user adds a collection, 
     - Persist collection config (address, chain, optional metadata).
     - Store state in the `collections` table with `status = bootstrapping`.
     - Create internal state record for bootstrap progress.
+    - Enqueue a `bootstrap.collection.start` job to begin orchestration.
 
 2) **Pick anchor block**
     - Choose a recent block number (near head) as the snapshot anchor.
@@ -62,6 +63,16 @@ While a bootstrap is running, ownership reads should be treated as **incomplete*
     - Keep anchored truth distinct from delta‑applied state.
     - Delete or ignore snapshot rows once `nft_balances` becomes fully consistent.
 - The snapshot anchor block should be recorded and exposed in API responses so clients can reason about timing.
+
+## Bootstrap Runtime
+
+Bootstrap orchestration is handled by the collection bootstrap worker:
+
+- Queue: `collection-bootstrap`
+- Job kind: `bootstrap.collection.start`
+- Runtime: `indexer/src/runtime/bootstrap-worker.ts`
+
+The worker is responsible for sequencing the snapshot and short backfill steps for a collection.
 
 ## Collection Registry Table
 

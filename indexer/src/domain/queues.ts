@@ -2,6 +2,7 @@ export const QUEUE_NAMES = {
     RealtimeSync: "events-sync-realtime",
     BackfillSync: "events-sync-backfill",
     BlockCheck: "block-check",
+    CollectionBootstrap: "collection-bootstrap",
     OffchainOrdersRaw: "offchain-orders-raw",
     OrdersDomain: "orders-domain",
     OrdersUpsert: "orders-upsert",
