@@ -37,6 +37,7 @@ The indexer reads these variables from the root `.env`:
 - `LOG_CHUNK_SIZE` (default: 2000)
 - `CACHE_MAX_ENTRIES` (default: 5000)
 - `CACHE_TTL_MS` (default: 30000)
+- `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` (default: 200)
 
 `RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
 
@@ -62,6 +63,7 @@ BACKFILL_BATCH_SIZE=50
 LOG_CHUNK_SIZE=2000
 CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
+BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
 OPENSEA_STREAM_MODE=fixtures
 OPENSEA_FIXTURES_DIR=indexer/tests/fixtures/opensea-event-payloads
 OPENSEA_FIXTURE_DELAY_MS=0

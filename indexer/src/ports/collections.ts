@@ -11,4 +11,14 @@ export interface CollectionRegistryPort {
         mode: CollectionSyncMode,
     ): CollectionRecord[];
     upsertCollection(input: CollectionUpsertInput): void;
+    markBootstrapStarted(
+        chainId: number,
+        collectionId: string,
+        anchorBlock: number,
+    ): boolean;
+    markBootstrapSnapshotProgress(
+        chainId: number,
+        collectionId: string,
+        lastSyncedBlock: number,
+    ): boolean;
 }

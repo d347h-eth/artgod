@@ -113,13 +113,21 @@ function seedCollections(chainId: number, collectionsJson: string): void {
         status: string;
         deploymentBlock: number | null;
         bootstrapAnchorBlock: number | null;
+        bootstrapStartedAt: string | null;
+        bootstrapFinishedAt: string | null;
+        bootstrapLastSyncedBlock: number | null;
     }>(
         "INSERT INTO collections " +
-            "(chain_id, collection_id, address, standard, status, deployment_block, bootstrap_anchor_block) " +
-            "VALUES (@chainId, @id, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock) " +
+            "(chain_id, collection_id, address, standard, status, deployment_block, bootstrap_anchor_block, " +
+            "bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
+            "VALUES (@chainId, @id, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock, " +
+            "@bootstrapStartedAt, @bootstrapFinishedAt, @bootstrapLastSyncedBlock) " +
             "ON CONFLICT(chain_id, collection_id) DO UPDATE SET " +
             "address = excluded.address, standard = excluded.standard, status = excluded.status, " +
             "deployment_block = excluded.deployment_block, bootstrap_anchor_block = excluded.bootstrap_anchor_block, " +
+            "bootstrap_started_at = excluded.bootstrap_started_at, " +
+            "bootstrap_finished_at = excluded.bootstrap_finished_at, " +
+            "bootstrap_last_synced_block = excluded.bootstrap_last_synced_block, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
     for (const entry of parsed) {
@@ -132,6 +140,9 @@ function seedCollections(chainId: number, collectionsJson: string): void {
             status: "live",
             deploymentBlock: entry.deploymentBlock ?? null,
             bootstrapAnchorBlock: null,
+            bootstrapStartedAt: null,
+            bootstrapFinishedAt: null,
+            bootstrapLastSyncedBlock: null,
         });
     }
 }

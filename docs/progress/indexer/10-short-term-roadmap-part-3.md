@@ -12,17 +12,17 @@ This roadmap follows Part 2 and reflects the ArtGod approach: **bootstrap collec
 ## Phase 1: Collection Bootstrap Foundation
 
 [x] Add collection bootstrap state model (initial `bootstrapping | live | paused | disabled`).
-[ ] Persist per-collection bootstrap metadata (anchor block, started/finished timestamps, last synced block).
+[x] Persist per-collection bootstrap metadata (anchor block, started/finished timestamps, last synced block).
 [x] Add bootstrap job queue + worker runtime to orchestrate steps.
 [x] Gate live sync per collection until bootstrap is complete.
 
 ## Phase 2: Ownership Snapshot Pipeline
 
-[ ] Snapshot job for ERC-721: enumerate token IDs, call `ownerOf(tokenId)` at anchor block.
-[ ] Explicitly scope bootstrap to **ERC-721 only** (ERC-1155/ ERC-20 deferred).
-[ ] Persist snapshot rows into a temporary snapshot table.
-[ ] Finalize snapshot into `nft_balances` (single transaction per collection).
-[ ] Record the anchor block number for the collection.
+[x] Snapshot job for ERC-721: enumerate token IDs, call `ownerOf(tokenId)` at anchor block.
+[x] Explicitly scope bootstrap to **ERC-721 only** (ERC-1155/ ERC-20 deferred).
+[x] Persist snapshot rows into a temporary snapshot table.
+[x] Finalize snapshot into `nft_balances` (single transaction per collection).
+[x] Record the anchor block number for the collection.
 
 ## Phase 3: Short Backfill (Anchor → Head)
 

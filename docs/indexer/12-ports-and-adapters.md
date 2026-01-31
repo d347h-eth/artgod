@@ -18,6 +18,8 @@ Provides publish/subscribe semantics with explicit ack/nack/touch.
 
 Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction`, and `getTransactionReceipt` with log chunking and retry behavior.
 
+`readContract` is also supported for bootstrap ownership snapshots.
+
 ## Head Source Port
 
 - Interface: `indexer/src/ports/head-source.ts`
@@ -31,6 +33,20 @@ Provides a WebSocket head listener used by the scheduler.
 - Adapter: `indexer/src/infra/storage/sqlite.ts`
 
 Persists sync results, exposes block hash lookup, and supports rollback.
+
+## Collection Registry Port
+
+- Interface: `indexer/src/ports/collections.ts`
+- Adapter: `indexer/src/infra/collections/sqlite.ts`
+
+Provides collection registry reads for sync workers and bootstrap state updates.
+
+## Bootstrap Snapshot Port
+
+- Interface: `indexer/src/ports/bootstrap.ts`
+- Adapter: `indexer/src/infra/bootstrap/sqlite.ts`
+
+Stores ownership snapshots and finalizes snapshot state into `nft_balances`.
 
 ## Cache Port
 

@@ -23,13 +23,15 @@ Each collection starts in a "not indexed" state. When a user adds a collection, 
 
 2) **Pick anchor block**
     - Choose a recent block number (near head) as the snapshot anchor.
+    - Current implementation uses `head - reorgDepth` to avoid shallow reorgs.
     - This block number becomes the "truth point" for ownership.
 
 3) **Ownership snapshot (anchor)**
     - Query the chain at the anchor block:
         - **ERC-721 only**: `ownerOf(tokenId)` for every token.
+        - Token IDs are enumerated via `totalSupply()` + `tokenByIndex()` (ERC721Enumerable).
     - ERC-1155 and ERC-20 support are **out of scope for now**.
-    - Persist snapshot rows to a dedicated table (planned).
+    - Persist snapshot rows to a dedicated table (`nft_balance_snapshots`).
     - Snapshot data is **read‑only** and used as the base truth.
 
 4) **Short backfill (anchor → head)**
@@ -84,5 +86,7 @@ Bootstrap state is tracked in SQLite:
     - `status` (`bootstrapping` or `live` today; future: `paused`, `disabled`)
     - `deployment_block` (metadata only)
     - `bootstrap_anchor_block` (anchor block for snapshot)
+    - `bootstrap_started_at`, `bootstrap_finished_at`
+    - `bootstrap_last_synced_block`
 
 Realtime sync uses only `status = live`. Backfill jobs can include `bootstrapping` collections while their short-range bootstrap backfill runs.

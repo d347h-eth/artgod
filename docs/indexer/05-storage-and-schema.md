@@ -123,6 +123,27 @@ nft_balances(chain_id, contract, token_id, owner, amount,
 - `fills` table stores decoded on-chain fills with price/currency attribution.
 - Unique constraint on `(chain_id, tx_hash, log_index, contract, token_id, kind)` keeps inserts idempotent.
 
+## Collection Bootstrap Tables
+
+### collections
+
+`database/migrations/007_collections_schema.sql` (+ `008_bootstrap_schema.sql`):
+
+- Tracks collection registration and bootstrap state.
+- Key columns:
+    - `status` (`bootstrapping`, `live`, `paused`, `disabled`)
+    - `bootstrap_anchor_block`
+    - `bootstrap_started_at`, `bootstrap_finished_at`
+    - `bootstrap_last_synced_block`
+
+### nft_balance_snapshots
+
+`database/migrations/008_bootstrap_schema.sql`:
+
+- Temporary ownership snapshot table used during collection bootstrap.
+- Primary key: `(chain_id, collection_id, token_id)`.
+- Rows are finalized into `nft_balances` once the snapshot completes.
+
 ## Storage Adapter Behavior
 
 `indexer/src/infra/storage/sqlite.ts` implements `StoragePort`.

@@ -11,6 +11,30 @@ export const ERC721_ABI = [
     },
 ] as const;
 
+export const ERC721_ENUMERABLE_ABI = [
+    {
+        type: "function",
+        name: "totalSupply",
+        inputs: [],
+        outputs: [{ name: "totalSupply", type: "uint256" }],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "tokenByIndex",
+        inputs: [{ name: "index", type: "uint256" }],
+        outputs: [{ name: "tokenId", type: "uint256" }],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "ownerOf",
+        inputs: [{ name: "tokenId", type: "uint256" }],
+        outputs: [{ name: "owner", type: "address" }],
+        stateMutability: "view",
+    },
+] as const;
+
 export const ERC1155_ABI = [
     {
         type: "event",

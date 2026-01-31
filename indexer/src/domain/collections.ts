@@ -14,6 +14,9 @@ export type CollectionRecord = {
     status: CollectionStatus;
     deploymentBlock: number | null;
     bootstrapAnchorBlock: number | null;
+    bootstrapStartedAt: string | null;
+    bootstrapFinishedAt: string | null;
+    bootstrapLastSyncedBlock: number | null;
 };
 
 export type CollectionUpsertInput = CollectionRecord;

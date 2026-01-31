@@ -7,5 +7,6 @@ export * from "./domain/noop.js";
 export * from "./domain/orders.js";
 export * from "./domain/metadata.js";
 export * from "./domain/activities.js";
+export * from "./bootstrap/sqlite.js";
 export * from "./metadata/http-fetcher.js";
 export * from "./metadata/viem-token-uri.js";

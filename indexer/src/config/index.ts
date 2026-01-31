@@ -26,6 +26,9 @@ export type IndexerConfig = {
         maxEntries: number;
         ttlMs: number;
     };
+    bootstrap: {
+        snapshotBatchSize: number;
+    };
 };
 
 export function parseNumber(
@@ -107,6 +110,13 @@ export function loadConfig(
                 5000,
             ),
             ttlMs: parseNumber(env.CACHE_TTL_MS, "CACHE_TTL_MS", 30_000),
+        },
+        bootstrap: {
+            snapshotBatchSize: parseNumber(
+                env.BOOTSTRAP_SNAPSHOT_BATCH_SIZE,
+                "BOOTSTRAP_SNAPSHOT_BATCH_SIZE",
+                200,
+            ),
         },
     };
 }

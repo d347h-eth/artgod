@@ -54,4 +54,11 @@ export interface RpcProviderPort {
     getLogs(filter: RpcLogFilter): Promise<RpcLog[]>;
     getTransaction(txHash: string): Promise<RpcTransaction>;
     getTransactionReceipt(txHash: string): Promise<RpcTransactionReceipt>;
+    readContract<T = unknown>(params: {
+        address: Hex;
+        abi: readonly unknown[];
+        functionName: string;
+        args?: readonly unknown[];
+        blockNumber?: number;
+    }): Promise<T>;
 }

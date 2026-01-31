@@ -130,3 +130,43 @@ Decision:
 
 - Defer the write buffer until full historical backfills become common or we see real contention.
 - If reintroduced, it should be paired with explicit API gating to signal "ownership state in progress" during long backfills.
+
+## Bootstrap Without ERC721Enumerable (User-Provided Inputs)
+
+Context:
+
+- Bootstrap snapshots currently rely on ERC721Enumerable (`totalSupply` + `tokenByIndex`) to enumerate token IDs.
+- Many collections omit ERC721Enumerable, so `tokenByIndex` is not available.
+- `totalSupply` alone does not provide token IDs because ERC‑721 IDs are not guaranteed to be contiguous or start at 0/1.
+
+Problem:
+
+- Without a reliable on-chain enumeration method, we cannot build a correct ownership snapshot without extra inputs.
+
+Possible strategies (deferred, user-assisted):
+
+1. **User-provided explicit ID list**
+   - User supplies the exact token IDs to snapshot.
+   - Most accurate, but requires manual preparation.
+
+2. **User-provided contiguous range + heuristic `ownerOf`**
+   - User supplies `minId` + `maxId` (or `startId` + `totalSupply`).
+   - Snapshot calls `ownerOf` across the range and skips reverts.
+   - Works only if the collection is known to mint in a contiguous, stable range.
+   - Risk of missed tokens if IDs are sparse or non-standard.
+
+3. **Full/partial historical event scan**
+   - Build the token ID set by scanning `Transfer` events up to an anchor block.
+   - Requires more RPC work and approximates a historical indexer path.
+   - Conflicts with the “no full backfill” bootstrap goal unless strictly bounded.
+
+Recommended approach (future):
+
+- Keep current default: **require ERC721Enumerable** for automated bootstrap.
+- If missing, require user-provided token ID list or explicit range, with warnings.
+- Consider adding a “manual bootstrap mode” to accept these inputs and mark the collection as “user-verified.”
+
+Impact if deferred:
+
+- Collections without ERC721Enumerable cannot be auto-bootstrapped yet.
+- This is acceptable while we prioritize ERC‑721 collections that support enumeration.

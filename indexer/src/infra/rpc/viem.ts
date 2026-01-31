@@ -146,6 +146,32 @@ export class ViemRpcProvider implements RpcProviderPort {
         return logs;
     }
 
+    async readContract<T>(params: {
+        address: Hex;
+        abi: readonly unknown[];
+        functionName: string;
+        args?: readonly unknown[];
+        blockNumber?: number;
+    }): Promise<T> {
+        const start = Date.now();
+        const result = await this.withRetry(() =>
+            this.client.readContract({
+                address: params.address as `0x${string}`,
+                abi: params.abi as any,
+                functionName: params.functionName as any,
+                args: params.args as any,
+                blockNumber:
+                    params.blockNumber !== undefined
+                        ? BigInt(params.blockNumber)
+                        : undefined,
+            }),
+        );
+        this.metrics?.histogram("rpc.latency", Date.now() - start, {
+            method: "readContract",
+        });
+        return result as T;
+    }
+
     private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
         let attempt = 1;
         for (;;) {

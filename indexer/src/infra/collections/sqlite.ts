@@ -16,15 +16,20 @@ type CollectionRow = {
     status: string;
     deployment_block: number | null;
     bootstrap_anchor_block: number | null;
+    bootstrap_started_at: string | null;
+    bootstrap_finished_at: string | null;
+    bootstrap_last_synced_block: number | null;
 };
 
 export class SqliteCollectionRegistry implements CollectionRegistryPort {
     private selectLive = db.prepare<{ chainId: number }>(
-        "SELECT chain_id, collection_id, address, standard, status, deployment_block, bootstrap_anchor_block " +
+        "SELECT chain_id, collection_id, address, standard, status, deployment_block, " +
+            "bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
             "FROM collections WHERE chain_id = @chainId AND status = 'live'",
     );
     private selectBackfill = db.prepare<{ chainId: number }>(
-        "SELECT chain_id, collection_id, address, standard, status, deployment_block, bootstrap_anchor_block " +
+        "SELECT chain_id, collection_id, address, standard, status, deployment_block, " +
+            "bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
             "FROM collections WHERE chain_id = @chainId AND status IN ('live', 'bootstrapping')",
     );
     private upsert = db.prepare<{
@@ -35,14 +40,44 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
         status: string;
         deploymentBlock: number | null;
         bootstrapAnchorBlock: number | null;
+        bootstrapStartedAt: string | null;
+        bootstrapFinishedAt: string | null;
+        bootstrapLastSyncedBlock: number | null;
     }>(
         "INSERT INTO collections " +
-            "(chain_id, collection_id, address, standard, status, deployment_block, bootstrap_anchor_block) " +
-            "VALUES (@chainId, @id, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock) " +
+            "(chain_id, collection_id, address, standard, status, deployment_block, bootstrap_anchor_block, " +
+            "bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
+            "VALUES (@chainId, @id, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock, " +
+            "@bootstrapStartedAt, @bootstrapFinishedAt, @bootstrapLastSyncedBlock) " +
             "ON CONFLICT(chain_id, collection_id) DO UPDATE SET " +
             "address = excluded.address, standard = excluded.standard, status = excluded.status, " +
             "deployment_block = excluded.deployment_block, bootstrap_anchor_block = excluded.bootstrap_anchor_block, " +
+            "bootstrap_started_at = excluded.bootstrap_started_at, " +
+            "bootstrap_finished_at = excluded.bootstrap_finished_at, " +
+            "bootstrap_last_synced_block = excluded.bootstrap_last_synced_block, " +
             "updated_at = CURRENT_TIMESTAMP",
+    );
+    private markStarted = db.prepare<{
+        chainId: number;
+        collectionId: string;
+        anchorBlock: number;
+    }>(
+        "UPDATE collections SET " +
+            "status = 'bootstrapping', " +
+            "bootstrap_anchor_block = @anchorBlock, " +
+            "bootstrap_started_at = COALESCE(bootstrap_started_at, CURRENT_TIMESTAMP), " +
+            "updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+    );
+    private markSnapshotProgress = db.prepare<{
+        chainId: number;
+        collectionId: string;
+        lastSyncedBlock: number;
+    }>(
+        "UPDATE collections SET " +
+            "bootstrap_last_synced_block = @lastSyncedBlock, " +
+            "updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId",
     );
 
     listCollectionsForSync(
@@ -65,7 +100,36 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
             status: input.status,
             deploymentBlock: input.deploymentBlock,
             bootstrapAnchorBlock: input.bootstrapAnchorBlock,
+            bootstrapStartedAt: input.bootstrapStartedAt,
+            bootstrapFinishedAt: input.bootstrapFinishedAt,
+            bootstrapLastSyncedBlock: input.bootstrapLastSyncedBlock,
         });
+    }
+
+    markBootstrapStarted(
+        chainId: number,
+        collectionId: string,
+        anchorBlock: number,
+    ): boolean {
+        const result = this.markStarted.run({
+            chainId,
+            collectionId,
+            anchorBlock,
+        });
+        return result.changes > 0;
+    }
+
+    markBootstrapSnapshotProgress(
+        chainId: number,
+        collectionId: string,
+        lastSyncedBlock: number,
+    ): boolean {
+        const result = this.markSnapshotProgress.run({
+            chainId,
+            collectionId,
+            lastSyncedBlock,
+        });
+        return result.changes > 0;
     }
 }
 
@@ -78,5 +142,8 @@ function mapRow(row: CollectionRow): CollectionRecord {
         status: row.status as CollectionRecord["status"],
         deploymentBlock: row.deployment_block,
         bootstrapAnchorBlock: row.bootstrap_anchor_block,
+        bootstrapStartedAt: row.bootstrap_started_at,
+        bootstrapFinishedAt: row.bootstrap_finished_at,
+        bootstrapLastSyncedBlock: row.bootstrap_last_synced_block,
     };
 }
