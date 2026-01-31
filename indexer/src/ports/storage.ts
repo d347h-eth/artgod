@@ -8,5 +8,10 @@ export interface StoragePort {
         data: OnChainData,
     ): void;
     getBlockHash(chainId: number, blockNumber: number): string | null;
+    countBlocksInRange(
+        chainId: number,
+        fromBlock: number,
+        toBlock: number,
+    ): number;
     rollbackFromBlock(chainId: number, fromBlock: number): void;
 }

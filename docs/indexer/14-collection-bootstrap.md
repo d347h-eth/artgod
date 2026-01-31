@@ -38,6 +38,8 @@ Each collection starts in a "not indexed" state. When a user adds a collection, 
     - Backfill from `anchorBlock + 1` to current head.
     - Apply deltas so `nft_balances` reflects the current state.
     - This range is small, so it finishes quickly.
+    - Bootstrap worker schedules the backfill range and periodically checks
+      `blocks` table completeness before marking the collection live.
 
 5) **Live sync**
     - Switch the collection to realtime indexing (`status = live`).

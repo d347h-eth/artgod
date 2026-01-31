@@ -21,4 +21,9 @@ export interface CollectionRegistryPort {
         collectionId: string,
         lastSyncedBlock: number,
     ): boolean;
+    markBootstrapFinished(
+        chainId: number,
+        collectionId: string,
+        lastSyncedBlock: number,
+    ): boolean;
 }

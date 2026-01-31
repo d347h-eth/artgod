@@ -6,8 +6,13 @@ import { runWorker } from "../application/worker-runner.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import {
     BOOTSTRAP_JOB_KIND,
+    type BootstrapBackfillCheckPayload,
     type BootstrapCollectionPayload,
 } from "../domain/bootstrap-jobs.js";
+import {
+    SYNC_JOB_KIND,
+    type BackfillSyncPayload,
+} from "../domain/sync-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteBootstrapStorage } from "../infra/bootstrap/sqlite.js";
@@ -16,6 +21,11 @@ import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import type { BootstrapSnapshotPort } from "../ports/bootstrap.js";
 import type { CollectionRegistryPort } from "../ports/collections.js";
 import type { Hex, RpcProviderPort } from "../ports/rpc.js";
+import { SqliteStorage } from "../infra/storage/sqlite.js";
+import type { QueuePort } from "../ports/queue.js";
+import type { StoragePort } from "../ports/storage.js";
+
+const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 
 async function main() {
     try {
@@ -32,6 +42,7 @@ async function main() {
         });
         const collections = new SqliteCollectionRegistry();
         const bootstrapStorage = new SqliteBootstrapStorage();
+        const storage = new SqliteStorage();
 
         const stop = await runWorker(
             queue,
@@ -42,16 +53,32 @@ async function main() {
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
-            async (job: JobEnvelope<BootstrapCollectionPayload>) => {
-                if (job.kind !== BOOTSTRAP_JOB_KIND.Start) return;
-                await handleBootstrapStart(
-                    rpc,
-                    collections,
-                    bootstrapStorage,
-                    config.sync.reorgDepth,
-                    config.bootstrap.snapshotBatchSize,
-                    job.payload,
-                );
+            async (
+                job: JobEnvelope<
+                    BootstrapCollectionPayload | BootstrapBackfillCheckPayload
+                >,
+            ) => {
+                if (job.kind === BOOTSTRAP_JOB_KIND.Start) {
+                    await handleBootstrapStart(
+                        rpc,
+                        queue,
+                        collections,
+                        bootstrapStorage,
+                        config.sync.reorgDepth,
+                        config.sync.backfillBatchSize,
+                        config.bootstrap.snapshotBatchSize,
+                        job.payload as BootstrapCollectionPayload,
+                    );
+                    return;
+                }
+                if (job.kind === BOOTSTRAP_JOB_KIND.BackfillCheck) {
+                    await handleBootstrapBackfillCheck(
+                        queue,
+                        storage,
+                        collections,
+                        job.payload as BootstrapBackfillCheckPayload,
+                    );
+                }
             },
         );
 
@@ -87,9 +114,11 @@ main();
 
 async function handleBootstrapStart(
     rpc: RpcProviderPort,
+    queue: QueuePort,
     collections: CollectionRegistryPort,
     bootstrapStorage: BootstrapSnapshotPort,
     reorgDepth: number,
+    backfillBatchSize: number,
     snapshotBatchSize: number,
     payload: BootstrapCollectionPayload,
 ): Promise<void> {
@@ -174,6 +203,52 @@ async function handleBootstrapStart(
             anchorBlock,
         );
 
+        const head = await rpc.getBlockNumber();
+        const fromBlock = anchorBlock + 1;
+        if (fromBlock <= 0) {
+            logger.warn("Bootstrap backfill skipped (invalid range)", {
+                component: "CollectionBootstrapWorker",
+                action: "handleBootstrapStart",
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+                address: payload.address,
+                standard: payload.standard,
+                anchorBlock,
+                head,
+            });
+        } else if (head < fromBlock) {
+            collections.markBootstrapFinished(
+                payload.chainId,
+                payload.collectionId,
+                anchorBlock,
+            );
+            logger.info("Bootstrap backfill skipped (no new blocks)", {
+                component: "CollectionBootstrapWorker",
+                action: "handleBootstrapStart",
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+                address: payload.address,
+                standard: payload.standard,
+                anchorBlock,
+                head,
+            });
+        } else {
+            await scheduleBackfillRange(
+                queue,
+                payload.chainId,
+                fromBlock,
+                head,
+                backfillBatchSize,
+            );
+            await scheduleBackfillCheck(queue, {
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+                address: payload.address,
+                fromBlock,
+                toBlock: head,
+            });
+        }
+
         logger.info("Bootstrap snapshot completed", {
             component: "CollectionBootstrapWorker",
             action: "handleBootstrapStart",
@@ -197,6 +272,111 @@ async function handleBootstrapStart(
         });
         throw error;
     }
+}
+
+async function handleBootstrapBackfillCheck(
+    queue: QueuePort,
+    storage: StoragePort,
+    collections: CollectionRegistryPort,
+    payload: BootstrapBackfillCheckPayload,
+): Promise<void> {
+    const expected = payload.toBlock - payload.fromBlock + 1;
+    if (expected <= 0) {
+        logger.warn("Bootstrap backfill check skipped (invalid range)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapBackfillCheck",
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            fromBlock: payload.fromBlock,
+            toBlock: payload.toBlock,
+        });
+        return;
+    }
+
+    const count = storage.countBlocksInRange(
+        payload.chainId,
+        payload.fromBlock,
+        payload.toBlock,
+    );
+    if (count < expected) {
+        logger.debug("Bootstrap backfill incomplete; retrying", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapBackfillCheck",
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            fromBlock: payload.fromBlock,
+            toBlock: payload.toBlock,
+            count,
+            expected,
+        });
+        await scheduleBackfillCheck(queue, payload);
+        return;
+    }
+
+    const updated = collections.markBootstrapFinished(
+        payload.chainId,
+        payload.collectionId,
+        payload.toBlock,
+    );
+    if (!updated) {
+        logger.warn("Bootstrap finish skipped (collection missing)", {
+            component: "CollectionBootstrapWorker",
+            action: "handleBootstrapBackfillCheck",
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            fromBlock: payload.fromBlock,
+            toBlock: payload.toBlock,
+        });
+        return;
+    }
+
+    logger.info("Bootstrap backfill complete; collection live", {
+        component: "CollectionBootstrapWorker",
+        action: "handleBootstrapBackfillCheck",
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+        fromBlock: payload.fromBlock,
+        toBlock: payload.toBlock,
+    });
+}
+
+async function scheduleBackfillRange(
+    queue: QueuePort,
+    chainId: number,
+    fromBlock: number,
+    toBlock: number,
+    batchSize: number,
+): Promise<void> {
+    const size = Math.max(1, batchSize);
+    for (let start = fromBlock; start <= toBlock; start += size) {
+        const end = Math.min(toBlock, start + size - 1);
+        const job: JobEnvelope<BackfillSyncPayload> = {
+            jobId: `sync:bootstrap:${chainId}:${start}-${end}:${Date.now()}`,
+            kind: SYNC_JOB_KIND.BackfillRange,
+            queue: QUEUE_NAMES.BackfillSync,
+            payload: { fromBlock: start, toBlock: end },
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+        };
+        await queue.publish(QUEUE_NAMES.BackfillSync, job);
+    }
+}
+
+async function scheduleBackfillCheck(
+    queue: QueuePort,
+    payload: BootstrapBackfillCheckPayload,
+): Promise<void> {
+    const job: JobEnvelope<BootstrapBackfillCheckPayload> = {
+        jobId: `bootstrap:check:${payload.chainId}:${payload.collectionId}:${Date.now()}`,
+        kind: BOOTSTRAP_JOB_KIND.BackfillCheck,
+        queue: QUEUE_NAMES.CollectionBootstrap,
+        payload,
+        attempt: 0,
+        scheduledAt: Date.now() + BOOTSTRAP_BACKFILL_CHECK_DELAY_MS,
+        chainId: payload.chainId,
+    };
+    await queue.publish(QUEUE_NAMES.CollectionBootstrap, job);
 }
 
 async function resolveAnchorBlock(

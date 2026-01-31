@@ -26,9 +26,9 @@ This roadmap follows Part 2 and reflects the ArtGod approach: **bootstrap collec
 
 ## Phase 3: Short Backfill (Anchor → Head)
 
-[ ] Backfill range from `anchorBlock + 1` to head at bootstrap start.
-[ ] Ensure gapless processing before marking collection as live.
-[ ] On completion, switch the collection to realtime sync.
+[x] Backfill range from `anchorBlock + 1` to head at bootstrap start.
+[x] Ensure gapless processing before marking collection as live.
+[x] On completion, switch the collection to realtime sync.
 
 ## Phase 4: Offchain Order Validation (Seaport)
 

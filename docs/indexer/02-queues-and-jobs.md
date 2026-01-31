@@ -123,7 +123,9 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 
 - Bootstrap jobs (`indexer/src/domain/bootstrap-jobs.ts`):
     - `bootstrap.collection.start`
+    - `bootstrap.collection.backfill-check`
 
 `bootstrap.collection.start` jobs are produced by future API/UI actions and consumed by the collection bootstrap worker runtime.
+`bootstrap.collection.backfill-check` jobs are produced by the bootstrap worker to verify short backfill completion before switching a collection to `live`.
 
 These jobs are produced by the scheduler, sync worker, offchain ingest/stream workers, and future API/UI actions, and consumed by the sync, reorg, domain, offchain ingest, and bootstrap runtimes.

@@ -79,6 +79,18 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId",
     );
+    private markFinished = db.prepare<{
+        chainId: number;
+        collectionId: string;
+        lastSyncedBlock: number;
+    }>(
+        "UPDATE collections SET " +
+            "status = 'live', " +
+            "bootstrap_last_synced_block = @lastSyncedBlock, " +
+            "bootstrap_finished_at = CURRENT_TIMESTAMP, " +
+            "updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+    );
 
     listCollectionsForSync(
         chainId: number,
@@ -125,6 +137,19 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
         lastSyncedBlock: number,
     ): boolean {
         const result = this.markSnapshotProgress.run({
+            chainId,
+            collectionId,
+            lastSyncedBlock,
+        });
+        return result.changes > 0;
+    }
+
+    markBootstrapFinished(
+        chainId: number,
+        collectionId: string,
+        lastSyncedBlock: number,
+    ): boolean {
+        const result = this.markFinished.run({
             chainId,
             collectionId,
             lastSyncedBlock,

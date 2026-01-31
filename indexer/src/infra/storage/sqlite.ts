@@ -6,6 +6,7 @@ import { ORDER_STATUS } from "../../domain/orders.js";
 
 type BalanceRow = { amount: string };
 type BlockHashRow = { block_hash: string };
+type BlockCountRow = { count: number };
 type TransferRow = {
     contract: string;
     from_address: string;
@@ -97,6 +98,9 @@ export class SqliteStorage implements StoragePort {
     private selectBlockHash = db.prepare<[number, number]>(
         "SELECT block_hash FROM blocks WHERE chain_id = ? AND block_number = ?",
     );
+    private countBlocksInRangeStmt = db.prepare<[number, number, number]>(
+        "SELECT COUNT(1) as count FROM blocks WHERE chain_id = ? AND block_number BETWEEN ? AND ?",
+    );
     private selectTransfersFromBlock = db.prepare<[number, number]>(
         "SELECT contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? " +
@@ -177,6 +181,20 @@ export class SqliteStorage implements StoragePort {
             | BlockHashRow
             | undefined;
         return row?.block_hash ?? null;
+    }
+
+    countBlocksInRange(
+        chainId: number,
+        fromBlock: number,
+        toBlock: number,
+    ): number {
+        if (fromBlock > toBlock) return 0;
+        const row = this.countBlocksInRangeStmt.get(
+            chainId,
+            fromBlock,
+            toBlock,
+        ) as BlockCountRow | undefined;
+        return row?.count ?? 0;
     }
 
     rollbackFromBlock(chainId: number, fromBlock: number): void {

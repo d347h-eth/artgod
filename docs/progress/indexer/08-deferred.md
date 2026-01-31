@@ -131,6 +131,31 @@ Decision:
 - Defer the write buffer until full historical backfills become common or we see real contention.
 - If reintroduced, it should be paired with explicit API gating to signal "ownership state in progress" during long backfills.
 
+## Bootstrap Backfill Check Improvements
+
+Context:
+
+- Bootstrap completion currently polls every few seconds by counting `blocks` in the short backfill range.
+- This is simple but can create unnecessary queue churn and doesn’t react immediately to progress.
+
+Possible improvements (deferred):
+
+1. **Progress‑driven completion**
+   - Sync worker emits a `bootstrap.collection.backfill-progress` job per batch.
+   - Bootstrap worker tracks highest completed block and marks `live` once it reaches target.
+
+2. **Persisted progress cursor**
+   - Sync worker updates `bootstrap_last_synced_block` as batches finish.
+   - Bootstrap worker only checks this cursor instead of scanning `blocks`.
+
+3. **Adaptive polling**
+   - Use exponential backoff (e.g. 2s → 5s → 10s → 30s).
+   - Reduces polling load during long backfills.
+
+Decision:
+
+- Keep simple 5s polling for now, revisit when bootstrap throughput or queue load warrants.
+
 ## Bootstrap Without ERC721Enumerable (User-Provided Inputs)
 
 Context:
