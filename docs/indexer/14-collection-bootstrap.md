@@ -78,6 +78,11 @@ Bootstrap orchestration is handled by the collection bootstrap worker:
 
 The worker is responsible for sequencing the snapshot and short backfill steps for a collection.
 
+Dev helper:
+
+- `yarn workspace @artgod/indexer dev:bootstrap-trigger --address <0x...>`
+  enqueues a `bootstrap.collection.start` job for manual testing.
+
 ## Collection Registry Table
 
 Bootstrap state is tracked in SQLite:
