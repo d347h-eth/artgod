@@ -8,4 +8,14 @@ export type ConduitRecord = {
 export interface ConduitRegistryPort {
     getConduit(chainId: number, conduitKey: string): string | null;
     upsertConduit(record: ConduitRecord): void;
+    hasChannel(
+        chainId: number,
+        conduitAddress: string,
+        channelAddress: string,
+    ): boolean;
+    replaceChannels(
+        chainId: number,
+        conduitAddress: string,
+        channels: string[],
+    ): void;
 }

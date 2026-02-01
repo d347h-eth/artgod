@@ -149,6 +149,7 @@ nft_balances(chain_id, contract, token_id, owner, amount,
 `database/migrations/009_seaport_conduits.sql`:
 
 - `seaport_conduits` caches `conduitKey -> conduitAddress` lookups.
+- `seaport_conduit_channels` caches conduit open channels.
 - Used during offchain Seaport order validation to resolve approval targets.
 
 ## Storage Adapter Behavior

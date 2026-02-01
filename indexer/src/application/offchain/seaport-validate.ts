@@ -94,6 +94,13 @@ const CONDUIT_CONTROLLER_ABI = [
         ],
         stateMutability: "view",
     },
+    {
+        type: "function",
+        name: "getChannels",
+        inputs: [{ name: "conduit", type: "address" }],
+        outputs: [{ name: "channels", type: "address[]" }],
+        stateMutability: "view",
+    },
 ] as const;
 
 const ZERO_BYTES32 =
@@ -222,6 +229,21 @@ export async function validateSeaportOrder(
         return { status: ORDER_STATUS.Invalid, reason: "unsupported-conduit" };
     }
 
+    const channelOk = await ensureConduitChannel(
+        rpc,
+        conduits,
+        config.conduitController,
+        order.chainId,
+        approvalTarget,
+        parsed.protocolAddress,
+    );
+    if (!channelOk) {
+        return {
+            status: ORDER_STATUS.Invalid,
+            reason: "unsupported-conduit-channel",
+        };
+    }
+
     const price = order.price ? BigInt(order.price) : null;
     if (!price || price <= 0n) {
         return { status: ORDER_STATUS.Invalid, reason: "missing-price" };
@@ -347,6 +369,33 @@ async function resolveConduit(
         conduitAddress: conduit,
     });
     return conduit.toLowerCase();
+}
+
+async function ensureConduitChannel(
+    rpc: RpcProviderPort,
+    conduits: ConduitRegistryPort,
+    conduitController: string,
+    chainId: number,
+    conduitAddress: string,
+    channelAddress: string,
+): Promise<boolean> {
+    if (conduitAddress.toLowerCase() === channelAddress.toLowerCase()) {
+        return true;
+    }
+    if (conduits.hasChannel(chainId, conduitAddress, channelAddress)) {
+        return true;
+    }
+
+    const channels = await rpc.readContract<string[]>({
+        address: conduitController as Hex,
+        abi: CONDUIT_CONTROLLER_ABI,
+        functionName: "getChannels",
+        args: [conduitAddress as Hex],
+    });
+
+    const normalized = (channels ?? []).map((value) => value.toLowerCase());
+    conduits.replaceChannels(chainId, conduitAddress, normalized);
+    return normalized.includes(channelAddress.toLowerCase());
 }
 
 function parseProtocolData(

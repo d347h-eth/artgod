@@ -80,6 +80,7 @@ Provides a refreshable set of bid makers (currently sourced from the `orders` ta
 - Adapter: `indexer/src/infra/conduits/sqlite.ts`
 
 Caches Seaport conduit lookups (`conduitKey -> conduitAddress`) for offchain order validation.
+Also caches conduit channel lists used to ensure the Seaport exchange is an open channel.
 
 ## Metadata Ports
 
