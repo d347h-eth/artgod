@@ -32,9 +32,9 @@ This roadmap follows Part 2 and reflects the ArtGod approach: **bootstrap collec
 
 ## Phase 4: Offchain Order Validation (Seaport)
 
-[ ] Validate signature + expiry for OpenSea/Seaport orders.
-[ ] Conduit approval checks (cache or on-demand RPC).
-[ ] Onchain balance/approval checks to set fillability.
+[x] Validate signature + expiry for OpenSea/Seaport orders.
+[x] Conduit approval checks (cache or on-demand RPC).
+[x] Onchain balance/approval checks to set fillability.
 
 ## Phase 5: OpenSea Event Coverage
 

@@ -42,5 +42,7 @@ export type OrderUpsertPayload = {
     validUntil?: number | null;
     source: string;
     rawData?: unknown;
+    // validateAfterUpsert is expected to be "true" by default to trigger onchain validation of the order,
+    // otherwise the order might be persisted optimistically as "fillable".
     validateAfterUpsert: boolean;
 };

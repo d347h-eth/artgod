@@ -18,7 +18,7 @@ Provides publish/subscribe semantics with explicit ack/nack/touch.
 
 Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction`, and `getTransactionReceipt` with log chunking and retry behavior.
 
-`readContract` is also supported for bootstrap ownership snapshots.
+`readContract` is used for bootstrap ownership snapshots and offchain order validation. `getBalance` is used for native-ETH order checks.
 
 ## Head Source Port
 
@@ -73,6 +73,13 @@ Orders domain also exposes update-by-maker and update-by-id handlers for fillabi
 - Adapter: `indexer/src/infra/bidder-index/sqlite.ts`
 
 Provides a refreshable set of bid makers (currently sourced from the `orders` table) used to gate WETH-triggered maker updates.
+
+## Conduit Registry Port
+
+- Interface: `indexer/src/ports/conduits.ts`
+- Adapter: `indexer/src/infra/conduits/sqlite.ts`
+
+Caches Seaport conduit lookups (`conduitKey -> conduitAddress`) for offchain order validation.
 
 ## Metadata Ports
 

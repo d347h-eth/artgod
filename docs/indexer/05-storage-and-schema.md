@@ -144,6 +144,13 @@ nft_balances(chain_id, contract, token_id, owner, amount,
 - Primary key: `(chain_id, collection_id, token_id)`.
 - Rows are finalized into `nft_balances` once the snapshot completes.
 
+## Seaport Conduit Cache
+
+`database/migrations/009_seaport_conduits.sql`:
+
+- `seaport_conduits` caches `conduitKey -> conduitAddress` lookups.
+- Used during offchain Seaport order validation to resolve approval targets.
+
 ## Storage Adapter Behavior
 
 `indexer/src/infra/storage/sqlite.ts` implements `StoragePort`.

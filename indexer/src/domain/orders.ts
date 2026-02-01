@@ -4,6 +4,8 @@ export const ORDER_STATUS = {
     Cancelled: "cancelled",
     Expired: "expired",
     NoBalance: "no-balance",
+    NoApproval: "no-approval",
+    Invalid: "invalid",
 } as const;
 
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];

@@ -6,3 +6,4 @@ export * from "./storage.js";
 export * from "./bootstrap.js";
 export * from "./domain-handlers.js";
 export * from "./metadata.js";
+export * from "./conduits.js";

@@ -15,10 +15,7 @@ export function assertString(value: unknown, name: string): string {
     return value;
 }
 
-export function assertSide(
-    value: unknown,
-    name: string,
-): "buy" | "sell" {
+export function assertSide(value: unknown, name: string): "buy" | "sell" {
     if (value === "buy" || value === "sell") return value;
     throw new Error(`Invalid ${name}: expected 'buy' or 'sell'`);
 }
@@ -36,8 +33,7 @@ export function parseOptionalNumber(
     name: string,
 ): number | null {
     if (value === undefined || value === null) return null;
-    const num =
-        typeof value === "number" ? value : Number(String(value));
+    const num = typeof value === "number" ? value : Number(String(value));
     if (!Number.isFinite(num)) {
         throw new Error(`Invalid ${name}: expected number`);
     }
@@ -87,9 +83,10 @@ export function parseTimestamp(value: unknown, name: string): number | null {
     return Math.floor(ms / 1000);
 }
 
-export function parseNftId(
-    value: unknown,
-): { contract: string; tokenId: string } {
+export function parseNftId(value: unknown): {
+    contract: string;
+    tokenId: string;
+} {
     const item = asObject(value, "item");
     const nftId = assertString(item.nft_id, "item.nft_id");
     const parts = nftId.split("/");
@@ -102,4 +99,15 @@ export function parseNftId(
         throw new Error(`Invalid nft_id tokenId: ${nftId}`);
     }
     return { contract, tokenId };
+}
+
+export function toBigInt(value: unknown, name: string): bigint {
+    if (typeof value === "bigint") return value;
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return BigInt(value);
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+        return BigInt(value);
+    }
+    throw new Error(`Invalid ${name}: expected bigint-compatible value`);
 }

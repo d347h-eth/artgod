@@ -38,6 +38,7 @@ The indexer reads these variables from the root `.env`:
 - `CACHE_MAX_ENTRIES` (default: 5000)
 - `CACHE_TTL_MS` (default: 30000)
 - `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` (default: 200)
+- `SEAPORT_CONDUIT_CONTROLLER` (required)
 
 `RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
 
@@ -64,6 +65,7 @@ LOG_CHUNK_SIZE=2000
 CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
+SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 OPENSEA_STREAM_MODE=fixtures
 OPENSEA_FIXTURES_DIR=indexer/tests/fixtures/opensea-event-payloads
 OPENSEA_FIXTURE_DELAY_MS=0
@@ -81,6 +83,7 @@ The smoke tests use a separate `.env.test` file loaded by `indexer/tests/helpers
 - `SMOKE_RANGE_FROM` (required)
 - `SMOKE_RANGE_TO` (required)
 - `SMOKE_CHAIN_ID` (optional, default 1)
+- `SEAPORT_CONDUIT_CONTROLLER` (required)
 
 `SMOKE_TARGET_COLLECTIONS` is used to seed the `collections` table before the smoke test runs.
 
@@ -91,6 +94,7 @@ ARTGOD_DB_PATH=database/sqlite/test/db
 SMOKE_NATS_PORT=10247
 SMOKE_RPC_URL=http://127.0.0.1:8545
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 SMOKE_TARGET_COLLECTIONS='[{"id":"terraforms","address":"0x4E1f41613c9084FdB9E34E11fAE9412427480e56","deploymentBlock":13823015}]'
 SMOKE_RANGE_FROM=24193425
 SMOKE_RANGE_TO=24193425

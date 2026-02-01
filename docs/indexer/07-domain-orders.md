@@ -23,6 +23,8 @@ The domain reads transfer events from `nft_transfer_events` within the block ran
 
 The orders domain also consumes `orders.upsert` jobs for offchain order ingestion. These jobs carry a normalized order payload (maker/side/price/token) and are persisted directly into the `orders` table. The OpenSea normalizer currently supports `item_listed` and `item_received_bid` events; collection and trait offers are ignored for now.
 
+After an upsert with `validateAfterUpsert`, the domain worker emits an `orders.update-by-id` job to validate the offchain order on-chain (Seaport).
+
 ## Trigger Meanings
 
 The indexer uses four trigger categories to keep the orderbook correct:
@@ -50,7 +52,16 @@ Order queues used by the domain:
 - `order-updates-by-maker`: re-validate all orders affected by maker state changes.
 - `order-updates-by-id`: update a specific order after fill/cancel/on-chain order creation.
 
-Handlers now update order status by id for `fill`, `cancel`, and `order` triggers. After `orders-upsert`, the domain worker will emit `orders.update-by-id` when `validateAfterUpsert` is set (currently used by offchain ingestion). Maker-based updates remain minimal and only log.
+Handlers now update order status by id for `fill`, `cancel`, and `order` triggers. For `order` triggers tied to offchain ingestion, the domain validates Seaport orders by:
+
+- Verifying order hash + signature.
+- Checking time window and on-chain order status.
+- Resolving conduit approvals (via ConduitController + local cache).
+- Checking maker balance/approvals.
+
+Validation can set `fillability_status` to `fillable`, `expired`, `cancelled`, `filled`, `no-balance`, `no-approval`, or `invalid`.
+
+Maker-based updates remain minimal and only log.
 
 ## Logic
 
@@ -63,7 +74,7 @@ The current implementation:
     - `fillability_status != 'no-balance'`.
 4. Sets `fillability_status` to `no-balance` and updates `updated_at`.
 
-This keeps order invalidation simple and idempotent.
+This keeps order invalidation simple and idempotent, while offchain validation handles fillability correctness.
 
 On reorg rollback, orders that were invalidated by transfers in orphaned blocks are reset back to `fillable` (best-effort), and on-chain orders in the rolled-back range are deleted.
 

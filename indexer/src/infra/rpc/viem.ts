@@ -172,6 +172,19 @@ export class ViemRpcProvider implements RpcProviderPort {
         return result as T;
     }
 
+    async getBalance(address: Hex): Promise<bigint> {
+        const start = Date.now();
+        const result = await this.withRetry(() =>
+            this.client.getBalance({
+                address: address as `0x${string}`,
+            }),
+        );
+        this.metrics?.histogram("rpc.latency", Date.now() - start, {
+            method: "getBalance",
+        });
+        return result;
+    }
+
     private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
         let attempt = 1;
         for (;;) {

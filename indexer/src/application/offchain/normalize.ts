@@ -61,6 +61,7 @@ export function normalizeOffchainOrder(
         validUntil: order.validUntil ?? null,
         source: raw.source,
         rawData: raw.payload,
+        validateAfterUpsert: true,
     };
 }
 

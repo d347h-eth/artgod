@@ -61,3 +61,50 @@ export const ERC1155_ABI = [
         anonymous: false,
     },
 ] as const;
+
+export const ERC721_APPROVAL_ABI = [
+    {
+        type: "function",
+        name: "ownerOf",
+        inputs: [{ name: "tokenId", type: "uint256" }],
+        outputs: [{ name: "owner", type: "address" }],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "getApproved",
+        inputs: [{ name: "tokenId", type: "uint256" }],
+        outputs: [{ name: "operator", type: "address" }],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "isApprovedForAll",
+        inputs: [
+            { name: "owner", type: "address" },
+            { name: "operator", type: "address" },
+        ],
+        outputs: [{ name: "approved", type: "bool" }],
+        stateMutability: "view",
+    },
+] as const;
+
+export const ERC20_ABI = [
+    {
+        type: "function",
+        name: "balanceOf",
+        inputs: [{ name: "owner", type: "address" }],
+        outputs: [{ name: "balance", type: "uint256" }],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "allowance",
+        inputs: [
+            { name: "owner", type: "address" },
+            { name: "spender", type: "address" },
+        ],
+        outputs: [{ name: "allowance", type: "uint256" }],
+        stateMutability: "view",
+    },
+] as const;

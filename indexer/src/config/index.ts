@@ -29,6 +29,9 @@ export type IndexerConfig = {
     bootstrap: {
         snapshotBatchSize: number;
     };
+    seaport: {
+        conduitController: string;
+    };
 };
 
 export function parseNumber(
@@ -116,6 +119,12 @@ export function loadConfig(
                 env.BOOTSTRAP_SNAPSHOT_BATCH_SIZE,
                 "BOOTSTRAP_SNAPSHOT_BATCH_SIZE",
                 200,
+            ),
+        },
+        seaport: {
+            conduitController: parseAddress(
+                env.SEAPORT_CONDUIT_CONTROLLER,
+                "SEAPORT_CONDUIT_CONTROLLER",
             ),
         },
     };

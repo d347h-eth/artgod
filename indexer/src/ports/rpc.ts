@@ -61,4 +61,5 @@ export interface RpcProviderPort {
         args?: readonly unknown[];
         blockNumber?: number;
     }): Promise<T>;
+    getBalance(address: Hex): Promise<bigint>;
 }

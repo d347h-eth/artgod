@@ -8,5 +8,11 @@ services:
         volumes:
             - nats-data:/data
 
+    natsbox:
+        image: natsio/nats-box:latest
+        command: ["sleep", "infinity"]
+        depends_on:
+            - nats
+
 volumes:
     nats-data:

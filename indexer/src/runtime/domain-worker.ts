@@ -16,6 +16,8 @@ import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { noopMetrics } from "../metrics/noop.js";
 import { SqliteActivityDomain } from "../infra/domain/activities.js";
+import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
 import {
     ORDER_JOB_KIND,
     type OrderUpdateByIdPayload,
@@ -32,7 +34,16 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
-        const ordersDomain = new SqliteOrdersDomain();
+        const rpc = new ViemRpcProvider({
+            url: config.rpc.primaryUrl,
+            logChunkSize: config.sync.logChunkSize,
+        });
+        const conduits = new SqliteConduitRegistry();
+        const ordersDomain = new SqliteOrdersDomain(
+            rpc,
+            conduits,
+            config.seaport,
+        );
         const metadataResolver = new ViemTokenUriResolver({
             url: config.rpc.primaryUrl,
             metrics: noopMetrics,

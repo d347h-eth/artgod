@@ -10,6 +10,10 @@ import type {
     DomainSyncContext,
     OrdersDomainPort,
 } from "../../ports/domain-handlers.js";
+import type { ConduitRegistryPort } from "../../ports/conduits.js";
+import type { RpcProviderPort } from "../../ports/rpc.js";
+import { validateSeaportOrder } from "../../application/offchain/seaport-validate.js";
+import type { OrderRecord, OrderStatus } from "../../domain/orders.js";
 
 type TransferRow = {
     contract: string;
@@ -17,9 +21,33 @@ type TransferRow = {
     token_id: string;
 };
 
+type OrderRow = {
+    id: string;
+    chain_id: number;
+    kind: string;
+    side: "buy" | "sell" | null;
+    source: string | null;
+    maker: string;
+    taker: string | null;
+    contract: string;
+    token_id: string;
+    price: string | null;
+    currency: string | null;
+    valid_from: number | null;
+    valid_until: number | null;
+    fillability_status: string;
+    raw_data: string | null;
+    block_number: number | null;
+    tx_hash: string | null;
+    log_index: number | null;
+};
+
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class SqliteOrdersDomain implements OrdersDomainPort {
+    private readonly rpc: RpcProviderPort;
+    private readonly conduits: ConduitRegistryPort;
+    private readonly seaportConfig: { conduitController: string };
     private selectTransfers = db.prepare<[number, number, number, string]>(
         "SELECT contract, from_address, token_id FROM nft_transfer_events " +
             "WHERE chain_id = ? AND block_number >= ? AND block_number <= ? AND from_address != ?",
@@ -34,6 +62,11 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     private updateOrderStatus = db.prepare<[string, number, string]>(
         "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = ? AND id = ?",
+    );
+    private selectOrderById = db.prepare<[number, string]>(
+        "SELECT id, chain_id, kind, side, source, maker, taker, contract, token_id, price, currency, " +
+            "valid_from, valid_until, fillability_status, raw_data, block_number, tx_hash, log_index " +
+            "FROM orders WHERE chain_id = ? AND id = ?",
     );
     private upsertOrder = db.prepare<{
         id: string;
@@ -69,6 +102,16 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "raw_data = excluded.raw_data, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
+
+    constructor(
+        rpc: RpcProviderPort,
+        conduits: ConduitRegistryPort,
+        seaportConfig: { conduitController: string },
+    ) {
+        this.rpc = rpc;
+        this.conduits = conduits;
+        this.seaportConfig = seaportConfig;
+    }
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
         const { chainId, fromBlock, toBlock } = context;
@@ -130,14 +173,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         payload: OrderUpdateByIdPayload,
     ): Promise<void> {
         // Order updates by id handle explicit cancels/fills or on-chain order creation.
-        const status =
-            payload.reason === "fill"
-                ? ORDER_STATUS.Filled
-                : payload.reason === "cancel"
-                  ? ORDER_STATUS.Cancelled
-                  : payload.reason === "order"
-                    ? ORDER_STATUS.Fillable
-                    : null;
+        const status = statusFromReason(payload.reason);
 
         if (!status) {
             logger.debug("Orders update-by-id ignored", {
@@ -148,8 +184,41 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             return;
         }
 
+        let finalStatus: OrderStatus = status;
+        if (payload.reason === "order") {
+            const row = this.selectOrderById.get(
+                payload.chainId,
+                payload.orderId,
+            ) as OrderRow | undefined;
+            if (!row) {
+                logger.warn("Orders update-by-id missing order", {
+                    component: "OrdersDomain",
+                    action: "handleOrderUpdateById",
+                    ...payload,
+                });
+                return;
+            }
+            if (row.kind === "seaport" && row.raw_data) {
+                const validation = await validateSeaportOrder(
+                    this.rpc,
+                    this.conduits,
+                    this.seaportConfig,
+                    mapOrderRow(row),
+                );
+                finalStatus = validation.status;
+                logger.debug("Orders validation result", {
+                    component: "OrdersDomain",
+                    action: "handleOrderUpdateById",
+                    orderId: row.id,
+                    chainId: row.chain_id,
+                    status: validation.status,
+                    reason: validation.reason,
+                });
+            }
+        }
+
         const result = this.updateOrderStatus.run(
-            status,
+            finalStatus,
             payload.chainId,
             payload.orderId,
         );
@@ -158,7 +227,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             component: "OrdersDomain",
             action: "handleOrderUpdateById",
             ...payload,
-            status,
+            status: finalStatus,
             updated: result.changes,
         });
     }
@@ -194,5 +263,44 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             side: payload.side,
             updated: result.changes,
         });
+    }
+}
+
+function mapOrderRow(row: OrderRow): OrderRecord {
+    return {
+        id: row.id,
+        chainId: row.chain_id,
+        kind: row.kind,
+        side: row.side,
+        source: row.source,
+        maker: row.maker,
+        taker: row.taker,
+        contract: row.contract,
+        tokenId: row.token_id,
+        price: row.price,
+        currency: row.currency,
+        validFrom: row.valid_from,
+        validUntil: row.valid_until,
+        fillabilityStatus:
+            row.fillability_status as OrderRecord["fillabilityStatus"],
+        rawData: row.raw_data,
+        blockNumber: row.block_number,
+        txHash: row.tx_hash,
+        logIndex: row.log_index,
+    };
+}
+
+function statusFromReason(
+    reason: OrderUpdateByIdPayload["reason"],
+): OrderStatus | null {
+    switch (reason) {
+        case "fill":
+            return ORDER_STATUS.Filled;
+        case "cancel":
+            return ORDER_STATUS.Cancelled;
+        case "order":
+            return ORDER_STATUS.Fillable;
+        default:
+            return null;
     }
 }
