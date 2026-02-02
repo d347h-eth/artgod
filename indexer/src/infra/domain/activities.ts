@@ -31,11 +31,11 @@ type FillRow = {
 
 export class SqliteActivityDomain implements ActivityDomainPort {
     private selectTransfers = db.prepare<[number, number, number]>(
-        "SELECT contract, token_id, from_address, to_address, amount, block_number, tx_hash, log_index " +
+        "SELECT contract_address AS contract, token_id, from_address, to_address, amount, block_number, tx_hash, log_index " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
     );
     private selectFills = db.prepare<[number, number, number]>(
-        "SELECT contract, token_id, order_side, maker, taker, amount, block_number, tx_hash, log_index " +
+        "SELECT contract_address AS contract, token_id, order_side, maker, taker, amount, block_number, tx_hash, log_index " +
             "FROM fills WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
     );
     private insertActivity = db.prepare<
@@ -53,7 +53,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         ]
     >(
         "INSERT OR IGNORE INTO activities " +
-            "(chain_id, kind, contract, token_id, from_address, to_address, amount, block_number, tx_hash, log_index, created_at) " +
+            "(chain_id, kind, contract_address, token_id, from_address, to_address, amount, block_number, tx_hash, log_index, created_at) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
     );
 

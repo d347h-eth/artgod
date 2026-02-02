@@ -7,8 +7,10 @@ CREATE TABLE IF NOT EXISTS orders (
   source TEXT,
   maker TEXT NOT NULL,
   taker TEXT,
-  contract TEXT NOT NULL,
-  token_id TEXT NOT NULL,
+  contract_address TEXT NOT NULL,
+  token_id TEXT,
+  token_set_id TEXT,
+  token_set_schema_hash TEXT,
   price TEXT,
   currency TEXT,
   valid_from INTEGER,
@@ -30,6 +32,8 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS orders_maker_idx
   ON orders (chain_id, maker);
 CREATE INDEX IF NOT EXISTS orders_contract_token_idx
-  ON orders (chain_id, contract, token_id);
+  ON orders (chain_id, contract_address, token_id);
+CREATE INDEX IF NOT EXISTS orders_token_set_idx
+  ON orders (chain_id, token_set_id, token_set_schema_hash);
 CREATE INDEX IF NOT EXISTS orders_status_idx
   ON orders (chain_id, fillability_status);

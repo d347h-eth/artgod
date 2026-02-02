@@ -18,14 +18,14 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     );
     private insertSnapshotStmt = db.prepare<BootstrapSnapshotRow>(
         "INSERT INTO nft_balance_snapshots " +
-            "(chain_id, collection_id, contract, token_id, owner, anchor_block) " +
+            "(chain_id, collection_id, contract_address, token_id, owner, anchor_block) " +
             "VALUES (@chainId, @collectionId, @contract, @tokenId, @owner, @anchorBlock)",
     );
     private deleteBalancesStmt = db.prepare<{
         chainId: number;
         contract: string;
     }>(
-        "DELETE FROM nft_balances WHERE chain_id = @chainId AND contract = @contract",
+        "DELETE FROM nft_balances WHERE chain_id = @chainId AND contract_address = @contract",
     );
     private insertBalancesFromSnapshotStmt = db.prepare<{
         chainId: number;
@@ -37,10 +37,10 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         zeroHash: string;
     }>(
         "INSERT INTO nft_balances " +
-            "(chain_id, contract, token_id, owner, amount, " +
+            "(chain_id, contract_address, token_id, owner, amount, " +
             "last_block_number, last_block_hash, last_block_timestamp, " +
             "last_tx_hash, last_log_index, updated_at) " +
-            "SELECT chain_id, contract, token_id, owner, '1', " +
+            "SELECT chain_id, contract_address, token_id, owner, '1', " +
             "@anchorBlock, @anchorHash, @anchorTimestamp, " +
             "@zeroHash, 0, CURRENT_TIMESTAMP " +
             "FROM nft_balance_snapshots " +

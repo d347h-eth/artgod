@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS fills (
   order_side TEXT,
   maker TEXT,
   taker TEXT,
-  contract TEXT NOT NULL,
+  contract_address TEXT NOT NULL,
   token_id TEXT NOT NULL,
   amount TEXT,
   price TEXT,
@@ -18,11 +18,11 @@ CREATE TABLE IF NOT EXISTS fills (
   tx_hash TEXT NOT NULL,
   log_index INTEGER NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (chain_id, tx_hash, log_index, contract, token_id, kind)
+  UNIQUE (chain_id, tx_hash, log_index, contract_address, token_id, kind)
 );
 
 CREATE INDEX IF NOT EXISTS fills_contract_token_idx
-  ON fills (chain_id, contract, token_id);
+  ON fills (chain_id, contract_address, token_id);
 CREATE INDEX IF NOT EXISTS fills_maker_idx
   ON fills (chain_id, maker);
 CREATE INDEX IF NOT EXISTS fills_taker_idx

@@ -30,7 +30,9 @@ type OrderRow = {
     maker: string;
     taker: string | null;
     contract: string;
-    token_id: string;
+    token_id: string | null;
+    token_set_id: string | null;
+    token_set_schema_hash: string | null;
     price: string | null;
     currency: string | null;
     valid_from: number | null;
@@ -49,14 +51,14 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     private readonly conduits: ConduitRegistryPort;
     private readonly seaportConfig: { conduitController: string };
     private selectTransfers = db.prepare<[number, number, number, string]>(
-        "SELECT contract, from_address, token_id FROM nft_transfer_events " +
+        "SELECT contract_address AS contract, from_address, token_id FROM nft_transfer_events " +
             "WHERE chain_id = ? AND block_number >= ? AND block_number <= ? AND from_address != ?",
     );
     private invalidateOrders = db.prepare<
         [string, number, string, string, string, string]
     >(
         "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = ? AND maker = ? AND contract = ? AND token_id = ? " +
+            "WHERE chain_id = ? AND maker = ? AND contract_address = ? AND token_id = ? " +
             "AND fillability_status != ?",
     );
     private updateOrderStatus = db.prepare<[string, number, string]>(
@@ -64,7 +66,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "WHERE chain_id = ? AND id = ?",
     );
     private selectOrderById = db.prepare<[number, string]>(
-        "SELECT id, chain_id, kind, side, source, maker, taker, contract, token_id, price, currency, " +
+        "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, token_set_id, token_set_schema_hash, price, currency, " +
             "valid_from, valid_until, fillability_status, raw_data, block_number, tx_hash, log_index " +
             "FROM orders WHERE chain_id = ? AND id = ?",
     );
@@ -77,7 +79,9 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         maker: string;
         taker: string | null;
         contract: string;
-        tokenId: string;
+        tokenId: string | null;
+        tokenSetId: string | null;
+        tokenSetSchemaHash: string | null;
         price: string | null;
         currency: string | null;
         validFrom: number | null;
@@ -85,16 +89,18 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         fillabilityStatus: string;
         rawData: string | null;
     }>(
-        "INSERT INTO orders (id, chain_id, kind, side, source, maker, taker, contract, token_id, price, currency, valid_from, valid_until, fillability_status, raw_data) " +
-            "VALUES (@id, @chainId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @rawData) " +
+        "INSERT INTO orders (id, chain_id, kind, side, source, maker, taker, contract_address, token_id, token_set_id, token_set_schema_hash, price, currency, valid_from, valid_until, fillability_status, raw_data) " +
+            "VALUES (@id, @chainId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @tokenSetId, @tokenSetSchemaHash, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @rawData) " +
             "ON CONFLICT(id) DO UPDATE SET " +
             "kind = excluded.kind, " +
             "side = excluded.side, " +
             "source = excluded.source, " +
             "maker = excluded.maker, " +
             "taker = excluded.taker, " +
-            "contract = excluded.contract, " +
+            "contract_address = excluded.contract_address, " +
             "token_id = excluded.token_id, " +
+            "token_set_id = excluded.token_set_id, " +
+            "token_set_schema_hash = excluded.token_set_schema_hash, " +
             "price = excluded.price, " +
             "currency = excluded.currency, " +
             "valid_from = excluded.valid_from, " +
@@ -245,7 +251,9 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             maker: payload.maker,
             taker: payload.taker ?? null,
             contract: payload.contract,
-            tokenId: payload.tokenId,
+            tokenId: payload.tokenId ?? null,
+            tokenSetId: payload.tokenSetId ?? null,
+            tokenSetSchemaHash: payload.tokenSetSchemaHash ?? null,
             price: payload.price ?? null,
             currency: payload.currency ?? null,
             validFrom: payload.validFrom ?? null,
@@ -277,6 +285,8 @@ function mapOrderRow(row: OrderRow): OrderRecord {
         taker: row.taker,
         contract: row.contract,
         tokenId: row.token_id,
+        tokenSetId: row.token_set_id,
+        tokenSetSchemaHash: row.token_set_schema_hash,
         price: row.price,
         currency: row.currency,
         validFrom: row.valid_from,

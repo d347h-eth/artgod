@@ -6,7 +6,7 @@ ALTER TABLE collections ADD COLUMN bootstrap_last_synced_block INTEGER;
 CREATE TABLE IF NOT EXISTS nft_balance_snapshots (
   chain_id INTEGER NOT NULL,
   collection_id TEXT NOT NULL,
-  contract TEXT NOT NULL,
+  contract_address TEXT NOT NULL,
   token_id TEXT NOT NULL,
   owner TEXT NOT NULL,
   anchor_block INTEGER NOT NULL,

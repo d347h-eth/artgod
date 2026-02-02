@@ -61,9 +61,72 @@ describe("opensea normalizer", () => {
     });
 
     it("ignores unsupported event types", async () => {
-        const fixture = await readFixture("collection_offer.json");
+        const fixture = await readFixture("item_sold.json");
         const normalized = normalizeOpenSeaEvent(fixture);
         expect(normalized).toBeNull();
+    });
+
+    it("normalizes collection_offer into a collection buy order", async () => {
+        const fixture = await readFixture("collection_offer.json");
+        const normalized = normalizeOpenSeaEvent(fixture);
+        expect(normalized).not.toBeNull();
+        if (!normalized) return;
+
+        expect(normalized.side).toBe("buy");
+        expect(normalized.kind).toBe("seaport");
+        expect(normalized.contract).toBe(
+            "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e",
+        );
+        expect(normalized.tokenId).toBeNull();
+        expect(normalized.tokenSetSchema?.kind).toBe("collection");
+    });
+
+    it("normalizes trait_offer into an attribute token set (single trait)", async () => {
+        const fixture = await readFixture("trait_offer-single_trait.json");
+        const normalized = normalizeOpenSeaEvent(fixture);
+        expect(normalized).not.toBeNull();
+        if (!normalized) return;
+
+        expect(normalized.side).toBe("buy");
+        expect(normalized.kind).toBe("seaport");
+        expect(normalized.tokenId).toBeNull();
+        expect(normalized.tokenSetSchema?.kind).toBe("attribute");
+        if (normalized.tokenSetSchema?.kind !== "attribute") return;
+        expect(normalized.tokenSetSchema.data.attributes).toEqual([
+            { key: "piercing", value: "airpod" },
+        ]);
+    });
+
+    it("deduplicates trait_offer traits when both trait_criteria and trait_criteria_list contain the same pair", async () => {
+        const fixture = await readFixture(
+            "trait_offer-single_trait_w_list.json",
+        );
+        const normalized = normalizeOpenSeaEvent(fixture);
+        expect(normalized).not.toBeNull();
+        if (!normalized) return;
+
+        expect(normalized.tokenSetSchema?.kind).toBe("attribute");
+        if (normalized.tokenSetSchema?.kind !== "attribute") return;
+        expect(normalized.tokenSetSchema.data.attributes).toEqual([
+            { key: "Zone", value: "Xleph" },
+        ]);
+    });
+
+    it("normalizes trait_offer into an attribute token set (multi trait)", async () => {
+        const fixture = await readFixture("trait_offer-multi_trait.json");
+        const normalized = normalizeOpenSeaEvent(fixture);
+        expect(normalized).not.toBeNull();
+        if (!normalized) return;
+
+        expect(normalized.side).toBe("buy");
+        expect(normalized.kind).toBe("seaport");
+        expect(normalized.tokenId).toBeNull();
+        expect(normalized.tokenSetSchema?.kind).toBe("attribute");
+        if (normalized.tokenSetSchema?.kind !== "attribute") return;
+        expect(normalized.tokenSetSchema.data.attributes).toEqual([
+            { key: "Biome", value: "81" },
+            { key: "Mode", value: "Terrain" },
+        ]);
     });
 });
 

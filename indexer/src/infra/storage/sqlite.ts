@@ -65,7 +65,7 @@ export class SqliteStorage implements StoragePort {
         ]
     >(
         "INSERT OR IGNORE INTO nft_transfer_events " +
-            "(chain_id, contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
+            "(chain_id, contract_address, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     private insertFill = db.prepare<
@@ -89,11 +89,11 @@ export class SqliteStorage implements StoragePort {
         ]
     >(
         "INSERT OR IGNORE INTO fills " +
-            "(chain_id, kind, order_id, order_side, maker, taker, contract, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
+            "(chain_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     private selectBalance = db.prepare<[number, string, string, string]>(
-        "SELECT amount FROM nft_balances WHERE chain_id = ? AND contract = ? AND token_id = ? AND owner = ?",
+        "SELECT amount FROM nft_balances WHERE chain_id = ? AND contract_address = ? AND token_id = ? AND owner = ?",
     );
     private selectBlockHash = db.prepare<[number, number]>(
         "SELECT block_hash FROM blocks WHERE chain_id = ? AND block_number = ?",
@@ -102,7 +102,7 @@ export class SqliteStorage implements StoragePort {
         "SELECT COUNT(1) as count FROM blocks WHERE chain_id = ? AND block_number BETWEEN ? AND ?",
     );
     private selectTransfersFromBlock = db.prepare<[number, number]>(
-        "SELECT contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
+        "SELECT contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? " +
             "ORDER BY block_number DESC, log_index DESC",
     );
@@ -121,15 +121,15 @@ export class SqliteStorage implements StoragePort {
         ]
     >(
         "INSERT INTO nft_balances " +
-            "(chain_id, contract, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index) " +
+            "(chain_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-            "ON CONFLICT(chain_id, contract, token_id, owner) DO UPDATE SET " +
+            "ON CONFLICT(chain_id, contract_address, token_id, owner) DO UPDATE SET " +
             "amount = excluded.amount, last_block_number = excluded.last_block_number, last_block_hash = excluded.last_block_hash, " +
             "last_block_timestamp = excluded.last_block_timestamp, last_tx_hash = excluded.last_tx_hash, last_log_index = excluded.last_log_index, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
     private deleteBalance = db.prepare<[number, string, string, string]>(
-        "DELETE FROM nft_balances WHERE chain_id = ? AND contract = ? AND token_id = ? AND owner = ?",
+        "DELETE FROM nft_balances WHERE chain_id = ? AND contract_address = ? AND token_id = ? AND owner = ?",
     );
     private deleteTransactionsFromBlock = db.prepare<[number, number]>(
         "DELETE FROM transactions WHERE chain_id = ? AND block_number >= ?",
@@ -153,7 +153,7 @@ export class SqliteStorage implements StoragePort {
         [string, number, string, string, string, string]
     >(
         "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = ? AND maker = ? AND contract = ? AND token_id = ? " +
+            "WHERE chain_id = ? AND maker = ? AND contract_address = ? AND token_id = ? " +
             "AND fillability_status = ?",
     );
     private deleteBlocksFromBlock = db.prepare<[number, number]>(

@@ -14,6 +14,7 @@ import {
 } from "../domain/order-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
+import { SqliteTokenSetRegistry } from "../infra/token-sets/sqlite.js";
 
 async function main() {
     try {
@@ -24,6 +25,7 @@ async function main() {
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
         });
+        const tokenSets = new SqliteTokenSetRegistry();
 
         // Convert raw offchain payloads into normalized order upserts.
         const stopIngest = await runWorker(
@@ -48,11 +50,52 @@ async function main() {
                     });
                     return;
                 }
+
+                let tokenSetId: string | null = null;
+                let tokenSetSchemaHash: string | null = null;
+                if (normalized.tokenSetSchema) {
+                    const resolved = tokenSets.ensureTokenSet({
+                        chainId: normalized.chainId,
+                        schema: normalized.tokenSetSchema,
+                        criteriaRoot: normalized.criteriaRoot ?? null,
+                    });
+                    if (!resolved) {
+                        logger.warn("Offchain token set unresolved", {
+                            component: "OffchainIngestWorker",
+                            action: "normalize",
+                            source: normalized.source,
+                            orderId: normalized.orderId,
+                            chainId: normalized.chainId,
+                        });
+                        return;
+                    }
+                    tokenSetId = resolved.tokenSetId;
+                    tokenSetSchemaHash = resolved.schemaHash;
+                }
+
                 const upsertJob: JobEnvelope<OrderUpsertPayload> = {
                     jobId: `orders:upsert:${normalized.chainId}:${normalized.orderId}:${job.payload.receivedAt}`,
                     kind: ORDER_JOB_KIND.Upsert,
                     queue: QUEUE_NAMES.OrdersUpsert,
-                    payload: normalized,
+                    payload: {
+                        chainId: normalized.chainId,
+                        orderId: normalized.orderId,
+                        kind: normalized.kind,
+                        side: normalized.side,
+                        maker: normalized.maker,
+                        taker: normalized.taker ?? null,
+                        contract: normalized.contract,
+                        tokenId: normalized.tokenId ?? null,
+                        tokenSetId,
+                        tokenSetSchemaHash,
+                        price: normalized.price ?? null,
+                        currency: normalized.currency ?? null,
+                        validFrom: normalized.validFrom ?? null,
+                        validUntil: normalized.validUntil ?? null,
+                        source: normalized.source,
+                        rawData: normalized.rawData,
+                        validateAfterUpsert: true,
+                    },
                     attempt: 0,
                     scheduledAt: Date.now(),
                     chainId: normalized.chainId,

@@ -1,0 +1,11 @@
+import type { TokenSetSchema, TokenSetResolution } from "../domain/token-sets.js";
+
+export type TokenSetRequest = {
+    chainId: number;
+    schema: TokenSetSchema;
+    criteriaRoot?: string | null;
+};
+
+export interface TokenSetRegistryPort {
+    ensureTokenSet(request: TokenSetRequest): TokenSetResolution | null;
+}

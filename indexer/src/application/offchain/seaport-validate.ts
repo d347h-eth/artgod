@@ -265,6 +265,9 @@ async function validateSellOrder(
     order: OrderRecord,
     approvalTarget: string,
 ): Promise<{ status: OrderStatus; reason: string }> {
+    if (!order.tokenId) {
+        return { status: ORDER_STATUS.Invalid, reason: "missing-token-id" };
+    }
     const owner = await rpc.readContract<string>({
         address: order.contract as Hex,
         abi: ERC721_APPROVAL_ABI,

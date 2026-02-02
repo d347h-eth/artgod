@@ -1,0 +1,75 @@
+{
+    "payload": {
+        "asset_contract_criteria": {
+            "address": "0x4e1f41613c9084fdb9e34e11fae9412427480e56"
+        },
+        "base_price": "300000000000000000",
+        "chain": "ethereum",
+        "collection": { "slug": "terraforms" },
+        "collection_criteria": { "slug": "terraforms" },
+        "created_date": "2026-02-01T20:57:18.000000Z",
+        "event_timestamp": "2026-02-01T20:57:18.567751Z",
+        "expiration_date": "2026-02-01T21:57:18.000000Z",
+        "item": {},
+        "maker": { "address": "0x05063421b914020dbac2bc004c9f2111fff937ba" },
+        "numeric_trait_criteria_list": [],
+        "order_hash": "0x0e6a2022ab6e06ee04afde3fa73486b73bcc53176482688c31526b458007ed52",
+        "payment_token": {
+            "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+            "decimals": 18,
+            "eth_price": "0.3",
+            "name": "Wrapped Ether",
+            "symbol": "WETH",
+            "usd_price": "694.6046327216371920493252463737269"
+        },
+        "protocol_address": "0x0000000000000068f116a894984e2db1123eb395",
+        "protocol_data": {
+            "parameters": {
+                "conduitKey": "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                "consideration": [
+                    {
+                        "endAmount": "1",
+                        "identifierOrCriteria": "87688929076831111396807344599993966754676310711116824016389688144768982267621",
+                        "itemType": 4,
+                        "recipient": "0x05063421b914020dbac2bc004c9f2111fff937ba",
+                        "startAmount": "1",
+                        "token": "0x4e1f41613c9084fdb9e34e11fae9412427480e56"
+                    },
+                    {
+                        "endAmount": "3000000000000000",
+                        "identifierOrCriteria": "0",
+                        "itemType": 1,
+                        "recipient": "0x0000a26b00c1f0df003000390027140000faa719",
+                        "startAmount": "3000000000000000",
+                        "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+                    }
+                ],
+                "counter": "0x0",
+                "endTime": "1769983038",
+                "offer": [
+                    {
+                        "endAmount": "300000000000000000",
+                        "identifierOrCriteria": "0",
+                        "itemType": 1,
+                        "startAmount": "300000000000000000",
+                        "token": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+                    }
+                ],
+                "offerer": "0x05063421b914020dbac2bc004c9f2111fff937ba",
+                "orderType": 3,
+                "salt": "606526",
+                "startTime": "1769979438",
+                "totalOriginalConsiderationItems": 2,
+                "zone": "0x000056f7000000ece9003ca63978907a00ffd100",
+                "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "signature": "0xea356ca6a836b3dc35b33aee06974ca93d03aa8ed106d42d405a3e4ab09407635ab820d73a68f56bebbc085e5de2dc54f04266ba03a4bed778f83d0349756b381b"
+        },
+        "quantity": 1,
+        "taker": { "address": "0x0000000000000000000000000000000000000000" },
+        "trait_criteria": { "trait_name": "Xleph", "trait_type": "Zone" },
+        "trait_criteria_list": [{ "trait_name": "Xleph", "trait_type": "Zone" }]
+    },
+    "event_type": "trait_offer",
+    "sent_at": "2026-02-01T20:57:18.638780Z"
+}

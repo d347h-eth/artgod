@@ -35,7 +35,9 @@ export type OrderUpsertPayload = {
     maker: string;
     taker?: string | null;
     contract: string;
-    tokenId: string;
+    tokenId?: string | null;
+    tokenSetId?: string | null;
+    tokenSetSchemaHash?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;

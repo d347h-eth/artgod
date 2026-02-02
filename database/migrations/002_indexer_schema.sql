@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
 
 CREATE TABLE IF NOT EXISTS nft_transfer_events (
   chain_id INTEGER NOT NULL,
-  contract TEXT NOT NULL,
+  contract_address TEXT NOT NULL,
   from_address TEXT NOT NULL,
   to_address TEXT NOT NULL,
   token_id TEXT NOT NULL,
@@ -45,17 +45,17 @@ CREATE TABLE IF NOT EXISTS nft_transfer_events (
   log_index INTEGER NOT NULL,
   kind TEXT NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (chain_id, tx_hash, log_index, contract, token_id)
+  UNIQUE (chain_id, tx_hash, log_index, contract_address, token_id)
 );
 
 CREATE INDEX IF NOT EXISTS nft_transfer_events_contract_token_idx
-  ON nft_transfer_events (chain_id, contract, token_id);
+  ON nft_transfer_events (chain_id, contract_address, token_id);
 CREATE INDEX IF NOT EXISTS nft_transfer_events_tx_idx
   ON nft_transfer_events (chain_id, tx_hash);
 
 CREATE TABLE IF NOT EXISTS nft_balances (
   chain_id INTEGER NOT NULL,
-  contract TEXT NOT NULL,
+  contract_address TEXT NOT NULL,
   token_id TEXT NOT NULL,
   owner TEXT NOT NULL,
   amount TEXT NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS nft_balances (
   last_tx_hash TEXT NOT NULL,
   last_log_index INTEGER NOT NULL,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (chain_id, contract, token_id, owner)
+  PRIMARY KEY (chain_id, contract_address, token_id, owner)
 );
 
 CREATE INDEX IF NOT EXISTS nft_balances_owner_idx
