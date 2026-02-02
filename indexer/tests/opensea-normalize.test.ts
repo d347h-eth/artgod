@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { normalizeOpenSeaEvent } from "../src/application/offchain/opensea-normalize.js";
+import {
+    normalizeOpenSeaEvent,
+    normalizeOpenSeaOrderUpdate,
+} from "../src/application/offchain/opensea-normalize.js";
 
 type Fixture = {
     event: string;
@@ -127,6 +130,42 @@ describe("opensea normalizer", () => {
             { key: "Biome", value: "81" },
             { key: "Mode", value: "Terrain" },
         ]);
+    });
+
+    it("normalizes item_cancelled into an order update-by-id cancel", async () => {
+        const fixture = await readFixture("item_cancelled.json");
+        const normalized = normalizeOpenSeaOrderUpdate(fixture);
+        expect(normalized).toEqual({
+            orderId:
+                "0xe7385bf786154848873d89e0b4e2e03406e396ee9d3cb4da47f801f719c0a792",
+            reason: "cancel",
+        });
+    });
+
+    it("normalizes order_invalidation into an order update-by-id cancel", async () => {
+        const fixture = await readFixture("order_invalidation.json");
+        const normalized = normalizeOpenSeaOrderUpdate({
+            event_type: "order_invalidation",
+            payload: fixture,
+        });
+        expect(normalized).toEqual({
+            orderId:
+                "0xeb3f34e967bc969932d1c4b55c49d7160dc3fa2c899745f42dbe383b98f60ec0",
+            reason: "cancel",
+        });
+    });
+
+    it("normalizes order_revalidation into an order update-by-id order", async () => {
+        const fixture = await readFixture("order_revalidation.json");
+        const normalized = normalizeOpenSeaOrderUpdate({
+            event_type: "order_revalidation",
+            payload: fixture,
+        });
+        expect(normalized).toEqual({
+            orderId:
+                "0xeb3f34e967bc969932d1c4b55c49d7160dc3fa2c899745f42dbe383b98f60ec0",
+            reason: "order",
+        });
     });
 });
 

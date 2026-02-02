@@ -38,9 +38,9 @@ This roadmap follows Part 2 and reflects the ArtGod approach: **bootstrap collec
 
 ## Phase 5: OpenSea Event Coverage
 
-[ ] Normalize collection offers and trait offers.
-[ ] Handle cancels / invalidations / revalidations.
-[ ] Map events to order upserts or update-by-id triggers.
+[x] Normalize collection offers and trait offers.
+[x] Handle cancels / invalidations / revalidations.
+[x] Map events to order upserts or update-by-id triggers.
 
 ## Phase 6: Metadata Enhancements
 

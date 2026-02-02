@@ -2,7 +2,10 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
 import { runWorker } from "../application/worker-runner.js";
-import { normalizeOffchainOrder } from "../application/offchain/normalize.js";
+import {
+    normalizeOffchainOrder,
+    normalizeOffchainOrderUpdateById,
+} from "../application/offchain/normalize.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import {
     OFFCHAIN_JOB_KIND,
@@ -10,6 +13,7 @@ import {
 } from "../domain/offchain-jobs.js";
 import {
     ORDER_JOB_KIND,
+    type OrderUpdateByIdPayload,
     type OrderUpsertPayload,
 } from "../domain/order-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
@@ -40,74 +44,112 @@ async function main() {
             async (job: JobEnvelope<OffchainOrderRawPayload>) => {
                 if (job.kind !== OFFCHAIN_JOB_KIND.OrderRaw) return;
                 const normalized = normalizeOffchainOrder(job.payload);
-                if (!normalized) {
-                    // Unsupported offchain event types are ignored (no retry).
-                    logger.debug("Offchain order ignored", {
+                if (normalized) {
+                    let tokenSetId: string | null = null;
+                    let tokenSetSchemaHash: string | null = null;
+                    if (normalized.tokenSetSchema) {
+                        const resolved = tokenSets.ensureTokenSet({
+                            chainId: normalized.chainId,
+                            schema: normalized.tokenSetSchema,
+                            criteriaRoot: normalized.criteriaRoot ?? null,
+                        });
+                        if (!resolved) {
+                            logger.warn("Offchain token set unresolved", {
+                                component: "OffchainIngestWorker",
+                                action: "normalize",
+                                source: normalized.source,
+                                orderId: normalized.orderId,
+                                chainId: normalized.chainId,
+                            });
+                            return;
+                        }
+                        tokenSetId = resolved.tokenSetId;
+                        tokenSetSchemaHash = resolved.schemaHash;
+                    }
+
+                    const upsertJob: JobEnvelope<OrderUpsertPayload> = {
+                        jobId: `orders:upsert:${normalized.chainId}:${normalized.orderId}:${job.payload.receivedAt}`,
+                        kind: ORDER_JOB_KIND.Upsert,
+                        queue: QUEUE_NAMES.OrdersUpsert,
+                        payload: {
+                            chainId: normalized.chainId,
+                            orderId: normalized.orderId,
+                            kind: normalized.kind,
+                            side: normalized.side,
+                            maker: normalized.maker,
+                            taker: normalized.taker ?? null,
+                            contract: normalized.contract,
+                            tokenId: normalized.tokenId ?? null,
+                            tokenSetId,
+                            tokenSetSchemaHash,
+                            price: normalized.price ?? null,
+                            currency: normalized.currency ?? null,
+                            validFrom: normalized.validFrom ?? null,
+                            validUntil: normalized.validUntil ?? null,
+                            source: normalized.source,
+                            rawData: normalized.rawData,
+                            validateAfterUpsert: true,
+                        },
+                        attempt: 0,
+                        scheduledAt: Date.now(),
+                        chainId: normalized.chainId,
+                    };
+                    await queue.publish(QUEUE_NAMES.OrdersUpsert, upsertJob);
+
+                    logger.debug("Offchain order normalized", {
                         component: "OffchainIngestWorker",
                         action: "normalize",
-                        source: job.payload.source,
-                        chainId: job.payload.chainId,
+                        source: normalized.source,
+                        orderId: normalized.orderId,
+                        chainId: normalized.chainId,
                     });
                     return;
                 }
 
-                let tokenSetId: string | null = null;
-                let tokenSetSchemaHash: string | null = null;
-                if (normalized.tokenSetSchema) {
-                    const resolved = tokenSets.ensureTokenSet({
-                        chainId: normalized.chainId,
-                        schema: normalized.tokenSetSchema,
-                        criteriaRoot: normalized.criteriaRoot ?? null,
+                const updateById = normalizeOffchainOrderUpdateById(
+                    job.payload,
+                );
+                if (updateById) {
+                    const updateJob: JobEnvelope<OrderUpdateByIdPayload> = {
+                        jobId: `orders:update:id:offchain:${updateById.chainId}:${updateById.orderId}:${job.payload.receivedAt}`,
+                        kind: ORDER_JOB_KIND.UpdateById,
+                        queue: QUEUE_NAMES.OrdersUpdateById,
+                        payload: {
+                            chainId: updateById.chainId,
+                            orderId: updateById.orderId,
+                            reason: updateById.reason,
+                            blockNumber: 0,
+                            blockHash: "0x0",
+                            txHash: "0x0",
+                            logIndex: 0,
+                        },
+                        attempt: 0,
+                        scheduledAt: Date.now(),
+                        chainId: updateById.chainId,
+                        traceId: job.traceId ?? job.jobId,
+                    };
+                    await queue.publish(
+                        QUEUE_NAMES.OrdersUpdateById,
+                        updateJob,
+                    );
+
+                    logger.debug("Offchain order update normalized", {
+                        component: "OffchainIngestWorker",
+                        action: "normalize",
+                        source: updateById.source,
+                        orderId: updateById.orderId,
+                        reason: updateById.reason,
+                        chainId: updateById.chainId,
                     });
-                    if (!resolved) {
-                        logger.warn("Offchain token set unresolved", {
-                            component: "OffchainIngestWorker",
-                            action: "normalize",
-                            source: normalized.source,
-                            orderId: normalized.orderId,
-                            chainId: normalized.chainId,
-                        });
-                        return;
-                    }
-                    tokenSetId = resolved.tokenSetId;
-                    tokenSetSchemaHash = resolved.schemaHash;
+                    return;
                 }
 
-                const upsertJob: JobEnvelope<OrderUpsertPayload> = {
-                    jobId: `orders:upsert:${normalized.chainId}:${normalized.orderId}:${job.payload.receivedAt}`,
-                    kind: ORDER_JOB_KIND.Upsert,
-                    queue: QUEUE_NAMES.OrdersUpsert,
-                    payload: {
-                        chainId: normalized.chainId,
-                        orderId: normalized.orderId,
-                        kind: normalized.kind,
-                        side: normalized.side,
-                        maker: normalized.maker,
-                        taker: normalized.taker ?? null,
-                        contract: normalized.contract,
-                        tokenId: normalized.tokenId ?? null,
-                        tokenSetId,
-                        tokenSetSchemaHash,
-                        price: normalized.price ?? null,
-                        currency: normalized.currency ?? null,
-                        validFrom: normalized.validFrom ?? null,
-                        validUntil: normalized.validUntil ?? null,
-                        source: normalized.source,
-                        rawData: normalized.rawData,
-                        validateAfterUpsert: true,
-                    },
-                    attempt: 0,
-                    scheduledAt: Date.now(),
-                    chainId: normalized.chainId,
-                };
-                await queue.publish(QUEUE_NAMES.OrdersUpsert, upsertJob);
-
-                logger.debug("Offchain order normalized", {
+                // Unsupported offchain event types are ignored (no retry).
+                logger.debug("Offchain order ignored", {
                     component: "OffchainIngestWorker",
                     action: "normalize",
-                    source: normalized.source,
-                    orderId: normalized.orderId,
-                    chainId: normalized.chainId,
+                    source: job.payload.source,
+                    chainId: job.payload.chainId,
                 });
             },
         );

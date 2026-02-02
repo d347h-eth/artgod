@@ -1,6 +1,9 @@
 import type { OffchainOrderRawPayload } from "../../domain/offchain-jobs.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
-import { normalizeOpenSeaEvent } from "./opensea-normalize.js";
+import {
+    normalizeOpenSeaEvent,
+    normalizeOpenSeaOrderUpdate,
+} from "./opensea-normalize.js";
 import {
     asObject,
     assertAddress,
@@ -31,6 +34,13 @@ export type NormalizedOffchainOrder = RawOrderPayload & {
     chainId: number;
     source: string;
     rawData: unknown;
+};
+
+export type NormalizedOffchainOrderUpdateById = {
+    chainId: number;
+    source: string;
+    orderId: string;
+    reason: "cancel" | "order";
 };
 
 export function normalizeOffchainOrder(
@@ -87,5 +97,27 @@ function toRawOrderPayload(value: Record<string, unknown>): RawOrderPayload {
         currency: parseOptionalString(value.currency, "currency"),
         validFrom: parseOptionalNumber(value.validFrom, "validFrom"),
         validUntil: parseOptionalNumber(value.validUntil, "validUntil"),
+    };
+}
+
+export function normalizeOffchainOrderUpdateById(
+    raw: OffchainOrderRawPayload,
+): NormalizedOffchainOrderUpdateById | null {
+    if (!raw.source) {
+        throw new Error("Missing offchain order source");
+    }
+    if (!Number.isFinite(raw.chainId)) {
+        throw new Error("Invalid offchain order chainId");
+    }
+
+    if (raw.source !== "opensea") return null;
+    const update = normalizeOpenSeaOrderUpdate(raw.payload);
+    if (!update) return null;
+
+    return {
+        chainId: raw.chainId,
+        source: raw.source,
+        orderId: update.orderId,
+        reason: update.reason,
     };
 }

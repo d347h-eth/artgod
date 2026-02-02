@@ -15,18 +15,13 @@ import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
 const SEAPORT_ITEM_TYPE_ERC721_WITH_CRITERIA = 4;
 const SEAPORT_ITEM_TYPE_ERC1155_WITH_CRITERIA = 5;
 
-export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
-    const envelope = asObject(raw, "OpenSea envelope");
-    const eventType =
-        typeof envelope.event_type === "string" ? envelope.event_type : null;
-    const payload =
-        envelope.payload && typeof envelope.payload === "object"
-            ? (envelope.payload as Record<string, unknown>)
-            : null;
+export type OpenSeaOrderUpdate = {
+    orderId: string;
+    reason: "cancel" | "order";
+};
 
-    if (!eventType || !payload) {
-        throw new Error("Invalid OpenSea payload");
-    }
+export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
+    const { eventType, payload } = parseOpenSeaEnvelope(raw);
 
     if (eventType === "item_listed") {
         return normalizeItemListed(payload);
@@ -42,6 +37,27 @@ export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
     }
 
     // Other OpenSea events are currently ignored by the offchain pipeline.
+    return null;
+}
+
+export function normalizeOpenSeaOrderUpdate(
+    raw: unknown,
+): OpenSeaOrderUpdate | null {
+    const { eventType, payload } = parseOpenSeaEnvelope(raw);
+
+    if (eventType === "item_cancelled" || eventType === "order_invalidation") {
+        return {
+            orderId: parseOrderHash(payload),
+            reason: "cancel",
+        };
+    }
+    if (eventType === "order_revalidation") {
+        return {
+            orderId: parseOrderHash(payload),
+            reason: "order",
+        };
+    }
+
     return null;
 }
 
@@ -249,4 +265,28 @@ function parseCriteriaRoot(payload: Record<string, unknown>): string | null {
     }
 
     return null;
+}
+
+function parseOpenSeaEnvelope(raw: unknown): {
+    eventType: string;
+    payload: Record<string, unknown>;
+} {
+    const envelope = asObject(raw, "OpenSea envelope");
+    const eventType =
+        typeof envelope.event_type === "string" ? envelope.event_type : null;
+    if (!eventType) {
+        throw new Error("Invalid OpenSea payload");
+    }
+
+    const payloadValue = envelope.payload;
+    const payload =
+        payloadValue && typeof payloadValue === "object"
+            ? (payloadValue as Record<string, unknown>)
+            : envelope;
+
+    return { eventType, payload };
+}
+
+function parseOrderHash(payload: Record<string, unknown>): string {
+    return assertString(payload.order_hash, "order_hash").toLowerCase();
 }

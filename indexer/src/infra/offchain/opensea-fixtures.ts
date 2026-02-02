@@ -27,7 +27,8 @@ export class OpenSeaFixtureSource implements OffchainSourcePort {
             if (this.stopped) break;
             const filePath = path.join(this.config.fixturesDir, file);
             const raw = await fs.readFile(filePath, "utf8");
-            const payload = JSON.parse(raw) as unknown;
+            const parsed = JSON.parse(raw) as unknown;
+            const payload = normalizeFixturePayload(parsed, file);
 
             await handler({
                 source: this.config.source,
@@ -46,6 +47,27 @@ export class OpenSeaFixtureSource implements OffchainSourcePort {
     async stop(): Promise<void> {
         this.stopped = true;
     }
+}
+
+function normalizeFixturePayload(payload: unknown, file: string): unknown {
+    if (!payload || typeof payload !== "object") return payload;
+    const record = payload as Record<string, unknown>;
+    if (typeof record.event_type === "string") return payload;
+
+    if (file === "order_invalidation.json") {
+        return {
+            event_type: "order_invalidation",
+            payload: record,
+        };
+    }
+    if (file === "order_revalidation.json") {
+        return {
+            event_type: "order_revalidation",
+            payload: record,
+        };
+    }
+
+    return payload;
 }
 
 function sleep(ms: number): Promise<void> {
