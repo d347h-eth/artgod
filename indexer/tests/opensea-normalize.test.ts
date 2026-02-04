@@ -150,7 +150,7 @@ describe("opensea normalizer", () => {
         });
         expect(normalized).toEqual({
             orderId:
-                "0xeb3f34e967bc969932d1c4b55c49d7160dc3fa2c899745f42dbe383b98f60ec0",
+                "0xeed6698a43cbee5651b3cf0097e94c2b74db22afb8d3e9ea33770721907bfdef",
             reason: "cancel",
         });
     });
@@ -163,7 +163,7 @@ describe("opensea normalizer", () => {
         });
         expect(normalized).toEqual({
             orderId:
-                "0xeb3f34e967bc969932d1c4b55c49d7160dc3fa2c899745f42dbe383b98f60ec0",
+                "0xeed6698a43cbee5651b3cf0097e94c2b74db22afb8d3e9ea33770721907bfdef",
             reason: "order",
         });
     });
