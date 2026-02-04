@@ -7,6 +7,7 @@ import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import {
     DOMAIN_JOB_KIND,
     type DomainSyncPayload,
+    type MetadataRefreshPayload,
 } from "../domain/domain-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
@@ -156,6 +157,21 @@ async function main() {
             },
         );
 
+        const stopMetadataRefresh = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.MetadataRefresh,
+                consumerName: `metadata-refresh-${config.chainId}`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job: JobEnvelope<MetadataRefreshPayload>) => {
+                if (job.kind !== DOMAIN_JOB_KIND.MetadataRefresh) return;
+                await metadataDomain.handleMetadataRefresh(job.payload);
+            },
+        );
+
         const stopActivity = await runWorker(
             queue,
             {
@@ -186,6 +202,7 @@ async function main() {
             await stopOrderUpdatesById();
             await stopOrderUpserts();
             await stopMetadata();
+            await stopMetadataRefresh();
             await stopActivity();
             await queue.close();
             process.exit(0);

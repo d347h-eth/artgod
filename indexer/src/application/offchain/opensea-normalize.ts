@@ -10,6 +10,7 @@ import {
     parseOptionalAddress,
     parseTimestamp,
 } from "./normalizer-utils.js";
+import { logger } from "@artgod/shared/utils";
 import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
 
 const SEAPORT_ITEM_TYPE_ERC721_WITH_CRITERIA = 4;
@@ -18,6 +19,13 @@ const SEAPORT_ITEM_TYPE_ERC1155_WITH_CRITERIA = 5;
 export type OpenSeaOrderUpdate = {
     orderId: string;
     reason: "cancel" | "order";
+};
+
+export type OpenSeaMetadataRefresh = {
+    contract: string;
+    tokenId: string;
+    metadataUrl: string | null;
+    reason: "metadata_updated";
 };
 
 export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
@@ -59,6 +67,23 @@ export function normalizeOpenSeaOrderUpdate(
     }
 
     return null;
+}
+
+export function normalizeOpenSeaMetadataRefresh(
+    raw: unknown,
+): OpenSeaMetadataRefresh | null {
+    const { eventType, payload } = parseOpenSeaEnvelope(raw);
+    if (eventType !== "item_metadata_updated") return null;
+
+    const { contract, tokenId } = parseRequiredNftId(payload.item);
+    const metadataUrl = parseMetadataUrl(payload);
+
+    return {
+        contract,
+        tokenId,
+        metadataUrl,
+        reason: "metadata_updated",
+    };
 }
 
 function normalizeItemListed(
@@ -289,4 +314,38 @@ function parseOpenSeaEnvelope(raw: unknown): {
 
 function parseOrderHash(payload: Record<string, unknown>): string {
     return assertString(payload.order_hash, "order_hash").toLowerCase();
+}
+
+function parseRequiredNftId(value: unknown): {
+    contract: string;
+    tokenId: string;
+} {
+    try {
+        return parseNftId(value);
+    } catch (error) {
+        logger.error("OpenSea metadata refresh missing nft_id", {
+            component: "OpenSeaNormalizer",
+            action: "metadataRefresh",
+            error: String(error),
+        });
+        throw error;
+    }
+}
+
+function parseMetadataUrl(payload: Record<string, unknown>): string | null {
+    if (typeof payload.metadata_url === "string") {
+        return payload.metadata_url;
+    }
+    const item = payload.item;
+    if (!item || typeof item !== "object") return null;
+    const itemRecord = item as Record<string, unknown>;
+    if (typeof itemRecord.metadata_url === "string") {
+        return itemRecord.metadata_url;
+    }
+    const metadata = itemRecord.metadata;
+    if (!metadata || typeof metadata !== "object") return null;
+    const metadataRecord = metadata as Record<string, unknown>;
+    return typeof metadataRecord.metadata_url === "string"
+        ? metadataRecord.metadata_url
+        : null;
 }

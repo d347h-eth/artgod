@@ -2,6 +2,7 @@ import type { OffchainOrderRawPayload } from "../../domain/offchain-jobs.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
 import {
     normalizeOpenSeaEvent,
+    normalizeOpenSeaMetadataRefresh,
     normalizeOpenSeaOrderUpdate,
 } from "./opensea-normalize.js";
 import {
@@ -41,6 +42,15 @@ export type NormalizedOffchainOrderUpdateById = {
     source: string;
     orderId: string;
     reason: "cancel" | "order";
+};
+
+export type NormalizedOffchainMetadataRefresh = {
+    chainId: number;
+    source: string;
+    contract: string;
+    tokenId: string;
+    metadataUrl: string | null;
+    reason: "metadata_updated";
 };
 
 export function normalizeOffchainOrder(
@@ -119,5 +129,29 @@ export function normalizeOffchainOrderUpdateById(
         source: raw.source,
         orderId: update.orderId,
         reason: update.reason,
+    };
+}
+
+export function normalizeOffchainMetadataRefresh(
+    raw: OffchainOrderRawPayload,
+): NormalizedOffchainMetadataRefresh | null {
+    if (!raw.source) {
+        throw new Error("Missing offchain order source");
+    }
+    if (!Number.isFinite(raw.chainId)) {
+        throw new Error("Invalid offchain order chainId");
+    }
+
+    if (raw.source !== "opensea") return null;
+    const refresh = normalizeOpenSeaMetadataRefresh(raw.payload);
+    if (!refresh) return null;
+
+    return {
+        chainId: raw.chainId,
+        source: raw.source,
+        contract: refresh.contract,
+        tokenId: refresh.tokenId,
+        metadataUrl: refresh.metadataUrl,
+        reason: refresh.reason,
     };
 }

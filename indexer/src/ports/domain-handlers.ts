@@ -1,4 +1,7 @@
-import type { DomainSyncMode } from "../domain/domain-jobs.js";
+import type {
+    DomainSyncMode,
+    MetadataRefreshPayload,
+} from "../domain/domain-jobs.js";
 import type {
     OrderUpdateByIdPayload,
     OrderUpdateByMakerPayload,
@@ -23,6 +26,7 @@ export interface OrdersDomainPort {
 
 export interface MetadataDomainPort {
     handleDomainSync(context: DomainSyncContext): Promise<void>;
+    handleMetadataRefresh(payload: MetadataRefreshPayload): Promise<void>;
 }
 
 export interface ActivityDomainPort {

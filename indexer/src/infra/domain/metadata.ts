@@ -6,6 +6,7 @@ import type {
     DomainSyncContext,
     MetadataDomainPort,
 } from "../../ports/domain-handlers.js";
+import type { MetadataRefreshPayload } from "../../domain/domain-jobs.js";
 import type {
     MetadataFetcherPort,
     TokenUriResolverPort,
@@ -23,6 +24,15 @@ type TokenRow = {
 };
 
 type MetadataRow = { uri: string };
+type TokenKindRow = { kind: TokenStandard };
+
+type MetadataAttribution = {
+    block_number?: number | null;
+    block_hash?: string | null;
+    block_timestamp?: number | null;
+    tx_hash?: string | null;
+    log_index?: number | null;
+};
 
 export class SqliteMetadataDomain implements MetadataDomainPort {
     // Select the first transfer per token in-range (used for metadata attribution).
@@ -36,29 +46,31 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
     private selectMetadata = db.prepare<[number, string, string]>(
         "SELECT uri FROM token_metadata WHERE chain_id = ? AND contract_address = ? AND token_id = ? LIMIT 1",
     );
-    private upsertMetadata = db.prepare<
-        [
-            number,
-            string,
-            string,
-            string,
-            string | null,
-            string | null,
-            string | null,
-            string | null,
-            string | null,
-            string,
-            string,
-            number | null,
-            string | null,
-            number | null,
-            string | null,
-            number | null,
-        ]
-    >(
+    private selectLatestTokenKind = db.prepare<[number, string, string]>(
+        "SELECT kind FROM nft_transfer_events WHERE chain_id = ? AND contract_address = ? AND token_id = ? " +
+            "ORDER BY block_number DESC, log_index DESC LIMIT 1",
+    );
+    private upsertMetadata = db.prepare<{
+        chainId: number;
+        contract: string;
+        tokenId: string;
+        uri: string;
+        name: string | null;
+        description: string | null;
+        image: string | null;
+        animationUrl: string | null;
+        externalUrl: string | null;
+        attributesJson: string;
+        rawJson: string;
+        blockNumber: number | null;
+        blockHash: string | null;
+        blockTimestamp: number | null;
+        txHash: string | null;
+        logIndex: number | null;
+    }>(
         "INSERT INTO token_metadata " +
             "(chain_id, contract_address, token_id, uri, name, description, image, animation_url, external_url, attributes_json, raw_json, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+            "VALUES (@chainId, @contract, @tokenId, @uri, @name, @description, @image, @animationUrl, @externalUrl, @attributesJson, @rawJson, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex) " +
             "ON CONFLICT(chain_id, contract_address, token_id) DO UPDATE SET " +
             "uri = excluded.uri, name = excluded.name, description = excluded.description, image = excluded.image, " +
             "animation_url = excluded.animation_url, external_url = excluded.external_url, attributes_json = excluded.attributes_json, " +
@@ -155,6 +167,72 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         });
     }
 
+    async handleMetadataRefresh(
+        payload: MetadataRefreshPayload,
+    ): Promise<void> {
+        const { chainId } = payload;
+        const contract = payload.contract.toLowerCase();
+        const tokenId = payload.tokenId;
+
+        let uri = payload.metadataUrl ?? null;
+        if (!uri) {
+            const kindRow = this.selectLatestTokenKind.get(
+                chainId,
+                contract,
+                tokenId,
+            ) as TokenKindRow | undefined;
+            if (!kindRow) {
+                logger.debug("Metadata refresh skipped (missing token kind)", {
+                    component: "MetadataDomain",
+                    action: "handleMetadataRefresh",
+                    chainId,
+                    contract,
+                    tokenId,
+                });
+                return;
+            }
+            uri = await this.resolver.resolveTokenUri(
+                contract,
+                tokenId,
+                kindRow.kind,
+            );
+        }
+        if (!uri) {
+            logger.debug("Metadata refresh URI unavailable", {
+                component: "MetadataDomain",
+                action: "handleMetadataRefresh",
+                chainId,
+                contract,
+                tokenId,
+            });
+            return;
+        }
+
+        const metadata = await this.fetcher.fetchMetadata(uri);
+        if (!metadata) {
+            logger.debug("Metadata refresh fetch failed", {
+                component: "MetadataDomain",
+                action: "handleMetadataRefresh",
+                chainId,
+                contract,
+                tokenId,
+                uri,
+            });
+            return;
+        }
+
+        this.persistMetadata(chainId, contract, tokenId, metadata);
+
+        logger.debug("Metadata refresh applied", {
+            component: "MetadataDomain",
+            action: "handleMetadataRefresh",
+            chainId,
+            contract,
+            tokenId,
+            reason: payload.reason,
+        });
+    }
+
     private hasMetadata(
         chainId: number,
         contract: string,
@@ -171,7 +249,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         contract: string,
         tokenId: string,
         metadata: TokenMetadata,
-        attribution: TokenRow,
+        attribution?: MetadataAttribution,
     ): void {
         const normalizedAttributes = normalizeUniqueAttributeList(
             (metadata.attributes ?? []).map((attribute) => ({
@@ -185,24 +263,24 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             // reference tokens before metadata/attributes are written.
             this.upsertToken.run(chainId, contract, tokenId);
 
-            this.upsertMetadata.run(
+            this.upsertMetadata.run({
                 chainId,
                 contract,
                 tokenId,
-                metadata.uri,
-                metadata.name ?? null,
-                metadata.description ?? null,
-                metadata.image ?? null,
-                metadata.animationUrl ?? null,
-                metadata.externalUrl ?? null,
-                JSON.stringify(metadata.attributes ?? []),
-                metadata.rawJson,
-                attribution.block_number ?? null,
-                attribution.block_hash ?? null,
-                attribution.block_timestamp ?? null,
-                attribution.tx_hash ?? null,
-                attribution.log_index ?? null,
-            );
+                uri: metadata.uri,
+                name: metadata.name ?? null,
+                description: metadata.description ?? null,
+                image: metadata.image ?? null,
+                animationUrl: metadata.animationUrl ?? null,
+                externalUrl: metadata.externalUrl ?? null,
+                attributesJson: JSON.stringify(metadata.attributes ?? []),
+                rawJson: metadata.rawJson,
+                blockNumber: attribution?.block_number ?? null,
+                blockHash: attribution?.block_hash ?? null,
+                blockTimestamp: attribution?.block_timestamp ?? null,
+                txHash: attribution?.tx_hash ?? null,
+                logIndex: attribution?.log_index ?? null,
+            });
 
             // Replace attribute links for this token on every metadata refresh.
             this.deleteTokenAttributes.run(chainId, contract, tokenId);

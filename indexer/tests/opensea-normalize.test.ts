@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
     normalizeOpenSeaEvent,
+    normalizeOpenSeaMetadataRefresh,
     normalizeOpenSeaOrderUpdate,
 } from "../src/application/offchain/opensea-normalize.js";
 
@@ -165,6 +166,18 @@ describe("opensea normalizer", () => {
             orderId:
                 "0xeed6698a43cbee5651b3cf0097e94c2b74db22afb8d3e9ea33770721907bfdef",
             reason: "order",
+        });
+    });
+
+    it("normalizes item_metadata_updated into a metadata refresh", async () => {
+        const fixture = await readFixture("item_metadata_updated.json");
+        const normalized = normalizeOpenSeaMetadataRefresh(fixture);
+        expect(normalized).toEqual({
+            contract: "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e",
+            tokenId: "222",
+            metadataUrl:
+                "https://opensea.mypinata.cloud/ipfs/QmPMc4tcBsMqLRuCQtPmPe84bpSjrC3Ky7t3JWuHXYB4aS/222",
+            reason: "metadata_updated",
         });
     });
 });

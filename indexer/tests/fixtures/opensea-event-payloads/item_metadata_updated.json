@@ -8,6 +8,9 @@
         "animation_url": null,
         "background_color": "#000000",
         "metadata_url": "https://opensea.mypinata.cloud/ipfs/QmPMc4tcBsMqLRuCQtPmPe84bpSjrC3Ky7t3JWuHXYB4aS/222",
+        "item": {
+            "nft_id": "ethereum/0x8a90cab2b38dba80c64b7734e58ee1db38b8992e/222"
+        },
         "traits": []
     }
 }
