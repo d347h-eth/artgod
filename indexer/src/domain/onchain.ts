@@ -74,6 +74,14 @@ export type MakerInfo = ChainAttribution & {
         | "order-counter";
 };
 
+// Metadata refresh trigger derived from on-chain events (e.g. ERC-4906).
+export type MetadataRefreshEvent = ChainAttribution & {
+    contract: string;
+    tokenId: string;
+    reason: string;
+    trigger: string;
+};
+
 export type TransactionRecord = {
     hash: string;
     from: string;
@@ -91,6 +99,7 @@ export type OnChainData = {
     cancelEvents: CancelEvent[];
     orderInfos: OrderInfo[];
     makerInfos: MakerInfo[];
+    metadataRefreshEvents: MetadataRefreshEvent[];
 };
 
 export type EventBase = {

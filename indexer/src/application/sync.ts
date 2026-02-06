@@ -4,12 +4,17 @@ import type { CollectionRecord } from "../domain/collections.js";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
+    MetadataRefreshEvent,
     OnChainData,
     TransactionSummary,
     TransactionRecord,
 } from "../domain/onchain.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
 import { decodeSeaportFill } from "./fills/seaport.js";
+import {
+    decodeMetadataRefreshLog,
+    METADATA_REFRESH_EVENT_FILTERS,
+} from "./metadata/refresh-triggers.js";
 import {
     decodeSeaportOrderEvents,
     getSeaportLogAddresses,
@@ -60,6 +65,7 @@ export async function syncRange(
             cancelEvents: [],
             orderInfos: [],
             makerInfos: [],
+            metadataRefreshEvents: [],
         };
     }
 
@@ -69,6 +75,14 @@ export async function syncRange(
         toBlock: range.toBlock,
         address: addresses.length === 1 ? addresses[0] : addresses,
         events: TRANSFER_EVENTS,
+    });
+
+    // Metadata refresh triggers (e.g. ERC-4906) for tracked collections.
+    const metadataRefreshLogs = await rpc.getLogs({
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+        address: addresses.length === 1 ? addresses[0] : addresses,
+        events: METADATA_REFRESH_EVENT_FILTERS,
     });
 
     const seaportLogs = await rpc.getLogs({
@@ -83,11 +97,17 @@ export async function syncRange(
         enhancedEvents.push(...decodeTransferLog(log));
     }
 
+    const metadataRefreshEvents: MetadataRefreshEvent[] = [];
+    for (const log of metadataRefreshLogs) {
+        metadataRefreshEvents.push(...decodeMetadataRefreshLog(log));
+    }
+
     const transactions = await buildEnhancedTransactions(rpc, enhancedEvents);
     const collectionSet = new Set(
         collections.map((collection) => collection.address.toLowerCase()),
     );
     const data = accumulateOnChainData(transactions, collectionSet);
+    data.metadataRefreshEvents = metadataRefreshEvents;
     const seaportEvents = decodeSeaportOrderEvents(
         seaportLogs,
         collectionSet,
@@ -316,6 +336,7 @@ function accumulateOnChainData(
         cancelEvents: [],
         orderInfos: [],
         makerInfos: [],
+        metadataRefreshEvents: [],
     };
 
     for (const tx of transactions) {

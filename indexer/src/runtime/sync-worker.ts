@@ -11,6 +11,7 @@ import {
     DOMAIN_JOB_KIND,
     type DomainSyncMode,
     type DomainSyncPayload,
+    type MetadataRefreshPayload,
 } from "../domain/domain-jobs.js";
 import type { OnChainData } from "../domain/onchain.js";
 import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
@@ -338,6 +339,7 @@ async function publishDomainJobs<TPayload>(
     await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
 
     await publishOrderUpdateJobs(queue, chainId, data);
+    await publishMetadataRefreshJobs(queue, chainId, data);
 }
 
 // Gap check: if a processed block's predecessor is missing, enqueue a backfill job.
@@ -428,6 +430,40 @@ async function publishOrderUpdateJobs(
             "order",
             order,
         );
+    }
+}
+
+// Metadata refresh jobs are triggered by on-chain refresh events (e.g. ERC-4906).
+async function publishMetadataRefreshJobs(
+    queue: QueuePort,
+    chainId: number,
+    data: OnChainData,
+): Promise<void> {
+    const seen = new Set<string>();
+    for (const refresh of data.metadataRefreshEvents) {
+        const contract = refresh.contract.toLowerCase();
+        const tokenId = refresh.tokenId;
+        const key = `${contract}:${tokenId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const job: JobEnvelope<MetadataRefreshPayload> = {
+            jobId: `metadata:refresh:${chainId}:${contract}:${tokenId}:${refresh.blockNumber}:${refresh.logIndex}`,
+            kind: DOMAIN_JOB_KIND.MetadataRefresh,
+            queue: QUEUE_NAMES.MetadataRefresh,
+            payload: {
+                chainId,
+                contract,
+                tokenId,
+                metadataUrl: null,
+                reason: refresh.trigger,
+                source: "onchain",
+            },
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+        };
+        await queue.publish(QUEUE_NAMES.MetadataRefresh, job);
     }
 }
 

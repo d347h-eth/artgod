@@ -44,7 +44,7 @@ This roadmap follows Part 2 and reflects the ArtGod approach: **bootstrap collec
 
 ## Phase 6: Metadata Enhancements
 
-[ ] ERC4906 handling + metadata refresh queue.
+[x] ERC4906 handling + metadata refresh queue.
 [ ] Normalize `tokens` + `token_attributes` tables.
 [ ] Trait aggregation / collection stats recompute.
 

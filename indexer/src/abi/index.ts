@@ -89,6 +89,24 @@ export const ERC721_APPROVAL_ABI = [
     },
 ] as const;
 
+export const ERC4906_ABI = [
+    {
+        type: "event",
+        name: "MetadataUpdate",
+        inputs: [{ indexed: false, name: "tokenId", type: "uint256" }],
+        anonymous: false,
+    },
+    {
+        type: "event",
+        name: "BatchMetadataUpdate",
+        inputs: [
+            { indexed: false, name: "fromTokenId", type: "uint256" },
+            { indexed: false, name: "toTokenId", type: "uint256" },
+        ],
+        anonymous: false,
+    },
+] as const;
+
 export const ERC20_ABI = [
     {
         type: "function",
