@@ -8,6 +8,7 @@ import {
     DOMAIN_JOB_KIND,
     type DomainSyncPayload,
     type MetadataRefreshPayload,
+    type MetadataRefreshRangePayload,
 } from "../domain/domain-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
@@ -19,6 +20,7 @@ import { noopMetrics } from "../metrics/noop.js";
 import { SqliteActivityDomain } from "../infra/domain/activities.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
+import type { QueuePort } from "../ports/queue.js";
 import {
     ORDER_JOB_KIND,
     type OrderUpdateByIdPayload,
@@ -166,9 +168,26 @@ async function main() {
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
-            async (job: JobEnvelope<MetadataRefreshPayload>) => {
-                if (job.kind !== DOMAIN_JOB_KIND.MetadataRefresh) return;
-                await metadataDomain.handleMetadataRefresh(job.payload);
+            async (
+                job: JobEnvelope<
+                    MetadataRefreshPayload | MetadataRefreshRangePayload
+                >,
+            ) => {
+                if (job.kind === DOMAIN_JOB_KIND.MetadataRefresh) {
+                    await metadataDomain.handleMetadataRefresh(
+                        job.payload as MetadataRefreshPayload,
+                    );
+                    return;
+                }
+                if (job.kind === DOMAIN_JOB_KIND.MetadataRefreshRange) {
+                    await handleMetadataRefreshRangeJob(
+                        queue,
+                        metadataDomain,
+                        job.payload as MetadataRefreshRangePayload,
+                        config.metadata.refreshRangeChunkSize,
+                        job.traceId ?? job.jobId,
+                    );
+                }
             },
         );
 
@@ -222,6 +241,117 @@ async function main() {
 }
 
 main();
+
+async function handleMetadataRefreshRangeJob(
+    queue: QueuePort,
+    metadataDomain: SqliteMetadataDomain,
+    payload: MetadataRefreshRangePayload,
+    chunkSize: number,
+    traceId: string,
+): Promise<void> {
+    const contract = payload.contract.toLowerCase();
+    const { tokenIds, nextCursorTokenId } = chunkTokenIdRange(
+        payload.fromTokenId,
+        payload.toTokenId,
+        payload.cursorTokenId,
+        chunkSize,
+    );
+
+    for (const tokenId of tokenIds) {
+        await metadataDomain.handleMetadataRefresh({
+            chainId: payload.chainId,
+            contract,
+            tokenId,
+            metadataUrl: null,
+            reason: payload.reason,
+            source: payload.source,
+        });
+    }
+
+    logger.debug("Metadata refresh range chunk processed", {
+        component: "IndexerDomainWorker",
+        action: "handleMetadataRefreshRange",
+        chainId: payload.chainId,
+        contract,
+        fromTokenId: payload.fromTokenId,
+        toTokenId: payload.toTokenId,
+        cursorTokenId: payload.cursorTokenId,
+        processed: tokenIds.length,
+        nextCursorTokenId,
+    });
+
+    if (!nextCursorTokenId) {
+        return;
+    }
+
+    const nextPayload: MetadataRefreshRangePayload = {
+        ...payload,
+        contract,
+        cursorTokenId: nextCursorTokenId,
+    };
+    const nextJob: JobEnvelope<MetadataRefreshRangePayload> = {
+        jobId: `metadata:refresh-range:${payload.chainId}:${contract}:${payload.fromTokenId}:${payload.toTokenId}:${nextCursorTokenId}`,
+        kind: DOMAIN_JOB_KIND.MetadataRefreshRange,
+        queue: QUEUE_NAMES.MetadataRefresh,
+        payload: nextPayload,
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId: payload.chainId,
+        traceId,
+    };
+    await queue.publish(QUEUE_NAMES.MetadataRefresh, nextJob);
+}
+
+function chunkTokenIdRange(
+    fromTokenId: string,
+    toTokenId: string,
+    cursorTokenId: string,
+    chunkSize: number,
+): {
+    tokenIds: string[];
+    nextCursorTokenId: string | null;
+} {
+    if (!Number.isInteger(chunkSize) || chunkSize <= 0) {
+        throw new Error(`Invalid metadata refresh chunk size: ${chunkSize}`);
+    }
+
+    const from = BigInt(fromTokenId);
+    const to = BigInt(toTokenId);
+    const cursor = BigInt(cursorTokenId);
+    if (from > to) {
+        throw new Error(
+            `Invalid metadata refresh range: fromTokenId (${fromTokenId}) > toTokenId (${toTokenId})`,
+        );
+    }
+    if (cursor < from || cursor > to + 1n) {
+        throw new Error(
+            `Invalid metadata refresh cursor ${cursorTokenId} for range [${fromTokenId}, ${toTokenId}]`,
+        );
+    }
+    if (cursor === to + 1n) {
+        return {
+            tokenIds: [],
+            nextCursorTokenId: null,
+        };
+    }
+
+    const chunkEnd = minBigInt(to, cursor + BigInt(chunkSize) - 1n);
+    const tokenIds: string[] = [];
+    for (let tokenId = cursor; tokenId <= chunkEnd; tokenId += 1n) {
+        tokenIds.push(tokenId.toString());
+    }
+    const nextCursorTokenId =
+        chunkEnd >= to ? null : (chunkEnd + 1n).toString();
+
+    return {
+        tokenIds,
+        nextCursorTokenId,
+    };
+}
+
+function minBigInt(a: bigint, b: bigint): bigint {
+    return a < b ? a : b;
+}
 
 function toDomainContext(
     job: JobEnvelope<DomainSyncPayload>,

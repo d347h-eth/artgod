@@ -1,6 +1,9 @@
 import { decodeEventLog, encodeEventTopics } from "viem";
 import { ERC4906_ABI } from "../../abi/index.js";
-import type { MetadataRefreshEvent } from "../../domain/onchain.js";
+import type {
+    MetadataRefreshEvent,
+    MetadataRefreshRangeEvent,
+} from "../../domain/onchain.js";
 import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
 
 const [METADATA_UPDATE_TOPIC] = encodeEventTopics({
@@ -12,89 +15,69 @@ const [BATCH_METADATA_UPDATE_TOPIC] = encodeEventTopics({
     eventName: "BatchMetadataUpdate",
 }) as [Hex];
 
-// Safety cap for batch refresh: prevents huge fan-out from a single log.
-// Later we can replace this with chunked jobs or a range-aware refresh worker.
-const MAX_METADATA_BATCH_SIZE = 200;
-
-type MetadataRefreshTrigger = {
-    key: string;
-    reason: string;
-    topic0: Hex;
-    eventName: "MetadataUpdate" | "BatchMetadataUpdate";
-    decodeTokenIds: (log: RpcLog) => string[];
+type MetadataRefreshLogDecode = {
+    tokenEvents: MetadataRefreshEvent[];
+    rangeEvents: MetadataRefreshRangeEvent[];
 };
-
-// Registry of on-chain metadata refresh triggers.
-// Add new trigger definitions here when we support collection-specific events.
-const METADATA_REFRESH_TRIGGERS: MetadataRefreshTrigger[] = [
-    {
-        key: "erc4906.metadata-update",
-        reason: "erc4906",
-        topic0: METADATA_UPDATE_TOPIC,
-        eventName: "MetadataUpdate",
-        decodeTokenIds: (log) => {
-            const decoded = safeDecodeMetadataUpdate(log);
-            if (!decoded) return [];
-            const tokenId = decoded.args.tokenId;
-            return [tokenId.toString()];
-        },
-    },
-    {
-        key: "erc4906.batch-metadata-update",
-        reason: "erc4906",
-        topic0: BATCH_METADATA_UPDATE_TOPIC,
-        eventName: "BatchMetadataUpdate",
-        decodeTokenIds: (log) => {
-            const decoded = safeDecodeBatchMetadataUpdate(log);
-            if (!decoded) return [];
-            const fromTokenId = decoded.args.fromTokenId;
-            const toTokenId = decoded.args.toTokenId;
-            if (fromTokenId > toTokenId) return [];
-            const span = Number(toTokenId - fromTokenId + 1n);
-            if (!Number.isFinite(span) || span > MAX_METADATA_BATCH_SIZE) {
-                return [];
-            }
-            const ids: string[] = [];
-            for (
-                let tokenId = fromTokenId;
-                tokenId <= toTokenId;
-                tokenId += 1n
-            ) {
-                ids.push(tokenId.toString());
-            }
-            return ids;
-        },
-    },
-];
 
 export const METADATA_REFRESH_EVENT_FILTERS =
     ERC4906_ABI as unknown as RpcEvent[];
 
-// Decode a log into zero or more metadata refresh events.
+// Decode a metadata refresh log into token-level or range-level refresh work.
+// Batch events are represented as ranges so worker-side chunking can be applied.
 export function decodeMetadataRefreshLog(
     log: RpcLog,
-): MetadataRefreshEvent[] {
+): MetadataRefreshLogDecode {
     const topic0 = log.topics[0];
-    if (!topic0) return [];
+    if (!topic0) return { tokenEvents: [], rangeEvents: [] };
 
-    const trigger = METADATA_REFRESH_TRIGGERS.find(
-        (candidate) => candidate.topic0 === topic0,
-    );
-    if (!trigger) return [];
+    if (topic0 === METADATA_UPDATE_TOPIC) {
+        const decoded = safeDecodeMetadataUpdate(log);
+        if (!decoded) return { tokenEvents: [], rangeEvents: [] };
+        return {
+            tokenEvents: [
+                {
+                    contract: log.address,
+                    tokenId: decoded.args.tokenId.toString(),
+                    reason: "erc4906",
+                    trigger: "erc4906.metadata-update",
+                    blockNumber: log.blockNumber,
+                    blockHash: log.blockHash,
+                    txHash: log.transactionHash,
+                    logIndex: log.logIndex,
+                },
+            ],
+            rangeEvents: [],
+        };
+    }
 
-    const tokenIds = trigger.decodeTokenIds(log);
-    if (tokenIds.length === 0) return [];
+    if (topic0 === BATCH_METADATA_UPDATE_TOPIC) {
+        const decoded = safeDecodeBatchMetadataUpdate(log);
+        if (!decoded) return { tokenEvents: [], rangeEvents: [] };
+        const fromTokenId = decoded.args.fromTokenId;
+        const toTokenId = decoded.args.toTokenId;
+        if (fromTokenId > toTokenId) {
+            return { tokenEvents: [], rangeEvents: [] };
+        }
+        return {
+            tokenEvents: [],
+            rangeEvents: [
+                {
+                    contract: log.address,
+                    fromTokenId: fromTokenId.toString(),
+                    toTokenId: toTokenId.toString(),
+                    reason: "erc4906",
+                    trigger: "erc4906.batch-metadata-update",
+                    blockNumber: log.blockNumber,
+                    blockHash: log.blockHash,
+                    txHash: log.transactionHash,
+                    logIndex: log.logIndex,
+                },
+            ],
+        };
+    }
 
-    return tokenIds.map((tokenId) => ({
-        contract: log.address,
-        tokenId,
-        reason: trigger.reason,
-        trigger: trigger.key,
-        blockNumber: log.blockNumber,
-        blockHash: log.blockHash,
-        txHash: log.transactionHash,
-        logIndex: log.logIndex,
-    }));
+    return { tokenEvents: [], rangeEvents: [] };
 }
 
 function safeDecodeMetadataUpdate(log: RpcLog) {

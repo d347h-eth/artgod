@@ -12,6 +12,7 @@ import {
     type DomainSyncMode,
     type DomainSyncPayload,
     type MetadataRefreshPayload,
+    type MetadataRefreshRangePayload,
 } from "../domain/domain-jobs.js";
 import type { OnChainData } from "../domain/onchain.js";
 import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
@@ -464,6 +465,33 @@ async function publishMetadataRefreshJobs(
             chainId,
         };
         await queue.publish(QUEUE_NAMES.MetadataRefresh, job);
+    }
+
+    const seenRanges = new Set<string>();
+    for (const refresh of data.metadataRefreshRangeEvents) {
+        const contract = refresh.contract.toLowerCase();
+        const key = `${contract}:${refresh.fromTokenId}:${refresh.toTokenId}`;
+        if (seenRanges.has(key)) continue;
+        seenRanges.add(key);
+
+        const rangeJob: JobEnvelope<MetadataRefreshRangePayload> = {
+            jobId: `metadata:refresh-range:${chainId}:${contract}:${refresh.fromTokenId}:${refresh.toTokenId}:${refresh.blockNumber}:${refresh.logIndex}`,
+            kind: DOMAIN_JOB_KIND.MetadataRefreshRange,
+            queue: QUEUE_NAMES.MetadataRefresh,
+            payload: {
+                chainId,
+                contract,
+                fromTokenId: refresh.fromTokenId,
+                toTokenId: refresh.toTokenId,
+                cursorTokenId: refresh.fromTokenId,
+                reason: refresh.trigger,
+                source: "onchain",
+            },
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+        };
+        await queue.publish(QUEUE_NAMES.MetadataRefresh, rangeJob);
     }
 }
 

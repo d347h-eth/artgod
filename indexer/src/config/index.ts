@@ -29,6 +29,9 @@ export type IndexerConfig = {
     bootstrap: {
         snapshotBatchSize: number;
     };
+    metadata: {
+        refreshRangeChunkSize: number;
+    };
     seaport: {
         conduitController: string;
     };
@@ -118,6 +121,13 @@ export function loadConfig(
             snapshotBatchSize: parseNumber(
                 env.BOOTSTRAP_SNAPSHOT_BATCH_SIZE,
                 "BOOTSTRAP_SNAPSHOT_BATCH_SIZE",
+                200,
+            ),
+        },
+        metadata: {
+            refreshRangeChunkSize: parseNumber(
+                env.METADATA_REFRESH_RANGE_CHUNK_SIZE,
+                "METADATA_REFRESH_RANGE_CHUNK_SIZE",
                 200,
             ),
         },

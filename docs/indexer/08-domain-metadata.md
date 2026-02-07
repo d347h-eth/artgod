@@ -20,7 +20,10 @@ The metadata domain consumes `domain.metadata.sync` jobs with a block range. It 
 
 Metadata refreshes are handled out-of-band via `domain.metadata.refresh` jobs. These jobs are produced by:
 
-- **On-chain triggers**: the sync pipeline decodes ERC‑4906 `MetadataUpdate` / `BatchMetadataUpdate` logs via the trigger registry in `indexer/src/application/metadata/refresh-triggers.ts`. The sync worker publishes `metadata-refresh` jobs per token.
+- **On-chain triggers**: the sync pipeline decodes ERC‑4906 `MetadataUpdate` / `BatchMetadataUpdate` logs via the trigger registry in `indexer/src/application/metadata/refresh-triggers.ts`.
+- `MetadataUpdate` publishes token-level refresh jobs.
+- `BatchMetadataUpdate` publishes range refresh jobs (`domain.metadata.refresh-range`) with a queue cursor.
+- The domain worker processes range jobs in chunks (`METADATA_REFRESH_RANGE_CHUNK_SIZE`) and re-enqueues the next cursor until complete.
 - **Offchain triggers**: the OpenSea stream `item_metadata_updated` event is normalized into a refresh job with a known `contract` + `tokenId`.
 
 The refresh job payload carries a reason/source string so the metadata domain can log what triggered the refresh. The trigger registry is the extension point for future collection-specific metadata update events.

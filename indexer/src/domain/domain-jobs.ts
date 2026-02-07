@@ -2,6 +2,7 @@ export const DOMAIN_JOB_KIND = {
     OrdersSync: "domain.orders.sync",
     MetadataSync: "domain.metadata.sync",
     MetadataRefresh: "domain.metadata.refresh",
+    MetadataRefreshRange: "domain.metadata.refresh-range",
     ActivitySync: "domain.activity.sync",
 } as const;
 
@@ -20,6 +21,16 @@ export type MetadataRefreshPayload = {
     contract: string;
     tokenId: string;
     metadataUrl?: string | null;
+    reason: string;
+    source?: string | null;
+};
+
+export type MetadataRefreshRangePayload = {
+    chainId: number;
+    contract: string;
+    fromTokenId: string;
+    toTokenId: string;
+    cursorTokenId: string;
     reason: string;
     source?: string | null;
 };

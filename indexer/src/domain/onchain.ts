@@ -82,6 +82,14 @@ export type MetadataRefreshEvent = ChainAttribution & {
     trigger: string;
 };
 
+export type MetadataRefreshRangeEvent = ChainAttribution & {
+    contract: string;
+    fromTokenId: string;
+    toTokenId: string;
+    reason: string;
+    trigger: string;
+};
+
 export type TransactionRecord = {
     hash: string;
     from: string;
@@ -100,6 +108,7 @@ export type OnChainData = {
     orderInfos: OrderInfo[];
     makerInfos: MakerInfo[];
     metadataRefreshEvents: MetadataRefreshEvent[];
+    metadataRefreshRangeEvents: MetadataRefreshRangeEvent[];
 };
 
 export type EventBase = {

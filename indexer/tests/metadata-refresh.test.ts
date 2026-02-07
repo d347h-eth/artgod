@@ -32,10 +32,11 @@ describe("metadata refresh decoders", () => {
     it("decodes MetadataUpdate into a single refresh event", () => {
         const data = encodeAbiParameters([{ type: "uint256" }], [123n]);
         const log = buildLog(data, [topic0("MetadataUpdate")]);
-        const events = decodeMetadataRefreshLog(log);
+        const decoded = decodeMetadataRefreshLog(log);
 
-        expect(events).toHaveLength(1);
-        const event = events[0];
+        expect(decoded.rangeEvents).toHaveLength(0);
+        expect(decoded.tokenEvents).toHaveLength(1);
+        const event = decoded.tokenEvents[0];
         expect(event.contract).toBe(CONTRACT);
         expect(event.tokenId).toBe("123");
         expect(event.trigger).toBe("erc4906.metadata-update");
@@ -46,21 +47,22 @@ describe("metadata refresh decoders", () => {
         expect(event.logIndex).toBe(2);
     });
 
-    it("decodes BatchMetadataUpdate into per-token refresh events", () => {
+    it("decodes BatchMetadataUpdate into a range refresh event", () => {
         const data = encodeAbiParameters(
             [{ type: "uint256" }, { type: "uint256" }],
             [5n, 7n],
         );
         const log = buildLog(data, [topic0("BatchMetadataUpdate")], 9);
-        const events = decodeMetadataRefreshLog(log);
+        const decoded = decodeMetadataRefreshLog(log);
 
-        expect(events.map((event) => event.tokenId)).toEqual([
-            "5",
-            "6",
-            "7",
-        ]);
-        expect(events[0]?.trigger).toBe("erc4906.batch-metadata-update");
-        expect(events[0]?.reason).toBe("erc4906");
-        expect(events[0]?.logIndex).toBe(9);
+        expect(decoded.tokenEvents).toHaveLength(0);
+        expect(decoded.rangeEvents).toHaveLength(1);
+        const event = decoded.rangeEvents[0];
+        expect(event.contract).toBe(CONTRACT);
+        expect(event.fromTokenId).toBe("5");
+        expect(event.toTokenId).toBe("7");
+        expect(event.trigger).toBe("erc4906.batch-metadata-update");
+        expect(event.reason).toBe("erc4906");
+        expect(event.logIndex).toBe(9);
     });
 });

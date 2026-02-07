@@ -55,6 +55,12 @@ Set WETH address (required for bid re-validation triggers):
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 ```
 
+Metadata batch refresh chunk size (used for ERC-4906 batch updates):
+
+```sh
+METADATA_REFRESH_RANGE_CHUNK_SIZE=200
+```
+
 Then run indexer runtimes as needed:
 
 ```sh

@@ -5,6 +5,7 @@ import type {
     EnhancedEvent,
     EnhancedTransaction,
     MetadataRefreshEvent,
+    MetadataRefreshRangeEvent,
     OnChainData,
     TransactionSummary,
     TransactionRecord,
@@ -66,6 +67,7 @@ export async function syncRange(
             orderInfos: [],
             makerInfos: [],
             metadataRefreshEvents: [],
+            metadataRefreshRangeEvents: [],
         };
     }
 
@@ -98,8 +100,11 @@ export async function syncRange(
     }
 
     const metadataRefreshEvents: MetadataRefreshEvent[] = [];
+    const metadataRefreshRangeEvents: MetadataRefreshRangeEvent[] = [];
     for (const log of metadataRefreshLogs) {
-        metadataRefreshEvents.push(...decodeMetadataRefreshLog(log));
+        const decoded = decodeMetadataRefreshLog(log);
+        metadataRefreshEvents.push(...decoded.tokenEvents);
+        metadataRefreshRangeEvents.push(...decoded.rangeEvents);
     }
 
     const transactions = await buildEnhancedTransactions(rpc, enhancedEvents);
@@ -108,6 +113,7 @@ export async function syncRange(
     );
     const data = accumulateOnChainData(transactions, collectionSet);
     data.metadataRefreshEvents = metadataRefreshEvents;
+    data.metadataRefreshRangeEvents = metadataRefreshRangeEvents;
     const seaportEvents = decodeSeaportOrderEvents(
         seaportLogs,
         collectionSet,
@@ -337,6 +343,7 @@ function accumulateOnChainData(
         orderInfos: [],
         makerInfos: [],
         metadataRefreshEvents: [],
+        metadataRefreshRangeEvents: [],
     };
 
     for (const tx of transactions) {
