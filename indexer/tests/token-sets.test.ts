@@ -23,6 +23,7 @@ describe("token set registry", () => {
     beforeEach(() => {
         db.exec(
             [
+                "DELETE FROM collection_trait_stats;",
                 "DELETE FROM token_sets_tokens;",
                 "DELETE FROM token_sets;",
                 "DELETE FROM token_attributes;",

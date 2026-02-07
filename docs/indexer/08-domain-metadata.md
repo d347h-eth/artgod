@@ -28,6 +28,16 @@ Metadata refreshes are handled out-of-band via `domain.metadata.refresh` jobs. T
 
 The refresh job payload carries a reason/source string so the metadata domain can log what triggered the refresh. The trigger registry is the extension point for future collection-specific metadata update events.
 
+## Trait Stats Recompute
+
+Trait counts are recomputed into `collection_trait_stats` through `domain.metadata.stats-recompute` jobs on the dedicated `metadata-stats` queue.
+
+- Metadata sync enqueues recompute per touched collection.
+- Metadata refresh (single and range/cursor mode) enqueues recompute on successful token updates.
+- Recompute strategy is replace-in-transaction for deterministic correctness:
+  - delete existing stats rows for the collection.
+  - insert fresh counts from normalized `token_attributes` + `attributes`.
+
 ## Token Discovery
 
 For each block range:

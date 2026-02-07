@@ -108,15 +108,19 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         private fetcher: MetadataFetcherPort,
     ) {}
 
-    async handleDomainSync(context: DomainSyncContext): Promise<void> {
+    async handleDomainSync(context: DomainSyncContext): Promise<string[]> {
         const { chainId, fromBlock, toBlock } = context;
-        if (fromBlock > toBlock) return;
+        if (fromBlock > toBlock) return [];
 
         const rows = this.selectFirstTransferPerToken.all(
             chainId,
             fromBlock,
             toBlock,
         ) as TokenRow[];
+        const contracts = new Set<string>();
+        for (const row of rows) {
+            contracts.add(row.contract.toLowerCase());
+        }
 
         let fetched = 0;
         for (const row of rows) {
@@ -165,11 +169,12 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             tokens: rows.length,
             fetched,
         });
+        return Array.from(contracts);
     }
 
     async handleMetadataRefresh(
         payload: MetadataRefreshPayload,
-    ): Promise<void> {
+    ): Promise<boolean> {
         const { chainId } = payload;
         const contract = payload.contract.toLowerCase();
         const tokenId = payload.tokenId;
@@ -189,7 +194,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                     contract,
                     tokenId,
                 });
-                return;
+                return false;
             }
             uri = await this.resolver.resolveTokenUri(
                 contract,
@@ -205,7 +210,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 contract,
                 tokenId,
             });
-            return;
+            return false;
         }
 
         const metadata = await this.fetcher.fetchMetadata(uri);
@@ -218,7 +223,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 tokenId,
                 uri,
             });
-            return;
+            return false;
         }
 
         this.persistMetadata(chainId, contract, tokenId, metadata);
@@ -231,6 +236,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             tokenId,
             reason: payload.reason,
         });
+        return true;
     }
 
     private hasMetadata(

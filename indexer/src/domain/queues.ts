@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
     OrdersUpdateById: "order-updates-by-id",
     MetadataDomain: "metadata-domain",
     MetadataRefresh: "metadata-refresh",
+    MetadataStats: "metadata-stats",
     ActivityDomain: "activity-domain",
     DeadLetter: "dead-letter",
 } as const;

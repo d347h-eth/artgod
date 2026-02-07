@@ -3,6 +3,7 @@ export const DOMAIN_JOB_KIND = {
     MetadataSync: "domain.metadata.sync",
     MetadataRefresh: "domain.metadata.refresh",
     MetadataRefreshRange: "domain.metadata.refresh-range",
+    MetadataStatsRecompute: "domain.metadata.stats-recompute",
     ActivitySync: "domain.activity.sync",
 } as const;
 
@@ -33,4 +34,15 @@ export type MetadataRefreshRangePayload = {
     cursorTokenId: string;
     reason: string;
     source?: string | null;
+};
+
+export type MetadataStatsRecomputePayload = {
+    chainId: number;
+    contract: string;
+    reason:
+        | "metadata-sync"
+        | "metadata-refresh"
+        | "bootstrap-finalized"
+        | "reorg-resync";
+    sourceJobId?: string | null;
 };

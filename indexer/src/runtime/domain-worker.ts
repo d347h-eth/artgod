@@ -9,11 +9,13 @@ import {
     type DomainSyncPayload,
     type MetadataRefreshPayload,
     type MetadataRefreshRangePayload,
+    type MetadataStatsRecomputePayload,
 } from "../domain/domain-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteOrdersDomain } from "../infra/domain/orders.js";
 import type { DomainSyncContext } from "../ports/domain-handlers.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
+import { SqliteMetadataStatsDomain } from "../infra/domain/metadata-stats.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { noopMetrics } from "../metrics/noop.js";
@@ -27,6 +29,8 @@ import {
     type OrderUpdateByMakerPayload,
     type OrderUpsertPayload,
 } from "../domain/order-jobs.js";
+
+const METADATA_STATS_DEDUPE_BUCKET_MS = 10_000;
 
 async function main() {
     try {
@@ -58,6 +62,7 @@ async function main() {
             metadataResolver,
             metadataFetcher,
         );
+        const metadataStatsDomain = new SqliteMetadataStatsDomain();
         const activityDomain = new SqliteActivityDomain();
 
         const stopOrders = await runWorker(
@@ -155,7 +160,21 @@ async function main() {
             },
             async (job: JobEnvelope<DomainSyncPayload>) => {
                 if (job.kind !== DOMAIN_JOB_KIND.MetadataSync) return;
-                await metadataDomain.handleDomainSync(toDomainContext(job));
+                const contracts = await metadataDomain.handleDomainSync(
+                    toDomainContext(job),
+                );
+                for (const contract of contracts) {
+                    await enqueueMetadataStatsRecompute(
+                        queue,
+                        {
+                            chainId: job.chainId,
+                            contract,
+                            reason: "metadata-sync",
+                            sourceJobId: job.jobId,
+                        },
+                        job.traceId ?? job.jobId,
+                    );
+                }
             },
         );
 
@@ -174,9 +193,23 @@ async function main() {
                 >,
             ) => {
                 if (job.kind === DOMAIN_JOB_KIND.MetadataRefresh) {
-                    await metadataDomain.handleMetadataRefresh(
+                    const updated = await metadataDomain.handleMetadataRefresh(
                         job.payload as MetadataRefreshPayload,
                     );
+                    if (updated) {
+                        await enqueueMetadataStatsRecompute(
+                            queue,
+                            {
+                                chainId: job.chainId,
+                                contract: (
+                                    job.payload as MetadataRefreshPayload
+                                ).contract,
+                                reason: "metadata-refresh",
+                                sourceJobId: job.jobId,
+                            },
+                            job.traceId ?? job.jobId,
+                        );
+                    }
                     return;
                 }
                 if (job.kind === DOMAIN_JOB_KIND.MetadataRefreshRange) {
@@ -186,8 +219,24 @@ async function main() {
                         job.payload as MetadataRefreshRangePayload,
                         config.metadata.refreshRangeChunkSize,
                         job.traceId ?? job.jobId,
+                        job.jobId,
                     );
                 }
+            },
+        );
+
+        const stopMetadataStats = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.MetadataStats,
+                consumerName: `metadata-stats-${config.chainId}`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job: JobEnvelope<MetadataStatsRecomputePayload>) => {
+                if (job.kind !== DOMAIN_JOB_KIND.MetadataStatsRecompute) return;
+                await metadataStatsDomain.handleRecompute(job.payload);
             },
         );
 
@@ -222,6 +271,7 @@ async function main() {
             await stopOrderUpserts();
             await stopMetadata();
             await stopMetadataRefresh();
+            await stopMetadataStats();
             await stopActivity();
             await queue.close();
             process.exit(0);
@@ -242,12 +292,41 @@ async function main() {
 
 main();
 
+async function enqueueMetadataStatsRecompute(
+    queue: QueuePort,
+    payload: MetadataStatsRecomputePayload,
+    traceId: string,
+): Promise<void> {
+    const contract = payload.contract.toLowerCase();
+    const bucketStart =
+        Math.floor(Date.now() / METADATA_STATS_DEDUPE_BUCKET_MS) *
+        METADATA_STATS_DEDUPE_BUCKET_MS;
+    // Trailing-edge debounce: schedule recompute at bucket end so one job
+    // captures all metadata changes that arrived during the full bucket window.
+    const scheduledAt = bucketStart + METADATA_STATS_DEDUPE_BUCKET_MS;
+    const job: JobEnvelope<MetadataStatsRecomputePayload> = {
+        jobId: `metadata:stats:${payload.chainId}:${contract}:${payload.reason}:${bucketStart}`,
+        kind: DOMAIN_JOB_KIND.MetadataStatsRecompute,
+        queue: QUEUE_NAMES.MetadataStats,
+        payload: {
+            ...payload,
+            contract,
+        },
+        attempt: 0,
+        scheduledAt,
+        chainId: payload.chainId,
+        traceId,
+    };
+    await queue.publish(QUEUE_NAMES.MetadataStats, job);
+}
+
 async function handleMetadataRefreshRangeJob(
     queue: QueuePort,
     metadataDomain: SqliteMetadataDomain,
     payload: MetadataRefreshRangePayload,
     chunkSize: number,
     traceId: string,
+    sourceJobId: string,
 ): Promise<void> {
     const contract = payload.contract.toLowerCase();
     const { tokenIds, nextCursorTokenId } = chunkTokenIdRange(
@@ -257,8 +336,9 @@ async function handleMetadataRefreshRangeJob(
         chunkSize,
     );
 
+    let updatedAny = false;
     for (const tokenId of tokenIds) {
-        await metadataDomain.handleMetadataRefresh({
+        const updated = await metadataDomain.handleMetadataRefresh({
             chainId: payload.chainId,
             contract,
             tokenId,
@@ -266,6 +346,19 @@ async function handleMetadataRefreshRangeJob(
             reason: payload.reason,
             source: payload.source,
         });
+        updatedAny = updatedAny || updated;
+    }
+    if (updatedAny) {
+        await enqueueMetadataStatsRecompute(
+            queue,
+            {
+                chainId: payload.chainId,
+                contract,
+                reason: "metadata-refresh",
+                sourceJobId,
+            },
+            traceId,
+        );
     }
 
     logger.debug("Metadata refresh range chunk processed", {

@@ -14,4 +14,6 @@ Files:
 - `docs/progress/indexer/08-deferred.md`
 - `docs/progress/indexer/09-short-term-roadmap-part-2.md`
 - `docs/progress/indexer/10-short-term-roadmap-part-3.md`
+- `docs/progress/indexer/11-token-sets-plan.md`
 - `docs/progress/indexer/12-chain-identity-refactor.md`
+- `docs/progress/indexer/13-trait-stats-recompute-plan.md`

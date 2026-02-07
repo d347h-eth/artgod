@@ -1,6 +1,7 @@
 import type {
     DomainSyncMode,
     MetadataRefreshPayload,
+    MetadataStatsRecomputePayload,
 } from "../domain/domain-jobs.js";
 import type {
     OrderUpdateByIdPayload,
@@ -25,8 +26,12 @@ export interface OrdersDomainPort {
 }
 
 export interface MetadataDomainPort {
-    handleDomainSync(context: DomainSyncContext): Promise<void>;
-    handleMetadataRefresh(payload: MetadataRefreshPayload): Promise<void>;
+    handleDomainSync(context: DomainSyncContext): Promise<string[]>;
+    handleMetadataRefresh(payload: MetadataRefreshPayload): Promise<boolean>;
+}
+
+export interface MetadataStatsDomainPort {
+    handleRecompute(payload: MetadataStatsRecomputePayload): Promise<void>;
 }
 
 export interface ActivityDomainPort {
