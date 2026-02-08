@@ -78,7 +78,8 @@ Phase 1 triggers:
 
 - After successful `MetadataRefresh` token update.
 - After `MetadataSync` domain batch finishes for a range.
-- Bootstrap/reorg triggers are deferred to phase 2.
+- After bootstrap marks collection as `live` (reason `bootstrap-finalized`).
+- Reorg backfill metadata-sync batches are tagged as reason `reorg-resync`.
 
 Phase 2 triggers (later):
 

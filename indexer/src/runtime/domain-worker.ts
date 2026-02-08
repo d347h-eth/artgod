@@ -2,6 +2,7 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
 import { runWorker } from "../application/worker-runner.js";
+import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import {
@@ -29,8 +30,6 @@ import {
     type OrderUpdateByMakerPayload,
     type OrderUpsertPayload,
 } from "../domain/order-jobs.js";
-
-const METADATA_STATS_DEDUPE_BUCKET_MS = 10_000;
 
 async function main() {
     try {
@@ -164,12 +163,14 @@ async function main() {
                     toDomainContext(job),
                 );
                 for (const contract of contracts) {
-                    await enqueueMetadataStatsRecompute(
+                    await publishMetadataStatsRecompute(
                         queue,
                         {
                             chainId: job.chainId,
                             contract,
-                            reason: "metadata-sync",
+                            reason: deriveMetadataStatsReason(
+                                job.payload.sourceJobId,
+                            ),
                             sourceJobId: job.jobId,
                         },
                         job.traceId ?? job.jobId,
@@ -197,7 +198,7 @@ async function main() {
                         job.payload as MetadataRefreshPayload,
                     );
                     if (updated) {
-                        await enqueueMetadataStatsRecompute(
+                        await publishMetadataStatsRecompute(
                             queue,
                             {
                                 chainId: job.chainId,
@@ -292,32 +293,13 @@ async function main() {
 
 main();
 
-async function enqueueMetadataStatsRecompute(
-    queue: QueuePort,
-    payload: MetadataStatsRecomputePayload,
-    traceId: string,
-): Promise<void> {
-    const contract = payload.contract.toLowerCase();
-    const bucketStart =
-        Math.floor(Date.now() / METADATA_STATS_DEDUPE_BUCKET_MS) *
-        METADATA_STATS_DEDUPE_BUCKET_MS;
-    // Trailing-edge debounce: schedule recompute at bucket end so one job
-    // captures all metadata changes that arrived during the full bucket window.
-    const scheduledAt = bucketStart + METADATA_STATS_DEDUPE_BUCKET_MS;
-    const job: JobEnvelope<MetadataStatsRecomputePayload> = {
-        jobId: `metadata:stats:${payload.chainId}:${contract}:${payload.reason}:${bucketStart}`,
-        kind: DOMAIN_JOB_KIND.MetadataStatsRecompute,
-        queue: QUEUE_NAMES.MetadataStats,
-        payload: {
-            ...payload,
-            contract,
-        },
-        attempt: 0,
-        scheduledAt,
-        chainId: payload.chainId,
-        traceId,
-    };
-    await queue.publish(QUEUE_NAMES.MetadataStats, job);
+function deriveMetadataStatsReason(
+    sourceJobId: string,
+): MetadataStatsRecomputePayload["reason"] {
+    if (sourceJobId.startsWith("sync:reorg:")) {
+        return "reorg-resync";
+    }
+    return "metadata-sync";
 }
 
 async function handleMetadataRefreshRangeJob(
@@ -349,7 +331,7 @@ async function handleMetadataRefreshRangeJob(
         updatedAny = updatedAny || updated;
     }
     if (updatedAny) {
-        await enqueueMetadataStatsRecompute(
+        await publishMetadataStatsRecompute(
             queue,
             {
                 chainId: payload.chainId,

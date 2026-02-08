@@ -3,6 +3,7 @@ import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import { runWorker } from "../application/worker-runner.js";
+import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import {
     BOOTSTRAP_JOB_KIND,
@@ -68,6 +69,8 @@ async function main() {
                         config.sync.backfillBatchSize,
                         config.bootstrap.snapshotBatchSize,
                         job.payload as BootstrapCollectionPayload,
+                        job.traceId ?? job.jobId,
+                        job.jobId,
                     );
                     return;
                 }
@@ -77,6 +80,8 @@ async function main() {
                         storage,
                         collections,
                         job.payload as BootstrapBackfillCheckPayload,
+                        job.traceId ?? job.jobId,
+                        job.jobId,
                     );
                 }
             },
@@ -121,6 +126,8 @@ async function handleBootstrapStart(
     backfillBatchSize: number,
     snapshotBatchSize: number,
     payload: BootstrapCollectionPayload,
+    traceId: string,
+    sourceJobId: string,
 ): Promise<void> {
     // Bootstrap orchestration entrypoint: validate scope before snapshot/backfill steps.
     if (payload.standard !== "erc721") {
@@ -222,6 +229,16 @@ async function handleBootstrapStart(
                 payload.collectionId,
                 anchorBlock,
             );
+            await publishMetadataStatsRecompute(
+                queue,
+                {
+                    chainId: payload.chainId,
+                    contract: payload.address,
+                    reason: "bootstrap-finalized",
+                    sourceJobId,
+                },
+                traceId,
+            );
             logger.info("Bootstrap backfill skipped (no new blocks)", {
                 component: "CollectionBootstrapWorker",
                 action: "handleBootstrapStart",
@@ -279,6 +296,8 @@ async function handleBootstrapBackfillCheck(
     storage: StoragePort,
     collections: CollectionRegistryPort,
     payload: BootstrapBackfillCheckPayload,
+    traceId: string,
+    sourceJobId: string,
 ): Promise<void> {
     const expected = payload.toBlock - payload.fromBlock + 1;
     if (expected <= 0) {
@@ -338,6 +357,17 @@ async function handleBootstrapBackfillCheck(
         fromBlock: payload.fromBlock,
         toBlock: payload.toBlock,
     });
+
+    await publishMetadataStatsRecompute(
+        queue,
+        {
+            chainId: payload.chainId,
+            contract: payload.address,
+            reason: "bootstrap-finalized",
+            sourceJobId,
+        },
+        traceId,
+    );
 }
 
 async function scheduleBackfillRange(
