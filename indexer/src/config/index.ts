@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { resolveProjectPath } from "@artgod/shared/utils";
+import { defaultRetryPolicy } from "../domain/retry.js";
 
 dotenv.config({ path: resolveProjectPath(".env") });
 
@@ -9,6 +10,22 @@ export type IndexerConfig = {
         primaryUrl: string;
         backfillUrl?: string;
         wsUrl?: string;
+        retryPolicy: {
+            maxAttempts: number;
+            baseDelayMs: number;
+            maxDelayMs: number;
+        };
+        resilience: {
+            rateLimiter: {
+                requestsPerSecond: number;
+                burst: number;
+            };
+            circuitBreaker: {
+                failureThreshold: number;
+                openMs: number;
+                halfOpenMaxRequests: number;
+            };
+        };
     };
     tokens: {
         wethAddress: string;
@@ -88,6 +105,54 @@ export function loadConfig(
             primaryUrl: rpcUrl,
             backfillUrl: env.RPC_BACKFILL_URL,
             wsUrl: env.RPC_WS_URL,
+            retryPolicy: {
+                maxAttempts: parseNumber(
+                    env.RPC_RETRY_MAX_ATTEMPTS,
+                    "RPC_RETRY_MAX_ATTEMPTS",
+                    defaultRetryPolicy.maxAttempts,
+                ),
+                baseDelayMs: parseNumber(
+                    env.RPC_RETRY_BASE_DELAY_MS,
+                    "RPC_RETRY_BASE_DELAY_MS",
+                    defaultRetryPolicy.baseDelayMs,
+                ),
+                maxDelayMs: parseNumber(
+                    env.RPC_RETRY_MAX_DELAY_MS,
+                    "RPC_RETRY_MAX_DELAY_MS",
+                    defaultRetryPolicy.maxDelayMs,
+                ),
+            },
+            resilience: {
+                rateLimiter: {
+                    requestsPerSecond: parseNumber(
+                        env.RPC_RATE_LIMIT_REQUESTS_PER_SECOND,
+                        "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
+                        20,
+                    ),
+                    burst: parseNumber(
+                        env.RPC_RATE_LIMIT_BURST,
+                        "RPC_RATE_LIMIT_BURST",
+                        40,
+                    ),
+                },
+                circuitBreaker: {
+                    failureThreshold: parseNumber(
+                        env.RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+                        "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                        5,
+                    ),
+                    openMs: parseNumber(
+                        env.RPC_CIRCUIT_BREAKER_OPEN_MS,
+                        "RPC_CIRCUIT_BREAKER_OPEN_MS",
+                        30_000,
+                    ),
+                    halfOpenMaxRequests: parseNumber(
+                        env.RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS,
+                        "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+                        2,
+                    ),
+                },
+            },
         },
         tokens: {
             wethAddress: parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS"),

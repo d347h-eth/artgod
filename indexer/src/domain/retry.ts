@@ -6,8 +6,8 @@ export type RetryPolicy = {
 
 export const defaultRetryPolicy: RetryPolicy = {
     maxAttempts: 5,
-    baseDelayMs: 5_000,
-    maxDelayMs: 5 * 60_000,
+    baseDelayMs: 100,
+    maxDelayMs: 5 * 600,
 };
 
 export function getRetryDelayMs(

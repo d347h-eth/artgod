@@ -50,5 +50,5 @@ This roadmap follows Part 2 and reflects the ArtGod approach: **bootstrap collec
 
 ## Phase 7: Reliability Improvements
 
-[ ] RPC rate limiter + circuit breaker.
+[x] RPC rate limiter + circuit breaker.
 [ ] Optional shared cache/locks if multi-worker scaling is enabled.

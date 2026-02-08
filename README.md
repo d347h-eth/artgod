@@ -61,6 +61,19 @@ Metadata batch refresh chunk size (used for ERC-4906 batch updates):
 METADATA_REFRESH_RANGE_CHUNK_SIZE=200
 ```
 
+Optional RPC resilience tuning (rate limiter + circuit breaker):
+
+```sh
+RPC_RETRY_MAX_ATTEMPTS=5
+RPC_RETRY_BASE_DELAY_MS=100
+RPC_RETRY_MAX_DELAY_MS=3000
+RPC_RATE_LIMIT_REQUESTS_PER_SECOND=50 # use 0 to disable rate limiting
+RPC_RATE_LIMIT_BURST=100
+RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
+RPC_CIRCUIT_BREAKER_OPEN_MS=5000
+RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS=2
+```
+
 Then run indexer runtimes as needed:
 
 ```sh

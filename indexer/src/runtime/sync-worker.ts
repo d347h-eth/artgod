@@ -4,7 +4,10 @@ import { loadConfig } from "../config/index.js";
 import { syncRange, type SyncRange } from "../application/sync.js";
 import { runWorker } from "../application/worker-runner.js";
 import { BidderIndex } from "../application/bidder-index.js";
-import { decodeWethMakerInfos, WETH_EVENT_FILTERS } from "../application/ft/weth.js";
+import {
+    decodeWethMakerInfos,
+    WETH_EVENT_FILTERS,
+} from "../application/ft/weth.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
@@ -58,6 +61,8 @@ async function main() {
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: noopMetrics,
+            retryPolicy: config.rpc.retryPolicy,
+            resilience: config.rpc.resilience,
         });
         const backfillRpc = config.rpc.backfillUrl
             ? new ViemRpcProvider({
@@ -65,6 +70,8 @@ async function main() {
                   logChunkSize: config.sync.logChunkSize,
                   cache,
                   metrics: noopMetrics,
+                  retryPolicy: config.rpc.retryPolicy,
+                  resilience: config.rpc.resilience,
               })
             : primaryRpc;
         const storage = new SqliteStorage();
@@ -269,13 +276,7 @@ async function processRange(
     const data = await syncRange(rpc, collections, range);
     const blocks = await fetchBlocks(rpc, range);
     storage.persistSyncResult(chainId, blocks, data);
-    await appendWethMakerInfos(
-        rpc,
-        range,
-        wethAddress,
-        bidderIndex,
-        data,
-    );
+    await appendWethMakerInfos(rpc, range, wethAddress, bidderIndex, data);
     return { data, blocks };
 }
 

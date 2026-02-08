@@ -43,6 +43,8 @@ async function main() {
         const rpc = new ViemRpcProvider({
             url: config.rpc.primaryUrl,
             logChunkSize: config.sync.logChunkSize,
+            retryPolicy: config.rpc.retryPolicy,
+            resilience: config.rpc.resilience,
         });
         const conduits = new SqliteConduitRegistry();
         const ordersDomain = new SqliteOrdersDomain(

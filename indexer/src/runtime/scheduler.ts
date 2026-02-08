@@ -24,6 +24,8 @@ async function main() {
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: noopMetrics,
+            retryPolicy: config.rpc.retryPolicy,
+            resilience: config.rpc.resilience,
         });
 
         const headSource = config.rpc.wsUrl
