@@ -6,6 +6,10 @@ import type {
 export type CollectionSyncMode = "realtime" | "backfill";
 
 export interface CollectionRegistryPort {
+    getCollection(
+        chainId: number,
+        collectionId: string,
+    ): CollectionRecord | null;
     listCollectionsForSync(
         chainId: number,
         mode: CollectionSyncMode,

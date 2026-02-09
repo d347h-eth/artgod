@@ -5,6 +5,7 @@ export interface TokenUriResolverPort {
         contract: string,
         tokenId: string,
         standard: TokenStandard,
+        blockNumber?: number,
     ): Promise<string | null>;
 }
 

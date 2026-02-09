@@ -160,6 +160,8 @@ const result = db.prepare("SELECT * FROM projects").all();
 - Tests must not silently skip on missing config; fail fast with explicit errors.
 - If code depends on config (runtime or test), treat it as required with no implicit defaults.
 - Config should be an explicit TypeScript object created from a single env loader (no scattered `process.env` reads).
+- Prefer cursor-based iteration over existing storage for large datasets instead of pre-allocating big in-memory arrays/objects.
+- New large in-memory allocations must be justified by business logic needs or clear performance gains.
 
 ## Architecture Constraints
 

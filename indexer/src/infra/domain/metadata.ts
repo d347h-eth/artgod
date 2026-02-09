@@ -24,7 +24,7 @@ type TokenRow = {
 };
 
 type MetadataRow = { uri: string };
-type TokenKindRow = { kind: TokenStandard };
+type CollectionStandardRow = { standard: TokenStandard };
 
 type MetadataAttribution = {
     block_number?: number | null;
@@ -46,9 +46,8 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
     private selectMetadata = db.prepare<[number, string, string]>(
         "SELECT uri FROM token_metadata WHERE chain_id = ? AND contract_address = ? AND token_id = ? LIMIT 1",
     );
-    private selectLatestTokenKind = db.prepare<[number, string, string]>(
-        "SELECT kind FROM nft_transfer_events WHERE chain_id = ? AND contract_address = ? AND token_id = ? " +
-            "ORDER BY block_number DESC, log_index DESC LIMIT 1",
+    private selectCollectionStandard = db.prepare<[number, string]>(
+        "SELECT standard FROM collections WHERE chain_id = ? AND address = ? LIMIT 1",
     );
     private upsertMetadata = db.prepare<{
         chainId: number;
@@ -180,26 +179,18 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         const tokenId = payload.tokenId;
 
         let uri = payload.metadataUrl ?? null;
+        const tokenStandard = payload.standard ?? null;
+        const blockNumber = payload.blockNumber;
         if (!uri) {
-            const kindRow = this.selectLatestTokenKind.get(
-                chainId,
-                contract,
-                tokenId,
-            ) as TokenKindRow | undefined;
-            if (!kindRow) {
-                logger.debug("Metadata refresh skipped (missing token kind)", {
-                    component: "MetadataDomain",
-                    action: "handleMetadataRefresh",
-                    chainId,
-                    contract,
-                    tokenId,
-                });
-                return false;
-            }
+            const standard =
+                tokenStandard ??
+                this.resolveCollectionStandard(chainId, contract);
+            if (!standard) return false;
             uri = await this.resolver.resolveTokenUri(
                 contract,
                 tokenId,
-                kindRow.kind,
+                standard,
+                blockNumber,
             );
         }
         if (!uri) {
@@ -226,7 +217,13 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             return false;
         }
 
-        this.persistMetadata(chainId, contract, tokenId, metadata);
+        this.persistMetadata(chainId, contract, tokenId, metadata, {
+            block_number: payload.blockNumber ?? null,
+            block_hash: payload.blockHash ?? null,
+            block_timestamp: payload.blockTimestamp ?? null,
+            tx_hash: null,
+            log_index: null,
+        });
 
         logger.debug("Metadata refresh applied", {
             component: "MetadataDomain",
@@ -237,6 +234,26 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             reason: payload.reason,
         });
         return true;
+    }
+
+    private resolveCollectionStandard(
+        chainId: number,
+        contract: string,
+    ): TokenStandard | null {
+        const row = this.selectCollectionStandard.get(
+            chainId,
+            contract,
+        ) as CollectionStandardRow | undefined;
+        if (!row) {
+            logger.debug("Metadata refresh skipped (missing collection standard)", {
+                component: "MetadataDomain",
+                action: "handleMetadataRefresh",
+                chainId,
+                contract,
+            });
+            return null;
+        }
+        return row.standard;
     }
 
     private hasMetadata(

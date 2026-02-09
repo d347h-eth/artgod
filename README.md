@@ -61,6 +61,17 @@ Metadata batch refresh chunk size (used for ERC-4906 batch updates):
 METADATA_REFRESH_RANGE_CHUNK_SIZE=200
 ```
 
+Bootstrap metadata snapshot tuning:
+
+```sh
+BOOTSTRAP_METADATA_BATCH_SIZE=200
+BOOTSTRAP_METADATA_CONCURRENCY=8
+BOOTSTRAP_METADATA_PROCESS_POLL_MS=5000
+BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS=5
+BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS=5000
+BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS=300000
+```
+
 Optional RPC resilience tuning (rate limiter + circuit breaker):
 
 ```sh
@@ -79,6 +90,14 @@ Then run indexer runtimes as needed:
 ```sh
 yarn workspace @artgod/indexer run dev:scheduler
 yarn workspace @artgod/indexer run dev:sync-worker
+yarn workspace @artgod/indexer run dev:bootstrap-worker
+```
+
+Trigger collection bootstrap (metadata mode defaults to `strict`):
+
+```sh
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode strict
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode best_effort
 ```
 
 ## Project Structure

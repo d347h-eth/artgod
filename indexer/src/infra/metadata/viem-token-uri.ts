@@ -43,13 +43,14 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         contract: string,
         tokenId: string,
         standard: TokenStandard,
+        blockNumber?: number,
     ): Promise<string | null> {
         const start = Date.now();
         try {
             const uri =
                 standard === "erc721"
-                    ? await this.readErc721Uri(contract, tokenId)
-                    : await this.readErc1155Uri(contract, tokenId);
+                    ? await this.readErc721Uri(contract, tokenId, blockNumber)
+                    : await this.readErc1155Uri(contract, tokenId, blockNumber);
             this.metrics?.histogram(
                 "metadata.resolve.latency",
                 Date.now() - start,
@@ -72,24 +73,30 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
     private async readErc721Uri(
         contract: string,
         tokenId: string,
+        blockNumber?: number,
     ): Promise<string> {
         return this.client.readContract({
             address: contract as `0x${string}`,
             abi: ERC721_METADATA_ABI,
             functionName: "tokenURI",
             args: [BigInt(tokenId)],
+            blockNumber:
+                blockNumber !== undefined ? BigInt(blockNumber) : undefined,
         });
     }
 
     private async readErc1155Uri(
         contract: string,
         tokenId: string,
+        blockNumber?: number,
     ): Promise<string> {
         const uri = await this.client.readContract({
             address: contract as `0x${string}`,
             abi: ERC1155_METADATA_ABI,
             functionName: "uri",
             args: [BigInt(tokenId)],
+            blockNumber:
+                blockNumber !== undefined ? BigInt(blockNumber) : undefined,
         });
         return expandErc1155Uri(uri, tokenId);
     }

@@ -22,6 +22,11 @@ type CollectionRow = {
 };
 
 export class SqliteCollectionRegistry implements CollectionRegistryPort {
+    private selectOne = db.prepare<{ chainId: number; collectionId: string }>(
+        "SELECT chain_id, collection_id, address, standard, status, deployment_block, " +
+            "bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
+            "FROM collections WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
+    );
     private selectLive = db.prepare<{ chainId: number }>(
         "SELECT chain_id, collection_id, address, standard, status, deployment_block, " +
             "bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
@@ -91,6 +96,17 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId",
     );
+
+    getCollection(
+        chainId: number,
+        collectionId: string,
+    ): CollectionRecord | null {
+        const row = this.selectOne.get({
+            chainId,
+            collectionId,
+        }) as CollectionRow | undefined;
+        return row ? mapRow(row) : null;
+    }
 
     listCollectionsForSync(
         chainId: number,

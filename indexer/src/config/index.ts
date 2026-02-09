@@ -45,6 +45,14 @@ export type IndexerConfig = {
     };
     bootstrap: {
         snapshotBatchSize: number;
+        metadataBatchSize: number;
+        metadataConcurrency: number;
+        metadataProcessPollMs: number;
+        metadataRetryPolicy: {
+            maxAttempts: number;
+            baseDelayMs: number;
+            maxDelayMs: number;
+        };
     };
     metadata: {
         refreshRangeChunkSize: number;
@@ -188,6 +196,38 @@ export function loadConfig(
                 "BOOTSTRAP_SNAPSHOT_BATCH_SIZE",
                 200,
             ),
+            metadataBatchSize: parseNumber(
+                env.BOOTSTRAP_METADATA_BATCH_SIZE,
+                "BOOTSTRAP_METADATA_BATCH_SIZE",
+                200,
+            ),
+            metadataConcurrency: parseNumber(
+                env.BOOTSTRAP_METADATA_CONCURRENCY,
+                "BOOTSTRAP_METADATA_CONCURRENCY",
+                8,
+            ),
+            metadataProcessPollMs: parseNumber(
+                env.BOOTSTRAP_METADATA_PROCESS_POLL_MS,
+                "BOOTSTRAP_METADATA_PROCESS_POLL_MS",
+                5_000,
+            ),
+            metadataRetryPolicy: {
+                maxAttempts: parseNumber(
+                    env.BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS,
+                    "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS",
+                    defaultRetryPolicy.maxAttempts,
+                ),
+                baseDelayMs: parseNumber(
+                    env.BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS,
+                    "BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS",
+                    defaultRetryPolicy.baseDelayMs,
+                ),
+                maxDelayMs: parseNumber(
+                    env.BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS,
+                    "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS",
+                    defaultRetryPolicy.maxDelayMs,
+                ),
+            },
         },
         metadata: {
             refreshRangeChunkSize: parseNumber(

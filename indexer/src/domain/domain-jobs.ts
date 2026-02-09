@@ -21,7 +21,11 @@ export type MetadataRefreshPayload = {
     chainId: number;
     contract: string;
     tokenId: string;
+    standard?: "erc721" | "erc1155";
     metadataUrl?: string | null;
+    blockNumber?: number;
+    blockHash?: string;
+    blockTimestamp?: number;
     reason: string;
     source?: string | null;
 };

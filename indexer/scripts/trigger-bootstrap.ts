@@ -3,6 +3,7 @@ import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import {
     BOOTSTRAP_JOB_KIND,
+    type BootstrapMetadataSnapshotMode,
     type BootstrapCollectionPayload,
 } from "../src/domain/bootstrap-jobs.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
@@ -13,6 +14,7 @@ type CliArgs = {
     collectionId?: string;
     chainId?: number;
     deploymentBlock?: number;
+    metadataMode?: BootstrapMetadataSnapshotMode;
 };
 
 const args = parseArgs(process.argv.slice(2));
@@ -27,6 +29,7 @@ const address = args.address;
 const collectionId = args.collectionId ?? address;
 const standard = "erc721";
 const deploymentBlock = args.deploymentBlock ?? null;
+const metadataSnapshotMode = args.metadataMode ?? "strict";
 
 const registry = new SqliteCollectionRegistry();
 registry.upsertCollection({
@@ -47,6 +50,7 @@ const payload: BootstrapCollectionPayload = {
     collectionId,
     address,
     standard,
+    metadataSnapshotMode,
 };
 
 const job: JobEnvelope<BootstrapCollectionPayload> = {
@@ -68,7 +72,7 @@ await queue.publish(QUEUE_NAMES.CollectionBootstrap, job);
 await queue.close();
 
 console.log(
-    `Upserted + queued bootstrap: chainId=${chainId} collectionId=${collectionId} address=${address} standard=${standard}`,
+    `Upserted + queued bootstrap: chainId=${chainId} collectionId=${collectionId} address=${address} standard=${standard} metadataMode=${metadataSnapshotMode}`,
 );
 
 function parseArgs(raw: string[]): CliArgs {
@@ -98,6 +102,14 @@ function parseArgs(raw: string[]): CliArgs {
             i += 1;
             continue;
         }
+        if (arg === "--metadata-mode") {
+            const value = raw[i + 1];
+            if (value === "strict" || value === "best_effort") {
+                parsed.metadataMode = value;
+            }
+            i += 1;
+            continue;
+        }
     }
     return parsed;
 }
@@ -111,6 +123,7 @@ function printUsage(): void {
             "  --collection-id <id>   Collection id (defaults to address)",
             "  --chain-id <number>     Chain id (defaults to CHAIN_ID from .env)",
             "  --deployment-block <number> Deployment block (optional)",
+            "  --metadata-mode <strict|best_effort> Metadata snapshot completion mode (defaults to strict)",
         ].join("\n"),
     );
 }

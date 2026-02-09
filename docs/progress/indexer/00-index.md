@@ -17,3 +17,4 @@ Files:
 - `docs/progress/indexer/11-token-sets-plan.md`
 - `docs/progress/indexer/12-chain-identity-refactor.md`
 - `docs/progress/indexer/13-trait-stats-recompute-plan.md`
+- `docs/progress/indexer/14-bootstrap-metadata-first.md`

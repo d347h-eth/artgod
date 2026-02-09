@@ -18,6 +18,7 @@ This roadmap follows Part 2 and reflects the ArtGod approach: **bootstrap collec
 
 ## Phase 2: Ownership Snapshot Pipeline
 
+[x] Full metadata snapshot for all tokens at bootstrap anchor (metadata-first fail-fast).
 [x] Snapshot job for ERC-721: enumerate token IDs, call `ownerOf(tokenId)` at anchor block.
 [x] Explicitly scope bootstrap to **ERC-721 only** (ERC-1155/ ERC-20 deferred).
 [x] Persist snapshot rows into a temporary snapshot table.
