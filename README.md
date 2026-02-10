@@ -21,13 +21,7 @@ VSCode (Yarn PnP):
 yarn dlx @yarnpkg/sdks vscode
 ```
 
-## Local Development
-
-Start local infra (NATS + JetStream):
-
-```sh
-docker compose up -d
-```
+## Configuration
 
 Create your env file:
 
@@ -83,6 +77,29 @@ RPC_RATE_LIMIT_BURST=100
 RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
 RPC_CIRCUIT_BREAKER_OPEN_MS=5000
 RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS=2
+```
+
+## Local Development
+
+Start local infra (NATS + JetStream):
+
+```sh
+docker compose up -d
+```
+
+Start local observability stack, optionally (Grafana + Loki + Alloy):
+
+```sh
+docker compose --profile observability up -d loki alloy grafana
+```
+
+Open Grafana at `http://localhost:42701` (default `admin` / `admin`).
+
+Current log ingestion mode is host-file based and tails `tmp/logs/*.log`.
+Use the indexer dev launcher to produce those log files:
+
+```sh
+./scripts/indexer-dev.sh
 ```
 
 Then run indexer runtimes as needed:

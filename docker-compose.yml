@@ -14,5 +14,45 @@ services:
         depends_on:
             - nats
 
+    loki:
+        image: grafana/loki:3.0.0
+        profiles: ["observability"]
+        command: ["-config.file=/etc/loki/config.yaml"]
+        volumes:
+            - ./observability/loki/loki-config.yaml:/etc/loki/config.yaml:ro
+            - loki-data:/loki
+
+    alloy:
+        image: grafana/alloy:latest
+        profiles: ["observability"]
+        command:
+            [
+                "run",
+                "--server.http.listen-addr=0.0.0.0:12345",
+                "/etc/alloy/config.alloy",
+            ]
+        depends_on:
+            - loki
+        volumes:
+            - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+            - ./tmp/logs:/var/log/artgod:ro
+
+    grafana:
+        image: grafana/grafana:latest
+        profiles: ["observability"]
+        depends_on:
+            - loki
+        ports:
+            - "42701:3000"
+        environment:
+            GF_SECURITY_ADMIN_USER: admin
+            GF_SECURITY_ADMIN_PASSWORD: admin
+            GF_USERS_ALLOW_SIGN_UP: "false"
+        volumes:
+            - grafana-data:/var/lib/grafana
+            - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+
 volumes:
     nats-data:
+    loki-data:
+    grafana-data:

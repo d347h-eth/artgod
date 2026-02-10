@@ -1,0 +1,58 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+local.file_match "artgod_indexer_logs" {
+  path_targets = [
+    {
+      __path__ = "/var/log/artgod/*.log",
+      app      = "artgod",
+      runtime  = "indexer",
+      host     = "local-dev",
+    },
+  ]
+  sync_period = "5s"
+}
+
+loki.source.file "artgod_indexer" {
+  targets = local.file_match.artgod_indexer_logs.targets
+
+  // Worker logs are tailed from host files and streamed to Loki.
+  forward_to    = [loki.process.artgod_indexer.receiver]
+  tail_from_end = true
+}
+
+loki.process "artgod_indexer" {
+  // Parse structured JSON logs emitted by the shared logger.
+  stage.json {
+    expressions = {
+      timestamp = "t",
+      level     = "level",
+      component = "component",
+      action    = "action",
+    }
+  }
+
+  // Keep labels intentionally low-cardinality for efficient Loki queries.
+  stage.labels {
+    values = {
+      level     = "level",
+      component = "component",
+      action    = "action",
+    }
+  }
+
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
