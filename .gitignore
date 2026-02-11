@@ -15,6 +15,7 @@ dist/
 
 # vitest cache
 .vitest
+node_modules/.vite
 
 # Database files (keep migrations and scripts, ignore database data)
 database/sqlite/

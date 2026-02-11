@@ -8,10 +8,18 @@ import {
 } from "../domain/offchain-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import type { JobEnvelope } from "../domain/jobs.js";
+import { initRuntimeMetrics } from "../metrics/runtime.js";
 
 async function main() {
     try {
         const config = loadOffchainConfig();
+        const runtimeMetrics = await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.port,
+            worker: "opensea-stream-worker",
+            chainId: config.chainId,
+        });
         const queue = await NatsJetStreamQueue.connect({
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
@@ -32,6 +40,7 @@ async function main() {
                 action: "shutdown",
             });
             await source.stop();
+            await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
         };

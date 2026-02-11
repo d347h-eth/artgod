@@ -1,5 +1,5 @@
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
-import { parseNumber, parseRequiredString } from "./index.js";
+import { parseBoolean, parseNumber, parseRequiredString } from "./index.js";
 
 export type OffchainConfig = {
     chainId: number;
@@ -12,6 +12,11 @@ export type OffchainConfig = {
         fixturesDir: string;
         delayMs: number;
         source: string;
+    };
+    metrics: {
+        enabled: boolean;
+        host: string;
+        port: number;
     };
 };
 
@@ -47,6 +52,19 @@ export function loadOffchainConfig(
             fixturesDir: resolveProjectPath(fixturesDir),
             delayMs,
             source: "opensea",
+        },
+        metrics: {
+            enabled: parseBoolean(
+                env.METRICS_ENABLED,
+                "METRICS_ENABLED",
+                false,
+            ),
+            host: env.METRICS_HOST ?? "0.0.0.0",
+            port: parseNumber(
+                env.METRICS_PORT_OPENSEA_STREAM_WORKER,
+                "METRICS_PORT_OPENSEA_STREAM_WORKER",
+                9469,
+            ),
         },
     };
 }

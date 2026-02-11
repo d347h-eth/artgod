@@ -29,7 +29,7 @@ import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
-import { noopMetrics } from "../metrics/noop.js";
+import { initRuntimeMetrics } from "../metrics/runtime.js";
 import {
     ORDER_JOB_KIND,
     type OrderUpdateByIdPayload,
@@ -45,6 +45,13 @@ const BIDDER_INDEX_REFRESH_MS = 30_000;
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeMetrics = await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.ports.syncWorker,
+            worker: "sync-worker",
+            chainId: config.chainId,
+        });
         const migrations = createMigrationRunner();
         await migrations.runMigrations();
         const queue = await NatsJetStreamQueue.connect({
@@ -54,13 +61,13 @@ async function main() {
         const cache = new InMemoryCache({
             maxEntries: config.cache.maxEntries,
             ttlMs: config.cache.ttlMs,
-            metrics: noopMetrics,
+            metrics: runtimeMetrics.metrics,
         });
         const primaryRpc = new ViemRpcProvider({
             url: config.rpc.primaryUrl,
             logChunkSize: config.sync.logChunkSize,
             cache,
-            metrics: noopMetrics,
+            metrics: runtimeMetrics.metrics,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -69,7 +76,7 @@ async function main() {
                   url: config.rpc.backfillUrl,
                   logChunkSize: config.sync.logChunkSize,
                   cache,
-                  metrics: noopMetrics,
+                  metrics: runtimeMetrics.metrics,
                   retryPolicy: config.rpc.retryPolicy,
                   resilience: config.rpc.resilience,
               })
@@ -242,6 +249,7 @@ async function main() {
             clearInterval(bidderRefreshTimer);
             await stopRealtime();
             await stopBackfill();
+            await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
         };

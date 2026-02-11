@@ -19,7 +19,7 @@ import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { SqliteMetadataStatsDomain } from "../infra/domain/metadata-stats.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
-import { noopMetrics } from "../metrics/noop.js";
+import { initRuntimeMetrics } from "../metrics/runtime.js";
 import { SqliteActivityDomain } from "../infra/domain/activities.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
@@ -34,6 +34,13 @@ import {
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeMetrics = await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.ports.domainWorker,
+            worker: "domain-worker",
+            chainId: config.chainId,
+        });
         const migrations = createMigrationRunner();
         await migrations.runMigrations();
         const queue = await NatsJetStreamQueue.connect({
@@ -43,6 +50,7 @@ async function main() {
         const rpc = new ViemRpcProvider({
             url: config.rpc.primaryUrl,
             logChunkSize: config.sync.logChunkSize,
+            metrics: runtimeMetrics.metrics,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -54,10 +62,10 @@ async function main() {
         );
         const metadataResolver = new ViemTokenUriResolver({
             url: config.rpc.primaryUrl,
-            metrics: noopMetrics,
+            metrics: runtimeMetrics.metrics,
         });
         const metadataFetcher = new HttpMetadataFetcher({
-            metrics: noopMetrics,
+            metrics: runtimeMetrics.metrics,
         });
         const metadataDomain = new SqliteMetadataDomain(
             metadataResolver,
@@ -276,6 +284,7 @@ async function main() {
             await stopMetadataRefresh();
             await stopMetadataStats();
             await stopActivity();
+            await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
         };

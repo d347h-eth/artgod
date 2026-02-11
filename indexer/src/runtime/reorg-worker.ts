@@ -15,6 +15,7 @@ import {
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
+import { initRuntimeMetrics } from "../metrics/runtime.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { StoragePort } from "../ports/storage.js";
@@ -22,6 +23,13 @@ import type { StoragePort } from "../ports/storage.js";
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeMetrics = await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.ports.reorgWorker,
+            worker: "reorg-worker",
+            chainId: config.chainId,
+        });
         const migrations = createMigrationRunner();
         await migrations.runMigrations();
         const queue = await NatsJetStreamQueue.connect({
@@ -31,6 +39,7 @@ async function main() {
         const rpc = new ViemRpcProvider({
             url: config.rpc.primaryUrl,
             logChunkSize: config.sync.logChunkSize,
+            metrics: runtimeMetrics.metrics,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -70,6 +79,7 @@ async function main() {
                 action: "shutdown",
             });
             await stop();
+            await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
         };

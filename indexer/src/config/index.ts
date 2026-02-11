@@ -60,6 +60,20 @@ export type IndexerConfig = {
     seaport: {
         conduitController: string;
     };
+    metrics: {
+        enabled: boolean;
+        host: string;
+        ports: {
+            scheduler: number;
+            syncWorker: number;
+            reorgWorker: number;
+            domainWorker: number;
+            offchainIngestWorker: number;
+            openseaStreamWorker: number;
+            bootstrapWorker: number;
+            deadLetterWorker: number;
+        };
+    };
 };
 
 export function parseNumber(
@@ -86,6 +100,34 @@ export function parseRequiredString(
         throw new Error(`Missing ${name}`);
     }
     return value;
+}
+
+export function parseBoolean(
+    value: string | undefined,
+    name: string,
+    defaultValue: boolean,
+): boolean {
+    if (value === undefined || value === "") {
+        return defaultValue;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (
+        normalized === "1" ||
+        normalized === "true" ||
+        normalized === "yes" ||
+        normalized === "on"
+    ) {
+        return true;
+    }
+    if (
+        normalized === "0" ||
+        normalized === "false" ||
+        normalized === "no" ||
+        normalized === "off"
+    ) {
+        return false;
+    }
+    throw new Error(`Invalid ${name}: ${value}`);
 }
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -241,6 +283,56 @@ export function loadConfig(
                 env.SEAPORT_CONDUIT_CONTROLLER,
                 "SEAPORT_CONDUIT_CONTROLLER",
             ),
+        },
+        metrics: {
+            enabled: parseBoolean(
+                env.METRICS_ENABLED,
+                "METRICS_ENABLED",
+                false,
+            ),
+            host: env.METRICS_HOST ?? "0.0.0.0",
+            ports: {
+                scheduler: parseNumber(
+                    env.METRICS_PORT_SCHEDULER,
+                    "METRICS_PORT_SCHEDULER",
+                    9464,
+                ),
+                syncWorker: parseNumber(
+                    env.METRICS_PORT_SYNC_WORKER,
+                    "METRICS_PORT_SYNC_WORKER",
+                    9465,
+                ),
+                reorgWorker: parseNumber(
+                    env.METRICS_PORT_REORG_WORKER,
+                    "METRICS_PORT_REORG_WORKER",
+                    9466,
+                ),
+                domainWorker: parseNumber(
+                    env.METRICS_PORT_DOMAIN_WORKER,
+                    "METRICS_PORT_DOMAIN_WORKER",
+                    9467,
+                ),
+                offchainIngestWorker: parseNumber(
+                    env.METRICS_PORT_OFFCHAIN_INGEST_WORKER,
+                    "METRICS_PORT_OFFCHAIN_INGEST_WORKER",
+                    9468,
+                ),
+                openseaStreamWorker: parseNumber(
+                    env.METRICS_PORT_OPENSEA_STREAM_WORKER,
+                    "METRICS_PORT_OPENSEA_STREAM_WORKER",
+                    9469,
+                ),
+                bootstrapWorker: parseNumber(
+                    env.METRICS_PORT_BOOTSTRAP_WORKER,
+                    "METRICS_PORT_BOOTSTRAP_WORKER",
+                    9470,
+                ),
+                deadLetterWorker: parseNumber(
+                    env.METRICS_PORT_DEAD_LETTER_WORKER,
+                    "METRICS_PORT_DEAD_LETTER_WORKER",
+                    9471,
+                ),
+            },
         },
     };
 }

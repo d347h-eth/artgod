@@ -25,7 +25,7 @@ import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
-import { noopMetrics } from "../metrics/noop.js";
+import { initRuntimeMetrics } from "../metrics/runtime.js";
 import type {
     BootstrapMetadataTask,
     BootstrapMetadataTaskSeed,
@@ -45,6 +45,13 @@ const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeMetrics = await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.ports.bootstrapWorker,
+            worker: "bootstrap-worker",
+            chainId: config.chainId,
+        });
         const migrations = createMigrationRunner();
         await migrations.runMigrations();
         const queue = await NatsJetStreamQueue.connect({
@@ -54,6 +61,7 @@ async function main() {
         const rpc = new ViemRpcProvider({
             url: config.rpc.primaryUrl,
             logChunkSize: config.sync.logChunkSize,
+            metrics: runtimeMetrics.metrics,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -62,10 +70,10 @@ async function main() {
         const storage = new SqliteStorage();
         const metadataResolver = new ViemTokenUriResolver({
             url: config.rpc.primaryUrl,
-            metrics: noopMetrics,
+            metrics: runtimeMetrics.metrics,
         });
         const metadataFetcher = new HttpMetadataFetcher({
-            metrics: noopMetrics,
+            metrics: runtimeMetrics.metrics,
         });
         const metadataDomain = new SqliteMetadataDomain(
             metadataResolver,
@@ -146,6 +154,7 @@ async function main() {
                 action: "shutdown",
             });
             await stop();
+            await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
         };

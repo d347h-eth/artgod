@@ -8,10 +8,18 @@ import {
     type DeadLetterPayload,
 } from "../domain/dead-letter.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
+import { initRuntimeMetrics } from "../metrics/runtime.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeMetrics = await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.ports.deadLetterWorker,
+            worker: "dead-letter-worker",
+            chainId: config.chainId,
+        });
         const queue = await NatsJetStreamQueue.connect({
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
@@ -51,6 +59,7 @@ async function main() {
                 action: "shutdown",
             });
             await stop();
+            await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
         };

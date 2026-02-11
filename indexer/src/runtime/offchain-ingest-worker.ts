@@ -22,10 +22,18 @@ import type { MetadataRefreshPayload } from "../domain/domain-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { SqliteTokenSetRegistry } from "../infra/token-sets/sqlite.js";
+import { initRuntimeMetrics } from "../metrics/runtime.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeMetrics = await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.ports.offchainIngestWorker,
+            worker: "offchain-ingest-worker",
+            chainId: config.chainId,
+        });
         const migrations = createMigrationRunner();
         await migrations.runMigrations();
         const queue = await NatsJetStreamQueue.connect({
@@ -75,6 +83,7 @@ async function main() {
                 action: "shutdown",
             });
             await stopIngest();
+            await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
         };

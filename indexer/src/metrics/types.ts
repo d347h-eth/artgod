@@ -5,3 +5,8 @@ export interface Metrics {
     gauge(name: string, value: number, labels?: MetricLabels): void;
     histogram(name: string, value: number, labels?: MetricLabels): void;
 }
+
+export interface MetricsScrapePort {
+    metricsText(): Promise<string>;
+    readonly contentType: string;
+}

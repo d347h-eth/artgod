@@ -5,11 +5,18 @@ import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { ViemWebSocketHeadSource } from "../infra/rpc/viem-ws.js";
-import { noopMetrics } from "../metrics/noop.js";
+import { initRuntimeMetrics } from "../metrics/runtime.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeMetrics = await initRuntimeMetrics({
+            enabled: config.metrics.enabled,
+            host: config.metrics.host,
+            port: config.metrics.ports.scheduler,
+            worker: "scheduler",
+            chainId: config.chainId,
+        });
         const queue = await NatsJetStreamQueue.connect({
             natsUrl: config.queue.natsUrl,
             streamPrefix: config.queue.streamPrefix,
@@ -17,13 +24,13 @@ async function main() {
         const cache = new InMemoryCache({
             maxEntries: config.cache.maxEntries,
             ttlMs: config.cache.ttlMs,
-            metrics: noopMetrics,
+            metrics: runtimeMetrics.metrics,
         });
         const rpc = new ViemRpcProvider({
             url: config.rpc.primaryUrl,
             logChunkSize: config.sync.logChunkSize,
             cache,
-            metrics: noopMetrics,
+            metrics: runtimeMetrics.metrics,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -46,6 +53,7 @@ async function main() {
                 action: "shutdown",
             });
             await stopScheduler();
+            await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
         };
