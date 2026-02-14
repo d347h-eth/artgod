@@ -16,6 +16,7 @@ import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { initRuntimeMetrics } from "../metrics/runtime.js";
+import { initRuntimeApm } from "../observability/apm.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { StoragePort } from "../ports/storage.js";
@@ -23,6 +24,14 @@ import type { StoragePort } from "../ports/storage.js";
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeApm = await initRuntimeApm({
+            enabled: config.apm.enabled,
+            serviceNamespace: config.apm.serviceNamespace,
+            worker: "reorg-worker",
+            chainId: config.chainId,
+            traces: config.apm.traces,
+            profiles: config.apm.profiles,
+        });
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
@@ -66,6 +75,10 @@ async function main() {
                     job.payload.blockNumber,
                 );
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.reorgCheck.consume",
+            },
         );
 
         logger.info("Reorg worker ready", {
@@ -79,6 +92,7 @@ async function main() {
                 action: "shutdown",
             });
             await stop();
+            await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);

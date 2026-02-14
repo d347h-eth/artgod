@@ -24,6 +24,25 @@ services:
             - ./observability/loki/loki-config.yaml:/etc/loki/config.yaml:ro
             - loki-data:/loki
 
+    tempo:
+        image: grafana/tempo:2.7.1
+        profiles: ["observability"]
+        command: ["-config.file=/etc/tempo/config.yaml"]
+        ports:
+            - "127.0.0.1:3200:3200"
+            - "127.0.0.1:4318:4318"
+        volumes:
+            - ./observability/tempo/tempo-config.yaml:/etc/tempo/config.yaml:ro
+            - tempo-data:/var/tempo
+
+    pyroscope:
+        image: grafana/pyroscope:latest
+        profiles: ["observability"]
+        ports:
+            - "127.0.0.1:4040:4040"
+        volumes:
+            - pyroscope-data:/var/lib/pyroscope
+
     alloy:
         image: grafana/alloy:latest
         profiles: ["observability"]
@@ -59,6 +78,8 @@ services:
         depends_on:
             - loki
             - prometheus
+            - tempo
+            - pyroscope
         environment:
             GF_SERVER_HTTP_ADDR: 127.0.0.1
             GF_SERVER_HTTP_PORT: "42701"
@@ -72,5 +93,7 @@ services:
 volumes:
     nats-data:
     loki-data:
+    tempo-data:
+    pyroscope-data:
     prometheus-data:
     grafana-data:

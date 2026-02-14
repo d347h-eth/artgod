@@ -30,10 +30,19 @@ import {
     type OrderUpdateByMakerPayload,
     type OrderUpsertPayload,
 } from "../domain/order-jobs.js";
+import { initRuntimeApm } from "../observability/apm.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeApm = await initRuntimeApm({
+            enabled: config.apm.enabled,
+            serviceNamespace: config.apm.serviceNamespace,
+            worker: "domain-worker",
+            chainId: config.chainId,
+            traces: config.apm.traces,
+            profiles: config.apm.profiles,
+        });
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
@@ -87,6 +96,10 @@ async function main() {
                 if (job.kind !== DOMAIN_JOB_KIND.OrdersSync) return;
                 await ordersDomain.handleDomainSync(toDomainContext(job));
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.ordersDomain.consume",
+            },
         );
 
         const stopOrderUpdatesByMaker = await runWorker(
@@ -102,6 +115,10 @@ async function main() {
                 if (job.kind !== ORDER_JOB_KIND.UpdateByMaker) return;
                 await ordersDomain.handleOrderUpdateByMaker(job.payload);
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.ordersUpdateByMaker.consume",
+            },
         );
 
         const stopOrderUpdatesById = await runWorker(
@@ -116,6 +133,10 @@ async function main() {
             async (job: JobEnvelope<OrderUpdateByIdPayload>) => {
                 if (job.kind !== ORDER_JOB_KIND.UpdateById) return;
                 await ordersDomain.handleOrderUpdateById(job.payload);
+            },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.ordersUpdateById.consume",
             },
         );
 
@@ -156,6 +177,10 @@ async function main() {
                     );
                 }
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.ordersUpsert.consume",
+            },
         );
 
         const stopMetadata = await runWorker(
@@ -186,6 +211,10 @@ async function main() {
                         job.traceId ?? job.jobId,
                     );
                 }
+            },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.metadataDomain.consume",
             },
         );
 
@@ -234,6 +263,10 @@ async function main() {
                     );
                 }
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.metadataRefresh.consume",
+            },
         );
 
         const stopMetadataStats = await runWorker(
@@ -249,6 +282,10 @@ async function main() {
                 if (job.kind !== DOMAIN_JOB_KIND.MetadataStatsRecompute) return;
                 await metadataStatsDomain.handleRecompute(job.payload);
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.metadataStats.consume",
+            },
         );
 
         const stopActivity = await runWorker(
@@ -263,6 +300,10 @@ async function main() {
             async (job: JobEnvelope<DomainSyncPayload>) => {
                 if (job.kind !== DOMAIN_JOB_KIND.ActivitySync) return;
                 await activityDomain.handleDomainSync(toDomainContext(job));
+            },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.activityDomain.consume",
             },
         );
 
@@ -284,6 +325,7 @@ async function main() {
             await stopMetadataRefresh();
             await stopMetadataStats();
             await stopActivity();
+            await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);

@@ -39,12 +39,21 @@ import type { StoragePort } from "../ports/storage.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
+import { initRuntimeApm } from "../observability/apm.js";
 
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeApm = await initRuntimeApm({
+            enabled: config.apm.enabled,
+            serviceNamespace: config.apm.serviceNamespace,
+            worker: "bootstrap-worker",
+            chainId: config.chainId,
+            traces: config.apm.traces,
+            profiles: config.apm.profiles,
+        });
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
@@ -141,6 +150,10 @@ async function main() {
                     );
                 }
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.bootstrap.consume",
+            },
         );
 
         logger.info("Collection bootstrap worker ready", {
@@ -154,6 +167,7 @@ async function main() {
                 action: "shutdown",
             });
             await stop();
+            await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);

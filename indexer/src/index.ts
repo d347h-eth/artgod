@@ -4,4 +4,5 @@ export * from "./config/index.js";
 export * from "./domain/index.js";
 export * from "./infra/index.js";
 export * from "./metrics/index.js";
+export * from "./observability/index.js";
 export * from "./ports/index.js";

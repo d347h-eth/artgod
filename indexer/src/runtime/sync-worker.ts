@@ -39,12 +39,21 @@ import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
 import type { Hex } from "../ports/rpc.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import type { CollectionRecord } from "../domain/collections.js";
+import { initRuntimeApm } from "../observability/apm.js";
 
 const BIDDER_INDEX_REFRESH_MS = 30_000;
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeApm = await initRuntimeApm({
+            enabled: config.apm.enabled,
+            serviceNamespace: config.apm.serviceNamespace,
+            worker: "sync-worker",
+            chainId: config.chainId,
+            traces: config.apm.traces,
+            profiles: config.apm.profiles,
+        });
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
@@ -177,6 +186,10 @@ async function main() {
                     balanceDeltas: data.nftBalanceDeltas.length,
                 });
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.realtimeSync.consume",
+            },
         );
 
         const stopBackfill = await runWorker(
@@ -234,6 +247,10 @@ async function main() {
                     balanceDeltas: data.nftBalanceDeltas.length,
                 });
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.backfillSync.consume",
+            },
         );
 
         logger.info("Sync worker ready", {
@@ -249,6 +266,7 @@ async function main() {
             clearInterval(bidderRefreshTimer);
             await stopRealtime();
             await stopBackfill();
+            await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);

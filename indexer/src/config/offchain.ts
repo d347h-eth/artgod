@@ -13,6 +13,18 @@ export type OffchainConfig = {
         delayMs: number;
         source: string;
     };
+    apm: {
+        enabled: boolean;
+        serviceNamespace: string;
+        traces: {
+            enabled: boolean;
+            otlpHttpUrl: string;
+        };
+        profiles: {
+            enabled: boolean;
+            pyroscopeUrl: string;
+        };
+    };
     metrics: {
         enabled: boolean;
         host: string;
@@ -52,6 +64,30 @@ export function loadOffchainConfig(
             fixturesDir: resolveProjectPath(fixturesDir),
             delayMs,
             source: "opensea",
+        },
+        apm: {
+            enabled: parseBoolean(env.APM_ENABLED, "APM_ENABLED", false),
+            serviceNamespace:
+                env.APM_SERVICE_NAMESPACE ?? "artgod.indexer",
+            traces: {
+                enabled: parseBoolean(
+                    env.APM_TRACES_ENABLED,
+                    "APM_TRACES_ENABLED",
+                    true,
+                ),
+                otlpHttpUrl:
+                    env.APM_OTLP_HTTP_URL ??
+                    "http://127.0.0.1:4318/v1/traces",
+            },
+            profiles: {
+                enabled: parseBoolean(
+                    env.APM_PROFILES_ENABLED,
+                    "APM_PROFILES_ENABLED",
+                    true,
+                ),
+                pyroscopeUrl:
+                    env.APM_PYROSCOPE_URL ?? "http://127.0.0.1:4040",
+            },
         },
         metrics: {
             enabled: parseBoolean(

@@ -94,6 +94,17 @@ METRICS_PORT_BOOTSTRAP_WORKER=9470
 METRICS_PORT_DEAD_LETTER_WORKER=9471
 ```
 
+Enable optional APM (traces + profiling):
+
+```sh
+APM_ENABLED=false
+APM_SERVICE_NAMESPACE=artgod.indexer
+APM_TRACES_ENABLED=true
+APM_OTLP_HTTP_URL=http://127.0.0.1:4318/v1/traces
+APM_PROFILES_ENABLED=true
+APM_PYROSCOPE_URL=http://127.0.0.1:4040
+```
+
 ## Local Development
 
 Start local infra (NATS + JetStream):
@@ -102,10 +113,10 @@ Start local infra (NATS + JetStream):
 docker compose up -d
 ```
 
-Start local observability stack, optionally (Grafana + Loki + Alloy + Prometheus):
+Start local observability stack, optionally (Grafana + Loki + Alloy + Prometheus + Tempo + Pyroscope):
 
 ```sh
-docker compose --profile observability up -d loki alloy prometheus grafana
+docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana
 ```
 
 Open Grafana at `http://localhost:42701` (default `admin` / `admin`).
@@ -122,8 +133,11 @@ Use the indexer dev launcher to produce those log files:
 Prometheus scrapes worker metrics from host ports `9464-9471` (configured in `.env`).
 Observability uses host networking for Prometheus/Grafana to scrape host-run workers reliably.
 Grafana is bound to `127.0.0.1:42701`, Loki to `127.0.0.1:3100`.
+Tempo OTLP HTTP ingest is bound to `127.0.0.1:4318`, query API to `127.0.0.1:3200`.
+Pyroscope is bound to `127.0.0.1:4040`.
 Metrics exporter (`prom-client`) is loaded lazily only when `METRICS_ENABLED=true`,
 so production/dev runs with metrics disabled do not require it at runtime.
+APM exporters are also loaded lazily only when `APM_ENABLED=true`.
 
 Then run indexer runtimes as needed:
 

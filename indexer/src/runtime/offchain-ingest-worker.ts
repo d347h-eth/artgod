@@ -23,10 +23,19 @@ import { QUEUE_NAMES } from "../domain/queues.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { SqliteTokenSetRegistry } from "../infra/token-sets/sqlite.js";
 import { initRuntimeMetrics } from "../metrics/runtime.js";
+import { initRuntimeApm } from "../observability/apm.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeApm = await initRuntimeApm({
+            enabled: config.apm.enabled,
+            serviceNamespace: config.apm.serviceNamespace,
+            worker: "offchain-ingest-worker",
+            chainId: config.chainId,
+            traces: config.apm.traces,
+            profiles: config.apm.profiles,
+        });
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
@@ -70,6 +79,10 @@ async function main() {
 
                 await handleOffchainMetadataRefresh(queue, job.payload);
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.offchainIngest.consume",
+            },
         );
 
         logger.info("Offchain ingest worker ready", {
@@ -83,6 +96,7 @@ async function main() {
                 action: "shutdown",
             });
             await stopIngest();
+            await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);

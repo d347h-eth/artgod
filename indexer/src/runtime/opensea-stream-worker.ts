@@ -1,18 +1,27 @@
 import { logger } from "@artgod/shared/utils";
 import { loadOffchainConfig } from "../config/offchain.js";
-import { OpenSeaFixtureSource } from "../infra/offchain/opensea-fixtures.js";
-import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import {
     OFFCHAIN_JOB_KIND,
     type OffchainOrderRawPayload,
 } from "../domain/offchain-jobs.js";
-import { QUEUE_NAMES } from "../domain/queues.js";
 import type { JobEnvelope } from "../domain/jobs.js";
+import { QUEUE_NAMES } from "../domain/queues.js";
+import { OpenSeaFixtureSource } from "../infra/offchain/opensea-fixtures.js";
+import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { initRuntimeMetrics } from "../metrics/runtime.js";
+import { initRuntimeApm } from "../observability/apm.js";
 
 async function main() {
     try {
         const config = loadOffchainConfig();
+        const runtimeApm = await initRuntimeApm({
+            enabled: config.apm.enabled,
+            serviceNamespace: config.apm.serviceNamespace,
+            worker: "opensea-stream-worker",
+            chainId: config.chainId,
+            traces: config.apm.traces,
+            profiles: config.apm.profiles,
+        });
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
@@ -40,6 +49,7 @@ async function main() {
                 action: "shutdown",
             });
             await source.stop();
+            await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
@@ -50,36 +60,48 @@ async function main() {
         process.stdin.resume();
 
         await source.start(async (event) => {
-            const jobId = event.eventId
-                ? `offchain:raw:${event.source}:${event.chainId}:${event.eventId}`
-                : `offchain:raw:${event.source}:${event.chainId}:${event.receivedAt}`;
+            const publishJob = async (): Promise<void> => {
+                const jobId = event.eventId
+                    ? `offchain:raw:${event.source}:${event.chainId}:${event.eventId}`
+                    : `offchain:raw:${event.source}:${event.chainId}:${event.receivedAt}`;
 
-            const job: JobEnvelope<OffchainOrderRawPayload> = {
-                jobId,
-                kind: OFFCHAIN_JOB_KIND.OrderRaw,
-                queue: QUEUE_NAMES.OffchainOrdersRaw,
-                payload: {
+                const job: JobEnvelope<OffchainOrderRawPayload> = {
+                    jobId,
+                    kind: OFFCHAIN_JOB_KIND.OrderRaw,
+                    queue: QUEUE_NAMES.OffchainOrdersRaw,
+                    payload: {
+                        source: event.source,
+                        chainId: event.chainId,
+                        receivedAt: event.receivedAt,
+                        payload: event.payload,
+                    },
+                    attempt: 0,
+                    scheduledAt: Date.now(),
+                    traceId: event.eventId,
+                    chainId: event.chainId,
+                };
+
+                await queue.publish(QUEUE_NAMES.OffchainOrdersRaw, job);
+
+                logger.debug("OpenSea event published", {
+                    component: "OpenSeaStreamWorker",
+                    action: "publish",
                     source: event.source,
                     chainId: event.chainId,
-                    receivedAt: event.receivedAt,
-                    payload: event.payload,
-                },
-                attempt: 0,
-                scheduledAt: Date.now(),
-                traceId: event.eventId,
-                chainId: event.chainId,
+                    eventId: event.eventId,
+                    jobId,
+                });
             };
 
-            await queue.publish(QUEUE_NAMES.OffchainOrdersRaw, job);
-
-            logger.debug("OpenSea event published", {
-                component: "OpenSeaStreamWorker",
-                action: "publish",
-                source: event.source,
-                chainId: event.chainId,
-                eventId: event.eventId,
-                jobId,
-            });
+            await runtimeApm.apm.withSpan(
+                "worker.openseaStream.publish",
+                {
+                    source: event.source,
+                    chainId: event.chainId,
+                    eventId: event.eventId ?? null,
+                },
+                publishJob,
+            );
         });
 
         logger.info("OpenSea fixture replay complete", {

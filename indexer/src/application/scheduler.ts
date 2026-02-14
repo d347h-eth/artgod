@@ -10,6 +10,7 @@ import type { JobEnvelope } from "../domain/jobs.js";
 import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
+import { NOOP_APM, type ApmPort } from "../observability/apm.js";
 import {
     REORG_JOB_KIND,
     type BlockCheckPayload,
@@ -18,6 +19,7 @@ import {
 export type SchedulerOptions = {
     pollIntervalMs?: number;
     headSource?: HeadSourcePort;
+    apm?: ApmPort;
 };
 
 // Scheduler runtime: perform a blocking bootstrap (head fetch + initial schedule),
@@ -30,6 +32,7 @@ export async function startScheduler(
 ): Promise<() => Promise<void>> {
     const pollIntervalMs = options.pollIntervalMs ?? 12_000;
     const reorgDepth = Math.max(1, config.sync.reorgDepth);
+    const apm = options.apm ?? NOOP_APM;
     // lastScheduled is set after bootstrap so polling never schedules from "undefined".
     let lastScheduled: number | null = null;
     let lastChecked = -1;
@@ -57,7 +60,14 @@ export async function startScheduler(
                     action: "wsHead",
                     headNumber,
                 });
-                handleHead(headNumber).catch((err) => {
+                apm.withSpan(
+                    "scheduler.head.ws",
+                    {
+                        chainId: config.chainId,
+                        headNumber,
+                    },
+                    () => handleHead(headNumber),
+                ).catch((err) => {
                     logger.warn("Scheduler WS head failed", {
                         component: "IndexerScheduler",
                         action: "wsHead",
@@ -84,7 +94,14 @@ export async function startScheduler(
             action: "poll",
             headNumber: current,
         });
-        await handleHead(current);
+        await apm.withSpan(
+            "scheduler.head.poll",
+            {
+                chainId: config.chainId,
+                headNumber: current,
+            },
+            () => handleHead(current),
+        );
     };
 
     // Non-blocking: the timer drives polling while the caller continues.
@@ -109,27 +126,48 @@ export async function startScheduler(
     async function bootstrapRealtimeScheduling(): Promise<void> {
         // Bootstrap: schedule only the recent reorg window, never full history.
         // This blocking step ensures the first scheduled range is based on a known head.
-        const head = await rpc.getBlockNumber();
-        const start = getRealtimeWindowStart(head, reorgDepth);
-        await scheduleRealtimeRange(queue, config.chainId, start, head);
-        lastScheduled = head;
+        await apm.withSpan(
+            "scheduler.bootstrap.realtime",
+            {
+                chainId: config.chainId,
+                reorgDepth,
+            },
+            async () => {
+                const head = await rpc.getBlockNumber();
+                const start = getRealtimeWindowStart(head, reorgDepth);
+                await scheduleRealtimeRange(queue, config.chainId, start, head);
+                lastScheduled = head;
+            },
+        );
     }
 
     async function bootstrapBlockChecks(): Promise<void> {
         // Separate bootstrap for reorg checks to keep scheduling intent explicit.
-        if (lastScheduled === null) return;
-        const initialCheck = getReorgCheckBlock(lastScheduled, reorgDepth);
-        if (initialCheck <= 0) {
-            logger.warn("Scheduler block-check bootstrap skipped", {
-                component: "IndexerScheduler",
-                action: "bootstrapBlockChecks",
-                initialCheck,
-            });
-            lastChecked = initialCheck;
-            return;
-        }
-        await scheduleBlockCheck(queue, config.chainId, initialCheck);
-        lastChecked = initialCheck;
+        await apm.withSpan(
+            "scheduler.bootstrap.blockChecks",
+            {
+                chainId: config.chainId,
+                reorgDepth,
+            },
+            async () => {
+                if (lastScheduled === null) return;
+                const initialCheck = getReorgCheckBlock(
+                    lastScheduled,
+                    reorgDepth,
+                );
+                if (initialCheck <= 0) {
+                    logger.warn("Scheduler block-check bootstrap skipped", {
+                        component: "IndexerScheduler",
+                        action: "bootstrapBlockChecks",
+                        initialCheck,
+                    });
+                    lastChecked = initialCheck;
+                    return;
+                }
+                await scheduleBlockCheck(queue, config.chainId, initialCheck);
+                lastChecked = initialCheck;
+            },
+        );
     }
 
     async function scheduleRealtimeForHead(headNumber: number): Promise<void> {

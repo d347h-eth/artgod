@@ -9,10 +9,19 @@ import {
 } from "../domain/dead-letter.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { initRuntimeMetrics } from "../metrics/runtime.js";
+import { initRuntimeApm } from "../observability/apm.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeApm = await initRuntimeApm({
+            enabled: config.apm.enabled,
+            serviceNamespace: config.apm.serviceNamespace,
+            worker: "dead-letter-worker",
+            chainId: config.chainId,
+            traces: config.apm.traces,
+            profiles: config.apm.profiles,
+        });
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
@@ -46,6 +55,10 @@ async function main() {
                     originalAttempt: job.payload.original.attempt,
                 });
             },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.deadLetter.consume",
+            },
         );
 
         logger.info("Dead-letter worker ready", {
@@ -59,6 +72,7 @@ async function main() {
                 action: "shutdown",
             });
             await stop();
+            await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);

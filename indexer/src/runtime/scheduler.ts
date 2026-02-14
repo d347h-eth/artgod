@@ -6,10 +6,19 @@ import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { ViemWebSocketHeadSource } from "../infra/rpc/viem-ws.js";
 import { initRuntimeMetrics } from "../metrics/runtime.js";
+import { initRuntimeApm } from "../observability/apm.js";
 
 async function main() {
     try {
         const config = loadConfig();
+        const runtimeApm = await initRuntimeApm({
+            enabled: config.apm.enabled,
+            serviceNamespace: config.apm.serviceNamespace,
+            worker: "scheduler",
+            chainId: config.chainId,
+            traces: config.apm.traces,
+            profiles: config.apm.profiles,
+        });
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
@@ -40,6 +49,7 @@ async function main() {
             : undefined;
         const stopScheduler = await startScheduler(rpc, queue, config, {
             headSource,
+            apm: runtimeApm.apm,
         });
 
         logger.info("Scheduler ready", {
@@ -53,6 +63,7 @@ async function main() {
                 action: "shutdown",
             });
             await stopScheduler();
+            await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
             process.exit(0);
