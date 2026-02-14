@@ -17,6 +17,9 @@ export type RuntimeApmConfig = {
     serviceNamespace: string;
     chainId: number;
     worker: string;
+    spanProfiles: {
+        enabled: boolean;
+    };
     traces: {
         enabled: boolean;
         otlpHttpUrl: string;
@@ -39,6 +42,10 @@ type TracingRuntime = {
 
 type ProfilingRuntime = {
     stop?: () => void;
+    runWithLabels?: <T>(
+        labels: Record<string, string>,
+        run: () => Promise<T>,
+    ) => Promise<T>;
 };
 
 type OTelModule = {
@@ -64,6 +71,9 @@ type OTelSpan = {
     setAttributes?: (
         attributes: Record<string, string | number | boolean>,
     ) => void;
+    spanContext?: () => {
+        spanId?: string;
+    };
     recordException?: (error: unknown) => void;
     end: () => void;
 };
@@ -96,11 +106,11 @@ export async function initRuntimeApm(
     let tracing: TracingRuntime | null = null;
     let profiling: ProfilingRuntime | null = null;
 
-    if (config.traces.enabled) {
-        tracing = await startTracing(config);
-    }
     if (config.profiles.enabled) {
         profiling = await startProfiling(config);
+    }
+    if (config.traces.enabled) {
+        tracing = await startTracing(config, profiling);
     }
 
     if (!tracing && !profiling) {
@@ -138,6 +148,7 @@ export async function initRuntimeApm(
 
 async function startTracing(
     config: RuntimeApmConfig,
+    profiling: ProfilingRuntime | null,
 ): Promise<TracingRuntime | null> {
     try {
         const [sdkModule, exporterModule, otelModule] = await Promise.all([
@@ -209,8 +220,30 @@ async function startTracing(
                     name,
                     { attributes: toOtelAttributes(attributes) },
                     async (span) => {
+                        const spanId = getSpanId(span);
+                        const shouldLinkProfiles =
+                            config.spanProfiles.enabled &&
+                            Boolean(spanId) &&
+                            Boolean(profiling?.runWithLabels);
+                        const runWithProfileLabels =
+                            shouldLinkProfiles && spanId
+                                ? () =>
+                                      profiling!.runWithLabels!(
+                                          buildSpanProfileLabels(
+                                              config,
+                                              spanId,
+                                          ),
+                                          run,
+                                      )
+                                : run;
+
                         try {
-                            const result = await run();
+                            if (shouldLinkProfiles && spanId) {
+                                span.setAttributes?.({
+                                    "pyroscope.profile.id": spanId,
+                                });
+                            }
+                            const result = await runWithProfileLabels();
                             if (otel.SpanStatusCode?.OK !== undefined) {
                                 span.setStatus?.({
                                     code: otel.SpanStatusCode.OK,
@@ -276,6 +309,13 @@ async function startProfiling(
             | undefined;
         const start = pyroscope.start as (() => void) | undefined;
         const stop = pyroscope.stop as (() => void) | undefined;
+        const wrapWithLabels = pyroscope.wrapWithLabels as
+            | ((
+                  labels: Record<string, string>,
+                  fn: () => unknown,
+                  ...args: unknown[]
+              ) => void)
+            | undefined;
 
         if (!init || !start) {
             logger.warn("Profiling disabled (Pyroscope API mismatch)", {
@@ -287,10 +327,13 @@ async function startProfiling(
             return null;
         }
 
+        const serviceName = `${config.serviceNamespace}.${config.worker}`;
+
         init({
             serverAddress: config.profiles.pyroscopeUrl,
-            appName: `${config.serviceNamespace}.${config.worker}`,
+            appName: serviceName,
             tags: {
+                service_name: serviceName,
                 worker: config.worker,
                 chain_id: String(config.chainId),
             },
@@ -308,7 +351,29 @@ async function startProfiling(
             endpoint: config.profiles.pyroscopeUrl,
         });
 
-        return { stop };
+        return {
+            stop,
+            runWithLabels:
+                wrapWithLabels !== undefined
+                    ? async <T>(
+                          labels: Record<string, string>,
+                          run: () => Promise<T>,
+                      ): Promise<T> => {
+                          let runPromise: Promise<T> | null = null;
+                          wrapWithLabels(labels, () => {
+                              try {
+                                  runPromise = Promise.resolve(run());
+                              } catch (error) {
+                                  runPromise = Promise.reject(error);
+                              }
+                          });
+                          if (!runPromise) {
+                              return run();
+                          }
+                          return runPromise;
+                      }
+                    : undefined,
+        };
     } catch (error) {
         logger.warn("Profiling disabled (Pyroscope init failed)", {
             component: "IndexerApm",
@@ -347,4 +412,24 @@ function toOtelAttributes(
         }
     }
     return normalized;
+}
+
+function getSpanId(span: OTelSpan): string | null {
+    const value = span.spanContext?.().spanId;
+    if (typeof value !== "string" || value.length === 0) {
+        return null;
+    }
+    return value;
+}
+
+function buildSpanProfileLabels(
+    config: RuntimeApmConfig,
+    spanId: string,
+): Record<string, string> {
+    return {
+        profile_id: spanId,
+        worker: config.worker,
+        chain_id: String(config.chainId),
+        service_name: `${config.serviceNamespace}.${config.worker}`,
+    };
 }

@@ -14,6 +14,7 @@ async function main() {
         const runtimeApm = await initRuntimeApm({
             enabled: config.apm.enabled,
             serviceNamespace: config.apm.serviceNamespace,
+            spanProfiles: config.apm.spanProfiles,
             worker: "scheduler",
             chainId: config.chainId,
             traces: config.apm.traces,

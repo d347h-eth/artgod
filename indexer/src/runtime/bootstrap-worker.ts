@@ -49,6 +49,7 @@ async function main() {
         const runtimeApm = await initRuntimeApm({
             enabled: config.apm.enabled,
             serviceNamespace: config.apm.serviceNamespace,
+            spanProfiles: config.apm.spanProfiles,
             worker: "bootstrap-worker",
             chainId: config.chainId,
             traces: config.apm.traces,
@@ -262,7 +263,11 @@ async function handleBootstrapStart(
         const normalizedContract = payload.address.toLowerCase();
         // Intentionally split inserts into multiple transactions so large collections
         // do not create one huge SQLite write transaction during bootstrap start.
-        for (let cursor = 0; cursor < tokenIds.length; cursor += writeBatchSize) {
+        for (
+            let cursor = 0;
+            cursor < tokenIds.length;
+            cursor += writeBatchSize
+        ) {
             const end = Math.min(tokenIds.length, cursor + writeBatchSize);
             const rows: BootstrapMetadataTaskSeed[] = [];
             for (let index = cursor; index < end; index += 1) {

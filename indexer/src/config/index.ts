@@ -63,6 +63,9 @@ export type IndexerConfig = {
     apm: {
         enabled: boolean;
         serviceNamespace: string;
+        spanProfiles: {
+            enabled: boolean;
+        };
         traces: {
             enabled: boolean;
             otlpHttpUrl: string;
@@ -298,8 +301,14 @@ export function loadConfig(
         },
         apm: {
             enabled: parseBoolean(env.APM_ENABLED, "APM_ENABLED", false),
-            serviceNamespace:
-                env.APM_SERVICE_NAMESPACE ?? "artgod.indexer",
+            serviceNamespace: env.APM_SERVICE_NAMESPACE ?? "artgod.indexer",
+            spanProfiles: {
+                enabled: parseBoolean(
+                    env.APM_SPAN_PROFILES_ENABLED,
+                    "APM_SPAN_PROFILES_ENABLED",
+                    true,
+                ),
+            },
             traces: {
                 enabled: parseBoolean(
                     env.APM_TRACES_ENABLED,
@@ -307,8 +316,7 @@ export function loadConfig(
                     true,
                 ),
                 otlpHttpUrl:
-                    env.APM_OTLP_HTTP_URL ??
-                    "http://127.0.0.1:4318/v1/traces",
+                    env.APM_OTLP_HTTP_URL ?? "http://127.0.0.1:4318/v1/traces",
             },
             profiles: {
                 enabled: parseBoolean(
@@ -316,8 +324,7 @@ export function loadConfig(
                     "APM_PROFILES_ENABLED",
                     true,
                 ),
-                pyroscopeUrl:
-                    env.APM_PYROSCOPE_URL ?? "http://127.0.0.1:4040",
+                pyroscopeUrl: env.APM_PYROSCOPE_URL ?? "http://127.0.0.1:4040",
             },
         },
         metrics: {

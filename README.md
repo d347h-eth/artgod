@@ -99,6 +99,7 @@ Enable optional APM (traces + profiling):
 ```sh
 APM_ENABLED=false
 APM_SERVICE_NAMESPACE=artgod.indexer
+APM_SPAN_PROFILES_ENABLED=true
 APM_TRACES_ENABLED=true
 APM_OTLP_HTTP_URL=http://127.0.0.1:4318/v1/traces
 APM_PROFILES_ENABLED=true

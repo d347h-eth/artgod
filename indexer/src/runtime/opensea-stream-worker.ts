@@ -17,6 +17,7 @@ async function main() {
         const runtimeApm = await initRuntimeApm({
             enabled: config.apm.enabled,
             serviceNamespace: config.apm.serviceNamespace,
+            spanProfiles: config.apm.spanProfiles,
             worker: "opensea-stream-worker",
             chainId: config.chainId,
             traces: config.apm.traces,
