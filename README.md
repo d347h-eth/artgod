@@ -1,6 +1,22 @@
 # ArtGod
 
-Local-first desktop app for NFT trading and indexing. All services run on your machine (no centralized server).
+Local-first desktop app for NFT indexing and trading workflows.
+All core services run on the user's machine (no centralized ArtGod servers).
+
+## Canonical Status
+
+This `README.md` is the canonical human-facing project status document.
+
+Current implementation snapshot:
+
+- Multi-runtime indexer is active and queue-driven (NATS JetStream + SQLite).
+- Realtime sync, backfill sync, and reorg checks are implemented.
+- Collection bootstrap is implemented (metadata-first, then ownership snapshot + short backfill).
+- Domain projections for orders, metadata, and activities are implemented.
+- Offchain ingestion exists with an OpenSea stream fixture replay path and normalization pipeline.
+- Local observability stack is available (logs, metrics, traces, profiles).
+
+Canonical backlog and priorities live in `docs/progress/indexer/15-unified-backlog.md`.
 
 ## Quick Start
 
@@ -21,91 +37,6 @@ VSCode (Yarn PnP):
 yarn dlx @yarnpkg/sdks vscode
 ```
 
-## Configuration
-
-Create your env file:
-
-```sh
-cp .env.example .env
-```
-
-For tests (smoke):
-
-```sh
-cp .env.test.example .env.test
-```
-
-Set the SQLite path (required):
-
-```sh
-# Example
-ARTGOD_DB_PATH=database/sqlite/main/db
-```
-
-Set WETH address (required for bid re-validation triggers):
-
-```sh
-# Mainnet WETH
-WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
-```
-
-Metadata batch refresh chunk size (used for ERC-4906 batch updates):
-
-```sh
-METADATA_REFRESH_RANGE_CHUNK_SIZE=200
-```
-
-Bootstrap metadata snapshot tuning:
-
-```sh
-BOOTSTRAP_METADATA_BATCH_SIZE=200
-BOOTSTRAP_METADATA_CONCURRENCY=8
-BOOTSTRAP_METADATA_PROCESS_POLL_MS=5000
-BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS=5
-BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS=5000
-BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS=300000
-```
-
-Optional RPC resilience tuning (rate limiter + circuit breaker):
-
-```sh
-RPC_RETRY_MAX_ATTEMPTS=5
-RPC_RETRY_BASE_DELAY_MS=100
-RPC_RETRY_MAX_DELAY_MS=3000
-RPC_RATE_LIMIT_REQUESTS_PER_SECOND=50 # use 0 to disable rate limiting
-RPC_RATE_LIMIT_BURST=100
-RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
-RPC_CIRCUIT_BREAKER_OPEN_MS=5000
-RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS=2
-```
-
-Enable per-worker metrics endpoints (Prometheus pull):
-
-```sh
-METRICS_ENABLED=true
-METRICS_HOST=0.0.0.0
-METRICS_PORT_SCHEDULER=9464
-METRICS_PORT_SYNC_WORKER=9465
-METRICS_PORT_REORG_WORKER=9466
-METRICS_PORT_DOMAIN_WORKER=9467
-METRICS_PORT_OFFCHAIN_INGEST_WORKER=9468
-METRICS_PORT_OPENSEA_STREAM_WORKER=9469
-METRICS_PORT_BOOTSTRAP_WORKER=9470
-METRICS_PORT_DEAD_LETTER_WORKER=9471
-```
-
-Enable optional APM (traces + profiling):
-
-```sh
-APM_ENABLED=false
-APM_SERVICE_NAMESPACE=artgod.indexer
-APM_SPAN_PROFILES_ENABLED=true
-APM_TRACES_ENABLED=true
-APM_OTLP_HTTP_URL=http://127.0.0.1:4318/v1/traces
-APM_PROFILES_ENABLED=true
-APM_PYROSCOPE_URL=http://127.0.0.1:4040
-```
-
 ## Local Development
 
 Start local infra (NATS + JetStream):
@@ -114,62 +45,172 @@ Start local infra (NATS + JetStream):
 docker compose up -d
 ```
 
-Start local observability stack, optionally (Grafana + Loki + Alloy + Prometheus + Tempo + Pyroscope):
+Start optional observability stack (Grafana + Loki + Alloy + Prometheus + Tempo + Pyroscope):
 
 ```sh
 docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana
 ```
 
 Open Grafana at `http://localhost:42701` (default `admin` / `admin`).
-Dashboard is auto-provisioned under folder `ArtGod`:
-`ArtGod Indexer Metrics Overview`.
 
-Current log ingestion mode is host-file based and tails `tmp/logs/*.log`.
-Use the indexer dev launcher to produce those log files:
+Use the indexer launcher to produce runtime log files under `tmp/logs/*.log`:
 
 ```sh
 ./scripts/indexer-dev.sh
 ```
 
-Prometheus scrapes worker metrics from host ports `9464-9471` (configured in `.env`).
-Observability uses host networking for Prometheus/Grafana to scrape host-run workers reliably.
-Grafana is bound to `127.0.0.1:42701`, Loki to `127.0.0.1:3100`.
-Tempo OTLP HTTP ingest is bound to `127.0.0.1:4318`, query API to `127.0.0.1:3200`.
-Pyroscope is bound to `127.0.0.1:4040`.
-Metrics exporter (`prom-client`) is loaded lazily only when `METRICS_ENABLED=true`,
-so production/dev runs with metrics disabled do not require it at runtime.
-APM exporters are also loaded lazily only when `APM_ENABLED=true`.
-
-Then run indexer runtimes as needed:
+Run indexer runtimes as needed:
 
 ```sh
 yarn workspace @artgod/indexer run dev:scheduler
 yarn workspace @artgod/indexer run dev:sync-worker
+yarn workspace @artgod/indexer run dev:reorg-worker
+yarn workspace @artgod/indexer run dev:domain-worker
 yarn workspace @artgod/indexer run dev:bootstrap-worker
+yarn workspace @artgod/indexer run dev:offchain-ingest-worker
+yarn workspace @artgod/indexer run dev:opensea-stream-worker
+yarn workspace @artgod/indexer run dev:dead-letter-worker
 ```
 
-Trigger collection bootstrap (metadata mode defaults to `strict`):
+Trigger collection bootstrap (`metadata-mode` defaults to `strict`):
 
 ```sh
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode strict
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode best_effort
 ```
 
+## Configuration
+
+Create env files:
+
+```sh
+cp .env.example .env
+cp .env.test.example .env.test
+```
+
+Required core env:
+
+```sh
+ARTGOD_DB_PATH=database/sqlite/main/db
+RPC_URL=http://127.0.0.1:8545
+WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
+```
+
+Useful optional env groups:
+
+- RPC resilience (`RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
+- Metadata refresh/batch tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`)
+- Metrics (`METRICS_ENABLED`, `METRICS_HOST`, `METRICS_PORT_*`)
+- APM (`APM_ENABLED`, `APM_*`)
+
+See `.env.example` and `docs/indexer/01-config-and-env.md` for full definitions.
+
+## Architecture Overview
+
+Core components:
+
+1. Tauri desktop wrapper (`src-tauri/`)
+2. Backend API (`backend/`)
+3. Frontend UI (`frontend/`)
+4. Indexer runtimes (`indexer/src/runtime/`)
+5. Shared database utilities (`shared/database/`)
+6. SQLite migrations (`database/migrations/`)
+7. Queue broker (NATS JetStream)
+
+### Indexer Runtime Topology
+
+Runtime entrypoints:
+
+- `indexer/src/runtime/scheduler.ts`
+- `indexer/src/runtime/sync-worker.ts`
+- `indexer/src/runtime/reorg-worker.ts`
+- `indexer/src/runtime/domain-worker.ts`
+- `indexer/src/runtime/bootstrap-worker.ts`
+- `indexer/src/runtime/offchain-ingest-worker.ts`
+- `indexer/src/runtime/opensea-stream-worker.ts`
+- `indexer/src/runtime/dead-letter-worker.ts`
+
+Queue contracts (`indexer/src/domain/queues.ts`):
+
+- `events-sync-realtime`
+- `events-sync-backfill`
+- `block-check`
+- `collection-bootstrap`
+- `offchain-orders-raw`
+- `orders-domain`
+- `orders-upsert`
+- `order-updates-by-maker`
+- `order-updates-by-id`
+- `metadata-domain`
+- `metadata-stats`
+- `activity-domain`
+- `dead-letter`
+
+### Core Invariants
+
+1. Scheduler is the only publisher of realtime sync jobs.
+2. Job handling is idempotent and assumes at-least-once delivery.
+3. No implicit full historical backfill runs on startup.
+4. Runtime logic depends on ports (`indexer/src/ports/`); infra adapters live in `indexer/src/infra/`.
+5. Configuration is explicit and loaded through typed env loaders.
+
+### Bootstrap Lifecycle
+
+Per-collection bootstrap flow:
+
+1. Register collection (`status = bootstrapping`).
+2. Pick anchor block (`head - reorgDepth`).
+3. Run metadata snapshot first (strict or best_effort mode).
+4. Run ownership snapshot at the same anchor.
+5. Schedule short backfill (`anchor + 1` to head).
+6. Mark collection `live` once short backfill completes.
+
+`nft_balances` is canonical ownership state after bootstrap completion.
+
 ## Project Structure
 
 - `backend/` Node.js API server (TypeScript, ESM)
 - `frontend/` SvelteKit UI (Tailwind, Vite)
+- `indexer/` runtime workers, domain logic, infra adapters, tests
 - `shared/` shared TypeScript utilities and database access
-- `database/` SQLite file + SQL migrations
-- `indexer/` blockchain indexing worker
+- `database/` SQLite migrations and storage roots
+- `observability/` Grafana/Loki/Tempo/Pyroscope/Alloy provisioning
+- `scripts/` local development scripts
 - `src-tauri/` Tauri desktop wrapper
-- `scripts/` dev scripts
+- `docs/` architecture, blueprint references, progress/backlog
 
-## Database
+## Database & Migrations
 
-- SQLite file: `ARTGOD_DB_PATH` (required)
-- Migrations: `database/migrations/*.sql`
-- Migrations run on backend startup
+- SQLite file path is required via `ARTGOD_DB_PATH`.
+- Migrations live in `database/migrations/*.sql`.
+- Migrations are applied automatically by runtime startup paths via `shared/database/migrations.ts`.
+
+## Observability
+
+Signal paths:
+
+- Logs: runtime file logs -> Alloy -> Loki -> Grafana
+- Metrics: per-runtime `/metrics` -> Prometheus -> Grafana
+- Traces: OTLP -> Tempo -> Grafana
+- Profiles: Pyroscope -> Grafana
+
+Reference docs:
+
+- `docs/indexer/10-observability-and-metrics.md`
+- `docs/progress/indexer/16-trace-profile-linking-plan.md`
+
+## Canonical Docs
+
+Use these as primary references for design and implementation details:
+
+- `docs/indexer/00-overview.md` through `docs/indexer/14-collection-bootstrap.md`
+- `docs/diagrams/architecture.mmd`
+- `docs/progress/indexer/15-unified-backlog.md`
+
+Blueprint/reference material:
+
+- `docs/blueprint/*.md`
 
 ## Common Commands
 

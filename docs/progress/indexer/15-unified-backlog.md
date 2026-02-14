@@ -95,6 +95,8 @@ Priority legend:
   Sources: user notes
 - [ ] `BKL-039` Introduce attribute key typing/policy (categorical vs scalar/high-cardinality) to avoid over-normalizing non-set-like attributes into huge `token_attributes` cardinality.
   Sources: user notes
+- [ ] `BKL-040` Implement span-to-profile linking in Pyroscope Node orchestration according to the plan.
+  Sources: `docs/progress/indexer/16-trace-profile-linking-plan.md`
 
 ## P3: Long-Term Architecture
 

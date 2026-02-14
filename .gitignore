@@ -24,5 +24,3 @@ tmp/
 
 .env*
 !.env*.example
-
-docs/blueprint/db-schema/

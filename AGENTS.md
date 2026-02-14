@@ -1,172 +1,60 @@
 # AGENTS.md
 
-This file provides guidance to LLMs when working with code in this repository.
+This file is agent-specific guidance.
+Project/product status and architecture are canonical in `README.md`.
 
-## Project Overview
+## Read Order
 
-ArtGod is a cross-platform desktop application for blockchain NFT trading and indexing. The project is in early development phase with only backend scaffolding currently present.
+Before making substantial changes, read these sections in `README.md`:
 
-**Important**: ArtGod is designed as strictly local-focused, peer-to-peer software with no centralized server infrastructure. All processes run locally on the user's machine.
+1. `Canonical Status`
+2. `Architecture Overview`
+3. `Indexer Runtime Topology`
+4. `Core Invariants`
+5. `Bootstrap Lifecycle`
+6. `Database & Migrations`
+7. `Canonical Docs`
 
-## Architecture
+For implementation details, use:
 
-The application follows a multi-component architecture:
+- `docs/indexer/00-overview.md` through `docs/indexer/14-collection-bootstrap.md`
+- `docs/progress/indexer/15-unified-backlog.md`
 
-1. **Tauri** - Cross-platform distribution layer that packages all components into a desktop app binary
-2. **Node.js Backend** - API server, event streaming via SSE, and worker process management
-3. **Svelte Frontend** - Web UI served by backend and opened in native browser at localhost:427906
-4. **SQLite (better-sqlite3)** - Local database for migrations, user settings, contracts/projects data, and worker jobs
+## Agent-Only Rules
 
-### Key Components
-
-- **Backend API** (`backend/`): Node.js server with TypeScript, serves frontend and provides data APIs
-- **Indexer Worker**: For blockchain data processing
-- **Configuration**: Native OS window for immediate access to app settings
-- **Future Trading Worker**: Integration with NFT marketplaces (Seaport OS, Blur, Payment Processor)
-
-## Development Setup
-
-### Development Commands
-
-```bash
-# Install all workspace dependencies
-yarn install
-
-# Start all components in development mode
-yarn dev
-
-# Start desktop app with all components
-cargo tauri dev
-
-# Individual component development
-cd backend && yarn dev    # API server with database
-cd frontend && yarn dev   # Svelte app
-cd indexer && yarn dev    # worker for blockchain indexing (no-op currently)
-```
-
-### Technology Stack
-
-- TypeScript with ES2022 target and Node.js ESM modules
-- Yarn package manager with PnP (Plug'n'Play) mode and workspaces
-- SQLite via better-sqlite3 for local embedded database
-- Custom SQL migration system with automatic execution
-- SvelteKit frontend with Tailwind CSS
-- Tauri for cross-platform desktop distribution
-- Indexer for blockchain indexing (planned)
-
-## Project Structure
-
-```
-ArtGod/
-├── src-tauri/                    # Tauri Rust desktop application
-│   ├── src/                      # Rust source code
-│   ├── Cargo.toml
-│   └── tauri.conf.json           # Tauri configuration
-├── backend/                      # Node.js API server
-│   ├── src/index.ts              # Main server entry point
-│   ├── build/                    # Compiled JavaScript output
-│   ├── package.json
-│   └── tsconfig.json
-├── frontend/                     # SvelteKit web application
-│   ├── src/{lib,routes,stores}/  # Svelte components and pages
-│   ├── dist/                     # Built frontend assets
-│   ├── package.json
-│   └── vite.config.ts
-├── indexer/                      # Blockchain indexer
-│   └── package.json              # No-op placeholder currently
-├── shared/                       # Shared TypeScript utilities
-│   ├── build/                    # Compiled shared modules
-│   ├── database/                 # Database connection and migrations
-│   │   ├── db.ts                 # sqlite connection singleton
-│   │   └── migrations.ts         # Migration runner
-│   ├── utils/                    # Shared utility functions
-│   └── package.json
-├── database/                     # Database infrastructure
-│   ├── artgod.sqlite             # SQLite database file (auto-generated)
-│   ├── migrations/               # SQL schema migration files
-│   │   └── 001_initial_schema.sql
-│   └── package.json
-├── scripts/                      # Development scripts
-│   └── dev.sh                    # Concurrent startup script
-├── package.json                  # Root workspace configuration
-├── tsconfig.json                 # Root TypeScript project references
-└── yarn.lock                     # Dependency lockfile
-```
-
-## Target Features
-
-### Core Functionality
-
-- Ethereum JSON-RPC gateway management
-- Blockchain data indexing for specific NFT projects (Terraforms, WCSG, Angelus)
-- Real-time blockchain synchronization
-- Data export/import for faster setup
-
-### Trading Features (Future)
-
-- Multi-marketplace integration (Seaport OS, Blur)
-- Bidding strategies (single/multiple IDs, collections, traits)
-- Listing and sniping functionality
-- Secure wallet management
-
-### Notifications
-
-- In-app and OS notifications
-- Third-party integrations (Telegram, Discord)
-
-## Database & Migration Management
-
-### Database Architecture
-
-The project uses **SQLite (better-sqlite3)** as a single shared database:
-
-- **`./database/artgod.sqlite`** - Actual SQLite database file (auto-generated)
-- **`./database/migrations/`** - SQL schema migration files
-- **`./shared/database/`** - Runtime connection singleton and migration runner
-- **Automatic migrations** - Run on backend startup via `shared/database/migrations.ts`
-
-### Migration Workflow
-
-1. Create numbered SQL files in `database/migrations/` (e.g., `002_add_users.sql`)
-2. Migrations run automatically when backend starts
-3. Migration tracking table prevents duplicate execution
-4. All components share the same database instance
-
-### Usage Pattern
-
-```typescript
-// Import database in any component
-import { db } from "@artgod/shared/database";
-
-// Execute queries
-const result = db.prepare("SELECT * FROM projects").all();
-```
-
-## Development Notes
-
-- **Yarn PnP enabled** with proper workspace TypeScript project references
-- **All components functional** with shared sqlite database
-- **Backend** runs TypeScript with tsx, includes automatic migrations
-- **Frontend** uses SvelteKit with Tailwind CSS and Vite
-- **Desktop app** packages all components via Tauri
-- **Indexer** is placeholder (no-op)
-- **Core focus** is on Ethereum NFT data indexing and trading automation
-
-## Coding Guidelines
-
-- Keep top-level runtime flows linear and readable: separate distinct business actions into named helpers.
-- Avoid mixing unrelated concerns inside a single block; use whitespace and clear names to show intent.
-- Follow KISS/DRY/SOLID both across components and within a function body.
-- Tests must not silently skip on missing config; fail fast with explicit errors.
-- If code depends on config (runtime or test), treat it as required with no implicit defaults.
-- Config should be an explicit TypeScript object created from a single env loader (no scattered `process.env` reads).
-- Prefer cursor-based iteration over existing storage for large datasets instead of pre-allocating big in-memory arrays/objects.
-- New large in-memory allocations must be justified by business logic needs or clear performance gains.
+- Do not duplicate project status text from `README.md` into this file.
+- Do not introduce user-specific absolute filesystem paths in docs or code comments.
+  Prefer workspace-relative paths or environment variables.
+- Keep top-level runtime flows linear and readable; separate business actions into named helpers.
+- Avoid mixing unrelated concerns in one block; use clear naming and spacing.
+- Follow KISS/DRY/SOLID at component and function level.
+- Tests must fail fast on missing config (no silent skips).
+- Treat config as required where applicable; avoid implicit defaults for critical runtime/test inputs.
+- Centralize env loading in typed config modules; avoid scattered `process.env` reads.
+- Prefer cursor/streamed iteration for large datasets instead of large in-memory preallocation.
+- Any large in-memory allocation must be explicitly justified by business need or performance evidence.
 
 ## Architecture Constraints
 
-- **No centralized servers**: All functionality must be self-contained within the desktop application
-- **Local-only operation**: Backend API, workers, and database run entirely on user's machine
-- **P2P design**: Any network communication should be direct peer-to-peer or with public blockchain/marketplace APIs
-- **Offline capability**: Core functionality should work without internet connectivity where possible
-- **Distribution**: Updates and data sharing must work without proprietary server infrastructure
+- No centralized ArtGod servers.
+- Backend/workers/database run locally on the user's machine.
+- Network communication should be peer-to-peer and/or public blockchain/marketplace APIs.
+- Preserve offline-capable behavior where feasible.
+
+## Skills
+
+A skill is a set of local instructions in a `SKILL.md` file.
+
+### Available skills
+
+- `skill-creator`: Guide for creating/updating skills.
+  File: `$CODEX_HOME/skills/.system/skill-creator/SKILL.md`
+- `skill-installer`: Install curated or repo-based skills.
+  File: `$CODEX_HOME/skills/.system/skill-installer/SKILL.md`
+
+### Skill usage
+
+- Trigger: Use a skill when user names it or task clearly matches it.
+- Loading: Open only what is needed from the skill docs/references.
+- Missing skill: State briefly and continue with best fallback.
+- Keep context lean: avoid bulk-loading unrelated skill references.
