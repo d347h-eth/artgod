@@ -1,5 +1,9 @@
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
-import { parseBoolean, parseNumber, parseRequiredString } from "./index.js";
+import {
+    parseBoolean,
+    parseNumber,
+    parseRequiredString,
+} from "@artgod/shared/utils/env";
 
 export type OffchainConfig = {
     chainId: number;

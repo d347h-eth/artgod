@@ -28,8 +28,10 @@ __metadata:
   dependencies:
     "@artgod/shared": "workspace:*"
     "@types/node": "npm:^24.0.0"
+    dotenv: "npm:^16.4.5"
     tsx: "npm:^4.19.2"
     typescript: "npm:^5.8.3"
+    vitest: "npm:4.0.13"
   languageName: unknown
   linkType: soft
 

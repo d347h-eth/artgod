@@ -1,5 +1,10 @@
 import dotenv from "dotenv";
 import { resolveProjectPath } from "@artgod/shared/utils";
+import {
+    parseBoolean,
+    parseNumber,
+    parseRequiredString,
+} from "@artgod/shared/utils/env";
 import { defaultRetryPolicy } from "../domain/retry.js";
 
 dotenv.config({ path: resolveProjectPath(".env") });
@@ -90,60 +95,6 @@ export type IndexerConfig = {
         };
     };
 };
-
-export function parseNumber(
-    value: string | undefined,
-    name: string,
-    defaultValue?: number,
-): number {
-    if (value === undefined || value === "") {
-        if (defaultValue !== undefined) return defaultValue;
-        throw new Error(`Missing ${name}`);
-    }
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) {
-        throw new Error(`Invalid ${name}: ${value}`);
-    }
-    return parsed;
-}
-
-export function parseRequiredString(
-    value: string | undefined,
-    name: string,
-): string {
-    if (!value) {
-        throw new Error(`Missing ${name}`);
-    }
-    return value;
-}
-
-export function parseBoolean(
-    value: string | undefined,
-    name: string,
-    defaultValue: boolean,
-): boolean {
-    if (value === undefined || value === "") {
-        return defaultValue;
-    }
-    const normalized = value.trim().toLowerCase();
-    if (
-        normalized === "1" ||
-        normalized === "true" ||
-        normalized === "yes" ||
-        normalized === "on"
-    ) {
-        return true;
-    }
-    if (
-        normalized === "0" ||
-        normalized === "false" ||
-        normalized === "no" ||
-        normalized === "off"
-    ) {
-        return false;
-    }
-    throw new Error(`Invalid ${name}: ${value}`);
-}
 
 function parseAddress(value: string | undefined, name: string): string {
     if (!value) {

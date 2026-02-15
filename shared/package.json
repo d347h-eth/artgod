@@ -6,12 +6,20 @@
     "main": "./types/index.ts",
     "exports": {
         "./types": "./types/index.ts",
+        "./types/browse": "./types/browse.ts",
         "./utils": "./utils/index.ts",
+        "./utils/cursor": "./utils/cursor.ts",
+        "./utils/ref-resolver": "./utils/ref-resolver.ts",
+        "./utils/env": "./utils/env.ts",
         "./utils/paths": "./utils/paths.ts",
         "./utils/logger": "./utils/logger.ts",
         "./utils/time": "./utils/time.ts",
         "./database": "./database/db.ts",
-        "./migrations": "./database/migrations.ts"
+        "./migrations": "./database/migrations.ts",
+        "./read-models": "./read-models/index.ts",
+        "./read-models/errors": "./read-models/errors.ts",
+        "./read-models/chains": "./read-models/chains.ts",
+        "./read-models/collections": "./read-models/collections.ts"
     },
     "dependencies": {
         "better-sqlite3": "^v12.2.0"

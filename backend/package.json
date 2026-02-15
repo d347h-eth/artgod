@@ -4,14 +4,17 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "tsx src/index.ts"
+        "dev": "tsx src/index.ts",
+        "test": "vitest run"
     },
     "dependencies": {
-        "@artgod/shared": "workspace:*"
+        "@artgod/shared": "workspace:*",
+        "dotenv": "^16.4.5"
     },
     "devDependencies": {
         "@types/node": "^24.0.0",
         "tsx": "^4.19.2",
-        "typescript": "^5.8.3"
+        "typescript": "^5.8.3",
+        "vitest": "4.0.13"
     }
 }
