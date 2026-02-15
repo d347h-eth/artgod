@@ -36,7 +36,9 @@ function applyPragmas(conn: BetterSqlite3Database) {
 function ensureConnection(): BetterSqlite3Database {
     if (!currentDb) {
         if (!currentPath) {
-            currentPath = resolveDbPath(getEnvDbPath());
+            throw new Error(
+                "Database path not configured. Call setDbPath(...) during startup.",
+            );
         }
         try {
             fs.mkdirSync(path.dirname(currentPath), { recursive: true });
@@ -61,14 +63,6 @@ export function setDbPath(newPath: string): void {
 function resolveDbPath(pathValue: string): string {
     if (path.isAbsolute(pathValue)) return pathValue;
     return resolveProjectPath(pathValue);
-}
-
-function getEnvDbPath(): string {
-    const value = process.env.ARTGOD_DB_PATH;
-    if (!value) {
-        throw new Error("Missing ARTGOD_DB_PATH");
-    }
-    return value;
 }
 
 // Positional binds: const stmt = db.prepare<[id: string]>("... ? ...");

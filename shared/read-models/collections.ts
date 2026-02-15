@@ -48,36 +48,6 @@ type TraitFacetRow = {
     token_count: number;
 };
 
-const selectCollectionBySlug = db.prepare<{ chainId: number; slug: string }>(
-    "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
-        "FROM collections " +
-        "WHERE chain_id = @chainId AND slug = @slug " +
-        "LIMIT 1",
-);
-
-const selectCollectionByAddress = db.prepare<{
-    chainId: number;
-    address: string;
-}>(
-    "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
-        "FROM collections " +
-        "WHERE chain_id = @chainId AND lower(address) = @address " +
-        "LIMIT 1",
-);
-
-const selectTraitFacetRows = db.prepare<[number, string]>(
-    "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count " +
-        "FROM collection_trait_stats " +
-        "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
-        "AND attributes.chain_id = collection_trait_stats.chain_id " +
-        "AND attributes.contract_address = collection_trait_stats.contract_address " +
-        "JOIN attribute_keys ON attribute_keys.id = collection_trait_stats.attribute_key_id " +
-        "AND attribute_keys.chain_id = collection_trait_stats.chain_id " +
-        "AND attribute_keys.contract_address = collection_trait_stats.contract_address " +
-        "WHERE collection_trait_stats.chain_id = ? AND collection_trait_stats.contract_address = ? " +
-        "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count DESC, attributes.value ASC",
-);
-
 export type ListCollectionsParams = {
     chainId: number;
     status?: "bootstrapping" | "live" | "paused" | "disabled";
@@ -94,6 +64,36 @@ export type ListCollectionTokensParams = {
 };
 
 export class SqliteCollectionsReadModel {
+    private selectCollectionBySlug = db.prepare<{ chainId: number; slug: string }>(
+        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
+            "FROM collections " +
+            "WHERE chain_id = @chainId AND slug = @slug " +
+            "LIMIT 1",
+    );
+
+    private selectCollectionByAddress = db.prepare<{
+        chainId: number;
+        address: string;
+    }>(
+        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
+            "FROM collections " +
+            "WHERE chain_id = @chainId AND lower(address) = @address " +
+            "LIMIT 1",
+    );
+
+    private selectTraitFacetRows = db.prepare<[number, string]>(
+        "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count " +
+            "FROM collection_trait_stats " +
+            "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
+            "AND attributes.chain_id = collection_trait_stats.chain_id " +
+            "AND attributes.contract_address = collection_trait_stats.contract_address " +
+            "JOIN attribute_keys ON attribute_keys.id = collection_trait_stats.attribute_key_id " +
+            "AND attribute_keys.chain_id = collection_trait_stats.chain_id " +
+            "AND attribute_keys.contract_address = collection_trait_stats.contract_address " +
+            "WHERE collection_trait_stats.chain_id = ? AND collection_trait_stats.contract_address = ? " +
+            "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count DESC, attributes.value ASC",
+    );
+
     listCollections(
         params: ListCollectionsParams,
     ): CursorPage<CollectionListItem> {
@@ -154,12 +154,12 @@ export class SqliteCollectionsReadModel {
         let row: CollectionRow | undefined;
 
         if (isAddressRef(ref)) {
-            row = selectCollectionByAddress.get({
+            row = this.selectCollectionByAddress.get({
                 chainId,
                 address: normalizeAddressRef(ref),
             }) as CollectionRow | undefined;
         } else if (isSlugRef(ref)) {
-            row = selectCollectionBySlug.get({
+            row = this.selectCollectionBySlug.get({
                 chainId,
                 slug: normalizeSlugRef(ref),
             }) as CollectionRow | undefined;
@@ -246,7 +246,7 @@ export class SqliteCollectionsReadModel {
     }
 
     listCollectionTraitFacets(chainId: number, contractAddress: string): TraitFacet[] {
-        const rows = selectTraitFacetRows.all(
+        const rows = this.selectTraitFacetRows.all(
             chainId,
             normalizeAddressRef(contractAddress),
         ) as TraitFacetRow[];

@@ -31,12 +31,12 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
-start_worker "indexer-scheduler" "dev:scheduler"
+start_worker "indexer-scheduler-worker" "dev:scheduler-worker"
 start_worker "indexer-sync-worker" "dev:sync-worker"
 start_worker "indexer-reorg-worker" "dev:reorg-worker"
 start_worker "indexer-domain-worker" "dev:domain-worker"
-start_worker "indexer-offchain-ingest" "dev:offchain-ingest"
-start_worker "indexer-opensea-stream" "dev:opensea-stream"
+start_worker "indexer-offchain-ingest-worker" "dev:offchain-ingest-worker"
+start_worker "indexer-opensea-stream-worker" "dev:opensea-stream-worker"
 start_worker "indexer-bootstrap-worker" "dev:bootstrap-worker"
 start_worker "indexer-dead-letter-worker" "dev:dead-letter-worker"
 

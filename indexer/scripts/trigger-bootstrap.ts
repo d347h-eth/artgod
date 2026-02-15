@@ -1,4 +1,5 @@
 import { loadConfig } from "../src/config/index.js";
+import { setDbPath } from "@artgod/shared/database";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import {
@@ -24,6 +25,7 @@ if (!args.address) {
 }
 
 const config = loadConfig();
+setDbPath(config.dbPath);
 const chainId = args.chainId ?? config.chainId;
 const address = args.address;
 const collectionId = args.collectionId ?? address;

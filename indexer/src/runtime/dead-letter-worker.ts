@@ -1,4 +1,5 @@
 import { logger } from "@artgod/shared/utils";
+import { setDbPath } from "@artgod/shared/database";
 import { loadConfig } from "../config/index.js";
 import { runWorker } from "../application/worker-runner.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
@@ -14,6 +15,7 @@ import { initRuntimeApm } from "../observability/apm.js";
 async function main() {
     try {
         const config = loadConfig();
+        setDbPath(config.dbPath);
         const runtimeApm = await initRuntimeApm({
             enabled: config.apm.enabled,
             serviceNamespace: config.apm.serviceNamespace,

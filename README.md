@@ -62,7 +62,7 @@ Use the indexer launcher to produce runtime log files under `tmp/logs/*.log`:
 Run indexer runtimes as needed:
 
 ```sh
-yarn workspace @artgod/indexer run dev:scheduler
+yarn workspace @artgod/indexer run dev:scheduler-worker
 yarn workspace @artgod/indexer run dev:sync-worker
 yarn workspace @artgod/indexer run dev:reorg-worker
 yarn workspace @artgod/indexer run dev:domain-worker

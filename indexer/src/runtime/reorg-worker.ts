@@ -1,4 +1,5 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -24,6 +25,7 @@ import type { StoragePort } from "../ports/storage.js";
 async function main() {
     try {
         const config = loadConfig();
+        setDbPath(config.dbPath);
         const runtimeApm = await initRuntimeApm({
             enabled: config.apm.enabled,
             serviceNamespace: config.apm.serviceNamespace,

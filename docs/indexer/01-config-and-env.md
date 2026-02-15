@@ -103,7 +103,7 @@ SMOKE_CHAIN_ID=1
 
 ## Database Path Resolution
 
-`@artgod/shared/database` enforces `ARTGOD_DB_PATH` as a required env variable. If it is missing, the runtime throws immediately.
+`ARTGOD_DB_PATH` is required by the app config loaders (`indexer/src/config/index.ts`, `backend/src/config.ts`). Runtime entrypoints pass this value into `@artgod/shared/database` via `setDbPath(...)` before migrations or repository/read-model usage.
 
 - Absolute paths are used as-is.
 - Relative paths are resolved from the repo root.

@@ -18,21 +18,21 @@ type ChainRow = {
     name: string;
 };
 
-const selectByPublicId = db.prepare<{ type: string; publicChainId: number }>(
-    "SELECT id, type, public_chain_id, slug, name " +
-        "FROM chains " +
-        "WHERE type = @type AND public_chain_id = @publicChainId " +
-        "LIMIT 1",
-);
-
-const selectBySlug = db.prepare<{ type: string; slug: string }>(
-    "SELECT id, type, public_chain_id, slug, name " +
-        "FROM chains " +
-        "WHERE type = @type AND slug = @slug " +
-        "LIMIT 1",
-);
-
 export class SqliteChainsReadModel {
+    private selectByPublicId = db.prepare<{ type: string; publicChainId: number }>(
+        "SELECT id, type, public_chain_id, slug, name " +
+            "FROM chains " +
+            "WHERE type = @type AND public_chain_id = @publicChainId " +
+            "LIMIT 1",
+    );
+
+    private selectBySlug = db.prepare<{ type: string; slug: string }>(
+        "SELECT id, type, public_chain_id, slug, name " +
+            "FROM chains " +
+            "WHERE type = @type AND slug = @slug " +
+            "LIMIT 1",
+    );
+
     getDefaultChain(defaultPublicChainId: number): ChainRecord {
         return this.resolveByPublicChainId(defaultPublicChainId);
     }
@@ -55,7 +55,7 @@ export class SqliteChainsReadModel {
         }
 
         const slug = normalizeSlugRef(chainRef);
-        const row = selectBySlug.get({
+        const row = this.selectBySlug.get({
             type: "evm",
             slug,
         }) as ChainRow | undefined;
@@ -66,7 +66,7 @@ export class SqliteChainsReadModel {
     }
 
     private resolveByPublicChainId(publicChainId: number): ChainRecord {
-        const row = selectByPublicId.get({
+        const row = this.selectByPublicId.get({
             type: "evm",
             publicChainId,
         }) as ChainRow | undefined;

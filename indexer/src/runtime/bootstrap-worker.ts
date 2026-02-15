@@ -1,4 +1,5 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -46,6 +47,7 @@ const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 async function main() {
     try {
         const config = loadConfig();
+        setDbPath(config.dbPath);
         const runtimeApm = await initRuntimeApm({
             enabled: config.apm.enabled,
             serviceNamespace: config.apm.serviceNamespace,

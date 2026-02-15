@@ -13,7 +13,8 @@ Primary files:
 
 The shared database wrapper (`shared/database/db.ts`) enforces:
 
-- `ARTGOD_DB_PATH` must be set in the environment.
+- DB path must be configured explicitly via `setDbPath(...)` before first DB usage.
+- Runtime config loaders (`indexer/src/config/index.ts`, `backend/src/config.ts`) read `ARTGOD_DB_PATH` and pass it to `setDbPath(...)` during startup.
 - WAL journal mode for better read/write concurrency.
 - `synchronous = NORMAL`.
 - `foreign_keys = ON`.

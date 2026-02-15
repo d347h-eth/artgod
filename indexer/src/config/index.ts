@@ -10,6 +10,7 @@ import { defaultRetryPolicy } from "../domain/retry.js";
 dotenv.config({ path: resolveProjectPath(".env") });
 
 export type IndexerConfig = {
+    dbPath: string;
     chainId: number;
     rpc: {
         primaryUrl: string;
@@ -109,6 +110,7 @@ function parseAddress(value: string | undefined, name: string): string {
 export function loadConfig(
     env: Record<string, string | undefined> = process.env,
 ): IndexerConfig {
+    const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", 1);
     const rpcUrl = env.RPC_URL;
     if (!rpcUrl) {
@@ -116,6 +118,7 @@ export function loadConfig(
     }
 
     return {
+        dbPath,
         chainId,
         rpc: {
             primaryUrl: rpcUrl,

@@ -1,5 +1,6 @@
 import http from "node:http";
 import { pathToFileURL } from "node:url";
+import { setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     SqliteChainsReadModel,
@@ -42,6 +43,7 @@ export type ApiRouteResponse = {
 export async function startBackendServer(
     config: BackendConfig,
 ): Promise<http.Server> {
+    setDbPath(config.dbPath);
     const migrationRunner = createMigrationRunner();
     await migrationRunner.runMigrations();
 
