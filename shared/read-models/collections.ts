@@ -1,9 +1,11 @@
 import { db } from "../database/db.js";
+import { MAX_PAGE_LIMIT } from "../config/pagination.js";
 import type {
     CollectionListCursor,
     CollectionListItem,
     CursorPage,
     TokenCard,
+    TokenCursorPage,
     TokenCursor,
     TokenAttribute,
     TraitFacet,
@@ -40,6 +42,10 @@ type TokenRow = {
     image: string | null;
     attributes_json: string | null;
     metadata_updated_at: string | null;
+};
+
+type TokenIdRow = {
+    token_id: string;
 };
 
 type TraitFacetRow = {
@@ -91,7 +97,7 @@ export class SqliteCollectionsReadModel {
             "AND attribute_keys.chain_id = collection_trait_stats.chain_id " +
             "AND attribute_keys.contract_address = collection_trait_stats.contract_address " +
             "WHERE collection_trait_stats.chain_id = ? AND collection_trait_stats.contract_address = ? " +
-            "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count DESC, attributes.value ASC",
+            "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
     );
 
     listCollections(
@@ -176,21 +182,26 @@ export class SqliteCollectionsReadModel {
 
     listCollectionTokens(
         params: ListCollectionTokensParams,
-    ): CursorPage<TokenCard> {
+    ): TokenCursorPage {
         const limit = normalizeLimit(params.limit);
         const cursor =
             params.cursor !== undefined ? decodeTokenCursor(params.cursor) : null;
         const contractAddress = normalizeAddressRef(params.contractAddress);
-        const traitFilters = normalizeTraitFilters(params.traitFilters ?? []);
+        const traitFilterGroups = groupTraitFilters(
+            normalizeTraitFilters(params.traitFilters ?? []),
+        );
 
-        const whereClauses: string[] = [
+        const baseWhereClauses: string[] = [
             "t.chain_id = ?",
             "t.contract_address = ?",
         ];
-        const values: unknown[] = [params.chainId, contractAddress];
+        const baseValues: unknown[] = [params.chainId, contractAddress];
 
-        for (const filter of traitFilters) {
-            whereClauses.push(
+        for (const filterGroup of traitFilterGroups) {
+            const valuePlaceholders = filterGroup.values
+                .map(() => "?")
+                .join(", ");
+            baseWhereClauses.push(
                 "EXISTS (" +
                     "SELECT 1 " +
                     "FROM token_attributes ta " +
@@ -204,12 +215,14 @@ export class SqliteCollectionsReadModel {
                     "AND ta.contract_address = t.contract_address " +
                     "AND ta.token_id = t.token_id " +
                     "AND ak.key = ? " +
-                    "AND a.value = ? " +
+                    `AND a.value IN (${valuePlaceholders}) ` +
                     ")",
             );
-            values.push(filter.key, filter.value);
+            baseValues.push(filterGroup.key, ...filterGroup.values);
         }
 
+        const whereClauses = [...baseWhereClauses];
+        const values = [...baseValues];
         if (cursor) {
             whereClauses.push("t.token_id > ?");
             values.push(cursor.tokenId);
@@ -232,6 +245,28 @@ export class SqliteCollectionsReadModel {
         const pageRows = hasNext ? rows.slice(0, limit) : rows;
         const items = pageRows.map(mapTokenRow);
 
+        const prevCursor = derivePrevCursor({
+            baseWhereClauses,
+            baseValues,
+            cursor,
+            pageRows,
+            limit,
+        });
+
+        const totalItems = countMatchingTokens(baseWhereClauses, baseValues);
+        const beforeItems = cursor
+            ? countMatchingTokens(
+                  [...baseWhereClauses, "t.token_id <= ?"],
+                  [...baseValues, cursor.tokenId],
+              )
+            : 0;
+        const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
+        const rangeEnd = beforeItems + items.length;
+        const totalPages =
+            totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
+        const currentPage =
+            totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
+
         const nextCursor = hasNext
             ? encodeOpaqueCursor({
                   tokenId: pageRows[pageRows.length - 1]!.token_id,
@@ -240,8 +275,14 @@ export class SqliteCollectionsReadModel {
 
         return {
             items,
+            prevCursor,
             nextCursor,
             limit,
+            totalItems,
+            rangeStart,
+            rangeEnd,
+            currentPage,
+            totalPages,
         };
     }
 
@@ -269,11 +310,53 @@ export class SqliteCollectionsReadModel {
     }
 }
 
+function countMatchingTokens(whereClauses: string[], values: unknown[]): number {
+    const sql =
+        "SELECT COUNT(*) AS count " +
+        "FROM tokens t " +
+        `WHERE ${whereClauses.join(" AND ")}`;
+    const row = db.raw.prepare(sql).get(...values) as { count: number };
+    return row.count;
+}
+
+function derivePrevCursor(params: {
+    baseWhereClauses: string[];
+    baseValues: unknown[];
+    cursor: TokenCursor | null;
+    pageRows: TokenRow[];
+    limit: number;
+}): string | null {
+    const { baseWhereClauses, baseValues, cursor, pageRows, limit } = params;
+
+    const anchorTokenId = pageRows[0]?.token_id ?? cursor?.tokenId ?? null;
+    if (!anchorTokenId) {
+        return null;
+    }
+
+    const previousRows = db.raw
+        .prepare(
+            "SELECT t.token_id " +
+                "FROM tokens t " +
+                `WHERE ${baseWhereClauses.join(" AND ")} AND t.token_id < ? ` +
+                "ORDER BY t.token_id DESC " +
+                "LIMIT ?",
+        )
+        .all(...baseValues, anchorTokenId, limit + 1) as TokenIdRow[];
+
+    if (previousRows.length <= limit) {
+        return null;
+    }
+
+    return encodeOpaqueCursor({
+        tokenId: previousRows[limit]!.token_id,
+    });
+}
+
 function normalizeLimit(limit: number): number {
     if (!Number.isInteger(limit) || limit <= 0) {
         throw new ReadModelBadRequestError("Invalid limit");
     }
-    return Math.min(limit, 100);
+    return Math.min(limit, MAX_PAGE_LIMIT);
 }
 
 function decodeCollectionCursor(cursor: string): CollectionListCursor {
@@ -324,6 +407,29 @@ function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {
     }
 
     return deduped;
+}
+
+type TraitFilterGroup = {
+    key: string;
+    values: string[];
+};
+
+function groupTraitFilters(filters: TraitFilter[]): TraitFilterGroup[] {
+    const grouped = new Map<string, Set<string>>();
+    for (const filter of filters) {
+        const values = grouped.get(filter.key) ?? new Set<string>();
+        values.add(filter.value);
+        grouped.set(filter.key, values);
+    }
+
+    const groups: TraitFilterGroup[] = [];
+    for (const [key, values] of grouped.entries()) {
+        groups.push({
+            key,
+            values: [...values],
+        });
+    }
+    return groups;
 }
 
 function mapCollectionRow(row: CollectionRow): CollectionListItem {

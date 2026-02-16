@@ -36,17 +36,25 @@ describe('CollectionDetailView', () => {
 							metadataUpdatedAt: '2026-01-01T00:00:00Z'
 						}
 					],
+					prevCursor: null,
 					nextCursor: null,
-					limit: 25
+					limit: 25,
+					totalItems: 1,
+					rangeStart: 1,
+					rangeEnd: 1,
+					currentPage: 1,
+					totalPages: 1
 				},
 				facets: [{ key: 'Hat', values: [{ value: 'Beanie', tokenCount: 1 }] }],
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
-				basePath: '/ethereum/milady'
+				basePath: '/ethereum/milady',
+				requestCursor: null,
+				displayMode: 'grid'
 			}
 		});
 
 		expect(body).toContain('Collection Browser');
-		expect(body).toContain('Milady #1');
+		expect(body).toContain('token 1');
 		expect(body).toContain('Beanie');
 	});
 });

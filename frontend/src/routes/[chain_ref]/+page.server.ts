@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionsPage } from '$lib/server/backend-api';
 
 export const load: PageServerLoad = async ({ fetch, params, url }) => {
@@ -27,7 +28,7 @@ function normalizeCollectionsParams(raw: URLSearchParams): URLSearchParams {
 	}
 
 	const limit = raw.get('limit');
-	params.set('limit', limit && /^\d+$/.test(limit) ? limit : '25');
+	params.set('limit', limit && /^\d+$/.test(limit) ? limit : String(DEFAULT_PAGE_LIMIT));
 
 	const cursor = raw.get('cursor');
 	if (cursor && cursor.trim()) {

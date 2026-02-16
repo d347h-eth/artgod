@@ -41,8 +41,14 @@ export type ApiTokenCard = {
 
 export type ApiTokensPage = {
 	items: ApiTokenCard[];
+	prevCursor: string | null;
 	nextCursor: string | null;
 	limit: number;
+	totalItems: number;
+	rangeStart: number;
+	rangeEnd: number;
+	currentPage: number;
+	totalPages: number;
 };
 
 export type ApiTraitFacet = {

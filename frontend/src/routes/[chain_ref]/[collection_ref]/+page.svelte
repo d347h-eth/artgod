@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import CollectionDetailView from '$lib/components/CollectionDetailView.svelte';
 	import type {
 		ApiChain,
@@ -15,14 +16,22 @@
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
 		basePath: string;
+		requestCursor: string | null;
+		displayMode: 'grid' | 'table';
 	};
 
 	let { data }: { data?: PageData } = $props();
 
 	const fallbackTokens: ApiTokensPage = {
 		items: [],
+		prevCursor: null,
 		nextCursor: null,
-		limit: 25
+		limit: DEFAULT_PAGE_LIMIT,
+		totalItems: 0,
+		rangeStart: 0,
+		rangeEnd: 0,
+		currentPage: 0,
+		totalPages: 0
 	};
 </script>
 
@@ -33,4 +42,6 @@
 	facets={data?.facets ?? []}
 	selectedTraits={data?.selectedTraits ?? []}
 	basePath={data?.basePath ?? '/'}
+	requestCursor={data?.requestCursor ?? null}
+	displayMode={data?.displayMode ?? 'grid'}
 />

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import CollectionsPageView from '$lib/components/CollectionsPageView.svelte';
 	import type { ApiChain, ApiCollectionsPage } from '$lib/api-types';
 
@@ -14,7 +15,7 @@
 	const fallbackPage: ApiCollectionsPage = {
 		items: [],
 		nextCursor: null,
-		limit: 25
+		limit: DEFAULT_PAGE_LIMIT
 	};
 </script>
 
@@ -23,4 +24,5 @@
 	page={data?.page ?? fallbackPage}
 	status={data?.status ?? ''}
 	basePath={data?.basePath ?? '/'}
+	showBreadcrumbs={true}
 />

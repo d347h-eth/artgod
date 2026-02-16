@@ -10,6 +10,7 @@ import {
     ReadModelBadRequestError,
     ReadModelNotFoundError,
 } from "@artgod/shared/read-models/errors";
+import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import type { TraitFilter } from "@artgod/shared/types/browse";
 import { logger } from "@artgod/shared/utils";
 import type { BackendConfig } from "./config.js";
@@ -306,7 +307,7 @@ function parseStatus(
 }
 
 function parseLimit(raw: string | null): number {
-    if (!raw || !raw.trim()) return 25;
+    if (!raw || !raw.trim()) return DEFAULT_PAGE_LIMIT;
     const parsed = Number(raw);
     if (!Number.isInteger(parsed) || parsed <= 0) {
         throw new ReadModelBadRequestError("Invalid limit");

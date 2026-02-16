@@ -31,6 +31,8 @@ For implementation details, use:
 - Tests must fail fast on missing config (no silent skips).
 - Treat config as required where applicable; avoid implicit defaults for critical runtime/test inputs.
 - Centralize env loading in typed config modules; avoid scattered `process.env` reads.
+- Do not duplicate shared constants (pagination limits, statuses, defaults, etc.) across files.
+  Define once in shared config and import everywhere; no repeated magic numbers/strings.
 - Prefer cursor/streamed iteration for large datasets instead of large in-memory preallocation.
 - Any large in-memory allocation must be explicitly justified by business need or performance evidence.
 

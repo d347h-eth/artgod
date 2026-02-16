@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "vite dev --host 127.0.0.1 --port 5173 --strictPort",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -14,6 +14,9 @@
 		"lint": "prettier --check . && eslint .",
 		"test:unit": "vitest",
 		"test": "vitest --run"
+	},
+	"dependencies": {
+		"@artgod/shared": "workspace:*"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.2.5",

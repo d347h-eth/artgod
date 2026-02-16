@@ -5,6 +5,7 @@
     "type": "module",
     "main": "./types/index.ts",
     "exports": {
+        "./config/pagination": "./config/pagination.ts",
         "./types": "./types/index.ts",
         "./types/browse": "./types/browse.ts",
         "./utils": "./utils/index.ts",

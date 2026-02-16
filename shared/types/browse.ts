@@ -70,3 +70,12 @@ export type CursorPage<TItem> = {
     nextCursor: string | null;
     limit: number;
 };
+
+export type TokenCursorPage = CursorPage<TokenCard> & {
+    prevCursor: string | null;
+    totalItems: number;
+    rangeStart: number;
+    rangeEnd: number;
+    currentPage: number;
+    totalPages: number;
+};

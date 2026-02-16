@@ -1,0 +1,2 @@
+export const DEFAULT_PAGE_LIMIT = 250;
+export const MAX_PAGE_LIMIT = DEFAULT_PAGE_LIMIT;

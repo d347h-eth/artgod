@@ -5,12 +5,14 @@
 		chain,
 		page,
 		status,
-		basePath
+		basePath,
+		showBreadcrumbs = false
 	}: {
 		chain: ApiChain | null;
 		page: ApiCollectionsPage;
 		status: string;
 		basePath: string;
+		showBreadcrumbs?: boolean;
 	} = $props();
 
 	const statusOptions = ['', 'bootstrapping', 'live', 'paused', 'disabled'];
@@ -36,6 +38,14 @@
 </script>
 
 <section class="panel">
+	{#if showBreadcrumbs}
+		<nav class="breadcrumbs" aria-label="Breadcrumb">
+			<a href="/">home</a>
+			<span class="breadcrumbs-separator">/</span>
+			<span class="breadcrumbs-current">collections</span>
+		</nav>
+	{/if}
+
 	<header class="panel-header">
 		<div>
 			<h1 class="panel-title">ArtGod Collections</h1>

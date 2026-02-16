@@ -84,7 +84,13 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.address).toBe(MILADY_ADDRESS);
         expect(result.payload.tokens.items).toHaveLength(2);
+        expect(result.payload.tokens.prevCursor).toBeNull();
         expect(result.payload.tokens.nextCursor).toEqual(expect.any(String));
+        expect(result.payload.tokens.totalItems).toBe(3);
+        expect(result.payload.tokens.rangeStart).toBe(1);
+        expect(result.payload.tokens.rangeEnd).toBe(2);
+        expect(result.payload.tokens.currentPage).toBe(1);
+        expect(result.payload.tokens.totalPages).toBe(2);
         expect(result.payload.traits.facets).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({ key: "Hat" }),
@@ -93,7 +99,28 @@ describe("backend api routes", () => {
         );
     });
 
-    it("applies AND semantics for multi-trait filters", () => {
+    it("supports backward paging with prevCursor", () => {
+        const first = resolve("GET", "/api/ethereum/milady?limit=1");
+        const second = resolve(
+            "GET",
+            `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(first.payload.tokens.nextCursor)}`,
+        );
+        const third = resolve(
+            "GET",
+            `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(second.payload.tokens.nextCursor)}`,
+        );
+
+        expect(second.payload.tokens.prevCursor).toBeNull();
+        expect(third.payload.tokens.prevCursor).toEqual(expect.any(String));
+
+        const previousOfThird = resolve(
+            "GET",
+            `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(third.payload.tokens.prevCursor)}`,
+        );
+        expect(previousOfThird.payload.tokens.items[0].tokenId).toBe("2");
+    });
+
+    it("applies AND semantics across different trait keys", () => {
         const result = resolve(
             "GET",
             "/api/1/milady?traits=Hat:Beanie,Mood:Calm&limit=10",
@@ -102,6 +129,17 @@ describe("backend api routes", () => {
         expect(
             result.payload.tokens.items.map((token: { tokenId: string }) => token.tokenId),
         ).toEqual(["1"]);
+    });
+
+    it("applies OR semantics for values within the same trait key", () => {
+        const result = resolve(
+            "GET",
+            "/api/1/milady?traits=Hat:Beanie,Hat:Cap&limit=10",
+        );
+        expect(result.statusCode).toBe(200);
+        expect(
+            result.payload.tokens.items.map((token: { tokenId: string }) => token.tokenId),
+        ).toEqual(["1", "2", "3"]);
     });
 
     it("resolves collection by address", () => {

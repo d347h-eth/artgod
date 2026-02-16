@@ -48,6 +48,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@artgod/frontend@workspace:frontend"
   dependencies:
+    "@artgod/shared": "workspace:*"
     "@eslint/compat": "npm:^1.2.5"
     "@eslint/js": "npm:^9.18.0"
     "@sveltejs/adapter-auto": "npm:^6.0.0"
