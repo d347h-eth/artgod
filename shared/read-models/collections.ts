@@ -54,6 +54,24 @@ type TraitFacetRow = {
     token_count: number;
 };
 
+type TokenSortKey = {
+    tokenId: string;
+    bucket: number;
+    length: number;
+    value: string;
+};
+
+const TOKEN_ID_IS_NUMERIC_SQL =
+    "t.token_id <> '' AND t.token_id NOT GLOB '*[^0-9]*'";
+const TOKEN_ID_NORMALIZED_NUMERIC_SQL =
+    "CASE WHEN LTRIM(t.token_id, '0') = '' THEN '0' ELSE LTRIM(t.token_id, '0') END";
+const TOKEN_SORT_BUCKET_SQL = `CASE WHEN ${TOKEN_ID_IS_NUMERIC_SQL} THEN 0 ELSE 1 END`;
+const TOKEN_SORT_LENGTH_SQL = `CASE WHEN ${TOKEN_ID_IS_NUMERIC_SQL} THEN LENGTH(${TOKEN_ID_NORMALIZED_NUMERIC_SQL}) ELSE 0 END`;
+const TOKEN_SORT_VALUE_SQL = `CASE WHEN ${TOKEN_ID_IS_NUMERIC_SQL} THEN ${TOKEN_ID_NORMALIZED_NUMERIC_SQL} ELSE t.token_id END`;
+const TOKEN_SORT_KEY_SQL = `(${TOKEN_SORT_BUCKET_SQL}, ${TOKEN_SORT_LENGTH_SQL}, ${TOKEN_SORT_VALUE_SQL}, t.token_id)`;
+const TOKEN_ORDER_BY_ASC_SQL = `${TOKEN_SORT_BUCKET_SQL} ASC, ${TOKEN_SORT_LENGTH_SQL} ASC, ${TOKEN_SORT_VALUE_SQL} ASC, t.token_id ASC`;
+const TOKEN_ORDER_BY_DESC_SQL = `${TOKEN_SORT_BUCKET_SQL} DESC, ${TOKEN_SORT_LENGTH_SQL} DESC, ${TOKEN_SORT_VALUE_SQL} DESC, t.token_id DESC`;
+
 export type ListCollectionsParams = {
     chainId: number;
     status?: "bootstrapping" | "live" | "paused" | "disabled";
@@ -186,6 +204,7 @@ export class SqliteCollectionsReadModel {
         const limit = normalizeLimit(params.limit);
         const cursor =
             params.cursor !== undefined ? decodeTokenCursor(params.cursor) : null;
+        const cursorSortKey = cursor ? toTokenSortKey(cursor.tokenId) : null;
         const contractAddress = normalizeAddressRef(params.contractAddress);
         const traitFilterGroups = groupTraitFilters(
             normalizeTraitFilters(params.traitFilters ?? []),
@@ -223,9 +242,9 @@ export class SqliteCollectionsReadModel {
 
         const whereClauses = [...baseWhereClauses];
         const values = [...baseValues];
-        if (cursor) {
-            whereClauses.push("t.token_id > ?");
-            values.push(cursor.tokenId);
+        if (cursorSortKey) {
+            whereClauses.push(`${TOKEN_SORT_KEY_SQL} > (?, ?, ?, ?)`);
+            values.push(...tokenSortKeyParams(cursorSortKey));
         }
 
         const sql =
@@ -235,7 +254,7 @@ export class SqliteCollectionsReadModel {
             "AND m.contract_address = t.contract_address " +
             "AND m.token_id = t.token_id " +
             `WHERE ${whereClauses.join(" AND ")} ` +
-            "ORDER BY t.token_id ASC " +
+            `ORDER BY ${TOKEN_ORDER_BY_ASC_SQL} ` +
             "LIMIT ?";
 
         values.push(limit + 1);
@@ -254,10 +273,10 @@ export class SqliteCollectionsReadModel {
         });
 
         const totalItems = countMatchingTokens(baseWhereClauses, baseValues);
-        const beforeItems = cursor
+        const beforeItems = cursorSortKey
             ? countMatchingTokens(
-                  [...baseWhereClauses, "t.token_id <= ?"],
-                  [...baseValues, cursor.tokenId],
+                  [...baseWhereClauses, `${TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?)`],
+                  [...baseValues, ...tokenSortKeyParams(cursorSortKey)],
               )
             : 0;
         const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
@@ -332,16 +351,17 @@ function derivePrevCursor(params: {
     if (!anchorTokenId) {
         return null;
     }
+    const anchorSortKey = toTokenSortKey(anchorTokenId);
 
     const previousRows = db.raw
         .prepare(
             "SELECT t.token_id " +
                 "FROM tokens t " +
-                `WHERE ${baseWhereClauses.join(" AND ")} AND t.token_id < ? ` +
-                "ORDER BY t.token_id DESC " +
+                `WHERE ${baseWhereClauses.join(" AND ")} AND ${TOKEN_SORT_KEY_SQL} < (?, ?, ?, ?) ` +
+                `ORDER BY ${TOKEN_ORDER_BY_DESC_SQL} ` +
                 "LIMIT ?",
         )
-        .all(...baseValues, anchorTokenId, limit + 1) as TokenIdRow[];
+        .all(...baseValues, ...tokenSortKeyParams(anchorSortKey), limit + 1) as TokenIdRow[];
 
     if (previousRows.length <= limit) {
         return null;
@@ -388,6 +408,31 @@ function decodeTokenCursor(cursor: string): TokenCursor {
     } catch {
         throw new ReadModelBadRequestError("Invalid cursor");
     }
+}
+
+function toTokenSortKey(tokenId: string): TokenSortKey {
+    const isNumeric = /^\d+$/.test(tokenId);
+    if (!isNumeric) {
+        return {
+            tokenId,
+            bucket: 1,
+            length: 0,
+            value: tokenId,
+        };
+    }
+
+    const withoutLeadingZeros = tokenId.replace(/^0+/, "");
+    const normalized = withoutLeadingZeros.length > 0 ? withoutLeadingZeros : "0";
+    return {
+        tokenId,
+        bucket: 0,
+        length: normalized.length,
+        value: normalized,
+    };
+}
+
+function tokenSortKeyParams(key: TokenSortKey): [number, number, string, string] {
+    return [key.bucket, key.length, key.value, key.tokenId];
 }
 
 function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {

@@ -209,15 +209,23 @@ th {
 	flex-wrap: wrap;
 }
 
-.button-link {
+.button-link,
+.facet-reset-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	border: 1px solid var(--c-orange);
 	color: var(--c-orange);
+	background: transparent;
 	padding: 0.25rem 0.5rem;
-}
-
-.button-link:hover {
-	border-color: var(--c-yellow);
-	color: var(--c-yellow);
+	font-family: inherit;
+	font-size: 0.72rem;
+	letter-spacing: 0.04em;
+	line-height: 1;
+	text-transform: uppercase;
+	text-decoration: none;
+	cursor: pointer;
+	transition: border-color 120ms ease, color 120ms ease;
 }
 
 .detail-layout {
@@ -284,20 +292,22 @@ th {
 	margin: 0 0 0.75rem;
 }
 
-.facet-reset-button {
-	border: 0;
-	padding: 0;
-	background: transparent;
-	color: var(--c-orange);
-	font-family: inherit;
-	font-size: 0.72rem;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	cursor: pointer;
+.button-link:hover,
+.facet-reset-button:hover {
+	border-color: var(--c-yellow);
+	color: var(--c-yellow);
 }
 
-.facet-reset-button:hover {
+.button-link:focus-visible,
+.facet-reset-button:focus-visible {
+	outline: none;
+	border-color: var(--c-yellow);
 	color: var(--c-yellow);
+}
+
+.button-link[aria-busy='true'] {
+	opacity: 0.6;
+	pointer-events: none;
 }
 
 .trait-group {
@@ -392,16 +402,29 @@ th {
 .mode-toggle {
 	display: flex;
 	align-items: center;
-	gap: 0.35rem;
 }
 
-.mode-toggle button {
+.mode-toggle-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	border: 1px solid var(--c-cyan);
+	color: var(--c-cyan);
 	padding: 0.2rem 0.45rem;
+	font-family: inherit;
 	font-size: 0.72rem;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
-	border-color: var(--c-cyan);
-	color: var(--c-cyan);
+	cursor: pointer;
+	transition: border-color 120ms ease, color 120ms ease;
+}
+
+.mode-toggle-button:hover,
+.mode-toggle-button:focus-visible {
+	outline: none;
+	border-color: var(--c-pink);
+	color: var(--c-pink);
 }
 
 .token-grid-wrap {

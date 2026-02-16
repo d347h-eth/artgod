@@ -139,7 +139,7 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(
             result.payload.tokens.items.map((token: { tokenId: string }) => token.tokenId),
-        ).toEqual(["1", "2", "3"]);
+        ).toEqual(["1", "2", "10"]);
     });
 
     it("resolves collection by address", () => {
@@ -208,7 +208,7 @@ function seedData(): void {
     );
     insertToken.run(1, MILADY_ADDRESS, "1");
     insertToken.run(1, MILADY_ADDRESS, "2");
-    insertToken.run(1, MILADY_ADDRESS, "3");
+    insertToken.run(1, MILADY_ADDRESS, "10");
 
     const insertMetadata = db.prepare(
         "INSERT INTO token_metadata " +
@@ -247,10 +247,10 @@ function seedData(): void {
     insertMetadata.run(
         1,
         MILADY_ADDRESS,
-        "3",
-        "ipfs://3",
-        "Milady #3",
-        "https://example.com/3.png",
+        "10",
+        "ipfs://10",
+        "Milady #10",
+        "https://example.com/10.png",
         JSON.stringify([
             { traitType: "Hat", value: "Cap" },
             { traitType: "Mood", value: "Calm" },
@@ -275,8 +275,8 @@ function seedData(): void {
     insertTokenAttribute.run(1, MILADY_ADDRESS, "1", calmId);
     insertTokenAttribute.run(1, MILADY_ADDRESS, "2", beanieId);
     insertTokenAttribute.run(1, MILADY_ADDRESS, "2", angryId);
-    insertTokenAttribute.run(1, MILADY_ADDRESS, "3", capId);
-    insertTokenAttribute.run(1, MILADY_ADDRESS, "3", calmId);
+    insertTokenAttribute.run(1, MILADY_ADDRESS, "10", capId);
+    insertTokenAttribute.run(1, MILADY_ADDRESS, "10", calmId);
 
     const insertTraitStats = db.prepare(
         "INSERT INTO collection_trait_stats (chain_id, contract_address, attribute_key_id, attribute_id, token_count) VALUES (?, ?, ?, ?, ?)",

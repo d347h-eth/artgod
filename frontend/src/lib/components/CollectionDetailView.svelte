@@ -555,6 +555,7 @@
 				<div class="mode-toggle">
 					<button
 						type="button"
+						class="mode-toggle-button"
 						aria-label={`switch to ${nextDisplayMode} mode`}
 						onclick={onToggleDisplayMode}>{nextDisplayMode}</button
 					>

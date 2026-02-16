@@ -207,6 +207,7 @@ Use these as primary references for design and implementation details:
 - `docs/indexer/00-overview.md` through `docs/indexer/14-collection-bootstrap.md`
 - `docs/diagrams/architecture.mmd`
 - `docs/progress/indexer/15-unified-backlog.md`
+- `docs/ui/01-interaction-guidelines.md`
 
 Blueprint/reference material:
 
