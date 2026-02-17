@@ -15,6 +15,7 @@ import type { TraitFilter } from "@artgod/shared/types/browse";
 import { logger } from "@artgod/shared/utils";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
+import type { ChainsReadPort, CollectionsReadPort } from "./ports/read-models.js";
 
 const JSON_HEADERS = {
     "Content-Type": "application/json; charset=utf-8",
@@ -32,8 +33,8 @@ const ALLOWED_COLLECTION_STATUSES = new Set([
 
 export type ApiRouteDependencies = {
     defaultChainId: number;
-    chainsReadModel: SqliteChainsReadModel;
-    collectionsReadModel: SqliteCollectionsReadModel;
+    chainsReadModel: ChainsReadPort;
+    collectionsReadModel: CollectionsReadPort;
 };
 
 export type ApiRouteResponse = {
@@ -54,16 +55,11 @@ export async function startBackendServer(
 }
 
 export function createBackendServer(defaultChainId: number): http.Server {
-    const chainsReadModel = new SqliteChainsReadModel();
-    const collectionsReadModel = new SqliteCollectionsReadModel();
+    const dependencies = buildApiRouteDependencies(defaultChainId);
 
     return http.createServer(async (req, res) => {
         try {
-            await handleRequest(req, res, {
-                defaultChainId,
-                chainsReadModel,
-                collectionsReadModel,
-            });
+            await handleRequest(req, res, dependencies);
         } catch (error) {
             logger.error("Backend request failed", {
                 component: "BackendApi",
@@ -76,6 +72,18 @@ export function createBackendServer(defaultChainId: number): http.Server {
             });
         }
     });
+}
+
+function buildApiRouteDependencies(defaultChainId: number): ApiRouteDependencies {
+    const chainsReadModel: ChainsReadPort = new SqliteChainsReadModel();
+    const collectionsReadModel: CollectionsReadPort =
+        new SqliteCollectionsReadModel();
+
+    return {
+        defaultChainId,
+        chainsReadModel,
+        collectionsReadModel,
+    };
 }
 
 function listen(server: http.Server, port: number): Promise<void> {
@@ -221,8 +229,8 @@ export function resolveApiRequest(
 function buildCollectionsListPayload(
     url: URL,
     defaultChainId: number,
-    chainsReadModel: SqliteChainsReadModel,
-    collectionsReadModel: SqliteCollectionsReadModel,
+    chainsReadModel: ChainsReadPort,
+    collectionsReadModel: CollectionsReadPort,
     chainRef: string,
 ): unknown {
     const chain = chainsReadModel.resolveChainRef(chainRef, defaultChainId);
@@ -247,8 +255,8 @@ function buildCollectionsListPayload(
 function buildCollectionDetailPayload(
     url: URL,
     defaultChainId: number,
-    chainsReadModel: SqliteChainsReadModel,
-    collectionsReadModel: SqliteCollectionsReadModel,
+    chainsReadModel: ChainsReadPort,
+    collectionsReadModel: CollectionsReadPort,
     chainRef: string,
     collectionRef: string,
 ): unknown {

@@ -25,9 +25,11 @@ For implementation details, use:
 - Do not duplicate project status text from `README.md` into this file.
 - Do not introduce user-specific absolute filesystem paths in docs or code comments.
   Prefer workspace-relative paths or environment variables.
+- Always plan and implement new code using Hexagonal Architecture (Ports & Adapters).
 - Keep top-level runtime flows linear and readable; separate business actions into named helpers.
 - Avoid mixing unrelated concerns in one block; use clear naming and spacing.
-- Follow KISS/DRY/SOLID at component and function level.
+- Follow SOLID principles at component and function level.
+- Follow KISS/DRY at component and function level.
 - Tests must fail fast on missing config (no silent skips).
 - Treat config as required where applicable; avoid implicit defaults for critical runtime/test inputs.
 - Centralize env loading in typed config modules; avoid scattered `process.env` reads.
