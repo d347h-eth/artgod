@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -8,14 +9,8 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
 
-type ResolveApiRequest = (method: string, url: URL, dependencies: any) => {
-    statusCode: number;
-    payload: any;
-};
-
 let dbPath = "";
-let resolveApiRequest: ResolveApiRequest;
-let dependencies: any;
+let app: FastifyInstance | null = null;
 
 beforeAll(async () => {
     dbPath = path.join(os.tmpdir(), `artgod-backend-api-${Date.now()}.sqlite`);
@@ -26,19 +21,20 @@ beforeAll(async () => {
     await migrationRunner.runMigrations();
     seedData();
 
-    const backendModule = await import("./index.js");
+    const backendModule = await import("./http-app.js");
     const readModels = await import("@artgod/shared/read-models");
 
-    resolveApiRequest = backendModule.resolveApiRequest as ResolveApiRequest;
-    dependencies = {
+    app = backendModule.createApiApp({
         defaultChainId: 1,
         chainsReadModel: new readModels.SqliteChainsReadModel(),
         collectionsReadModel: new readModels.SqliteCollectionsReadModel(),
-    };
+    });
+    await app.ready();
 });
 
 afterAll(async () => {
     await Promise.all([
+        app?.close(),
         fs.rm(dbPath, { force: true }),
         fs.rm(`${dbPath}-shm`, { force: true }),
         fs.rm(`${dbPath}-wal`, { force: true }),
@@ -46,21 +42,21 @@ afterAll(async () => {
 });
 
 describe("backend api routes", () => {
-    it("returns the default chain", () => {
-        const result = resolve("GET", "/api/chains/default");
+    it("returns the default chain", async () => {
+        const result = await resolve("GET", "/api/chains/default");
         expect(result.statusCode).toBe(200);
         expect(result.payload.chain.publicChainId).toBe(1);
         expect(result.payload.chain.slug).toBe("ethereum");
     });
 
-    it("lists collections with cursor pagination", () => {
-        const first = resolve("GET", "/api/ethereum/collections?limit=1");
+    it("lists collections with cursor pagination", async () => {
+        const first = await resolve("GET", "/api/ethereum/collections?limit=1");
         expect(first.statusCode).toBe(200);
         expect(first.payload.page.items).toHaveLength(1);
         expect(first.payload.page.items[0].slug).toBe("milady");
         expect(first.payload.page.nextCursor).toEqual(expect.any(String));
 
-        const second = resolve(
+        const second = await resolve(
             "GET",
             `/api/ethereum/collections?limit=1&cursor=${encodeURIComponent(first.payload.page.nextCursor)}`,
         );
@@ -69,8 +65,8 @@ describe("backend api routes", () => {
         expect(second.payload.page.items[0].address).toBe(TERRAFORMS_ADDRESS);
     });
 
-    it("filters collections by status", () => {
-        const result = resolve(
+    it("filters collections by status", async () => {
+        const result = await resolve(
             "GET",
             "/api/1/collections?status=bootstrapping&limit=10",
         );
@@ -79,8 +75,8 @@ describe("backend api routes", () => {
         expect(result.payload.page.items[0].address).toBe(TERRAFORMS_ADDRESS);
     });
 
-    it("returns collection detail with facets and paged tokens", () => {
-        const result = resolve("GET", "/api/ethereum/milady?limit=2");
+    it("returns collection detail with facets and paged tokens", async () => {
+        const result = await resolve("GET", "/api/ethereum/milady?limit=2");
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.address).toBe(MILADY_ADDRESS);
         expect(result.payload.tokens.items).toHaveLength(2);
@@ -99,13 +95,13 @@ describe("backend api routes", () => {
         );
     });
 
-    it("supports backward paging with prevCursor", () => {
-        const first = resolve("GET", "/api/ethereum/milady?limit=1");
-        const second = resolve(
+    it("supports backward paging with prevCursor", async () => {
+        const first = await resolve("GET", "/api/ethereum/milady?limit=1");
+        const second = await resolve(
             "GET",
             `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(first.payload.tokens.nextCursor)}`,
         );
-        const third = resolve(
+        const third = await resolve(
             "GET",
             `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(second.payload.tokens.nextCursor)}`,
         );
@@ -113,15 +109,15 @@ describe("backend api routes", () => {
         expect(second.payload.tokens.prevCursor).toBeNull();
         expect(third.payload.tokens.prevCursor).toEqual(expect.any(String));
 
-        const previousOfThird = resolve(
+        const previousOfThird = await resolve(
             "GET",
             `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(third.payload.tokens.prevCursor)}`,
         );
         expect(previousOfThird.payload.tokens.items[0].tokenId).toBe("2");
     });
 
-    it("applies AND semantics across different trait keys", () => {
-        const result = resolve(
+    it("applies AND semantics across different trait keys", async () => {
+        const result = await resolve(
             "GET",
             "/api/1/milady?traits=Hat:Beanie,Mood:Calm&limit=10",
         );
@@ -131,8 +127,8 @@ describe("backend api routes", () => {
         ).toEqual(["1"]);
     });
 
-    it("applies OR semantics for values within the same trait key", () => {
-        const result = resolve(
+    it("applies OR semantics for values within the same trait key", async () => {
+        const result = await resolve(
             "GET",
             "/api/1/milady?traits=Hat:Beanie,Hat:Cap&limit=10",
         );
@@ -142,18 +138,28 @@ describe("backend api routes", () => {
         ).toEqual(["1", "2", "10"]);
     });
 
-    it("resolves collection by address", () => {
-        const result = resolve("GET", `/api/ethereum/${MILADY_ADDRESS}?limit=10`);
+    it("resolves collection by address", async () => {
+        const result = await resolve("GET", `/api/ethereum/${MILADY_ADDRESS}?limit=10`);
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.slug).toBe("milady");
     });
 });
 
-function resolve(method: string, pathWithQuery: string): {
+async function resolve(method: string, pathWithQuery: string): Promise<{
     statusCode: number;
     payload: any;
-} {
-    return resolveApiRequest(method, new URL(pathWithQuery, "http://localhost"), dependencies);
+}> {
+    if (!app) {
+        throw new Error("Fastify app is not initialized");
+    }
+    const response = await app.inject({
+        method,
+        url: pathWithQuery,
+    });
+    return {
+        statusCode: response.statusCode,
+        payload: response.body ? response.json() : null,
+    };
 }
 
 function seedData(): void {
