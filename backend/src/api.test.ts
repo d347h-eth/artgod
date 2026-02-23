@@ -21,14 +21,37 @@ beforeAll(async () => {
     await migrationRunner.runMigrations();
     seedData();
 
-    const backendModule = await import("./http-app.js");
+    const appModule = await import("./http-app.js");
+    const chainsUseCaseModule =
+        await import("./application/use-cases/chains/get-default-chain.js");
+    const listCollectionsUseCaseModule =
+        await import("./application/use-cases/collections/list-collections.js");
+    const collectionDetailUseCaseModule =
+        await import("./application/use-cases/collections/get-collection-detail.js");
     const readModels = await import("@artgod/shared/read-models");
 
-    app = backendModule.createApiApp({
-        defaultChainId: 1,
-        chainsReadModel: new readModels.SqliteChainsReadModel(),
-        collectionsReadModel: new readModels.SqliteCollectionsReadModel(),
-    });
+    const chainsReadModel = new readModels.SqliteChainsReadModel();
+    const collectionsReadModel = new readModels.SqliteCollectionsReadModel();
+    const getDefaultChainUseCase =
+        new chainsUseCaseModule.GetDefaultChainUseCase(1, chainsReadModel);
+    const listCollectionsUseCase =
+        new listCollectionsUseCaseModule.ListCollectionsUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+        );
+    const getCollectionDetailUseCase =
+        new collectionDetailUseCaseModule.GetCollectionDetailUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+        );
+
+    app = appModule.createApiApp(
+        getDefaultChainUseCase,
+        listCollectionsUseCase,
+        getCollectionDetailUseCase,
+    );
     await app.ready();
 });
 
@@ -123,7 +146,9 @@ describe("backend api routes", () => {
         );
         expect(result.statusCode).toBe(200);
         expect(
-            result.payload.tokens.items.map((token: { tokenId: string }) => token.tokenId),
+            result.payload.tokens.items.map(
+                (token: { tokenId: string }) => token.tokenId,
+            ),
         ).toEqual(["1"]);
     });
 
@@ -134,18 +159,26 @@ describe("backend api routes", () => {
         );
         expect(result.statusCode).toBe(200);
         expect(
-            result.payload.tokens.items.map((token: { tokenId: string }) => token.tokenId),
+            result.payload.tokens.items.map(
+                (token: { tokenId: string }) => token.tokenId,
+            ),
         ).toEqual(["1", "2", "10"]);
     });
 
     it("resolves collection by address", async () => {
-        const result = await resolve("GET", `/api/ethereum/${MILADY_ADDRESS}?limit=10`);
+        const result = await resolve(
+            "GET",
+            `/api/ethereum/${MILADY_ADDRESS}?limit=10`,
+        );
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.slug).toBe("milady");
     });
 });
 
-async function resolve(method: string, pathWithQuery: string): Promise<{
+async function resolve(
+    method: string,
+    pathWithQuery: string,
+): Promise<{
     statusCode: number;
     payload: any;
 }> {
@@ -300,9 +333,9 @@ function insertAttributeKey(key: string): number {
     ).run(1, MILADY_ADDRESS, key);
 
     const row = db
-        .prepare<[number, string, string]>(
-            "SELECT id FROM attribute_keys WHERE chain_id = ? AND contract_address = ? AND key = ?",
-        )
+        .prepare<
+            [number, string, string]
+        >("SELECT id FROM attribute_keys WHERE chain_id = ? AND contract_address = ? AND key = ?")
         .get(1, MILADY_ADDRESS, key) as { id: number } | undefined;
     if (!row) throw new Error(`Missing attribute key: ${key}`);
     return row.id;
@@ -314,9 +347,9 @@ function insertAttribute(attributeKeyId: number, value: string): number {
     ).run(1, MILADY_ADDRESS, attributeKeyId, value);
 
     const row = db
-        .prepare<[number, string, number, string]>(
-            "SELECT id FROM attributes WHERE chain_id = ? AND contract_address = ? AND attribute_key_id = ? AND value = ?",
-        )
+        .prepare<
+            [number, string, number, string]
+        >("SELECT id FROM attributes WHERE chain_id = ? AND contract_address = ? AND attribute_key_id = ? AND value = ?")
         .get(1, MILADY_ADDRESS, attributeKeyId, value) as
         | { id: number }
         | undefined;

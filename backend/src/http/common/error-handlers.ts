@@ -4,7 +4,7 @@ import {
     ReadModelNotFoundError,
 } from "@artgod/shared/read-models/errors";
 import { logger } from "@artgod/shared/utils";
-import { toErrorMessage } from "../utils/error-message.js";
+import { toErrorMessage } from "../../utils/error-message.js";
 
 export function registerApiErrorHandlers(app: FastifyInstance): void {
     app.setNotFoundHandler((_request, reply) => {

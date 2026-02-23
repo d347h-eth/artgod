@@ -7,13 +7,12 @@ import {
     SqliteCollectionsReadModel,
 } from "@artgod/shared/read-models";
 import { logger } from "@artgod/shared/utils";
+import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
+import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
+import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
-import type { ChainsReadPort, CollectionsReadPort } from "./ports/read-models.js";
-import {
-    createApiApp,
-    type ApiRouteDependencies,
-} from "./http-app.js";
+import { createApiApp } from "./http-app.js";
 
 export async function startBackendServer(
     config: BackendConfig,
@@ -31,21 +30,28 @@ export async function startBackendServer(
 }
 
 export function createBackendApp(defaultChainId: number): FastifyInstance {
-    return createApiApp(buildApiRouteDependencies(defaultChainId));
-}
-
-export function buildApiRouteDependencies(
-    defaultChainId: number,
-): ApiRouteDependencies {
-    const chainsReadModel: ChainsReadPort = new SqliteChainsReadModel();
-    const collectionsReadModel: CollectionsReadPort =
-        new SqliteCollectionsReadModel();
-
-    return {
+    const chainsReadModel = new SqliteChainsReadModel();
+    const collectionsReadModel = new SqliteCollectionsReadModel();
+    const getDefaultChainUseCase = new GetDefaultChainUseCase(
+        defaultChainId,
+        chainsReadModel,
+    );
+    const listCollectionsUseCase = new ListCollectionsUseCase(
         defaultChainId,
         chainsReadModel,
         collectionsReadModel,
-    };
+    );
+    const getCollectionDetailUseCase = new GetCollectionDetailUseCase(
+        defaultChainId,
+        chainsReadModel,
+        collectionsReadModel,
+    );
+
+    return createApiApp(
+        getDefaultChainUseCase,
+        listCollectionsUseCase,
+        getCollectionDetailUseCase,
+    );
 }
 
 async function main() {
