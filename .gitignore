@@ -25,3 +25,5 @@ tmp/
 
 .env*
 !.env*.example
+
+**/.wrangler/cache
