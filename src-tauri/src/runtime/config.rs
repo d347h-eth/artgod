@@ -273,18 +273,18 @@ fn resolve_runtime_resources_dir(
         candidates.push(resolve_from_base_dir(&resource_dir, raw_runtime_subdir));
     }
 
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(exe_dir) = current_exe.parent() {
-            candidates.push(resolve_from_base_dir(exe_dir, raw_runtime_subdir));
-            candidates.push(resolve_from_base_dir(
-                exe_dir,
-                &format!("resources/{raw_runtime_subdir}"),
-            ));
-            candidates.push(resolve_from_base_dir(
-                exe_dir,
-                &format!("../Resources/{raw_runtime_subdir}"),
-            ));
-        }
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(exe_dir) = current_exe.parent()
+    {
+        candidates.push(resolve_from_base_dir(exe_dir, raw_runtime_subdir));
+        candidates.push(resolve_from_base_dir(
+            exe_dir,
+            &format!("resources/{raw_runtime_subdir}"),
+        ));
+        candidates.push(resolve_from_base_dir(
+            exe_dir,
+            &format!("../Resources/{raw_runtime_subdir}"),
+        ));
     }
 
     let mut seen = HashSet::<String>::new();
@@ -338,7 +338,7 @@ fn resolve_nats_binary_path(runtime_dir: &Path, raw_override: Option<&str>) -> P
 }
 
 fn build_default_env_template() -> String {
-    format!(concat!(
+    concat!(
         "# ArtGod desktop runtime env\n",
         "# Generated on first start. This file is the single config source for\n",
         "# desktop-managed backend/indexer processes.\n\n",
@@ -375,5 +375,6 @@ fn build_default_env_template() -> String {
         "REORG_DEPTH=32\n",
         "BACKFILL_BATCH_SIZE=50\n",
         "LOG_CHUNK_SIZE=2000\n"
-    ),)
+    )
+    .to_string()
 }

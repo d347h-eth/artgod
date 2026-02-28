@@ -1,0 +1,111 @@
+name: Tauri Reproducibility Check
+
+on:
+    push:
+        tags:
+            - "v*"
+    workflow_dispatch:
+
+jobs:
+    linux-unsigned-parity:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24.3.0
+
+            - name: Enable Corepack
+              run: corepack enable
+
+            - name: Cache Yarn local artifacts
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      .yarn/cache
+                      .yarn/unplugged
+                      .cache/desktop-node-runtime
+                      .cache/desktop-nats-runtime
+                  key: ${{ runner.os }}-yarn-local-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-local-
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  toolchain: 1.93.1
+                  targets: x86_64-unknown-linux-gnu
+
+            - name: Install Linux build dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                      libwebkit2gtk-4.1-dev \
+                      libgtk-3-dev \
+                      libayatana-appindicator3-dev \
+                      librsvg2-dev
+
+            - name: Install workspace dependencies
+              env:
+                  YARN_ENABLE_SCRIPTS: true
+              run: yarn install --immutable
+
+            - name: Check desktop runtime registry consistency
+              run: yarn check:runtime-registry
+
+            - name: Build unsigned binary (pass A)
+              shell: bash
+              env:
+                  DESKTOP_NODE_DIST_TARGET: linux-x64
+                  DESKTOP_NATS_DIST_TARGET: linux-x64
+              run: |
+                  set -euo pipefail
+                  yarn clean:build
+                  yarn tauri build --ci --target x86_64-unknown-linux-gnu --no-bundle
+
+                  BIN_PATH="src-tauri/target/x86_64-unknown-linux-gnu/release/artgod-desktop"
+                  if [ ! -f "$BIN_PATH" ]; then
+                    echo "Expected binary not found at $BIN_PATH"
+                    exit 1
+                  fi
+
+                  mkdir -p repro-output
+                  sha256sum "$BIN_PATH" > repro-output/manifest-a.txt
+                  cp "$BIN_PATH" repro-output/artgod-desktop-a
+
+            - name: Build unsigned binary (pass B)
+              shell: bash
+              env:
+                  DESKTOP_NODE_DIST_TARGET: linux-x64
+                  DESKTOP_NATS_DIST_TARGET: linux-x64
+              run: |
+                  set -euo pipefail
+                  yarn clean:build
+                  yarn tauri build --ci --target x86_64-unknown-linux-gnu --no-bundle
+
+                  BIN_PATH="src-tauri/target/x86_64-unknown-linux-gnu/release/artgod-desktop"
+                  if [ ! -f "$BIN_PATH" ]; then
+                    echo "Expected binary not found at $BIN_PATH"
+                    exit 1
+                  fi
+
+                  sha256sum "$BIN_PATH" > repro-output/manifest-b.txt
+                  cp "$BIN_PATH" repro-output/artgod-desktop-b
+
+            - name: Compare unsigned build manifests
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  diff -u repro-output/manifest-a.txt repro-output/manifest-b.txt
+
+            - name: Upload reproducibility manifests
+              uses: actions/upload-artifact@v4
+              with:
+                  name: tauri-repro-linux-x64
+                  path: |
+                      repro-output/manifest-a.txt
+                      repro-output/manifest-b.txt

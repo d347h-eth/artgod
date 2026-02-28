@@ -196,9 +196,9 @@ During Tauri build these artifacts are copied to `src-tauri/resources/runtime/..
 
 Desktop config is generated on first app launch in app-data:
 
-- Linux: `~/.local/share/io.artgod.desktop/config/.env`
-- macOS: `~/Library/Application Support/io.artgod.desktop/config/.env`
-- Windows: `%APPDATA%\io.artgod.desktop\config\.env`
+- Linux: `~/.local/share/network.artgod.desktop/config/.env`
+- macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
+- Windows: `%APPDATA%\network.artgod.desktop\config\.env`
 
 Desktop-specific required keys:
 
@@ -325,6 +325,7 @@ Tauri commands used by the drawer:
 Public release workflow:
 
 - `.github/workflows/tauri-release.yml`
+- `.github/workflows/tauri-repro-check.yml` (unsigned Linux reproducibility parity check)
 
 Trigger:
 
@@ -340,11 +341,44 @@ Outputs:
 
 - bundle artifacts uploaded to GitHub Release
 - `SHA256SUMS.txt`
+- `SHA256SUMS.txt.asc`
+- Linux detached signatures (`*.AppImage.asc`, `*.deb.asc`)
 - build provenance attestation
 
 Current state:
 
-- release is unsigned (no code signing/notarization yet)
+- Linux artifacts are GPG-signed (detached armor signatures).
+- macOS DMG is code-signed, notarized, and stapled in CI.
+- Windows NSIS/installer artifacts are Authenticode-signed in CI.
+
+Release secrets expected by CI:
+
+- Linux GPG:
+    - `LINUX_GPG_PRIVATE_KEY_ASC`
+    - `LINUX_GPG_PASSPHRASE`
+    - `LINUX_GPG_KEY_ID`
+    - optional: `LINUX_GPG_OWNERTRUST`
+- macOS:
+    - `APPLE_CERTIFICATE` (base64 `.p12`)
+    - `APPLE_CERTIFICATE_PASSWORD`
+    - `APPLE_SIGNING_IDENTITY`
+    - `APPLE_API_KEY` (base64 `.p8`)
+    - `APPLE_API_KEY_ID`
+    - `APPLE_API_ISSUER`
+- Windows:
+    - `WINDOWS_CERT_PFX_B64`
+    - `WINDOWS_CERT_PASSWORD`
+    - optional: `WINDOWS_CERT_SHA1`
+    - optional: `WINDOWS_TIMESTAMP_URL`
+
+Consumer-side verification examples:
+
+- Linux checksum + checksums signature:
+    - `gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt`
+    - `sha256sum -c SHA256SUMS.txt`
+- Linux detached artifact signature:
+    - `gpg --verify ArtGod-x.y.z.AppImage.asc ArtGod-x.y.z.AppImage`
+    - `gpg --verify ArtGod-x.y.z.deb.asc ArtGod-x.y.z.deb`
 
 ## Troubleshooting
 

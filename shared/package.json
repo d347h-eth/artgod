@@ -1,6 +1,6 @@
 {
     "name": "@artgod/shared",
-    "version": "0.0.1",
+    "version": "0.0.1-alpha",
     "private": true,
     "type": "module",
     "main": "./types/index.ts",

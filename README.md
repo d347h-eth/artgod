@@ -52,9 +52,9 @@ yarn clean:build
 
 Desktop runtime env file is generated on first launch at:
 
-- Linux: `~/.local/share/io.artgod.desktop/config/.env`
-- macOS: `~/Library/Application Support/io.artgod.desktop/config/.env`
-- Windows: `%APPDATA%\\io.artgod.desktop\\config\\.env`
+- Linux: `~/.local/share/network.artgod.desktop/config/.env`
+- macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
+- Windows: `%APPDATA%\\network.artgod.desktop\\config\\.env`
 
 Desktop-first path defaults:
 
@@ -106,20 +106,13 @@ yarn workspace @artgod/indexer run dev:dead-letter-worker
 
 Desktop release artifacts are built publicly in GitHub Actions.
 
-- Workflow: `.github/workflows/tauri-release.yml`
-- Trigger: push semver-like tag `v*` (for example `v0.1.0`)
-- Targets:
-    - Linux x64 (`x86_64-unknown-linux-gnu`)
-    - Windows x64 (`x86_64-pc-windows-msvc`)
-    - macOS universal (`universal-apple-darwin`)
-- Outputs:
-    - platform bundle artifacts uploaded to the GitHub Release
-    - `SHA256SUMS.txt` with checksums for all uploaded artifacts
-    - GitHub build provenance attestation for release assets
+- Main release workflow: `.github/workflows/tauri-release.yml`
+- Reproducibility workflow: `.github/workflows/tauri-repro-check.yml` (unsigned Linux parity)
+- Trigger: push tag `v*` (for example `v0.1.0`)
+- Targets: Linux x64, Windows x64, macOS universal
+- Outputs: signed release bundles, `SHA256SUMS.txt`, `SHA256SUMS.txt.asc`, Linux detached signatures, and GitHub build provenance attestation
 
-Current release pipeline is unsigned (code signing/notarization is a follow-up phase).
-
-Detailed desktop build/runtime reference:
+For all desktop release details (signing/notarization setup, required secrets, verification commands, and CI flow), see:
 
 - `docs/desktop/01-tauri-build-and-runtime.md`
 
@@ -146,9 +139,9 @@ Desktop executable lifecycle (first pass):
 
 If your desktop config file was generated before runtime-artifact keys were added, either update it manually or delete it to regenerate:
 
-- Linux: `~/.local/share/io.artgod.desktop/config/.env`
-- macOS: `~/Library/Application Support/io.artgod.desktop/config/.env`
-- Windows: `%APPDATA%\\io.artgod.desktop\\config\\.env`
+- Linux: `~/.local/share/network.artgod.desktop/config/.env`
+- macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
+- Windows: `%APPDATA%\\network.artgod.desktop\\config\\.env`
 
 Trigger collection bootstrap (`metadata-mode` defaults to `strict`):
 

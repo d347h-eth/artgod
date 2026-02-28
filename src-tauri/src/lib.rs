@@ -259,7 +259,7 @@ pub fn run() {
                 if let Err(error) = state.runtime.stop(window.app_handle().clone()) {
                     log::error!("Desktop runtime shutdown on close failed: {error}");
                     append_desktop_log(
-                        &window.app_handle(),
+                        window.app_handle(),
                         "error",
                         &format!("Desktop runtime shutdown on close failed: {error}"),
                     );
@@ -288,7 +288,7 @@ pub fn run() {
             if let Err(error) = state.runtime.stop(app_handle.clone()) {
                 log::error!("Desktop runtime shutdown on exit failed: {error}");
                 append_desktop_log(
-                    &app_handle,
+                    app_handle,
                     "error",
                     &format!("Desktop runtime shutdown on exit failed: {error}"),
                 );
@@ -359,7 +359,10 @@ fn collect_logs_tail(logs_dir: &Path, limit: usize) -> Result<Vec<RuntimeLogLine
             .unwrap_or_else(|| "unknown".to_owned());
         let tail = read_file_tail_lines(&path, limit);
         for line in tail {
-            result.push(RuntimeLogLine { process: process.clone(), line });
+            result.push(RuntimeLogLine {
+                process: process.clone(),
+                line,
+            });
         }
     }
     Ok(result)
