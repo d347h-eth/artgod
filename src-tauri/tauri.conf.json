@@ -7,7 +7,7 @@
         "frontendDist": "../frontend/dist",
         "devUrl": "http://localhost:5173",
         "beforeDevCommand": "yarn workspace @artgod/frontend run dev",
-        "beforeBuildCommand": "yarn build:desktop"
+        "beforeBuildCommand": "yarn build:desktop && yarn build:runtime"
     },
     "app": {
         "windows": [

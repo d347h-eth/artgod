@@ -16,19 +16,43 @@ const BACKEND_PROCESS_NAME: &str = "backend";
 const NATS_PROCESS_NAME: &str = "nats";
 const STARTUP_PORT_TIMEOUT: Duration = Duration::from_secs(30);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(5);
+const PROCESS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
+const BACKEND_ARTIFACT: &str = "backend/dist-desktop/server.mjs";
 const INDEXER_WORKERS: &[(&str, &str)] = &[
-    ("indexer-scheduler-worker", "dev:scheduler-worker"),
-    ("indexer-sync-worker", "dev:sync-worker"),
-    ("indexer-reorg-worker", "dev:reorg-worker"),
-    ("indexer-domain-worker", "dev:domain-worker"),
+    (
+        "indexer-scheduler-worker",
+        "indexer/dist-desktop/scheduler-worker.mjs",
+    ),
+    (
+        "indexer-sync-worker",
+        "indexer/dist-desktop/sync-worker.mjs",
+    ),
+    (
+        "indexer-reorg-worker",
+        "indexer/dist-desktop/reorg-worker.mjs",
+    ),
+    (
+        "indexer-domain-worker",
+        "indexer/dist-desktop/domain-worker.mjs",
+    ),
     (
         "indexer-offchain-ingest-worker",
-        "dev:offchain-ingest-worker",
+        "indexer/dist-desktop/offchain-ingest-worker.mjs",
     ),
-    ("indexer-opensea-stream-worker", "dev:opensea-stream-worker"),
-    ("indexer-bootstrap-worker", "dev:bootstrap-worker"),
-    ("indexer-dead-letter-worker", "dev:dead-letter-worker"),
+    (
+        "indexer-opensea-stream-worker",
+        "indexer/dist-desktop/opensea-stream-worker.mjs",
+    ),
+    (
+        "indexer-bootstrap-worker",
+        "indexer/dist-desktop/bootstrap-worker.mjs",
+    ),
+    (
+        "indexer-dead-letter-worker",
+        "indexer/dist-desktop/dead-letter-worker.mjs",
+    ),
 ];
 
 #[derive(Clone, Serialize)]
@@ -311,17 +335,41 @@ fn spawn_runtime_processes(
 ) -> Result<Vec<ManagedProcess>, String> {
     let mut processes = Vec::<ManagedProcess>::new();
 
-    let nats_process = spawn_nats_process(app, config)?;
+    let nats_process = match spawn_nats_process(app, config) {
+        Ok(process) => process,
+        Err(error) => {
+            stop_all_processes(&mut processes);
+            return Err(error);
+        }
+    };
     processes.push(nats_process);
-    wait_for_port(config.nats_port, STARTUP_PORT_TIMEOUT, "NATS")?;
+    if let Err(error) = wait_for_port(config.nats_port, STARTUP_PORT_TIMEOUT, "NATS") {
+        stop_all_processes(&mut processes);
+        return Err(error);
+    }
 
     let backend_process =
-        spawn_yarn_process(app, config, BACKEND_PROCESS_NAME, "@artgod/backend", "dev")?;
+        match spawn_node_process(app, config, BACKEND_PROCESS_NAME, BACKEND_ARTIFACT) {
+            Ok(process) => process,
+            Err(error) => {
+                stop_all_processes(&mut processes);
+                return Err(error);
+            }
+        };
     processes.push(backend_process);
-    wait_for_port(config.backend_port, STARTUP_PORT_TIMEOUT, "Backend API")?;
+    if let Err(error) = wait_for_port(config.backend_port, STARTUP_PORT_TIMEOUT, "Backend API") {
+        stop_all_processes(&mut processes);
+        return Err(error);
+    }
 
-    for (name, script) in INDEXER_WORKERS {
-        let process = spawn_yarn_process(app, config, name, "@artgod/indexer", script)?;
+    for (name, artifact) in INDEXER_WORKERS {
+        let process = match spawn_node_process(app, config, name, artifact) {
+            Ok(process) => process,
+            Err(error) => {
+                stop_all_processes(&mut processes);
+                return Err(error);
+            }
+        };
         processes.push(process);
     }
 
@@ -340,7 +388,7 @@ fn spawn_nats_process(
                 "--rm".to_owned(),
                 "--pull=missing".to_owned(),
                 "--name".to_owned(),
-                container_name,
+                container_name.clone(),
                 "-p".to_owned(),
                 format!("{}:4222", config.nats_port),
                 image.clone(),
@@ -353,6 +401,10 @@ fn spawn_nats_process(
                     name: NATS_PROCESS_NAME.to_owned(),
                     command: docker_bin.clone(),
                     args,
+                    cleanup: Some(ProcessCleanupSpec {
+                        command: docker_bin.clone(),
+                        args: vec!["rm".to_owned(), "-f".to_owned(), container_name.clone()],
+                    }),
                 },
             )
         }
@@ -369,31 +421,41 @@ fn spawn_nats_process(
                     name: NATS_PROCESS_NAME.to_owned(),
                     command: binary_path.to_string_lossy().into_owned(),
                     args,
+                    cleanup: None,
                 },
             )
         }
     }
 }
 
-fn spawn_yarn_process(
+fn spawn_node_process(
     app: &AppHandle,
     config: &DesktopRuntimeConfig,
     process_name: &str,
-    workspace: &str,
-    script: &str,
+    artifact_relative_path: &str,
 ) -> Result<ManagedProcess, String> {
+    let artifact_path = config.runtime_dir.join(artifact_relative_path);
+    if !artifact_path.exists() {
+        return Err(format!(
+            "Runtime artifact missing for {process_name}: {}. Build runtime artifacts with `yarn build:runtime`.",
+            artifact_path.display()
+        ));
+    }
+
     spawn_process(
         app,
         config,
         ProcessSpec {
             name: process_name.to_owned(),
-            command: config.yarn_bin.clone(),
+            command: config.node_bin.clone(),
             args: vec![
-                "workspace".to_owned(),
-                workspace.to_owned(),
-                "run".to_owned(),
-                script.to_owned(),
+                "--require".to_owned(),
+                config.pnp_cjs_path.to_string_lossy().into_owned(),
+                "--experimental-loader".to_owned(),
+                config.pnp_loader_path.to_string_lossy().into_owned(),
+                artifact_path.to_string_lossy().into_owned(),
             ],
+            cleanup: None,
         },
     )
 }
@@ -402,12 +464,19 @@ struct ProcessSpec {
     name: String,
     command: String,
     args: Vec<String>,
+    cleanup: Option<ProcessCleanupSpec>,
+}
+
+struct ProcessCleanupSpec {
+    command: String,
+    args: Vec<String>,
 }
 
 struct ManagedProcess {
     name: String,
     child: Child,
     output_threads: Vec<JoinHandle<()>>,
+    cleanup: Option<ProcessCleanupSpec>,
 }
 
 fn spawn_process(
@@ -459,6 +528,7 @@ fn spawn_process(
         name: spec.name,
         child,
         output_threads,
+        cleanup: spec.cleanup,
     })
 }
 
@@ -554,13 +624,66 @@ fn monitor_processes(processes: &mut [ManagedProcess], stop_rx: &Receiver<()>) -
 
 fn stop_all_processes(processes: &mut [ManagedProcess]) {
     for process in processes.iter_mut() {
-        let _ = process.child.kill();
-        let _ = process.child.wait();
+        request_process_stop(&mut process.child);
+    }
+
+    for process in processes.iter_mut() {
+        wait_for_process_exit_or_kill(&mut process.child, PROCESS_STOP_GRACE_PERIOD);
     }
     for process in processes.iter_mut() {
         for thread in process.output_threads.drain(..) {
             let _ = thread.join();
         }
+    }
+    for process in processes.iter_mut() {
+        if let Some(cleanup) = process.cleanup.as_ref() {
+            let _ = Command::new(&cleanup.command)
+                .args(&cleanup.args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+}
+
+fn request_process_stop(child: &mut Child) {
+    if child.try_wait().ok().flatten().is_some() {
+        return;
+    }
+
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .arg("-TERM")
+            .arg(child.id().to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
+}
+
+fn wait_for_process_exit_or_kill(child: &mut Child, grace_period: Duration) {
+    let deadline = Instant::now() + grace_period;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => {}
+            Err(_) => return,
+        }
+
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return;
+        }
+
+        thread::sleep(PROCESS_STOP_POLL_INTERVAL);
     }
 }
 

@@ -11,8 +11,9 @@ node_modules/
 
 # TypeScript build artifacts
 *.tsbuildinfo
-build/
-dist/
+frontend/dist/
+dist-desktop/
+**/dist-desktop/
 
 # vitest cache
 .vitest

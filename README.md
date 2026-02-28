@@ -15,6 +15,7 @@ Current implementation snapshot:
 - Domain projections for orders, metadata, and activities are implemented.
 - Offchain ingestion exists with an OpenSea stream fixture replay path and normalization pipeline.
 - Local observability stack is available (logs, metrics, traces, profiles).
+- Tauri desktop runtime supervisor composes local NATS + backend + indexer workers from production runtime artifacts.
 
 Canonical backlog and priorities live in `docs/progress/indexer/15-unified-backlog.md`.
 
@@ -37,11 +38,13 @@ Local desktop build (no bundle):
 yarn tauri build --debug --no-bundle --ci
 ```
 
-Frontend build targets:
+Build helper commands:
 
 ```sh
 yarn build:web
 yarn build:desktop
+yarn build:runtime
+yarn clean:build
 ```
 
 Desktop runtime env file is generated on first launch at:
@@ -108,12 +111,34 @@ Desktop release artifacts are built publicly in GitHub Actions.
 
 Current release pipeline is unsigned (code signing/notarization is a follow-up phase).
 
+Detailed desktop build/runtime reference:
+
+- `docs/desktop/01-tauri-build-and-runtime.md`
+
+Build helper commands:
+
+```sh
+yarn build:web                 # frontend web build only
+yarn build:desktop             # frontend desktop-target build (exports frontend/dist for Tauri)
+yarn build:runtime             # backend/indexer Node runtime artifacts
+yarn clean:build               # clears dist and build caches across all workspaces
+yarn tauri build --no-bundle --ci
+yarn tauri build --debug --no-bundle --ci
+```
+
 Desktop executable lifecycle (first pass):
 
 1. Tauri creates/loads app-data desktop env config.
 2. Tauri starts local NATS (docker or binary mode, explicit in desktop env).
-3. Tauri starts backend + all indexer workers as child processes.
+3. Tauri starts backend + all indexer workers from production runtime artifacts (`backend/dist-desktop/*.mjs`, `indexer/dist-desktop/*.mjs`) using Node + Yarn PnP hooks.
 4. Any core process exit triggers fail-fast full stack restart.
+5. App close and exit requests trigger runtime stop with graceful process termination first, then forced kill fallback.
+
+If your desktop config file was generated before runtime-artifact keys were added, either update it manually or delete it to regenerate:
+
+- Linux: `~/.local/share/io.artgod.desktop/config/.env`
+- macOS: `~/Library/Application Support/io.artgod.desktop/config/.env`
+- Windows: `%APPDATA%\\io.artgod.desktop\\config\\.env`
 
 Trigger collection bootstrap (`metadata-mode` defaults to `strict`):
 
@@ -248,6 +273,8 @@ Reference docs:
 Use these as primary references for design and implementation details:
 
 - `docs/indexer/00-overview.md` through `docs/indexer/14-collection-bootstrap.md`
+- `docs/desktop/01-tauri-build-and-runtime.md`
+- `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/diagrams/architecture.mmd`
 - `docs/progress/indexer/15-unified-backlog.md`
 - `docs/ui/01-interaction-guidelines.md`
@@ -263,4 +290,9 @@ yarn dev
 yarn workspace @artgod/backend run dev
 yarn workspace @artgod/frontend run dev
 yarn workspace @artgod/indexer run dev
+yarn build:web
+yarn build:desktop
+yarn build:runtime
+yarn clean:build
+yarn tauri build --no-bundle --ci
 ```

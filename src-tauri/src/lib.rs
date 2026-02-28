@@ -34,7 +34,7 @@ fn runtime_get_config_path(state: State<'_, DesktopState>) -> Result<String, Str
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(DesktopState {
             runtime: RuntimeManager::new(),
         })
@@ -54,6 +54,14 @@ pub fn run() {
 
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let state = window.state::<DesktopState>();
+                if let Err(error) = state.runtime.stop(window.app_handle().clone()) {
+                    log::error!("Desktop runtime shutdown on close failed: {error}");
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             runtime_start,
             runtime_stop,
@@ -61,6 +69,15 @@ pub fn run() {
             runtime_get_endpoints,
             runtime_get_config_path
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            let state = app_handle.state::<DesktopState>();
+            if let Err(error) = state.runtime.stop(app_handle.clone()) {
+                log::error!("Desktop runtime shutdown on exit failed: {error}");
+            }
+        }
+    });
 }

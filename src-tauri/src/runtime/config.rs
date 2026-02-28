@@ -12,7 +12,10 @@ pub enum NatsMode {
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
     pub workspace_root: PathBuf,
-    pub yarn_bin: String,
+    pub node_bin: String,
+    pub runtime_dir: PathBuf,
+    pub pnp_cjs_path: PathBuf,
+    pub pnp_loader_path: PathBuf,
     pub nats_mode: NatsMode,
     pub nats_port: u16,
     pub backend_port: u16,
@@ -68,7 +71,37 @@ impl DesktopRuntimeConfig {
             ));
         }
 
-        let yarn_bin = get_required(&process_env, "DESKTOP_YARN_BIN")?.to_owned();
+        let node_bin = get_required(&process_env, "DESKTOP_NODE_BIN")?.to_owned();
+        let runtime_dir = resolve_from_workspace(
+            &workspace_root,
+            get_required(&process_env, "DESKTOP_RUNTIME_DIR")?,
+        );
+        if !runtime_dir.exists() {
+            return Err(format!(
+                "DESKTOP_RUNTIME_DIR does not exist: {}. Build runtime artifacts first with `yarn build:runtime`.",
+                runtime_dir.display()
+            ));
+        }
+        let pnp_cjs_path = resolve_from_workspace(
+            &workspace_root,
+            get_required(&process_env, "DESKTOP_NODE_PNP_CJS")?,
+        );
+        if !pnp_cjs_path.exists() {
+            return Err(format!(
+                "DESKTOP_NODE_PNP_CJS does not exist: {}",
+                pnp_cjs_path.display()
+            ));
+        }
+        let pnp_loader_path = resolve_from_workspace(
+            &workspace_root,
+            get_required(&process_env, "DESKTOP_NODE_PNP_LOADER")?,
+        );
+        if !pnp_loader_path.exists() {
+            return Err(format!(
+                "DESKTOP_NODE_PNP_LOADER does not exist: {}",
+                pnp_loader_path.display()
+            ));
+        }
         let nats_port = parse_port(get_required(&process_env, "DESKTOP_NATS_PORT")?)?;
         let backend_port = parse_port(get_required(&process_env, "BACKEND_PORT")?)?;
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
@@ -117,7 +150,10 @@ impl DesktopRuntimeConfig {
         Ok(Self {
             env_file_path,
             workspace_root,
-            yarn_bin,
+            node_bin,
+            runtime_dir,
+            pnp_cjs_path,
+            pnp_loader_path,
             nats_mode,
             nats_port,
             backend_port,
@@ -213,6 +249,14 @@ fn parse_bool(raw: &str) -> Result<bool, String> {
     }
 }
 
+fn resolve_from_workspace(workspace_root: &Path, raw_path: &str) -> PathBuf {
+    let raw = PathBuf::from(raw_path);
+    if raw.is_absolute() {
+        return raw;
+    }
+    workspace_root.join(raw)
+}
+
 fn build_default_env_template() -> String {
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -225,7 +269,10 @@ fn build_default_env_template() -> String {
             "# Generated on first start. This file is the single config source for\n",
             "# desktop-managed backend/indexer processes.\n\n",
             "DESKTOP_WORKSPACE_ROOT={workspace_root}\n",
-            "DESKTOP_YARN_BIN=yarn\n",
+            "DESKTOP_NODE_BIN=node\n",
+            "DESKTOP_RUNTIME_DIR=.\n",
+            "DESKTOP_NODE_PNP_CJS=.pnp.cjs\n",
+            "DESKTOP_NODE_PNP_LOADER=.pnp.loader.mjs\n",
             "DESKTOP_AUTO_START=true\n",
             "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
             "# NATS launcher mode: docker or binary\n",

@@ -9,6 +9,7 @@
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
+        "better-sqlite3": "^v12.2.0",
         "dotenv": "^16.4.5",
         "fastify": "^5.6.1"
     },
