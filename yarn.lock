@@ -3230,6 +3230,8 @@ __metadata:
   dependenciesMeta:
     better-sqlite3:
       built: true
+    better-sqlite3@12.5.0:
+      unplugged: true
     esbuild:
       built: true
   languageName: unknown

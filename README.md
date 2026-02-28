@@ -35,6 +35,7 @@ cargo tauri dev
 Local desktop build (no bundle):
 
 ```sh
+yarn install --immutable
 yarn tauri build --debug --no-bundle --ci
 ```
 
@@ -44,6 +45,7 @@ Build helper commands:
 yarn build:web
 yarn build:desktop
 yarn build:runtime
+yarn build:desktop-runtime-resources
 yarn check:runtime-registry
 yarn clean:build
 ```
@@ -122,6 +124,7 @@ Build helper commands:
 yarn build:web                 # frontend web build only
 yarn build:desktop             # frontend desktop-target build (exports frontend/dist for Tauri)
 yarn build:runtime             # backend/indexer Node runtime artifacts
+yarn build:desktop-runtime-resources # copies runtime artifacts + Yarn runtime deps (.yarn/cache, .yarn/unplugged, .yarn/install-state.gz) + PnP hooks
 yarn check:runtime-registry    # validates runtime list consistency across build/supervisor/dev/observability
 yarn clean:build               # clears dist and build caches across all workspaces
 yarn tauri build --no-bundle --ci
@@ -132,7 +135,7 @@ Desktop executable lifecycle (first pass):
 
 1. Tauri creates/loads app-data desktop env config.
 2. Tauri starts local NATS (docker or binary mode, explicit in desktop env).
-3. Tauri starts backend + all indexer workers from production runtime artifacts (`backend/dist-desktop/*.mjs`, `indexer/dist-desktop/*.mjs`) using Node + Yarn PnP hooks.
+3. Tauri starts backend + all indexer workers from bundled app resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using Node + Yarn PnP hooks.
 4. Any core process exit triggers fail-fast full stack restart.
 5. App close and exit requests trigger runtime stop with graceful process termination first, then forced kill fallback.
 
@@ -295,6 +298,7 @@ yarn workspace @artgod/indexer run dev
 yarn build:web
 yarn build:desktop
 yarn build:runtime
+yarn build:desktop-runtime-resources
 yarn check:runtime-registry
 yarn clean:build
 yarn tauri build --no-bundle --ci

@@ -191,8 +191,10 @@ async function main() {
     const errors = [];
 
     const runtimeWorkers = await parseBuildArtifacts();
-    const { processNames: supervisorProcessNames, artifactNames: supervisorWorkers } =
-        await parseSupervisorWorkers();
+    const {
+        processNames: supervisorProcessNames,
+        artifactNames: supervisorWorkers,
+    } = await parseSupervisorWorkers();
     const devScriptWorkers = await parseIndexerDevScripts();
     const {
         processNames: devLauncherProcessNames,
@@ -296,7 +298,9 @@ async function main() {
     });
     assertNoMissingEntries({
         source: ".env.example metrics env vars",
-        expected: new Set([...runtimeWorkers].map((name) => toMetricsEnvVar(name))),
+        expected: new Set(
+            [...runtimeWorkers].map((name) => toMetricsEnvVar(name)),
+        ),
         actual: metricsEnvVars,
         errors,
     });

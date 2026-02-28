@@ -6,6 +6,10 @@ import { fileURLToPath } from "url";
  * @returns The absolute path to the project root directory
  */
 export function getProjectRoot(): string {
+    const overriddenRoot = process.env.ARTGOD_WORKSPACE_ROOT?.trim();
+    if (overriddenRoot) {
+        return resolve(overriddenRoot);
+    }
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
     // Go up two levels from shared/utils to reach project root

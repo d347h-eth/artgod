@@ -1,5 +1,9 @@
 mod runtime;
 
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use runtime::{RuntimeEndpoints, RuntimeManager, RuntimeStatus};
 use tauri::{AppHandle, Manager, State};
 
@@ -48,8 +52,16 @@ pub fn run() {
             }
 
             let state = app.state::<DesktopState>();
+            append_desktop_log(app.handle(), "info", "Desktop app setup started");
             if let Err(error) = state.runtime.auto_start(app.handle().clone()) {
                 log::error!("Desktop runtime auto-start failed: {error}");
+                append_desktop_log(
+                    app.handle(),
+                    "error",
+                    &format!("Desktop runtime auto-start failed: {error}"),
+                );
+            } else {
+                append_desktop_log(app.handle(), "info", "Desktop runtime auto-start finished");
             }
 
             Ok(())
@@ -59,6 +71,11 @@ pub fn run() {
                 let state = window.state::<DesktopState>();
                 if let Err(error) = state.runtime.stop(window.app_handle().clone()) {
                     log::error!("Desktop runtime shutdown on close failed: {error}");
+                    append_desktop_log(
+                        &window.app_handle(),
+                        "error",
+                        &format!("Desktop runtime shutdown on close failed: {error}"),
+                    );
                 }
             }
         })
@@ -77,7 +94,33 @@ pub fn run() {
             let state = app_handle.state::<DesktopState>();
             if let Err(error) = state.runtime.stop(app_handle.clone()) {
                 log::error!("Desktop runtime shutdown on exit failed: {error}");
+                append_desktop_log(
+                    &app_handle,
+                    "error",
+                    &format!("Desktop runtime shutdown on exit failed: {error}"),
+                );
             }
         }
     });
+}
+
+fn append_desktop_log(app: &AppHandle, level: &str, message: &str) {
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(path) => path,
+        Err(_) => return,
+    };
+    let logs_dir = app_data_dir.join("logs");
+    if fs::create_dir_all(&logs_dir).is_err() {
+        return;
+    }
+    let file_path = logs_dir.join("desktop-app.log");
+    let mut file = match OpenOptions::new().create(true).append(true).open(file_path) {
+        Ok(file) => file,
+        Err(_) => return,
+    };
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let _ = writeln!(file, "[{}] [{}] {}", timestamp, level, message);
 }

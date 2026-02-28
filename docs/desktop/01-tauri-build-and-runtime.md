@@ -30,9 +30,11 @@ The desktop shell does not replace backend/indexer logic. It orchestrates existi
 Root build/helper commands:
 
 ```sh
+yarn install --immutable
 yarn build:web
 yarn build:desktop
 yarn build:runtime
+yarn build:desktop-runtime-resources
 yarn check:runtime-registry
 yarn clean:build
 yarn tauri build --no-bundle --ci
@@ -42,36 +44,46 @@ yarn tauri build --debug --no-bundle --ci
 What each command does:
 
 - `yarn build:web`
-: Runs `scripts/build/build-frontend-target.mjs web`.
-: Produces standard frontend artifacts for web flow.
+  : Runs `scripts/build/build-frontend-target.mjs web`.
+  : Produces standard frontend artifacts for web flow.
 
 - `yarn build:desktop`
-: Runs `scripts/build/build-frontend-target.mjs desktop`.
-: Builds frontend, then exports desktop static `frontend/dist` via `export-tauri-frontend.mjs`.
+  : Runs `scripts/build/build-frontend-target.mjs desktop`.
+  : Builds frontend, then exports desktop static `frontend/dist` via `export-tauri-frontend.mjs`.
 
 - `yarn build:runtime`
-: Runs `scripts/build/build-runtime-artifacts.mjs`.
-: Produces backend/indexer runtime artifacts under workspace-local `dist-desktop` folders.
+  : Runs `scripts/build/build-runtime-artifacts.mjs`.
+  : Produces backend/indexer runtime artifacts under workspace-local `dist-desktop` folders.
+
+- `yarn build:desktop-runtime-resources`
+  : Runs `scripts/build/prepare-desktop-runtime-resources.mjs`.
+  : Copies runtime artifacts plus Yarn runtime dependency data into `src-tauri/resources/runtime` for bundling:
+    - `.yarn/cache`
+    - `.yarn/unplugged`
+    - `.yarn/install-state.gz`
+    - `.pnp.cjs`
+    - `.pnp.loader.mjs`
 
 - `yarn check:runtime-registry`
-: Runs `scripts/build/check-runtime-registry.mjs`.
-: Verifies runtime registry consistency across desktop build maps, supervisor mappings, dev launchers, and observability/metrics mappings.
+  : Runs `scripts/build/check-runtime-registry.mjs`.
+  : Verifies runtime registry consistency across desktop build maps, supervisor mappings, dev launchers, and observability/metrics mappings.
 
 - `yarn clean:build`
-: Runs `scripts/build/clean-build-artifacts.mjs`.
-: Removes dist and cache outputs across workspaces (`dist*`, `.vite`, `.vitest`, `.svelte-kit`, `src-tauri/target`).
+  : Runs `scripts/build/clean-build-artifacts.mjs`.
+  : Removes dist and cache outputs across workspaces (`dist*`, `.vite`, `.vitest`, `.svelte-kit`, `src-tauri/target`, `src-tauri/resources/runtime`).
 
 ## Tauri Build Hooking
 
 `src-tauri/tauri.conf.json` contains:
 
-- `beforeBuildCommand = "yarn build:desktop && yarn build:runtime"`
+- `beforeBuildCommand = "yarn build:desktop && yarn build:runtime && yarn build:desktop-runtime-resources"`
 - `frontendDist = "../frontend/dist"`
 
 This ensures `yarn tauri build ...` always has:
 
 1. desktop frontend static output
 2. backend/indexer runtime `.mjs` artifacts
+3. staged runtime resources under `src-tauri/resources/runtime`
 
 before Rust bundling starts.
 
@@ -118,6 +130,21 @@ Current build strategy details:
 - Node `require` shim banner is injected for CJS dependencies bundled into ESM output
 - explicit `tsconfigRaw` is provided so runtime build does not depend on frontend `.svelte-kit` TS config state
 
+### `scripts/build/prepare-desktop-runtime-resources.mjs`
+
+Responsibilities:
+
+- stages runtime resources for Tauri bundling under `src-tauri/resources/runtime`
+- copies:
+    - `backend/dist-desktop/*`
+    - `indexer/dist-desktop/*`
+    - `.yarn/cache/*`
+    - `.yarn/unplugged/*`
+    - `.yarn/install-state.gz`
+    - `.pnp.cjs`
+    - `.pnp.loader.mjs`
+    - `indexer/tests/fixtures/opensea-event-payloads/*`
+
 ### `scripts/build/clean-build-artifacts.mjs`
 
 Responsibilities:
@@ -153,7 +180,7 @@ Produced runtime artifacts:
 - `indexer/dist-desktop/opensea-stream-worker.mjs`
 - `indexer/dist-desktop/dead-letter-worker.mjs`
 
-These are what the desktop supervisor launches in production desktop mode.
+During Tauri build these artifacts are copied to `src-tauri/resources/runtime/...` and that staged tree is bundled into the desktop app resources.
 
 ## Desktop Runtime Config File
 
@@ -165,15 +192,17 @@ Desktop config is generated on first app launch in app-data:
 
 Desktop-specific required keys:
 
-- `DESKTOP_WORKSPACE_ROOT`
 - `DESKTOP_NODE_BIN`
-- `DESKTOP_RUNTIME_DIR`
-- `DESKTOP_NODE_PNP_CJS`
-- `DESKTOP_NODE_PNP_LOADER`
 - `DESKTOP_NATS_MODE` (`docker` or `binary`)
 - `DESKTOP_NATS_PORT`
 - `DESKTOP_AUTO_START`
 - `DESKTOP_RESTART_BACKOFF_MS`
+
+Desktop-specific optional overrides:
+
+- `DESKTOP_RUNTIME_RESOURCES_DIR` (default `runtime`, resolved from app resource dir)
+- `DESKTOP_NODE_PNP_CJS` (default `.pnp.cjs`, resolved from runtime resources dir)
+- `DESKTOP_NODE_PNP_LOADER` (default `.pnp.loader.mjs`, resolved from runtime resources dir)
 
 Core runtime keys are also validated (for backend/indexer startup), for example:
 
@@ -186,6 +215,7 @@ Important:
 
 - if this file was generated before new desktop runtime keys were introduced, regenerate or update it manually
 - desktop runtime sets `ARTGOD_ENV_FILE` for child processes, so backend/indexer read this desktop config path explicitly
+- runtime artifact paths are resolved from bundled app resources, not from a workspace root path
 
 ## Supervisor Runtime Composition
 
@@ -289,13 +319,13 @@ Current state:
 Common issues and checks:
 
 - Runtime artifacts missing
-: Run `yarn build:runtime`.
+  : Run `yarn install --immutable && yarn build:runtime && yarn build:desktop-runtime-resources`.
 
 - Stale dist/cache state
-: Run `yarn clean:build`.
+  : Run `yarn clean:build`.
 
 - Desktop config key errors on startup
-: Check desktop app-data `.env` and required `DESKTOP_*` keys.
+  : Check desktop app-data `.env` and required `DESKTOP_*` keys.
 
 - Port already in use after abrupt stop
-: Current supervisor includes graceful stop + forced cleanup; if interrupted externally, verify no stale container/process remains before restart.
+  : Current supervisor includes graceful stop + forced cleanup; if interrupted externally, verify no stale container/process remains before restart.

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,7 +11,6 @@ pub enum NatsMode {
 
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
-    pub workspace_root: PathBuf,
     pub node_bin: String,
     pub runtime_dir: PathBuf,
     pub pnp_cjs_path: PathBuf,
@@ -63,28 +62,20 @@ impl DesktopRuntimeConfig {
 
         let process_env = parse_env_file(&env_file_path)?;
 
-        let workspace_root = PathBuf::from(get_required(&process_env, "DESKTOP_WORKSPACE_ROOT")?);
-        if !workspace_root.exists() {
-            return Err(format!(
-                "DESKTOP_WORKSPACE_ROOT does not exist: {}",
-                workspace_root.display()
-            ));
-        }
-
         let node_bin = get_required(&process_env, "DESKTOP_NODE_BIN")?.to_owned();
-        let runtime_dir = resolve_from_workspace(
-            &workspace_root,
-            get_required(&process_env, "DESKTOP_RUNTIME_DIR")?,
-        );
-        if !runtime_dir.exists() {
-            return Err(format!(
-                "DESKTOP_RUNTIME_DIR does not exist: {}. Build runtime artifacts first with `yarn build:runtime`.",
-                runtime_dir.display()
-            ));
-        }
-        let pnp_cjs_path = resolve_from_workspace(
-            &workspace_root,
-            get_required(&process_env, "DESKTOP_NODE_PNP_CJS")?,
+        let runtime_dir = resolve_runtime_resources_dir(
+            app,
+            process_env
+                .get("DESKTOP_RUNTIME_RESOURCES_DIR")
+                .map(String::as_str)
+                .unwrap_or("runtime"),
+        )?;
+        let pnp_cjs_path = resolve_from_base_dir(
+            &runtime_dir,
+            process_env
+                .get("DESKTOP_NODE_PNP_CJS")
+                .map(String::as_str)
+                .unwrap_or(".pnp.cjs"),
         );
         if !pnp_cjs_path.exists() {
             return Err(format!(
@@ -92,9 +83,12 @@ impl DesktopRuntimeConfig {
                 pnp_cjs_path.display()
             ));
         }
-        let pnp_loader_path = resolve_from_workspace(
-            &workspace_root,
-            get_required(&process_env, "DESKTOP_NODE_PNP_LOADER")?,
+        let pnp_loader_path = resolve_from_base_dir(
+            &runtime_dir,
+            process_env
+                .get("DESKTOP_NODE_PNP_LOADER")
+                .map(String::as_str)
+                .unwrap_or(".pnp.loader.mjs"),
         );
         if !pnp_loader_path.exists() {
             return Err(format!(
@@ -136,10 +130,31 @@ impl DesktopRuntimeConfig {
             }
         };
 
+        let db_path = resolve_from_base_dir(
+            &app_data_dir,
+            get_required(&process_env, "ARTGOD_DB_PATH")?,
+        );
+        if let Some(parent_dir) = db_path.parent() {
+            fs::create_dir_all(parent_dir).map_err(|error| {
+                format!(
+                    "Failed to create desktop DB directory {}: {error}",
+                    parent_dir.display()
+                )
+            })?;
+        }
+
         let mut merged_env = process_env.clone();
         merged_env.insert(
             "ARTGOD_ENV_FILE".to_owned(),
             env_file_path.to_string_lossy().into_owned(),
+        );
+        merged_env.insert(
+            "ARTGOD_WORKSPACE_ROOT".to_owned(),
+            runtime_dir.to_string_lossy().into_owned(),
+        );
+        merged_env.insert(
+            "ARTGOD_DB_PATH".to_owned(),
+            db_path.to_string_lossy().into_owned(),
         );
         merged_env.insert(
             "NATS_URL".to_owned(),
@@ -149,7 +164,6 @@ impl DesktopRuntimeConfig {
 
         Ok(Self {
             env_file_path,
-            workspace_root,
             node_bin,
             runtime_dir,
             pnp_cjs_path,
@@ -249,61 +263,95 @@ fn parse_bool(raw: &str) -> Result<bool, String> {
     }
 }
 
-fn resolve_from_workspace(workspace_root: &Path, raw_path: &str) -> PathBuf {
+fn resolve_from_base_dir(base_dir: &Path, raw_path: &str) -> PathBuf {
     let raw = PathBuf::from(raw_path);
     if raw.is_absolute() {
         return raw;
     }
-    workspace_root.join(raw)
+    base_dir.join(raw)
+}
+
+fn resolve_runtime_resources_dir(app: &AppHandle, raw_runtime_subdir: &str) -> Result<PathBuf, String> {
+    let mut candidates = Vec::<PathBuf>::new();
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resolve_from_base_dir(&resource_dir, raw_runtime_subdir));
+    }
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            candidates.push(resolve_from_base_dir(exe_dir, raw_runtime_subdir));
+            candidates.push(resolve_from_base_dir(
+                exe_dir,
+                &format!("resources/{raw_runtime_subdir}"),
+            ));
+            candidates.push(resolve_from_base_dir(
+                exe_dir,
+                &format!("../Resources/{raw_runtime_subdir}"),
+            ));
+        }
+    }
+
+    let mut seen = HashSet::<String>::new();
+    candidates.retain(|path| seen.insert(path.to_string_lossy().to_string()));
+
+    for candidate in &candidates {
+        if candidate.exists() {
+            return Ok(candidate.to_path_buf());
+        }
+    }
+
+    let checked = if candidates.is_empty() {
+        "none".to_owned()
+    } else {
+        candidates
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    Err(format!(
+        "DESKTOP runtime resources directory not found. Checked: {checked}. Build runtime resources with `yarn build:runtime && yarn build:desktop-runtime-resources`.",
+    ))
 }
 
 fn build_default_env_template() -> String {
-    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-
-    format!(
-        concat!(
-            "# ArtGod desktop runtime env\n",
-            "# Generated on first start. This file is the single config source for\n",
-            "# desktop-managed backend/indexer processes.\n\n",
-            "DESKTOP_WORKSPACE_ROOT={workspace_root}\n",
-            "DESKTOP_NODE_BIN=node\n",
-            "DESKTOP_RUNTIME_DIR=.\n",
-            "DESKTOP_NODE_PNP_CJS=.pnp.cjs\n",
-            "DESKTOP_NODE_PNP_LOADER=.pnp.loader.mjs\n",
-            "DESKTOP_AUTO_START=true\n",
-            "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
-            "# NATS launcher mode: docker or binary\n",
-            "DESKTOP_NATS_MODE=docker\n",
-            "DESKTOP_NATS_PORT=4222\n",
-            "DESKTOP_NATS_DOCKER_BIN=docker\n",
-            "DESKTOP_NATS_IMAGE=nats:2.10.17\n",
-            "# DESKTOP_NATS_BINARY_PATH=/absolute/path/to/nats-server\n\n",
-            "# Backend\n",
-            "BACKEND_PORT=3000\n\n",
-            "# Indexer core runtime\n",
-            "ARTGOD_DB_PATH=database/sqlite/main/db\n",
-            "CHAIN_ID=1\n",
-            "RPC_URL=http://127.0.0.1:8545\n",
-            "WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\n",
-            "SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63\n",
-            "NATS_STREAM_PREFIX=artgod\n",
-            "OPENSEA_STREAM_MODE=fixtures\n",
-            "OPENSEA_FIXTURES_DIR=indexer/tests/fixtures/opensea-event-payloads\n",
-            "OPENSEA_FIXTURE_DELAY_MS=0\n",
-            "METRICS_ENABLED=false\n",
-            "APM_ENABLED=false\n",
-            "METADATA_REFRESH_RANGE_CHUNK_SIZE=200\n",
-            "BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200\n",
-            "BOOTSTRAP_METADATA_BATCH_SIZE=200\n",
-            "BOOTSTRAP_METADATA_CONCURRENCY=8\n",
-            "BOOTSTRAP_METADATA_PROCESS_POLL_MS=5000\n",
-            "REORG_DEPTH=32\n",
-            "BACKFILL_BATCH_SIZE=50\n",
-            "LOG_CHUNK_SIZE=2000\n"
-        ),
-        workspace_root = workspace_root.display(),
-    )
+    format!(concat!(
+        "# ArtGod desktop runtime env\n",
+        "# Generated on first start. This file is the single config source for\n",
+        "# desktop-managed backend/indexer processes.\n\n",
+        "DESKTOP_NODE_BIN=node\n",
+        "DESKTOP_RUNTIME_RESOURCES_DIR=runtime\n",
+        "DESKTOP_AUTO_START=true\n",
+        "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
+        "# NATS launcher mode: docker or binary\n",
+        "DESKTOP_NATS_MODE=docker\n",
+        "DESKTOP_NATS_PORT=4222\n",
+        "DESKTOP_NATS_DOCKER_BIN=docker\n",
+        "DESKTOP_NATS_IMAGE=nats:2.10.17\n",
+        "# DESKTOP_NATS_BINARY_PATH=/absolute/path/to/nats-server\n\n",
+        "# Backend\n",
+        "BACKEND_PORT=3000\n\n",
+        "# Indexer core runtime\n",
+        "ARTGOD_DB_PATH=database/sqlite/main/db\n",
+        "CHAIN_ID=1\n",
+        "RPC_URL=http://127.0.0.1:8545\n",
+        "WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\n",
+        "SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63\n",
+        "NATS_STREAM_PREFIX=artgod\n",
+        "OPENSEA_STREAM_MODE=fixtures\n",
+        "OPENSEA_FIXTURES_DIR=indexer/tests/fixtures/opensea-event-payloads\n",
+        "OPENSEA_FIXTURE_DELAY_MS=0\n",
+        "METRICS_ENABLED=false\n",
+        "APM_ENABLED=false\n",
+        "METADATA_REFRESH_RANGE_CHUNK_SIZE=200\n",
+        "BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200\n",
+        "BOOTSTRAP_METADATA_BATCH_SIZE=200\n",
+        "BOOTSTRAP_METADATA_CONCURRENCY=8\n",
+        "BOOTSTRAP_METADATA_PROCESS_POLL_MS=5000\n",
+        "REORG_DEPTH=32\n",
+        "BACKFILL_BATCH_SIZE=50\n",
+        "LOG_CHUNK_SIZE=2000\n"
+    ),)
 }

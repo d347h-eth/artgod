@@ -4,6 +4,11 @@ type DesktopEndpoints = {
 	backendHttpBaseUrl: string;
 };
 
+type RuntimeStatus = {
+	state: string;
+	lastError: string | null;
+};
+
 type TauriInternals = {
 	invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 };
@@ -43,10 +48,17 @@ async function resolveDesktopOrDefault(): Promise<string> {
 		if (normalized) {
 			return normalized;
 		}
-	} catch {
-		// Ignore Tauri bridge failures and keep frontend usable in browser mode.
+		throw new Error('runtime_get_endpoints returned empty backendHttpBaseUrl');
+	} catch (cause) {
+		const runtimeStatus = await tauriInternals
+			.invoke<RuntimeStatus>('runtime_status')
+			.catch(() => null);
+		const runtimeError = runtimeStatus?.lastError?.trim();
+		if (runtimeError) {
+			throw new Error(`Desktop runtime unavailable: ${runtimeError}`);
+		}
+		throw new Error(`Desktop runtime unavailable: ${toErrorMessage(cause)}`);
 	}
-	return DEFAULT_BACKEND_ORIGIN;
 }
 
 function getTauriInternals(): TauriInternals | null {
@@ -61,4 +73,14 @@ function getTauriInternals(): TauriInternals | null {
 	return {
 		invoke: invokeFn.bind(maybeTauriWindow.__TAURI_INTERNALS__)
 	};
+}
+
+function toErrorMessage(value: unknown): string {
+	if (value instanceof Error && value.message.trim()) {
+		return value.message;
+	}
+	if (typeof value === 'string' && value.trim()) {
+		return value;
+	}
+	return 'unknown Tauri bridge error';
 }

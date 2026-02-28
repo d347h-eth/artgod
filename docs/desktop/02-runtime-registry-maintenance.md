@@ -50,9 +50,10 @@ File:
 
 What is explicit here:
 
-- `beforeBuildCommand = "yarn build:desktop && yarn build:runtime"`
+- `beforeBuildCommand = "yarn build:desktop && yarn build:runtime && yarn build:desktop-runtime-resources"`
 
-This must continue to include `build:runtime` so runtime artifacts are present before desktop packaging.
+This must continue to include runtime resource staging so artifacts are present in bundled resources before desktop packaging.
+Staging must include both runtime artifacts and Yarn runtime dependency data (`.yarn/cache`, `.yarn/unplugged`, `.yarn/install-state.gz`, `.pnp.cjs`, `.pnp.loader.mjs`).
 
 ### 4) Root Build Command Wiring
 
@@ -63,6 +64,7 @@ File:
 What is explicit here:
 
 - `build:runtime`
+- `build:desktop-runtime-resources`
 - `clean:build`
 
 These commands are the stable interface used by Tauri build and developers.
@@ -113,37 +115,42 @@ These are not runtime code, but should be updated in the same PR to prevent oper
 When adding a new indexer runtime (example `foo-worker`):
 
 1. Add runtime entrypoint.
-: Create `indexer/src/runtime/foo-worker.ts` with explicit `worker` identity for metrics/APM.
+   : Create `indexer/src/runtime/foo-worker.ts` with explicit `worker` identity for metrics/APM.
 
 2. Add dev script.
-: Add `dev:foo-worker` in `indexer/package.json`.
+   : Add `dev:foo-worker` in `indexer/package.json`.
 
 3. Add artifact build entrypoint.
-: Add `foo-worker` in `scripts/build/build-runtime-artifacts.mjs` `entryPoints`.
+   : Add `foo-worker` in `scripts/build/build-runtime-artifacts.mjs` `entryPoints`.
 
-4. Add supervisor launch mapping.
-: Add `("indexer-foo-worker", "indexer/dist-desktop/foo-worker.mjs")` in `INDEXER_WORKERS`.
+4. Ensure runtime resource staging includes the new artifact.
+   : Validate `scripts/build/prepare-desktop-runtime-resources.mjs` copies `indexer/dist-desktop/*` (all workers are included by directory copy) and keeps Yarn runtime dependency data bundled (`.yarn/cache`, `.yarn/unplugged`, `.yarn/install-state.gz`, `.pnp.cjs`, `.pnp.loader.mjs`).
 
-5. Add dev launcher wiring (optional but expected).
-: Add `start_worker "indexer-foo-worker" "dev:foo-worker"` in `scripts/indexer-dev.sh`.
+5. Add supervisor launch mapping.
+   : Add `("indexer-foo-worker", "indexer/dist-desktop/foo-worker.mjs")` in `INDEXER_WORKERS`.
 
-6. Wire metrics config.
-: Add `metrics.ports.fooWorker` in `indexer/src/config/index.ts`.
-: Add env var parse and default port.
+6. Add dev launcher wiring (optional but expected).
+   : Add `start_worker "indexer-foo-worker" "dev:foo-worker"` in `scripts/indexer-dev.sh`.
 
-7. Wire observability scrape target.
-: Add target in `observability/prometheus/prometheus.yml` with `runtime: "foo-worker"` label.
+7. Wire metrics config.
+   : Add `metrics.ports.fooWorker` in `indexer/src/config/index.ts`.
+   : Add env var parse and default port.
 
-8. Sync docs.
-: Update runtime lists/commands in `README.md`.
-: Update topology in `docs/indexer/00-overview.md`.
-: Update metrics ports in `docs/indexer/10-observability-and-metrics.md`.
+8. Wire observability scrape target.
+   : Add target in `observability/prometheus/prometheus.yml` with `runtime: "foo-worker"` label.
 
-9. Verify.
-: `yarn build:runtime`
-: `yarn tauri build --no-bundle --ci`
-: Start desktop app and confirm process appears in runtime state/logs.
-: `up{job="artgod-indexer",runtime="foo-worker"}` in Prometheus/Grafana.
+9. Sync docs.
+   : Update runtime lists/commands in `README.md`.
+   : Update topology in `docs/indexer/00-overview.md`.
+   : Update metrics ports in `docs/indexer/10-observability-and-metrics.md`.
+
+10. Verify.
+    : `yarn install --immutable`
+    : `yarn build:runtime`
+    : `yarn build:desktop-runtime-resources`
+    : `yarn tauri build --no-bundle --ci`
+    : Start desktop app and confirm process appears in runtime state/logs.
+    : `up{job="artgod-indexer",runtime="foo-worker"}` in Prometheus/Grafana.
 
 ## Remove Runtime Checklist
 
@@ -153,11 +160,12 @@ When removing a runtime:
 2. Remove `dev:*` script (`indexer/package.json`).
 3. Remove dev launcher entry (`scripts/indexer-dev.sh`).
 4. Remove artifact entrypoint (`scripts/build/build-runtime-artifacts.mjs`).
-5. Remove supervisor mapping (`INDEXER_WORKERS`).
-6. Remove metrics port mapping and env var references.
-7. Remove Prometheus scrape target.
-8. Update README and indexer docs runtime lists.
-9. Verify no stale references via grep.
+5. Keep runtime resource staging aligned (`scripts/build/prepare-desktop-runtime-resources.mjs` copies `indexer/dist-desktop/*`).
+6. Remove supervisor mapping (`INDEXER_WORKERS`).
+7. Remove metrics port mapping and env var references.
+8. Remove Prometheus scrape target.
+9. Update README and indexer docs runtime lists.
+10. Verify no stale references via grep.
 
 ## Quick Drift Audit Commands
 

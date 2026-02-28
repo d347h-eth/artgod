@@ -5,7 +5,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -14,6 +14,7 @@ use crate::runtime::config::{DesktopRuntimeConfig, NatsMode};
 
 const BACKEND_PROCESS_NAME: &str = "backend";
 const NATS_PROCESS_NAME: &str = "nats";
+const SUPERVISOR_PROCESS_NAME: &str = "desktop-supervisor";
 const STARTUP_PORT_TIMEOUT: Duration = Duration::from_secs(30);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(5);
@@ -101,7 +102,17 @@ impl RuntimeManager {
     }
 
     pub fn auto_start(&self, app: AppHandle) -> Result<(), String> {
-        let config = DesktopRuntimeConfig::load_or_create(&app)?;
+        let config = match DesktopRuntimeConfig::load_or_create(&app) {
+            Ok(config) => config,
+            Err(error) => {
+                self.update_status(&app, |status| {
+                    status.state = "stopped".to_owned();
+                    status.last_error = Some(error.clone());
+                    status.running_processes.clear();
+                });
+                return Err(error);
+            }
+        };
         self.update_status(&app, |status| {
             status.backend_http_base_url = config.backend_http_base_url();
             status.nats_url = config.nats_url();
@@ -119,7 +130,17 @@ impl RuntimeManager {
     }
 
     pub fn start(&self, app: AppHandle) -> Result<RuntimeStatus, String> {
-        let config = DesktopRuntimeConfig::load_or_create(&app)?;
+        let config = match DesktopRuntimeConfig::load_or_create(&app) {
+            Ok(config) => config,
+            Err(error) => {
+                self.update_status(&app, |status| {
+                    status.state = "stopped".to_owned();
+                    status.last_error = Some(error.clone());
+                    status.running_processes.clear();
+                });
+                return Err(error);
+            }
+        };
         self.start_with_config(app, config)
     }
 
@@ -238,6 +259,16 @@ fn run_supervisor_loop(
     stop_rx: Receiver<()>,
 ) {
     let mut restart_count: u32 = 0;
+    emit_supervisor_log(
+        &app,
+        &config.logs_dir,
+        "info",
+        &format!(
+            "Runtime supervisor started (runtime_dir={}, logs_dir={})",
+            config.runtime_dir.display(),
+            config.logs_dir.display()
+        ),
+    );
 
     loop {
         update_status(&status_ref, &app, |status| {
@@ -255,6 +286,12 @@ fn run_supervisor_loop(
             Ok(processes) => processes,
             Err(error) => {
                 restart_count = restart_count.saturating_add(1);
+                emit_supervisor_log(
+                    &app,
+                    &config.logs_dir,
+                    "error",
+                    &format!("Runtime startup failed: {error}"),
+                );
                 update_status(&status_ref, &app, |status| {
                     status.state = "restarting".to_owned();
                     status.restart_count = restart_count;
@@ -262,6 +299,12 @@ fn run_supervisor_loop(
                     status.running_processes.clear();
                 });
                 if stop_requested(&stop_rx) {
+                    emit_supervisor_log(
+                        &app,
+                        &config.logs_dir,
+                        "info",
+                        "Stop requested during startup retry; supervisor stopping",
+                    );
                     update_status(&status_ref, &app, |status| {
                         status.state = "stopped".to_owned();
                         status.running_processes.clear();
@@ -283,9 +326,21 @@ fn run_supervisor_loop(
             status.last_error = None;
             status.running_processes = running_names;
         });
+        emit_supervisor_log(
+            &app,
+            &config.logs_dir,
+            "info",
+            "Runtime processes are running",
+        );
 
         match monitor_processes(&mut processes, &stop_rx) {
             MonitorOutcome::StoppedByRequest => {
+                emit_supervisor_log(
+                    &app,
+                    &config.logs_dir,
+                    "info",
+                    "Stop requested; shutting down all runtime processes",
+                );
                 stop_all_processes(&mut processes);
                 update_status(&status_ref, &app, |status| {
                     status.state = "stopped".to_owned();
@@ -295,6 +350,7 @@ fn run_supervisor_loop(
             }
             MonitorOutcome::ProcessExited { process, status } => {
                 let error = format!("Process {process} exited unexpectedly: {status}");
+                emit_supervisor_log(&app, &config.logs_dir, "error", &error);
                 stop_all_processes(&mut processes);
                 restart_count = restart_count.saturating_add(1);
                 update_status(&status_ref, &app, |status_ref| {
@@ -307,6 +363,7 @@ fn run_supervisor_loop(
             }
             MonitorOutcome::ProcessFailure { process, error } => {
                 let details = format!("Process {process} monitor failure: {error}");
+                emit_supervisor_log(&app, &config.logs_dir, "error", &details);
                 stop_all_processes(&mut processes);
                 restart_count = restart_count.saturating_add(1);
                 update_status(&status_ref, &app, |status_ref| {
@@ -437,7 +494,7 @@ fn spawn_node_process(
     let artifact_path = config.runtime_dir.join(artifact_relative_path);
     if !artifact_path.exists() {
         return Err(format!(
-            "Runtime artifact missing for {process_name}: {}. Build runtime artifacts with `yarn build:runtime`.",
+            "Runtime artifact missing for {process_name}: {}. Build runtime resources with `yarn build:runtime && yarn build:desktop-runtime-resources`.",
             artifact_path.display()
         ));
     }
@@ -484,10 +541,18 @@ fn spawn_process(
     config: &DesktopRuntimeConfig,
     spec: ProcessSpec,
 ) -> Result<ManagedProcess, String> {
+    let command_line = format!("{} {}", spec.command, spec.args.join(" "));
+    emit_supervisor_log(
+        app,
+        &config.logs_dir,
+        "info",
+        &format!("Spawning process {} with command: {command_line}", spec.name),
+    );
+
     let mut command = Command::new(&spec.command);
     command
         .args(&spec.args)
-        .current_dir(&config.workspace_root)
+        .current_dir(&config.runtime_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -496,13 +561,21 @@ fn spawn_process(
     }
 
     let mut child = command.spawn().map_err(|error| {
-        format!(
+        let message = format!(
             "Failed to spawn process {} via {} {}: {error}",
             spec.name,
             spec.command,
             spec.args.join(" ")
-        )
+        );
+        emit_supervisor_log(app, &config.logs_dir, "error", &message);
+        message
     })?;
+    emit_supervisor_log(
+        app,
+        &config.logs_dir,
+        "info",
+        &format!("Process {} started (pid={})", spec.name, child.id()),
+    );
 
     let mut output_threads = Vec::<JoinHandle<()>>::new();
     if let Some(stdout) = child.stdout.take() {
@@ -584,6 +657,26 @@ struct RuntimeLogEvent {
     process: String,
     stream: String,
     line: String,
+}
+
+fn emit_supervisor_log(app: &AppHandle, logs_dir: &std::path::Path, level: &str, line: &str) {
+    let payload = RuntimeLogEvent {
+        process: SUPERVISOR_PROCESS_NAME.to_owned(),
+        stream: level.to_owned(),
+        line: line.to_owned(),
+    };
+    let _ = app.emit("runtime-log", &payload);
+
+    let file_path = logs_dir.join(format!("{SUPERVISOR_PROCESS_NAME}.log"));
+    let mut log_file = match OpenOptions::new().create(true).append(true).open(file_path) {
+        Ok(file) => file,
+        Err(_) => return,
+    };
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let _ = writeln!(log_file, "[{}] [{}] {}", timestamp, level, line);
 }
 
 enum MonitorOutcome {

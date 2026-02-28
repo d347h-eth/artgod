@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, readFile, rm } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +31,7 @@ for (const workspace of workspaces) {
 
 // Rust/Tauri build output cache.
 candidatePaths.add(path.join(rootDir, "src-tauri", "target"));
+candidatePaths.add(path.join(rootDir, "src-tauri", "resources", "runtime"));
 
 const removed = [];
 
@@ -40,6 +41,15 @@ for (const targetPath of candidatePaths) {
         removed.push(path.relative(rootDir, targetPath) || ".");
     }
 }
+
+const runtimeResourcesDir = path.join(
+    rootDir,
+    "src-tauri",
+    "resources",
+    "runtime",
+);
+await mkdir(runtimeResourcesDir, { recursive: true });
+await writeFile(path.join(runtimeResourcesDir, ".gitkeep"), "", "utf8");
 
 if (removed.length === 0) {
     console.log("No build artifacts found to remove.");

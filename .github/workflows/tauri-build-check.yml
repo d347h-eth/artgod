@@ -20,6 +20,16 @@ jobs:
             - name: Enable Corepack
               run: corepack enable
 
+            - name: Cache Yarn local artifacts
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      .yarn/cache
+                      .yarn/unplugged
+                  key: ${{ runner.os }}-yarn-local-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-local-
+
             - name: Setup Rust
               uses: dtolnay/rust-toolchain@stable
 
@@ -33,6 +43,8 @@ jobs:
                       librsvg2-dev
 
             - name: Install workspace dependencies
+              env:
+                  YARN_ENABLE_SCRIPTS: true
               run: yarn install --immutable
 
             - name: Check desktop runtime registry consistency
@@ -40,3 +52,13 @@ jobs:
 
             - name: Tauri no-bundle build check
               run: yarn tauri build --debug --no-bundle --ci
+
+            - name: Verify bundled Yarn runtime dependencies
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  test -d src-tauri/resources/runtime/.yarn/cache
+                  test -d src-tauri/resources/runtime/.yarn/unplugged
+                  test -f src-tauri/resources/runtime/.yarn/install-state.gz
+                  test -f src-tauri/resources/runtime/.pnp.cjs
+                  test -f src-tauri/resources/runtime/.pnp.loader.mjs

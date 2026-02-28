@@ -47,7 +47,12 @@ export async function getCollectionDetail(
 }
 
 async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
-	const backendOrigin = await resolveBackendOrigin();
+	let backendOrigin: string;
+	try {
+		backendOrigin = await resolveBackendOrigin();
+	} catch (cause) {
+		throw new BackendApiError(toErrorMessage(cause), 503);
+	}
 	const response = await fetchFn(`${backendOrigin}${path}`);
 	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
 
@@ -59,4 +64,14 @@ async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
 	}
 
 	return payload as T;
+}
+
+function toErrorMessage(value: unknown): string {
+	if (value instanceof Error && value.message.trim()) {
+		return value.message;
+	}
+	if (typeof value === 'string' && value.trim()) {
+		return value;
+	}
+	return 'Backend origin resolution failed';
 }

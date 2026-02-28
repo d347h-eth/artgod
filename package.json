@@ -24,6 +24,7 @@
         "build:web": "node ./scripts/build/build-frontend-target.mjs web",
         "build:desktop": "node ./scripts/build/build-frontend-target.mjs desktop",
         "build:runtime": "node ./scripts/build/build-runtime-artifacts.mjs",
+        "build:desktop-runtime-resources": "node ./scripts/build/prepare-desktop-runtime-resources.mjs",
         "check:runtime-registry": "node ./scripts/build/check-runtime-registry.mjs",
         "clean:build": "node ./scripts/build/clean-build-artifacts.mjs",
         "build:frontend": "yarn build:web",
@@ -38,6 +39,9 @@
         "viem": "2.41.2"
     },
     "dependenciesMeta": {
+        "better-sqlite3@12.5.0": {
+            "unplugged": true
+        },
         "better-sqlite3": {
             "built": true
         },
