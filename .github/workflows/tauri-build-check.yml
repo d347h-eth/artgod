@@ -35,5 +35,8 @@ jobs:
             - name: Install workspace dependencies
               run: yarn install --immutable
 
+            - name: Check desktop runtime registry consistency
+              run: yarn check:runtime-registry
+
             - name: Tauri no-bundle build check
               run: yarn tauri build --debug --no-bundle --ci

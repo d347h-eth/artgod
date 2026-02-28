@@ -85,7 +85,7 @@ export type IndexerConfig = {
         enabled: boolean;
         host: string;
         ports: {
-            scheduler: number;
+            schedulerWorker: number;
             syncWorker: number;
             reorgWorker: number;
             domainWorker: number;
@@ -289,9 +289,9 @@ export function loadConfig(
             ),
             host: env.METRICS_HOST ?? "0.0.0.0",
             ports: {
-                scheduler: parseNumber(
-                    env.METRICS_PORT_SCHEDULER,
-                    "METRICS_PORT_SCHEDULER",
+                schedulerWorker: parseNumber(
+                    env.METRICS_PORT_SCHEDULER_WORKER,
+                    "METRICS_PORT_SCHEDULER_WORKER",
                     9464,
                 ),
                 syncWorker: parseNumber(

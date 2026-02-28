@@ -164,6 +164,7 @@ When removing a runtime:
 Use these checks before merging runtime topology changes:
 
 ```sh
+yarn check:runtime-registry
 rg -n "dev:.*worker" indexer/package.json
 rg -n "start_worker" scripts/indexer-dev.sh
 rg -n "entryPoints|worker" scripts/build/build-runtime-artifacts.mjs
@@ -171,6 +172,8 @@ rg -n "INDEXER_WORKERS|BACKEND_ARTIFACT" src-tauri/src/runtime/supervisor.rs
 rg -n "METRICS_PORT_|metrics\\.ports" indexer/src/config/index.ts .env.example
 rg -n "runtime:|946" observability/prometheus/prometheus.yml
 ```
+
+`yarn check:runtime-registry` is the canonical automated guard and is also run in CI (`.github/workflows/tauri-build-check.yml`).
 
 ## Current Limitation
 
@@ -182,4 +185,3 @@ Runtime registry is duplicated by design across:
 - metrics/observability maps
 
 This keeps each layer explicit, but requires disciplined updates. If runtime churn grows, consider introducing one canonical runtime manifest and generating these lists from it.
-

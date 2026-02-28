@@ -33,6 +33,7 @@ Root build/helper commands:
 yarn build:web
 yarn build:desktop
 yarn build:runtime
+yarn check:runtime-registry
 yarn clean:build
 yarn tauri build --no-bundle --ci
 yarn tauri build --debug --no-bundle --ci
@@ -51,6 +52,10 @@ What each command does:
 - `yarn build:runtime`
 : Runs `scripts/build/build-runtime-artifacts.mjs`.
 : Produces backend/indexer runtime artifacts under workspace-local `dist-desktop` folders.
+
+- `yarn check:runtime-registry`
+: Runs `scripts/build/check-runtime-registry.mjs`.
+: Verifies runtime registry consistency across desktop build maps, supervisor mappings, dev launchers, and observability/metrics mappings.
 
 - `yarn clean:build`
 : Runs `scripts/build/clean-build-artifacts.mjs`.

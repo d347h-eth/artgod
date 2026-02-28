@@ -25,7 +25,7 @@ Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction`, and `getTran
 - Interface: `indexer/src/ports/head-source.ts`
 - Adapter: `indexer/src/infra/rpc/viem-ws.ts`
 
-Provides a WebSocket head listener used by the scheduler.
+Provides a WebSocket head listener used by the scheduler-worker.
 
 ## Storage Port
 

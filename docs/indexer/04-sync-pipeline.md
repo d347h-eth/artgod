@@ -16,7 +16,7 @@ Sync jobs are defined in `indexer/src/domain/sync-jobs.ts`:
 - `sync.realtime.block` with payload `{ blockNumber }`
 - `sync.backfill.range` with payload `{ fromBlock, toBlock }`
 
-These jobs are published by the scheduler (realtime) and by reorg recovery (backfill).
+These jobs are published by the scheduler-worker (realtime) and by reorg recovery (backfill).
 
 ## Sync Worker Flow
 

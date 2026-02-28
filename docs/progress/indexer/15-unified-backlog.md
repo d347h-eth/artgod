@@ -81,7 +81,7 @@ Priority legend:
   Sources: `docs/blueprint/04-job-queueing.md`, `docs/progress/indexer/04-job-queueing-gaps.md`
 - [ ] `BKL-020` Add batch-consumption and throughput controls where safe (consumer-level batching, queue-specific knobs).
   Sources: `docs/blueprint/04-job-queueing.md`, `docs/progress/indexer/04-job-queueing-gaps.md`
-- [ ] `BKL-021` Move reorg block-check scheduling toward persistence-coupled and/or delayed tiered checks (not scheduler-only cadence).
+- [ ] `BKL-021` Move reorg block-check scheduling toward persistence-coupled and/or delayed tiered checks (not scheduler-worker-only cadence).
   Sources: `docs/blueprint/02-sync-pipeline.md`, `docs/progress/indexer/02-sync-pipeline-gaps.md`, `docs/progress/indexer/06-fault-tolerance-gaps.md`
 - [ ] `BKL-022` Add transaction fetch mode controls (per-tx batching vs full-block tx fetch for trusted backfill nodes) with provider capability guards.
   Sources: `docs/progress/indexer/08-deferred.md`

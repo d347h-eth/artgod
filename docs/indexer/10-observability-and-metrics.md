@@ -45,7 +45,7 @@ Observability containers run behind the `observability` compose profile in `dock
 ### Metrics Pipeline
 
 - Prometheus config in `observability/prometheus/prometheus.yml` scrapes:
-  - `9464` scheduler
+  - `9464` scheduler-worker
   - `9465` sync-worker
   - `9466` reorg-worker
   - `9467` domain-worker
@@ -63,7 +63,7 @@ Observability containers run behind the `observability` compose profile in `dock
 - Runtime APM bootstrap:
   - `indexer/src/observability/apm.ts` lazily imports OpenTelemetry packages.
   - `withSpan(name, attributes, run)` is the single tracing API.
-  - spans are created around scheduler actions and queue-consumer handlers.
+  - spans are created around scheduler-worker actions and queue-consumer handlers.
   - exports via OTLP HTTP to `APM_OTLP_HTTP_URL` (default Tempo).
 
 ### Profile Pipeline
@@ -122,12 +122,12 @@ Metadata fetch/resolve:
 
 ### Traces
 
-Scheduler spans in `indexer/src/application/scheduler.ts`:
+Scheduler-worker spans in `indexer/src/application/scheduler-worker.ts`:
 
-- `scheduler.bootstrap.realtime`
-- `scheduler.bootstrap.blockChecks`
-- `scheduler.head.poll`
-- `scheduler.head.ws`
+- `scheduler-worker.bootstrap.realtime`
+- `scheduler-worker.bootstrap.blockChecks`
+- `scheduler-worker.head.poll`
+- `scheduler-worker.head.ws`
 
 Queue consumer spans via `runWorker` in `indexer/src/application/worker-runner.ts`:
 

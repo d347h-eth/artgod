@@ -44,6 +44,7 @@ Build helper commands:
 yarn build:web
 yarn build:desktop
 yarn build:runtime
+yarn check:runtime-registry
 yarn clean:build
 ```
 
@@ -121,6 +122,7 @@ Build helper commands:
 yarn build:web                 # frontend web build only
 yarn build:desktop             # frontend desktop-target build (exports frontend/dist for Tauri)
 yarn build:runtime             # backend/indexer Node runtime artifacts
+yarn check:runtime-registry    # validates runtime list consistency across build/supervisor/dev/observability
 yarn clean:build               # clears dist and build caches across all workspaces
 yarn tauri build --no-bundle --ci
 yarn tauri build --debug --no-bundle --ci
@@ -190,7 +192,7 @@ Core components:
 
 Runtime entrypoints:
 
-- `indexer/src/runtime/scheduler.ts`
+- `indexer/src/runtime/scheduler-worker.ts`
 - `indexer/src/runtime/sync-worker.ts`
 - `indexer/src/runtime/reorg-worker.ts`
 - `indexer/src/runtime/domain-worker.ts`
@@ -217,7 +219,7 @@ Queue contracts (`indexer/src/domain/queues.ts`):
 
 ### Core Invariants
 
-1. Scheduler is the only publisher of realtime sync jobs.
+1. Scheduler-worker is the only publisher of realtime sync jobs.
 2. Job handling is idempotent and assumes at-least-once delivery.
 3. No implicit full historical backfill runs on startup.
 4. Runtime logic depends on ports (`indexer/src/ports/`); infra adapters live in `indexer/src/infra/`.
@@ -293,6 +295,7 @@ yarn workspace @artgod/indexer run dev
 yarn build:web
 yarn build:desktop
 yarn build:runtime
+yarn check:runtime-registry
 yarn clean:build
 yarn tauri build --no-bundle --ci
 ```

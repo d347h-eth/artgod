@@ -1,7 +1,7 @@
 import { logger } from "@artgod/shared/utils";
 import { setDbPath } from "@artgod/shared/database";
 import { loadConfig } from "../config/index.js";
-import { startScheduler } from "../application/scheduler.js";
+import { startSchedulerWorker } from "../application/scheduler-worker.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
@@ -17,7 +17,7 @@ async function main() {
             enabled: config.apm.enabled,
             serviceNamespace: config.apm.serviceNamespace,
             spanProfiles: config.apm.spanProfiles,
-            worker: "scheduler",
+            worker: "scheduler-worker",
             chainId: config.chainId,
             traces: config.apm.traces,
             profiles: config.apm.profiles,
@@ -25,8 +25,8 @@ async function main() {
         const runtimeMetrics = await initRuntimeMetrics({
             enabled: config.metrics.enabled,
             host: config.metrics.host,
-            port: config.metrics.ports.scheduler,
-            worker: "scheduler",
+            port: config.metrics.ports.schedulerWorker,
+            worker: "scheduler-worker",
             chainId: config.chainId,
         });
         const queue = await NatsJetStreamQueue.connect({
@@ -50,22 +50,27 @@ async function main() {
         const headSource = config.rpc.wsUrl
             ? new ViemWebSocketHeadSource(config.rpc.wsUrl)
             : undefined;
-        const stopScheduler = await startScheduler(rpc, queue, config, {
-            headSource,
-            apm: runtimeApm.apm,
-        });
+        const stopSchedulerWorker = await startSchedulerWorker(
+            rpc,
+            queue,
+            config,
+            {
+                headSource,
+                apm: runtimeApm.apm,
+            },
+        );
 
-        logger.info("Scheduler ready", {
-            component: "IndexerScheduler",
+        logger.info("Scheduler-worker ready", {
+            component: "IndexerSchedulerWorker",
             action: "main",
         });
 
         const shutdown = async () => {
-            logger.info("Scheduler shutting down", {
-                component: "IndexerScheduler",
+            logger.info("Scheduler-worker shutting down", {
+                component: "IndexerSchedulerWorker",
                 action: "shutdown",
             });
-            await stopScheduler();
+            await stopSchedulerWorker();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();
@@ -76,8 +81,8 @@ async function main() {
         process.on("SIGTERM", shutdown);
         process.stdin.resume();
     } catch (error) {
-        logger.error("Scheduler startup failed", {
-            component: "IndexerScheduler",
+        logger.error("Scheduler-worker startup failed", {
+            component: "IndexerSchedulerWorker",
             action: "main",
             error: String(error),
         });

@@ -63,7 +63,7 @@ await build({
             "indexer",
             "src",
             "runtime",
-            "scheduler.ts",
+            "scheduler-worker.ts",
         ),
         "sync-worker": path.join(
             rootDir,

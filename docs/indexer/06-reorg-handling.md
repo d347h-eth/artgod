@@ -13,7 +13,7 @@ Supporting files:
 
 ## Block-Check Jobs
 
-Block-check jobs are published by the scheduler after a block is at least `reorgDepth` behind the current head. Each job contains:
+Block-check jobs are published by the scheduler-worker after a block is at least `reorgDepth` behind the current head. Each job contains:
 
 ```
 { blockNumber: number }

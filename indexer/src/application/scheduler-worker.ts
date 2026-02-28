@@ -16,19 +16,19 @@ import {
     type BlockCheckPayload,
 } from "../domain/reorg-jobs.js";
 
-export type SchedulerOptions = {
+export type SchedulerWorkerOptions = {
     pollIntervalMs?: number;
     headSource?: HeadSourcePort;
     apm?: ApmPort;
 };
 
-// Scheduler runtime: perform a blocking bootstrap (head fetch + initial schedule),
+// Scheduler-worker runtime: perform a blocking bootstrap (head fetch + initial schedule),
 // then start non-blocking WS/poller loops that enqueue new heads in the background.
-export async function startScheduler(
+export async function startSchedulerWorker(
     rpc: RpcProviderPort,
     queue: QueuePort,
     config: IndexerConfig,
-    options: SchedulerOptions = {},
+    options: SchedulerWorkerOptions = {},
 ): Promise<() => Promise<void>> {
     const pollIntervalMs = options.pollIntervalMs ?? 12_000;
     const reorgDepth = Math.max(1, config.sync.reorgDepth);
@@ -52,32 +52,32 @@ export async function startScheduler(
     };
 
     if (options.headSource) {
-        // Non-blocking: WS head listener pushes new heads into the scheduler.
+        // Non-blocking: WS head listener pushes new heads into the scheduler-worker.
         stopHeadSource = await options.headSource.start(
             (headNumber) => {
-                logger.debug("Scheduler WS head received", {
-                    component: "IndexerScheduler",
+                logger.debug("Scheduler-worker WS head received", {
+                    component: "IndexerSchedulerWorker",
                     action: "wsHead",
                     headNumber,
                 });
                 apm.withSpan(
-                    "scheduler.head.ws",
+                    "scheduler-worker.head.ws",
                     {
                         chainId: config.chainId,
                         headNumber,
                     },
                     () => handleHead(headNumber),
                 ).catch((err) => {
-                    logger.warn("Scheduler WS head failed", {
-                        component: "IndexerScheduler",
+                    logger.warn("Scheduler-worker WS head failed", {
+                        component: "IndexerSchedulerWorker",
                         action: "wsHead",
                         error: String(err),
                     });
                 });
             },
             (error) => {
-                logger.warn("Scheduler WS listener error", {
-                    component: "IndexerScheduler",
+                logger.warn("Scheduler-worker WS listener error", {
+                    component: "IndexerSchedulerWorker",
                     action: "wsHead",
                     error: String(error),
                 });
@@ -89,13 +89,13 @@ export async function startScheduler(
         if (stopped) return;
         // Poller is authoritative and fills any gaps missed by the WS path.
         const current = await rpc.getBlockNumber();
-        logger.debug("Scheduler poll head received", {
-            component: "IndexerScheduler",
+        logger.debug("Scheduler-worker poll head received", {
+            component: "IndexerSchedulerWorker",
             action: "poll",
             headNumber: current,
         });
         await apm.withSpan(
-            "scheduler.head.poll",
+            "scheduler-worker.head.poll",
             {
                 chainId: config.chainId,
                 headNumber: current,
@@ -107,8 +107,8 @@ export async function startScheduler(
     // Non-blocking: the timer drives polling while the caller continues.
     timer = setInterval(() => {
         poll().catch((err) => {
-            logger.warn("Scheduler poll failed", {
-                component: "IndexerScheduler",
+            logger.warn("Scheduler-worker poll failed", {
+                component: "IndexerSchedulerWorker",
                 action: "poll",
                 error: String(err),
             });
@@ -127,7 +127,7 @@ export async function startScheduler(
         // Bootstrap: schedule only the recent reorg window, never full history.
         // This blocking step ensures the first scheduled range is based on a known head.
         await apm.withSpan(
-            "scheduler.bootstrap.realtime",
+            "scheduler-worker.bootstrap.realtime",
             {
                 chainId: config.chainId,
                 reorgDepth,
@@ -144,7 +144,7 @@ export async function startScheduler(
     async function bootstrapBlockChecks(): Promise<void> {
         // Separate bootstrap for reorg checks to keep scheduling intent explicit.
         await apm.withSpan(
-            "scheduler.bootstrap.blockChecks",
+            "scheduler-worker.bootstrap.blockChecks",
             {
                 chainId: config.chainId,
                 reorgDepth,
@@ -156,11 +156,14 @@ export async function startScheduler(
                     reorgDepth,
                 );
                 if (initialCheck <= 0) {
-                    logger.warn("Scheduler block-check bootstrap skipped", {
-                        component: "IndexerScheduler",
-                        action: "bootstrapBlockChecks",
-                        initialCheck,
-                    });
+                    logger.warn(
+                        "Scheduler-worker block-check bootstrap skipped",
+                        {
+                            component: "IndexerSchedulerWorker",
+                            action: "bootstrapBlockChecks",
+                            initialCheck,
+                        },
+                    );
                     lastChecked = initialCheck;
                     return;
                 }
@@ -189,8 +192,8 @@ export async function startScheduler(
         if (targetCheck < 0) return;
         const startCheck = lastChecked + 1;
         if (startCheck <= 0) {
-            logger.warn("Scheduler block-check range skipped", {
-                component: "IndexerScheduler",
+            logger.warn("Scheduler-worker block-check range skipped", {
+                component: "IndexerSchedulerWorker",
                 action: "scheduleBlockChecksForHead",
                 startCheck,
                 targetCheck,

@@ -4,7 +4,7 @@ This document describes the explicit configuration model used by the indexer and
 
 ## Runtime Config Loader
 
-Config is loaded in `indexer/src/config/index.ts` (sync/scheduler/domain workers) and `indexer/src/config/offchain.ts` (offchain stream worker). There are no scattered `process.env` reads in runtime logic; values are pulled once and passed through.
+Config is loaded in `indexer/src/config/index.ts` (sync/scheduler-worker/domain workers) and `indexer/src/config/offchain.ts` (offchain stream worker). There are no scattered `process.env` reads in runtime logic; values are pulled once and passed through.
 
 - `.env` is loaded at startup via `dotenv`.
 - `loadConfig()` reads the current environment and produces a typed config object.

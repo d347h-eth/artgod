@@ -5,7 +5,7 @@ This file lists items described in `docs/blueprint/02-sync-pipeline.md` that are
 ## Scheduling and Head Management
 
 - Backfill API for manual range submission is not implemented (only internal helpers exist).
-- No scheduler-side cache of `eth_getBlock` results to reuse in workers.
+- No scheduler-worker-side cache of `eth_getBlock` results to reuse in workers.
 
 ## Sync Execution
 
@@ -20,4 +20,4 @@ This file lists items described in `docs/blueprint/02-sync-pipeline.md` that are
 ## Post-Processing Hooks
 
 - Transaction cache for realtime mode is not implemented.
-- Block-check scheduling is not tied to per-block persistence; it is driven by scheduler only.
+- Block-check scheduling is not tied to per-block persistence; it is driven by scheduler-worker only.

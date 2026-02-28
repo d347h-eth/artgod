@@ -8,15 +8,15 @@ These Mermaid diagrams provide a top-level, C4-style view of how indexer contain
 sequenceDiagram
     autonumber
     participant RPC as RPC Node (HTTP/WS)
-    participant Scheduler as Scheduler Runtime
+    participant SchedulerWorker as Scheduler-Worker Runtime
     participant NATS as NATS JetStream
     participant Sync as Sync Worker
     participant DB as SQLite Storage
     participant Domain as Domain Worker
 
-    RPC-->>Scheduler: Head update (WS)
-    Scheduler->>RPC: Poll head (HTTP)
-    Scheduler->>NATS: Publish Realtime Sync job(s)
+    RPC-->>SchedulerWorker: Head update (WS)
+    SchedulerWorker->>RPC: Poll head (HTTP)
+    SchedulerWorker->>NATS: Publish Realtime Sync job(s)
 
     NATS-->>Sync: Deliver sync job
     Sync->>RPC: getLogs + getBlock
@@ -32,14 +32,14 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Scheduler as Scheduler Runtime
+    participant SchedulerWorker as Scheduler-Worker Runtime
     participant NATS as NATS JetStream
     participant Reorg as Reorg Worker
     participant RPC as RPC Node (HTTP)
     participant DB as SQLite Storage
     participant Sync as Sync Worker
 
-    Scheduler->>NATS: Publish block-check job
+    SchedulerWorker->>NATS: Publish block-check job
     NATS-->>Reorg: Deliver block-check job
     Reorg->>DB: Read stored block hash
     Reorg->>RPC: Fetch canonical block

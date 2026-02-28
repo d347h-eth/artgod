@@ -9,7 +9,7 @@ flowchart LR
       DB[(SQLite DB)]
 
       %% Runtimes
-      Scheduler[Scheduler Runtime]
+      SchedulerWorker[Scheduler-Worker Runtime]
       SyncWorker[Sync Worker]
       ReorgWorker[Reorg Worker]
       BootstrapWorker[Bootstrap Worker]
@@ -17,10 +17,10 @@ flowchart LR
       OpenSeaStream[OpenSea Stream Worker]
       DomainWorker[Domain Worker]
 
-      %% Scheduler -> sync jobs
-      Scheduler -->|realtime block jobs| NATS
-      Scheduler -->|backfill range jobs| NATS
-      Scheduler -->|reorg check jobs| NATS
+      %% SchedulerWorker -> sync jobs
+      SchedulerWorker -->|realtime block jobs| NATS
+      SchedulerWorker -->|backfill range jobs| NATS
+      SchedulerWorker -->|reorg check jobs| NATS
 
       %% Sync pipeline
       NATS -->|RealtimeSync / BackfillSync| SyncWorker

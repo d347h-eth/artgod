@@ -17,7 +17,7 @@ The system currently focuses on on-chain NFT transfer data (ERC721 and ERC1155),
 
 Each runtime is an independent Node.js process. There is no shared memory across runtimes.
 
-- Scheduler runtime (`indexer/src/runtime/scheduler.ts`)
+- Scheduler-worker runtime (`indexer/src/runtime/scheduler-worker.ts`)
     - Tracks chain head via WebSocket (optional) and HTTP polling.
     - Schedules realtime block sync and block-check (reorg) jobs.
 
@@ -61,8 +61,8 @@ Database:
 
 These are the assumptions that the implementation relies on and should be preserved in future work:
 
-1. **Only the scheduler publishes realtime sync jobs.**
-    - WebSocket listeners and pollers can notify the scheduler, but the scheduler is the sole publisher.
+1. **Only the scheduler-worker publishes realtime sync jobs.**
+    - WebSocket listeners and pollers can notify the scheduler-worker, but the scheduler-worker is the sole publisher.
 
 2. **Idempotent processing everywhere.**
     - Jobs can be redelivered; persistence uses unique constraints and upserts.
@@ -80,8 +80,8 @@ These are the assumptions that the implementation relies on and should be preser
 
 ## High-Level Data Flow
 
-1. Scheduler observes head updates.
-2. Scheduler publishes `events-sync-realtime` jobs for each new block.
+1. Scheduler-worker observes head updates.
+2. Scheduler-worker publishes `events-sync-realtime` jobs for each new block.
 3. Sync worker consumes sync jobs:
     - Fetches block + logs.
     - Decodes transfers.
@@ -91,7 +91,7 @@ These are the assumptions that the implementation relies on and should be preser
     - Orders domain invalidates orders based on transfers.
     - Metadata domain fetches and stores token metadata.
     - Activity domain writes activity records.
-5. Scheduler publishes `block-check` jobs once blocks are old enough.
+5. Scheduler-worker publishes `block-check` jobs once blocks are old enough.
 6. Reorg worker verifies block hashes and rolls back on mismatch.
 
 This flow is designed to be minimal and durable without requiring centralized services.
@@ -103,7 +103,7 @@ Offchain orders follow a separate ingestion path (raw queue → normalize → or
 The most important directories:
 
 - `indexer/src/runtime/`: process entrypoints and orchestration.
-- `indexer/src/application/`: shared runtime logic (scheduler, sync, worker runner).
+- `indexer/src/application/`: shared runtime logic (scheduler-worker, sync, worker runner).
 - `indexer/src/ports/`: contracts used across runtimes.
 - `indexer/src/infra/`: queue, RPC, storage, cache, and domain adapters.
 - `indexer/src/domain/`: job and data model definitions.
