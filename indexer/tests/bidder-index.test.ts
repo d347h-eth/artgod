@@ -33,8 +33,8 @@ describe("BidderIndex", () => {
         expect(state.size).toBe(1);
         expect(index.isActive()).toBe(true);
         expect(index.shouldEmit(maker.toLowerCase())).toBe(true);
-        expect(index.shouldEmit("0x0000000000000000000000000000000000000001")).toBe(
-            false,
-        );
+        expect(
+            index.shouldEmit("0x0000000000000000000000000000000000000001"),
+        ).toBe(false);
     });
 });

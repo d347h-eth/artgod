@@ -234,9 +234,7 @@ function normalizeMetricPrefix(prefix: string): string {
     return `${normalized}_`;
 }
 
-function sanitizeHistogramBuckets(
-    buckets: number[] | undefined,
-): number[] {
+function sanitizeHistogramBuckets(buckets: number[] | undefined): number[] {
     if (!buckets || buckets.length === 0) {
         return DEFAULT_HISTOGRAM_BUCKETS_MS;
     }

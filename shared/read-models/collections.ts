@@ -18,10 +18,7 @@ import {
     normalizeAddressRef,
     normalizeSlugRef,
 } from "../utils/ref-resolver.js";
-import {
-    ReadModelBadRequestError,
-    ReadModelNotFoundError,
-} from "./errors.js";
+import { ReadModelBadRequestError, ReadModelNotFoundError } from "./errors.js";
 
 type CollectionRow = {
     chain_id: number;
@@ -88,7 +85,10 @@ export type ListCollectionTokensParams = {
 };
 
 export class SqliteCollectionsReadModel {
-    private selectCollectionBySlug = db.prepare<{ chainId: number; slug: string }>(
+    private selectCollectionBySlug = db.prepare<{
+        chainId: number;
+        slug: string;
+    }>(
         "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
             "FROM collections " +
             "WHERE chain_id = @chainId AND slug = @slug " +
@@ -198,12 +198,12 @@ export class SqliteCollectionsReadModel {
         return mapCollectionRow(row);
     }
 
-    listCollectionTokens(
-        params: ListCollectionTokensParams,
-    ): TokenCursorPage {
+    listCollectionTokens(params: ListCollectionTokensParams): TokenCursorPage {
         const limit = normalizeLimit(params.limit);
         const cursor =
-            params.cursor !== undefined ? decodeTokenCursor(params.cursor) : null;
+            params.cursor !== undefined
+                ? decodeTokenCursor(params.cursor)
+                : null;
         const cursorSortKey = cursor ? toTokenSortKey(cursor.tokenId) : null;
         const contractAddress = normalizeAddressRef(params.contractAddress);
         const traitFilterGroups = groupTraitFilters(
@@ -275,14 +275,16 @@ export class SqliteCollectionsReadModel {
         const totalItems = countMatchingTokens(baseWhereClauses, baseValues);
         const beforeItems = cursorSortKey
             ? countMatchingTokens(
-                  [...baseWhereClauses, `${TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?)`],
+                  [
+                      ...baseWhereClauses,
+                      `${TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?)`,
+                  ],
                   [...baseValues, ...tokenSortKeyParams(cursorSortKey)],
               )
             : 0;
         const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
         const rangeEnd = beforeItems + items.length;
-        const totalPages =
-            totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
+        const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
         const currentPage =
             totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
 
@@ -305,7 +307,10 @@ export class SqliteCollectionsReadModel {
         };
     }
 
-    listCollectionTraitFacets(chainId: number, contractAddress: string): TraitFacet[] {
+    listCollectionTraitFacets(
+        chainId: number,
+        contractAddress: string,
+    ): TraitFacet[] {
         const rows = this.selectTraitFacetRows.all(
             chainId,
             normalizeAddressRef(contractAddress),
@@ -329,7 +334,10 @@ export class SqliteCollectionsReadModel {
     }
 }
 
-function countMatchingTokens(whereClauses: string[], values: unknown[]): number {
+function countMatchingTokens(
+    whereClauses: string[],
+    values: unknown[],
+): number {
     const sql =
         "SELECT COUNT(*) AS count " +
         "FROM tokens t " +
@@ -361,7 +369,11 @@ function derivePrevCursor(params: {
                 `ORDER BY ${TOKEN_ORDER_BY_DESC_SQL} ` +
                 "LIMIT ?",
         )
-        .all(...baseValues, ...tokenSortKeyParams(anchorSortKey), limit + 1) as TokenIdRow[];
+        .all(
+            ...baseValues,
+            ...tokenSortKeyParams(anchorSortKey),
+            limit + 1,
+        ) as TokenIdRow[];
 
     if (previousRows.length <= limit) {
         return null;
@@ -422,7 +434,8 @@ function toTokenSortKey(tokenId: string): TokenSortKey {
     }
 
     const withoutLeadingZeros = tokenId.replace(/^0+/, "");
-    const normalized = withoutLeadingZeros.length > 0 ? withoutLeadingZeros : "0";
+    const normalized =
+        withoutLeadingZeros.length > 0 ? withoutLeadingZeros : "0";
     return {
         tokenId,
         bucket: 0,
@@ -431,7 +444,9 @@ function toTokenSortKey(tokenId: string): TokenSortKey {
     };
 }
 
-function tokenSortKeyParams(key: TokenSortKey): [number, number, string, string] {
+function tokenSortKeyParams(
+    key: TokenSortKey,
+): [number, number, string, string] {
     return [key.bucket, key.length, key.value, key.tokenId];
 }
 

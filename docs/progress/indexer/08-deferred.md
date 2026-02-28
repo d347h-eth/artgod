@@ -12,7 +12,7 @@ Context:
 Why deferred:
 
 - The naive rule would re-fetch almost every block with transactions, creating noise and unnecessary load.
-- We currently lack a cheap, reliable predicate to say a block *should* have emitted relevant logs.
+- We currently lack a cheap, reliable predicate to say a block _should_ have emitted relevant logs.
 
 Possible future predicates:
 
@@ -100,8 +100,8 @@ What could be done later (heuristic-only path):
 
 - Detect direct exchange calls by matching tx `to` against Blur exchange addresses.
 - Decode calldata by selector for:
-  - v2: `takeAsk`, `takeAskSingle`, `takeAskPool`, `takeAskSinglePool`, `takeBid`, `takeBidSingle`
-  - v1: `execute` / `_execute` (if still used in direct calls)
+    - v2: `takeAsk`, `takeAskSingle`, `takeAskPool`, `takeAskSinglePool`, `takeBid`, `takeBidSingle`
+    - v1: `execute` / `_execute` (if still used in direct calls)
 - If the tx calls a known router, attempt router-specific ABI decode to extract the embedded exchange call.
 - Maintain a list of supported router addresses/selectors; log and skip unknown router flows.
 
@@ -141,16 +141,16 @@ Context:
 Possible improvements (deferred):
 
 1. **Progress‑driven completion**
-   - Sync worker emits a `bootstrap.collection.backfill-progress` job per batch.
-   - Bootstrap worker tracks highest completed block and marks `live` once it reaches target.
+    - Sync worker emits a `bootstrap.collection.backfill-progress` job per batch.
+    - Bootstrap worker tracks highest completed block and marks `live` once it reaches target.
 
 2. **Persisted progress cursor**
-   - Sync worker updates `bootstrap_last_synced_block` as batches finish.
-   - Bootstrap worker only checks this cursor instead of scanning `blocks`.
+    - Sync worker updates `bootstrap_last_synced_block` as batches finish.
+    - Bootstrap worker only checks this cursor instead of scanning `blocks`.
 
 3. **Adaptive polling**
-   - Use exponential backoff (e.g. 2s → 5s → 10s → 30s).
-   - Reduces polling load during long backfills.
+    - Use exponential backoff (e.g. 2s → 5s → 10s → 30s).
+    - Reduces polling load during long backfills.
 
 Decision:
 
@@ -171,19 +171,19 @@ Problem:
 Possible strategies (deferred, user-assisted):
 
 1. **User-provided explicit ID list**
-   - User supplies the exact token IDs to snapshot.
-   - Most accurate, but requires manual preparation.
+    - User supplies the exact token IDs to snapshot.
+    - Most accurate, but requires manual preparation.
 
 2. **User-provided contiguous range + heuristic `ownerOf`**
-   - User supplies `minId` + `maxId` (or `startId` + `totalSupply`).
-   - Snapshot calls `ownerOf` across the range and skips reverts.
-   - Works only if the collection is known to mint in a contiguous, stable range.
-   - Risk of missed tokens if IDs are sparse or non-standard.
+    - User supplies `minId` + `maxId` (or `startId` + `totalSupply`).
+    - Snapshot calls `ownerOf` across the range and skips reverts.
+    - Works only if the collection is known to mint in a contiguous, stable range.
+    - Risk of missed tokens if IDs are sparse or non-standard.
 
 3. **Full/partial historical event scan**
-   - Build the token ID set by scanning `Transfer` events up to an anchor block.
-   - Requires more RPC work and approximates a historical indexer path.
-   - Conflicts with the “no full backfill” bootstrap goal unless strictly bounded.
+    - Build the token ID set by scanning `Transfer` events up to an anchor block.
+    - Requires more RPC work and approximates a historical indexer path.
+    - Conflicts with the “no full backfill” bootstrap goal unless strictly bounded.
 
 Recommended approach (future):
 

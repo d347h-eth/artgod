@@ -114,10 +114,7 @@ export async function syncRange(
     const data = accumulateOnChainData(transactions, collectionSet);
     data.metadataRefreshEvents = metadataRefreshEvents;
     data.metadataRefreshRangeEvents = metadataRefreshRangeEvents;
-    const seaportEvents = decodeSeaportOrderEvents(
-        seaportLogs,
-        collectionSet,
-    );
+    const seaportEvents = decodeSeaportOrderEvents(seaportLogs, collectionSet);
     data.cancelEvents.push(...seaportEvents.cancels);
     data.orderInfos.push(...seaportEvents.orders);
     data.makerInfos.push(...seaportEvents.makerInfos);

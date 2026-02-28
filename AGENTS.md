@@ -47,9 +47,9 @@ These rules are mandatory for backend planning and code generation.
 - Use cases are the application core.
 - Use cases are concrete classes (not factory-returned closures by default).
 - Each use case class defines:
-  - exported input/output shapes (core boundary contract)
-  - constructor-injected outbound ports it drives
-  - explicit public methods that implement business behavior
+    - exported input/output shapes (core boundary contract)
+    - constructor-injected outbound ports it drives
+    - explicit public methods that implement business behavior
 - Port signatures must use use-case-local/core types.
 - Do not expose framework/transport/driver types in use-case APIs.
 
@@ -79,10 +79,10 @@ These rules are mandatory for backend planning and code generation.
 
 - Keep composition centralized (backend startup/wiring path).
 - Wire in order:
-  1. create outbound adapters
-  2. instantiate use-case classes with outbound ports
-  3. inject use-case instances into inbound adapters explicitly one by one
-  4. register inbound routes
+    1. create outbound adapters
+    2. instantiate use-case classes with outbound ports
+    3. inject use-case instances into inbound adapters explicitly one by one
+    4. register inbound routes
 - Only composition root knows concrete adapter implementations.
 - Do not introduce dependency container objects (e.g. `*Dependencies`, `ApiRouteDependencies`) when explicit parameters are sufficient.
 
@@ -108,21 +108,21 @@ These rules are mandatory for backend planning and code generation.
 
 - Organize by subject/use case.
 - Preferred backend structure:
-  - `application/use-cases/<subject>/*`
-  - `http/handlers/<subject>/*`
-  - `http-routes.ts` (single HTTP route registration module near `http-app.ts`)
-  - `http/common/*`
+    - `application/use-cases/<subject>/*`
+    - `http/handlers/<subject>/*`
+    - `http-routes.ts` (single HTTP route registration module near `http-app.ts`)
+    - `http/common/*`
 - Keep one file per use case and one handler per route/use-case entry where practical.
 
 ### 10) Extension workflow
 
 - For new behavior:
-  1. define/adjust use-case input/output and method
-  2. define/adjust local outbound ports in that use case
-  3. implement/update outbound adapters
-  4. wire use-case class instance in composition root
-  5. expose via inbound adapter mapping
-  6. add/adjust tests
+    1. define/adjust use-case input/output and method
+    2. define/adjust local outbound ports in that use case
+    3. implement/update outbound adapters
+    4. wire use-case class instance in composition root
+    5. expose via inbound adapter mapping
+    6. add/adjust tests
 
 ### 11) Testing strategy
 

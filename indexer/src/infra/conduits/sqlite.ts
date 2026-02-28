@@ -1,5 +1,8 @@
 import { db } from "@artgod/shared/database";
-import type { ConduitRecord, ConduitRegistryPort } from "../../ports/conduits.js";
+import type {
+    ConduitRecord,
+    ConduitRegistryPort,
+} from "../../ports/conduits.js";
 
 type ConduitRow = {
     conduit_address: string;
@@ -32,10 +35,9 @@ export class SqliteConduitRegistry implements ConduitRegistryPort {
     );
 
     getConduit(chainId: number, conduitKey: string): string | null {
-        const row = this.select.get(
-            chainId,
-            conduitKey.toLowerCase(),
-        ) as ConduitRow | undefined;
+        const row = this.select.get(chainId, conduitKey.toLowerCase()) as
+            | ConduitRow
+            | undefined;
         return row?.conduit_address ?? null;
     }
 

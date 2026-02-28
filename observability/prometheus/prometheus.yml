@@ -1,31 +1,31 @@
 global:
-  scrape_interval: 5s
-  evaluation_interval: 5s
+    scrape_interval: 5s
+    evaluation_interval: 5s
 
 scrape_configs:
-  - job_name: "artgod-indexer"
-    static_configs:
-      - targets: ["127.0.0.1:9464"]
-        labels:
-          runtime: "scheduler-worker"
-      - targets: ["127.0.0.1:9465"]
-        labels:
-          runtime: "sync-worker"
-      - targets: ["127.0.0.1:9466"]
-        labels:
-          runtime: "reorg-worker"
-      - targets: ["127.0.0.1:9467"]
-        labels:
-          runtime: "domain-worker"
-      - targets: ["127.0.0.1:9468"]
-        labels:
-          runtime: "offchain-ingest-worker"
-      - targets: ["127.0.0.1:9469"]
-        labels:
-          runtime: "opensea-stream-worker"
-      - targets: ["127.0.0.1:9470"]
-        labels:
-          runtime: "bootstrap-worker"
-      - targets: ["127.0.0.1:9471"]
-        labels:
-          runtime: "dead-letter-worker"
+    - job_name: "artgod-indexer"
+      static_configs:
+          - targets: ["127.0.0.1:9464"]
+            labels:
+                runtime: "scheduler-worker"
+          - targets: ["127.0.0.1:9465"]
+            labels:
+                runtime: "sync-worker"
+          - targets: ["127.0.0.1:9466"]
+            labels:
+                runtime: "reorg-worker"
+          - targets: ["127.0.0.1:9467"]
+            labels:
+                runtime: "domain-worker"
+          - targets: ["127.0.0.1:9468"]
+            labels:
+                runtime: "offchain-ingest-worker"
+          - targets: ["127.0.0.1:9469"]
+            labels:
+                runtime: "opensea-stream-worker"
+          - targets: ["127.0.0.1:9470"]
+            labels:
+                runtime: "bootstrap-worker"
+          - targets: ["127.0.0.1:9471"]
+            labels:
+                runtime: "dead-letter-worker"

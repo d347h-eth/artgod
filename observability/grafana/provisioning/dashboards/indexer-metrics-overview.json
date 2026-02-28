@@ -428,9 +428,7 @@
             "options": {
                 "footer": {
                     "fields": "",
-                    "reducer": [
-                        "lastNotNull"
-                    ],
+                    "reducer": ["lastNotNull"],
                     "show": false
                 },
                 "showHeader": true
@@ -489,9 +487,7 @@
             "options": {
                 "footer": {
                     "fields": "",
-                    "reducer": [
-                        "lastNotNull"
-                    ],
+                    "reducer": ["lastNotNull"],
                     "show": false
                 },
                 "showHeader": true
@@ -530,23 +526,15 @@
     "refresh": "10s",
     "schemaVersion": 39,
     "style": "dark",
-    "tags": [
-        "artgod",
-        "indexer",
-        "metrics"
-    ],
+    "tags": ["artgod", "indexer", "metrics"],
     "templating": {
         "list": [
             {
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": [
-                        "All"
-                    ],
-                    "value": [
-                        "$__all"
-                    ]
+                    "text": ["All"],
+                    "value": ["$__all"]
                 },
                 "datasource": {
                     "type": "prometheus",
@@ -568,12 +556,8 @@
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": [
-                        "All"
-                    ],
-                    "value": [
-                        "$__all"
-                    ]
+                    "text": ["All"],
+                    "value": ["$__all"]
                 },
                 "datasource": {
                     "type": "prometheus",

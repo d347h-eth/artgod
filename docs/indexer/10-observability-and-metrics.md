@@ -37,34 +37,34 @@ Observability containers run behind the `observability` compose profile in `dock
 
 - Runtime launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
 - Alloy config in `observability/alloy/config.alloy`:
-  - `local.file_match` targets `/var/log/artgod/*.log`.
-  - `loki.source.file` tails from end.
-  - JSON parsing extracts `t`, `level`, `component`, `action`.
-  - Loki labels include `level`, `component`, `action`.
+    - `local.file_match` targets `/var/log/artgod/*.log`.
+    - `loki.source.file` tails from end.
+    - JSON parsing extracts `t`, `level`, `component`, `action`.
+    - Loki labels include `level`, `component`, `action`.
 
 ### Metrics Pipeline
 
 - Prometheus config in `observability/prometheus/prometheus.yml` scrapes:
-  - `9464` scheduler-worker
-  - `9465` sync-worker
-  - `9466` reorg-worker
-  - `9467` domain-worker
-  - `9468` offchain-ingest-worker
-  - `9469` opensea-stream-worker
-  - `9470` bootstrap-worker
-  - `9471` dead-letter-worker
+    - `9464` scheduler-worker
+    - `9465` sync-worker
+    - `9466` reorg-worker
+    - `9467` domain-worker
+    - `9468` offchain-ingest-worker
+    - `9469` opensea-stream-worker
+    - `9470` bootstrap-worker
+    - `9471` dead-letter-worker
 - Runtime metrics bootstrap:
-  - `indexer/src/metrics/runtime.ts` initializes metrics only when enabled.
-  - `indexer/src/metrics/prometheus.ts` lazily imports `prom-client`.
-  - `indexer/src/metrics/server.ts` exposes `/metrics` and `/healthz`.
+    - `indexer/src/metrics/runtime.ts` initializes metrics only when enabled.
+    - `indexer/src/metrics/prometheus.ts` lazily imports `prom-client`.
+    - `indexer/src/metrics/server.ts` exposes `/metrics` and `/healthz`.
 
 ### Trace Pipeline
 
 - Runtime APM bootstrap:
-  - `indexer/src/observability/apm.ts` lazily imports OpenTelemetry packages.
-  - `withSpan(name, attributes, run)` is the single tracing API.
-  - spans are created around scheduler-worker actions and queue-consumer handlers.
-  - exports via OTLP HTTP to `APM_OTLP_HTTP_URL` (default Tempo).
+    - `indexer/src/observability/apm.ts` lazily imports OpenTelemetry packages.
+    - `withSpan(name, attributes, run)` is the single tracing API.
+    - spans are created around scheduler-worker actions and queue-consumer handlers.
+    - exports via OTLP HTTP to `APM_OTLP_HTTP_URL` (default Tempo).
 
 ### Profile Pipeline
 
@@ -72,8 +72,8 @@ Observability containers run behind the `observability` compose profile in `dock
 - profiler uses app name `${APM_SERVICE_NAMESPACE}.${worker}`.
 - base tags: `service_name`, `worker`, `chain_id`.
 - span profile linking mode adds dynamic labels via `wrapWithLabels`:
-  - `profile_id=<spanId>`
-  - `service_name`, `worker`, `chain_id`
+    - `profile_id=<spanId>`
+    - `service_name`, `worker`, `chain_id`
 - traces also get span attribute: `pyroscope.profile.id=<spanId>` when enabled.
 
 ## Runtime Config
@@ -218,20 +218,20 @@ To reach full trace-profile correlation:
 - validate and enforce `profile_id` presence as an indexed/queryable label in stored Pyroscope series for Node runtime profiles.
 - once confirmed, re-enable strict `profile_id` mapping in Tempo `tracesToProfiles` tags (currently omitted to avoid no-result jumps).
 - add targeted integration checks that verify:
-  - span has `pyroscope.profile.id`
-  - matching Pyroscope series exists with same label/value
-  - Grafana Related Profiles returns non-empty result for that span.
+    - span has `pyroscope.profile.id`
+    - matching Pyroscope series exists with same label/value
+    - Grafana Related Profiles returns non-empty result for that span.
 
 ## Quick Verification Checklist
 
 - Start stack:
-  - `docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana`
+    - `docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana`
 - Start workers with file logs:
-  - `./scripts/indexer-dev.sh`
+    - `./scripts/indexer-dev.sh`
 - Check metrics endpoint:
-  - `curl http://127.0.0.1:9465/metrics`
+    - `curl http://127.0.0.1:9465/metrics`
 - Check Grafana:
-  - logs in Loki Explore
-  - `up{job="artgod-indexer"}` in Prometheus Explore
-  - traces visible in Tempo
-  - profiles visible in Pyroscope with `wall:cpu` profile type
+    - logs in Loki Explore
+    - `up{job="artgod-indexer"}` in Prometheus Explore
+    - traces visible in Tempo
+    - profiles visible in Pyroscope with `wall:cpu` profile type

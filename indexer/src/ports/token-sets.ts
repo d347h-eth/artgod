@@ -1,4 +1,7 @@
-import type { TokenSetSchema, TokenSetResolution } from "../domain/token-sets.js";
+import type {
+    TokenSetSchema,
+    TokenSetResolution,
+} from "../domain/token-sets.js";
 
 export type TokenSetRequest = {
     chainId: number;

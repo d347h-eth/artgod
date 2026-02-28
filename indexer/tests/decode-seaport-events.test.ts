@@ -49,24 +49,25 @@ describe("seaport order lifecycle events", () => {
             expectedMaker,
             expectedOrderId,
         }) => {
-        const dump = await readTxDump(dumpPath);
-        const logs = toRpcLogs(dump);
-        const collections = new Set<string>();
-        const result = decodeSeaportOrderEvents(logs, collections);
+            const dump = await readTxDump(dumpPath);
+            const logs = toRpcLogs(dump);
+            const collections = new Set<string>();
+            const result = decodeSeaportOrderEvents(logs, collections);
 
-        expect(result.cancels.length > 0).toBe(expectCancel);
-        expect(result.makerInfos.length > 0).toBe(expectCounter);
-        if (expectCancel && expectedOrderId) {
-            const cancel = result.cancels[0];
-            expect(cancel?.orderId).toBe(expectedOrderId);
-            expect(cancel?.maker).toBe(expectedMaker);
-        }
-        if (expectCounter) {
-            const maker = result.makerInfos[0];
-            expect(maker?.maker).toBe(expectedMaker);
-            expect(maker?.reason).toBe("order-counter");
-        }
-    });
+            expect(result.cancels.length > 0).toBe(expectCancel);
+            expect(result.makerInfos.length > 0).toBe(expectCounter);
+            if (expectCancel && expectedOrderId) {
+                const cancel = result.cancels[0];
+                expect(cancel?.orderId).toBe(expectedOrderId);
+                expect(cancel?.maker).toBe(expectedMaker);
+            }
+            if (expectCounter) {
+                const maker = result.makerInfos[0];
+                expect(maker?.maker).toBe(expectedMaker);
+                expect(maker?.reason).toBe("order-counter");
+            }
+        },
+    );
 });
 
 async function readTxDump(relativePath: string): Promise<TxDump> {

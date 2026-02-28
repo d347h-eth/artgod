@@ -1,7 +1,10 @@
 import type { FastifyRequest } from "fastify";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
-import type { CollectionStatus, TraitFilter } from "@artgod/shared/types/browse";
+import type {
+    CollectionStatus,
+    TraitFilter,
+} from "@artgod/shared/types/browse";
 
 const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
     "bootstrapping",

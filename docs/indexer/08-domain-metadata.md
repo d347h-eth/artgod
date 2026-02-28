@@ -37,8 +37,8 @@ Trait counts are recomputed into `collection_trait_stats` through `domain.metada
 - Bootstrap finalization enqueues recompute with reason `bootstrap-finalized`.
 - Reorg backfill metadata sync is classified as `reorg-resync` for stats recompute jobs.
 - Recompute strategy is replace-in-transaction for deterministic correctness:
-  - delete existing stats rows for the collection.
-  - insert fresh counts from normalized `token_attributes` + `attributes`.
+    - delete existing stats rows for the collection.
+    - insert fresh counts from normalized `token_attributes` + `attributes`.
 
 ## Token Discovery
 

@@ -68,10 +68,7 @@ export function decodeWethMakerInfos(
     return Array.from(infos.values());
 }
 
-function safeDecode(
-    log: RpcLog,
-    eventName: "Transfer" | "Approval",
-) {
+function safeDecode(log: RpcLog, eventName: "Transfer" | "Approval") {
     try {
         return decodeEventLog({
             abi: ERC20_EVENT_ABI,

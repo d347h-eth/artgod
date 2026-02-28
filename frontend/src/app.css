@@ -225,7 +225,9 @@ th {
 	text-transform: uppercase;
 	text-decoration: none;
 	cursor: pointer;
-	transition: border-color 120ms ease, color 120ms ease;
+	transition:
+		border-color 120ms ease,
+		color 120ms ease;
 }
 
 .detail-layout {
@@ -417,7 +419,9 @@ th {
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
 	cursor: pointer;
-	transition: border-color 120ms ease, color 120ms ease;
+	transition:
+		border-color 120ms ease,
+		color 120ms ease;
 }
 
 .mode-toggle-button:hover,

@@ -5,10 +5,7 @@ import {
     normalizeSlugRef,
     parsePublicChainIdRef,
 } from "../utils/ref-resolver.js";
-import {
-    ReadModelBadRequestError,
-    ReadModelNotFoundError,
-} from "./errors.js";
+import { ReadModelBadRequestError, ReadModelNotFoundError } from "./errors.js";
 
 type ChainRow = {
     id: number;
@@ -19,7 +16,10 @@ type ChainRow = {
 };
 
 export class SqliteChainsReadModel {
-    private selectByPublicId = db.prepare<{ type: string; publicChainId: number }>(
+    private selectByPublicId = db.prepare<{
+        type: string;
+        publicChainId: number;
+    }>(
         "SELECT id, type, public_chain_id, slug, name " +
             "FROM chains " +
             "WHERE type = @type AND public_chain_id = @publicChainId " +

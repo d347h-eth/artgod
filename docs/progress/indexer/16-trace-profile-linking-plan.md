@@ -72,9 +72,9 @@ Deliverables:
 Tasks:
 
 - Save baseline outputs from:
-  - `POST /querier.v1.QuerierService/LabelNames`
-  - `POST /querier.v1.QuerierService/Series` for `service_name=...`
-  - `POST /querier.v1.QuerierService/SelectMergeStacktraces`
+    - `POST /querier.v1.QuerierService/LabelNames`
+    - `POST /querier.v1.QuerierService/Series` for `service_name=...`
+    - `POST /querier.v1.QuerierService/SelectMergeStacktraces`
 - Confirm `profile_id` absent in series labels pre-change (expected).
 
 Acceptance:
@@ -110,10 +110,10 @@ Notes:
 
 - Keep this independent from existing `tags` and wall/heap configs.
 - Env vars optional (for SDK users outside ArtGod):
-  - `PYROSCOPE_SPAN_PROFILES_ENABLED`
-  - `PYROSCOPE_SPAN_PROFILES_LABEL_KEY`
-  - `PYROSCOPE_SPAN_PROFILES_KEEP_AGGREGATE`
-  - `PYROSCOPE_SPAN_PROFILES_MAX_SERIES_PER_FLUSH`
+    - `PYROSCOPE_SPAN_PROFILES_ENABLED`
+    - `PYROSCOPE_SPAN_PROFILES_LABEL_KEY`
+    - `PYROSCOPE_SPAN_PROFILES_KEEP_AGGREGATE`
+    - `PYROSCOPE_SPAN_PROFILES_MAX_SERIES_PER_FLUSH`
 
 ### 1.2 Implement profile splitting logic
 
@@ -129,14 +129,20 @@ Algorithm:
 2. For each sample, extract string label value for `labelKey` (e.g. `profile_id`).
 3. Group sample indexes by label value.
 4. Enforce caps:
-  - truncate to `maxSeriesPerFlush`
-  - drop invalid values based on pattern
+
+- truncate to `maxSeriesPerFlush`
+- drop invalid values based on pattern
+
 5. Build derived profiles for each group:
-  - Include only grouped samples.
-  - Preserve profile metadata/sample types/time boundaries.
-  - Optional pruning of unused locations/functions for payload reduction.
+
+- Include only grouped samples.
+- Preserve profile metadata/sample types/time boundaries.
+- Optional pruning of unused locations/functions for payload reduction.
+
 6. Upload each derived profile with extra series tag:
-  - `name=<app>{...,profile_id=<value>}`
+
+- `name=<app>{...,profile_id=<value>}`
+
 7. Optionally also upload aggregate profile if `keepAggregate=true`.
 
 Critical detail:
@@ -228,8 +234,8 @@ File:
 Changes:
 
 - Re-enable tag mapping:
-  - `key: pyroscope.profile.id`
-  - `value: profile_id`
+    - `key: pyroscope.profile.id`
+    - `value: profile_id`
 - Keep existing stable tags (`service.name`, `worker`, `chainId`).
 - Keep `profileTypeId = wall:cpu:nanoseconds:wall:nanoseconds`.
 
@@ -310,20 +316,20 @@ ArtGod:
 ## Risks and Trade-Offs
 
 1. Cardinality explosion:
-   - One series per span can create many short-lived time series.
-   - Mitigation: strict caps + optional disable in high-throughput environments.
+    - One series per span can create many short-lived time series.
+    - Mitigation: strict caps + optional disable in high-throughput environments.
 
 2. Upload overhead:
-   - Split uploads increase network and CPU overhead.
-   - Mitigation: keep aggregate only by default, enable span split selectively.
+    - Split uploads increase network and CPU overhead.
+    - Mitigation: keep aggregate only by default, enable span split selectively.
 
 3. Partial matching:
-   - If multiple spans share one flush window, profile slices may still overlap.
-   - Mitigation: acceptable for first iteration; goal is deterministic label filtering.
+    - If multiple spans share one flush window, profile slices may still overlap.
+    - Mitigation: acceptable for first iteration; goal is deterministic label filtering.
 
 4. Upstream drift:
-   - Fork maintenance burden as upstream SDK evolves.
-   - Mitigation: keep patch minimal, isolated, and well-tested; propose upstream PR later.
+    - Fork maintenance burden as upstream SDK evolves.
+    - Mitigation: keep patch minimal, isolated, and well-tested; propose upstream PR later.
 
 ## Rollout Strategy
 
@@ -333,9 +339,9 @@ ArtGod:
 4. Re-enable `profile_id` Tempo mapping.
 5. Run for a few sessions and evaluate cardinality and usefulness.
 6. Decide whether to:
-   - keep fork private,
-   - contribute upstream,
-   - or keep feature disabled by default for most users.
+    - keep fork private,
+    - contribute upstream,
+    - or keep feature disabled by default for most users.
 
 ## Rollback Plan
 

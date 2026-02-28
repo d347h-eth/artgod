@@ -1,10 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 export type CommonHttpHandlers = {
-    optionsApi: (
-        request: FastifyRequest,
-        reply: FastifyReply,
-    ) => Promise<void>;
+    optionsApi: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 export function createCommonHttpHandlers(): CommonHttpHandlers {

@@ -6,8 +6,8 @@ This document describes the intended per-collection bootstrap sequence. The goal
 
 `nft_balances` is the canonical "current ownership" table, but it is only correct when:
 
-1) We have a snapshot anchored to a specific block, **plus**
-2) We have processed every transfer after that block with no gaps.
+1. We have a snapshot anchored to a specific block, **plus**
+2. We have processed every transfer after that block with no gaps.
 
 Full backfill from genesis also works, but is too expensive for normal usage.
 
@@ -15,18 +15,18 @@ Full backfill from genesis also works, but is too expensive for normal usage.
 
 Each collection starts in a "not indexed" state. When a user adds a collection, the indexer runs a deterministic bootstrap pipeline:
 
-1) **Register collection**
+1. **Register collection**
     - Persist collection config (address, chain, optional metadata).
     - Store state in the `collections` table with `status = bootstrapping`.
     - Create internal state record for bootstrap progress.
     - Enqueue a `bootstrap.collection.start` job to begin orchestration.
 
-2) **Pick anchor block**
+2. **Pick anchor block**
     - Choose a recent block number (near head) as the snapshot anchor.
     - Current implementation uses `head - reorgDepth` to avoid shallow reorgs.
     - This block number becomes the "truth point" for ownership.
 
-3) **Ownership snapshot (anchor)**
+3. **Ownership snapshot (anchor)**
     - Query the chain at the anchor block:
         - **ERC-721 only**: `ownerOf(tokenId)` for every token.
         - Token IDs are enumerated via `totalSupply()` + `tokenByIndex()` (ERC721Enumerable).
@@ -34,18 +34,18 @@ Each collection starts in a "not indexed" state. When a user adds a collection, 
     - Persist snapshot rows to a dedicated table (`nft_balance_snapshots`).
     - Snapshot data is **read‑only** and used as the base truth.
 
-4) **Short backfill (anchor → head)**
+4. **Short backfill (anchor → head)**
     - Backfill from `anchorBlock + 1` to current head.
     - Apply deltas so `nft_balances` reflects the current state.
     - This range is small, so it finishes quickly.
     - Bootstrap worker schedules the backfill range and periodically checks
       `blocks` table completeness before marking the collection live.
 
-5) **Live sync**
+5. **Live sync**
     - Switch the collection to realtime indexing (`status = live`).
     - `nft_balances` now stays correct from this point forward.
 
-6) **Optional full historical backfill (later)**
+6. **Optional full historical backfill (later)**
     - Only if the user explicitly requests it.
     - Used for complete historical analytics and long‑range charting.
 

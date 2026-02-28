@@ -1,5 +1,9 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
-import type { CancelEvent, MakerInfo, OrderInfo } from "../../domain/onchain.js";
+import type {
+    CancelEvent,
+    MakerInfo,
+    OrderInfo,
+} from "../../domain/onchain.js";
 import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
 import { SEAPORT_EXCHANGE_ADDRESSES } from "./seaport.js";
 import {
@@ -96,7 +100,10 @@ const SEAPORT_EVENT_ABI = [
                     { name: "zoneHash", type: "bytes32" },
                     { name: "salt", type: "uint256" },
                     { name: "conduitKey", type: "bytes32" },
-                    { name: "totalOriginalConsiderationItems", type: "uint256" },
+                    {
+                        name: "totalOriginalConsiderationItems",
+                        type: "uint256",
+                    },
                 ],
             },
         ],
@@ -256,10 +263,10 @@ function decodeOrderValidated(
 
         if (currencyItems.length === 0) return null;
 
-        const price = sumAmounts(
-            currencyItems.map((item) => item.startAmount),
+        const price = sumAmounts(currencyItems.map((item) => item.startAmount));
+        const currency = normalizeCurrency(
+            currencyItems[0]?.token ?? zeroAddress,
         );
-        const currency = normalizeCurrency(currencyItems[0]?.token ?? zeroAddress);
 
         return {
             kind: "seaport",
@@ -278,7 +285,6 @@ function decodeOrderValidated(
         return null;
     }
 }
-
 
 export function getSeaportLogAddresses(): Hex[] {
     return Array.from(SEAPORT_EXCHANGE_ADDRESSES).map(

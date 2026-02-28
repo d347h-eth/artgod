@@ -1,10 +1,6 @@
 export type CollectionStandard = "erc721" | "erc1155";
 
-export type CollectionStatus =
-    | "bootstrapping"
-    | "live"
-    | "paused"
-    | "disabled";
+export type CollectionStatus = "bootstrapping" | "live" | "paused" | "disabled";
 
 export type CollectionRecord = {
     chainId: number;

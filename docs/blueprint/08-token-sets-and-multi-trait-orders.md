@@ -7,12 +7,15 @@ This document captures how token sets are represented, persisted, and linked to 
 ## 1) Core tables and relationships
 
 ### token_sets
+
 File: `packages/indexer/src/migrations/1643803474513_token-sets.sql`
 
 Primary key:
+
 - `(id, schema_hash)`
 
 Relevant columns:
+
 - `id` (TEXT) — canonical token set id
 - `schema_hash` (BYTEA) — sha256(stable JSON) of the schema
 - `schema` (JSONB) — declarative definition of the set
@@ -21,26 +24,33 @@ Relevant columns:
 - `metadata` (JSONB) — includes cached merkle root for dynamic sets
 
 ### token_sets_tokens
+
 File: `packages/indexer/src/migrations/1643803474513_token-sets.sql`
 
 Primary key:
+
 - `(token_set_id, contract, token_id)`
 
 Purpose:
+
 - Many‑to‑many bridge between **token_sets** and **tokens**.
 - Stores explicit membership list for list‑based sets.
 
 ### orders
+
 File: `packages/indexer/src/migrations/1643809164129_orders.sql`
 
 Relevant columns:
+
 - `token_set_id` (TEXT)
 - `token_set_schema_hash` (BYTEA)
 
 Orders join to token sets by **both** fields.
 
 ### token_attributes, attributes, attribute_keys
+
 Files:
+
 - `packages/indexer/src/migrations/1646736672602_attributes.sql`
 
 These back attribute/trait data and are used to compute membership for attribute‑based token sets.
@@ -50,25 +60,26 @@ These back attribute/trait data and are used to compute membership for attribute
 ## 2) Normalized relationships
 
 - `token_sets (id, schema_hash)` → `token_sets_tokens (token_set_id)`
-  - **1‑to‑many**
+    - **1‑to‑many**
 
 - `tokens (contract, token_id)` → `token_sets_tokens (contract, token_id)`
-  - **1‑to‑many**
+    - **1‑to‑many**
 
 - `token_sets` ↔ `tokens` via `token_sets_tokens`
-  - **many‑to‑many**
+    - **many‑to‑many**
 
 - `token_sets.collection_id` → `collections.id`
-  - **many‑to‑one**
+    - **many‑to‑one**
 
 - `token_sets.attribute_id` → `attributes.id`
-  - **many‑to‑one**, **only for single‑trait sets**
+    - **many‑to‑one**, **only for single‑trait sets**
 
 ---
 
 ## 3) Schema hash vs merkle root
 
 ### schema_hash
+
 File: `packages/indexer/src/orderbook/orders/utils.ts`
 
 - `schema_hash = sha256(stable-json(schema))`
@@ -77,38 +88,42 @@ File: `packages/indexer/src/orderbook/orders/utils.ts`
 - Prevents mismatches if a token_set_id is reused for a different schema.
 
 ### merkle root
+
 Used for criteria orders (Seaport token‑list). It fingerprints **membership**.
 
 Key usages:
-1) **Order building**
-   - `packages/indexer/src/orderbook/orders/seaport-base/build/buy/collection.ts`
-   - `packages/indexer/src/orderbook/orders/seaport-base/build/buy/attribute.ts`
-   - The builder must include `merkleRoot` in order params (`identifierOrCriteria`).
 
-2) **Order ingestion (token_set_id derivation)**
-   - `packages/indexer/src/orderbook/orders/seaport-v1.1/index.ts`
-   - `packages/indexer/src/orderbook/orders/seaport-v1.4/index.ts`
-   - `packages/indexer/src/orderbook/orders/seaport-v1.5/index.ts`
-   - `packages/indexer/src/orderbook/orders/seaport-v1.6/index.ts`
+1. **Order building**
+    - `packages/indexer/src/orderbook/orders/seaport-base/build/buy/collection.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-base/build/buy/attribute.ts`
+    - The builder must include `merkleRoot` in order params (`identifierOrCriteria`).
 
-   When `kind === "token-list"`, a `merkleRoot` is read from the order and used to set:
-   ```
-   token_set_id = list:<contract>:<merkleRoot>
-   ```
+2. **Order ingestion (token_set_id derivation)**
+    - `packages/indexer/src/orderbook/orders/seaport-v1.1/index.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-v1.4/index.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-v1.5/index.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-v1.6/index.ts`
 
-3) **Token set validation**
-   - `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
+    When `kind === "token-list"`, a `merkleRoot` is read from the order and used to set:
 
-   Schema → tokens → merkle root → `schemaId`.
-   Validation ensures:
-   ```
-   schemaId === token_set_id
-   ```
+    ```
+    token_set_id = list:<contract>:<merkleRoot>
+    ```
 
-4) **Dynamic sets caching**
-   - `packages/indexer/src/orderbook/token-sets/dynamic/collection-non-flagged.ts`
+3. **Token set validation**
+    - `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
 
-   Merkle root is cached under `token_sets.metadata.merkleRoot` for refresh/checks.
+    Schema → tokens → merkle root → `schemaId`.
+    Validation ensures:
+
+    ```
+    schemaId === token_set_id
+    ```
+
+4. **Dynamic sets caching**
+    - `packages/indexer/src/orderbook/token-sets/dynamic/collection-non-flagged.ts`
+
+    Merkle root is cached under `token_sets.metadata.merkleRoot` for refresh/checks.
 
 **Conclusion:** Merkle root is not just for uniqueness; it is **the canonical criteria root** used by Seaport token‑list orders and must match the token list implied by the schema.
 
@@ -120,18 +135,19 @@ A token‑list for traits uses a schema like:
 
 ```json
 {
-  "kind": "attribute",
-  "data": {
-    "collection": "<collection_id>",
-    "attributes": [
-      { "key": "Biome", "value": "81" },
-      { "key": "Mode", "value": "Terrain" }
-    ]
-  }
+    "kind": "attribute",
+    "data": {
+        "collection": "<collection_id>",
+        "attributes": [
+            { "key": "Biome", "value": "81" },
+            { "key": "Mode", "value": "Terrain" }
+        ]
+    }
 }
 ```
 
 Files:
+
 - Schema type: `packages/indexer/src/orderbook/token-sets/utils.ts`
 - Validation + membership: `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
 
@@ -142,6 +158,7 @@ Multi‑trait schemas are now supported via `attributes: {key, value}[]`.
 ## 5) Multi‑trait (AND) criteria logic
 
 ### OpenSea WS parsing
+
 File: `packages/indexer/src/websockets/opensea/handlers/trait_offer.ts`
 
 - Uses `trait_criteria` if present; otherwise `trait_criteria_list`.
@@ -149,7 +166,9 @@ File: `packages/indexer/src/websockets/opensea/handlers/trait_offer.ts`
 - Emits `attributes[]` in `OpenseaOrderParams`.
 
 ### Token set derivation (AND semantics)
+
 Files:
+
 - `packages/indexer/src/orderbook/orders/seaport-v1.1/index.ts`
 - `packages/indexer/src/orderbook/orders/seaport-v1.4/index.ts`
 - `packages/indexer/src/orderbook/orders/seaport-v1.5/index.ts`
@@ -167,6 +186,7 @@ HAVING COUNT(DISTINCT (key, value)) = <num_traits>
 This enforces **intersection** (AND) across all traits.
 
 ### Token set validation
+
 File: `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
 
 - Recomputes membership using the same AND query.
@@ -176,20 +196,20 @@ File: `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
 
 ## 6) Exact rows written for multi‑trait token‑list
 
-1) **token_sets**
-   - `id`: `list:<contract>:<merkleRoot>`
-   - `schema_hash`: sha256(schema)
-   - `schema`: JSON (all traits)
-   - `collection_id`: collection
-   - `attribute_id`: NULL (multi‑trait)
+1. **token_sets**
+    - `id`: `list:<contract>:<merkleRoot>`
+    - `schema_hash`: sha256(schema)
+    - `schema`: JSON (all traits)
+    - `collection_id`: collection
+    - `attribute_id`: NULL (multi‑trait)
 
-2) **token_sets_tokens**
-   - One row per token in the set:
-     `(token_set_id, contract, token_id)`
+2. **token_sets_tokens**
+    - One row per token in the set:
+      `(token_set_id, contract, token_id)`
 
-3) **orders**
-   - `token_set_id` and `token_set_schema_hash` filled
-   - Join to token_sets uses **both** columns
+3. **orders**
+    - `token_set_id` and `token_set_schema_hash` filled
+    - Join to token_sets uses **both** columns
 
 ---
 
@@ -198,9 +218,9 @@ File: `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
 - `token_set_id` is derived from merkle root (membership).
 - `schema_hash` is derived from schema (definition).
 - Using both ensures:
-  - membership and schema are consistent
-  - accidental collisions are prevented
-  - orders remain linked to the exact schema used to compute the set
+    - membership and schema are consistent
+    - accidental collisions are prevented
+    - orders remain linked to the exact schema used to compute the set
 
 ---
 
@@ -217,6 +237,7 @@ File: `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
 ## 9) Suggested quick verification queries
 
 Confirm token set rows exist:
+
 ```sql
 SELECT id, schema_hash, schema, collection_id, attribute_id
 FROM token_sets
@@ -224,6 +245,7 @@ WHERE id = 'list:<contract>:<merkleRoot>';
 ```
 
 Confirm membership:
+
 ```sql
 SELECT token_id
 FROM token_sets_tokens
@@ -233,6 +255,7 @@ LIMIT 20;
 ```
 
 Confirm order link:
+
 ```sql
 SELECT id, token_set_id, token_set_schema_hash
 FROM orders
@@ -245,28 +268,28 @@ LIMIT 20;
 ## 10) Primary reference files
 
 - Token set schema + types:
-  - `packages/indexer/src/orderbook/token-sets/utils.ts`
+    - `packages/indexer/src/orderbook/token-sets/utils.ts`
 
 - Token list validation + persistence:
-  - `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
+    - `packages/indexer/src/orderbook/token-sets/token-list/index.ts`
 
 - Dynamic collection set (merkle root caching):
-  - `packages/indexer/src/orderbook/token-sets/dynamic/collection-non-flagged.ts`
+    - `packages/indexer/src/orderbook/token-sets/dynamic/collection-non-flagged.ts`
 
 - OpenSea WS trait offers:
-  - `packages/indexer/src/websockets/opensea/handlers/trait_offer.ts`
+    - `packages/indexer/src/websockets/opensea/handlers/trait_offer.ts`
 
 - Seaport order ingestion (token‑list paths):
-  - `packages/indexer/src/orderbook/orders/seaport-v1.1/index.ts`
-  - `packages/indexer/src/orderbook/orders/seaport-v1.4/index.ts`
-  - `packages/indexer/src/orderbook/orders/seaport-v1.5/index.ts`
-  - `packages/indexer/src/orderbook/orders/seaport-v1.6/index.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-v1.1/index.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-v1.4/index.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-v1.5/index.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-v1.6/index.ts`
 
 - Order build path (merkle root injection):
-  - `packages/indexer/src/orderbook/orders/seaport-base/build/buy/collection.ts`
-  - `packages/indexer/src/orderbook/orders/seaport-base/build/buy/attribute.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-base/build/buy/collection.ts`
+    - `packages/indexer/src/orderbook/orders/seaport-base/build/buy/attribute.ts`
 
 - Migrations:
-  - `packages/indexer/src/migrations/1643803474513_token-sets.sql`
-  - `packages/indexer/src/migrations/1643809164129_orders.sql`
-  - `packages/indexer/src/migrations/1646736672602_attributes.sql`
+    - `packages/indexer/src/migrations/1643803474513_token-sets.sql`
+    - `packages/indexer/src/migrations/1643809164129_orders.sql`
+    - `packages/indexer/src/migrations/1646736672602_attributes.sql`

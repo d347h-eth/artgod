@@ -52,7 +52,9 @@ export class GetCollectionDetailUseCase {
         },
     ) {}
 
-    getCollectionDetail(input: GetCollectionDetailInput): GetCollectionDetailOutput {
+    getCollectionDetail(
+        input: GetCollectionDetailInput,
+    ): GetCollectionDetailOutput {
         const chain = this.chainRefResolverPort.resolveChainRef(
             input.chainRef,
             this.defaultChainId,

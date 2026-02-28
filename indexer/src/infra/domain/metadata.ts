@@ -240,17 +240,19 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         chainId: number,
         contract: string,
     ): TokenStandard | null {
-        const row = this.selectCollectionStandard.get(
-            chainId,
-            contract,
-        ) as CollectionStandardRow | undefined;
+        const row = this.selectCollectionStandard.get(chainId, contract) as
+            | CollectionStandardRow
+            | undefined;
         if (!row) {
-            logger.debug("Metadata refresh skipped (missing collection standard)", {
-                component: "MetadataDomain",
-                action: "handleMetadataRefresh",
-                chainId,
-                contract,
-            });
+            logger.debug(
+                "Metadata refresh skipped (missing collection standard)",
+                {
+                    component: "MetadataDomain",
+                    action: "handleMetadataRefresh",
+                    chainId,
+                    contract,
+                },
+            );
             return null;
         }
         return row.standard;

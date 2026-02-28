@@ -99,7 +99,9 @@ describe("token set registry", () => {
             .prepare<{
                 chainId: number;
                 tokenSetId: string;
-            }>("SELECT COUNT(1) as count FROM token_sets_tokens WHERE chain_id = @chainId AND token_set_id = @tokenSetId")
+            }>(
+                "SELECT COUNT(1) as count FROM token_sets_tokens WHERE chain_id = @chainId AND token_set_id = @tokenSetId",
+            )
             .get({ chainId, tokenSetId: resolved.tokenSetId }) as {
             count: number;
         };
@@ -144,7 +146,9 @@ function seedAttribute(
             chainId: number;
             contractAddress: string;
             key: string;
-        }>("SELECT id FROM attribute_keys WHERE chain_id = @chainId AND contract_address = @contractAddress AND key = @key")
+        }>(
+            "SELECT id FROM attribute_keys WHERE chain_id = @chainId AND contract_address = @contractAddress AND key = @key",
+        )
         .get({ chainId, contractAddress, key }) as { id: number };
 
     db.prepare<{
@@ -173,7 +177,9 @@ function linkToken(
                 chainId: number;
                 contractAddress: string;
                 key: string;
-            }>("SELECT id FROM attribute_keys WHERE chain_id = @chainId AND contract_address = @contractAddress AND key = @key")
+            }>(
+                "SELECT id FROM attribute_keys WHERE chain_id = @chainId AND contract_address = @contractAddress AND key = @key",
+            )
             .get({
                 chainId,
                 contractAddress,

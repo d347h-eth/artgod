@@ -90,7 +90,10 @@ const SEAPORT_ABI = [
                     { name: "salt", type: "uint256" },
                     { name: "offererConduitKey", type: "bytes32" },
                     { name: "fulfillerConduitKey", type: "bytes32" },
-                    { name: "totalOriginalAdditionalRecipients", type: "uint256" },
+                    {
+                        name: "totalOriginalAdditionalRecipients",
+                        type: "uint256",
+                    },
                     {
                         name: "additionalRecipients",
                         type: "tuple[]",
@@ -129,7 +132,10 @@ const SEAPORT_ABI = [
                     { name: "salt", type: "uint256" },
                     { name: "offererConduitKey", type: "bytes32" },
                     { name: "fulfillerConduitKey", type: "bytes32" },
-                    { name: "totalOriginalAdditionalRecipients", type: "uint256" },
+                    {
+                        name: "totalOriginalAdditionalRecipients",
+                        type: "uint256",
+                    },
                     {
                         name: "additionalRecipients",
                         type: "tuple[]",
@@ -431,10 +437,10 @@ function decodeAdvancedOrderFill(
 
     const nft =
         orderSide === "sell"
-            ? findTrackedNftItem(offer, collections) ??
-              resolveNftFromTransfers(tx.events, collections)
-            : findTrackedNftItem(consideration, collections) ??
-              resolveNftFromTransfers(tx.events, collections);
+            ? (findTrackedNftItem(offer, collections) ??
+              resolveNftFromTransfers(tx.events, collections))
+            : (findTrackedNftItem(consideration, collections) ??
+              resolveNftFromTransfers(tx.events, collections));
     if (!nft) return null;
 
     const currencyItems =
