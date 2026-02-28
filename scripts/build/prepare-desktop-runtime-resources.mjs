@@ -20,11 +20,18 @@ const rootDir = path.resolve(__dirname, "../..");
 const packageJson = JSON.parse(
     await readFile(path.join(rootDir, "package.json"), "utf8"),
 );
-const nodeVersion = parseNodeVersion(packageJson.engines?.node);
+const nodeVersion = parseExactSemver(packageJson.engines?.node, "engines.node");
+const defaultDistTarget = inferNodeDistTarget(process.platform, process.arch);
 const nodeDistTarget =
-    process.env.DESKTOP_NODE_DIST_TARGET?.trim() ||
-    inferNodeDistTarget(process.platform, process.arch);
+    process.env.DESKTOP_NODE_DIST_TARGET?.trim() || defaultDistTarget;
 const nodeCacheRoot = path.join(rootDir, ".cache", "desktop-node-runtime");
+const natsVersion = parseExactSemver(
+    process.env.DESKTOP_NATS_VERSION?.trim() || "2.10.17",
+    "DESKTOP_NATS_VERSION",
+);
+const natsDistTarget =
+    process.env.DESKTOP_NATS_DIST_TARGET?.trim() || defaultDistTarget;
+const natsCacheRoot = path.join(rootDir, ".cache", "desktop-nats-runtime");
 
 const resourcesRootDir = path.join(
     rootDir,
@@ -108,12 +115,18 @@ await bundleNodeRuntime({
     nodeDistTarget,
     resourcesRootDir,
 });
+await bundleNatsRuntime({
+    cacheRootDir: natsCacheRoot,
+    natsVersion,
+    natsDistTarget,
+    resourcesRootDir,
+});
 
 // Keep runtime resources directory tracked in git between clean/build cycles.
 await writeFile(path.join(resourcesRootDir, ".gitkeep"), "", "utf8");
 
 console.log(
-    `Prepared desktop runtime resources at ${path.relative(rootDir, resourcesRootDir)} (node ${nodeVersion}, target ${nodeDistTarget})`,
+    `Prepared desktop runtime resources at ${path.relative(rootDir, resourcesRootDir)} (node ${nodeVersion}, node target ${nodeDistTarget}, nats ${natsVersion}, nats target ${natsDistTarget})`,
 );
 
 async function assertExists(targetPath, description) {
@@ -126,11 +139,11 @@ async function assertExists(targetPath, description) {
     }
 }
 
-function parseNodeVersion(rawValue) {
+function parseExactSemver(rawValue, sourceName) {
     const normalized = rawValue?.trim().replace(/^v/, "") ?? "";
     if (!/^\d+\.\d+\.\d+$/.test(normalized)) {
         throw new Error(
-            `package.json engines.node must be an exact x.y.z version. Received: "${rawValue ?? ""}"`,
+            `${sourceName} must be an exact x.y.z version. Received: "${rawValue ?? ""}"`,
         );
     }
     return normalized;
@@ -150,7 +163,7 @@ function inferNodeDistTarget(platform, arch) {
         if (arch === "arm64") return "win-arm64";
     }
     throw new Error(
-        `Unsupported platform/arch for automatic Node runtime target: ${platform}/${arch}. Set DESKTOP_NODE_DIST_TARGET explicitly.`,
+        `Unsupported platform/arch for automatic Node runtime target: ${platform}/${arch}. Set DESKTOP_NODE_DIST_TARGET and DESKTOP_NATS_DIST_TARGET explicitly.`,
     );
 }
 
@@ -209,6 +222,61 @@ function getNodeArchiveSpec(nodeVersion, target) {
     return spec;
 }
 
+function getNatsArchiveSpec(natsVersion, target) {
+    const baseName = `nats-server-v${natsVersion}`;
+    const specs = {
+        "linux-x64": {
+            archiveName: `${baseName}-linux-amd64.tar.gz`,
+            unpackDir: `${baseName}-linux-amd64`,
+            binaryRelativePath: "nats-server",
+            binaryName: "nats-server",
+            archiveKind: "tar.gz",
+        },
+        "linux-arm64": {
+            archiveName: `${baseName}-linux-arm64.tar.gz`,
+            unpackDir: `${baseName}-linux-arm64`,
+            binaryRelativePath: "nats-server",
+            binaryName: "nats-server",
+            archiveKind: "tar.gz",
+        },
+        "darwin-x64": {
+            archiveName: `${baseName}-darwin-amd64.tar.gz`,
+            unpackDir: `${baseName}-darwin-amd64`,
+            binaryRelativePath: "nats-server",
+            binaryName: "nats-server",
+            archiveKind: "tar.gz",
+        },
+        "darwin-arm64": {
+            archiveName: `${baseName}-darwin-arm64.tar.gz`,
+            unpackDir: `${baseName}-darwin-arm64`,
+            binaryRelativePath: "nats-server",
+            binaryName: "nats-server",
+            archiveKind: "tar.gz",
+        },
+        "win-x64": {
+            archiveName: `${baseName}-windows-amd64.zip`,
+            unpackDir: `${baseName}-windows-amd64`,
+            binaryRelativePath: "nats-server.exe",
+            binaryName: "nats-server.exe",
+            archiveKind: "zip",
+        },
+        "win-arm64": {
+            archiveName: `${baseName}-windows-arm64.zip`,
+            unpackDir: `${baseName}-windows-arm64`,
+            binaryRelativePath: "nats-server.exe",
+            binaryName: "nats-server.exe",
+            archiveKind: "zip",
+        },
+    };
+    const spec = specs[target];
+    if (!spec) {
+        throw new Error(
+            `Unsupported DESKTOP_NATS_DIST_TARGET "${target}". Supported targets: ${Object.keys(specs).join(", ")}, darwin-universal.`,
+        );
+    }
+    return spec;
+}
+
 async function bundleNodeRuntime({
     cacheRootDir,
     nodeVersion,
@@ -220,7 +288,9 @@ async function bundleNodeRuntime({
         nodeVersion,
         nodeDistTarget,
     });
-    const nodeBinaryName = nodeBinaryPath.endsWith(".exe") ? "node.exe" : "node";
+    const nodeBinaryName = nodeBinaryPath.endsWith(".exe")
+        ? "node.exe"
+        : "node";
     const nodeTargetDir = path.join(resourcesRootDir, "node");
     await mkdir(nodeTargetDir, { recursive: true });
 
@@ -236,6 +306,43 @@ async function bundleNodeRuntime({
             {
                 version: nodeVersion,
                 target: nodeDistTarget,
+            },
+            null,
+            2,
+        ) + "\n",
+        "utf8",
+    );
+}
+
+async function bundleNatsRuntime({
+    cacheRootDir,
+    natsVersion,
+    natsDistTarget,
+    resourcesRootDir,
+}) {
+    const natsBinaryPath = await ensureNatsBinary({
+        cacheRootDir,
+        natsVersion,
+        natsDistTarget,
+    });
+    const natsBinaryName = natsBinaryPath.endsWith(".exe")
+        ? "nats-server.exe"
+        : "nats-server";
+    const natsTargetDir = path.join(resourcesRootDir, "nats");
+    await mkdir(natsTargetDir, { recursive: true });
+
+    const outputPath = path.join(natsTargetDir, natsBinaryName);
+    await cp(natsBinaryPath, outputPath);
+    if (natsBinaryName === "nats-server") {
+        await chmod(outputPath, 0o755);
+    }
+
+    await writeFile(
+        path.join(natsTargetDir, "metadata.json"),
+        JSON.stringify(
+            {
+                version: natsVersion,
+                target: natsDistTarget,
             },
             null,
             2,
@@ -288,6 +395,50 @@ async function ensureNodeBinary({ cacheRootDir, nodeVersion, nodeDistTarget }) {
     });
 }
 
+async function ensureNatsBinary({ cacheRootDir, natsVersion, natsDistTarget }) {
+    if (natsDistTarget === "darwin-universal") {
+        if (process.platform !== "darwin") {
+            throw new Error(
+                "DESKTOP_NATS_DIST_TARGET=darwin-universal requires running the build on macOS.",
+            );
+        }
+        const arm64Binary = await ensureNatsBinaryForConcreteTarget({
+            cacheRootDir,
+            natsVersion,
+            concreteTarget: "darwin-arm64",
+        });
+        const x64Binary = await ensureNatsBinaryForConcreteTarget({
+            cacheRootDir,
+            natsVersion,
+            concreteTarget: "darwin-x64",
+        });
+        const universalDir = path.join(
+            cacheRootDir,
+            "assembled",
+            `nats-server-v${natsVersion}-darwin-universal`,
+        );
+        const universalBinaryPath = path.join(universalDir, "nats-server");
+        if (!(await pathExists(universalBinaryPath))) {
+            await rm(universalDir, { recursive: true, force: true });
+            await mkdir(universalDir, { recursive: true });
+            await runCommand("lipo", [
+                "-create",
+                arm64Binary,
+                x64Binary,
+                "-output",
+                universalBinaryPath,
+            ]);
+        }
+        await chmod(universalBinaryPath, 0o755);
+        return universalBinaryPath;
+    }
+    return ensureNatsBinaryForConcreteTarget({
+        cacheRootDir,
+        natsVersion,
+        concreteTarget: natsDistTarget,
+    });
+}
+
 async function ensureNodeBinaryForConcreteTarget({
     cacheRootDir,
     nodeVersion,
@@ -302,7 +453,11 @@ async function ensureNodeBinaryForConcreteTarget({
         );
     }
 
-    const downloadsDir = path.join(cacheRootDir, "downloads", `v${nodeVersion}`);
+    const downloadsDir = path.join(
+        cacheRootDir,
+        "downloads",
+        `v${nodeVersion}`,
+    );
     await mkdir(downloadsDir, { recursive: true });
     const archivePath = path.join(downloadsDir, spec.archiveName);
     const archiveUrl = `https://nodejs.org/dist/v${nodeVersion}/${spec.archiveName}`;
@@ -340,11 +495,95 @@ async function ensureNodeBinaryForConcreteTarget({
     return binaryPath;
 }
 
+async function ensureNatsBinaryForConcreteTarget({
+    cacheRootDir,
+    natsVersion,
+    concreteTarget,
+}) {
+    const spec = getNatsArchiveSpec(natsVersion, concreteTarget);
+    const checksums = await getNatsChecksums({ cacheRootDir, natsVersion });
+    const checksum = checksums.get(spec.archiveName);
+    if (!checksum) {
+        throw new Error(
+            `Unable to find checksum for ${spec.archiveName} in SHA256SUMS`,
+        );
+    }
+
+    const downloadsDir = path.join(
+        cacheRootDir,
+        "downloads",
+        `v${natsVersion}`,
+    );
+    await mkdir(downloadsDir, { recursive: true });
+    const archivePath = path.join(downloadsDir, spec.archiveName);
+    const archiveUrl = `https://github.com/nats-io/nats-server/releases/download/v${natsVersion}/${spec.archiveName}`;
+    await ensureDownloadedFile({ archivePath, archiveUrl, checksum });
+
+    const extractDir = path.join(
+        cacheRootDir,
+        "extracted",
+        `nats-server-v${natsVersion}-${concreteTarget}`,
+    );
+    const binaryPath = path.join(
+        extractDir,
+        spec.unpackDir,
+        spec.binaryRelativePath,
+    );
+
+    if (!(await pathExists(binaryPath))) {
+        await rm(extractDir, { recursive: true, force: true });
+        await mkdir(extractDir, { recursive: true });
+        await extractArchive({
+            archivePath,
+            archiveKind: spec.archiveKind,
+            destinationDir: extractDir,
+        });
+    }
+
+    if (!(await pathExists(binaryPath))) {
+        throw new Error(
+            `Bundled NATS binary missing after extraction: ${binaryPath}`,
+        );
+    }
+    if (spec.binaryName === "nats-server") {
+        await chmod(binaryPath, 0o755);
+    }
+    return binaryPath;
+}
+
 async function getNodeChecksums({ cacheRootDir, nodeVersion }) {
-    const checksumsDir = path.join(cacheRootDir, "downloads", `v${nodeVersion}`);
+    const checksumsDir = path.join(
+        cacheRootDir,
+        "downloads",
+        `v${nodeVersion}`,
+    );
     await mkdir(checksumsDir, { recursive: true });
     const checksumsPath = path.join(checksumsDir, "SHASUMS256.txt");
     const checksumsUrl = `https://nodejs.org/dist/v${nodeVersion}/SHASUMS256.txt`;
+    if (!(await pathExists(checksumsPath))) {
+        await downloadFile(checksumsUrl, checksumsPath);
+    }
+    const content = await readFile(checksumsPath, "utf8");
+    const result = new Map();
+    for (const line of content.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const match = trimmed.match(/^([a-f0-9]{64})\s+\*?(.+)$/i);
+        if (!match) continue;
+        result.set(match[2], match[1].toLowerCase());
+    }
+    return result;
+}
+
+async function getNatsChecksums({ cacheRootDir, natsVersion }) {
+    const checksumsDir = path.join(
+        cacheRootDir,
+        "downloads",
+        `v${natsVersion}`,
+    );
+    await mkdir(checksumsDir, { recursive: true });
+    const checksumsPath = path.join(checksumsDir, "SHA256SUMS");
+    const checksumsUrl = `https://github.com/nats-io/nats-server/releases/download/v${natsVersion}/SHA256SUMS`;
     if (!(await pathExists(checksumsPath))) {
         await downloadFile(checksumsUrl, checksumsPath);
     }
@@ -397,6 +636,10 @@ async function sha256File(filePath) {
 async function extractArchive({ archivePath, archiveKind, destinationDir }) {
     if (archiveKind === "tar.xz") {
         await runCommand("tar", ["-xJf", archivePath, "-C", destinationDir]);
+        return;
+    }
+    if (archiveKind === "tar.gz") {
+        await runCommand("tar", ["-xzf", archivePath, "-C", destinationDir]);
         return;
     }
     if (archiveKind === "zip") {

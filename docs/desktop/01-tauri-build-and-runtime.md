@@ -139,10 +139,15 @@ Responsibilities:
   : source of truth for Node version is `package.json` `engines.node`
   : download target is inferred from OS/arch or forced with `DESKTOP_NODE_DIST_TARGET`
   : downloaded archives are cached in `.cache/desktop-node-runtime`
+- downloads/verifies the NATS server distribution for the target platform and stages bundled NATS under `src-tauri/resources/runtime/nats`
+  : source of truth for NATS version is `DESKTOP_NATS_VERSION` build env (default `2.10.17`)
+  : download target is inferred from OS/arch or forced with `DESKTOP_NATS_DIST_TARGET`
+  : downloaded archives are cached in `.cache/desktop-nats-runtime`
 - copies:
     - `backend/dist-desktop/*`
     - `indexer/dist-desktop/*`
     - `node/node` or `node/node.exe`
+    - `nats/nats-server` or `nats/nats-server.exe`
     - `.yarn/cache/*`
     - `.yarn/unplugged/*`
     - `.yarn/install-state.gz`
@@ -197,7 +202,6 @@ Desktop config is generated on first app launch in app-data:
 
 Desktop-specific required keys:
 
-- `DESKTOP_NATS_MODE` (`docker` or `binary`)
 - `DESKTOP_NATS_PORT`
 - `DESKTOP_AUTO_START`
 - `DESKTOP_RESTART_BACKOFF_MS`
@@ -205,6 +209,7 @@ Desktop-specific required keys:
 Desktop-specific optional overrides:
 
 - `DESKTOP_NODE_BIN` (defaults to bundled `runtime/node/node(.exe)`)
+- `DESKTOP_NATS_BINARY_PATH` (defaults to bundled `runtime/nats/nats-server(.exe)`)
 - `DESKTOP_RUNTIME_RESOURCES_DIR` (default `runtime`, resolved from app resource dir)
 - `DESKTOP_NODE_PNP_CJS` (default `.pnp.cjs`, resolved from runtime resources dir)
 - `DESKTOP_NODE_PNP_LOADER` (default `.pnp.loader.mjs`, resolved from runtime resources dir)
@@ -232,7 +237,7 @@ Runtime composition code lives in:
 
 Startup order:
 
-1. start NATS process (docker container or binary)
+1. start bundled NATS process (`nats-server`)
 2. wait for NATS port readiness
 3. start backend artifact
 4. wait for backend port readiness
@@ -271,12 +276,6 @@ Supervisor stop behavior:
 3. force kill remaining processes if still running
 4. join output threads
 5. run cleanup hooks
-
-For Docker NATS mode, cleanup includes best-effort:
-
-- `docker rm -f <managed-container-name>`
-
-This prevents stale container/port leaks between app runs.
 
 ### Restart Strategy
 
@@ -333,4 +332,4 @@ Common issues and checks:
   : Check desktop app-data `.env` and required `DESKTOP_*` keys.
 
 - Port already in use after abrupt stop
-  : Current supervisor includes graceful stop + forced cleanup; if interrupted externally, verify no stale container/process remains before restart.
+  : Current supervisor includes graceful stop + forced cleanup; if interrupted externally, verify no stale `nats-server`/runtime process remains before restart.

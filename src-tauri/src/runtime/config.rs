@@ -4,18 +4,13 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
-pub enum NatsMode {
-    Docker { docker_bin: String, image: String },
-    Binary { binary_path: PathBuf },
-}
-
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
     pub node_bin: PathBuf,
+    pub nats_bin: PathBuf,
     pub runtime_dir: PathBuf,
     pub pnp_cjs_path: PathBuf,
     pub pnp_loader_path: PathBuf,
-    pub nats_mode: NatsMode,
     pub nats_port: u16,
     pub backend_port: u16,
     pub auto_start: bool,
@@ -79,6 +74,18 @@ impl DesktopRuntimeConfig {
                 node_bin.display()
             ));
         }
+        let nats_bin = resolve_nats_binary_path(
+            &runtime_dir,
+            process_env
+                .get("DESKTOP_NATS_BINARY_PATH")
+                .map(String::as_str),
+        );
+        if !nats_bin.exists() {
+            return Err(format!(
+                "Desktop NATS binary not found: {} (set DESKTOP_NATS_BINARY_PATH to override)",
+                nats_bin.display()
+            ));
+        }
         let pnp_cjs_path = resolve_from_base_dir(
             &runtime_dir,
             process_env
@@ -117,28 +124,6 @@ impl DesktopRuntimeConfig {
         get_required(&process_env, "WETH_ADDRESS")?;
         get_required(&process_env, "SEAPORT_CONDUIT_CONTROLLER")?;
 
-        let nats_mode_raw = get_required(&process_env, "DESKTOP_NATS_MODE")?;
-        let nats_mode = match nats_mode_raw {
-            "docker" => {
-                let docker_bin =
-                    get_required(&process_env, "DESKTOP_NATS_DOCKER_BIN")?.to_owned();
-                let image = get_required(&process_env, "DESKTOP_NATS_IMAGE")?.to_owned();
-                NatsMode::Docker { docker_bin, image }
-            }
-            "binary" => {
-                let binary_path = PathBuf::from(get_required(
-                    &process_env,
-                    "DESKTOP_NATS_BINARY_PATH",
-                )?);
-                NatsMode::Binary { binary_path }
-            }
-            _ => {
-                return Err(format!(
-                    "DESKTOP_NATS_MODE must be either \"docker\" or \"binary\"; received: {nats_mode_raw}"
-                ))
-            }
-        };
-
         let db_path =
             resolve_from_base_dir(&app_data_dir, get_required(&process_env, "ARTGOD_DB_PATH")?);
         if let Some(parent_dir) = db_path.parent() {
@@ -172,10 +157,10 @@ impl DesktopRuntimeConfig {
         Ok(Self {
             env_file_path,
             node_bin,
+            nats_bin,
             runtime_dir,
             pnp_cjs_path,
             pnp_loader_path,
-            nats_mode,
             nats_port,
             backend_port,
             auto_start,
@@ -339,6 +324,19 @@ fn resolve_node_binary_path(runtime_dir: &Path, raw_override: Option<&str>) -> P
     resolve_from_base_dir(runtime_dir, raw)
 }
 
+fn resolve_nats_binary_path(runtime_dir: &Path, raw_override: Option<&str>) -> PathBuf {
+    let default_relative = if cfg!(windows) {
+        "nats/nats-server.exe"
+    } else {
+        "nats/nats-server"
+    };
+    let raw = raw_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_relative);
+    resolve_from_base_dir(runtime_dir, raw)
+}
+
 fn build_default_env_template() -> String {
     format!(concat!(
         "# ArtGod desktop runtime env\n",
@@ -349,12 +347,10 @@ fn build_default_env_template() -> String {
         "DESKTOP_RUNTIME_RESOURCES_DIR=runtime\n",
         "DESKTOP_AUTO_START=true\n",
         "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
-        "# NATS launcher mode: docker or binary\n",
-        "DESKTOP_NATS_MODE=docker\n",
+        "# Optional: override bundled NATS binary path (absolute or relative to runtime resources dir)\n",
+        "# DESKTOP_NATS_BINARY_PATH=nats/nats-server(.exe)\n",
         "DESKTOP_NATS_PORT=4222\n",
-        "DESKTOP_NATS_DOCKER_BIN=docker\n",
-        "DESKTOP_NATS_IMAGE=nats:2.10.17\n",
-        "# DESKTOP_NATS_BINARY_PATH=/absolute/path/to/nats-server\n\n",
+        "\n",
         "# Backend\n",
         "BACKEND_PORT=3000\n\n",
         "# Indexer core runtime\n",

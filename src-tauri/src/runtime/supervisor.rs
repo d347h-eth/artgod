@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::runtime::config::{DesktopRuntimeConfig, NatsMode};
+use crate::runtime::config::DesktopRuntimeConfig;
 
 const BACKEND_PROCESS_NAME: &str = "backend";
 const NATS_PROCESS_NAME: &str = "nats";
@@ -437,52 +437,21 @@ fn spawn_nats_process(
     app: &AppHandle,
     config: &DesktopRuntimeConfig,
 ) -> Result<ManagedProcess, String> {
-    match &config.nats_mode {
-        NatsMode::Docker { docker_bin, image } => {
-            let container_name = format!("artgod-desktop-nats-{}", std::process::id());
-            let args = vec![
-                "run".to_owned(),
-                "--rm".to_owned(),
-                "--pull=missing".to_owned(),
-                "--name".to_owned(),
-                container_name.clone(),
-                "-p".to_owned(),
-                format!("{}:4222", config.nats_port),
-                image.clone(),
-                "-js".to_owned(),
-            ];
-            spawn_process(
-                app,
-                config,
-                ProcessSpec {
-                    name: NATS_PROCESS_NAME.to_owned(),
-                    command: docker_bin.clone(),
-                    args,
-                    cleanup: Some(ProcessCleanupSpec {
-                        command: docker_bin.clone(),
-                        args: vec!["rm".to_owned(), "-f".to_owned(), container_name.clone()],
-                    }),
-                },
-            )
-        }
-        NatsMode::Binary { binary_path } => {
-            let args = vec![
-                "-js".to_owned(),
-                "-p".to_owned(),
-                config.nats_port.to_string(),
-            ];
-            spawn_process(
-                app,
-                config,
-                ProcessSpec {
-                    name: NATS_PROCESS_NAME.to_owned(),
-                    command: binary_path.to_string_lossy().into_owned(),
-                    args,
-                    cleanup: None,
-                },
-            )
-        }
-    }
+    let args = vec![
+        "-js".to_owned(),
+        "-p".to_owned(),
+        config.nats_port.to_string(),
+    ];
+    spawn_process(
+        app,
+        config,
+        ProcessSpec {
+            name: NATS_PROCESS_NAME.to_owned(),
+            command: config.nats_bin.to_string_lossy().into_owned(),
+            args,
+            cleanup: None,
+        },
+    )
 }
 
 fn spawn_node_process(

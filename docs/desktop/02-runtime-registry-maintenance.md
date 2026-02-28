@@ -56,6 +56,7 @@ This must continue to include runtime resource staging so artifacts are present 
 Staging must include both runtime artifacts and runtime dependencies:
 
 - bundled Node runtime (`resources/runtime/node/node(.exe)`)
+- bundled NATS runtime (`resources/runtime/nats/nats-server(.exe)`)
 - Yarn runtime dependency data (`.yarn/cache`, `.yarn/unplugged`, `.yarn/install-state.gz`, `.pnp.cjs`, `.pnp.loader.mjs`)
 
 ### 4) Root Build Command Wiring
@@ -127,7 +128,7 @@ When adding a new indexer runtime (example `foo-worker`):
    : Add `foo-worker` in `scripts/build/build-runtime-artifacts.mjs` `entryPoints`.
 
 4. Ensure runtime resource staging includes the new artifact.
-   : Validate `scripts/build/prepare-desktop-runtime-resources.mjs` copies `indexer/dist-desktop/*` (all workers are included by directory copy), stages bundled Node runtime (`resources/runtime/node/node(.exe)`), and keeps Yarn runtime dependency data bundled (`.yarn/cache`, `.yarn/unplugged`, `.yarn/install-state.gz`, `.pnp.cjs`, `.pnp.loader.mjs`).
+   : Validate `scripts/build/prepare-desktop-runtime-resources.mjs` copies `indexer/dist-desktop/*` (all workers are included by directory copy), stages bundled Node+NATS runtimes (`resources/runtime/node/node(.exe)`, `resources/runtime/nats/nats-server(.exe)`), and keeps Yarn runtime dependency data bundled (`.yarn/cache`, `.yarn/unplugged`, `.yarn/install-state.gz`, `.pnp.cjs`, `.pnp.loader.mjs`).
 
 5. Add supervisor launch mapping.
    : Add `("indexer-foo-worker", "indexer/dist-desktop/foo-worker.mjs")` in `INDEXER_WORKERS`.

@@ -56,6 +56,7 @@ jobs:
                       .yarn/cache
                       .yarn/unplugged
                       .cache/desktop-node-runtime
+                      .cache/desktop-nats-runtime
                   key: ${{ runner.os }}-yarn-local-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
                   restore-keys: |
                       ${{ runner.os }}-yarn-local-
@@ -87,6 +88,7 @@ jobs:
             - name: Build Tauri bundle
               env:
                   DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
+                  DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
               run: yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
             - name: Verify bundled Yarn runtime dependencies
@@ -100,8 +102,10 @@ jobs:
                   test -f src-tauri/resources/runtime/.pnp.loader.mjs
                   if [ "${{ runner.os }}" = "Windows" ]; then
                     test -f src-tauri/resources/runtime/node/node.exe
+                    test -f src-tauri/resources/runtime/nats/nats-server.exe
                   else
                     test -f src-tauri/resources/runtime/node/node
+                    test -f src-tauri/resources/runtime/nats/nats-server
                   fi
 
             - name: Collect release artifacts

@@ -33,6 +33,7 @@ for (const workspace of workspaces) {
 candidatePaths.add(path.join(rootDir, "src-tauri", "target"));
 candidatePaths.add(path.join(rootDir, "src-tauri", "resources", "runtime"));
 candidatePaths.add(path.join(rootDir, ".cache", "desktop-node-runtime"));
+candidatePaths.add(path.join(rootDir, ".cache", "desktop-nats-runtime"));
 
 const removed = [];
 

@@ -9,6 +9,7 @@ node_modules/
 !.yarn/sdks
 !.yarn/versions
 .cache/desktop-node-runtime/
+.cache/desktop-nats-runtime/
 
 # TypeScript build artifacts
 *.tsbuildinfo

@@ -27,6 +27,7 @@ jobs:
                       .yarn/cache
                       .yarn/unplugged
                       .cache/desktop-node-runtime
+                      .cache/desktop-nats-runtime
                   key: ${{ runner.os }}-yarn-local-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
                   restore-keys: |
                       ${{ runner.os }}-yarn-local-
@@ -54,6 +55,7 @@ jobs:
             - name: Tauri no-bundle build check
               env:
                   DESKTOP_NODE_DIST_TARGET: linux-x64
+                  DESKTOP_NATS_DIST_TARGET: linux-x64
               run: yarn tauri build --debug --no-bundle --ci
 
             - name: Verify bundled Yarn runtime dependencies
@@ -66,3 +68,4 @@ jobs:
                   test -f src-tauri/resources/runtime/.pnp.cjs
                   test -f src-tauri/resources/runtime/.pnp.loader.mjs
                   test -f src-tauri/resources/runtime/node/node
+                  test -f src-tauri/resources/runtime/nats/nats-server
