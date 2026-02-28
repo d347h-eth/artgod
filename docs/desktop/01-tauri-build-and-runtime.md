@@ -153,7 +153,7 @@ Responsibilities:
     - `.yarn/install-state.gz`
     - `.pnp.cjs`
     - `.pnp.loader.mjs`
-    - `indexer/tests/fixtures/opensea-event-payloads/*`
+    - `fixtures/opensea-event-payloads/*` (desktop-first default path)
 
 ### `scripts/build/clean-build-artifacts.mjs`
 
@@ -220,6 +220,11 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `RPC_URL`
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
+
+Desktop-first default path behavior:
+
+- `ARTGOD_DB_PATH` defaults to `sqlite/main/db` and is resolved relative to app-data dir unless absolute.
+- `OPENSEA_FIXTURES_DIR` defaults to `fixtures/opensea-event-payloads` and is resolved relative to desktop runtime resources dir unless absolute.
 
 Important:
 

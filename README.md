@@ -56,6 +56,11 @@ Desktop runtime env file is generated on first launch at:
 - macOS: `~/Library/Application Support/io.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\\io.artgod.desktop\\config\\.env`
 
+Desktop-first path defaults:
+
+- `ARTGOD_DB_PATH=sqlite/main/db` (resolved relative to app-data dir unless absolute)
+- `OPENSEA_FIXTURES_DIR=fixtures/opensea-event-payloads` (resolved relative to desktop runtime resources dir unless absolute)
+
 VSCode (Yarn PnP):
 
 ```sh
