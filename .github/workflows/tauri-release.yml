@@ -19,16 +19,19 @@ jobs:
                     - os: ubuntu-latest
                       target: x86_64-unknown-linux-gnu
                       rust_targets: x86_64-unknown-linux-gnu
+                      node_dist_target: linux-x64
                       bundles: appimage,deb
                       artifact_name: artgod-linux-x64
                     - os: windows-latest
                       target: x86_64-pc-windows-msvc
                       rust_targets: x86_64-pc-windows-msvc
+                      node_dist_target: win-x64
                       bundles: nsis
                       artifact_name: artgod-windows-x64
                     - os: macos-latest
                       target: universal-apple-darwin
                       rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+                      node_dist_target: darwin-universal
                       bundles: dmg
                       artifact_name: artgod-macos-universal
 
@@ -52,6 +55,7 @@ jobs:
                   path: |
                       .yarn/cache
                       .yarn/unplugged
+                      .cache/desktop-node-runtime
                   key: ${{ runner.os }}-yarn-local-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
                   restore-keys: |
                       ${{ runner.os }}-yarn-local-
@@ -81,6 +85,8 @@ jobs:
               run: yarn check:runtime-registry
 
             - name: Build Tauri bundle
+              env:
+                  DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
               run: yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
             - name: Verify bundled Yarn runtime dependencies
@@ -92,6 +98,11 @@ jobs:
                   test -f src-tauri/resources/runtime/.yarn/install-state.gz
                   test -f src-tauri/resources/runtime/.pnp.cjs
                   test -f src-tauri/resources/runtime/.pnp.loader.mjs
+                  if [ "${{ runner.os }}" = "Windows" ]; then
+                    test -f src-tauri/resources/runtime/node/node.exe
+                  else
+                    test -f src-tauri/resources/runtime/node/node
+                  fi
 
             - name: Collect release artifacts
               shell: bash

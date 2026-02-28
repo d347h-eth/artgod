@@ -11,7 +11,7 @@ pub enum NatsMode {
 
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
-    pub node_bin: String,
+    pub node_bin: PathBuf,
     pub runtime_dir: PathBuf,
     pub pnp_cjs_path: PathBuf,
     pub pnp_loader_path: PathBuf,
@@ -62,7 +62,6 @@ impl DesktopRuntimeConfig {
 
         let process_env = parse_env_file(&env_file_path)?;
 
-        let node_bin = get_required(&process_env, "DESKTOP_NODE_BIN")?.to_owned();
         let runtime_dir = resolve_runtime_resources_dir(
             app,
             process_env
@@ -70,6 +69,16 @@ impl DesktopRuntimeConfig {
                 .map(String::as_str)
                 .unwrap_or("runtime"),
         )?;
+        let node_bin = resolve_node_binary_path(
+            &runtime_dir,
+            process_env.get("DESKTOP_NODE_BIN").map(String::as_str),
+        );
+        if !node_bin.exists() {
+            return Err(format!(
+                "Desktop Node binary not found: {} (set DESKTOP_NODE_BIN to override)",
+                node_bin.display()
+            ));
+        }
         let pnp_cjs_path = resolve_from_base_dir(
             &runtime_dir,
             process_env
@@ -130,10 +139,8 @@ impl DesktopRuntimeConfig {
             }
         };
 
-        let db_path = resolve_from_base_dir(
-            &app_data_dir,
-            get_required(&process_env, "ARTGOD_DB_PATH")?,
-        );
+        let db_path =
+            resolve_from_base_dir(&app_data_dir, get_required(&process_env, "ARTGOD_DB_PATH")?);
         if let Some(parent_dir) = db_path.parent() {
             fs::create_dir_all(parent_dir).map_err(|error| {
                 format!(
@@ -271,7 +278,10 @@ fn resolve_from_base_dir(base_dir: &Path, raw_path: &str) -> PathBuf {
     base_dir.join(raw)
 }
 
-fn resolve_runtime_resources_dir(app: &AppHandle, raw_runtime_subdir: &str) -> Result<PathBuf, String> {
+fn resolve_runtime_resources_dir(
+    app: &AppHandle,
+    raw_runtime_subdir: &str,
+) -> Result<PathBuf, String> {
     let mut candidates = Vec::<PathBuf>::new();
 
     if let Ok(resource_dir) = app.path().resource_dir() {
@@ -316,12 +326,26 @@ fn resolve_runtime_resources_dir(app: &AppHandle, raw_runtime_subdir: &str) -> R
     ))
 }
 
+fn resolve_node_binary_path(runtime_dir: &Path, raw_override: Option<&str>) -> PathBuf {
+    let default_relative = if cfg!(windows) {
+        "node/node.exe"
+    } else {
+        "node/node"
+    };
+    let raw = raw_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_relative);
+    resolve_from_base_dir(runtime_dir, raw)
+}
+
 fn build_default_env_template() -> String {
     format!(concat!(
         "# ArtGod desktop runtime env\n",
         "# Generated on first start. This file is the single config source for\n",
         "# desktop-managed backend/indexer processes.\n\n",
-        "DESKTOP_NODE_BIN=node\n",
+        "# Optional: override bundled Node binary path (absolute or relative to runtime resources dir)\n",
+        "# DESKTOP_NODE_BIN=node/node(.exe)\n",
         "DESKTOP_RUNTIME_RESOURCES_DIR=runtime\n",
         "DESKTOP_AUTO_START=true\n",
         "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",

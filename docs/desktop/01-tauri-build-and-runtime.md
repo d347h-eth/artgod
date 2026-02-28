@@ -135,9 +135,14 @@ Current build strategy details:
 Responsibilities:
 
 - stages runtime resources for Tauri bundling under `src-tauri/resources/runtime`
+- downloads/verifies the Node distribution for the target platform and stages bundled Node under `src-tauri/resources/runtime/node`
+  : source of truth for Node version is `package.json` `engines.node`
+  : download target is inferred from OS/arch or forced with `DESKTOP_NODE_DIST_TARGET`
+  : downloaded archives are cached in `.cache/desktop-node-runtime`
 - copies:
     - `backend/dist-desktop/*`
     - `indexer/dist-desktop/*`
+    - `node/node` or `node/node.exe`
     - `.yarn/cache/*`
     - `.yarn/unplugged/*`
     - `.yarn/install-state.gz`
@@ -192,7 +197,6 @@ Desktop config is generated on first app launch in app-data:
 
 Desktop-specific required keys:
 
-- `DESKTOP_NODE_BIN`
 - `DESKTOP_NATS_MODE` (`docker` or `binary`)
 - `DESKTOP_NATS_PORT`
 - `DESKTOP_AUTO_START`
@@ -200,6 +204,7 @@ Desktop-specific required keys:
 
 Desktop-specific optional overrides:
 
+- `DESKTOP_NODE_BIN` (defaults to bundled `runtime/node/node(.exe)`)
 - `DESKTOP_RUNTIME_RESOURCES_DIR` (default `runtime`, resolved from app resource dir)
 - `DESKTOP_NODE_PNP_CJS` (default `.pnp.cjs`, resolved from runtime resources dir)
 - `DESKTOP_NODE_PNP_LOADER` (default `.pnp.loader.mjs`, resolved from runtime resources dir)

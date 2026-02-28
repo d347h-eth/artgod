@@ -26,6 +26,7 @@ jobs:
                   path: |
                       .yarn/cache
                       .yarn/unplugged
+                      .cache/desktop-node-runtime
                   key: ${{ runner.os }}-yarn-local-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
                   restore-keys: |
                       ${{ runner.os }}-yarn-local-
@@ -51,6 +52,8 @@ jobs:
               run: yarn check:runtime-registry
 
             - name: Tauri no-bundle build check
+              env:
+                  DESKTOP_NODE_DIST_TARGET: linux-x64
               run: yarn tauri build --debug --no-bundle --ci
 
             - name: Verify bundled Yarn runtime dependencies
@@ -62,3 +65,4 @@ jobs:
                   test -f src-tauri/resources/runtime/.yarn/install-state.gz
                   test -f src-tauri/resources/runtime/.pnp.cjs
                   test -f src-tauri/resources/runtime/.pnp.loader.mjs
+                  test -f src-tauri/resources/runtime/node/node

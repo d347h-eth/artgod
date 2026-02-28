@@ -504,7 +504,7 @@ fn spawn_node_process(
         config,
         ProcessSpec {
             name: process_name.to_owned(),
-            command: config.node_bin.clone(),
+            command: config.node_bin.to_string_lossy().into_owned(),
             args: vec![
                 "--require".to_owned(),
                 config.pnp_cjs_path.to_string_lossy().into_owned(),
@@ -546,7 +546,10 @@ fn spawn_process(
         app,
         &config.logs_dir,
         "info",
-        &format!("Spawning process {} with command: {command_line}", spec.name),
+        &format!(
+            "Spawning process {} with command: {command_line}",
+            spec.name
+        ),
     );
 
     let mut command = Command::new(&spec.command);
