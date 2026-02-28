@@ -1,13 +1,13 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
-    "productName": "artgod",
-    "version": "0.1.0",
-    "identifier": "com.tauri.dev",
+    "productName": "ArtGod",
+    "version": "0.0.1",
+    "identifier": "io.artgod.desktop",
     "build": {
         "frontendDist": "../frontend/dist",
         "devUrl": "http://localhost:5173",
-        "beforeDevCommand": "./scripts/dev.sh",
-        "beforeBuildCommand": "yarn build"
+        "beforeDevCommand": "yarn workspace @artgod/frontend run dev",
+        "beforeBuildCommand": "yarn build:desktop"
     },
     "app": {
         "windows": [

@@ -18,6 +18,7 @@ export function registerApiRoutes(
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
 ): void {
+    app.get("/health", async () => ({ status: "ok" }));
     app.options("/api/*", commonHandlers.optionsApi);
     app.get<GetDefaultChainRoute>(
         "/api/chains/default",

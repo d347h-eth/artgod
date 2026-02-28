@@ -1,14 +1,19 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionDetail } from '$lib/server/backend-api';
+import { BackendApiError, getCollectionDetail } from '$lib/backend-api';
 
-export const load: PageServerLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ fetch, params, url }) => {
 	const query = normalizeCollectionDetailParams(url.searchParams);
 	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
 	try {
-		const response = await getCollectionDetail(fetch, params.chain_ref, params.collection_ref, query);
+		const response = await getCollectionDetail(
+			fetch,
+			params.chain_ref,
+			params.collection_ref,
+			query
+		);
 		return {
 			chain: response.chain,
 			collection: response.collection,

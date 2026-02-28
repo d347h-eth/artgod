@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { resolveProjectPath } from "@artgod/shared/utils";
+import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
 import {
     parseBoolean,
     parseNumber,
@@ -7,7 +7,7 @@ import {
 } from "@artgod/shared/utils/env";
 import { defaultRetryPolicy } from "../domain/retry.js";
 
-dotenv.config({ path: resolveProjectPath(".env") });
+dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
 export type IndexerConfig = {
     dbPath: string;

@@ -1,4 +1,6 @@
+import dotenv from "dotenv";
 import { resolveProjectPath } from "@artgod/shared/utils/paths";
+import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import {
     parseBoolean,
     parseNumber,
@@ -38,6 +40,8 @@ export type OffchainConfig = {
         port: number;
     };
 };
+
+dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
 export function loadOffchainConfig(
     env: Record<string, string | undefined> = process.env,

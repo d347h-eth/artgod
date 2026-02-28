@@ -31,6 +31,25 @@ Optional desktop shell:
 cargo tauri dev
 ```
 
+Local desktop build (no bundle):
+
+```sh
+yarn tauri build --debug --no-bundle --ci
+```
+
+Frontend build targets:
+
+```sh
+yarn build:web
+yarn build:desktop
+```
+
+Desktop runtime env file is generated on first launch at:
+
+- Linux: `~/.local/share/io.artgod.desktop/config/.env`
+- macOS: `~/Library/Application Support/io.artgod.desktop/config/.env`
+- Windows: `%APPDATA%\\io.artgod.desktop\\config\\.env`
+
 VSCode (Yarn PnP):
 
 ```sh
@@ -71,6 +90,30 @@ yarn workspace @artgod/indexer run dev:offchain-ingest-worker
 yarn workspace @artgod/indexer run dev:opensea-stream-worker
 yarn workspace @artgod/indexer run dev:dead-letter-worker
 ```
+
+## Desktop Release Builds
+
+Desktop release artifacts are built publicly in GitHub Actions.
+
+- Workflow: `.github/workflows/tauri-release.yml`
+- Trigger: push semver-like tag `v*` (for example `v0.1.0`)
+- Targets:
+    - Linux x64 (`x86_64-unknown-linux-gnu`)
+    - Windows x64 (`x86_64-pc-windows-msvc`)
+    - macOS universal (`universal-apple-darwin`)
+- Outputs:
+    - platform bundle artifacts uploaded to the GitHub Release
+    - `SHA256SUMS.txt` with checksums for all uploaded artifacts
+    - GitHub build provenance attestation for release assets
+
+Current release pipeline is unsigned (code signing/notarization is a follow-up phase).
+
+Desktop executable lifecycle (first pass):
+
+1. Tauri creates/loads app-data desktop env config.
+2. Tauri starts local NATS (docker or binary mode, explicit in desktop env).
+3. Tauri starts backend + all indexer workers as child processes.
+4. Any core process exit triggers fail-fast full stack restart.
 
 Trigger collection bootstrap (`metadata-mode` defaults to `strict`):
 

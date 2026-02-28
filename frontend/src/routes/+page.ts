@@ -1,18 +1,19 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionsPage } from '$lib/server/backend-api';
+import { BackendApiError, getCollectionsPage, getDefaultChain } from '$lib/backend-api';
 
-export const load: PageServerLoad = async ({ fetch, params, url }) => {
-	const query = normalizeCollectionsParams(url.searchParams);
+export const load: PageLoad = async ({ fetch, url }) => {
+	const params = normalizeCollectionsParams(url.searchParams);
 
 	try {
-		const response = await getCollectionsPage(fetch, params.chain_ref, query);
+		const defaultChain = await getDefaultChain(fetch);
+		const response = await getCollectionsPage(fetch, defaultChain.chain.slug, params);
 		return {
 			chain: response.chain,
 			page: response.page,
 			status: response.filters.status ?? '',
-			basePath: `/${response.chain.slug}`
+			basePath: '/'
 		};
 	} catch (cause) {
 		toKitError(cause);

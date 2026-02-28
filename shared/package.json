@@ -12,6 +12,7 @@
         "./utils/cursor": "./utils/cursor.ts",
         "./utils/ref-resolver": "./utils/ref-resolver.ts",
         "./utils/env": "./utils/env.ts",
+        "./utils/runtime-env": "./utils/runtime-env.ts",
         "./utils/paths": "./utils/paths.ts",
         "./utils/logger": "./utils/logger.ts",
         "./utils/time": "./utils/time.ts",
