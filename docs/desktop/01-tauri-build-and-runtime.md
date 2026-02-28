@@ -297,6 +297,29 @@ Supervisor captures stdout/stderr from each child process and writes:
 
 It also emits log lines to frontend runtime event stream.
 
+## Runtime Operations UI
+
+Desktop frontend now includes a global runtime drawer mounted in root layout (`frontend/src/routes/+layout.svelte`):
+
+- live runtime state (`runtime-state-changed` event)
+- live log stream (`runtime-log` event)
+- controls: start / stop / restart / preflight
+- paths: config path and logs path with open actions
+
+Tauri commands used by the drawer:
+
+- `runtime_start`
+- `runtime_stop`
+- `runtime_restart`
+- `runtime_status`
+- `runtime_preflight`
+- `runtime_get_endpoints`
+- `runtime_get_config_path`
+- `runtime_get_logs_path`
+- `runtime_get_logs_tail`
+- `runtime_open_config_path`
+- `runtime_open_logs_path`
+
 ## CI Release Pipeline
 
 Public release workflow:

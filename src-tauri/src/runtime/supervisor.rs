@@ -5,10 +5,11 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
+use time::OffsetDateTime;
 
 use crate::runtime::config::DesktopRuntimeConfig;
 
@@ -644,11 +645,7 @@ fn emit_supervisor_log(app: &AppHandle, logs_dir: &std::path::Path, level: &str,
         Ok(file) => file,
         Err(_) => return,
     };
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_secs())
-        .unwrap_or(0);
-    let _ = writeln!(log_file, "[{}] [{}] {}", timestamp, level, line);
+    let _ = writeln!(log_file, "[{}] [{}] {}", rfc3339_now(), level, line);
 }
 
 enum MonitorOutcome {
@@ -768,6 +765,19 @@ fn wait_for_port(port: u16, timeout: Duration, label: &str) -> Result<(), String
         }
         thread::sleep(Duration::from_millis(150));
     }
+}
+
+fn rfc3339_now() -> String {
+    let now = OffsetDateTime::now_utc();
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    )
 }
 
 fn update_status<F>(status_ref: &Arc<Mutex<RuntimeStatus>>, app: &AppHandle, update: F)

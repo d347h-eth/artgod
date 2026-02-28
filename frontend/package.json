@@ -16,7 +16,8 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
-		"@artgod/shared": "workspace:*"
+		"@artgod/shared": "workspace:*",
+		"@tauri-apps/api": "^2.8.0"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.2.5",

@@ -59,6 +59,7 @@ __metadata:
     "@tailwindcss/forms": "npm:^0.5.9"
     "@tailwindcss/typography": "npm:^0.5.15"
     "@tailwindcss/vite": "npm:^4.0.0"
+    "@tauri-apps/api": "npm:^2.8.0"
     "@vitest/browser": "npm:^3.2.3"
     eslint: "npm:^9.18.0"
     eslint-config-prettier: "npm:^10.0.1"
@@ -2251,6 +2252,13 @@ __metadata:
   peerDependencies:
     vite: ^5.2.0 || ^6
   checksum: 10/c2709420218d26dace7e89eca53fe608af4cdd55b874a741576520e919bb4b61236e103c3667f1c1429f213dcb0488597137bd8ee91378e28340ccd5e6d1c47b
+  languageName: node
+  linkType: hard
+
+"@tauri-apps/api@npm:^2.8.0":
+  version: 2.9.1
+  resolution: "@tauri-apps/api@npm:2.9.1"
+  checksum: 10/71bc88e505bca4068ef2ceaf96aa7a9ab56cc81f63c0975d34e4682f3a2eaf64f3586a93619cbd5e4fe14a5c5af9168ab0b3c243c5fb63d375bd252bd0e7b4c6
   languageName: node
   linkType: hard
 

@@ -502,6 +502,202 @@ th {
 	font-size: 0.78rem;
 }
 
+.runtime-drawer {
+	position: fixed;
+	inset: 0;
+	width: 100vw;
+	height: 100vh;
+	z-index: 90;
+	background: var(--c-bg);
+	border: 0;
+	padding: 0.75rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	overflow: hidden;
+}
+
+.runtime-drawer-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding-bottom: 0.65rem;
+	border-bottom: 1px solid var(--c-blue);
+}
+
+.runtime-drawer-header h2 {
+	margin: 0;
+	font-size: 0.95rem;
+	color: var(--c-yellow);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.runtime-section {
+	border: 1px solid var(--c-blue);
+	padding: 0.55rem;
+	display: grid;
+	gap: 0.5rem;
+}
+
+.runtime-section h3 {
+	margin: 0;
+	font-size: 0.78rem;
+	color: var(--c-pink);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.runtime-controls {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.45rem;
+}
+
+.runtime-kv-grid {
+	display: grid;
+	gap: 0.4rem;
+}
+
+.runtime-kv-grid > div {
+	display: grid;
+	gap: 0.15rem;
+}
+
+.runtime-k {
+	color: var(--c-sand);
+	font-size: 0.7rem;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.runtime-v {
+	color: var(--c-ice);
+	font-size: 0.75rem;
+}
+
+.runtime-error {
+	color: var(--c-pink);
+	font-size: 0.78rem;
+}
+
+.runtime-pass {
+	color: var(--c-cyan);
+	font-size: 0.78rem;
+}
+
+.runtime-warn {
+	color: var(--c-orange);
+	font-size: 0.78rem;
+}
+
+.runtime-fail {
+	color: var(--c-pink);
+	font-size: 0.78rem;
+}
+
+.runtime-process-list,
+.runtime-preflight-list {
+	margin: 0;
+	padding-left: 1rem;
+	display: grid;
+	gap: 0.2rem;
+}
+
+.runtime-preflight-list li {
+	display: grid;
+	gap: 0.2rem;
+	font-size: 0.75rem;
+}
+
+.runtime-logs-section {
+	padding-bottom: 0.35rem;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.runtime-preflight-section {
+	padding-bottom: 0.35rem;
+}
+
+.runtime-logs-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+}
+
+.runtime-log-stream {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	border: 1px solid var(--c-blue);
+	padding: 0.45rem;
+	display: block;
+	line-height: 1.2;
+}
+
+.runtime-tabs {
+	display: flex;
+	gap: 0.45rem;
+}
+
+.runtime-tabs button {
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	min-width: 6rem;
+}
+
+.runtime-tabs button.runtime-tab-active {
+	border-color: var(--c-yellow);
+	color: var(--c-yellow);
+}
+
+.runtime-tab-panel {
+	flex: 1;
+	min-height: 0;
+}
+
+.runtime-tab-panel-logs {
+	overflow: hidden;
+}
+
+.runtime-tab-panel-status {
+	display: grid;
+	align-content: start;
+	gap: 0.75rem;
+	overflow: auto;
+	padding-right: 0.1rem;
+}
+
+.runtime-tab-section {
+	height: 100%;
+	margin: 0;
+}
+
+.runtime-preflight-stream {
+	max-height: none;
+	overflow: visible;
+	border: 0;
+	padding: 0;
+}
+
+.runtime-log-line {
+	font-size: 0.75rem;
+	line-height: 1.2;
+	white-space: pre;
+	margin: 0;
+	padding: 0;
+}
+
+.runtime-log-line .mono {
+	word-break: normal;
+}
+
 @media (max-width: 900px) {
 	.detail-layout {
 		grid-template-columns: 1fr;
