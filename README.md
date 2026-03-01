@@ -120,7 +120,7 @@ Build helper commands:
 
 ```sh
 yarn build:web                 # frontend web build only
-yarn build:desktop             # frontend desktop-target build (exports frontend/dist for Tauri)
+yarn build:desktop             # frontend desktop-target build (adapter-static -> frontend/dist)
 yarn build:runtime             # backend/indexer Node runtime artifacts
 yarn build:desktop-runtime-resources # copies runtime artifacts + Yarn runtime deps + bundled Node+NATS runtimes (cached under .cache/desktop-*-runtime)
 yarn check:runtime-registry    # validates runtime list consistency across build/supervisor/dev/observability

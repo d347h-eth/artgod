@@ -26,18 +26,7 @@ runCommand(yarnBin, ["workspace", "@artgod/frontend", "run", "build"], {
     cwd: rootDir,
     env,
 })
-    .then(async () => {
-        if (target === "desktop") {
-            const nodeBin = process.platform === "win32" ? "node.exe" : "node";
-            await runCommand(
-                nodeBin,
-                [path.join(__dirname, "export-tauri-frontend.mjs")],
-                {
-                    cwd: rootDir,
-                    env,
-                },
-            );
-        }
+    .then(() => {
         process.exit(0);
     })
     .catch((error) => {

@@ -45,11 +45,11 @@ What each command does:
 
 - `yarn build:web`
   : Runs `scripts/build/build-frontend-target.mjs web`.
-  : Produces standard frontend artifacts for web flow.
+  : Uses `@sveltejs/adapter-node` and produces web/server artifacts under `frontend/build-web`.
 
 - `yarn build:desktop`
   : Runs `scripts/build/build-frontend-target.mjs desktop`.
-  : Builds frontend, then exports desktop static `frontend/dist` via `export-tauri-frontend.mjs`.
+  : Uses `@sveltejs/adapter-static` and writes desktop static output directly to `frontend/dist`.
 
 - `yarn build:runtime`
   : Runs `scripts/build/build-runtime-artifacts.mjs`.
@@ -98,20 +98,9 @@ Responsibilities:
     - `FRONTEND_BUILD_TARGET`
     - `VITE_FRONTEND_BUILD_TARGET`
 - runs frontend workspace build
-- for `desktop` target, runs `scripts/build/export-tauri-frontend.mjs`
-
-### `scripts/build/export-tauri-frontend.mjs`
-
-Responsibilities:
-
-- boots SvelteKit server output (`.svelte-kit/output/server`)
-- renders root HTML once
-- copies client assets to `frontend/dist`
-- writes `index.html` and `404.html`
-
-Result:
-
-- Tauri serves a static desktop shell from `frontend/dist`.
+- SvelteKit adapter selection is handled in `frontend/svelte.config.js`:
+  - `FRONTEND_BUILD_TARGET=desktop` -> `@sveltejs/adapter-static` (`frontend/dist`)
+  - `FRONTEND_BUILD_TARGET=web` -> `@sveltejs/adapter-node` (`frontend/build-web`)
 
 ### `scripts/build/build-runtime-artifacts.mjs`
 
