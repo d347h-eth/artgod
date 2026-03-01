@@ -55,23 +55,95 @@ export async function getCollectionDetail(
 }
 
 async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
+	const trackStartup = !desktopRuntimeStore.isLifecycleReady();
+	if (trackStartup) {
+		desktopRuntimeStore.reportLifecycleEvent(
+			'info',
+			'api.wait_runtime_ready.start',
+			'Waiting for runtime readiness before backend request',
+			{ path }
+		);
+	}
+
 	await desktopRuntimeStore.waitUntilReady(READY_WAIT_TIMEOUT_MS);
+	if (trackStartup) {
+		desktopRuntimeStore.reportLifecycleEvent(
+			'info',
+			'api.wait_runtime_ready.done',
+			'Runtime readiness wait finished',
+			{ path }
+		);
+	}
 
 	let backendOrigin: string;
 	try {
 		backendOrigin = await resolveBackendOrigin();
 	} catch (cause) {
+		if (trackStartup) {
+			desktopRuntimeStore.reportLifecycleEvent(
+				'error',
+				'api.resolve_origin.failed',
+				'Failed to resolve backend origin',
+				{ path, reason: toErrorMessage(cause) }
+			);
+		}
 		throw new BackendApiError(toErrorMessage(cause), 503);
 	}
 
 	const deadline = Date.now() + STARTUP_RETRY_WINDOW_MS;
+	let attempt = 0;
 	for (;;) {
 		try {
-			return await requestJsonOnce<T>(fetchFn, `${backendOrigin}${path}`);
+			attempt += 1;
+			if (trackStartup) {
+				desktopRuntimeStore.reportLifecycleEvent(
+					'info',
+					'api.request.start',
+					'Sending backend request',
+					{ path, attempt }
+				);
+			}
+			const payload = await requestJsonOnce<T>(fetchFn, `${backendOrigin}${path}`);
+			desktopRuntimeStore.markApiReady();
+			if (trackStartup) {
+				desktopRuntimeStore.reportLifecycleEvent(
+					'info',
+					'api.request.success',
+					'Backend request succeeded',
+					{ path, attempt }
+				);
+			}
+			return payload;
 		} catch (cause) {
 			const mapped = toBackendApiError(cause);
 			if (!isRetryableStartupError(mapped) || Date.now() >= deadline) {
+				if (trackStartup) {
+					desktopRuntimeStore.reportLifecycleEvent(
+						'error',
+						'api.request.fail.final',
+						'Backend request failed and will not be retried',
+						{
+							path,
+							attempt,
+							status: mapped.status,
+							message: mapped.message
+						}
+					);
+				}
 				throw mapped;
+			}
+			if (trackStartup) {
+				desktopRuntimeStore.reportLifecycleEvent(
+					'warn',
+					'api.retry',
+					'Retrying backend request after transient startup failure',
+					{
+						path,
+						attempt,
+						status: mapped.status,
+						retryDelayMs: STARTUP_RETRY_DELAY_MS
+					}
+				);
 			}
 			await sleep(STARTUP_RETRY_DELAY_MS);
 		}

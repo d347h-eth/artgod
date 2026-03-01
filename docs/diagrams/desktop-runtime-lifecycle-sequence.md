@@ -17,6 +17,7 @@ sequenceDiagram
     participant WV as Tauri WebView (Svelte UI)
     participant O as DesktopLifecycleOverlay.svelte
     participant DS as desktop-runtime-store.ts
+    participant IL as initial-load.ts
     participant BA as backend-api.ts
     participant BO as backend-origin.ts
     participant TJ as Tauri JS Bridge (@tauri-apps/api)
@@ -28,10 +29,21 @@ sequenceDiagram
     participant IW as Indexer Workers (Node)
 
     U->>RT: Launch desktop app
+    RT->>RT: setup() initializes commands + logs startup
+    Note over RT: auto-start is deferred until frontend handshake
+
+    WV->>O: Mount root layout immediately
+    O->>DS: init()
+    DS->>DS: begin boot lifecycle session
+    DS->>TJ: wait for bridge (poll 50ms, timeout 2s)
+    DS->>TJ: invoke runtime_auto_start()
+    TJ->>RT: runtime_auto_start command
     RT->>RM: auto_start()
     RM->>RM: load_or_create desktop env/config
     RM->>RM: set status=starting
     RM->>SP: spawn run_supervisor_loop()
+    DS->>TJ: invoke runtime_status/preflight/config/logs
+    DS->>TJ: listen runtime-state-changed (always-on)
 
     loop supervisor startup loop
         SP->>SP: spawn nats process
@@ -57,12 +69,17 @@ sequenceDiagram
         end
     end
 
-    WV->>O: Mount root layout
-    O->>DS: init()
-    DS->>TJ: invoke runtime_status/preflight/config/logs
-    DS->>TJ: listen runtime-state-changed (always-on)
+    WV->>IL: initial root `/` collections route load check (desktop initial-load guard)
+    IL->>TJ: quick invoke runtime_status (timeout 250ms)
+    alt runtime not running yet
+        IL-->>WV: defer backend fetch for initial route payload
+        WV->>DS: waitUntilReady(30_000ms)
+        WV->>WV: invalidateAll() after ready to re-run route load
+    else runtime already running
+        IL-->>WV: continue normal load
+    end
 
-    WV->>BA: route load -> requestJson(path)
+    WV->>BA: requestJson(path)
     BA->>DS: waitUntilReady(30_000ms)
 
     loop every 300ms until deadline
@@ -93,7 +110,8 @@ sequenceDiagram
         end
     end
 
-    WV-->>O: overlay hidden once status=running
+    BA->>DS: markApiReady() on first successful API response
+    WV-->>O: overlay hidden once lifecycle phase becomes ready
 ```
 
 ## Window Close / Exit (Graceful Stop)
@@ -140,6 +158,9 @@ sequenceDiagram
 
 ## Key Timing Controls
 
+- Tauri bridge init wait timeout: `2_000ms`
+- Tauri bridge init poll interval: `50ms`
+- desktop initial-load quick runtime status timeout: `250ms`
 - `waitUntilReady` poll interval: `300ms`
 - `waitUntilReady` timeout: `30_000ms`
 - backend startup retry window: `12_000ms`

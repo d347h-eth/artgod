@@ -129,13 +129,14 @@ yarn tauri build --no-bundle --ci
 yarn tauri build --debug --no-bundle --ci
 ```
 
-Desktop executable lifecycle (first pass):
+Desktop executable lifecycle:
 
-1. Tauri creates/loads app-data desktop env config.
-2. Tauri starts local NATS from bundled `nats-server` binary.
-3. Tauri starts backend + all indexer workers from bundled app resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks.
-4. Any core process exit triggers fail-fast full stack restart.
-5. App close and exit requests trigger runtime stop with graceful process termination first, then forced kill fallback.
+1. Rust app process initializes and exposes runtime commands (startup is deferred; no immediate supervisor auto-start in `setup`).
+2. Frontend boot lifecycle store initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`.
+3. Supervisor starts local NATS from bundled `nats-server`, then backend, then all indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks.
+4. Boot lifecycle console stays visible until the first successful backend API response (not merely until process state is `running`).
+5. Any core process exit triggers fail-fast full stack restart.
+6. App close and exit requests trigger runtime stop with graceful process termination first, then forced kill fallback.
 
 If your desktop config file was generated before runtime-artifact keys were added, either update it manually or delete it to regenerate:
 

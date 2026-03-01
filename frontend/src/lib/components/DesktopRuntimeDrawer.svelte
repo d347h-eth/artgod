@@ -98,6 +98,17 @@
 		$runtimeState.logs.filter((entry) => entry.process === processFilter)
 	);
 
+	const parsedVisibleLogs = $derived.by(() =>
+		visibleLogs.map((entry) => {
+			const parsed = parseRuntimeLogLine(entry.line);
+			return {
+				process: entry.process,
+				tokens: parsed.tokens,
+				message: parsed.message
+			};
+		})
+	);
+
 	$effect(() => {
 		void visibleLogs.length;
 		if (!open || !logAutoFollow) {
@@ -132,6 +143,37 @@
 			return true;
 		}
 		return target.isContentEditable;
+	}
+
+	function parseRuntimeLogLine(line: string): { tokens: string[]; message: string } {
+		const tokens: string[] = [];
+		let remaining = line;
+		for (;;) {
+			const match = remaining.match(/^\[([^\]]+)\]\s*/);
+			if (!match) {
+				break;
+			}
+			tokens.push(match[1]);
+			remaining = remaining.slice(match[0].length);
+		}
+		return {
+			tokens,
+			message: remaining.trimStart()
+		};
+	}
+
+	function runtimeTokenClass(token: string): string {
+		const value = token.trim().toLowerCase();
+		if (value === 'error' || value === 'fatal') {
+			return 'runtime-fail';
+		}
+		if (value === 'warn' || value === 'warning') {
+			return 'runtime-warn';
+		}
+		if (value === 'info' || value === 'debug' || value === 'trace') {
+			return 'runtime-pass';
+		}
+		return 'runtime-log-token';
 	}
 </script>
 
@@ -179,12 +221,16 @@
 						</div>
 					</header>
 					<div class="runtime-log-stream" bind:this={logStreamElement} onscroll={handleLogScroll}>
-						{#if visibleLogs.length === 0}
+						{#if parsedVisibleLogs.length === 0}
 							<p class="muted">no logs</p>
 						{:else}
-							{#each visibleLogs as entry}
+							{#each parsedVisibleLogs as entry}
 								<div class="runtime-log-line">
-									<span class="mono">[{entry.process}] {entry.line}</span>
+									<span class="mono runtime-log-process">[{entry.process}] </span>
+									{#each entry.tokens as token}
+										<span class={`mono ${runtimeTokenClass(token)}`}>[{token}] </span>
+									{/each}
+									<span class="runtime-log-message">{entry.message}</span>
 								</div>
 							{/each}
 						{/if}

@@ -229,7 +229,13 @@ Runtime composition code lives in:
 - `src-tauri/src/runtime/supervisor.rs`
 - `src-tauri/src/lib.rs`
 
-Startup order:
+Startup trigger:
+
+1. Rust app setup initializes commands and logs startup, but does **not** auto-start supervisor work in `setup()`.
+2. Frontend lifecycle store (`desktop-runtime-store.ts`) waits for Tauri bridge and invokes `runtime_auto_start`.
+3. `runtime_auto_start` calls `RuntimeManager::auto_start`, which loads/validates desktop config and starts supervisor thread.
+
+Supervisor startup order:
 
 1. start bundled NATS process (`nats-server`)
 2. wait for NATS port readiness
@@ -241,6 +247,13 @@ If any step fails:
 
 - already-started processes are stopped
 - runtime enters restart flow with backoff
+
+Frontend readiness behavior:
+
+- boot lifecycle overlay is shown immediately on app mount
+- overlay remains visible until lifecycle becomes `ready`
+- lifecycle reaches `ready` only after the first successful backend API response (`markApiReady()`), not merely when runtime status becomes `running`
+- on initial `/` route load in desktop mode, backend fetch can be deferred while runtime is not yet `running`; the page then waits for runtime readiness and re-invalidates to fetch real data
 
 ## Process Start Details
 
@@ -295,8 +308,15 @@ Desktop frontend now includes a global runtime drawer mounted in root layout (`f
 - controls: start / stop / restart / preflight
 - paths: config path and logs path with open actions
 
-Tauri commands used by the drawer:
+Desktop boot UX is handled by `DesktopLifecycleOverlay.svelte`:
 
+- visible immediately on startup while lifecycle phase is not `ready`
+- shows lifecycle events as single-line rows with bracket tokens (`[level] [code]`) for copy-friendly logs
+- remains visible until first successful backend API response marks lifecycle as ready
+
+Tauri commands used by desktop frontend runtime UI/state:
+
+- `runtime_auto_start` (boot lifecycle store startup handshake)
 - `runtime_start`
 - `runtime_stop`
 - `runtime_restart`
@@ -384,3 +404,6 @@ Common issues and checks:
 
 - Port already in use after abrupt stop
   : Current supervisor includes graceful stop + forced cleanup; if interrupted externally, verify no stale `nats-server`/runtime process remains before restart.
+
+- Startup request reaches terminal API failure (`api.request.fail.final`)
+  : Current boot flow does not include an automatic background recovery probe. If dependencies recover after terminal failure, trigger a manual reload/restart to resume normal route loading.

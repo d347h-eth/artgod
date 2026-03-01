@@ -1,131 +1,219 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
+	import { onMount, tick } from 'svelte';
 	import { desktopRuntimeStore } from '$lib/runtime/desktop-runtime-store';
-
-	type RuntimeStoreSnapshot = {
-		available: boolean;
-		initialized: boolean;
-		busyAction: string | null;
-		status: {
-			state: string;
-			restartCount: number;
-			lastError: string | null;
-		} | null;
-		error: string | null;
-	};
-
-	type LifecyclePhase = 'ready' | 'booting' | 'stopping' | 'fatal';
+	import type { LifecycleEventLevel } from '$lib/runtime/desktop-runtime-store';
 
 	const runtimeState = desktopRuntimeStore.state;
-	let reachedRunningState = $state(false);
+	const IS_DESKTOP_BUILD_TARGET =
+		((import.meta.env.VITE_FRONTEND_BUILD_TARGET as string | undefined)?.trim() || '') === 'desktop';
+	// Interval for polling whether the Tauri bridge (`window.__TAURI_INTERNALS__`) became available.
+	const DESKTOP_BRIDGE_DETECT_POLL_MS = 100;
+	// Max time to keep polling for Tauri bridge detection before stopping background detection checks.
+	const DESKTOP_BRIDGE_DETECT_TIMEOUT_MS = 2_500;
+	const LOG_FOLLOW_THRESHOLD_PX = 24;
+
+	let nowMs = $state(Date.now());
+	let timer: ReturnType<typeof setInterval> | null = null;
+	let detectTimer: ReturnType<typeof setInterval> | null = null;
+	let detectTimeout: ReturnType<typeof setTimeout> | null = null;
+	let desktopShellDetected = $state(IS_DESKTOP_BUILD_TARGET || detectDesktopShellRuntime());
+	let logStreamElement = $state<HTMLDivElement | null>(null);
+	let logAutoFollow = $state(true);
 
 	onMount(() => {
 		void desktopRuntimeStore.init();
+		timer = setInterval(() => {
+			nowMs = Date.now();
+		}, 1_000);
+
+		if (!desktopShellDetected && browser) {
+			detectTimer = setInterval(() => {
+				if (detectDesktopShellRuntime()) {
+					desktopShellDetected = true;
+					if (detectTimer) {
+						clearInterval(detectTimer);
+						detectTimer = null;
+					}
+					if (detectTimeout) {
+						clearTimeout(detectTimeout);
+						detectTimeout = null;
+					}
+				}
+			}, DESKTOP_BRIDGE_DETECT_POLL_MS);
+			detectTimeout = setTimeout(() => {
+				if (detectTimer) {
+					clearInterval(detectTimer);
+					detectTimer = null;
+				}
+			}, DESKTOP_BRIDGE_DETECT_TIMEOUT_MS);
+		}
+
+		return () => {
+			if (timer) {
+				clearInterval(timer);
+			}
+			if (detectTimer) {
+				clearInterval(detectTimer);
+			}
+			if (detectTimeout) {
+				clearTimeout(detectTimeout);
+			}
+		};
 	});
+
+	const lifecycle = $derived($runtimeState.lifecycle);
+	const events = $derived(lifecycle.events);
+	const isVisible = $derived((IS_DESKTOP_BUILD_TARGET || desktopShellDetected) && lifecycle.phase !== 'ready');
+
+	const headerTitle = $derived.by(() => {
+		switch (lifecycle.phase) {
+			case 'booting':
+				return 'Starting Runtime';
+			case 'stopping':
+				return 'Stopping Runtime';
+			case 'fatal':
+				return 'Runtime Failed';
+			default:
+				return 'Runtime Ready';
+		}
+	});
+
+	const elapsedText = $derived.by(() => formatElapsed(nowMs - lifecycle.startedAtMs));
 
 	$effect(() => {
-		if ($runtimeState.status?.state === 'running') {
-			reachedRunningState = true;
+		void events.length;
+		if (!isVisible || !logAutoFollow) {
+			return;
 		}
+		void tick().then(() => {
+			if (!logStreamElement) {
+				return;
+			}
+			logStreamElement.scrollTop = logStreamElement.scrollHeight;
+		});
 	});
 
-	const lifecyclePhase = $derived.by(() =>
-		resolveLifecyclePhase($runtimeState as RuntimeStoreSnapshot, reachedRunningState)
-	);
+	function handleLogScroll() {
+		if (!logStreamElement) {
+			return;
+		}
+		logAutoFollow = isNearLogBottom(logStreamElement);
+	}
 
-	const startupMessage = $derived.by(() => {
-		const status = $runtimeState.status;
-		if (!status) {
-			return 'Initializing desktop runtime...';
-		}
-		if (status.state === 'restarting') {
-			const restartLabel = status.restartCount > 0 ? ` (attempt ${status.restartCount})` : '';
-			const reason = status.lastError?.trim() ? ` Last error: ${status.lastError}` : '';
-			return `Runtime is restarting${restartLabel}.${reason}`;
-		}
-		return 'Starting local backend and indexer runtimes...';
-	});
+	function isNearLogBottom(element: HTMLDivElement): boolean {
+		const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+		return distanceToBottom <= LOG_FOLLOW_THRESHOLD_PX;
+	}
 
-	const fatalMessage = $derived.by(() =>
-		$runtimeState.status?.lastError?.trim() ||
-			$runtimeState.error?.trim() ||
-			'Desktop runtime startup failed.'
-	);
+	function detectDesktopShellRuntime(): boolean {
+		if (!browser) {
+			return false;
+		}
+		const maybeWindow = window as Window & {
+			__TAURI_INTERNALS__?: unknown;
+		};
+		if (maybeWindow.__TAURI_INTERNALS__) {
+			return true;
+		}
+		const protocol = window.location.protocol.toLowerCase();
+		if (protocol === 'tauri:' || protocol === 'asset:') {
+			return true;
+		}
+		const host = window.location.hostname.toLowerCase();
+		if (host === 'tauri.localhost' || host.endsWith('.tauri.localhost')) {
+			return true;
+		}
+		return /\btauri\b/i.test(navigator.userAgent);
+	}
 
-	function resolveLifecyclePhase(
-		snapshot: RuntimeStoreSnapshot,
-		reachedRuntimeReady: boolean
-	): LifecyclePhase {
-		if (!snapshot.initialized) {
-			return 'booting';
-		}
-		if (!snapshot.available) {
-			return 'ready';
-		}
+	function formatElapsed(diffMs: number): string {
+		const safeMs = Math.max(0, Number.isFinite(diffMs) ? diffMs : 0);
+		const totalSeconds = Math.floor(safeMs / 1000);
+		const minutes = Math.floor(totalSeconds / 60)
+			.toString()
+			.padStart(2, '0');
+		const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+		return `${minutes}:${seconds}`;
+	}
 
-		const status = snapshot.status;
-		if (!status && snapshot.error?.trim()) {
-			return 'fatal';
+	function formatTime(iso: string): string {
+		const date = new Date(iso);
+		if (Number.isNaN(date.getTime())) {
+			return '--:--:--';
 		}
-		if (!status) {
-			return 'booting';
-		}
+		const hours = date.getHours().toString().padStart(2, '0');
+		const minutes = date.getMinutes().toString().padStart(2, '0');
+		const seconds = date.getSeconds().toString().padStart(2, '0');
+		return `${hours}:${minutes}:${seconds}`;
+	}
 
-		if (status.state === 'running') {
-			return 'ready';
+	function lifecycleLevelClass(level: LifecycleEventLevel): string {
+		if (level === 'error') {
+			return 'runtime-fail';
 		}
-		if (status.state === 'stopping') {
-			return 'stopping';
+		if (level === 'warn') {
+			return 'runtime-warn';
 		}
-		if (status.state === 'stopped' && status.lastError?.trim()) {
-			return 'fatal';
-		}
-		if (status.state === 'starting' || status.state === 'restarting') {
-			return 'booting';
-		}
-		if (status.state === 'stopped' && !reachedRuntimeReady) {
-			return 'booting';
-		}
-		return 'ready';
+		return 'runtime-pass';
 	}
 </script>
 
-{#if lifecyclePhase !== 'ready'}
+{#if isVisible}
 	<div class="desktop-lifecycle-overlay" role="status" aria-live="polite">
-		<div class="desktop-lifecycle-panel">
-			{#if lifecyclePhase === 'booting'}
-				<h2>Starting Runtime</h2>
-				<p>{startupMessage}</p>
-			{:else if lifecyclePhase === 'stopping'}
-				<h2>Stopping Runtime</h2>
-				<p>Shutting down local services before exit...</p>
-			{:else}
-				<h2>Runtime Failed</h2>
-				<p>{fatalMessage}</p>
-				<div class="desktop-lifecycle-actions">
-					<button
-						type="button"
-						onclick={() => void desktopRuntimeStore.start()}
-						disabled={$runtimeState.busyAction !== null}
-					>
-						retry start
-					</button>
-					<button
-						type="button"
-						onclick={() => void desktopRuntimeStore.openConfigPath()}
-						disabled={$runtimeState.busyAction !== null}
-					>
-						open config
-					</button>
-					<button
-						type="button"
-						onclick={() => void desktopRuntimeStore.openLogsPath()}
-						disabled={$runtimeState.busyAction !== null}
-					>
-						open logs
-					</button>
+		<section class="desktop-lifecycle-terminal">
+			<header class="desktop-lifecycle-topbar">
+				<div class="desktop-lifecycle-title-row">
+					<h2>{headerTitle}</h2>
+					<p class="desktop-lifecycle-elapsed mono">elapsed {elapsedText}</p>
 				</div>
-			{/if}
-		</div>
+				<p class="desktop-lifecycle-current-action">{lifecycle.currentAction}</p>
+				{#if lifecycle.phase === 'fatal'}
+					<div class="desktop-lifecycle-actions">
+						<button
+							type="button"
+							onclick={() => void desktopRuntimeStore.start()}
+							disabled={$runtimeState.busyAction !== null}
+						>
+							retry start
+						</button>
+						<button
+							type="button"
+							onclick={() => void desktopRuntimeStore.openConfigPath()}
+							disabled={$runtimeState.busyAction !== null}
+						>
+							open config
+						</button>
+						<button
+							type="button"
+							onclick={() => void desktopRuntimeStore.openLogsPath()}
+							disabled={$runtimeState.busyAction !== null}
+						>
+							open logs
+						</button>
+					</div>
+				{/if}
+			</header>
+
+			<div class="desktop-lifecycle-log-stream" bind:this={logStreamElement} onscroll={handleLogScroll}>
+					{#if events.length === 0}
+						<div class="desktop-lifecycle-event-row">
+							<span class="desktop-lifecycle-event-time mono">{formatTime(new Date().toISOString())} </span>
+							<span class="runtime-pass">[info] </span>
+							<span class="desktop-lifecycle-event-code mono">[boot.waiting] </span>
+							<span class="desktop-lifecycle-event-message">Waiting for first lifecycle event...</span>
+						</div>
+				{:else}
+					{#each events as event (event.id)}
+						<div class="desktop-lifecycle-event-row">
+							<span class="desktop-lifecycle-event-time mono">{formatTime(event.atIso)} </span>
+							<span class={lifecycleLevelClass(event.level)}>[{event.level}] </span>
+							<span class="desktop-lifecycle-event-code mono">[{event.code}] </span>
+							<span class="desktop-lifecycle-event-message">{event.message}</span>
+						</div>
+					{/each}
+				{/if}
+			</div>
+		</section>
 	</div>
 {/if}

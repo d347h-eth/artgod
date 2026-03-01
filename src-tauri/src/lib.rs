@@ -47,6 +47,15 @@ fn runtime_start(app: AppHandle, state: State<'_, DesktopState>) -> Result<Runti
 }
 
 #[tauri::command]
+fn runtime_auto_start(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<RuntimeStatus, String> {
+    state.runtime.auto_start(app)?;
+    state.runtime.status()
+}
+
+#[tauri::command]
 fn runtime_stop(app: AppHandle, state: State<'_, DesktopState>) -> Result<RuntimeStatus, String> {
     state.runtime.stop(app)
 }
@@ -242,18 +251,12 @@ pub fn run() {
                 )?;
             }
 
-            let state = app.state::<DesktopState>();
             append_desktop_log(app.handle(), "info", "Desktop app setup started");
-            if let Err(error) = state.runtime.auto_start(app.handle().clone()) {
-                log::error!("Desktop runtime auto-start failed: {error}");
-                append_desktop_log(
-                    app.handle(),
-                    "error",
-                    &format!("Desktop runtime auto-start failed: {error}"),
-                );
-            } else {
-                append_desktop_log(app.handle(), "info", "Desktop runtime auto-start finished");
-            }
+            append_desktop_log(
+                app.handle(),
+                "info",
+                "Desktop runtime auto-start is deferred until frontend handshake",
+            );
 
             Ok(())
         })
@@ -294,6 +297,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            runtime_auto_start,
             runtime_start,
             runtime_stop,
             runtime_restart,
