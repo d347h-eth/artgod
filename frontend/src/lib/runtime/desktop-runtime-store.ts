@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 
 type RuntimeStatus = {
 	state: string;
@@ -47,6 +47,10 @@ type TauriApi = {
 const MAX_LOG_LINES = 600;
 const LOG_TAIL_LIMIT_PER_PROCESS = 200;
 const DEFAULT_LOG_PROCESS = 'desktop-supervisor';
+// Poll interval while waiting for desktop runtime state to become `running`.
+const READY_POLL_INTERVAL_MS = 300;
+// Default max wait for desktop runtime readiness before surfacing a startup error.
+const READY_TIMEOUT_DEFAULT_MS = 30_000;
 
 const initialState: RuntimeDrawerState = {
 	available: false,
@@ -63,7 +67,8 @@ const initialState: RuntimeDrawerState = {
 function createDesktopRuntimeStore() {
 	const state = writable<RuntimeDrawerState>(initialState);
 
-	let listeners: Array<() => void> = [];
+	let statusListener: (() => void) | null = null;
+	let logListener: (() => void) | null = null;
 	let consoleSessionActive = false;
 	let initPromise: Promise<void> | null = null;
 	let activeLogProcess = DEFAULT_LOG_PROCESS;
@@ -78,30 +83,47 @@ function createDesktopRuntimeStore() {
 	}
 
 	async function doInit() {
-		const tauri = await loadTauriApi();
-		if (!tauri) {
+		try {
+			const tauri = await loadTauriApi();
+			if (!tauri) {
+				state.update((snapshot) => ({
+					...snapshot,
+					available: false,
+					initialized: true
+				}));
+				return;
+			}
+
 			state.update((snapshot) => ({
 				...snapshot,
-				available: false,
-				initialized: true
+				available: true
 			}));
-			return;
+
+			await hydrate(tauri, false);
+			await ensureStatusListener(tauri);
+
+			state.update((snapshot) => ({
+				...snapshot,
+				initialized: true,
+				error: null
+			}));
+		} catch (cause) {
+			state.update((snapshot) => ({
+				...snapshot,
+				initialized: true,
+				error: `Failed to initialize desktop runtime store: ${toErrorMessage(cause)}`
+			}));
 		}
-
-		state.update((snapshot) => ({
-			...snapshot,
-			available: true
-		}));
-
-		state.update((snapshot) => ({
-			...snapshot,
-			initialized: true
-		}));
 	}
 
 	function dispose() {
 		endConsoleSession();
+		if (statusListener) {
+			statusListener();
+			statusListener = null;
+		}
 		initPromise = null;
+		state.set(initialState);
 	}
 
 	async function startConsoleSession(process: string = DEFAULT_LOG_PROCESS) {
@@ -116,28 +138,22 @@ function createDesktopRuntimeStore() {
 		if (!tauri) {
 			return;
 		}
+
 		activeLogProcess = process;
 		await hydrate(tauri, true);
-
-		const unlistenState = await tauri.listen<RuntimeStatus>('runtime-state-changed', (event) => {
-			state.update((snapshot) => ({
-				...snapshot,
-				status: event.payload,
-				error: null
-			}));
-		});
-		const unlistenLog = await tauri.listen<RuntimeLogEntry>('runtime-log', (event) => {
-			appendLiveLog(event.payload);
-		});
-		listeners = [unlistenState, unlistenLog];
+		if (!logListener) {
+			logListener = await tauri.listen<RuntimeLogEntry>('runtime-log', (event) => {
+				appendLiveLog(event.payload);
+			});
+		}
 		consoleSessionActive = true;
 	}
 
 	function endConsoleSession() {
-		for (const unlisten of listeners) {
-			unlisten();
+		if (logListener) {
+			logListener();
+			logListener = null;
 		}
-		listeners = [];
 		consoleSessionActive = false;
 		state.update((snapshot) => ({
 			...snapshot,
@@ -157,21 +173,21 @@ function createDesktopRuntimeStore() {
 	async function start() {
 		await withBusyAction('start', async (tauri) => {
 			await tauri.invoke<RuntimeStatus>('runtime_start');
-			await hydrate(tauri, true);
+			await hydrate(tauri, consoleSessionActive);
 		});
 	}
 
 	async function stop() {
 		await withBusyAction('stop', async (tauri) => {
 			await tauri.invoke<RuntimeStatus>('runtime_stop');
-			await hydrate(tauri, true);
+			await hydrate(tauri, consoleSessionActive);
 		});
 	}
 
 	async function restart() {
 		await withBusyAction('restart', async (tauri) => {
 			await tauri.invoke<RuntimeStatus>('runtime_restart');
-			await hydrate(tauri, true);
+			await hydrate(tauri, consoleSessionActive);
 		});
 	}
 
@@ -205,12 +221,54 @@ function createDesktopRuntimeStore() {
 		}));
 	}
 
+	async function waitUntilReady(timeoutMs: number = READY_TIMEOUT_DEFAULT_MS): Promise<void> {
+		await init();
+		const tauri = await loadTauriApi();
+		if (!tauri) {
+			return;
+		}
+
+		const timeout = Number.isFinite(timeoutMs) ? Math.max(1, timeoutMs) : READY_TIMEOUT_DEFAULT_MS;
+		const deadline = Date.now() + timeout;
+
+		while (Date.now() <= deadline) {
+			await refreshStatusFromRuntime(tauri);
+			const snapshot = get(state);
+			if (snapshot.status?.state === 'running') {
+				return;
+			}
+			if (isFatalRuntimeStatus(snapshot.status)) {
+				throw new Error(snapshot.status?.lastError?.trim() || 'Desktop runtime failed to start');
+			}
+			await sleep(READY_POLL_INTERVAL_MS);
+		}
+
+		const snapshot = get(state);
+		const stateLabel = snapshot.status?.state ?? 'unknown';
+		throw new Error(
+			`Desktop runtime did not reach running state within ${timeout}ms (current state: ${stateLabel}).`
+		);
+	}
+
+	async function ensureStatusListener(tauri: TauriApi): Promise<void> {
+		if (statusListener) {
+			return;
+		}
+		statusListener = await tauri.listen<RuntimeStatus>('runtime-state-changed', (event) => {
+			state.update((snapshot) => ({
+				...snapshot,
+				status: event.payload,
+				error: null
+			}));
+		});
+	}
+
 	async function hydrate(tauri: TauriApi, includeLogTail: boolean) {
 		const [status, preflight, configPath, logsPath, logTail] = await Promise.all([
-			tauri.invoke<RuntimeStatus>('runtime_status'),
-			tauri.invoke<RuntimePreflight>('runtime_preflight'),
-			tauri.invoke<string>('runtime_get_config_path'),
-			tauri.invoke<string>('runtime_get_logs_path'),
+			readRuntimeStatus(tauri),
+			readRuntimePreflight(tauri),
+			readConfigPath(tauri),
+			readLogsPath(tauri),
 			includeLogTail ? fetchLogTailForProcess(tauri, activeLogProcess) : Promise.resolve([])
 		]);
 		state.update((snapshot) => ({
@@ -221,6 +279,17 @@ function createDesktopRuntimeStore() {
 			logsPath,
 			logs: includeLogTail ? logTail.slice(-MAX_LOG_LINES) : snapshot.logs,
 			error: null
+		}));
+	}
+
+	async function refreshStatusFromRuntime(tauri: TauriApi): Promise<void> {
+		const status = await readRuntimeStatus(tauri);
+		if (!status) {
+			return;
+		}
+		state.update((snapshot) => ({
+			...snapshot,
+			status
 		}));
 	}
 
@@ -302,15 +371,47 @@ function createDesktopRuntimeStore() {
 		refreshPreflight,
 		openConfigPath,
 		openLogsPath,
-		clearLogs
+		clearLogs,
+		waitUntilReady
 	};
 }
 
-async function fetchLogTailForProcess(tauri: TauriApi, process: string): Promise<RuntimeLogEntry[]> {
-	return tauri.invoke<RuntimeLogEntry[]>('runtime_get_logs_tail', {
-		process,
-		limitPerProcess: LOG_TAIL_LIMIT_PER_PROCESS
-	});
+function isFatalRuntimeStatus(status: RuntimeStatus | null): boolean {
+	if (!status) {
+		return false;
+	}
+	if (status.state !== 'stopped') {
+		return false;
+	}
+	return Boolean(status.lastError?.trim());
+}
+
+async function readRuntimeStatus(tauri: TauriApi): Promise<RuntimeStatus | null> {
+	return tauri.invoke<RuntimeStatus>('runtime_status').catch(() => null);
+}
+
+async function readRuntimePreflight(tauri: TauriApi): Promise<RuntimePreflight | null> {
+	return tauri.invoke<RuntimePreflight>('runtime_preflight').catch(() => null);
+}
+
+async function readConfigPath(tauri: TauriApi): Promise<string | null> {
+	return tauri.invoke<string>('runtime_get_config_path').catch(() => null);
+}
+
+async function readLogsPath(tauri: TauriApi): Promise<string | null> {
+	return tauri.invoke<string>('runtime_get_logs_path').catch(() => null);
+}
+
+async function fetchLogTailForProcess(
+	tauri: TauriApi,
+	process: string
+): Promise<RuntimeLogEntry[]> {
+	return tauri
+		.invoke<RuntimeLogEntry[]>('runtime_get_logs_tail', {
+			process,
+			limitPerProcess: LOG_TAIL_LIMIT_PER_PROCESS
+		})
+		.catch(() => []);
 }
 
 async function loadTauriApi(): Promise<TauriApi | null> {
@@ -339,6 +440,10 @@ function toErrorMessage(value: unknown): string {
 		return value;
 	}
 	return 'unknown error';
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const desktopRuntimeStore = createDesktopRuntimeStore();

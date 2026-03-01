@@ -99,8 +99,8 @@ Responsibilities:
     - `VITE_FRONTEND_BUILD_TARGET`
 - runs frontend workspace build
 - SvelteKit adapter selection is handled in `frontend/svelte.config.js`:
-  - `FRONTEND_BUILD_TARGET=desktop` -> `@sveltejs/adapter-static` (`frontend/dist`)
-  - `FRONTEND_BUILD_TARGET=web` -> `@sveltejs/adapter-node` (`frontend/build-web`)
+    - `FRONTEND_BUILD_TARGET=desktop` -> `@sveltejs/adapter-static` (`frontend/dist`)
+    - `FRONTEND_BUILD_TARGET=web` -> `@sveltejs/adapter-node` (`frontend/build-web`)
 
 ### `scripts/build/build-runtime-artifacts.mjs`
 

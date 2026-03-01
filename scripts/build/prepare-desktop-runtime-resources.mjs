@@ -89,7 +89,11 @@ const copySpecs = [
             "fixtures",
             "opensea-event-payloads",
         ),
-        target: path.join(resourcesRootDir, "fixtures", "opensea-event-payloads"),
+        target: path.join(
+            resourcesRootDir,
+            "fixtures",
+            "opensea-event-payloads",
+        ),
         description: "OpenSea fixture payloads",
     },
 ];

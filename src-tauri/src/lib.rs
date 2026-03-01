@@ -6,6 +6,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use runtime::{DesktopRuntimeConfig, RuntimeEndpoints, RuntimeManager, RuntimeStatus};
 use serde::Serialize;
@@ -14,6 +16,7 @@ use time::OffsetDateTime;
 
 struct DesktopState {
     runtime: RuntimeManager,
+    shutdown_requested: Arc<AtomicBool>,
 }
 
 #[derive(Serialize)]
@@ -228,6 +231,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .manage(DesktopState {
             runtime: RuntimeManager::new(),
+            shutdown_requested: Arc::new(AtomicBool::new(false)),
         })
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -254,16 +258,39 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+
                 let state = window.state::<DesktopState>();
-                if let Err(error) = state.runtime.stop(window.app_handle().clone()) {
-                    log::error!("Desktop runtime shutdown on close failed: {error}");
-                    append_desktop_log(
-                        window.app_handle(),
-                        "error",
-                        &format!("Desktop runtime shutdown on close failed: {error}"),
-                    );
+                if state.shutdown_requested.swap(true, Ordering::SeqCst) {
+                    return;
                 }
+
+                let app_handle = window.app_handle().clone();
+                append_desktop_log(
+                    &app_handle,
+                    "info",
+                    "Window close requested; stopping runtime before app exit",
+                );
+
+                std::thread::spawn(move || {
+                    let state = app_handle.state::<DesktopState>();
+                    if let Err(error) = state.runtime.stop(app_handle.clone()) {
+                        log::error!("Desktop runtime shutdown on close failed: {error}");
+                        append_desktop_log(
+                            &app_handle,
+                            "error",
+                            &format!("Desktop runtime shutdown on close failed: {error}"),
+                        );
+                    } else {
+                        append_desktop_log(
+                            &app_handle,
+                            "info",
+                            "Runtime stopped after window close request",
+                        );
+                    }
+                    app_handle.exit(0);
+                });
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -285,6 +312,9 @@ pub fn run() {
     app.run(|app_handle, event| {
         if let tauri::RunEvent::ExitRequested { .. } = event {
             let state = app_handle.state::<DesktopState>();
+            if state.shutdown_requested.swap(true, Ordering::SeqCst) {
+                return;
+            }
             if let Err(error) = state.runtime.stop(app_handle.clone()) {
                 log::error!("Desktop runtime shutdown on exit failed: {error}");
                 append_desktop_log(

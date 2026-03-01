@@ -155,6 +155,10 @@ impl RuntimeManager {
         };
 
         if let Some(controller) = controller {
+            self.update_status(&app, |status| {
+                status.state = "stopping".to_owned();
+                status.last_error = None;
+            });
             let _ = controller.stop_tx.send(());
             let _ = controller.join_handle.join();
         }

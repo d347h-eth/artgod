@@ -502,6 +502,46 @@ th {
 	font-size: 0.78rem;
 }
 
+.desktop-lifecycle-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	background: color-mix(in srgb, var(--c-bg) 84%, black);
+	display: grid;
+	place-items: center;
+	padding: 1rem;
+}
+
+.desktop-lifecycle-panel {
+	width: min(34rem, 100%);
+	border: 1px solid var(--c-blue);
+	background: var(--c-bg);
+	padding: 1rem;
+	display: grid;
+	gap: 0.65rem;
+}
+
+.desktop-lifecycle-panel h2 {
+	margin: 0;
+	font-size: 0.9rem;
+	color: var(--c-yellow);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.desktop-lifecycle-panel p {
+	margin: 0;
+	font-size: 0.8rem;
+	color: var(--c-ice);
+	line-height: 1.35;
+}
+
+.desktop-lifecycle-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem;
+}
+
 .runtime-drawer {
 	position: fixed;
 	inset: 0;
