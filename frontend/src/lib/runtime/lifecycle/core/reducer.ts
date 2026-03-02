@@ -1,10 +1,5 @@
 import type { RuntimeStatus } from '../ports';
-import type {
-	LifecycleAction,
-	LifecycleConfig,
-	LifecycleEvent,
-	LifecycleState
-} from './types';
+import type { LifecycleAction, LifecycleConfig, LifecycleEvent, LifecycleState } from './types';
 
 const DEFAULT_EVENT_LIMIT = 200;
 
@@ -85,7 +80,13 @@ export function reduceLifecycle(
 		case 'APPEND_EVENT':
 			return appendLifecycleEvent(state, action.event, eventLimit);
 		case 'APPLY_RUNTIME_STATUS':
-			return applyRuntimeStatus(state, action.status, action.previous, action.startedAtMs, eventLimit);
+			return applyRuntimeStatus(
+				state,
+				action.status,
+				action.previous,
+				action.startedAtMs,
+				eventLimit
+			);
 		default:
 			return state;
 	}
@@ -118,7 +119,13 @@ function applyRuntimeStatus(
 			stoppingLockActive: true
 		};
 		if (statusChanged) {
-			next = appendRuntimeStateEvent(next, 'info', 'runtime.state.stopping', 'Runtime status changed to stopping', eventLimit);
+			next = appendRuntimeStateEvent(
+				next,
+				'info',
+				'runtime.state.stopping',
+				'Runtime status changed to stopping',
+				eventLimit
+			);
 		}
 		return next;
 	}
@@ -131,7 +138,13 @@ function applyRuntimeStatus(
 			stoppingLockActive: false
 		};
 		if (statusChanged) {
-			next = appendRuntimeStateEvent(next, 'info', 'runtime.state.stopped', 'Runtime status changed to stopped', eventLimit);
+			next = appendRuntimeStateEvent(
+				next,
+				'info',
+				'runtime.state.stopped',
+				'Runtime status changed to stopped',
+				eventLimit
+			);
 		}
 		return next;
 	}
@@ -147,7 +160,13 @@ function applyRuntimeStatus(
 			stoppingLockActive: false
 		};
 		if (statusChanged) {
-			next = appendRuntimeStateEvent(next, 'info', 'runtime.state.running', 'Runtime status changed to running', eventLimit);
+			next = appendRuntimeStateEvent(
+				next,
+				'info',
+				'runtime.state.running',
+				'Runtime status changed to running',
+				eventLimit
+			);
 		}
 		return next;
 	}
@@ -184,7 +203,13 @@ function applyRuntimeStatus(
 			stoppingLockActive: false
 		};
 		if (statusChanged) {
-			next = appendRuntimeStateEvent(next, 'info', 'runtime.state.starting', 'Runtime status changed to starting', eventLimit);
+			next = appendRuntimeStateEvent(
+				next,
+				'info',
+				'runtime.state.starting',
+				'Runtime status changed to starting',
+				eventLimit
+			);
 		}
 		return next;
 	}
@@ -217,8 +242,16 @@ function applyRuntimeStatus(
 			startedAtMs: next.startedAtMs,
 			stoppingLockActive: false
 		};
-		if (statusChanged) {
-			next = appendRuntimeStateEvent(next, 'warn', 'runtime.state.stopped', 'Runtime status changed to stopped', eventLimit);
+		// Do not emit a warning for the initial snapshot before auto-start.
+		// This is an expected baseline state during desktop boot.
+		if (statusChanged && previous !== null) {
+			next = appendRuntimeStateEvent(
+				next,
+				'warn',
+				'runtime.state.stopped',
+				'Runtime status changed to stopped',
+				eventLimit
+			);
 		}
 		return next;
 	}

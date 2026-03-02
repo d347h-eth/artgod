@@ -242,11 +242,16 @@ Supervisor startup order:
 3. start backend artifact
 4. wait for backend port readiness
 5. start all indexer worker artifacts
+6. wait for backend semantic readiness via `GET /health/runtime`
+   : checks backend process + DB ping + NATS/JetStream jobs stream readiness details
+   : NATS connectivity errors are fatal; "jobs stream not yet created" is reported as warning (`warn`) and does not block startup
+7. only after semantic readiness succeeds, supervisor sets runtime status to `running`
 
 If any step fails:
 
 - already-started processes are stopped
 - runtime enters restart flow with backoff
+- stop requests interrupt startup waits immediately (port waits, semantic health waits, and backoff sleeps)
 
 Frontend readiness behavior:
 
@@ -255,6 +260,7 @@ Frontend readiness behavior:
 - lifecycle reaches `ready` only after lifecycle orchestrator backend readiness probe succeeds, not merely when runtime status becomes `running`
 - on initial `/` route load in desktop mode, backend fetch can be deferred while runtime is not yet `running`; the page then waits for runtime readiness and re-invalidates to fetch real data
 - `backend-api.ts` does not orchestrate runtime readiness anymore; it only resolves backend origin and performs HTTP request/retry behavior
+- runtime readiness in lifecycle orchestrator is event-first (`runtime-state-changed`) with a status reconciliation fallback poll during boot
 
 ## Process Start Details
 
@@ -300,6 +306,13 @@ Supervisor captures stdout/stderr from each child process and writes:
 
 It also emits log lines to frontend runtime event stream.
 
+Admin runtime drawer process dropdown behavior:
+
+- process list is sourced from:
+  : explicit log file enumeration (`runtime_list_log_processes`) when hydrating runtime state
+  : plus live `runtime-log` event process names as they appear
+- this makes all existing process logs selectable even before supervisor transitions status to `running`
+
 ## Runtime Operations UI
 
 Desktop frontend now includes a global runtime drawer mounted in root layout (`frontend/src/routes/+layout.svelte`):
@@ -327,6 +340,7 @@ Tauri commands used by desktop frontend runtime UI/state:
 - `runtime_get_config_path`
 - `runtime_get_logs_path`
 - `runtime_get_logs_tail`
+- `runtime_list_log_processes`
 - `runtime_open_config_path`
 - `runtime_open_logs_path`
 

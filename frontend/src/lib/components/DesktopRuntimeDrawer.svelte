@@ -68,6 +68,9 @@
 
 	const processOptions = $derived.by(() => {
 		const names = new Set<string>();
+		for (const process of $runtimeState.logProcesses) {
+			names.add(process);
+		}
 		for (const entry of $runtimeState.logs) {
 			names.add(entry.process);
 		}

@@ -28,6 +28,10 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/list-collections.js");
     const collectionDetailUseCaseModule =
         await import("./application/use-cases/collections/get-collection-detail.js");
+    const runtimeHealthUseCaseModule =
+        await import("./application/use-cases/health/get-runtime-health.js");
+    const sqliteRuntimeHealthModule =
+        await import("./infra/runtime-health/sqlite-runtime-health.js");
     const readModels = await import("@artgod/shared/read-models");
 
     const chainsReadModel = new readModels.SqliteChainsReadModel();
@@ -46,11 +50,24 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
         );
+    const runtimeHealthUseCase =
+        new runtimeHealthUseCaseModule.GetRuntimeHealthUseCase(
+            new sqliteRuntimeHealthModule.SqliteRuntimeHealthAdapter(),
+            {
+                async assertJobsStreamExists(streamName: string) {
+                    if (streamName !== "artgod-jobs") {
+                        throw new Error(`Unexpected jobs stream ${streamName}`);
+                    }
+                },
+            },
+            "artgod-jobs",
+        );
 
     app = appModule.createApiApp(
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,
+        runtimeHealthUseCase,
     );
     await app.ready();
 });
@@ -70,6 +87,22 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.chain.publicChainId).toBe(1);
         expect(result.payload.chain.slug).toBe("ethereum");
+    });
+
+    it("reports runtime health with semantic checks", async () => {
+        const result = await resolve("GET", "/health/runtime");
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.ok).toBe(true);
+        expect(result.payload.checks).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    key: "backendProcess",
+                    status: "pass",
+                }),
+                expect.objectContaining({ key: "database", status: "pass" }),
+                expect.objectContaining({ key: "queue", status: "pass" }),
+            ]),
+        );
     });
 
     it("lists collections with cursor pagination", async () => {

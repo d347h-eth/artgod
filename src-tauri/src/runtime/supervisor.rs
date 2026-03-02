@@ -1,13 +1,14 @@
 use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use time::OffsetDateTime;
 
@@ -17,9 +18,11 @@ const BACKEND_PROCESS_NAME: &str = "backend";
 const NATS_PROCESS_NAME: &str = "nats";
 const SUPERVISOR_PROCESS_NAME: &str = "desktop-supervisor";
 const STARTUP_PORT_TIMEOUT: Duration = Duration::from_secs(30);
+const STARTUP_RUNTIME_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(10);
 const PROCESS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const STARTUP_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(150);
 
 const BACKEND_ARTIFACT: &str = "backend/dist-desktop/server.mjs";
 const INDEXER_WORKERS: &[(&str, &str)] = &[
@@ -264,6 +267,7 @@ fn run_supervisor_loop(
     stop_rx: Receiver<()>,
 ) {
     let mut restart_count: u32 = 0;
+    let stop_signal = AtomicBool::new(false);
     emit_supervisor_log(
         &app,
         &config.logs_dir,
@@ -287,9 +291,22 @@ fn run_supervisor_loop(
             status.running_processes.clear();
         });
 
-        let mut processes = match spawn_runtime_processes(&app, &config) {
+        let mut processes = match spawn_runtime_processes(&app, &config, &stop_rx, &stop_signal) {
             Ok(processes) => processes,
-            Err(error) => {
+            Err(SpawnRuntimeError::Cancelled) => {
+                emit_supervisor_log(
+                    &app,
+                    &config.logs_dir,
+                    "info",
+                    "Stop requested during startup; supervisor stopping",
+                );
+                update_status(&status_ref, &app, |status| {
+                    status.state = "stopped".to_owned();
+                    status.running_processes.clear();
+                });
+                break;
+            }
+            Err(SpawnRuntimeError::Failed(error)) => {
                 restart_count = restart_count.saturating_add(1);
                 emit_supervisor_log(
                     &app,
@@ -303,7 +320,7 @@ fn run_supervisor_loop(
                     status.last_error = Some(error.clone());
                     status.running_processes.clear();
                 });
-                if stop_requested(&stop_rx) {
+                if stop_requested(&stop_rx, &stop_signal) {
                     emit_supervisor_log(
                         &app,
                         &config.logs_dir,
@@ -316,7 +333,23 @@ fn run_supervisor_loop(
                     });
                     break;
                 }
-                thread::sleep(Duration::from_millis(config.restart_backoff_ms));
+                if sleep_with_stop(
+                    &stop_rx,
+                    &stop_signal,
+                    Duration::from_millis(config.restart_backoff_ms),
+                ) {
+                    emit_supervisor_log(
+                        &app,
+                        &config.logs_dir,
+                        "info",
+                        "Stop requested during startup backoff; supervisor stopping",
+                    );
+                    update_status(&status_ref, &app, |status| {
+                        status.state = "stopped".to_owned();
+                        status.running_processes.clear();
+                    });
+                    break;
+                }
                 continue;
             }
         };
@@ -338,7 +371,7 @@ fn run_supervisor_loop(
             "Runtime processes are running",
         );
 
-        match monitor_processes(&mut processes, &stop_rx) {
+        match monitor_processes(&mut processes, &stop_rx, &stop_signal) {
             MonitorOutcome::StoppedByRequest => {
                 emit_supervisor_log(
                     &app,
@@ -364,7 +397,23 @@ fn run_supervisor_loop(
                     status_ref.last_error = Some(error);
                     status_ref.running_processes.clear();
                 });
-                thread::sleep(Duration::from_millis(config.restart_backoff_ms));
+                if sleep_with_stop(
+                    &stop_rx,
+                    &stop_signal,
+                    Duration::from_millis(config.restart_backoff_ms),
+                ) {
+                    emit_supervisor_log(
+                        &app,
+                        &config.logs_dir,
+                        "info",
+                        "Stop requested during restart backoff; supervisor stopping",
+                    );
+                    update_status(&status_ref, &app, |status| {
+                        status.state = "stopped".to_owned();
+                        status.running_processes.clear();
+                    });
+                    break;
+                }
             }
             MonitorOutcome::ProcessFailure { process, error } => {
                 let details = format!("Process {process} monitor failure: {error}");
@@ -377,37 +426,80 @@ fn run_supervisor_loop(
                     status_ref.last_error = Some(details);
                     status_ref.running_processes.clear();
                 });
-                thread::sleep(Duration::from_millis(config.restart_backoff_ms));
+                if sleep_with_stop(
+                    &stop_rx,
+                    &stop_signal,
+                    Duration::from_millis(config.restart_backoff_ms),
+                ) {
+                    emit_supervisor_log(
+                        &app,
+                        &config.logs_dir,
+                        "info",
+                        "Stop requested during restart backoff; supervisor stopping",
+                    );
+                    update_status(&status_ref, &app, |status| {
+                        status.state = "stopped".to_owned();
+                        status.running_processes.clear();
+                    });
+                    break;
+                }
             }
         }
     }
 }
 
-fn stop_requested(stop_rx: &Receiver<()>) -> bool {
-    match stop_rx.recv_timeout(Duration::from_millis(1)) {
-        Ok(()) => true,
-        Err(RecvTimeoutError::Timeout) => false,
-        Err(RecvTimeoutError::Disconnected) => true,
+fn stop_requested(stop_rx: &Receiver<()>, stop_signal: &AtomicBool) -> bool {
+    if stop_signal.load(Ordering::SeqCst) {
+        return true;
+    }
+    match stop_rx.try_recv() {
+        Ok(()) => {
+            stop_signal.store(true, Ordering::SeqCst);
+            true
+        }
+        Err(TryRecvError::Disconnected) => {
+            stop_signal.store(true, Ordering::SeqCst);
+            true
+        }
+        Err(TryRecvError::Empty) => false,
     }
 }
 
 fn spawn_runtime_processes(
     app: &AppHandle,
     config: &DesktopRuntimeConfig,
-) -> Result<Vec<ManagedProcess>, String> {
+    stop_rx: &Receiver<()>,
+    stop_signal: &AtomicBool,
+) -> Result<Vec<ManagedProcess>, SpawnRuntimeError> {
     let mut processes = Vec::<ManagedProcess>::new();
+
+    if stop_requested(stop_rx, stop_signal) {
+        return Err(SpawnRuntimeError::Cancelled);
+    }
 
     let nats_process = match spawn_nats_process(app, config) {
         Ok(process) => process,
         Err(error) => {
             stop_all_processes(&mut processes);
-            return Err(error);
+            return Err(SpawnRuntimeError::Failed(error));
         }
     };
     processes.push(nats_process);
-    if let Err(error) = wait_for_port(config.nats_port, STARTUP_PORT_TIMEOUT, "NATS") {
+    emit_supervisor_log(
+        app,
+        &config.logs_dir,
+        "info",
+        "Waiting for NATS port binding",
+    );
+    if let Err(error) = wait_for_port(
+        config.nats_port,
+        STARTUP_PORT_TIMEOUT,
+        "NATS",
+        stop_rx,
+        stop_signal,
+    ) {
         stop_all_processes(&mut processes);
-        return Err(error);
+        return Err(map_startup_wait_error(error));
     }
 
     let backend_process =
@@ -415,27 +507,93 @@ fn spawn_runtime_processes(
             Ok(process) => process,
             Err(error) => {
                 stop_all_processes(&mut processes);
-                return Err(error);
+                return Err(SpawnRuntimeError::Failed(error));
             }
         };
     processes.push(backend_process);
-    if let Err(error) = wait_for_port(config.backend_port, STARTUP_PORT_TIMEOUT, "Backend API") {
+    emit_supervisor_log(
+        app,
+        &config.logs_dir,
+        "info",
+        "Waiting for backend API port binding",
+    );
+    if let Err(error) = wait_for_port(
+        config.backend_port,
+        STARTUP_PORT_TIMEOUT,
+        "Backend API",
+        stop_rx,
+        stop_signal,
+    ) {
         stop_all_processes(&mut processes);
-        return Err(error);
+        return Err(map_startup_wait_error(error));
     }
 
     for (name, artifact) in INDEXER_WORKERS {
+        if stop_requested(stop_rx, stop_signal) {
+            stop_all_processes(&mut processes);
+            return Err(SpawnRuntimeError::Cancelled);
+        }
         let process = match spawn_node_process(app, config, name, artifact) {
             Ok(process) => process,
             Err(error) => {
                 stop_all_processes(&mut processes);
-                return Err(error);
+                return Err(SpawnRuntimeError::Failed(error));
             }
         };
         processes.push(process);
     }
 
+    emit_supervisor_log(
+        app,
+        &config.logs_dir,
+        "info",
+        "Waiting for backend semantic runtime health",
+    );
+    if let Err(error) = wait_for_backend_runtime_health(
+        config.backend_port,
+        STARTUP_RUNTIME_HEALTH_TIMEOUT,
+        stop_rx,
+        stop_signal,
+    ) {
+        stop_all_processes(&mut processes);
+        return Err(map_startup_wait_error(error));
+    }
+
     Ok(processes)
+}
+
+fn sleep_with_stop(stop_rx: &Receiver<()>, stop_signal: &AtomicBool, duration: Duration) -> bool {
+    let deadline = Instant::now() + duration;
+    loop {
+        if stop_requested(stop_rx, stop_signal) {
+            return true;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        let remaining = deadline.saturating_duration_since(now);
+        thread::sleep(remaining.min(Duration::from_millis(100)));
+    }
+}
+
+#[derive(Debug)]
+enum SpawnRuntimeError {
+    Cancelled,
+    Failed(String),
+}
+
+#[derive(Debug)]
+enum StartupWaitError {
+    Cancelled,
+    Failed(String),
+}
+
+fn map_startup_wait_error(error: StartupWaitError) -> SpawnRuntimeError {
+    match error {
+        StartupWaitError::Cancelled => SpawnRuntimeError::Cancelled,
+        StartupWaitError::Failed(message) => SpawnRuntimeError::Failed(message),
+    }
 }
 
 fn spawn_nats_process(
@@ -658,11 +816,19 @@ enum MonitorOutcome {
     ProcessFailure { process: String, error: String },
 }
 
-fn monitor_processes(processes: &mut [ManagedProcess], stop_rx: &Receiver<()>) -> MonitorOutcome {
+fn monitor_processes(
+    processes: &mut [ManagedProcess],
+    stop_rx: &Receiver<()>,
+    stop_signal: &AtomicBool,
+) -> MonitorOutcome {
     loop {
         match stop_rx.recv_timeout(MONITOR_POLL_INTERVAL) {
-            Ok(()) => return MonitorOutcome::StoppedByRequest,
+            Ok(()) => {
+                stop_signal.store(true, Ordering::SeqCst);
+                return MonitorOutcome::StoppedByRequest;
+            }
             Err(RecvTimeoutError::Disconnected) => {
+                stop_signal.store(true, Ordering::SeqCst);
                 return MonitorOutcome::StoppedByRequest;
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -753,22 +919,110 @@ fn wait_for_process_exit_or_kill(child: &mut Child, grace_period: Duration) {
     }
 }
 
-fn wait_for_port(port: u16, timeout: Duration, label: &str) -> Result<(), String> {
+fn wait_for_port(
+    port: u16,
+    timeout: Duration,
+    label: &str,
+    stop_rx: &Receiver<()>,
+    stop_signal: &AtomicBool,
+) -> Result<(), StartupWaitError> {
     let deadline = Instant::now() + timeout;
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
     loop {
+        if stop_requested(stop_rx, stop_signal) {
+            return Err(StartupWaitError::Cancelled);
+        }
         if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
             return Ok(());
         }
         if Instant::now() >= deadline {
-            return Err(format!(
+            return Err(StartupWaitError::Failed(format!(
                 "{label} did not bind 127.0.0.1:{port} within {}s",
                 timeout.as_secs()
-            ));
+            )));
         }
-        thread::sleep(Duration::from_millis(150));
+        thread::sleep(STARTUP_WAIT_POLL_INTERVAL);
     }
+}
+
+#[derive(Deserialize)]
+struct BackendRuntimeHealthResponse {
+    ok: bool,
+}
+
+fn wait_for_backend_runtime_health(
+    backend_port: u16,
+    timeout: Duration,
+    stop_rx: &Receiver<()>,
+    stop_signal: &AtomicBool,
+) -> Result<(), StartupWaitError> {
+    let deadline = Instant::now() + timeout;
+    let mut last_probe_error: Option<String> = None;
+
+    loop {
+        if stop_requested(stop_rx, stop_signal) {
+            return Err(StartupWaitError::Cancelled);
+        }
+
+        match probe_backend_runtime_health(backend_port) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(error) => {
+                last_probe_error = Some(error);
+            }
+        }
+
+        if Instant::now() >= deadline {
+            let suffix = last_probe_error
+                .as_ref()
+                .map(|error| format!(" Last probe error: {error}"))
+                .unwrap_or_default();
+            return Err(StartupWaitError::Failed(format!(
+                "Backend runtime health endpoint did not report ok within {}s.{suffix}",
+                timeout.as_secs()
+            )));
+        }
+
+        thread::sleep(STARTUP_WAIT_POLL_INTERVAL);
+    }
+}
+
+fn probe_backend_runtime_health(backend_port: u16) -> Result<bool, String> {
+    let addr = SocketAddr::from(([127, 0, 0, 1], backend_port));
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(250))
+        .map_err(|error| format!("connect failed: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .map_err(|error| format!("set read timeout failed: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_millis(500)))
+        .map_err(|error| format!("set write timeout failed: {error}"))?;
+
+    let request = format!(
+        "GET /health/runtime HTTP/1.1\r\nHost: 127.0.0.1:{backend_port}\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("request write failed: {error}"))?;
+
+    let mut raw_response = String::new();
+    stream
+        .read_to_string(&mut raw_response)
+        .map_err(|error| format!("response read failed: {error}"))?;
+
+    let mut parts = raw_response.splitn(2, "\r\n\r\n");
+    let headers = parts.next().unwrap_or_default();
+    let body = parts.next().unwrap_or_default();
+
+    let status_line = headers.lines().next().unwrap_or_default();
+    if !status_line.contains(" 200 ") {
+        return Ok(false);
+    }
+
+    let payload: BackendRuntimeHealthResponse = serde_json::from_str(body)
+        .map_err(|error| format!("invalid runtime health response: {error}"))?;
+    Ok(payload.ok)
 }
 
 fn rfc3339_now() -> String {

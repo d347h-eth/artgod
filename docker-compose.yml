@@ -11,8 +11,6 @@ services:
     natsbox:
         image: natsio/nats-box:latest
         command: ["sleep", "infinity"]
-        depends_on:
-            - nats
 
     loki:
         image: grafana/loki:3.0.0

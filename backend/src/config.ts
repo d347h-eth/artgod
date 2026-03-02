@@ -11,6 +11,8 @@ export type BackendConfig = {
     port: number;
     defaultChainId: number;
     dbPath: string;
+    natsUrl: string;
+    natsStreamPrefix: string;
 };
 
 export function loadBackendConfig(
@@ -19,10 +21,17 @@ export function loadBackendConfig(
     const port = parsePositiveInteger(env.BACKEND_PORT, "BACKEND_PORT", 3000);
     const defaultChainId = parsePositiveInteger(env.CHAIN_ID, "CHAIN_ID", 1);
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
+    const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
+    const natsStreamPrefix = parseRequiredString(
+        env.NATS_STREAM_PREFIX,
+        "NATS_STREAM_PREFIX",
+    );
 
     return {
         port,
         defaultChainId,
         dbPath,
+        natsUrl,
+        natsStreamPrefix,
     };
 }

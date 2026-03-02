@@ -83,6 +83,11 @@ export function createTauriRuntimePort(): RuntimePort {
 		return bridge.invoke<string>('runtime_get_logs_path').catch(() => null);
 	}
 
+	async function listLogProcesses(): Promise<string[]> {
+		const bridge = await requireBridge();
+		return bridge.invoke<string[]>('runtime_list_log_processes').catch(() => []);
+	}
+
 	async function openConfigPath(): Promise<void> {
 		const bridge = await requireBridge();
 		await bridge.invoke('runtime_open_config_path');
@@ -139,6 +144,7 @@ export function createTauriRuntimePort(): RuntimePort {
 		preflight,
 		getConfigPath,
 		getLogsPath,
+		listLogProcesses,
 		openConfigPath,
 		openLogsPath,
 		getLogsTail,

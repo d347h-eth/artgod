@@ -21,6 +21,7 @@ type RuntimeDrawerState = {
 	preflight: RuntimePreflight | null;
 	configPath: string | null;
 	logsPath: string | null;
+	logProcesses: string[];
 	logs: RuntimeLogEntry[];
 	error: string | null;
 	lifecycle: LifecycleState;
@@ -53,6 +54,7 @@ function createDesktopRuntimeStore() {
 		preflight: null,
 		configPath: null,
 		logsPath: null,
+		logProcesses: [],
 		logs: [],
 		error: null,
 		lifecycle: initialLifecycle
@@ -252,29 +254,17 @@ function createDesktopRuntimeStore() {
 		await lifecycle.waitUntilReady(timeoutMs);
 	}
 
-	function markApiReady(): void {
-		lifecycle.markApiReady();
-	}
-
-	function reportLifecycleEvent(
-		level: LifecycleEventLevel,
-		code: string,
-		message: string,
-		meta?: Record<string, string | number | boolean>
-	): void {
-		lifecycle.reportEvent(level, code, message, meta);
-	}
-
 	function isLifecycleReady(): boolean {
 		return lifecycle.isReady();
 	}
 
 	async function hydrate(includeLogTail: boolean) {
-		const [status, preflight, configPath, logsPath, logTail] = await Promise.all([
+		const [status, preflight, configPath, logsPath, logProcesses, logTail] = await Promise.all([
 			runtimePort.status(),
 			runtimePort.preflight(),
 			runtimePort.getConfigPath(),
 			runtimePort.getLogsPath(),
+			runtimePort.listLogProcesses(),
 			includeLogTail
 				? runtimePort.getLogsTail(activeLogProcess, LOG_TAIL_LIMIT_PER_PROCESS)
 				: Promise.resolve([])
@@ -286,6 +276,7 @@ function createDesktopRuntimeStore() {
 			preflight,
 			configPath,
 			logsPath,
+			logProcesses: mergeLogProcesses(snapshot.logProcesses, logProcesses),
 			logs: includeLogTail ? logTail.slice(-MAX_LOG_LINES) : snapshot.logs,
 			error: null
 		}));
@@ -301,7 +292,11 @@ function createDesktopRuntimeStore() {
 				...snapshot,
 				error
 			}));
-			lifecycle.reportEvent('error', 'action.unavailable', 'Desktop runtime controls are unavailable');
+			lifecycle.reportEvent(
+				'error',
+				'action.unavailable',
+				'Desktop runtime controls are unavailable'
+			);
 			return;
 		}
 
@@ -328,16 +323,22 @@ function createDesktopRuntimeStore() {
 	}
 
 	function appendLiveLog(entry: RuntimeLogEntry) {
-		if (entry.process !== activeLogProcess) {
-			return;
-		}
 		state.update((snapshot) => {
+			const logProcesses = mergeLogProcesses(snapshot.logProcesses, [entry.process]);
+			if (entry.process !== activeLogProcess) {
+				return {
+					...snapshot,
+					logProcesses
+				};
+			}
+
 			const logs = [...snapshot.logs, entry];
 			if (logs.length > MAX_LOG_LINES) {
 				logs.splice(0, logs.length - MAX_LOG_LINES);
 			}
 			return {
 				...snapshot,
+				logProcesses,
 				logs
 			};
 		});
@@ -374,8 +375,6 @@ function createDesktopRuntimeStore() {
 		openLogsPath,
 		clearLogs,
 		waitUntilReady,
-		markApiReady,
-		reportLifecycleEvent,
 		isLifecycleReady
 	};
 }
@@ -393,3 +392,13 @@ function toErrorMessage(value: unknown): string {
 export const desktopRuntimeStore = createDesktopRuntimeStore();
 
 export { IS_DESKTOP_BUILD_TARGET };
+
+function mergeLogProcesses(current: string[], incoming: string[]): string[] {
+	const merged = new Set<string>(current);
+	for (const process of incoming) {
+		if (process && process.trim().length > 0) {
+			merged.add(process);
+		}
+	}
+	return Array.from(merged).sort((a, b) => a.localeCompare(b));
+}

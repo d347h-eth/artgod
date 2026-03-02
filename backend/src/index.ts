@@ -10,9 +10,12 @@ import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
+import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
+import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
+import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 
 export async function startBackendServer(
     config: BackendConfig,
@@ -21,7 +24,7 @@ export async function startBackendServer(
     const migrationRunner = createMigrationRunner();
     await migrationRunner.runMigrations();
 
-    const app = createBackendApp(config.defaultChainId);
+    const app = createBackendApp(config);
     await app.listen({
         port: config.port,
         host: "127.0.0.1",
@@ -29,28 +32,34 @@ export async function startBackendServer(
     return app;
 }
 
-export function createBackendApp(defaultChainId: number): FastifyInstance {
+export function createBackendApp(config: BackendConfig): FastifyInstance {
     const chainsReadModel = new SqliteChainsReadModel();
     const collectionsReadModel = new SqliteCollectionsReadModel();
     const getDefaultChainUseCase = new GetDefaultChainUseCase(
-        defaultChainId,
+        config.defaultChainId,
         chainsReadModel,
     );
     const listCollectionsUseCase = new ListCollectionsUseCase(
-        defaultChainId,
+        config.defaultChainId,
         chainsReadModel,
         collectionsReadModel,
     );
     const getCollectionDetailUseCase = new GetCollectionDetailUseCase(
-        defaultChainId,
+        config.defaultChainId,
         chainsReadModel,
         collectionsReadModel,
+    );
+    const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
+        new SqliteRuntimeHealthAdapter(),
+        new NatsRuntimeHealthAdapter(config.natsUrl),
+        `${config.natsStreamPrefix}-jobs`,
     );
 
     return createApiApp(
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,
+        runtimeHealthUseCase,
     );
 }
 

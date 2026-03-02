@@ -20,7 +20,10 @@ export function parseBracketPrefixedLine(line: string): TokenizedLogLine {
 	};
 }
 
-export function createTokenizedLogLine(tokens: readonly string[], message: string): TokenizedLogLine {
+export function createTokenizedLogLine(
+	tokens: readonly string[],
+	message: string
+): TokenizedLogLine {
 	return {
 		tokens: [...tokens],
 		message

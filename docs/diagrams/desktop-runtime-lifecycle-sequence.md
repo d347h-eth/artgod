@@ -42,7 +42,7 @@ sequenceDiagram
     RM->>RM: load_or_create desktop env/config
     RM->>RM: set status=starting
     RM->>SP: spawn run_supervisor_loop()
-    DS->>TJ: invoke runtime_status/preflight/config/logs
+    DS->>TJ: invoke runtime_status/preflight/config/logs/listLogProcesses
     DS->>TJ: listen runtime-state-changed (always-on)
 
     loop supervisor startup loop
@@ -54,8 +54,16 @@ sequenceDiagram
         SP->>SP: wait_for_port(backend, 30s)
 
         SP->>IW: spawn all indexer worker artifacts
-        SP->>RM: update status=running + running_processes
-        RM-->>TJ: emit runtime-state-changed
+        SP->>B: probe GET /health/runtime (timeout 30s)
+        alt health check passes (ok=true or warn-only checks)
+            SP->>RM: update status=running + running_processes
+            RM-->>TJ: emit runtime-state-changed
+        else health check times out/fails
+            SP->>SP: stop_all_processes()
+            SP->>RM: update status=restarting + last_error
+            RM-->>TJ: emit runtime-state-changed
+            SP->>SP: sleep(restart_backoff_ms)
+        end
 
         alt any managed process exits unexpectedly
             SP->>SP: stop_all_processes()
@@ -159,4 +167,6 @@ sequenceDiagram
 - lifecycle backend readiness probe window: `12_000ms`
 - lifecycle backend readiness probe retry delay: `250ms`
 - supervisor port wait timeout per critical process: `30s`
+- supervisor semantic backend health timeout (`/health/runtime`): `30s`
 - process graceful stop wait: `10s`
+- supervisor startup waits/backoff are stop-signal cancellable

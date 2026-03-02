@@ -82,6 +82,10 @@ class FakeRuntimePort implements RuntimePort {
 		return null;
 	}
 
+	async listLogProcesses() {
+		return [];
+	}
+
 	async openConfigPath(): Promise<void> {
 		return;
 	}
@@ -127,7 +131,8 @@ function createHarness(options?: {
 	const bridgeAvailability: boolean[] = [];
 	const runtimePort = options?.runtimePort ?? new FakeRuntimePort();
 	const backendProbePort =
-		options?.backendProbePort ?? ({
+		options?.backendProbePort ??
+		({
 			async probeReady() {
 				return;
 			}
@@ -213,14 +218,18 @@ describe('lifecycle orchestrator', () => {
 		const runtimePort = new FakeRuntimePort();
 		runtimePort.loadBridgeResult = false;
 
-		const { orchestrator, lifecycleStates, errors, bridgeAvailability } = createHarness({ runtimePort });
+		const { orchestrator, lifecycleStates, errors, bridgeAvailability } = createHarness({
+			runtimePort
+		});
 
 		await orchestrator.init();
 
 		expect(bridgeAvailability.at(-1)).toBe(false);
 		expect(errors.at(-1)).toBe('Desktop runtime bridge is unavailable.');
 		expect(lifecycleStates.at(-1)?.phase).toBe('fatal');
-		await expect(orchestrator.waitUntilReady()).rejects.toThrow('Desktop runtime bridge is unavailable.');
+		await expect(orchestrator.waitUntilReady()).rejects.toThrow(
+			'Desktop runtime bridge is unavailable.'
+		);
 	});
 
 	it('deduplicates concurrent waitUntilReady calls via a single in-flight promise', async () => {
@@ -286,5 +295,46 @@ describe('lifecycle orchestrator', () => {
 		expect(probeCalls).toBe(1);
 		expect(eventCodes(lifecycleStates)).toContain('ready.recover.requested');
 		expect(eventCodes(lifecycleStates)).toContain('api.request.success');
+	});
+
+	it('enters fatal when runtime does not reach running before timeout', async () => {
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('starting');
+		runtimePort.autoStartStatus = makeStatus('starting');
+
+		const { orchestrator, lifecycleStates } = createHarness({
+			runtimePort,
+			readyTimeoutMs: 900,
+			readyPollMs: 300
+		});
+
+		await expect(orchestrator.waitUntilReady()).rejects.toThrow('did not reach running state');
+		expect(lifecycleStates.at(-1)?.phase).toBe('fatal');
+		expect(eventCodes(lifecycleStates)).toContain('ready.poll.timeout');
+	});
+
+	it('cancels an in-flight readiness wait when disposed', async () => {
+		let resolveProbe!: () => void;
+		const probeBarrier = new Promise<void>((resolve) => {
+			resolveProbe = resolve;
+		});
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('running');
+		runtimePort.autoStartStatus = makeStatus('running');
+
+		const { orchestrator } = createHarness({
+			runtimePort,
+			backendProbePort: {
+				async probeReady() {
+					await probeBarrier;
+				}
+			}
+		});
+
+		const waitPromise = orchestrator.waitUntilReady();
+		await flushMicrotasks(10);
+		orchestrator.dispose();
+		resolveProbe();
+		await expect(waitPromise).rejects.toThrow('Lifecycle readiness wait cancelled');
 	});
 });

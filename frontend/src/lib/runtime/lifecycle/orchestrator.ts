@@ -10,6 +10,7 @@ const DEFAULT_READY_PROGRESS_EVENT_INTERVAL_MS = 1_000;
 const DEFAULT_STARTUP_RETRY_WINDOW_MS = 12_000;
 const DEFAULT_STARTUP_RETRY_DELAY_MS = 250;
 
+const READY_WAIT_CANCELLED_ERROR = 'Lifecycle readiness wait cancelled';
 const SYSTEM_EVENT_LIMIT = 200;
 
 type LifecycleOrchestratorOptions = {
@@ -41,14 +42,9 @@ type LifecycleOrchestrator = {
 		message: string,
 		meta?: Record<string, string | number | boolean>
 	): void;
-	markApiReady(): void;
 	beginBoot(currentAction: string, code: string, message: string): void;
 	setStopping(currentAction: string, code: string): void;
-	enterFatal(
-		message: string,
-		code: string,
-		meta?: Record<string, string | number | boolean>
-	): void;
+	enterFatal(message: string, code: string, meta?: Record<string, string | number | boolean>): void;
 	dispose(): void;
 };
 
@@ -73,8 +69,12 @@ export function createLifecycleOrchestrator(
 	let initPromise: Promise<void> | null = null;
 	let initialized = false;
 	let readyPromise: Promise<void> | null = null;
+	let readyPromiseOperationId: number | null = null;
+	let readyOperationSequence = 0;
+	let activeReadyOperationId: number | null = null;
 	let statusUnlisten: (() => void) | null = null;
 	let statusSnapshot: RuntimeStatus | null = null;
+	let disposed = false;
 
 	options.onLifecycleChange(lifecycle);
 
@@ -97,7 +97,11 @@ export function createLifecycleOrchestrator(
 			return;
 		}
 
-		beginBoot('Initializing desktop runtime...', 'boot.session.started', 'Desktop lifecycle session started');
+		beginBoot(
+			'Initializing desktop runtime...',
+			'boot.session.started',
+			'Desktop lifecycle session started'
+		);
 		reportEvent('info', 'bridge.waiting', 'Waiting for Tauri bridge to initialize');
 
 		const bridgeAvailable = await options.runtimePort.loadBridge(bridgeWaitMs, bridgePollMs);
@@ -157,12 +161,7 @@ export function createLifecycleOrchestrator(
 			startedAtMs: clock.now()
 		});
 
-		if (
-			wasFatal &&
-			previous?.state !== 'running' &&
-			next.state === 'running' &&
-			!readyPromise
-		) {
+		if (wasFatal && previous?.state !== 'running' && next.state === 'running' && !readyPromise) {
 			reportEvent(
 				'info',
 				'ready.recover.requested',
@@ -188,30 +187,57 @@ export function createLifecycleOrchestrator(
 			return readyPromise;
 		}
 
-		readyPromise = doWaitUntilReady(timeoutMs).finally(() => {
-			readyPromise = null;
+		const operationId = beginReadyOperation();
+		readyPromiseOperationId = operationId;
+		readyPromise = doWaitUntilReady(timeoutMs, operationId).finally(() => {
+			if (readyPromiseOperationId === operationId) {
+				readyPromise = null;
+				readyPromiseOperationId = null;
+			}
 		});
 		return readyPromise;
 	}
 
-	async function doWaitUntilReady(timeoutMs: number): Promise<void> {
+	function beginReadyOperation(): number {
+		readyOperationSequence += 1;
+		activeReadyOperationId = readyOperationSequence;
+		return readyOperationSequence;
+	}
+
+	function cancelReadyOperation(): void {
+		readyOperationSequence += 1;
+		activeReadyOperationId = null;
+		readyPromise = null;
+		readyPromiseOperationId = null;
+	}
+
+	function assertReadyOperationActive(operationId: number): void {
+		if (disposed || activeReadyOperationId !== operationId) {
+			throw new Error(READY_WAIT_CANCELLED_ERROR);
+		}
+	}
+
+	async function doWaitUntilReady(timeoutMs: number, operationId: number): Promise<void> {
 		reportEvent('info', 'ready.poll.start', 'Started runtime readiness polling');
+		if (isLifecycleFatal(lifecycle)) {
+			throw new Error(lifecycle.currentAction);
+		}
 
 		const timeout = Number.isFinite(timeoutMs) ? Math.max(1, timeoutMs) : readyTimeoutMs;
 		const deadline = clock.now() + timeout;
 		let lastProgressAt = 0;
+		let lastStatusRefreshAt = 0;
 
-		while (clock.now() <= deadline) {
-			if (lifecycle.phase === 'fatal') {
-				throw new Error(lifecycle.currentAction);
-			}
-
+		if (!statusSnapshot) {
 			const status = await options.runtimePort.status();
 			handleStatusChange(status);
+		}
 
-			if (statusSnapshot?.state === 'running') {
-				reportEvent('info', 'ready.poll.running', 'Runtime reported running');
-				break;
+		while (statusSnapshot?.state !== 'running') {
+			assertReadyOperationActive(operationId);
+
+			if (isLifecycleFatal(lifecycle)) {
+				throw new Error(lifecycle.currentAction);
 			}
 
 			if (isFatalRuntimeStatus(statusSnapshot)) {
@@ -221,6 +247,28 @@ export function createLifecycleOrchestrator(
 			}
 
 			const now = clock.now();
+			if (now - lastStatusRefreshAt >= readyPollMs) {
+				const status = await options.runtimePort.status();
+				handleStatusChange(status);
+				lastStatusRefreshAt = now;
+				if (statusSnapshot?.state === 'running') {
+					continue;
+				}
+			}
+
+			if (now >= deadline) {
+				const timeoutMessage = `Desktop runtime did not reach running state within ${timeout}ms (current state: ${statusSnapshot?.state ?? 'unknown'}).`;
+				reportEvent('warn', 'ready.poll.timeout', 'Runtime readiness wait reached timeout', {
+					timeoutMs: timeout,
+					state: statusSnapshot?.state ?? 'unknown'
+				});
+				enterFatal(timeoutMessage, 'ready.poll.timeout', {
+					timeoutMs: timeout,
+					state: statusSnapshot?.state ?? 'unknown'
+				});
+				throw new Error(timeoutMessage);
+			}
+
 			if (now - lastProgressAt >= readyProgressEventIntervalMs) {
 				reportEvent('info', 'ready.poll.tick', 'Waiting for runtime to become ready', {
 					state: statusSnapshot?.state ?? 'unknown',
@@ -232,25 +280,21 @@ export function createLifecycleOrchestrator(
 			await clock.sleep(readyPollMs);
 		}
 
-		if (statusSnapshot?.state !== 'running') {
-			reportEvent('warn', 'ready.poll.timeout', 'Runtime readiness wait reached timeout', {
-				timeoutMs: timeout,
-				state: statusSnapshot?.state ?? 'unknown'
-			});
-			throw new Error(
-				`Desktop runtime did not reach running state within ${timeout}ms (current state: ${statusSnapshot?.state ?? 'unknown'}).`
-			);
-		}
+		assertReadyOperationActive(operationId);
+		reportEvent('info', 'ready.poll.running', 'Runtime reported running');
 
 		const probeDeadline = clock.now() + startupRetryWindowMs;
 		let attempt = 0;
 		for (;;) {
+			assertReadyOperationActive(operationId);
+
 			attempt += 1;
 			reportEvent('info', 'api.request.start', 'Sending backend request', {
 				attempt
 			});
 			try {
 				await options.backendProbePort.probeReady();
+				assertReadyOperationActive(operationId);
 				markApiReady();
 				reportEvent('info', 'api.request.success', 'Backend request succeeded', {
 					attempt
@@ -258,19 +302,31 @@ export function createLifecycleOrchestrator(
 				options.onError(null);
 				return;
 			} catch (error) {
+				assertReadyOperationActive(operationId);
+
 				if (clock.now() >= probeDeadline) {
 					const message = toErrorMessage(error);
-					reportEvent('error', 'api.request.fail.final', 'Backend request failed and will not be retried', {
-						attempt,
-						message
-					});
+					reportEvent(
+						'error',
+						'api.request.fail.final',
+						'Backend request failed and will not be retried',
+						{
+							attempt,
+							message
+						}
+					);
 					enterFatal(message, 'api.request.fail.final');
 					throw error;
 				}
-				reportEvent('warn', 'api.retry', 'Retrying backend request after transient startup failure', {
-					attempt,
-					retryDelayMs: startupRetryDelayMs
-				});
+				reportEvent(
+					'warn',
+					'api.retry',
+					'Retrying backend request after transient startup failure',
+					{
+						attempt,
+						retryDelayMs: startupRetryDelayMs
+					}
+				);
 				await clock.sleep(startupRetryDelayMs);
 			}
 		}
@@ -293,6 +349,7 @@ export function createLifecycleOrchestrator(
 	}
 
 	function beginBoot(currentAction: string, code: string, message: string): void {
+		cancelReadyOperation();
 		dispatch({
 			type: 'BOOT_RESET',
 			currentAction,
@@ -302,6 +359,7 @@ export function createLifecycleOrchestrator(
 	}
 
 	function setStopping(currentAction: string, code: string): void {
+		cancelReadyOperation();
 		dispatch({
 			type: 'SET_STOPPING',
 			currentAction,
@@ -355,6 +413,8 @@ export function createLifecycleOrchestrator(
 	}
 
 	function dispose(): void {
+		disposed = true;
+		cancelReadyOperation();
 		if (statusUnlisten) {
 			statusUnlisten();
 			statusUnlisten = null;
@@ -367,7 +427,6 @@ export function createLifecycleOrchestrator(
 		isReady,
 		isDesktopShellExpected,
 		reportEvent,
-		markApiReady,
 		beginBoot,
 		setStopping,
 		enterFatal,
@@ -383,6 +442,10 @@ function isFatalRuntimeStatus(status: RuntimeStatus | null): boolean {
 		return false;
 	}
 	return Boolean(status.lastError?.trim());
+}
+
+function isLifecycleFatal(state: LifecycleState): boolean {
+	return state.phase === 'fatal';
 }
 
 function toErrorMessage(value: unknown): string {

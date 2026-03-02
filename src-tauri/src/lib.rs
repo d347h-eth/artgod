@@ -116,6 +116,12 @@ fn runtime_get_logs_tail(
 }
 
 #[tauri::command]
+fn runtime_list_log_processes(app: AppHandle) -> Result<Vec<String>, String> {
+    let logs_dir = resolve_logs_dir(&app)?;
+    list_log_processes(&logs_dir)
+}
+
+#[tauri::command]
 fn runtime_preflight(app: AppHandle, state: State<'_, DesktopState>) -> RuntimePreflight {
     let mut checks = Vec::<RuntimePreflightCheck>::new();
     let runtime_status = state.runtime.status().ok();
@@ -308,6 +314,7 @@ pub fn run() {
             runtime_open_config_path,
             runtime_open_logs_path,
             runtime_get_logs_tail,
+            runtime_list_log_processes,
             runtime_preflight
         ])
         .build(tauri::generate_context!())
@@ -444,6 +451,36 @@ fn collect_process_logs_tail(
     }
 
     Ok(Vec::new())
+}
+
+fn list_log_processes(logs_dir: &Path) -> Result<Vec<String>, String> {
+    let mut entries = fs::read_dir(logs_dir)
+        .map_err(|error| {
+            format!(
+                "Failed to read logs directory {}: {error}",
+                logs_dir.display()
+            )
+        })?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("log"))
+                .unwrap_or(false)
+        })
+        .filter_map(|entry| {
+            entry
+                .path()
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_owned)
+        })
+        .collect::<Vec<_>>();
+    entries.sort();
+    entries.dedup();
+    Ok(entries)
 }
 
 fn read_file_tail_lines(path: &Path, limit: usize) -> Vec<String> {

@@ -9,6 +9,10 @@ import type {
     ListCollectionsHttpAdapter,
     ListCollectionsRoute,
 } from "./http/handlers/collections/list-collections.js";
+import type {
+    GetRuntimeHealthHttpAdapter,
+    GetRuntimeHealthRoute,
+} from "./http/handlers/health/get-runtime-health.js";
 import type { CommonHttpHandlers } from "./http/common/handlers.js";
 
 export function registerApiRoutes(
@@ -17,8 +21,13 @@ export function registerApiRoutes(
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
+    getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
 ): void {
     app.get("/health", async () => ({ status: "ok" }));
+    app.get<GetRuntimeHealthRoute>(
+        "/health/runtime",
+        getRuntimeHealthAdapter.handle,
+    );
     app.options("/api/*", commonHandlers.optionsApi);
     app.get<GetDefaultChainRoute>(
         "/api/chains/default",

@@ -38,6 +38,7 @@ export interface RuntimePort {
 	preflight(): Promise<RuntimePreflight | null>;
 	getConfigPath(): Promise<string | null>;
 	getLogsPath(): Promise<string | null>;
+	listLogProcesses(): Promise<string[]>;
 	openConfigPath(): Promise<void>;
 	openLogsPath(): Promise<void>;
 	getLogsTail(process: string, limitPerProcess: number): Promise<RuntimeLogEntry[]>;

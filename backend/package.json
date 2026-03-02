@@ -11,7 +11,8 @@
         "@artgod/shared": "workspace:*",
         "better-sqlite3": "^v12.2.0",
         "dotenv": "^16.4.5",
-        "fastify": "^5.6.1"
+        "fastify": "^5.6.1",
+        "nats": "^2.29.1"
     },
     "devDependencies": {
         "@types/node": "^24.0.0",
