@@ -232,7 +232,7 @@ Runtime composition code lives in:
 Startup trigger:
 
 1. Rust app setup initializes commands and logs startup, but does **not** auto-start supervisor work in `setup()`.
-2. Frontend lifecycle store (`desktop-runtime-store.ts`) waits for Tauri bridge and invokes `runtime_auto_start`.
+2. Frontend lifecycle orchestrator (`runtime/lifecycle/orchestrator.ts`) waits for Tauri bridge and invokes `runtime_auto_start`.
 3. `runtime_auto_start` calls `RuntimeManager::auto_start`, which loads/validates desktop config and starts supervisor thread.
 
 Supervisor startup order:
@@ -252,8 +252,9 @@ Frontend readiness behavior:
 
 - boot lifecycle overlay is shown immediately on app mount
 - overlay remains visible until lifecycle becomes `ready`
-- lifecycle reaches `ready` only after the first successful backend API response (`markApiReady()`), not merely when runtime status becomes `running`
+- lifecycle reaches `ready` only after lifecycle orchestrator backend readiness probe succeeds, not merely when runtime status becomes `running`
 - on initial `/` route load in desktop mode, backend fetch can be deferred while runtime is not yet `running`; the page then waits for runtime readiness and re-invalidates to fetch real data
+- `backend-api.ts` does not orchestrate runtime readiness anymore; it only resolves backend origin and performs HTTP request/retry behavior
 
 ## Process Start Details
 
@@ -279,7 +280,7 @@ Desktop stop is triggered by:
 Supervisor stop behavior:
 
 1. request graceful process stop (SIGTERM on Unix)
-2. wait up to grace timeout (`5s`)
+2. wait up to grace timeout (`10s`)
 3. force kill remaining processes if still running
 4. join output threads
 5. run cleanup hooks
@@ -312,11 +313,11 @@ Desktop boot UX is handled by `DesktopLifecycleOverlay.svelte`:
 
 - visible immediately on startup while lifecycle phase is not `ready`
 - shows lifecycle events as single-line rows with bracket tokens (`[level] [code]`) for copy-friendly logs
-- remains visible until first successful backend API response marks lifecycle as ready
+- remains visible until lifecycle orchestrator marks readiness after successful backend probe
 
 Tauri commands used by desktop frontend runtime UI/state:
 
-- `runtime_auto_start` (boot lifecycle store startup handshake)
+- `runtime_auto_start` (boot lifecycle orchestrator startup handshake)
 - `runtime_start`
 - `runtime_stop`
 - `runtime_restart`

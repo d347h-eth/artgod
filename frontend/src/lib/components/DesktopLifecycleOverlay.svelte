@@ -3,10 +3,13 @@
 	import { onMount, tick } from 'svelte';
 	import { desktopRuntimeStore } from '$lib/runtime/desktop-runtime-store';
 	import type { LifecycleEventLevel } from '$lib/runtime/desktop-runtime-store';
+	import {
+		IS_DESKTOP_BUILD_TARGET,
+		detectDesktopShellLikely
+	} from '$lib/runtime/lifecycle/adapters/desktop-shell';
+	import { createTokenizedLogLine } from '$lib/runtime/log-line-format';
 
 	const runtimeState = desktopRuntimeStore.state;
-	const IS_DESKTOP_BUILD_TARGET =
-		((import.meta.env.VITE_FRONTEND_BUILD_TARGET as string | undefined)?.trim() || '') === 'desktop';
 	// Interval for polling whether the Tauri bridge (`window.__TAURI_INTERNALS__`) became available.
 	const DESKTOP_BRIDGE_DETECT_POLL_MS = 100;
 	// Max time to keep polling for Tauri bridge detection before stopping background detection checks.
@@ -17,7 +20,7 @@
 	let timer: ReturnType<typeof setInterval> | null = null;
 	let detectTimer: ReturnType<typeof setInterval> | null = null;
 	let detectTimeout: ReturnType<typeof setTimeout> | null = null;
-	let desktopShellDetected = $state(IS_DESKTOP_BUILD_TARGET || detectDesktopShellRuntime());
+	let desktopShellDetected = $state(IS_DESKTOP_BUILD_TARGET || detectDesktopShellLikely());
 	let logStreamElement = $state<HTMLDivElement | null>(null);
 	let logAutoFollow = $state(true);
 
@@ -29,7 +32,7 @@
 
 		if (!desktopShellDetected && browser) {
 			detectTimer = setInterval(() => {
-				if (detectDesktopShellRuntime()) {
+				if (detectDesktopShellLikely()) {
 					desktopShellDetected = true;
 					if (detectTimer) {
 						clearInterval(detectTimer);
@@ -64,6 +67,11 @@
 
 	const lifecycle = $derived($runtimeState.lifecycle);
 	const events = $derived(lifecycle.events);
+	const tokenizedEvents = $derived.by(() =>
+		events.map((event) =>
+			createTokenizedLogLine([formatTime(event.atIso), event.level, event.code], event.message)
+		)
+	);
 	const isVisible = $derived((IS_DESKTOP_BUILD_TARGET || desktopShellDetected) && lifecycle.phase !== 'ready');
 
 	const headerTitle = $derived.by(() => {
@@ -104,27 +112,6 @@
 	function isNearLogBottom(element: HTMLDivElement): boolean {
 		const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
 		return distanceToBottom <= LOG_FOLLOW_THRESHOLD_PX;
-	}
-
-	function detectDesktopShellRuntime(): boolean {
-		if (!browser) {
-			return false;
-		}
-		const maybeWindow = window as Window & {
-			__TAURI_INTERNALS__?: unknown;
-		};
-		if (maybeWindow.__TAURI_INTERNALS__) {
-			return true;
-		}
-		const protocol = window.location.protocol.toLowerCase();
-		if (protocol === 'tauri:' || protocol === 'asset:') {
-			return true;
-		}
-		const host = window.location.hostname.toLowerCase();
-		if (host === 'tauri.localhost' || host.endsWith('.tauri.localhost')) {
-			return true;
-		}
-		return /\btauri\b/i.test(navigator.userAgent);
 	}
 
 	function formatElapsed(diffMs: number): string {
@@ -195,24 +182,24 @@
 				{/if}
 			</header>
 
-			<div class="desktop-lifecycle-log-stream" bind:this={logStreamElement} onscroll={handleLogScroll}>
-					{#if events.length === 0}
-						<div class="desktop-lifecycle-event-row">
-							<span class="desktop-lifecycle-event-time mono">{formatTime(new Date().toISOString())} </span>
-							<span class="runtime-pass">[info] </span>
-							<span class="desktop-lifecycle-event-code mono">[boot.waiting] </span>
-							<span class="desktop-lifecycle-event-message">Waiting for first lifecycle event...</span>
-						</div>
-				{:else}
-					{#each events as event (event.id)}
-						<div class="desktop-lifecycle-event-row">
-							<span class="desktop-lifecycle-event-time mono">{formatTime(event.atIso)} </span>
-							<span class={lifecycleLevelClass(event.level)}>[{event.level}] </span>
-							<span class="desktop-lifecycle-event-code mono">[{event.code}] </span>
-							<span class="desktop-lifecycle-event-message">{event.message}</span>
-						</div>
-					{/each}
-				{/if}
+				<div class="desktop-lifecycle-log-stream" bind:this={logStreamElement} onscroll={handleLogScroll}>
+						{#if tokenizedEvents.length === 0}
+							<div class="desktop-lifecycle-event-row">
+								<span class="desktop-lifecycle-event-time mono">{formatTime(new Date().toISOString())} </span>
+								<span class="runtime-pass">[info] </span>
+								<span class="desktop-lifecycle-event-code mono">[boot.waiting] </span>
+								<span class="desktop-lifecycle-event-message">Waiting for first lifecycle event...</span>
+							</div>
+					{:else}
+						{#each tokenizedEvents as event, index (events[index].id)}
+							<div class="desktop-lifecycle-event-row">
+								<span class="desktop-lifecycle-event-time mono">{event.tokens[0]} </span>
+								<span class={lifecycleLevelClass(event.tokens[1] as LifecycleEventLevel)}>[{event.tokens[1]}] </span>
+								<span class="desktop-lifecycle-event-code mono">[{event.tokens[2]}] </span>
+								<span class="desktop-lifecycle-event-message">{event.message}</span>
+							</div>
+						{/each}
+					{/if}
 			</div>
 		</section>
 	</div>

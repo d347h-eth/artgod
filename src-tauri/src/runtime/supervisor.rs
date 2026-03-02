@@ -18,7 +18,7 @@ const NATS_PROCESS_NAME: &str = "nats";
 const SUPERVISOR_PROCESS_NAME: &str = "desktop-supervisor";
 const STARTUP_PORT_TIMEOUT: Duration = Duration::from_secs(30);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
-const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(5);
+const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(10);
 const PROCESS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 const BACKEND_ARTIFACT: &str = "backend/dist-desktop/server.mjs";

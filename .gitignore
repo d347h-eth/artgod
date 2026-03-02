@@ -14,6 +14,7 @@ node_modules/
 # TypeScript build artifacts
 *.tsbuildinfo
 frontend/dist/
+frontend/build-web/
 src-tauri/resources/runtime/**
 !src-tauri/resources/runtime/.gitkeep
 dist-desktop/

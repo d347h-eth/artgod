@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { desktopRuntimeStore } from '$lib/runtime/desktop-runtime-store';
+	import { parseBracketPrefixedLine } from '$lib/runtime/log-line-format';
 
 	type FilterOption = string;
 	type ConsoleTab = 'logs' | 'status';
@@ -100,7 +101,7 @@
 
 	const parsedVisibleLogs = $derived.by(() =>
 		visibleLogs.map((entry) => {
-			const parsed = parseRuntimeLogLine(entry.line);
+			const parsed = parseBracketPrefixedLine(entry.line);
 			return {
 				process: entry.process,
 				tokens: parsed.tokens,
@@ -143,23 +144,6 @@
 			return true;
 		}
 		return target.isContentEditable;
-	}
-
-	function parseRuntimeLogLine(line: string): { tokens: string[]; message: string } {
-		const tokens: string[] = [];
-		let remaining = line;
-		for (;;) {
-			const match = remaining.match(/^\[([^\]]+)\]\s*/);
-			if (!match) {
-				break;
-			}
-			tokens.push(match[1]);
-			remaining = remaining.slice(match[0].length);
-		}
-		return {
-			tokens,
-			message: remaining.trimStart()
-		};
 	}
 
 	function runtimeTokenClass(token: string): string {

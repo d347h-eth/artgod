@@ -1,12 +1,10 @@
 import { browser } from '$app/environment';
+import { detectDesktopShellLikely } from './lifecycle/adapters/desktop-shell';
 
 type QuickRuntimeStatus = {
 	state: string;
 };
 
-const FRONTEND_BUILD_TARGET =
-	(import.meta.env.VITE_FRONTEND_BUILD_TARGET as string | undefined)?.trim() || '';
-const IS_DESKTOP_BUILD_TARGET = FRONTEND_BUILD_TARGET === 'desktop';
 const RUNTIME_STATUS_TIMEOUT_MS = 250;
 
 type TauriInternalsLike = {
@@ -27,33 +25,7 @@ export async function shouldDeferInitialBackendLoad(): Promise<boolean> {
 }
 
 function isDesktopShellLikely(): boolean {
-	if (IS_DESKTOP_BUILD_TARGET) {
-		return true;
-	}
-
-	if (!browser) {
-		return false;
-	}
-
-	const maybeWindow = window as Window & {
-		__TAURI_INTERNALS__?: unknown;
-	};
-
-	if (maybeWindow.__TAURI_INTERNALS__) {
-		return true;
-	}
-
-	const protocol = window.location.protocol.toLowerCase();
-	if (protocol === 'tauri:' || protocol === 'asset:') {
-		return true;
-	}
-
-	const host = window.location.hostname.toLowerCase();
-	if (host === 'tauri.localhost' || host.endsWith('.tauri.localhost')) {
-		return true;
-	}
-
-	return /\btauri\b/i.test(navigator.userAgent);
+	return detectDesktopShellLikely();
 }
 
 async function readRuntimeStatusQuick(): Promise<QuickRuntimeStatus | null> {

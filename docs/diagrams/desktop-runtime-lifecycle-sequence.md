@@ -5,7 +5,7 @@ This diagram shows the current desktop startup, readiness gating, backend API re
 Runtime context:
 
 - `src-tauri/*` runs in the native Rust desktop process.
-- `frontend/src/lib/runtime/*` and `frontend/src/lib/backend-api.ts` run in the Tauri WebView JavaScript runtime (browser context).
+- `frontend/src/lib/runtime/lifecycle/*` and `frontend/src/lib/backend-api.ts` run in the Tauri WebView JavaScript runtime (browser context).
 - `backend` and all `indexer` workers run as separate child Node.js processes managed by the Rust supervisor.
 
 ## Startup + Readiness + API Request
@@ -16,7 +16,7 @@ sequenceDiagram
     participant U as User
     participant WV as Tauri WebView (Svelte UI)
     participant O as DesktopLifecycleOverlay.svelte
-    participant DS as desktop-runtime-store.ts
+    participant DS as desktop-runtime-store.ts + lifecycle/orchestrator.ts
     participant IL as initial-load.ts
     participant BA as backend-api.ts
     participant BO as backend-origin.ts
@@ -79,39 +79,32 @@ sequenceDiagram
         IL-->>WV: continue normal load
     end
 
-    WV->>BA: requestJson(path)
-    BA->>DS: waitUntilReady(30_000ms)
+    DS->>BO: resolveBackendOrigin()
+    BO->>TJ: invoke runtime_get_endpoints
+    TJ-->>BO: backendHttpBaseUrl
+    BO-->>DS: backend origin
 
-    loop every 300ms until deadline
-        DS->>TJ: invoke runtime_status
-        alt status.state == running
-            DS-->>BA: ready
-        else status == stopped && lastError present
-            DS-->>BA: throw fatal startup error
-        else timeout reached
-            DS-->>BA: throw readiness timeout
+    loop backend readiness probe window (12_000ms, 250ms delay)
+        DS->>B: fetch /api/chains/default
+        alt HTTP 2xx
+            B-->>DS: JSON payload
+            DS-->>WV: lifecycle phase -> ready
+            WV-->>O: overlay hidden
+        else HTTP 500/502/503/504
+            DS->>DS: sleep(250ms), retry
+        else non-retryable error or timeout
+            DS-->>WV: lifecycle phase -> fatal
         end
     end
 
+    WV->>BA: requestJson(path)
     BA->>BO: resolveBackendOrigin()
     BO->>TJ: invoke runtime_get_endpoints
     TJ-->>BO: backendHttpBaseUrl
     BO-->>BA: backend origin
-
-    loop retry window 12_000ms, delay 250ms
-        BA->>B: fetch /api/*
-        alt HTTP 2xx
-            B-->>BA: JSON payload
-            BA-->>WV: data
-        else HTTP 500/502/503/504
-            BA->>BA: sleep(250ms), retry
-        else non-retryable error
-            BA-->>WV: throw BackendApiError
-        end
-    end
-
-    BA->>DS: markApiReady() on first successful API response
-    WV-->>O: overlay hidden once lifecycle phase becomes ready
+    BA->>B: fetch /api/*
+    B-->>BA: JSON payload
+    BA-->>WV: data
 ```
 
 ## Window Close / Exit (Graceful Stop)
@@ -140,7 +133,7 @@ sequenceDiagram
 
     RM->>SP: send stop signal
     SP->>P: SIGTERM all
-    SP->>P: wait up to 5s each
+    SP->>P: wait up to 10s each
     alt process still alive
         SP->>P: kill forcefully
     end
@@ -163,7 +156,7 @@ sequenceDiagram
 - desktop initial-load quick runtime status timeout: `250ms`
 - `waitUntilReady` poll interval: `300ms`
 - `waitUntilReady` timeout: `30_000ms`
-- backend startup retry window: `12_000ms`
-- backend startup retry delay: `250ms`
+- lifecycle backend readiness probe window: `12_000ms`
+- lifecycle backend readiness probe retry delay: `250ms`
 - supervisor port wait timeout per critical process: `30s`
-- process graceful stop wait: `5s`
+- process graceful stop wait: `10s`
