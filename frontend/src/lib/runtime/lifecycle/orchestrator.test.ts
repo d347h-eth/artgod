@@ -94,6 +94,10 @@ class FakeRuntimePort implements RuntimePort {
 		return;
 	}
 
+	async openUserlandUi(): Promise<void> {
+		return;
+	}
+
 	async getLogsTail() {
 		return [];
 	}
@@ -347,7 +351,9 @@ describe('lifecycle orchestrator', () => {
 
 		await orchestrator.init();
 		orchestrator.setStopping('Stopping runtime processes...', 'runtime.stop.requested');
-		await expect(orchestrator.waitUntilReady()).rejects.toThrow('Lifecycle readiness wait cancelled');
+		await expect(orchestrator.waitUntilReady()).rejects.toThrow(
+			'Lifecycle readiness wait cancelled'
+		);
 		expect(eventCodes(lifecycleStates)).not.toContain('ready.poll.start');
 	});
 });

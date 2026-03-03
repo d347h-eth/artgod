@@ -242,6 +242,12 @@ function createDesktopRuntimeStore() {
 		});
 	}
 
+	async function openUserlandUi() {
+		await withBusyAction('openUserlandUi', async () => {
+			await runtimePort.openUserlandUi();
+		});
+	}
+
 	function clearLogs() {
 		state.update((snapshot) => ({
 			...snapshot,
@@ -373,6 +379,7 @@ function createDesktopRuntimeStore() {
 		refreshPreflight,
 		openConfigPath,
 		openLogsPath,
+		openUserlandUi,
 		clearLogs,
 		waitUntilReady,
 		isLifecycleReady

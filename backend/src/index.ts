@@ -60,6 +60,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         listCollectionsUseCase,
         getCollectionDetailUseCase,
         runtimeHealthUseCase,
+        config.userlandUiDistDir,
     );
 }
 

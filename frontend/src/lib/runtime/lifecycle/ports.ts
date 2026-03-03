@@ -41,6 +41,7 @@ export interface RuntimePort {
 	listLogProcesses(): Promise<string[]>;
 	openConfigPath(): Promise<void>;
 	openLogsPath(): Promise<void>;
+	openUserlandUi(): Promise<void>;
 	getLogsTail(process: string, limitPerProcess: number): Promise<RuntimeLogEntry[]>;
 	onStatusChanged(listener: RuntimeStatusListener): Promise<() => void>;
 	onRuntimeLog(listener: RuntimeLogListener): Promise<() => void>;

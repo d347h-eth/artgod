@@ -15,6 +15,7 @@ node_modules/
 *.tsbuildinfo
 frontend/dist/
 frontend/build-web/
+frontend/dist-userland/
 src-tauri/resources/runtime/**
 !src-tauri/resources/runtime/.gitkeep
 dist-desktop/

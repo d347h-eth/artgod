@@ -731,6 +731,26 @@ th {
 	gap: 0.45rem;
 }
 
+.runtime-primary-actions {
+	display: flex;
+	justify-content: flex-start;
+	padding-bottom: 0.65rem;
+	border-bottom: 1px solid var(--c-blue);
+}
+
+.runtime-primary-cta {
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	min-width: 10rem;
+	border-color: var(--c-yellow);
+	color: var(--c-yellow);
+	background: rgba(255, 232, 128, 0.08);
+}
+
+.runtime-primary-cta:hover {
+	background: rgba(255, 232, 128, 0.16);
+}
+
 .runtime-tabs button {
 	text-transform: uppercase;
 	letter-spacing: 0.05em;

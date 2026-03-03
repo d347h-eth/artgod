@@ -47,6 +47,11 @@ const copySpecs = [
         description: "backend runtime artifacts",
     },
     {
+        source: path.join(rootDir, "frontend", "dist-userland"),
+        target: path.join(resourcesRootDir, "frontend", "userland"),
+        description: "userland frontend static artifacts",
+    },
+    {
         source: path.join(rootDir, "indexer", "dist-desktop"),
         target: path.join(resourcesRootDir, "indexer", "dist-desktop"),
         description: "indexer runtime artifacts",

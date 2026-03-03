@@ -123,6 +123,7 @@ impl DesktopRuntimeConfig {
         get_required(&process_env, "RPC_URL")?;
         get_required(&process_env, "WETH_ADDRESS")?;
         get_required(&process_env, "SEAPORT_CONDUIT_CONTROLLER")?;
+        get_required(&process_env, "USERLAND_UI_DIST_DIR")?;
 
         let db_path =
             resolve_from_base_dir(&app_data_dir, get_required(&process_env, "ARTGOD_DB_PATH")?);
@@ -133,6 +134,16 @@ impl DesktopRuntimeConfig {
                     parent_dir.display()
                 )
             })?;
+        }
+        let userland_ui_dist_dir = resolve_from_base_dir(
+            &runtime_dir,
+            get_required(&process_env, "USERLAND_UI_DIST_DIR")?,
+        );
+        if !userland_ui_dist_dir.exists() {
+            return Err(format!(
+                "USERLAND_UI_DIST_DIR does not exist: {}",
+                userland_ui_dist_dir.display()
+            ));
         }
 
         let mut merged_env = process_env.clone();
@@ -147,6 +158,10 @@ impl DesktopRuntimeConfig {
         merged_env.insert(
             "ARTGOD_DB_PATH".to_owned(),
             db_path.to_string_lossy().into_owned(),
+        );
+        merged_env.insert(
+            "USERLAND_UI_DIST_DIR".to_owned(),
+            userland_ui_dist_dir.to_string_lossy().into_owned(),
         );
         merged_env.insert(
             "NATS_URL".to_owned(),
@@ -356,6 +371,8 @@ fn build_default_env_template() -> String {
         "# Indexer core runtime\n",
         "# ARTGOD_DB_PATH is resolved relative to app-data dir unless absolute\n",
         "ARTGOD_DB_PATH=sqlite/main/db\n",
+        "# USERLAND_UI_DIST_DIR is resolved relative to desktop runtime resources dir unless absolute\n",
+        "USERLAND_UI_DIST_DIR=frontend/userland\n",
         "CHAIN_ID=1\n",
         "RPC_URL=http://127.0.0.1:8545\n",
         "WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\n",

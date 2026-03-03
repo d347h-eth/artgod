@@ -2,8 +2,31 @@ import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionDetail } from '$lib/backend-api';
+import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
+	if (IS_ADMIN_FRONTEND_TARGET) {
+		return {
+			chain: null,
+			collection: null,
+			tokens: {
+				items: [],
+				prevCursor: null,
+				nextCursor: null,
+				limit: DEFAULT_PAGE_LIMIT,
+				totalItems: 0,
+				rangeStart: 0,
+				rangeEnd: 0,
+				currentPage: 0,
+				totalPages: 0
+			},
+			facets: [],
+			selectedTraits: [],
+			basePath: '/',
+			requestCursor: null,
+			displayMode: 'grid' as const
+		};
+	}
 	const query = normalizeCollectionDetailParams(url.searchParams);
 	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 

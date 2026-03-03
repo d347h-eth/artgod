@@ -98,6 +98,11 @@ export function createTauriRuntimePort(): RuntimePort {
 		await bridge.invoke('runtime_open_logs_path');
 	}
 
+	async function openUserlandUi(): Promise<void> {
+		const bridge = await requireBridge();
+		await bridge.invoke('runtime_open_userland_ui');
+	}
+
 	async function getLogsTail(process: string, limitPerProcess: number): Promise<RuntimeLogEntry[]> {
 		const bridge = await requireBridge();
 		return bridge
@@ -147,6 +152,7 @@ export function createTauriRuntimePort(): RuntimePort {
 		listLogProcesses,
 		openConfigPath,
 		openLogsPath,
+		openUserlandUi,
 		getLogsTail,
 		onStatusChanged,
 		onRuntimeLog

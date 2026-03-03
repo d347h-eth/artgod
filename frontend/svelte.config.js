@@ -4,7 +4,10 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /** @type {import('@sveltejs/kit').Config} */
 const buildTarget = process.env.FRONTEND_BUILD_TARGET?.trim() || 'web';
-const isDesktopBuild = buildTarget === 'desktop';
+const isAdminBuild = buildTarget === 'admin' || buildTarget === 'desktop';
+const isUserlandBuild = buildTarget === 'userland';
+const isStaticBuild = isAdminBuild || isUserlandBuild;
+const staticOutDir = isAdminBuild ? 'dist' : 'dist-userland';
 
 const config = {
 	// Consult https://svelte.dev/docs/kit/integrations
@@ -12,10 +15,10 @@ const config = {
 	preprocess: vitePreprocess(),
 
 	kit: {
-		adapter: isDesktopBuild
+		adapter: isStaticBuild
 			? adapterStatic({
-					pages: 'dist',
-					assets: 'dist',
+					pages: staticOutDir,
+					assets: staticOutDir,
 					fallback: 'index.html',
 					strict: false
 				})

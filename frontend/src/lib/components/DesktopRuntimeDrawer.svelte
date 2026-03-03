@@ -10,12 +10,13 @@
 
 	type FilterOption = string;
 	type ConsoleTab = AdminConsoleTab;
+	let { embedded = false }: { embedded?: boolean } = $props();
 
 	const runtimeState = desktopRuntimeStore.state;
 
-	let open = $state(false);
-	let activeTab = $state<ConsoleTab>('logs');
-	let lastUserTab = $state<ConsoleTab>('logs');
+	let open = $state(embedded);
+	let activeTab = $state<ConsoleTab>(embedded ? 'lifecycle' : 'logs');
+	let lastUserTab = $state<ConsoleTab>(embedded ? 'lifecycle' : 'logs');
 	let processFilter = $state<FilterOption>('desktop-supervisor');
 	let logStreamElement = $state<HTMLDivElement | null>(null);
 	let lifecycleLogStreamElement = $state<HTMLDivElement | null>(null);
@@ -33,6 +34,16 @@
 		timer = setInterval(() => {
 			nowMs = Date.now();
 		}, 1_000);
+
+		if (embedded) {
+			void desktopRuntimeStore.openConsole(processFilter);
+			return () => {
+				if (timer) {
+					clearInterval(timer);
+				}
+				desktopRuntimeStore.dispose();
+			};
+		}
 
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') {
@@ -85,6 +96,9 @@
 	const lifecycleElapsedText = $derived.by(() => formatElapsed(nowMs - lifecycle.startedAtMs));
 
 	$effect(() => {
+		if (embedded) {
+			return;
+		}
 		const policy = startupSurfacePolicy;
 		if (!policy.forceOpen || !policy.preferredTab || open) {
 			return;
@@ -94,6 +108,9 @@
 	});
 
 	$effect(() => {
+		if (embedded) {
+			return;
+		}
 		if (startupSurfacePolicy.forceOpen || !open || !startupAutoOpened) {
 			return;
 		}
@@ -102,6 +119,9 @@
 	});
 
 	async function toggleConsole() {
+		if (embedded) {
+			return;
+		}
 		if (open) {
 			closeConsole();
 			startupAutoOpened = false;
@@ -123,6 +143,9 @@
 	}
 
 	function closeConsole() {
+		if (embedded) {
+			return;
+		}
 		open = false;
 		desktopRuntimeStore.closeConsole();
 	}
@@ -290,11 +313,25 @@
 </script>
 
 {#if open}
-	<aside class="runtime-drawer" aria-label="Desktop Runtime Operations">
+	<aside class={`runtime-drawer ${embedded ? 'runtime-drawer-embedded' : ''}`} aria-label="Desktop Runtime Operations">
 		<header class="runtime-drawer-header">
 			<h2>Desktop Runtime</h2>
-			<p class="muted">press <span class="mono">`</span> or <span class="mono">esc</span> to close</p>
+			{#if !embedded}
+				<p class="muted">press <span class="mono">`</span> or <span class="mono">esc</span> to close</p>
+			{/if}
 		</header>
+		{#if embedded}
+			<div class="runtime-primary-actions">
+				<button
+					type="button"
+					class="runtime-primary-cta"
+					onclick={() => void desktopRuntimeStore.openUserlandUi()}
+					disabled={$runtimeState.busyAction !== null}
+				>
+					open ArtGod in browser
+				</button>
+			</div>
+		{/if}
 		<nav class="runtime-tabs" aria-label="Runtime Console Tabs">
 			<button
 				type="button"

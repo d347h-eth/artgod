@@ -2,10 +2,24 @@ import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionsPage, getDefaultChain } from '$lib/backend-api';
+import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import { shouldDeferInitialBackendLoad } from '$lib/runtime/initial-load';
 
 export const load: PageLoad = async ({ fetch, url }) => {
 	const params = normalizeCollectionsParams(url.searchParams);
+	if (IS_ADMIN_FRONTEND_TARGET) {
+		return {
+			chain: null,
+			page: {
+				items: [],
+				nextCursor: null,
+				limit: DEFAULT_PAGE_LIMIT
+			},
+			status: '',
+			basePath: '/',
+			deferred: false
+		};
+	}
 	if (await shouldDeferInitialBackendLoad()) {
 		return {
 			chain: null,

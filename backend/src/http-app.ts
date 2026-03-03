@@ -10,6 +10,7 @@ import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
 import { registerApiErrorHandlers } from "./http/common/error-handlers.js";
 import { registerApiResponseHeaders } from "./http/common/response-headers.js";
+import { registerUserlandStaticRoutes } from "./http/common/userland-static.js";
 import { registerApiRoutes } from "./http-routes.js";
 
 export function createApiApp(
@@ -17,6 +18,7 @@ export function createApiApp(
     listCollectionsUseCase: ListCollectionsUseCase,
     getCollectionDetailUseCase: GetCollectionDetailUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
+    userlandUiDistDir: string | null,
 ): FastifyInstance {
     const app = Fastify({
         logger: false,
@@ -45,6 +47,9 @@ export function createApiApp(
         getCollectionDetailAdapter,
         getRuntimeHealthAdapter,
     );
+    if (userlandUiDistDir) {
+        registerUserlandStaticRoutes(app, userlandUiDistDir);
+    }
     registerApiErrorHandlers(app);
 
     return app;

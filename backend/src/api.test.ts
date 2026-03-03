@@ -68,6 +68,7 @@ beforeAll(async () => {
         listCollectionsUseCase,
         getCollectionDetailUseCase,
         runtimeHealthUseCase,
+        null,
     );
     await app.ready();
 });

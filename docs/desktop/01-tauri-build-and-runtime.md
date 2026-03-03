@@ -32,6 +32,8 @@ Root build/helper commands:
 ```sh
 yarn install --immutable
 yarn build:web
+yarn build:userland
+yarn build:admin
 yarn build:desktop
 yarn build:runtime
 yarn build:desktop-runtime-resources
@@ -47,9 +49,16 @@ What each command does:
   : Runs `scripts/build/build-frontend-target.mjs web`.
   : Uses `@sveltejs/adapter-node` and produces web/server artifacts under `frontend/build-web`.
 
+- `yarn build:userland`
+  : Runs `scripts/build/build-frontend-target.mjs userland`.
+  : Uses `@sveltejs/adapter-static` and writes browser userland static output to `frontend/dist-userland`.
+
+- `yarn build:admin`
+  : Runs `scripts/build/build-frontend-target.mjs admin`.
+  : Uses `@sveltejs/adapter-static` and writes native admin static output to `frontend/dist`.
+
 - `yarn build:desktop`
-  : Runs `scripts/build/build-frontend-target.mjs desktop`.
-  : Uses `@sveltejs/adapter-static` and writes desktop static output directly to `frontend/dist`.
+  : Alias for `yarn build:admin`.
 
 - `yarn build:runtime`
   : Runs `scripts/build/build-runtime-artifacts.mjs`.
@@ -76,14 +85,15 @@ What each command does:
 
 `src-tauri/tauri.conf.json` contains:
 
-- `beforeBuildCommand = "yarn build:desktop && yarn build:runtime && yarn build:desktop-runtime-resources"`
+- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources"`
 - `frontendDist = "../frontend/dist"`
 
 This ensures `yarn tauri build ...` always has:
 
 1. desktop frontend static output
-2. backend/indexer runtime `.mjs` artifacts
-3. staged runtime resources under `src-tauri/resources/runtime`
+2. browser userland static output
+3. backend/indexer runtime `.mjs` artifacts
+4. staged runtime resources under `src-tauri/resources/runtime`
 
 before Rust bundling starts.
 
@@ -93,13 +103,14 @@ before Rust bundling starts.
 
 Responsibilities:
 
-- receives explicit target (`web` or `desktop`)
+- receives explicit target (`web`, `userland`, or `admin`; `desktop` remains legacy alias to `admin`)
 - exports target via:
     - `FRONTEND_BUILD_TARGET`
     - `VITE_FRONTEND_BUILD_TARGET`
 - runs frontend workspace build
 - SvelteKit adapter selection is handled in `frontend/svelte.config.js`:
-    - `FRONTEND_BUILD_TARGET=desktop` -> `@sveltejs/adapter-static` (`frontend/dist`)
+    - `FRONTEND_BUILD_TARGET=admin` -> `@sveltejs/adapter-static` (`frontend/dist`)
+    - `FRONTEND_BUILD_TARGET=userland` -> `@sveltejs/adapter-static` (`frontend/dist-userland`)
     - `FRONTEND_BUILD_TARGET=web` -> `@sveltejs/adapter-node` (`frontend/build-web`)
 
 ### `scripts/build/build-runtime-artifacts.mjs`
@@ -134,6 +145,7 @@ Responsibilities:
   : downloaded archives are cached in `.cache/desktop-nats-runtime`
 - copies:
     - `backend/dist-desktop/*`
+    - `frontend/dist-userland/*`
     - `indexer/dist-desktop/*`
     - `node/node` or `node/node.exe`
     - `nats/nats-server` or `nats/nats-server.exe`
@@ -194,6 +206,7 @@ Desktop-specific required keys:
 - `DESKTOP_NATS_PORT`
 - `DESKTOP_AUTO_START`
 - `DESKTOP_RESTART_BACKOFF_MS`
+- `USERLAND_UI_DIST_DIR`
 
 Desktop-specific optional overrides:
 
@@ -206,6 +219,7 @@ Desktop-specific optional overrides:
 Core runtime keys are also validated (for backend/indexer startup), for example:
 
 - `ARTGOD_DB_PATH`
+- `USERLAND_UI_DIST_DIR`
 - `RPC_URL`
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
@@ -213,6 +227,7 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 Desktop-first default path behavior:
 
 - `ARTGOD_DB_PATH` defaults to `sqlite/main/db` and is resolved relative to app-data dir unless absolute.
+- `USERLAND_UI_DIST_DIR` defaults to `frontend/userland` and is resolved relative to desktop runtime resources dir unless absolute.
 - `OPENSEA_FIXTURES_DIR` defaults to `fixtures/opensea-event-payloads` and is resolved relative to desktop runtime resources dir unless absolute.
 
 Important:
@@ -255,12 +270,13 @@ If any step fails:
 
 Frontend readiness behavior:
 
-- boot lifecycle overlay is shown immediately on app mount
-- overlay remains visible until lifecycle becomes `ready`
+- admin runtime console is shown immediately on app mount (native WebView)
+- lifecycle tab remains active during boot until lifecycle becomes `ready`
 - lifecycle reaches `ready` only after lifecycle orchestrator backend readiness probe succeeds, not merely when runtime status becomes `running`
-- on initial `/` route load in desktop mode, backend fetch can be deferred while runtime is not yet `running`; the page then waits for runtime readiness and re-invalidates to fetch real data
-- `backend-api.ts` does not orchestrate runtime readiness anymore; it only resolves backend origin and performs HTTP request/retry behavior
+- admin UI does not execute userland collection/token route loads
+- userland browser UI uses `backend-api.ts` directly against backend localhost origin (`/api/*`)
 - runtime readiness in lifecycle orchestrator is event-first (`runtime-state-changed`) with a status reconciliation fallback poll during boot
+- userland product UI is served by backend static hosting at `backend_http_base_url` and opened in system browser via admin UI/tray action
 
 ## Process Start Details
 
@@ -278,8 +294,14 @@ This is required for correct module resolution in packaged desktop mode.
 Desktop stop is triggered by:
 
 - explicit command (`runtime_stop`)
-- window close request hook
+- tray `shutdown` menu item
 - app `ExitRequested` event hook
+
+Window close behavior:
+
+- `CloseRequested` is prevented
+- admin window is hidden
+- runtime continues in background under tray control
 
 ### Stop Strategy
 
@@ -315,18 +337,24 @@ Admin runtime drawer process dropdown behavior:
 
 ## Runtime Operations UI
 
-Desktop frontend now includes a global runtime drawer mounted in root layout (`frontend/src/routes/+layout.svelte`):
+Desktop UI is split into:
+
+- admin UI (native Tauri WebView)
+- userland UI (regular browser tab at backend localhost origin)
+
+Admin UI mounts runtime operations view in root layout (`frontend/src/routes/+layout.svelte`):
 
 - live runtime state (`runtime-state-changed` event)
 - live log stream (`runtime-log` event)
 - controls: start / stop / restart / preflight
 - paths: config path and logs path with open actions
+- action: `open ArtGod in browser` (opens userland UI in system browser)
 
-Desktop boot UX is handled by `DesktopLifecycleOverlay.svelte`:
+Admin lifecycle UX is embedded in runtime operations (`lifecycle` tab):
 
 - visible immediately on startup while lifecycle phase is not `ready`
 - shows lifecycle events as single-line rows with bracket tokens (`[level] [code]`) for copy-friendly logs
-- remains visible until lifecycle orchestrator marks readiness after successful backend probe
+- remains in admin UI after startup as historical lifecycle stream
 
 Tauri commands used by desktop frontend runtime UI/state:
 
@@ -343,6 +371,7 @@ Tauri commands used by desktop frontend runtime UI/state:
 - `runtime_list_log_processes`
 - `runtime_open_config_path`
 - `runtime_open_logs_path`
+- `runtime_open_userland_ui`
 
 ## CI Release Pipeline
 

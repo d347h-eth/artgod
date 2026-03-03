@@ -6,8 +6,8 @@
     "build": {
         "frontendDist": "../frontend/dist",
         "devUrl": "http://localhost:5173",
-        "beforeDevCommand": "yarn workspace @artgod/frontend run dev",
-        "beforeBuildCommand": "yarn build:desktop && yarn build:runtime && yarn build:desktop-runtime-resources"
+        "beforeDevCommand": "node ./scripts/build/dev-frontend-target.mjs admin",
+        "beforeBuildCommand": "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources"
     },
     "app": {
         "windows": [

@@ -1,3 +1,3 @@
-// Keep web mode SSR-enabled by default; desktop build flips this so the app
-// runs as a static SPA inside the desktop shell.
-export const ssr = import.meta.env.VITE_FRONTEND_BUILD_TARGET !== 'desktop';
+// Keep web mode SSR-enabled by default; admin/userland desktop builds run as static SPAs.
+const target = (import.meta.env.VITE_FRONTEND_BUILD_TARGET as string | undefined)?.trim() ?? 'web';
+export const ssr = target === 'web';

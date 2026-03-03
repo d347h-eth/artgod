@@ -13,6 +13,7 @@ export type BackendConfig = {
     dbPath: string;
     natsUrl: string;
     natsStreamPrefix: string;
+    userlandUiDistDir: string | null;
 };
 
 export function loadBackendConfig(
@@ -26,6 +27,7 @@ export function loadBackendConfig(
         env.NATS_STREAM_PREFIX,
         "NATS_STREAM_PREFIX",
     );
+    const userlandUiDistDir = env.USERLAND_UI_DIST_DIR?.trim() || null;
 
     return {
         port,
@@ -33,5 +35,6 @@ export function loadBackendConfig(
         dbPath,
         natsUrl,
         natsStreamPrefix,
+        userlandUiDistDir,
     };
 }

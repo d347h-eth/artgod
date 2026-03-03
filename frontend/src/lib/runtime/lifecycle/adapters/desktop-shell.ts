@@ -3,7 +3,8 @@ import { browser } from '$app/environment';
 const FRONTEND_BUILD_TARGET =
 	(import.meta.env.VITE_FRONTEND_BUILD_TARGET as string | undefined)?.trim() || '';
 
-export const IS_DESKTOP_BUILD_TARGET = FRONTEND_BUILD_TARGET === 'desktop';
+export const IS_DESKTOP_BUILD_TARGET =
+	FRONTEND_BUILD_TARGET === 'admin' || FRONTEND_BUILD_TARGET === 'desktop';
 
 export function detectDesktopShellLikely(): boolean {
 	if (IS_DESKTOP_BUILD_TARGET) {

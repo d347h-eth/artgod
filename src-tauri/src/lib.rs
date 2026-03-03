@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use runtime::{DesktopRuntimeConfig, RuntimeEndpoints, RuntimeManager, RuntimeStatus};
 use serde::Serialize;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State};
 use time::OffsetDateTime;
 
@@ -18,6 +20,10 @@ struct DesktopState {
     runtime: RuntimeManager,
     shutdown_requested: Arc<AtomicBool>,
 }
+
+const TRAY_OPEN_USERLAND_ID: &str = "tray.open_userland";
+const TRAY_OPEN_ADMIN_ID: &str = "tray.open_admin";
+const TRAY_SHUTDOWN_ID: &str = "tray.shutdown";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,6 +108,15 @@ fn runtime_open_logs_path(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn runtime_open_userland_ui(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    let url = resolve_userland_ui_url(&app, &state)?;
+    open_url(&url)
+}
+
+#[tauri::command]
 fn runtime_get_logs_tail(
     app: AppHandle,
     process: Option<String>,
@@ -181,9 +196,18 @@ fn runtime_preflight(app: AppHandle, state: State<'_, DesktopState>) -> RuntimeP
     );
 
     push_env_check(&mut checks, &config, "ARTGOD_DB_PATH");
+    push_env_check(&mut checks, &config, "USERLAND_UI_DIST_DIR");
     push_env_check(&mut checks, &config, "RPC_URL");
     push_env_check(&mut checks, &config, "WETH_ADDRESS");
     push_env_check(&mut checks, &config, "SEAPORT_CONDUIT_CONTROLLER");
+    if let Some(userland_dist) = config.process_env.get("USERLAND_UI_DIST_DIR") {
+        push_exists_check(
+            &mut checks,
+            "userlandUiDistDir",
+            "Userland frontend static artifacts",
+            Path::new(userland_dist),
+        );
+    }
 
     push_port_check(
         &mut checks,
@@ -264,42 +288,73 @@ pub fn run() {
                 "Desktop runtime auto-start is deferred until frontend handshake",
             );
 
+            let open_userland = MenuItem::with_id(
+                app.handle(),
+                TRAY_OPEN_USERLAND_ID,
+                "open ArtGod in browser",
+                true,
+                None::<&str>,
+            )?;
+            let open_admin = MenuItem::with_id(
+                app.handle(),
+                TRAY_OPEN_ADMIN_ID,
+                "open admin UI",
+                true,
+                None::<&str>,
+            )?;
+            let shutdown = MenuItem::with_id(
+                app.handle(),
+                TRAY_SHUTDOWN_ID,
+                "shutdown",
+                true,
+                None::<&str>,
+            )?;
+            let tray_menu =
+                Menu::with_items(app.handle(), &[&open_userland, &open_admin, &shutdown])?;
+
+            TrayIconBuilder::new()
+                .tooltip("ArtGod")
+                .menu(&tray_menu)
+                .on_menu_event(|app_handle: &AppHandle, event| {
+                    let menu_id = event.id.as_ref();
+                    match menu_id {
+                        TRAY_OPEN_USERLAND_ID => {
+                            open_userland_ui(app_handle);
+                        }
+                        TRAY_OPEN_ADMIN_ID => {
+                            show_admin_window(app_handle);
+                        }
+                        TRAY_SHUTDOWN_ID => {
+                            request_runtime_shutdown(app_handle, "tray shutdown requested");
+                        }
+                        _ => {}
+                    }
+                })
+                .build(app.handle())?;
+
             Ok(())
+        })
+        .on_tray_icon_event(|app_handle, event| {
+            if let TrayIconEvent::DoubleClick { .. } = event {
+                open_userland_ui(app_handle);
+            }
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-
-                let state = window.state::<DesktopState>();
-                if state.shutdown_requested.swap(true, Ordering::SeqCst) {
-                    return;
+                if let Err(error) = window.hide() {
+                    append_desktop_log(
+                        &window.app_handle(),
+                        "error",
+                        &format!("Failed to hide admin window on close request: {error}"),
+                    );
+                } else {
+                    append_desktop_log(
+                        &window.app_handle(),
+                        "info",
+                        "Admin window hidden (runtime remains active in tray)",
+                    );
                 }
-
-                let app_handle = window.app_handle().clone();
-                append_desktop_log(
-                    &app_handle,
-                    "info",
-                    "Window close requested; stopping runtime before app exit",
-                );
-
-                std::thread::spawn(move || {
-                    let state = app_handle.state::<DesktopState>();
-                    if let Err(error) = state.runtime.stop(app_handle.clone()) {
-                        log::error!("Desktop runtime shutdown on close failed: {error}");
-                        append_desktop_log(
-                            &app_handle,
-                            "error",
-                            &format!("Desktop runtime shutdown on close failed: {error}"),
-                        );
-                    } else {
-                        append_desktop_log(
-                            &app_handle,
-                            "info",
-                            "Runtime stopped after window close request",
-                        );
-                    }
-                    app_handle.exit(0);
-                });
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -313,6 +368,7 @@ pub fn run() {
             runtime_get_logs_path,
             runtime_open_config_path,
             runtime_open_logs_path,
+            runtime_open_userland_ui,
             runtime_get_logs_tail,
             runtime_list_log_processes,
             runtime_preflight
@@ -336,6 +392,88 @@ pub fn run() {
             }
         }
     });
+}
+
+fn request_runtime_shutdown(app_handle: &AppHandle, reason: &str) {
+    let state = app_handle.state::<DesktopState>();
+    if state.shutdown_requested.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    append_desktop_log(app_handle, "info", reason);
+    let app_handle = app_handle.clone();
+    std::thread::spawn(move || {
+        let state = app_handle.state::<DesktopState>();
+        if let Err(error) = state.runtime.stop(app_handle.clone()) {
+            log::error!("Desktop runtime shutdown failed: {error}");
+            append_desktop_log(
+                &app_handle,
+                "error",
+                &format!("Desktop runtime shutdown failed: {error}"),
+            );
+        } else {
+            append_desktop_log(&app_handle, "info", "Runtime stopped after shutdown request");
+        }
+        app_handle.exit(0);
+    });
+}
+
+fn show_admin_window(app_handle: &AppHandle) {
+    let Some(window) = app_handle.get_webview_window("main") else {
+        append_desktop_log(
+            app_handle,
+            "error",
+            "Failed to open admin window: main window not found",
+        );
+        return;
+    };
+    if let Err(error) = window.show() {
+        append_desktop_log(
+            app_handle,
+            "error",
+            &format!("Failed to show admin window: {error}"),
+        );
+        return;
+    }
+    if let Err(error) = window.set_focus() {
+        append_desktop_log(
+            app_handle,
+            "warn",
+            &format!("Admin window shown but focus failed: {error}"),
+        );
+    }
+}
+
+fn open_userland_ui(app_handle: &AppHandle) {
+    let state = app_handle.state::<DesktopState>();
+    match resolve_userland_ui_url(app_handle, &state) {
+        Ok(url) => {
+            if let Err(error) = open_url(&url) {
+                append_desktop_log(
+                    app_handle,
+                    "error",
+                    &format!("Failed to open userland UI: {error}"),
+                );
+            }
+        }
+        Err(error) => append_desktop_log(
+            app_handle,
+            "error",
+            &format!("Failed to resolve userland UI URL: {error}"),
+        ),
+    }
+}
+
+fn resolve_userland_ui_url(app: &AppHandle, state: &DesktopState) -> Result<String, String> {
+    if let Ok(endpoints) = state.runtime.endpoints() {
+        let url = endpoints.backend_http_base_url.trim();
+        if !url.is_empty() {
+            return Ok(url.to_owned());
+        }
+    }
+
+    let config = DesktopRuntimeConfig::load_or_create(app)?;
+    Ok(config.backend_http_base_url())
 }
 
 fn append_desktop_log(app: &AppHandle, level: &str, message: &str) {
@@ -608,5 +746,26 @@ fn open_path(path: &Path) -> Result<(), String> {
     command
         .spawn()
         .map_err(|error| format!("Failed to open {}: {error}", path.display()))?;
+    Ok(())
+}
+
+fn open_url(url: &str) -> Result<(), String> {
+    let mut command = if cfg!(target_os = "windows") {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", url]);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(url);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(url);
+        command
+    };
+
+    command
+        .spawn()
+        .map_err(|error| format!("Failed to open URL {url}: {error}"))?;
     Ok(())
 }

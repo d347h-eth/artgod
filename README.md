@@ -43,6 +43,8 @@ Build helper commands:
 
 ```sh
 yarn build:web
+yarn build:userland
+yarn build:admin
 yarn build:desktop
 yarn build:runtime
 yarn build:desktop-runtime-resources
@@ -120,7 +122,9 @@ Build helper commands:
 
 ```sh
 yarn build:web                 # frontend web build only
-yarn build:desktop             # frontend desktop-target build (adapter-static -> frontend/dist)
+yarn build:userland            # frontend userland static build (adapter-static -> frontend/dist-userland)
+yarn build:admin               # frontend admin static build for Tauri window (adapter-static -> frontend/dist)
+yarn build:desktop             # alias for build:admin
 yarn build:runtime             # backend/indexer Node runtime artifacts
 yarn build:desktop-runtime-resources # copies runtime artifacts + Yarn runtime deps + bundled Node+NATS runtimes (cached under .cache/desktop-*-runtime)
 yarn check:runtime-registry    # validates runtime list consistency across build/supervisor/dev/observability
@@ -132,11 +136,14 @@ yarn tauri build --debug --no-bundle --ci
 Desktop executable lifecycle:
 
 1. Rust app process initializes and exposes runtime commands (startup is deferred; no immediate supervisor auto-start in `setup`).
-2. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`.
-3. Supervisor starts local NATS from bundled `nats-server`, then backend, then all indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; runtime status becomes `running` only after semantic backend health (`/health/runtime`) succeeds.
-4. Boot lifecycle console stays visible until lifecycle backend readiness probe succeeds (not merely until process state is `running`).
-5. Any core process exit triggers fail-fast full stack restart.
-6. App close and exit requests trigger runtime stop with graceful process termination first, then forced kill fallback.
+2. System tray is initialized with native actions: `open ArtGod in browser`, `open admin UI`, `shutdown`.
+3. Admin UI runs in the native Tauri window and is limited to runtime operations (`lifecycle`, `logs`, `status` + browser-open action).
+4. Userland UI runs in a regular browser tab and is served by the local backend origin.
+5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`.
+6. Supervisor starts local NATS from bundled `nats-server`, then backend, then all indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; runtime status becomes `running` only after semantic backend health (`/health/runtime`) succeeds.
+7. Boot lifecycle console stays visible until lifecycle backend readiness probe succeeds (not merely until process state is `running`).
+8. Any core process exit triggers fail-fast full stack restart.
+9. Closing the admin window hides it (runtime keeps running in tray). Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app exit.
 
 If your desktop config file was generated before runtime-artifact keys were added, either update it manually or delete it to regenerate:
 

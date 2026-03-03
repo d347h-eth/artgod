@@ -13,7 +13,15 @@ const workspaces = Array.isArray(rootPackageJson.workspaces)
     ? rootPackageJson.workspaces
     : [];
 
-const cacheDirs = ["dist", "dist-desktop", ".vite", ".vitest", ".svelte-kit"];
+const cacheDirs = [
+    "dist",
+    "dist-desktop",
+    "dist-userland",
+    "build-web",
+    ".vite",
+    ".vitest",
+    ".svelte-kit",
+];
 const candidatePaths = new Set();
 
 for (const dir of cacheDirs) {
