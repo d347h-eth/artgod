@@ -337,4 +337,17 @@ describe('lifecycle orchestrator', () => {
 		resolveProbe();
 		await expect(waitPromise).rejects.toThrow('Lifecycle readiness wait cancelled');
 	});
+
+	it('blocks new readiness polling while lifecycle is stopping', async () => {
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('running');
+		runtimePort.autoStartStatus = makeStatus('running');
+
+		const { orchestrator, lifecycleStates } = createHarness({ runtimePort });
+
+		await orchestrator.init();
+		orchestrator.setStopping('Stopping runtime processes...', 'runtime.stop.requested');
+		await expect(orchestrator.waitUntilReady()).rejects.toThrow('Lifecycle readiness wait cancelled');
+		expect(eventCodes(lifecycleStates)).not.toContain('ready.poll.start');
+	});
 });

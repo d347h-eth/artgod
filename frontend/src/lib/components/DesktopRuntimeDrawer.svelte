@@ -1,23 +1,39 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { desktopRuntimeStore } from '$lib/runtime/desktop-runtime-store';
-	import { parseBracketPrefixedLine } from '$lib/runtime/log-line-format';
+	import type { LifecycleEventLevel } from '$lib/runtime/desktop-runtime-store';
+	import { parseBracketPrefixedLine, createTokenizedLogLine } from '$lib/runtime/log-line-format';
+	import {
+		resolveStartupSurfacePolicy,
+		type AdminConsoleTab
+	} from '$lib/runtime/lifecycle-ui-policy';
 
 	type FilterOption = string;
-	type ConsoleTab = 'logs' | 'status';
+	type ConsoleTab = AdminConsoleTab;
 
 	const runtimeState = desktopRuntimeStore.state;
 
 	let open = $state(false);
 	let activeTab = $state<ConsoleTab>('logs');
+	let lastUserTab = $state<ConsoleTab>('logs');
 	let processFilter = $state<FilterOption>('desktop-supervisor');
 	let logStreamElement = $state<HTMLDivElement | null>(null);
+	let lifecycleLogStreamElement = $state<HTMLDivElement | null>(null);
 	let logAutoFollow = $state(true);
+	let lifecycleLogAutoFollow = $state(true);
+	let startupAutoOpened = $state(false);
 	let syncedLogProcess = $state<FilterOption>('desktop-supervisor');
+	let nowMs = $state(Date.now());
+
 	const LOG_FOLLOW_THRESHOLD_PX = 24;
+	let timer: ReturnType<typeof setInterval> | null = null;
 
 	onMount(() => {
 		void desktopRuntimeStore.init();
+		timer = setInterval(() => {
+			nowMs = Date.now();
+		}, 1_000);
+
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') {
 				if (open) {
@@ -39,18 +55,70 @@
 		window.addEventListener('keydown', onKeyDown);
 		return () => {
 			window.removeEventListener('keydown', onKeyDown);
+			if (timer) {
+				clearInterval(timer);
+			}
 			desktopRuntimeStore.dispose();
 		};
+	});
+
+	const lifecycle = $derived($runtimeState.lifecycle);
+	const startupSurfacePolicy = $derived(resolveStartupSurfacePolicy(lifecycle.phase));
+	const lifecycleEvents = $derived(lifecycle.events);
+	const tokenizedLifecycleEvents = $derived.by(() =>
+		lifecycleEvents.map((event) =>
+			createTokenizedLogLine([formatTime(event.atIso), event.level, event.code], event.message)
+		)
+	);
+	const lifecycleHeaderTitle = $derived.by(() => {
+		switch (lifecycle.phase) {
+			case 'booting':
+				return 'Starting Runtime';
+			case 'stopping':
+				return 'Stopping Runtime';
+			case 'fatal':
+				return 'Runtime Failed';
+			default:
+				return 'Runtime Lifecycle';
+		}
+	});
+	const lifecycleElapsedText = $derived.by(() => formatElapsed(nowMs - lifecycle.startedAtMs));
+
+	$effect(() => {
+		const policy = startupSurfacePolicy;
+		if (!policy.forceOpen || !policy.preferredTab || open) {
+			return;
+		}
+		startupAutoOpened = true;
+		void openConsoleForTab(policy.preferredTab, false);
+	});
+
+	$effect(() => {
+		if (startupSurfacePolicy.forceOpen || !open || !startupAutoOpened) {
+			return;
+		}
+		closeConsole();
+		startupAutoOpened = false;
 	});
 
 	async function toggleConsole() {
 		if (open) {
 			closeConsole();
+			startupAutoOpened = false;
 			return;
 		}
+
+		const policy = startupSurfacePolicy;
+		if (policy.forceOpen && policy.preferredTab) {
+			await openConsoleForTab(policy.preferredTab, false);
+			return;
+		}
+		await openConsoleForTab(lastUserTab, false);
+	}
+
+	async function openConsoleForTab(tab: ConsoleTab, rememberSelection: boolean) {
 		open = true;
-		activeTab = 'logs';
-		logAutoFollow = true;
+		setActiveTab(tab, rememberSelection);
 		await desktopRuntimeStore.openConsole(processFilter);
 	}
 
@@ -59,10 +127,16 @@
 		desktopRuntimeStore.closeConsole();
 	}
 
-	function setActiveTab(tab: ConsoleTab) {
+	function setActiveTab(tab: ConsoleTab, rememberSelection = true) {
 		activeTab = tab;
+		if (rememberSelection) {
+			lastUserTab = tab;
+		}
 		if (tab === 'logs') {
 			logAutoFollow = true;
+		}
+		if (tab === 'lifecycle') {
+			lifecycleLogAutoFollow = true;
 		}
 	}
 
@@ -115,7 +189,7 @@
 
 	$effect(() => {
 		void visibleLogs.length;
-		if (!open || !logAutoFollow) {
+		if (!open || activeTab !== 'logs' || !logAutoFollow) {
 			return;
 		}
 		void tick().then(() => {
@@ -126,11 +200,31 @@
 		});
 	});
 
+	$effect(() => {
+		void lifecycleEvents.length;
+		if (!open || activeTab !== 'lifecycle' || !lifecycleLogAutoFollow) {
+			return;
+		}
+		void tick().then(() => {
+			if (!lifecycleLogStreamElement) {
+				return;
+			}
+			lifecycleLogStreamElement.scrollTop = lifecycleLogStreamElement.scrollHeight;
+		});
+	});
+
 	function handleLogScroll() {
 		if (!logStreamElement) {
 			return;
 		}
 		logAutoFollow = isNearLogBottom(logStreamElement);
+	}
+
+	function handleLifecycleLogScroll() {
+		if (!lifecycleLogStreamElement) {
+			return;
+		}
+		lifecycleLogAutoFollow = isNearLogBottom(lifecycleLogStreamElement);
 	}
 
 	function isNearLogBottom(element: HTMLDivElement): boolean {
@@ -149,6 +243,27 @@
 		return target.isContentEditable;
 	}
 
+	function formatElapsed(diffMs: number): string {
+		const safeMs = Math.max(0, Number.isFinite(diffMs) ? diffMs : 0);
+		const totalSeconds = Math.floor(safeMs / 1000);
+		const minutes = Math.floor(totalSeconds / 60)
+			.toString()
+			.padStart(2, '0');
+		const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+		return `${minutes}:${seconds}`;
+	}
+
+	function formatTime(iso: string): string {
+		const date = new Date(iso);
+		if (Number.isNaN(date.getTime())) {
+			return '--:--:--';
+		}
+		const hours = date.getHours().toString().padStart(2, '0');
+		const minutes = date.getMinutes().toString().padStart(2, '0');
+		const seconds = date.getSeconds().toString().padStart(2, '0');
+		return `${hours}:${minutes}:${seconds}`;
+	}
+
 	function runtimeTokenClass(token: string): string {
 		const value = token.trim().toLowerCase();
 		if (value === 'error' || value === 'fatal') {
@@ -162,6 +277,16 @@
 		}
 		return 'runtime-log-token';
 	}
+
+	function lifecycleLevelClass(level: LifecycleEventLevel): string {
+		if (level === 'error') {
+			return 'runtime-fail';
+		}
+		if (level === 'warn') {
+			return 'runtime-warn';
+		}
+		return 'runtime-pass';
+	}
 </script>
 
 {#if open}
@@ -171,6 +296,13 @@
 			<p class="muted">press <span class="mono">`</span> or <span class="mono">esc</span> to close</p>
 		</header>
 		<nav class="runtime-tabs" aria-label="Runtime Console Tabs">
+			<button
+				type="button"
+				class:runtime-tab-active={activeTab === 'lifecycle'}
+				onclick={() => setActiveTab('lifecycle')}
+			>
+				lifecycle
+			</button>
 			<button
 				type="button"
 				class:runtime-tab-active={activeTab === 'logs'}
@@ -187,7 +319,68 @@
 			</button>
 		</nav>
 
-		{#if activeTab === 'logs'}
+		{#if activeTab === 'lifecycle'}
+			<div class="runtime-tab-panel runtime-tab-panel-lifecycle" role="tabpanel" aria-label="Lifecycle">
+				<section class="desktop-lifecycle-terminal runtime-tab-section">
+					<header class="desktop-lifecycle-topbar">
+						<div class="desktop-lifecycle-title-row">
+							<h2>{lifecycleHeaderTitle}</h2>
+							<p class="desktop-lifecycle-elapsed mono">elapsed {lifecycleElapsedText}</p>
+						</div>
+						<p class="desktop-lifecycle-current-action">{lifecycle.currentAction}</p>
+						{#if lifecycle.phase === 'fatal'}
+							<div class="desktop-lifecycle-actions">
+								<button
+									type="button"
+									onclick={() => void desktopRuntimeStore.start()}
+									disabled={$runtimeState.busyAction !== null}
+								>
+									retry start
+								</button>
+								<button
+									type="button"
+									onclick={() => void desktopRuntimeStore.openConfigPath()}
+									disabled={$runtimeState.busyAction !== null}
+								>
+									open config
+								</button>
+								<button
+									type="button"
+									onclick={() => void desktopRuntimeStore.openLogsPath()}
+									disabled={$runtimeState.busyAction !== null}
+								>
+									open logs
+								</button>
+							</div>
+						{/if}
+					</header>
+
+					<div
+						class="desktop-lifecycle-log-stream"
+						bind:this={lifecycleLogStreamElement}
+						onscroll={handleLifecycleLogScroll}
+					>
+						{#if tokenizedLifecycleEvents.length === 0}
+							<div class="desktop-lifecycle-event-row">
+								<span class="desktop-lifecycle-event-time mono">{formatTime(new Date().toISOString())} </span>
+								<span class="runtime-pass">[info] </span>
+								<span class="desktop-lifecycle-event-code mono">[boot.waiting] </span>
+								<span class="desktop-lifecycle-event-message">Waiting for first lifecycle event...</span>
+							</div>
+						{:else}
+							{#each tokenizedLifecycleEvents as event, index (lifecycleEvents[index].id)}
+								<div class="desktop-lifecycle-event-row">
+									<span class="desktop-lifecycle-event-time mono">{event.tokens[0]} </span>
+									<span class={lifecycleLevelClass(event.tokens[1] as LifecycleEventLevel)}>[{event.tokens[1]}] </span>
+									<span class="desktop-lifecycle-event-code mono">[{event.tokens[2]}] </span>
+									<span class="desktop-lifecycle-event-message">{event.message}</span>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</section>
+			</div>
+		{:else if activeTab === 'logs'}
 			<div class="runtime-tab-panel runtime-tab-panel-logs" role="tabpanel" aria-label="Logs">
 				<section class="runtime-section runtime-logs-section runtime-tab-section">
 					<header class="runtime-logs-header">

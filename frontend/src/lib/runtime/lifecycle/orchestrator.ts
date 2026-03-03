@@ -179,6 +179,10 @@ export function createLifecycleOrchestrator(
 		}
 		await init();
 
+		if (isLifecycleStopping(lifecycle)) {
+			throw new Error(READY_WAIT_CANCELLED_ERROR);
+		}
+
 		if (lifecycle.phase === 'ready') {
 			return;
 		}
@@ -446,6 +450,10 @@ function isFatalRuntimeStatus(status: RuntimeStatus | null): boolean {
 
 function isLifecycleFatal(state: LifecycleState): boolean {
 	return state.phase === 'fatal';
+}
+
+function isLifecycleStopping(state: LifecycleState): boolean {
+	return state.phase === 'stopping';
 }
 
 function toErrorMessage(value: unknown): string {
