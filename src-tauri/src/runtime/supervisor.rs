@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
@@ -492,6 +492,7 @@ fn spawn_runtime_processes(
         "Waiting for NATS port binding",
     );
     if let Err(error) = wait_for_port(
+        config.nats_host.as_str(),
         config.nats_port,
         STARTUP_PORT_TIMEOUT,
         "NATS",
@@ -518,6 +519,7 @@ fn spawn_runtime_processes(
         "Waiting for backend API port binding",
     );
     if let Err(error) = wait_for_port(
+        "127.0.0.1",
         config.backend_port,
         STARTUP_PORT_TIMEOUT,
         "Backend API",
@@ -920,6 +922,7 @@ fn wait_for_process_exit_or_kill(child: &mut Child, grace_period: Duration) {
 }
 
 fn wait_for_port(
+    host: &str,
     port: u16,
     timeout: Duration,
     label: &str,
@@ -927,18 +930,24 @@ fn wait_for_port(
     stop_signal: &AtomicBool,
 ) -> Result<(), StartupWaitError> {
     let deadline = Instant::now() + timeout;
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let lookup = format!("{host}:{port}");
 
     loop {
         if stop_requested(stop_rx, stop_signal) {
             return Err(StartupWaitError::Cancelled);
         }
-        if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+        let addresses = match lookup.to_socket_addrs() {
+            Ok(values) => values.collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
+        if addresses.iter().any(|address| {
+            TcpStream::connect_timeout(address, Duration::from_millis(200)).is_ok()
+        }) {
             return Ok(());
         }
         if Instant::now() >= deadline {
             return Err(StartupWaitError::Failed(format!(
-                "{label} did not bind 127.0.0.1:{port} within {}s",
+                "{label} did not bind {host}:{port} within {}s",
                 timeout.as_secs()
             )));
         }

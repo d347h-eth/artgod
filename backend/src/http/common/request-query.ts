@@ -5,12 +5,20 @@ import type {
     CollectionStatus,
     TraitFilter,
 } from "@artgod/shared/types/browse";
+import type { BootstrapMetadataTaskStatus } from "../../application/use-cases/bootstrap/types.js";
 
 const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
     "bootstrapping",
     "live",
     "paused",
     "disabled",
+]);
+
+const ALLOWED_BOOTSTRAP_TASK_STATUSES = new Set<BootstrapMetadataTaskStatus>([
+    "pending",
+    "retry",
+    "succeeded",
+    "failed_terminal",
 ]);
 
 export function getSearchParams(request: FastifyRequest): URLSearchParams {
@@ -37,6 +45,18 @@ export function parseLimit(raw: string | null): number {
 export function parseCursor(raw: string | null): string | null {
     if (!raw || !raw.trim()) return null;
     return raw.trim();
+}
+
+export function parseBootstrapTaskStatus(
+    raw: string | null,
+): BootstrapMetadataTaskStatus | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    if (
+        !ALLOWED_BOOTSTRAP_TASK_STATUSES.has(raw as BootstrapMetadataTaskStatus)
+    ) {
+        throw new ReadModelBadRequestError("Invalid bootstrap task status");
+    }
+    return raw as BootstrapMetadataTaskStatus;
 }
 
 export function parseTraits(searchParams: URLSearchParams): TraitFilter[] {

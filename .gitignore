@@ -13,6 +13,9 @@ node_modules/
 
 # TypeScript build artifacts
 *.tsbuildinfo
+indexer/build/
+backend/build/
+shared/build/
 frontend/dist/
 frontend/build-web/
 frontend/dist-userland/

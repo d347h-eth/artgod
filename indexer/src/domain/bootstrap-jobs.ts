@@ -10,16 +10,14 @@ export type BootstrapMetadataSnapshotMode = "strict" | "best_effort";
 
 export type BootstrapCollectionPayload = {
     chainId: number;
-    collectionId: string;
-    address: string;
-    standard: CollectionStandard;
-    metadataSnapshotMode: BootstrapMetadataSnapshotMode;
-    reason?: string;
+    runId: number;
+    collectionId: number;
 };
 
 export type BootstrapMetadataProcessPayload = {
     chainId: number;
-    collectionId: string;
+    runId: number;
+    collectionId: number;
     address: string;
     standard: CollectionStandard;
     metadataSnapshotMode: BootstrapMetadataSnapshotMode;
@@ -30,7 +28,8 @@ export type BootstrapMetadataProcessPayload = {
 
 export type BootstrapBackfillCheckPayload = {
     chainId: number;
-    collectionId: string;
+    runId: number;
+    collectionId: number;
     address: string;
     fromBlock: number;
     toBlock: number;

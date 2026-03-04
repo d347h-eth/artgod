@@ -22,7 +22,7 @@ import { ReadModelBadRequestError, ReadModelNotFoundError } from "./errors.js";
 
 type CollectionRow = {
     chain_id: number;
-    collection_id: string;
+    collection_id: number;
     slug: string | null;
     address: string;
     standard: string;

@@ -11,7 +11,9 @@ pub struct DesktopRuntimeConfig {
     pub runtime_dir: PathBuf,
     pub pnp_cjs_path: PathBuf,
     pub pnp_loader_path: PathBuf,
+    pub nats_host: String,
     pub nats_port: u16,
+    pub nats_url: String,
     pub backend_port: u16,
     pub auto_start: bool,
     pub restart_backoff_ms: u64,
@@ -55,7 +57,8 @@ impl DesktopRuntimeConfig {
             })?;
         }
 
-        let process_env = parse_env_file(&env_file_path)?;
+        let mut process_env = parse_env_file(&env_file_path)?;
+        apply_runtime_env_defaults(&mut process_env);
 
         let runtime_dir = resolve_runtime_resources_dir(
             app,
@@ -112,7 +115,6 @@ impl DesktopRuntimeConfig {
                 pnp_loader_path.display()
             ));
         }
-        let nats_port = parse_port(get_required(&process_env, "DESKTOP_NATS_PORT")?)?;
         let backend_port = parse_port(get_required(&process_env, "BACKEND_PORT")?)?;
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
         let restart_backoff_ms =
@@ -120,6 +122,8 @@ impl DesktopRuntimeConfig {
 
         // Core runtime env is required for backend/indexer startup.
         get_required(&process_env, "ARTGOD_DB_PATH")?;
+        let nats_url = get_required(&process_env, "NATS_URL")?.to_owned();
+        let (nats_host, nats_port) = parse_nats_url(&nats_url)?;
         get_required(&process_env, "RPC_URL")?;
         get_required(&process_env, "WETH_ADDRESS")?;
         get_required(&process_env, "SEAPORT_CONDUIT_CONTROLLER")?;
@@ -163,10 +167,6 @@ impl DesktopRuntimeConfig {
             "USERLAND_UI_DIST_DIR".to_owned(),
             userland_ui_dist_dir.to_string_lossy().into_owned(),
         );
-        merged_env.insert(
-            "NATS_URL".to_owned(),
-            format!("nats://127.0.0.1:{nats_port}"),
-        );
         merged_env.insert("BACKEND_PORT".to_owned(), backend_port.to_string());
 
         Ok(Self {
@@ -176,7 +176,9 @@ impl DesktopRuntimeConfig {
             runtime_dir,
             pnp_cjs_path,
             pnp_loader_path,
+            nats_host,
             nats_port,
+            nats_url,
             backend_port,
             auto_start,
             restart_backoff_ms,
@@ -190,7 +192,7 @@ impl DesktopRuntimeConfig {
     }
 
     pub fn nats_url(&self) -> String {
-        format!("nats://127.0.0.1:{}", self.nats_port)
+        self.nats_url.clone()
     }
 }
 
@@ -253,6 +255,62 @@ fn get_required<'a>(values: &'a HashMap<String, String>, key: &str) -> Result<&'
 fn parse_port(raw: &str) -> Result<u16, String> {
     raw.parse::<u16>()
         .map_err(|error| format!("Invalid port value \"{raw}\": {error}"))
+}
+
+fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
+    let trimmed = raw.trim();
+    let without_scheme = trimmed.strip_prefix("nats://").ok_or_else(|| {
+        format!("Invalid NATS_URL \"{raw}\": expected nats://<host>:<port>")
+    })?;
+    let authority = without_scheme.split('/').next().unwrap_or("").trim();
+    if authority.is_empty() {
+        return Err(format!(
+            "Invalid NATS_URL \"{raw}\": missing authority section",
+        ));
+    }
+
+    let host_port = authority
+        .rsplit_once('@')
+        .map(|(_, value)| value)
+        .unwrap_or(authority);
+
+    let (host, raw_port) = if let Some(rest) = host_port.strip_prefix('[') {
+        let Some(end_idx) = rest.find(']') else {
+            return Err(format!(
+                "Invalid NATS_URL \"{raw}\": malformed IPv6 host segment",
+            ));
+        };
+        let host = &rest[..end_idx];
+        let after = &rest[end_idx + 1..];
+        let Some(raw_port) = after.strip_prefix(':') else {
+            return Err(format!(
+                "Invalid NATS_URL \"{raw}\": missing port after IPv6 host",
+            ));
+        };
+        (host.trim(), raw_port.trim())
+    } else {
+        let Some((host, raw_port)) = host_port.rsplit_once(':') else {
+            return Err(format!(
+                "Invalid NATS_URL \"{raw}\": missing host or port",
+            ));
+        };
+        (host.trim(), raw_port.trim())
+    };
+
+    if host.is_empty() {
+        return Err(format!("Invalid NATS_URL \"{raw}\": host is empty"));
+    }
+    if !is_loopback_host(host) {
+        return Err(format!(
+            "Invalid NATS_URL \"{raw}\": desktop runtime requires loopback host (localhost, 127.0.0.1, ::1)",
+        ));
+    }
+    let port = parse_port(raw_port)?;
+    Ok((host.to_owned(), port))
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host.to_ascii_lowercase().as_str(), "localhost" | "127.0.0.1" | "::1")
 }
 
 fn parse_u64(raw: &str) -> Result<u64, String> {
@@ -364,7 +422,6 @@ fn build_default_env_template() -> String {
         "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
         "# Optional: override bundled NATS binary path (absolute or relative to runtime resources dir)\n",
         "# DESKTOP_NATS_BINARY_PATH=nats/nats-server(.exe)\n",
-        "DESKTOP_NATS_PORT=4222\n",
         "\n",
         "# Backend\n",
         "BACKEND_PORT=3000\n\n",
@@ -375,8 +432,20 @@ fn build_default_env_template() -> String {
         "USERLAND_UI_DIST_DIR=frontend/userland\n",
         "CHAIN_ID=1\n",
         "RPC_URL=http://127.0.0.1:8545\n",
+        "RPC_RETRY_MAX_ATTEMPTS=5\n",
+        "RPC_RETRY_BASE_DELAY_MS=100\n",
+        "RPC_RETRY_MAX_DELAY_MS=3000\n",
+        "RPC_RATE_LIMIT_REQUESTS_PER_SECOND=50\n",
+        "RPC_RATE_LIMIT_BURST=100\n",
+        "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5\n",
+        "RPC_CIRCUIT_BREAKER_OPEN_MS=5000\n",
+        "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS=2\n",
+        "CACHE_MAX_ENTRIES=5000\n",
+        "CACHE_TTL_MS=30000\n",
+        "NATS_URL=nats://127.0.0.1:4222\n",
         "WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\n",
         "SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63\n",
+        "PUBLIC_BACKEND_ORIGIN=http://127.0.0.1:3000\n",
         "NATS_STREAM_PREFIX=artgod\n",
         "OPENSEA_STREAM_MODE=fixtures\n",
         "# OPENSEA_FIXTURES_DIR is resolved relative to desktop runtime resources dir unless absolute\n",
@@ -389,9 +458,38 @@ fn build_default_env_template() -> String {
         "BOOTSTRAP_METADATA_BATCH_SIZE=200\n",
         "BOOTSTRAP_METADATA_CONCURRENCY=8\n",
         "BOOTSTRAP_METADATA_PROCESS_POLL_MS=5000\n",
+        "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS=5\n",
+        "BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS=100\n",
+        "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS=3000\n",
         "REORG_DEPTH=32\n",
         "BACKFILL_BATCH_SIZE=50\n",
         "LOG_CHUNK_SIZE=2000\n"
     )
     .to_string()
+}
+
+fn apply_runtime_env_defaults(values: &mut HashMap<String, String>) {
+    // Keep desktop-managed runtime behavior aligned with repository .env.example
+    // when keys are missing in an existing app-data config file.
+    for (key, value) in [
+        ("RPC_RETRY_MAX_ATTEMPTS", "5"),
+        ("RPC_RETRY_BASE_DELAY_MS", "100"),
+        ("RPC_RETRY_MAX_DELAY_MS", "3000"),
+        ("RPC_RATE_LIMIT_REQUESTS_PER_SECOND", "50"),
+        ("RPC_RATE_LIMIT_BURST", "100"),
+        ("RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5"),
+        ("RPC_CIRCUIT_BREAKER_OPEN_MS", "5000"),
+        ("RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "2"),
+        ("CACHE_MAX_ENTRIES", "5000"),
+        ("CACHE_TTL_MS", "30000"),
+        ("BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS", "5"),
+        ("BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS", "100"),
+        ("BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS", "3000"),
+        ("NATS_URL", "nats://127.0.0.1:4222"),
+        ("PUBLIC_BACKEND_ORIGIN", "http://127.0.0.1:3000"),
+    ] {
+        values
+            .entry(key.to_owned())
+            .or_insert_with(|| value.to_owned());
+    }
 }

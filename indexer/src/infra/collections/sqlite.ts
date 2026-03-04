@@ -10,7 +10,7 @@ import type {
 
 type CollectionRow = {
     chain_id: number;
-    collection_id: string;
+    collection_id: number;
     address: string;
     standard: string;
     status: string;
@@ -22,7 +22,7 @@ type CollectionRow = {
 };
 
 export class SqliteCollectionRegistry implements CollectionRegistryPort {
-    private selectOne = db.prepare<{ chainId: number; collectionId: string }>(
+    private selectOne = db.prepare<{ chainId: number; collectionId: number }>(
         "SELECT chain_id, collection_id, address, standard, status, deployment_block, " +
             "bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
             "FROM collections WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
@@ -39,7 +39,6 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
     );
     private upsert = db.prepare<{
         chainId: number;
-        id: string;
         address: string;
         standard: string;
         status: string;
@@ -50,12 +49,12 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
         bootstrapLastSyncedBlock: number | null;
     }>(
         "INSERT INTO collections " +
-            "(chain_id, collection_id, address, standard, status, deployment_block, bootstrap_anchor_block, " +
+            "(chain_id, address, standard, status, deployment_block, bootstrap_anchor_block, " +
             "bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
-            "VALUES (@chainId, @id, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock, " +
+            "VALUES (@chainId, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock, " +
             "@bootstrapStartedAt, @bootstrapFinishedAt, @bootstrapLastSyncedBlock) " +
-            "ON CONFLICT(chain_id, collection_id) DO UPDATE SET " +
-            "address = excluded.address, standard = excluded.standard, status = excluded.status, " +
+            "ON CONFLICT(chain_id, address) DO UPDATE SET " +
+            "standard = excluded.standard, status = excluded.status, " +
             "deployment_block = excluded.deployment_block, bootstrap_anchor_block = excluded.bootstrap_anchor_block, " +
             "bootstrap_started_at = excluded.bootstrap_started_at, " +
             "bootstrap_finished_at = excluded.bootstrap_finished_at, " +
@@ -64,7 +63,7 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
     );
     private markStarted = db.prepare<{
         chainId: number;
-        collectionId: string;
+        collectionId: number;
         anchorBlock: number;
     }>(
         "UPDATE collections SET " +
@@ -76,7 +75,7 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
     );
     private markSnapshotProgress = db.prepare<{
         chainId: number;
-        collectionId: string;
+        collectionId: number;
         lastSyncedBlock: number;
     }>(
         "UPDATE collections SET " +
@@ -86,7 +85,7 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
     );
     private markFinished = db.prepare<{
         chainId: number;
-        collectionId: string;
+        collectionId: number;
         lastSyncedBlock: number;
     }>(
         "UPDATE collections SET " +
@@ -99,7 +98,7 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
 
     getCollection(
         chainId: number,
-        collectionId: string,
+        collectionId: number,
     ): CollectionRecord | null {
         const row = this.selectOne.get({
             chainId,
@@ -122,7 +121,6 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
     upsertCollection(input: CollectionUpsertInput): void {
         this.upsert.run({
             chainId: input.chainId,
-            id: input.id,
             address: input.address,
             standard: input.standard,
             status: input.status,
@@ -136,7 +134,7 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
 
     markBootstrapStarted(
         chainId: number,
-        collectionId: string,
+        collectionId: number,
         anchorBlock: number,
     ): boolean {
         const result = this.markStarted.run({
@@ -149,7 +147,7 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
 
     markBootstrapSnapshotProgress(
         chainId: number,
-        collectionId: string,
+        collectionId: number,
         lastSyncedBlock: number,
     ): boolean {
         const result = this.markSnapshotProgress.run({
@@ -162,7 +160,7 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
 
     markBootstrapFinished(
         chainId: number,
-        collectionId: string,
+        collectionId: number,
         lastSyncedBlock: number,
     ): boolean {
         const result = this.markFinished.run({

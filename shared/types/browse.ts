@@ -12,7 +12,7 @@ export type ChainRecord = {
 
 export type CollectionListItem = {
     chainId: number;
-    collectionId: string;
+    collectionId: number;
     slug: string | null;
     address: string;
     standard: CollectionStandard;

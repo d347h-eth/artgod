@@ -8,7 +8,7 @@ export type CollectionSyncMode = "realtime" | "backfill";
 export interface CollectionRegistryPort {
     getCollection(
         chainId: number,
-        collectionId: string,
+        collectionId: number,
     ): CollectionRecord | null;
     listCollectionsForSync(
         chainId: number,
@@ -17,17 +17,17 @@ export interface CollectionRegistryPort {
     upsertCollection(input: CollectionUpsertInput): void;
     markBootstrapStarted(
         chainId: number,
-        collectionId: string,
+        collectionId: number,
         anchorBlock: number,
     ): boolean;
     markBootstrapSnapshotProgress(
         chainId: number,
-        collectionId: string,
+        collectionId: number,
         lastSyncedBlock: number,
     ): boolean;
     markBootstrapFinished(
         chainId: number,
-        collectionId: string,
+        collectionId: number,
         lastSyncedBlock: number,
     ): boolean;
 }

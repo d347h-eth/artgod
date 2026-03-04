@@ -15,7 +15,7 @@ describe('CollectionDetailView', () => {
 				},
 				collection: {
 					chainId: 1,
-					collectionId: 'milady-main',
+					collectionId: 1,
 					slug: 'milady',
 					address: '0x1111111111111111111111111111111111111111',
 					standard: 'erc721',

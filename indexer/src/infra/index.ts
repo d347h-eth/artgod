@@ -8,6 +8,7 @@ export * from "./domain/metadata.js";
 export * from "./domain/metadata-stats.js";
 export * from "./domain/activities.js";
 export * from "./bootstrap/sqlite.js";
+export * from "./bootstrap/sqlite-runs.js";
 export * from "./conduits/sqlite.js";
 export * from "./metadata/http-fetcher.js";
 export * from "./metadata/viem-token-uri.js";

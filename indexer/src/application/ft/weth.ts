@@ -51,8 +51,9 @@ export function decodeWethMakerInfos(
         if (topic0 === TRANSFER_TOPIC) {
             const decoded = safeDecode(log, "Transfer");
             if (!decoded) continue;
-            const from = (decoded.args.from as string).toLowerCase();
-            const to = (decoded.args.to as string).toLowerCase();
+            const args = decoded.args as { from: string; to: string };
+            const from = args.from.toLowerCase();
+            const to = args.to.toLowerCase();
             pushMakerInfo(infos, bidderIndex, from, "erc20-balance", log);
             pushMakerInfo(infos, bidderIndex, to, "erc20-balance", log);
             continue;
@@ -61,7 +62,8 @@ export function decodeWethMakerInfos(
         if (topic0 === APPROVAL_TOPIC) {
             const decoded = safeDecode(log, "Approval");
             if (!decoded) continue;
-            const owner = (decoded.args.owner as string).toLowerCase();
+            const args = decoded.args as { owner: string };
+            const owner = args.owner.toLowerCase();
             pushMakerInfo(infos, bidderIndex, owner, "approval-change", log);
         }
     }

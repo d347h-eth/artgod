@@ -1,21 +1,16 @@
+import { db, setDbPath } from "@artgod/shared/database";
 import { loadConfig } from "../src/config/index.js";
-import { setDbPath } from "@artgod/shared/database";
-import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
-import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
-import {
-    BOOTSTRAP_JOB_KIND,
-    type BootstrapMetadataSnapshotMode,
-    type BootstrapCollectionPayload,
-} from "../src/domain/bootstrap-jobs.js";
-import { QUEUE_NAMES } from "../src/domain/queues.js";
+import { BOOTSTRAP_JOB_KIND } from "../src/domain/bootstrap-jobs.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
+import { QUEUE_NAMES } from "../src/domain/queues.js";
+import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 
 type CliArgs = {
     address?: string;
-    collectionId?: string;
+    slug?: string;
     chainId?: number;
     deploymentBlock?: number;
-    metadataMode?: BootstrapMetadataSnapshotMode;
+    metadataMode?: "strict" | "best_effort";
 };
 
 const args = parseArgs(process.argv.slice(2));
@@ -27,43 +22,40 @@ if (!args.address) {
 const config = loadConfig();
 setDbPath(config.dbPath);
 const chainId = args.chainId ?? config.chainId;
-const address = args.address;
-const collectionId = args.collectionId ?? address;
-const standard = "erc721";
+const address = normalizeAddress(args.address);
+const slug = (args.slug?.trim().toLowerCase() || address).slice(0, 80);
+const metadataMode = args.metadataMode ?? "best_effort";
 const deploymentBlock = args.deploymentBlock ?? null;
-const metadataSnapshotMode = args.metadataMode ?? "strict";
 
-const registry = new SqliteCollectionRegistry();
-registry.upsertCollection({
+const collection = upsertCollection({
     chainId,
-    id: collectionId,
+    slug,
     address,
-    standard,
-    status: "bootstrapping",
     deploymentBlock,
-    bootstrapAnchorBlock: null,
-    bootstrapStartedAt: null,
-    bootstrapFinishedAt: null,
-    bootstrapLastSyncedBlock: null,
+});
+const run = createRun({
+    chainId,
+    collectionId: collection.collectionId,
+    slug,
+    address,
+    metadataMode,
+    deploymentBlock,
 });
 
-const payload: BootstrapCollectionPayload = {
+const payload = {
     chainId,
-    collectionId,
-    address,
-    standard,
-    metadataSnapshotMode,
+    runId: run.runId,
+    collectionId: collection.collectionId,
 };
-
-const job: JobEnvelope<BootstrapCollectionPayload> = {
-    jobId: `bootstrap:start:${chainId}:${collectionId}:${Date.now()}`,
+const job: JobEnvelope<typeof payload> = {
+    jobId: `bootstrap:start:${chainId}:${run.runId}:${Date.now()}`,
     kind: BOOTSTRAP_JOB_KIND.Start,
     queue: QUEUE_NAMES.CollectionBootstrap,
     payload,
     attempt: 0,
     scheduledAt: Date.now(),
     chainId,
-    collectionId,
+    collectionId: collection.collectionId,
 };
 
 const queue = await NatsJetStreamQueue.connect({
@@ -74,8 +66,81 @@ await queue.publish(QUEUE_NAMES.CollectionBootstrap, job);
 await queue.close();
 
 console.log(
-    `Upserted + queued bootstrap: chainId=${chainId} collectionId=${collectionId} address=${address} standard=${standard} metadataMode=${metadataSnapshotMode}`,
+    `Queued bootstrap run: chainId=${chainId} collectionId=${collection.collectionId} runId=${run.runId} address=${address} slug=${slug} metadataMode=${metadataMode}`,
 );
+
+function upsertCollection(input: {
+    chainId: number;
+    slug: string;
+    address: string;
+    deploymentBlock: number | null;
+}): { collectionId: number } {
+    db.prepare(
+        "INSERT INTO collections " +
+            "(chain_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
+            "VALUES (?, ?, ?, 'erc721', 'bootstrapping', ?, NULL, NULL, NULL, NULL) " +
+            "ON CONFLICT(chain_id, address) DO UPDATE SET " +
+            "slug = excluded.slug, status = 'bootstrapping', deployment_block = COALESCE(excluded.deployment_block, collections.deployment_block), updated_at = CURRENT_TIMESTAMP",
+    ).run(input.chainId, input.slug, input.address, input.deploymentBlock);
+
+    const row = db
+        .prepare(
+            "SELECT collection_id FROM collections WHERE chain_id = ? AND address = ? LIMIT 1",
+        )
+        .get(input.chainId, input.address) as
+        | { collection_id: number }
+        | undefined;
+    if (!row) {
+        throw new Error("collection upsert failed");
+    }
+    return { collectionId: row.collection_id };
+}
+
+function createRun(input: {
+    chainId: number;
+    collectionId: number;
+    slug: string;
+    address: string;
+    metadataMode: "strict" | "best_effort";
+    deploymentBlock: number | null;
+}): { runId: number } {
+    db.prepare(
+        "INSERT INTO bootstrap_runs " +
+            "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status) " +
+            "VALUES (?, ?, ?, ?, 'erc721', ?, 'enumerable', NULL, NULL, NULL, ?, 'requested')",
+    ).run(
+        input.chainId,
+        input.collectionId,
+        input.slug,
+        input.address,
+        input.metadataMode,
+        input.deploymentBlock,
+    );
+    const row = db
+        .prepare(
+            "SELECT run_id FROM bootstrap_runs WHERE chain_id = ? AND collection_id = ? ORDER BY run_id DESC LIMIT 1",
+        )
+        .get(input.chainId, input.collectionId) as
+        | { run_id: number }
+        | undefined;
+    if (!row) {
+        throw new Error("bootstrap run insert failed");
+    }
+    db.prepare(
+        "INSERT INTO bootstrap_run_events " +
+            "(run_id, chain_id, collection_id, event_code, event_level, message, payload_json) " +
+            "VALUES (?, ?, ?, 'run.requested', 'info', 'Bootstrap run requested via script', NULL)",
+    ).run(row.run_id, input.chainId, input.collectionId);
+    return { runId: row.run_id };
+}
+
+function normalizeAddress(raw: string): string {
+    const value = raw.trim().toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(value)) {
+        throw new Error("Invalid --address");
+    }
+    return value;
+}
 
 function parseArgs(raw: string[]): CliArgs {
     const parsed: CliArgs = {};
@@ -87,8 +152,8 @@ function parseArgs(raw: string[]): CliArgs {
             i += 1;
             continue;
         }
-        if (arg === "--collection-id") {
-            parsed.collectionId = raw[i + 1];
+        if (arg === "--slug") {
+            parsed.slug = raw[i + 1];
             i += 1;
             continue;
         }
@@ -122,10 +187,10 @@ function printUsage(): void {
             "Usage: yarn workspace @artgod/indexer dev:bootstrap-trigger --address <0x...> [options]",
             "",
             "Options:",
-            "  --collection-id <id>   Collection id (defaults to address)",
-            "  --chain-id <number>     Chain id (defaults to CHAIN_ID from .env)",
+            "  --slug <slug>               Slug (defaults to address)",
+            "  --chain-id <number>         Chain id (defaults to CHAIN_ID from .env)",
             "  --deployment-block <number> Deployment block (optional)",
-            "  --metadata-mode <strict|best_effort> Metadata snapshot completion mode (defaults to strict)",
+            "  --metadata-mode <strict|best_effort> Metadata snapshot completion mode (defaults to best_effort)",
         ].join("\n"),
     );
 }

@@ -4,11 +4,20 @@
 	import type {
 		ApiChain,
 		ApiCollection,
+		ApiTokenAttribute,
+		ApiBootstrapRun,
+		BootstrapMetadataTasksApiResponse,
+		BootstrapStatusApiResponse,
 		ApiTokenCard,
 		ApiTokensPage,
-		ApiTraitFacet,
-		ApiTokenAttribute
+		ApiTraitFacet
 	} from '$lib/api-types';
+	import {
+		getBootstrapStatus,
+		listBootstrapMetadataTasks,
+		restartBootstrapRun,
+		retryBootstrapFailedTasks
+	} from '$lib/backend-api';
 	import {
 		readTokenWindow,
 		type TokenWindowState,
@@ -36,6 +45,13 @@
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
+	const BOOTSTRAP_POLL_INTERVAL_MS = 5_000;
+	const bootstrapInputClass =
+		'min-h-8 rounded-none border border-[var(--c-blue)] bg-[var(--c-bg)] px-2 py-1 text-[0.8rem] text-[var(--c-ice)] placeholder:text-[var(--c-sand)] focus:border-[var(--c-yellow)] focus:outline-none';
+	const bootstrapSelectClass = `${bootstrapInputClass} pr-6`;
+	const bootstrapTextareaClass = `${bootstrapInputClass} min-h-20 resize-y`;
+	const bootstrapCheckboxClass =
+		'h-4 w-4 rounded-none border-[var(--c-blue)] bg-[var(--c-bg)] text-[var(--c-cyan)] focus:ring-0 focus:outline-none';
 
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let traitValueSearch = $state<Record<string, string>>({});
@@ -62,6 +78,28 @@
 	let nextDisplayMode = $derived<'grid' | 'table'>(isGridMode ? 'table' : 'grid');
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
+	let bootstrapStatus = $state<BootstrapStatusApiResponse | null>(null);
+	let bootstrapLoading = $state(false);
+	let bootstrapError = $state<string | null>(null);
+	let failedTasks = $state<BootstrapMetadataTasksApiResponse['items']>([]);
+	let failedTasksError = $state<string | null>(null);
+	let retryPending = $state(false);
+	let retryMessage = $state<string | null>(null);
+	let restartOpen = $state(false);
+	let restartSubmitting = $state(false);
+	let restartError = $state<string | null>(null);
+	let restartSuccess = $state<string | null>(null);
+	let restartSlug = $state('');
+	let restartAddress = $state('');
+	let restartMetadataMode = $state<'best_effort' | 'strict'>('best_effort');
+	let restartSupportsEnumerable = $state(true);
+	let restartManualMode = $state<'manual_token_ids' | 'manual_range'>('manual_token_ids');
+	let restartManualTokenIds = $state('');
+	let restartManualRangeStartTokenId = $state('');
+	let restartManualRangeTotalSupply = $state('');
+	let restartDeploymentBlock = $state('');
+	let hasFailedTerminalTasks = $derived((bootstrapStatus?.metadataTasks.failedTerminal ?? 0) > 0);
+	let bootstrapRequestInFlight = false;
 
 	$effect(() => {
 		activeTraits = selectedTraits;
@@ -89,6 +127,22 @@
 		}
 
 		pagingPending = false;
+	});
+
+	$effect(() => {
+		if (!collection) return;
+		restartSlug = collection.slug ?? '';
+		restartAddress = collection.address;
+		restartDeploymentBlock = collection.deploymentBlock ? String(collection.deploymentBlock) : '';
+	});
+
+	$effect(() => {
+		if (!browser || !chain || !collection) return;
+		void refreshBootstrapStatus();
+		const timer = setInterval(() => {
+			void refreshBootstrapStatus();
+		}, BOOTSTRAP_POLL_INTERVAL_MS);
+		return () => clearInterval(timer);
 	});
 
 	function traitId(key: string, value: string): string {
@@ -441,6 +495,215 @@
 	function onToggleTraitsSidebar(): void {
 		traitsCollapsed = !traitsCollapsed;
 	}
+
+	function normalizeFieldValue(value: unknown): string {
+		if (typeof value === 'string') return value.trim();
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			return String(value).trim();
+		}
+		return '';
+	}
+
+	function activeCollectionRef(): string | null {
+		if (!collection) return null;
+		return collection.slug ?? collection.address;
+	}
+
+	async function refreshBootstrapStatus(): Promise<void> {
+		if (!chain || !collection) return;
+		if (bootstrapRequestInFlight) return;
+		bootstrapRequestInFlight = true;
+		bootstrapLoading = true;
+		bootstrapError = null;
+		try {
+			const response = await getBootstrapStatus(fetch, chain.slug, activeCollectionRef() ?? collection.address);
+			bootstrapStatus = response;
+			if (!restartOpen) {
+				applyRunDefaults(response.latestRun);
+			}
+			await refreshFailedTasks(response);
+		} catch (error) {
+			bootstrapError = error instanceof Error ? error.message : 'bootstrap status request failed';
+		} finally {
+			bootstrapLoading = false;
+			bootstrapRequestInFlight = false;
+		}
+	}
+
+	async function refreshFailedTasks(status: BootstrapStatusApiResponse): Promise<void> {
+		if (!chain || !collection) return;
+		if (!status.latestRun || status.metadataTasks.failedTerminal <= 0) {
+			failedTasks = [];
+			failedTasksError = null;
+			return;
+		}
+		try {
+			const params = new URLSearchParams();
+			params.set('status', 'failed_terminal');
+			params.set('limit', '50');
+			const response = await listBootstrapMetadataTasks(
+				fetch,
+				chain.slug,
+				activeCollectionRef() ?? collection.address,
+				params
+			);
+			failedTasks = response.items;
+			failedTasksError = null;
+		} catch (error) {
+			failedTasks = [];
+			failedTasksError = error instanceof Error ? error.message : 'failed tasks request failed';
+		}
+	}
+
+	function applyRunDefaults(run: ApiBootstrapRun | null): void {
+		if (!run) return;
+		restartMetadataMode = run.metadataMode;
+		if (run.enumerationMode === 'enumerable') {
+			restartSupportsEnumerable = true;
+			restartManualMode = 'manual_token_ids';
+			restartManualTokenIds = '';
+			restartManualRangeStartTokenId = '';
+			restartManualRangeTotalSupply = '';
+			return;
+		}
+		restartSupportsEnumerable = false;
+		if (run.enumerationMode === 'manual_token_ids') {
+			restartManualMode = 'manual_token_ids';
+			const parsed = parseManualTokenIds(run.manualTokenIdsJson);
+			restartManualTokenIds = parsed.join(', ');
+			restartManualRangeStartTokenId = '';
+			restartManualRangeTotalSupply = '';
+			return;
+		}
+		restartManualMode = 'manual_range';
+		restartManualTokenIds = '';
+		restartManualRangeStartTokenId = run.manualRangeStartTokenId ?? '';
+		restartManualRangeTotalSupply = run.manualRangeTotalSupply
+			? String(run.manualRangeTotalSupply)
+			: '';
+	}
+
+	function parseManualTokenIds(raw: string | null): string[] {
+		if (!raw) return [];
+		try {
+			const parsed = JSON.parse(raw);
+			if (!Array.isArray(parsed)) return [];
+			return parsed.filter((value): value is string => typeof value === 'string');
+		} catch {
+			return [];
+		}
+	}
+
+	function onToggleRestartForm(): void {
+		restartOpen = !restartOpen;
+		restartError = null;
+		restartSuccess = null;
+		if (!restartOpen) return;
+		applyRunDefaults(bootstrapStatus?.latestRun ?? null);
+	}
+
+	async function onRetryFailedTasks(): Promise<void> {
+		if (!chain || !collection || retryPending) return;
+		retryPending = true;
+		retryMessage = null;
+		restartError = null;
+		try {
+			const result = await retryBootstrapFailedTasks(
+				fetch,
+				chain.slug,
+				activeCollectionRef() ?? collection.address
+			);
+			retryMessage = `retry queued for ${result.updatedCount} task(s)`;
+			await refreshBootstrapStatus();
+		} catch (error) {
+			retryMessage = error instanceof Error ? error.message : 'retry request failed';
+		} finally {
+			retryPending = false;
+		}
+	}
+
+	async function onRestartBootstrap(event: Event): Promise<void> {
+		event.preventDefault();
+		restartError = null;
+		restartSuccess = null;
+		if (!chain || !collection) {
+			restartError = 'collection context is missing';
+			return;
+		}
+		const slug = normalizeFieldValue(restartSlug).toLowerCase();
+		const address = normalizeFieldValue(restartAddress).toLowerCase();
+		if (!slug || !address) {
+			restartError = 'slug and address are required';
+			return;
+		}
+		let manualInput:
+			| {
+					mode: 'manual_token_ids';
+					tokenIds: string[];
+			  }
+			| {
+					mode: 'manual_range';
+					startTokenId: string;
+					totalSupply: number;
+			  }
+			| undefined;
+		if (!restartSupportsEnumerable) {
+			if (restartManualMode === 'manual_token_ids') {
+				const tokenIds = restartManualTokenIds
+					.split(/[\s,]+/)
+					.map((value) => value.trim())
+					.filter(Boolean);
+				if (tokenIds.length === 0) {
+					restartError = 'token ids are required';
+					return;
+				}
+				manualInput = {
+					mode: 'manual_token_ids',
+					tokenIds
+				};
+			} else {
+				const startTokenId = normalizeFieldValue(restartManualRangeStartTokenId);
+				const totalSupply = Number(restartManualRangeTotalSupply);
+				if (!startTokenId) {
+					restartError = 'start token id is required';
+					return;
+				}
+				if (!Number.isInteger(totalSupply) || totalSupply <= 0) {
+					restartError = 'total supply must be a positive integer';
+					return;
+				}
+				manualInput = {
+					mode: 'manual_range',
+					startTokenId,
+					totalSupply
+				};
+			}
+		}
+		const deploymentBlockValue = normalizeFieldValue(restartDeploymentBlock);
+		const deploymentBlock = deploymentBlockValue ? Number(deploymentBlockValue) : undefined;
+		if (deploymentBlock !== undefined && (!Number.isInteger(deploymentBlock) || deploymentBlock <= 0)) {
+			restartError = 'deployment block must be a positive integer';
+			return;
+		}
+		restartSubmitting = true;
+		try {
+			const result = await restartBootstrapRun(fetch, chain.slug, activeCollectionRef() ?? collection.address, {
+				slug,
+				address,
+				standard: 'erc721',
+				metadataMode: restartMetadataMode,
+				supportsEnumerable: restartSupportsEnumerable,
+				manualInput,
+				deploymentBlock
+			});
+			restartSuccess = `bootstrap restarted (run ${result.runId})`;
+			await refreshBootstrapStatus();
+		} catch (error) {
+			restartError = error instanceof Error ? error.message : 'restart request failed';
+		} finally {
+			restartSubmitting = false;
+		}
+	}
 </script>
 
 <section class="panel">
@@ -471,9 +734,184 @@
 				<div>status: {collection.status}</div>
 			{/if}
 		</div>
-	</header>
+		</header>
 
-	<div class="detail-layout" class:sidebar-collapsed={traitsCollapsed}>
+		{#if chain && collection}
+			<section class="panel-header bootstrap-panel">
+				<div class="bootstrap-summary-grid">
+					<div>
+						<div class="muted">run</div>
+						<div class="mono">
+							{#if bootstrapStatus?.latestRun}
+								#{bootstrapStatus.latestRun.runId}
+							{:else}
+								none
+							{/if}
+						</div>
+					</div>
+					<div>
+						<div class="muted">phase</div>
+						<div>{bootstrapStatus?.latestRun?.status ?? 'none'}</div>
+					</div>
+					<div>
+						<div class="muted">metadata mode</div>
+						<div>{bootstrapStatus?.latestRun?.metadataMode ?? 'best_effort'}</div>
+					</div>
+					<div>
+						<div class="muted">tasks</div>
+						<div class="mono">
+							{bootstrapStatus?.metadataTasks.succeeded ?? 0}/{bootstrapStatus?.metadataTasks.total ?? 0}
+						</div>
+					</div>
+					<div>
+						<div class="muted">retry</div>
+						<div class="mono">{bootstrapStatus?.metadataTasks.retry ?? 0}</div>
+					</div>
+					<div>
+						<div class="muted">failed</div>
+						<div class="mono">{bootstrapStatus?.metadataTasks.failedTerminal ?? 0}</div>
+					</div>
+				</div>
+				<div class="bootstrap-actions">
+					<button type="button" onclick={() => void refreshBootstrapStatus()} disabled={bootstrapLoading}>
+						{bootstrapLoading ? 'refreshing...' : 'refresh'}
+					</button>
+					<button
+						type="button"
+						onclick={() => void onRetryFailedTasks()}
+						disabled={retryPending || !hasFailedTerminalTasks}
+					>
+						{retryPending ? 'retrying...' : 'retry failed'}
+					</button>
+					<button type="button" onclick={onToggleRestartForm}>
+						{restartOpen ? 'hide restart form' : 'restart bootstrap'}
+					</button>
+				</div>
+				{#if retryMessage}
+					<div class="muted">{retryMessage}</div>
+				{/if}
+				{#if bootstrapError}
+					<div class="muted">{bootstrapError}</div>
+				{/if}
+				{#if failedTasksError}
+					<div class="muted">{failedTasksError}</div>
+				{/if}
+			</section>
+		{/if}
+
+		{#if restartOpen}
+			<form class="panel-header bootstrap-form" onsubmit={onRestartBootstrap}>
+				<label>
+					slug
+					<input bind:value={restartSlug} class={bootstrapInputClass} type="text" required />
+				</label>
+				<label>
+					address
+					<input bind:value={restartAddress} class={bootstrapInputClass} type="text" required />
+				</label>
+				<label>
+					metadata mode
+					<select bind:value={restartMetadataMode} class={bootstrapSelectClass}>
+						<option value="best_effort">best effort</option>
+						<option value="strict">strict</option>
+					</select>
+				</label>
+				<label>
+					deployment block
+					<input
+						bind:value={restartDeploymentBlock}
+						class={bootstrapInputClass}
+						type="number"
+						min="1"
+					/>
+				</label>
+				<label>
+					supports enumerable
+					<input
+						bind:checked={restartSupportsEnumerable}
+						class={bootstrapCheckboxClass}
+						type="checkbox"
+					/>
+				</label>
+				{#if !restartSupportsEnumerable}
+					<label>
+						manual mode
+						<select bind:value={restartManualMode} class={bootstrapSelectClass}>
+							<option value="manual_token_ids">token ids list</option>
+							<option value="manual_range">start + total supply</option>
+						</select>
+					</label>
+					{#if restartManualMode === 'manual_token_ids'}
+						<label>
+							token ids (comma/space separated)
+							<textarea bind:value={restartManualTokenIds} class={bootstrapTextareaClass} rows="3"></textarea>
+						</label>
+					{:else}
+						<label>
+							start token id
+							<input
+								bind:value={restartManualRangeStartTokenId}
+								class={bootstrapInputClass}
+								type="text"
+							/>
+						</label>
+						<label>
+							total supply
+							<input
+								bind:value={restartManualRangeTotalSupply}
+								class={bootstrapInputClass}
+								type="number"
+								min="1"
+							/>
+						</label>
+					{/if}
+				{/if}
+				<button type="submit" disabled={restartSubmitting}>
+					{restartSubmitting ? 'submitting...' : 'restart bootstrap'}
+				</button>
+				{#if restartSuccess}
+					<span class="muted">{restartSuccess}</span>
+				{/if}
+				{#if restartError}
+					<span class="muted">{restartError}</span>
+				{/if}
+			</form>
+		{/if}
+
+		{#if failedTasks.length > 0}
+			<section class="bootstrap-failed-tasks">
+				<div class="panel-header">
+					<h2 class="panel-title">Failed Metadata Tasks</h2>
+					<span class="muted">first 50 failed_terminal tasks in latest run</span>
+				</div>
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr>
+								<th>token id</th>
+								<th>status</th>
+								<th>attempts</th>
+								<th>next attempt</th>
+								<th>last error</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each failedTasks as task}
+								<tr>
+									<td class="mono">{task.tokenId}</td>
+									<td>{task.status}</td>
+									<td class="mono">{task.attempts}</td>
+									<td class="mono">{task.nextAttemptAt}</td>
+									<td class="mono">{task.lastError ?? '-'}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
+
+		<div class="detail-layout" class:sidebar-collapsed={traitsCollapsed}>
 		<div class="facet-column">
 			<button
 				class="facet-collapse-button"

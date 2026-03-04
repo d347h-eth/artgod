@@ -1,4 +1,8 @@
 import type {
+	BootstrapMetadataTasksApiResponse,
+	BootstrapRetryFailedResponse,
+	BootstrapRunCreateResponse,
+	BootstrapStatusApiResponse,
 	CollectionDetailApiResponse,
 	CollectionsApiResponse,
 	DefaultChainResponse
@@ -9,6 +13,7 @@ import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 const STARTUP_RETRY_WINDOW_MS = 12_000;
 // Delay between startup retry attempts for transient backend failures.
 const STARTUP_RETRY_DELAY_MS = 250;
+let csrfTokenCache: string | null = null;
 
 export class BackendApiError extends Error {
 	constructor(
@@ -51,6 +56,108 @@ export async function getCollectionDetail(
 	);
 }
 
+export async function getBootstrapStatus(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<BootstrapStatusApiResponse> {
+	return requestJson<BootstrapStatusApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bootstrap`
+	);
+}
+
+export async function listBootstrapMetadataTasks(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	params: URLSearchParams
+): Promise<BootstrapMetadataTasksApiResponse> {
+	const query = params.toString();
+	const suffix = query ? `?${query}` : '';
+	return requestJson<BootstrapMetadataTasksApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bootstrap/metadata-tasks${suffix}`
+	);
+}
+
+export async function createBootstrapRun(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	body: {
+		slug: string;
+		address: string;
+		standard: 'erc721';
+		metadataMode: 'strict' | 'best_effort';
+		supportsEnumerable: boolean;
+		manualInput?:
+			| {
+					mode: 'manual_token_ids';
+					tokenIds: string[];
+			  }
+			| {
+					mode: 'manual_range';
+					startTokenId: string;
+					totalSupply: number;
+			  };
+		deploymentBlock?: number;
+	}
+): Promise<BootstrapRunCreateResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BootstrapRunCreateResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/collections/bootstrap`,
+		'POST',
+		body
+	);
+}
+
+export async function restartBootstrapRun(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		slug: string;
+		address: string;
+		standard: 'erc721';
+		metadataMode: 'strict' | 'best_effort';
+		supportsEnumerable: boolean;
+		manualInput?:
+			| {
+					mode: 'manual_token_ids';
+					tokenIds: string[];
+			  }
+			| {
+					mode: 'manual_range';
+					startTokenId: string;
+					totalSupply: number;
+			  };
+		deploymentBlock?: number;
+	}
+): Promise<BootstrapRunCreateResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BootstrapRunCreateResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bootstrap/restart`,
+		'POST',
+		body
+	);
+}
+
+export async function retryBootstrapFailedTasks(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<BootstrapRetryFailedResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BootstrapRetryFailedResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bootstrap/retry-failed`,
+		'POST',
+		{}
+	);
+}
+
 async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
 	let backendOrigin: string;
 	try {
@@ -74,7 +181,7 @@ async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
 }
 
 async function requestJsonOnce<T>(fetchFn: typeof fetch, url: string): Promise<T> {
-	const response = await fetchFn(url);
+	const response = await fetchFn(url, { credentials: 'include' });
 	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
 
 	if (!response.ok) {
@@ -85,6 +192,47 @@ async function requestJsonOnce<T>(fetchFn: typeof fetch, url: string): Promise<T
 	}
 
 	return payload as T;
+}
+
+async function requestJsonWithBody<T>(
+	fetchFn: typeof fetch,
+	path: string,
+	method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+	body: unknown
+): Promise<T> {
+	const backendOrigin = await resolveBackendOrigin();
+	const url = `${backendOrigin}${path}`;
+	const response = await fetchFn(url, {
+		method,
+		credentials: 'include',
+		headers: {
+			'content-type': 'application/json',
+			'x-artgod-csrf': csrfTokenCache ?? ''
+		},
+		body: JSON.stringify(body)
+	});
+	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+	if (!response.ok) {
+		throw new BackendApiError(
+			payload?.message ?? `Backend request failed with ${response.status}`,
+			response.status
+		);
+	}
+	return payload as T;
+}
+
+async function ensureCsrfToken(fetchFn: typeof fetch): Promise<void> {
+	if (csrfTokenCache) return;
+	const backendOrigin = await resolveBackendOrigin();
+	const response = await fetchFn(`${backendOrigin}/api/security/csrf`, {
+		method: 'GET',
+		credentials: 'include'
+	});
+	const payload = (await response.json().catch(() => null)) as { token?: string } | null;
+	if (!response.ok || !payload?.token) {
+		throw new BackendApiError('Unable to initialize CSRF token', response.status);
+	}
+	csrfTokenCache = payload.token;
 }
 
 function isRetryableStartupError(error: BackendApiError): boolean {

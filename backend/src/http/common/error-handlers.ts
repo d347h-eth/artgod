@@ -3,6 +3,10 @@ import {
     ReadModelBadRequestError,
     ReadModelNotFoundError,
 } from "@artgod/shared/read-models/errors";
+import {
+    BootstrapConflictError,
+    BootstrapValidationError,
+} from "../../application/use-cases/bootstrap/types.js";
 import { logger } from "@artgod/shared/utils";
 import { toErrorMessage } from "../../utils/error-message.js";
 
@@ -26,6 +30,22 @@ export function registerApiErrorHandlers(app: FastifyInstance): void {
         if (error instanceof ReadModelNotFoundError) {
             reply.code(404).send({
                 error: "not_found",
+                message: toErrorMessage(error),
+            });
+            return;
+        }
+
+        if (error instanceof BootstrapValidationError) {
+            reply.code(422).send({
+                error: "validation_error",
+                message: toErrorMessage(error),
+            });
+            return;
+        }
+
+        if (error instanceof BootstrapConflictError) {
+            reply.code(409).send({
+                error: "conflict",
                 message: toErrorMessage(error),
             });
             return;

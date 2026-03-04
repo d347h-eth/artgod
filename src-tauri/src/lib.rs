@@ -198,6 +198,8 @@ fn runtime_preflight(app: AppHandle, state: State<'_, DesktopState>) -> RuntimeP
     push_env_check(&mut checks, &config, "ARTGOD_DB_PATH");
     push_env_check(&mut checks, &config, "USERLAND_UI_DIST_DIR");
     push_env_check(&mut checks, &config, "RPC_URL");
+    push_env_check(&mut checks, &config, "RPC_RATE_LIMIT_REQUESTS_PER_SECOND");
+    push_env_check(&mut checks, &config, "RPC_RATE_LIMIT_BURST");
     push_env_check(&mut checks, &config, "WETH_ADDRESS");
     push_env_check(&mut checks, &config, "SEAPORT_CONDUIT_CONTROLLER");
     if let Some(userland_dist) = config.process_env.get("USERLAND_UI_DIST_DIR") {

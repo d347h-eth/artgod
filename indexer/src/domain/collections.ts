@@ -4,7 +4,7 @@ export type CollectionStatus = "bootstrapping" | "live" | "paused" | "disabled";
 
 export type CollectionRecord = {
     chainId: number;
-    id: string;
+    id: number;
     address: string;
     standard: CollectionStandard;
     status: CollectionStatus;
@@ -15,4 +15,6 @@ export type CollectionRecord = {
     bootstrapLastSyncedBlock: number | null;
 };
 
-export type CollectionUpsertInput = CollectionRecord;
+export type CollectionUpsertInput = Omit<CollectionRecord, "id"> & {
+    id?: number;
+};

@@ -1,8 +1,9 @@
 import type { Hex } from "./rpc.js";
 
 export type BootstrapSnapshotRow = {
+    runId: number;
     chainId: number;
-    collectionId: string;
+    collectionId: number;
     contract: string;
     tokenId: string;
     owner: string;
@@ -10,8 +11,9 @@ export type BootstrapSnapshotRow = {
 };
 
 export type SnapshotFinalizeInput = {
+    runId: number;
     chainId: number;
-    collectionId: string;
+    collectionId: number;
     contract: string;
     anchorBlock: number;
     anchorHash: Hex;
@@ -25,8 +27,9 @@ export type BootstrapMetadataTaskStatus =
     | "failed_terminal";
 
 export type BootstrapMetadataTaskSeed = {
+    runId: number;
     chainId: number;
-    collectionId: string;
+    collectionId: number;
     contract: string;
     standard: "erc721" | "erc1155";
     anchorBlock: number;
@@ -36,8 +39,9 @@ export type BootstrapMetadataTaskSeed = {
 };
 
 export type BootstrapMetadataTask = {
+    runId: number;
     chainId: number;
-    collectionId: string;
+    collectionId: number;
     contract: string;
     tokenId: string;
     standard: "erc721" | "erc1155";
@@ -58,35 +62,29 @@ export type BootstrapMetadataTaskCounts = {
 };
 
 export interface BootstrapSnapshotPort {
-    resetSnapshot(chainId: number, collectionId: string): void;
+    resetSnapshot(runId: number): void;
     insertSnapshotRows(rows: BootstrapSnapshotRow[]): void;
     finalizeSnapshot(input: SnapshotFinalizeInput): void;
-    resetMetadataTasks(chainId: number, collectionId: string): void;
+    resetMetadataTasks(runId: number): void;
     insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): void;
     listMetadataTasksDueNow(
-        chainId: number,
-        collectionId: string,
+        runId: number,
         nowMs: number,
         limit: number,
     ): BootstrapMetadataTask[];
     markMetadataTaskSucceeded(
-        chainId: number,
-        collectionId: string,
+        runId: number,
         tokenId: string,
         attempts: number,
     ): void;
     markMetadataTaskRetry(
-        chainId: number,
-        collectionId: string,
+        runId: number,
         tokenId: string,
         attempts: number,
         nextAttemptAt: number,
         lastError: string,
         failedTerminal: boolean,
     ): void;
-    getMetadataTaskCounts(
-        chainId: number,
-        collectionId: string,
-    ): BootstrapMetadataTaskCounts;
-    listMetadataTaskTokenIds(chainId: number, collectionId: string): string[];
+    getMetadataTaskCounts(runId: number): BootstrapMetadataTaskCounts;
+    listMetadataTaskTokenIds(runId: number): string[];
 }

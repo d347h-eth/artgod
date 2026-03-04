@@ -32,7 +32,7 @@ flowchart LR
     IDX --> NATS
 
     U --> B
-    B -->|http://127.0.0.1:<backend-port>| BE
+    B --> BE
 ```
 
 ## Notes

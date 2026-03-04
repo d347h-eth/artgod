@@ -1,7 +1,7 @@
 -- Collection registry and bootstrap state
 CREATE TABLE IF NOT EXISTS collections (
+  collection_id INTEGER PRIMARY KEY AUTOINCREMENT,
   chain_id INTEGER NOT NULL,
-  collection_id TEXT NOT NULL,
   slug TEXT,
   address TEXT NOT NULL,
   standard TEXT NOT NULL,
@@ -9,8 +9,7 @@ CREATE TABLE IF NOT EXISTS collections (
   deployment_block INTEGER,
   bootstrap_anchor_block INTEGER,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (chain_id, collection_id)
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS collections_chain_address_uq

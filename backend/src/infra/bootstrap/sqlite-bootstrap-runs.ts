@@ -1,0 +1,410 @@
+import { db } from "@artgod/shared/database";
+import {
+    isAddressRef,
+    isSlugRef,
+    normalizeAddressRef,
+    normalizeSlugRef,
+} from "@artgod/shared/utils/ref-resolver";
+import type {
+    BootstrapRunsWritePort,
+    CollectionBootstrapState,
+} from "../../application/use-cases/bootstrap/ports.js";
+import type {
+    BootstrapMetadataTaskListItem,
+    BootstrapMetadataTaskStatus,
+    BootstrapRunRow,
+} from "../../application/use-cases/bootstrap/types.js";
+
+type CollectionRow = {
+    chain_id: number;
+    collection_id: number;
+    slug: string | null;
+    address: string;
+    standard: string;
+    status: string;
+    deployment_block: number | null;
+    bootstrap_anchor_block: number | null;
+    bootstrap_started_at: string | null;
+    bootstrap_finished_at: string | null;
+    bootstrap_last_synced_block: number | null;
+};
+
+type BootstrapRunDbRow = {
+    run_id: number;
+    chain_id: number;
+    collection_id: number;
+    request_slug: string;
+    request_address: string;
+    request_standard: string;
+    metadata_mode: "strict" | "best_effort";
+    enumeration_mode: "enumerable" | "manual_token_ids" | "manual_range";
+    manual_token_ids_json: string | null;
+    manual_range_start_token_id: string | null;
+    manual_range_total_supply: number | null;
+    deployment_block: number | null;
+    status: string;
+    anchor_block: number | null;
+    anchor_block_hash: string | null;
+    anchor_block_timestamp: number | null;
+    error_code: string | null;
+    error_message: string | null;
+    created_at: string;
+    updated_at: string;
+    finished_at: string | null;
+};
+
+type BootstrapTaskDbRow = {
+    token_id: string;
+    status: BootstrapMetadataTaskStatus;
+    attempts: number;
+    next_attempt_at: number;
+    last_error: string | null;
+    last_error_at: number | null;
+};
+
+export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
+    private selectCollectionByAddress = db.prepare<{
+        chainId: number;
+        address: string;
+    }>(
+        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
+            "FROM collections WHERE chain_id = @chainId AND lower(address) = @address LIMIT 1",
+    );
+
+    private selectCollectionBySlug = db.prepare<{ chainId: number; slug: string }>(
+        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
+            "FROM collections WHERE chain_id = @chainId AND slug = @slug LIMIT 1",
+    );
+
+    private upsertCollectionByAddress = db.prepare<{
+        chainId: number;
+        slug: string;
+        address: string;
+        standard: string;
+        deploymentBlock: number | null;
+    }>(
+        "INSERT INTO collections " +
+            "(chain_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
+            "VALUES (@chainId, @slug, @address, @standard, 'bootstrapping', @deploymentBlock, NULL, NULL, NULL, NULL) " +
+            "ON CONFLICT(chain_id, address) DO UPDATE SET " +
+            "slug = excluded.slug, standard = excluded.standard, status = 'bootstrapping', " +
+            "deployment_block = COALESCE(excluded.deployment_block, collections.deployment_block), " +
+            "bootstrap_finished_at = NULL, updated_at = CURRENT_TIMESTAMP",
+    );
+
+    private selectActiveRunCount = db.prepare<{
+        chainId: number;
+        collectionId: number;
+    }>(
+        "SELECT COUNT(*) AS count FROM bootstrap_runs " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "AND status IN ('requested', 'queued', 'metadata', 'ownership', 'backfill')",
+    );
+
+    private insertRun = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        requestSlug: string;
+        requestAddress: string;
+        requestStandard: string;
+        metadataMode: string;
+        enumerationMode: string;
+        manualTokenIdsJson: string | null;
+        manualRangeStartTokenId: string | null;
+        manualRangeTotalSupply: number | null;
+        deploymentBlock: number | null;
+    }>(
+        "INSERT INTO bootstrap_runs " +
+            "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status) " +
+            "VALUES (@chainId, @collectionId, @requestSlug, @requestAddress, @requestStandard, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @deploymentBlock, 'requested')",
+    );
+
+    private selectLatestRun = db.prepare<{ chainId: number; collectionId: number }>(
+        "SELECT run_id, chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+            "FROM bootstrap_runs WHERE chain_id = @chainId AND collection_id = @collectionId ORDER BY run_id DESC LIMIT 1",
+    );
+
+    private updateRunStatusStmt = db.prepare<{
+        runId: number;
+        status: string;
+        errorCode: string | null;
+        errorMessage: string | null;
+        finishedAt: string | null;
+    }>(
+        "UPDATE bootstrap_runs SET " +
+            "status = @status, error_code = @errorCode, error_message = @errorMessage, " +
+            "finished_at = @finishedAt, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId",
+    );
+
+    private insertRunEventStmt = db.prepare<{
+        runId: number;
+        chainId: number;
+        collectionId: number;
+        eventCode: string;
+        eventLevel: string;
+        message: string;
+        payloadJson: string | null;
+    }>(
+        "INSERT INTO bootstrap_run_events " +
+            "(run_id, chain_id, collection_id, event_code, event_level, message, payload_json) " +
+            "VALUES (@runId, @chainId, @collectionId, @eventCode, @eventLevel, @message, @payloadJson)",
+    );
+
+    private selectRunTaskCounts = db.prepare<{ runId: number }>(
+        "SELECT status, COUNT(*) AS count FROM bootstrap_metadata_snapshot_tasks " +
+            "WHERE run_id = @runId GROUP BY status",
+    );
+
+    private markFailedTasksRetry = db.prepare<{ runId: number }>(
+        "UPDATE bootstrap_metadata_snapshot_tasks SET " +
+            "status = 'retry', next_attempt_at = 0, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE run_id = @runId AND status = 'failed_terminal'",
+    );
+
+    findCollectionByAddress(
+        chainId: number,
+        address: string,
+    ): CollectionBootstrapState | null {
+        const row = this.selectCollectionByAddress.get({
+            chainId,
+            address: normalizeAddressRef(address),
+        }) as CollectionRow | undefined;
+        return row ? mapCollection(row) : null;
+    }
+
+    resolveCollectionRef(
+        chainId: number,
+        collectionRef: string,
+    ): CollectionBootstrapState | null {
+        const trimmed = collectionRef.trim();
+        if (isAddressRef(trimmed)) {
+            const row = this.selectCollectionByAddress.get({
+                chainId,
+                address: normalizeAddressRef(trimmed),
+            }) as CollectionRow | undefined;
+            return row ? mapCollection(row) : null;
+        }
+        if (isSlugRef(trimmed)) {
+            const row = this.selectCollectionBySlug.get({
+                chainId,
+                slug: normalizeSlugRef(trimmed),
+            }) as CollectionRow | undefined;
+            return row ? mapCollection(row) : null;
+        }
+        return null;
+    }
+
+    upsertCollectionForBootstrap(input: {
+        chainId: number;
+        slug: string;
+        address: string;
+        standard: "erc721" | "erc1155";
+        deploymentBlock: number | null;
+    }): CollectionBootstrapState {
+        this.upsertCollectionByAddress.run({
+            chainId: input.chainId,
+            slug: input.slug,
+            address: input.address.toLowerCase(),
+            standard: input.standard,
+            deploymentBlock: input.deploymentBlock,
+        });
+        const row = this.selectCollectionByAddress.get({
+            chainId: input.chainId,
+            address: input.address.toLowerCase(),
+        }) as CollectionRow | undefined;
+        if (!row) {
+            throw new Error("Collection upsert failed");
+        }
+        return mapCollection(row);
+    }
+
+    hasActiveRun(chainId: number, collectionId: number): boolean {
+        const row = this.selectActiveRunCount.get({
+            chainId,
+            collectionId,
+        }) as { count: number } | undefined;
+        return (row?.count ?? 0) > 0;
+    }
+
+    createRun(input: {
+        chainId: number;
+        collectionId: number;
+        requestSlug: string;
+        requestAddress: string;
+        requestStandard: "erc721" | "erc1155";
+        metadataMode: "strict" | "best_effort";
+        enumerationMode: "enumerable" | "manual_token_ids" | "manual_range";
+        manualTokenIdsJson: string | null;
+        manualRangeStartTokenId: string | null;
+        manualRangeTotalSupply: number | null;
+        deploymentBlock: number | null;
+    }): BootstrapRunRow {
+        const run = db.raw.transaction(() => {
+            this.insertRun.run(input);
+            const row = this.selectLatestRun.get({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
+            }) as BootstrapRunDbRow | undefined;
+            if (!row) {
+                throw new Error("Bootstrap run insert failed");
+            }
+            return mapRun(row);
+        });
+        return run();
+    }
+
+    updateRunStatus(
+        runId: number,
+        status: string,
+        error?: { code: string; message: string } | null,
+    ): void {
+        const finishedAt =
+            status === "completed" || status === "failed"
+                ? new Date().toISOString()
+                : null;
+        this.updateRunStatusStmt.run({
+            runId,
+            status,
+            errorCode: error?.code ?? null,
+            errorMessage: error?.message ?? null,
+            finishedAt,
+        });
+    }
+
+    appendRunEvent(input: {
+        runId: number;
+        chainId: number;
+        collectionId: number;
+        eventCode: string;
+        eventLevel: "info" | "warn" | "error";
+        message: string;
+        payloadJson: string | null;
+    }): void {
+        this.insertRunEventStmt.run(input);
+    }
+
+    getLatestRun(chainId: number, collectionId: number): BootstrapRunRow | null {
+        const row = this.selectLatestRun.get({
+            chainId,
+            collectionId,
+        }) as BootstrapRunDbRow | undefined;
+        return row ? mapRun(row) : null;
+    }
+
+    getRunTaskCounts(runId: number): {
+        pending: number;
+        retry: number;
+        succeeded: number;
+        failedTerminal: number;
+        total: number;
+    } {
+        const counts = {
+            pending: 0,
+            retry: 0,
+            succeeded: 0,
+            failedTerminal: 0,
+            total: 0,
+        };
+        const rows = this.selectRunTaskCounts.all({
+            runId,
+        }) as Array<{ status: string; count: number }>;
+        for (const row of rows) {
+            const value = Number(row.count) || 0;
+            if (row.status === "pending") counts.pending = value;
+            if (row.status === "retry") counts.retry = value;
+            if (row.status === "succeeded") counts.succeeded = value;
+            if (row.status === "failed_terminal") counts.failedTerminal = value;
+            counts.total += value;
+        }
+        return counts;
+    }
+
+    listRunMetadataTasks(params: {
+        runId: number;
+        status?: BootstrapMetadataTaskStatus;
+        limit: number;
+        cursor?: string;
+    }): {
+        items: BootstrapMetadataTaskListItem[];
+        nextCursor: string | null;
+    } {
+        const where: string[] = ["run_id = ?"];
+        const values: unknown[] = [params.runId];
+        if (params.status) {
+            where.push("status = ?");
+            values.push(params.status);
+        }
+        if (params.cursor) {
+            where.push("token_id > ?");
+            values.push(params.cursor);
+        }
+        const sql =
+            "SELECT token_id, status, attempts, next_attempt_at, last_error, last_error_at " +
+            "FROM bootstrap_metadata_snapshot_tasks " +
+            `WHERE ${where.join(" AND ")} ` +
+            "ORDER BY token_id ASC LIMIT ?";
+        values.push(params.limit + 1);
+        const rows = db.raw.prepare(sql).all(...values) as BootstrapTaskDbRow[];
+        const hasNext = rows.length > params.limit;
+        const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
+        return {
+            items: pageRows.map((row) => ({
+                tokenId: row.token_id,
+                status: row.status,
+                attempts: row.attempts,
+                nextAttemptAt: row.next_attempt_at,
+                lastError: row.last_error,
+                lastErrorAt: row.last_error_at,
+            })),
+            nextCursor: hasNext ? pageRows[pageRows.length - 1]!.token_id : null,
+        };
+    }
+
+    retryFailedTasks(runId: number): number {
+        const result = this.markFailedTasksRetry.run({ runId });
+        return result.changes;
+    }
+}
+
+function mapCollection(row: CollectionRow): CollectionBootstrapState {
+    return {
+        chainId: row.chain_id,
+        collectionId: row.collection_id,
+        slug: row.slug,
+        address: row.address.toLowerCase(),
+        standard: row.standard as "erc721" | "erc1155",
+        status: row.status as "bootstrapping" | "live" | "paused" | "disabled",
+        deploymentBlock: row.deployment_block,
+        bootstrapAnchorBlock: row.bootstrap_anchor_block,
+        bootstrapStartedAt: row.bootstrap_started_at,
+        bootstrapFinishedAt: row.bootstrap_finished_at,
+        bootstrapLastSyncedBlock: row.bootstrap_last_synced_block,
+    };
+}
+
+function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {
+    return {
+        runId: row.run_id,
+        chainId: row.chain_id,
+        collectionId: row.collection_id,
+        requestSlug: row.request_slug,
+        requestAddress: row.request_address,
+        requestStandard: row.request_standard as "erc721" | "erc1155",
+        metadataMode: row.metadata_mode,
+        enumerationMode: row.enumeration_mode,
+        manualTokenIdsJson: row.manual_token_ids_json,
+        manualRangeStartTokenId: row.manual_range_start_token_id,
+        manualRangeTotalSupply: row.manual_range_total_supply,
+        deploymentBlock: row.deployment_block,
+        status: row.status,
+        anchorBlock: row.anchor_block,
+        anchorBlockHash: row.anchor_block_hash,
+        anchorBlockTimestamp: row.anchor_block_timestamp,
+        errorCode: row.error_code,
+        errorMessage: row.error_message,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        finishedAt: row.finished_at,
+    };
+}

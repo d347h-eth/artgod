@@ -8,7 +8,7 @@ export type ApiChain = {
 
 export type ApiCollection = {
 	chainId: number;
-	collectionId: string;
+	collectionId: number;
 	slug: string | null;
 	address: string;
 	standard: 'erc721' | 'erc1155';
@@ -79,4 +79,71 @@ export type CollectionDetailApiResponse = {
 
 export type DefaultChainResponse = {
 	chain: ApiChain;
+};
+
+export type ApiBootstrapRun = {
+	runId: number;
+	chainId: number;
+	collectionId: number;
+	requestSlug: string;
+	requestAddress: string;
+	requestStandard: 'erc721' | 'erc1155';
+	metadataMode: 'strict' | 'best_effort';
+	enumerationMode: 'enumerable' | 'manual_token_ids' | 'manual_range';
+	manualTokenIdsJson: string | null;
+	manualRangeStartTokenId: string | null;
+	manualRangeTotalSupply: number | null;
+	deploymentBlock: number | null;
+	status: string;
+	anchorBlock: number | null;
+	anchorBlockHash: string | null;
+	anchorBlockTimestamp: number | null;
+	errorCode: string | null;
+	errorMessage: string | null;
+	createdAt: string;
+	updatedAt: string;
+	finishedAt: string | null;
+};
+
+export type BootstrapStatusApiResponse = {
+	collection: ApiCollection & {
+		bootstrapStartedAt: string | null;
+		bootstrapFinishedAt: string | null;
+		bootstrapLastSyncedBlock: number | null;
+	};
+	latestRun: ApiBootstrapRun | null;
+	metadataTasks: {
+		pending: number;
+		retry: number;
+		succeeded: number;
+		failedTerminal: number;
+		total: number;
+	};
+};
+
+export type BootstrapMetadataTasksApiResponse = {
+	runId: number;
+	items: Array<{
+		tokenId: string;
+		status: 'pending' | 'retry' | 'succeeded' | 'failed_terminal';
+		attempts: number;
+		nextAttemptAt: number;
+		lastError: string | null;
+		lastErrorAt: number | null;
+	}>;
+	nextCursor: string | null;
+	limit: number;
+};
+
+export type BootstrapRunCreateResponse = {
+	runId: number;
+	collectionId: number;
+	status: string;
+	createdAt: string;
+};
+
+export type BootstrapRetryFailedResponse = {
+	runId: number;
+	updatedCount: number;
+	status: string;
 };

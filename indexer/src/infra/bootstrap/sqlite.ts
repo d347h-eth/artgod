@@ -14,8 +14,9 @@ const ZERO_HASH =
 // Raw row shape returned by sqlite for due metadata snapshot task queries.
 // We keep it explicit so storage-to-domain mapping stays centralized and reusable.
 type BootstrapMetadataTaskDbRow = {
+    run_id: number;
     chain_id: number;
-    collection_id: string;
+    collection_id: number;
     contract_address: string;
     token_id: string;
     standard: BootstrapMetadataTask["standard"];
@@ -28,17 +29,13 @@ type BootstrapMetadataTaskDbRow = {
 };
 
 export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
-    private resetSnapshotStmt = db.prepare<{
-        chainId: number;
-        collectionId: string;
-    }>(
-        "DELETE FROM nft_balance_snapshots " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+    private resetSnapshotStmt = db.prepare<{ runId: number }>(
+        "DELETE FROM nft_balance_snapshots WHERE run_id = @runId",
     );
     private insertSnapshotStmt = db.prepare<BootstrapSnapshotRow>(
         "INSERT INTO nft_balance_snapshots " +
-            "(chain_id, collection_id, contract_address, token_id, owner, anchor_block) " +
-            "VALUES (@chainId, @collectionId, @contract, @tokenId, @owner, @anchorBlock)",
+            "(run_id, chain_id, collection_id, contract_address, token_id, owner, anchor_block) " +
+            "VALUES (@runId, @chainId, @collectionId, @contract, @tokenId, @owner, @anchorBlock)",
     );
     private deleteBalancesStmt = db.prepare<{
         chainId: number;
@@ -47,9 +44,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         "DELETE FROM nft_balances WHERE chain_id = @chainId AND contract_address = @contract",
     );
     private insertBalancesFromSnapshotStmt = db.prepare<{
-        chainId: number;
-        collectionId: string;
-        contract: string;
+        runId: number;
         anchorBlock: number;
         anchorHash: string;
         anchorTimestamp: number;
@@ -63,45 +58,39 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "@anchorBlock, @anchorHash, @anchorTimestamp, " +
             "@zeroHash, 0, CURRENT_TIMESTAMP " +
             "FROM nft_balance_snapshots " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+            "WHERE run_id = @runId",
     );
-    private resetMetadataTasksStmt = db.prepare<{
-        chainId: number;
-        collectionId: string;
-    }>(
+    private resetMetadataTasksStmt = db.prepare<{ runId: number }>(
         "DELETE FROM bootstrap_metadata_snapshot_tasks " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId",
+            "WHERE run_id = @runId",
     );
     private insertMetadataTaskStmt = db.prepare<BootstrapMetadataTaskSeed>(
         "INSERT INTO bootstrap_metadata_snapshot_tasks " +
-            "(chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at) " +
-            "VALUES (@chainId, @collectionId, @contract, @tokenId, @standard, @anchorBlock, @anchorHash, @anchorTimestamp, 'pending', 0, 0)",
+            "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at) " +
+            "VALUES (@runId, @chainId, @collectionId, @contract, @tokenId, @standard, @anchorBlock, @anchorHash, @anchorTimestamp, 'pending', 0, 0)",
     );
     private selectMetadataTasksDueStmt = db.prepare<{
-        chainId: number;
-        collectionId: string;
+        runId: number;
         nowMs: number;
         limit: number;
     }>(
-        "SELECT chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at " +
+        "SELECT run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at " +
             "FROM bootstrap_metadata_snapshot_tasks " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "WHERE run_id = @runId " +
             "AND status IN ('pending', 'retry') AND next_attempt_at <= @nowMs " +
             "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
     );
     private markMetadataTaskSucceededStmt = db.prepare<{
-        chainId: number;
-        collectionId: string;
+        runId: number;
         tokenId: string;
         attempts: number;
     }>(
         "UPDATE bootstrap_metadata_snapshot_tasks SET " +
             "status = 'succeeded', attempts = @attempts, last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_id = @tokenId",
+            "WHERE run_id = @runId AND token_id = @tokenId",
     );
     private markMetadataTaskRetryStmt = db.prepare<{
-        chainId: number;
-        collectionId: string;
+        runId: number;
         tokenId: string;
         attempts: number;
         nextAttemptAt: number;
@@ -112,26 +101,20 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         "UPDATE bootstrap_metadata_snapshot_tasks SET " +
             "status = CASE WHEN @failedTerminal = 1 THEN 'failed_terminal' ELSE 'retry' END, " +
             "attempts = @attempts, next_attempt_at = @nextAttemptAt, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_id = @tokenId",
+            "WHERE run_id = @runId AND token_id = @tokenId",
     );
-    private selectMetadataTaskCountsStmt = db.prepare<{
-        chainId: number;
-        collectionId: string;
-    }>(
+    private selectMetadataTaskCountsStmt = db.prepare<{ runId: number }>(
         "SELECT status, COUNT(*) AS count FROM bootstrap_metadata_snapshot_tasks " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId GROUP BY status",
+            "WHERE run_id = @runId GROUP BY status",
     );
-    private selectMetadataTaskTokenIdsStmt = db.prepare<{
-        chainId: number;
-        collectionId: string;
-    }>(
+    private selectMetadataTaskTokenIdsStmt = db.prepare<{ runId: number }>(
         "SELECT token_id FROM bootstrap_metadata_snapshot_tasks " +
-            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "WHERE run_id = @runId " +
             "ORDER BY token_id ASC",
     );
 
-    resetSnapshot(chainId: number, collectionId: string): void {
-        this.resetSnapshotStmt.run({ chainId, collectionId });
+    resetSnapshot(runId: number): void {
+        this.resetSnapshotStmt.run({ runId });
     }
 
     insertSnapshotRows(rows: BootstrapSnapshotRow[]): void {
@@ -153,9 +136,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
                 contract: params.contract,
             });
             this.insertBalancesFromSnapshotStmt.run({
-                chainId: params.chainId,
-                collectionId: params.collectionId,
-                contract: params.contract,
+                runId: params.runId,
                 anchorBlock: params.anchorBlock,
                 anchorHash: params.anchorHash,
                 anchorTimestamp: params.anchorTimestamp,
@@ -165,8 +146,8 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         finalize(input);
     }
 
-    resetMetadataTasks(chainId: number, collectionId: string): void {
-        this.resetMetadataTasksStmt.run({ chainId, collectionId });
+    resetMetadataTasks(runId: number): void {
+        this.resetMetadataTasksStmt.run({ runId });
     }
 
     insertMetadataTasks(rows: BootstrapMetadataTaskSeed[]): void {
@@ -182,14 +163,12 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     }
 
     listMetadataTasksDueNow(
-        chainId: number,
-        collectionId: string,
+        runId: number,
         nowMs: number,
         limit: number,
     ): BootstrapMetadataTask[] {
         const rows = this.selectMetadataTasksDueStmt.all({
-            chainId,
-            collectionId,
+            runId,
             nowMs,
             limit,
         }) as BootstrapMetadataTaskDbRow[];
@@ -197,22 +176,19 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     }
 
     markMetadataTaskSucceeded(
-        chainId: number,
-        collectionId: string,
+        runId: number,
         tokenId: string,
         attempts: number,
     ): void {
         this.markMetadataTaskSucceededStmt.run({
-            chainId,
-            collectionId,
+            runId,
             tokenId,
             attempts,
         });
     }
 
     markMetadataTaskRetry(
-        chainId: number,
-        collectionId: string,
+        runId: number,
         tokenId: string,
         attempts: number,
         nextAttemptAt: number,
@@ -220,8 +196,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         failedTerminal: boolean,
     ): void {
         this.markMetadataTaskRetryStmt.run({
-            chainId,
-            collectionId,
+            runId,
             tokenId,
             attempts,
             nextAttemptAt,
@@ -231,10 +206,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         });
     }
 
-    getMetadataTaskCounts(
-        chainId: number,
-        collectionId: string,
-    ): BootstrapMetadataTaskCounts {
+    getMetadataTaskCounts(runId: number): BootstrapMetadataTaskCounts {
         const counts: BootstrapMetadataTaskCounts = {
             pending: 0,
             retry: 0,
@@ -243,8 +215,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             total: 0,
         };
         const rows = this.selectMetadataTaskCountsStmt.all({
-            chainId,
-            collectionId,
+            runId,
         }) as Array<{ status: string; count: number }>;
         for (const row of rows) {
             const value = Number(row.count) || 0;
@@ -257,10 +228,9 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         return counts;
     }
 
-    listMetadataTaskTokenIds(chainId: number, collectionId: string): string[] {
+    listMetadataTaskTokenIds(runId: number): string[] {
         const rows = this.selectMetadataTaskTokenIdsStmt.all({
-            chainId,
-            collectionId,
+            runId,
         }) as Array<{ token_id: string }>;
         return rows.map((row) => row.token_id);
     }
@@ -270,6 +240,7 @@ function mapBootstrapMetadataTaskDbRow(
     row: BootstrapMetadataTaskDbRow,
 ): BootstrapMetadataTask {
     return {
+        runId: row.run_id,
         chainId: row.chain_id,
         collectionId: row.collection_id,
         contract: row.contract_address,

@@ -6,6 +6,11 @@ import {
     SqliteChainsReadModel,
     SqliteCollectionsReadModel,
 } from "@artgod/shared/read-models";
+import { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/create-bootstrap-run.js";
+import { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
+import { ListBootstrapMetadataTasksUseCase } from "./application/use-cases/bootstrap/list-bootstrap-metadata-tasks.js";
+import { RestartBootstrapRunUseCase } from "./application/use-cases/bootstrap/restart-bootstrap-run.js";
+import { RetryBootstrapFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-failed-tasks.js";
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
@@ -14,6 +19,8 @@ import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runt
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
+import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
+import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 
@@ -35,6 +42,41 @@ export async function startBackendServer(
 export function createBackendApp(config: BackendConfig): FastifyInstance {
     const chainsReadModel = new SqliteChainsReadModel();
     const collectionsReadModel = new SqliteCollectionsReadModel();
+    const bootstrapRunsRepository = new SqliteBootstrapRunsRepository();
+    const bootstrapCommandQueue = new NatsBootstrapCommandQueue(
+        config.natsUrl,
+        config.natsStreamPrefix,
+    );
+    const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        bootstrapRunsRepository,
+        bootstrapCommandQueue,
+    );
+    const getBootstrapStatusUseCase = new GetBootstrapStatusUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        bootstrapRunsRepository,
+    );
+    const listBootstrapMetadataTasksUseCase =
+        new ListBootstrapMetadataTasksUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            bootstrapRunsRepository,
+        );
+    const retryBootstrapFailedTasksUseCase =
+        new RetryBootstrapFailedTasksUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            bootstrapRunsRepository,
+            bootstrapCommandQueue,
+        );
+    const restartBootstrapRunUseCase = new RestartBootstrapRunUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        bootstrapRunsRepository,
+        bootstrapCommandQueue,
+    );
     const getDefaultChainUseCase = new GetDefaultChainUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -56,6 +98,11 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
     );
 
     return createApiApp(
+        createBootstrapRunUseCase,
+        getBootstrapStatusUseCase,
+        listBootstrapMetadataTasksUseCase,
+        retryBootstrapFailedTasksUseCase,
+        restartBootstrapRunUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,

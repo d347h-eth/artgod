@@ -8,6 +8,6 @@ export type JobEnvelope<TPayload = unknown> = {
     attempt: number;
     scheduledAt: number;
     traceId?: string;
-    collectionId?: string;
+    collectionId?: number;
     chainId: number;
 };

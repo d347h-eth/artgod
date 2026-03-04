@@ -13,7 +13,10 @@ let dbPath = "";
 let app: FastifyInstance | null = null;
 
 beforeAll(async () => {
-    dbPath = path.join(os.tmpdir(), `artgod-backend-api-${Date.now()}.sqlite`);
+    dbPath = path.join(
+        os.tmpdir(),
+        `artgod-backend-api-${Date.now()}-${Math.random().toString(36).slice(2)}.sqlite`,
+    );
     process.env.ARTGOD_DB_PATH = dbPath;
     setDbPath(dbPath);
 
@@ -62,8 +65,71 @@ beforeAll(async () => {
             },
             "artgod-jobs",
         );
+    const bootstrapRepositoryModule = await import(
+        "./infra/bootstrap/sqlite-bootstrap-runs.js"
+    );
+    const createBootstrapUseCaseModule = await import(
+        "./application/use-cases/bootstrap/create-bootstrap-run.js"
+    );
+    const getBootstrapStatusUseCaseModule = await import(
+        "./application/use-cases/bootstrap/get-bootstrap-status.js"
+    );
+    const listBootstrapMetadataTasksUseCaseModule = await import(
+        "./application/use-cases/bootstrap/list-bootstrap-metadata-tasks.js"
+    );
+    const retryBootstrapFailedTasksUseCaseModule = await import(
+        "./application/use-cases/bootstrap/retry-bootstrap-failed-tasks.js"
+    );
+    const restartBootstrapRunUseCaseModule = await import(
+        "./application/use-cases/bootstrap/restart-bootstrap-run.js"
+    );
+
+    const bootstrapRepository =
+        new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
+    const bootstrapQueueMock = {
+        async publishBootstrapStart() {},
+        async publishBootstrapMetadataProcess() {},
+    };
+    const createBootstrapRunUseCase =
+        new createBootstrapUseCaseModule.CreateBootstrapRunUseCase(
+            1,
+            chainsReadModel,
+            bootstrapRepository,
+            bootstrapQueueMock,
+        );
+    const getBootstrapStatusUseCase =
+        new getBootstrapStatusUseCaseModule.GetBootstrapStatusUseCase(
+            1,
+            chainsReadModel,
+            bootstrapRepository,
+        );
+    const listBootstrapMetadataTasksUseCase =
+        new listBootstrapMetadataTasksUseCaseModule.ListBootstrapMetadataTasksUseCase(
+            1,
+            chainsReadModel,
+            bootstrapRepository,
+        );
+    const retryBootstrapFailedTasksUseCase =
+        new retryBootstrapFailedTasksUseCaseModule.RetryBootstrapFailedTasksUseCase(
+            1,
+            chainsReadModel,
+            bootstrapRepository,
+            bootstrapQueueMock,
+        );
+    const restartBootstrapRunUseCase =
+        new restartBootstrapRunUseCaseModule.RestartBootstrapRunUseCase(
+            1,
+            chainsReadModel,
+            bootstrapRepository,
+            bootstrapQueueMock,
+        );
 
     app = appModule.createApiApp(
+        createBootstrapRunUseCase,
+        getBootstrapStatusUseCase,
+        listBootstrapMetadataTasksUseCase,
+        retryBootstrapFailedTasksUseCase,
+        restartBootstrapRunUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,
@@ -207,14 +273,89 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.slug).toBe("milady");
     });
+
+    it("creates and reads bootstrap run via secured endpoints", async () => {
+        const csrf = await resolve(
+            "GET",
+            "/api/security/csrf",
+            undefined,
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+            },
+        );
+        expect(csrf.statusCode).toBe(200);
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+        expect(token).toHaveLength(32);
+        expect(cookie).toContain("artgod_csrf=");
+
+        const create = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            {
+                slug: "terraforms",
+                address: TERRAFORMS_ADDRESS,
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+            },
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(create.statusCode).toBe(200);
+        expect(create.payload.runId).toEqual(expect.any(Number));
+
+        const status = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/bootstrap",
+            undefined,
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:3000",
+            },
+        );
+        expect(status.statusCode).toBe(200);
+        expect(status.payload.collection.address).toBe(TERRAFORMS_ADDRESS);
+        expect(status.payload.latestRun.runId).toBe(create.payload.runId);
+    });
+
+    it("rejects bootstrap write requests without csrf token", async () => {
+        const response = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            {
+                slug: "terraforms-2",
+                address: "0x3333333333333333333333333333333333333333",
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+            },
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                "content-type": "application/json",
+            },
+        );
+        expect(response.statusCode).toBe(403);
+        expect(response.payload.error).toBe("forbidden");
+    });
 });
 
 async function resolve(
-    method: string,
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS",
     pathWithQuery: string,
+    payload?: unknown,
+    headers?: Record<string, string>,
 ): Promise<{
     statusCode: number;
     payload: any;
+    headers: Record<string, string | string[] | undefined>;
 }> {
     if (!app) {
         throw new Error("Fastify app is not initialized");
@@ -222,10 +363,13 @@ async function resolve(
     const response = await app.inject({
         method,
         url: pathWithQuery,
-    });
+        ...(payload === undefined ? {} : { payload: payload as any }),
+        ...(headers ? { headers } : {}),
+    } as any);
     return {
         statusCode: response.statusCode,
         payload: response.body ? response.json() : null,
+        headers: response.headers as Record<string, string | string[] | undefined>,
     };
 }
 
@@ -244,11 +388,10 @@ function seedData(): void {
 
     db.prepare(
         "INSERT INTO collections " +
-            "(chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(chain_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
         1,
-        "milady-main",
         "milady",
         MILADY_ADDRESS,
         "erc721",
@@ -261,11 +404,10 @@ function seedData(): void {
 
     db.prepare(
         "INSERT INTO collections " +
-            "(chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(chain_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
         1,
-        "terraforms-main",
         null,
         TERRAFORMS_ADDRESS,
         "erc721",

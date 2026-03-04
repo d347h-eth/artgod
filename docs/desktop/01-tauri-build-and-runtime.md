@@ -203,7 +203,6 @@ Desktop config is generated on first app launch in app-data:
 
 Desktop-specific required keys:
 
-- `DESKTOP_NATS_PORT`
 - `DESKTOP_AUTO_START`
 - `DESKTOP_RESTART_BACKOFF_MS`
 - `USERLAND_UI_DIST_DIR`
@@ -221,6 +220,7 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `ARTGOD_DB_PATH`
 - `USERLAND_UI_DIST_DIR`
 - `RPC_URL`
+- `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:4222`)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
 
