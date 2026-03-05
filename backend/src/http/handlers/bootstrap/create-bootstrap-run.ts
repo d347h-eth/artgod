@@ -97,12 +97,16 @@ function parseOptionalPositiveInteger(
 ): number | null {
     if (value === undefined || value === null) return null;
     if (!Number.isInteger(value) || Number(value) <= 0) {
-        throw new ReadModelBadRequestError(`${field} must be a positive integer`);
+        throw new ReadModelBadRequestError(
+            `${field} must be a positive integer`,
+        );
     }
     return Number(value);
 }
 
-function parseManualInput(value: unknown): CreateBootstrapRunInput["manualInput"] {
+function parseManualInput(
+    value: unknown,
+): CreateBootstrapRunInput["manualInput"] {
     if (value === undefined || value === null) {
         return undefined;
     }

@@ -4,8 +4,6 @@
 
 <section class="panel">
 	<nav class="breadcrumbs" aria-label="Breadcrumb">
-		<a href="/">home</a>
-		<span class="breadcrumbs-separator">/</span>
 		<a href={`/${page.params.chain_ref}`}>collections</a>
 		<span class="breadcrumbs-separator">/</span>
 		<a href={`/${page.params.chain_ref}/${page.params.collection_ref}`}>{page.params.collection_ref}</a>

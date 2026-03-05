@@ -14,7 +14,9 @@
             {
                 "title": "ArtGod",
                 "resizable": true,
-                "maximized": true,
+                "maximized": false,
+                "width": 800,
+                "height": 800,
                 "fullscreen": false
             }
         ],

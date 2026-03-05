@@ -1,8 +1,5 @@
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
-import type {
-    BootstrapRunsWritePort,
-    ChainRefResolverPort,
-} from "./ports.js";
+import type { BootstrapRunsWritePort, ChainRefResolverPort } from "./ports.js";
 import type { BootstrapStatusOutput } from "./types.js";
 
 export type GetBootstrapStatusInput = {

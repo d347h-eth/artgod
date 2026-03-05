@@ -1,7 +1,8 @@
 import type {
-	BootstrapMetadataTasksApiResponse,
+	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
 	BootstrapRunCreateResponse,
+	BootstrapRunsApiResponse,
 	BootstrapStatusApiResponse,
 	CollectionDetailApiResponse,
 	CollectionsApiResponse,
@@ -67,17 +68,27 @@ export async function getBootstrapStatus(
 	);
 }
 
-export async function listBootstrapMetadataTasks(
+export async function listBootstrapRuns(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	collectionRef: string,
 	params: URLSearchParams
-): Promise<BootstrapMetadataTasksApiResponse> {
+): Promise<BootstrapRunsApiResponse> {
 	const query = params.toString();
 	const suffix = query ? `?${query}` : '';
-	return requestJson<BootstrapMetadataTasksApiResponse>(
+	return requestJson<BootstrapRunsApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bootstrap/metadata-tasks${suffix}`
+		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs${suffix}`
+	);
+}
+
+export async function getBootstrapRunDetail(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	runId: number
+): Promise<BootstrapRunDetailApiResponse> {
+	return requestJson<BootstrapRunDetailApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(String(runId))}`
 	);
 }
 
@@ -112,47 +123,15 @@ export async function createBootstrapRun(
 	);
 }
 
-export async function restartBootstrapRun(
-	fetchFn: typeof fetch,
-	chainRef: string,
-	collectionRef: string,
-	body: {
-		slug: string;
-		address: string;
-		standard: 'erc721';
-		metadataMode: 'strict' | 'best_effort';
-		supportsEnumerable: boolean;
-		manualInput?:
-			| {
-					mode: 'manual_token_ids';
-					tokenIds: string[];
-			  }
-			| {
-					mode: 'manual_range';
-					startTokenId: string;
-					totalSupply: number;
-			  };
-		deploymentBlock?: number;
-	}
-): Promise<BootstrapRunCreateResponse> {
-	await ensureCsrfToken(fetchFn);
-	return requestJsonWithBody<BootstrapRunCreateResponse>(
-		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bootstrap/restart`,
-		'POST',
-		body
-	);
-}
-
 export async function retryBootstrapFailedTasks(
 	fetchFn: typeof fetch,
 	chainRef: string,
-	collectionRef: string
+	runId: number
 ): Promise<BootstrapRetryFailedResponse> {
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<BootstrapRetryFailedResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bootstrap/retry-failed`,
+		`/api/${encodeURIComponent(chainRef)}/bootstrap-runs/${encodeURIComponent(String(runId))}/retry-failed`,
 		'POST',
 		{}
 	);

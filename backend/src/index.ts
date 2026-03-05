@@ -7,10 +7,10 @@ import {
     SqliteCollectionsReadModel,
 } from "@artgod/shared/read-models";
 import { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/create-bootstrap-run.js";
+import { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/get-bootstrap-run-detail.js";
 import { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
-import { ListBootstrapMetadataTasksUseCase } from "./application/use-cases/bootstrap/list-bootstrap-metadata-tasks.js";
-import { RestartBootstrapRunUseCase } from "./application/use-cases/bootstrap/restart-bootstrap-run.js";
-import { RetryBootstrapFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-failed-tasks.js";
+import { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
+import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
@@ -58,25 +58,23 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         chainsReadModel,
         bootstrapRunsRepository,
     );
-    const listBootstrapMetadataTasksUseCase =
-        new ListBootstrapMetadataTasksUseCase(
-            config.defaultChainId,
-            chainsReadModel,
-            bootstrapRunsRepository,
-        );
-    const retryBootstrapFailedTasksUseCase =
-        new RetryBootstrapFailedTasksUseCase(
+    const listBootstrapRunsUseCase = new ListBootstrapRunsUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        bootstrapRunsRepository,
+    );
+    const getBootstrapRunDetailUseCase = new GetBootstrapRunDetailUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        bootstrapRunsRepository,
+    );
+    const retryBootstrapRunFailedTasksUseCase =
+        new RetryBootstrapRunFailedTasksUseCase(
             config.defaultChainId,
             chainsReadModel,
             bootstrapRunsRepository,
             bootstrapCommandQueue,
         );
-    const restartBootstrapRunUseCase = new RestartBootstrapRunUseCase(
-        config.defaultChainId,
-        chainsReadModel,
-        bootstrapRunsRepository,
-        bootstrapCommandQueue,
-    );
     const getDefaultChainUseCase = new GetDefaultChainUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -99,10 +97,10 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
 
     return createApiApp(
         createBootstrapRunUseCase,
+        listBootstrapRunsUseCase,
+        getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
-        listBootstrapMetadataTasksUseCase,
-        retryBootstrapFailedTasksUseCase,
-        restartBootstrapRunUseCase,
+        retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,

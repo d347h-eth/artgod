@@ -65,24 +65,18 @@ beforeAll(async () => {
             },
             "artgod-jobs",
         );
-    const bootstrapRepositoryModule = await import(
-        "./infra/bootstrap/sqlite-bootstrap-runs.js"
-    );
-    const createBootstrapUseCaseModule = await import(
-        "./application/use-cases/bootstrap/create-bootstrap-run.js"
-    );
-    const getBootstrapStatusUseCaseModule = await import(
-        "./application/use-cases/bootstrap/get-bootstrap-status.js"
-    );
-    const listBootstrapMetadataTasksUseCaseModule = await import(
-        "./application/use-cases/bootstrap/list-bootstrap-metadata-tasks.js"
-    );
-    const retryBootstrapFailedTasksUseCaseModule = await import(
-        "./application/use-cases/bootstrap/retry-bootstrap-failed-tasks.js"
-    );
-    const restartBootstrapRunUseCaseModule = await import(
-        "./application/use-cases/bootstrap/restart-bootstrap-run.js"
-    );
+    const bootstrapRepositoryModule =
+        await import("./infra/bootstrap/sqlite-bootstrap-runs.js");
+    const createBootstrapUseCaseModule =
+        await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
+    const getBootstrapStatusUseCaseModule =
+        await import("./application/use-cases/bootstrap/get-bootstrap-status.js");
+    const listBootstrapRunsUseCaseModule =
+        await import("./application/use-cases/bootstrap/list-bootstrap-runs.js");
+    const getBootstrapRunDetailUseCaseModule =
+        await import("./application/use-cases/bootstrap/get-bootstrap-run-detail.js");
+    const retryBootstrapRunFailedTasksUseCaseModule =
+        await import("./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js");
 
     const bootstrapRepository =
         new bootstrapRepositoryModule.SqliteBootstrapRunsRepository();
@@ -103,21 +97,20 @@ beforeAll(async () => {
             chainsReadModel,
             bootstrapRepository,
         );
-    const listBootstrapMetadataTasksUseCase =
-        new listBootstrapMetadataTasksUseCaseModule.ListBootstrapMetadataTasksUseCase(
+    const listBootstrapRunsUseCase =
+        new listBootstrapRunsUseCaseModule.ListBootstrapRunsUseCase(
             1,
             chainsReadModel,
             bootstrapRepository,
         );
-    const retryBootstrapFailedTasksUseCase =
-        new retryBootstrapFailedTasksUseCaseModule.RetryBootstrapFailedTasksUseCase(
+    const getBootstrapRunDetailUseCase =
+        new getBootstrapRunDetailUseCaseModule.GetBootstrapRunDetailUseCase(
             1,
             chainsReadModel,
             bootstrapRepository,
-            bootstrapQueueMock,
         );
-    const restartBootstrapRunUseCase =
-        new restartBootstrapRunUseCaseModule.RestartBootstrapRunUseCase(
+    const retryBootstrapRunFailedTasksUseCase =
+        new retryBootstrapRunFailedTasksUseCaseModule.RetryBootstrapRunFailedTasksUseCase(
             1,
             chainsReadModel,
             bootstrapRepository,
@@ -126,10 +119,10 @@ beforeAll(async () => {
 
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
+        listBootstrapRunsUseCase,
+        getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
-        listBootstrapMetadataTasksUseCase,
-        retryBootstrapFailedTasksUseCase,
-        restartBootstrapRunUseCase,
+        retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,
@@ -275,15 +268,10 @@ describe("backend api routes", () => {
     });
 
     it("creates and reads bootstrap run via secured endpoints", async () => {
-        const csrf = await resolve(
-            "GET",
-            "/api/security/csrf",
-            undefined,
-            {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
-            },
-        );
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:3000",
+            origin: "http://127.0.0.1:5173",
+        });
         expect(csrf.statusCode).toBe(200);
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -323,6 +311,136 @@ describe("backend api routes", () => {
         expect(status.statusCode).toBe(200);
         expect(status.payload.collection.address).toBe(TERRAFORMS_ADDRESS);
         expect(status.payload.latestRun.runId).toBe(create.payload.runId);
+    });
+
+    it("lists bootstrap runs and returns run detail", async () => {
+        const runId = insertBootstrapRun({
+            chainId: 1,
+            collectionAddress: MILADY_ADDRESS,
+            status: "completed",
+            metadataMode: "best_effort",
+            anchorBlock: 24_500_000,
+            anchorBlockHash:
+                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            anchorBlockTimestamp: 1_726_000_000,
+        });
+        insertBootstrapMetadataTask(runId, "1", "failed_terminal");
+        insertBootstrapMetadataTask(runId, "2", "succeeded");
+
+        const list = await resolve(
+            "GET",
+            "/api/ethereum/bootstrap-runs?limit=10",
+        );
+        expect(list.statusCode).toBe(200);
+        expect(list.payload.page.items.length).toBeGreaterThan(0);
+        expect(
+            list.payload.page.items.some(
+                (item: { run: { runId: number } }) => item.run.runId === runId,
+            ),
+        ).toBe(true);
+
+        const detail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${runId}`,
+        );
+        expect(detail.statusCode).toBe(200);
+        expect(detail.payload.run.runId).toBe(runId);
+        expect(detail.payload.collection.address).toBe(MILADY_ADDRESS);
+        expect(detail.payload.metadataTasks.total).toBe(2);
+        expect(detail.payload.failedMetadataTasksPreview).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ status: "failed_terminal" }),
+            ]),
+        );
+    });
+
+    it("retries failed tasks for a specific run", async () => {
+        const runId = insertBootstrapRun({
+            chainId: 1,
+            collectionAddress: MILADY_ADDRESS,
+            status: "metadata",
+            metadataMode: "strict",
+            anchorBlock: 24_500_123,
+            anchorBlockHash:
+                "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            anchorBlockTimestamp: 1_726_000_123,
+        });
+        insertBootstrapMetadataTask(runId, "100", "failed_terminal");
+        insertBootstrapMetadataTask(runId, "101", "failed_terminal");
+
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:3000",
+            origin: "http://127.0.0.1:5173",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        const retried = await resolve(
+            "POST",
+            `/api/ethereum/bootstrap-runs/${runId}/retry-failed`,
+            {},
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(retried.statusCode).toBe(200);
+        expect(retried.payload.runId).toBe(runId);
+        expect(retried.payload.updatedCount).toBe(2);
+        expect(retried.payload.status).toBe("metadata");
+
+        const statuses = db
+            .prepare<
+                [number]
+            >("SELECT status FROM bootstrap_metadata_snapshot_tasks WHERE run_id = ? ORDER BY token_id ASC")
+            .all(runId) as Array<{ status: string }>;
+        expect(statuses.map((item) => item.status)).toEqual(["retry", "retry"]);
+    });
+
+    it("removes legacy collection-scoped bootstrap mutation endpoints", async () => {
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:3000",
+            origin: "http://127.0.0.1:5173",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        const retryOld = await resolve(
+            "POST",
+            "/api/ethereum/terraforms/bootstrap/retry-failed",
+            {},
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(retryOld.statusCode).toBe(404);
+
+        const restartOld = await resolve(
+            "POST",
+            "/api/ethereum/terraforms/bootstrap/restart",
+            {
+                slug: "terraforms",
+                address: TERRAFORMS_ADDRESS,
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+            },
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(restartOld.statusCode).toBe(404);
     });
 
     it("rejects bootstrap write requests without csrf token", async () => {
@@ -369,7 +487,10 @@ async function resolve(
     return {
         statusCode: response.statusCode,
         payload: response.body ? response.json() : null,
-        headers: response.headers as Record<string, string | string[] | undefined>,
+        headers: response.headers as Record<
+            string,
+            string | string[] | undefined
+        >,
     };
 }
 
@@ -501,6 +622,116 @@ function seedData(): void {
     insertTraitStats.run(1, MILADY_ADDRESS, hatKeyId, capId, 1);
     insertTraitStats.run(1, MILADY_ADDRESS, moodKeyId, calmId, 2);
     insertTraitStats.run(1, MILADY_ADDRESS, moodKeyId, angryId, 1);
+}
+
+function insertBootstrapRun(input: {
+    chainId: number;
+    collectionAddress: string;
+    status:
+        | "requested"
+        | "queued"
+        | "metadata"
+        | "ownership"
+        | "backfill"
+        | "completed"
+        | "failed";
+    metadataMode: "strict" | "best_effort";
+    anchorBlock: number | null;
+    anchorBlockHash: string | null;
+    anchorBlockTimestamp: number | null;
+}): number {
+    const collection = db
+        .prepare<
+            [number, string]
+        >("SELECT collection_id, slug, address FROM collections WHERE chain_id = ? AND lower(address) = ? LIMIT 1")
+        .get(input.chainId, input.collectionAddress.toLowerCase()) as
+        | { collection_id: number; slug: string | null; address: string }
+        | undefined;
+    if (!collection) {
+        throw new Error("Missing collection for bootstrap run fixture");
+    }
+
+    db.prepare(
+        "INSERT INTO bootstrap_runs " +
+            "(chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at) " +
+            "VALUES (?, ?, ?, ?, 'erc721', ?, 'enumerable', NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)",
+    ).run(
+        input.chainId,
+        collection.collection_id,
+        collection.slug ?? "fixture",
+        collection.address.toLowerCase(),
+        input.metadataMode,
+        input.status,
+        input.anchorBlock,
+        input.anchorBlockHash,
+        input.anchorBlockTimestamp,
+        "2026-02-01T00:00:00Z",
+        "2026-02-01T00:00:00Z",
+        input.status === "completed" || input.status === "failed"
+            ? "2026-02-01T00:01:00Z"
+            : null,
+    );
+
+    const row = db
+        .prepare<
+            [number, number]
+        >("SELECT run_id FROM bootstrap_runs WHERE chain_id = ? AND collection_id = ? ORDER BY run_id DESC LIMIT 1")
+        .get(input.chainId, collection.collection_id) as
+        | { run_id: number }
+        | undefined;
+    if (!row) {
+        throw new Error("Failed to resolve inserted bootstrap run");
+    }
+    return row.run_id;
+}
+
+function insertBootstrapMetadataTask(
+    runId: number,
+    tokenId: string,
+    status: "pending" | "retry" | "succeeded" | "failed_terminal",
+): void {
+    const run = db
+        .prepare<
+            [number]
+        >("SELECT r.chain_id, r.collection_id, c.address, r.request_standard, r.anchor_block, r.anchor_block_hash, r.anchor_block_timestamp " + "FROM bootstrap_runs r " + "JOIN collections c ON c.chain_id = r.chain_id AND c.collection_id = r.collection_id " + "WHERE r.run_id = ? LIMIT 1")
+        .get(runId) as
+        | {
+              chain_id: number;
+              collection_id: number;
+              address: string;
+              request_standard: string;
+              anchor_block: number | null;
+              anchor_block_hash: string | null;
+              anchor_block_timestamp: number | null;
+          }
+        | undefined;
+    if (
+        !run ||
+        run.anchor_block === null ||
+        !run.anchor_block_hash ||
+        run.anchor_block_timestamp === null
+    ) {
+        throw new Error(
+            "Missing run anchor data for metadata task fixture insertion",
+        );
+    }
+
+    db.prepare(
+        "INSERT INTO bootstrap_metadata_snapshot_tasks " +
+            "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at, last_error, last_error_at, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ).run(
+        runId,
+        run.chain_id,
+        run.collection_id,
+        run.address.toLowerCase(),
+        tokenId,
+        run.request_standard,
+        run.anchor_block,
+        run.anchor_block_hash,
+        run.anchor_block_timestamp,
+        status,
+    );
 }
 
 function insertAttributeKey(key: string): number {

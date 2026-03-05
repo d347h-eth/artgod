@@ -163,7 +163,9 @@ async function main() {
                         );
                     }
                 } catch (error) {
-                    const runId = Number((job.payload as { runId?: unknown }).runId);
+                    const runId = Number(
+                        (job.payload as { runId?: unknown }).runId,
+                    );
                     if (Number.isInteger(runId) && job.attempt >= 5) {
                         bootstrapRuns.updateRunStatus(runId, "failed", {
                             code: "max_attempts_exceeded",
@@ -199,7 +201,8 @@ async function main() {
             component: "CollectionBootstrapWorker",
             action: "main",
             rpcUrl: summarizeRpcUrl(config.rpc.primaryUrl),
-            rpcRateLimitRps: config.rpc.resilience.rateLimiter.requestsPerSecond,
+            rpcRateLimitRps:
+                config.rpc.resilience.rateLimiter.requestsPerSecond,
             rpcRateLimitBurst: config.rpc.resilience.rateLimiter.burst,
         });
 
@@ -399,7 +402,8 @@ async function handleBootstrapStart(
                     totalCount = progress.total;
                     if (
                         progress.resolved === progress.total ||
-                        progress.resolved % TOKEN_ENUMERATION_PROGRESS_STEP === 0
+                        progress.resolved % TOKEN_ENUMERATION_PROGRESS_STEP ===
+                            0
                     ) {
                         logger.info("Bootstrap token enumeration progress", {
                             component: "CollectionBootstrapWorker",
@@ -643,9 +647,7 @@ async function handleBootstrapMetadataProcess(
         metadataRetryPolicy,
     );
 
-    const counts = bootstrapStorage.getMetadataTaskCounts(
-        payload.runId,
-    );
+    const counts = bootstrapStorage.getMetadataTaskCounts(payload.runId);
     const complete = isMetadataSnapshotComplete(
         counts,
         payload.metadataSnapshotMode,
@@ -686,7 +688,9 @@ async function handleBootstrapMetadataProcess(
         collection.bootstrapLastSyncedBlock < payload.anchorBlock
     ) {
         bootstrapRuns.updateRunStatus(payload.runId, "ownership");
-        const tokenIds = bootstrapStorage.listMetadataTaskTokenIds(payload.runId);
+        const tokenIds = bootstrapStorage.listMetadataTaskTokenIds(
+            payload.runId,
+        );
         await snapshotOwners(
             rpc,
             bootstrapStorage,
@@ -1151,10 +1155,7 @@ async function enumerateTokenIds(
     rpc: RpcProviderPort,
     contract: Hex,
     anchorBlock: number,
-    onProgress?: (progress: {
-        resolved: number;
-        total: number;
-    }) => void,
+    onProgress?: (progress: { resolved: number; total: number }) => void,
 ): Promise<string[]> {
     // ERC721Enumerable is required for snapshot enumeration.
     const totalSupply = await rpc.readContract<bigint>({
@@ -1199,10 +1200,7 @@ async function resolveTokenIdsForRun(
         manualRangeTotalSupply: number | null;
     },
     anchorBlock: number,
-    onProgress?: (progress: {
-        resolved: number;
-        total: number | null;
-    }) => void,
+    onProgress?: (progress: { resolved: number; total: number | null }) => void,
 ): Promise<string[]> {
     if (run.enumerationMode === "enumerable") {
         return enumerateTokenIds(
@@ -1224,7 +1222,9 @@ async function resolveTokenIdsForRun(
         const tokenIds: string[] = [];
         for (const value of parsed) {
             if (typeof value !== "string" || !/^\d+$/.test(value.trim())) {
-                throw new Error("manual_token_ids payload contains invalid token id");
+                throw new Error(
+                    "manual_token_ids payload contains invalid token id",
+                );
             }
             tokenIds.push(value.trim());
         }

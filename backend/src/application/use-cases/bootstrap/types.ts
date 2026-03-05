@@ -1,3 +1,5 @@
+import type { ChainRecord } from "@artgod/shared/types/browse";
+
 export type BootstrapMetadataMode = "strict" | "best_effort";
 
 export type BootstrapEnumerationMode =
@@ -71,6 +73,58 @@ export type BootstrapMetadataTaskListItem = {
     nextAttemptAt: number;
     lastError: string | null;
     lastErrorAt: number | null;
+};
+
+export type BootstrapRunStatus =
+    | "requested"
+    | "queued"
+    | "metadata"
+    | "ownership"
+    | "backfill"
+    | "completed"
+    | "failed";
+
+export type BootstrapRunTaskCounts = {
+    pending: number;
+    retry: number;
+    succeeded: number;
+    failedTerminal: number;
+    total: number;
+};
+
+export type BootstrapRunCollectionSummary = {
+    chainId: number;
+    collectionId: number;
+    slug: string | null;
+    address: string;
+    status: "bootstrapping" | "live" | "paused" | "disabled";
+};
+
+export type BootstrapRunListItem = {
+    run: BootstrapRunRow;
+    collection: BootstrapRunCollectionSummary;
+    metadataTasks: BootstrapRunTaskCounts;
+};
+
+export type ListBootstrapRunsOutput = {
+    chain: ChainRecord;
+    filters: {
+        status?: BootstrapRunStatus;
+    };
+    page: {
+        items: BootstrapRunListItem[];
+        nextCursor: string | null;
+        limit: number;
+    };
+};
+
+export type BootstrapRunDetailOutput = {
+    run: BootstrapRunRow;
+    collection: BootstrapRunCollectionSummary;
+    metadataTasks: BootstrapRunTaskCounts;
+    failedMetadataTasksPreview: BootstrapMetadataTaskListItem[];
+    failedMetadataTasksPreviewLimit: number;
+    isLatestForCollection: boolean;
 };
 
 export type BootstrapStatusOutput = {

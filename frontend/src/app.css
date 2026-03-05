@@ -70,11 +70,23 @@ a:hover {
 	border-bottom: 1px solid var(--c-blue);
 }
 
+.panel-header-right {
+	justify-content: flex-end;
+	align-items: center;
+}
+
 .panel-title {
 	margin: 0;
 	font-size: 1rem;
 	color: var(--c-yellow);
 	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.app-title {
+	margin: 0;
+	font-size: 1rem;
+	color: var(--c-yellow);
 	letter-spacing: 0.08em;
 }
 
@@ -307,7 +319,7 @@ th {
 	height: 1.05rem;
 	padding: 0;
 	border: 1px solid var(--c-blue);
-	border-bottom: 0;
+	border-bottom: 1px solid var(--c-blue);
 	background: var(--c-bg);
 	color: var(--c-cyan);
 	font-size: 0.6rem;
@@ -322,6 +334,7 @@ th {
 
 .facet-panel {
 	border-right: 1px solid var(--c-blue);
+	border-bottom: 1px solid var(--c-blue);
 	padding: 0.75rem;
 }
 
@@ -797,13 +810,23 @@ th {
 	background: rgba(255, 232, 128, 0.16);
 }
 
-.runtime-tabs button {
+.runtime-tabs button,
+.runtime-tabs a {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	text-decoration: none;
+	border: 1px solid var(--c-blue);
+	background: var(--c-bg);
+	color: var(--c-ice);
+	padding: 0.25rem 0.45rem;
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
 	min-width: 6rem;
 }
 
-.runtime-tabs button.runtime-tab-active {
+.runtime-tabs button.runtime-tab-active,
+.runtime-tabs a.runtime-tab-active {
 	border-color: var(--c-yellow);
 	color: var(--c-yellow);
 }

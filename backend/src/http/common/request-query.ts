@@ -5,7 +5,10 @@ import type {
     CollectionStatus,
     TraitFilter,
 } from "@artgod/shared/types/browse";
-import type { BootstrapMetadataTaskStatus } from "../../application/use-cases/bootstrap/types.js";
+import type {
+    BootstrapMetadataTaskStatus,
+    BootstrapRunStatus,
+} from "../../application/use-cases/bootstrap/types.js";
 
 const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
     "bootstrapping",
@@ -19,6 +22,16 @@ const ALLOWED_BOOTSTRAP_TASK_STATUSES = new Set<BootstrapMetadataTaskStatus>([
     "retry",
     "succeeded",
     "failed_terminal",
+]);
+
+const ALLOWED_BOOTSTRAP_RUN_STATUSES = new Set<BootstrapRunStatus>([
+    "requested",
+    "queued",
+    "metadata",
+    "ownership",
+    "backfill",
+    "completed",
+    "failed",
 ]);
 
 export function getSearchParams(request: FastifyRequest): URLSearchParams {
@@ -57,6 +70,16 @@ export function parseBootstrapTaskStatus(
         throw new ReadModelBadRequestError("Invalid bootstrap task status");
     }
     return raw as BootstrapMetadataTaskStatus;
+}
+
+export function parseBootstrapRunStatus(
+    raw: string | null,
+): BootstrapRunStatus | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    if (!ALLOWED_BOOTSTRAP_RUN_STATUSES.has(raw as BootstrapRunStatus)) {
+        throw new ReadModelBadRequestError("Invalid bootstrap run status");
+    }
+    return raw as BootstrapRunStatus;
 }
 
 export function parseTraits(searchParams: URLSearchParams): TraitFilter[] {

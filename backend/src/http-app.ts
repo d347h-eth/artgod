@@ -1,18 +1,18 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { CreateBootstrapRunUseCase } from "./application/use-cases/bootstrap/create-bootstrap-run.js";
+import type { GetBootstrapRunDetailUseCase } from "./application/use-cases/bootstrap/get-bootstrap-run-detail.js";
 import type { GetBootstrapStatusUseCase } from "./application/use-cases/bootstrap/get-bootstrap-status.js";
-import type { ListBootstrapMetadataTasksUseCase } from "./application/use-cases/bootstrap/list-bootstrap-metadata-tasks.js";
-import type { RestartBootstrapRunUseCase } from "./application/use-cases/bootstrap/restart-bootstrap-run.js";
-import type { RetryBootstrapFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-failed-tasks.js";
+import type { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
+import type { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import type { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import type { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-bootstrap-run.js";
+import { GetBootstrapRunDetailHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-run-detail.js";
 import { GetBootstrapStatusHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-status.js";
-import { ListBootstrapMetadataTasksHttpAdapter } from "./http/handlers/bootstrap/list-bootstrap-metadata-tasks.js";
-import { RestartBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/restart-bootstrap-run.js";
-import { RetryBootstrapFailedTasksHttpAdapter } from "./http/handlers/bootstrap/retry-bootstrap-failed-tasks.js";
+import { ListBootstrapRunsHttpAdapter } from "./http/handlers/bootstrap/list-bootstrap-runs.js";
+import { RetryBootstrapRunFailedTasksHttpAdapter } from "./http/handlers/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import { GetCollectionDetailHttpAdapter } from "./http/handlers/collections/get-collection-detail.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
@@ -26,10 +26,10 @@ import { registerApiRoutes } from "./http-routes.js";
 
 export function createApiApp(
     createBootstrapRunUseCase: CreateBootstrapRunUseCase,
+    listBootstrapRunsUseCase: ListBootstrapRunsUseCase,
+    getBootstrapRunDetailUseCase: GetBootstrapRunDetailUseCase,
     getBootstrapStatusUseCase: GetBootstrapStatusUseCase,
-    listBootstrapMetadataTasksUseCase: ListBootstrapMetadataTasksUseCase,
-    retryBootstrapFailedTasksUseCase: RetryBootstrapFailedTasksUseCase,
-    restartBootstrapRunUseCase: RestartBootstrapRunUseCase,
+    retryBootstrapRunFailedTasksUseCase: RetryBootstrapRunFailedTasksUseCase,
     getDefaultChainUseCase: GetDefaultChainUseCase,
     listCollectionsUseCase: ListCollectionsUseCase,
     getCollectionDetailUseCase: GetCollectionDetailUseCase,
@@ -44,20 +44,19 @@ export function createApiApp(
     const createBootstrapRunAdapter = new CreateBootstrapRunHttpAdapter(
         createBootstrapRunUseCase,
     );
+    const listBootstrapRunsAdapter = new ListBootstrapRunsHttpAdapter(
+        listBootstrapRunsUseCase,
+    );
+    const getBootstrapRunDetailAdapter = new GetBootstrapRunDetailHttpAdapter(
+        getBootstrapRunDetailUseCase,
+    );
     const getBootstrapStatusAdapter = new GetBootstrapStatusHttpAdapter(
         getBootstrapStatusUseCase,
     );
-    const listBootstrapMetadataTasksAdapter =
-        new ListBootstrapMetadataTasksHttpAdapter(
-            listBootstrapMetadataTasksUseCase,
+    const retryBootstrapRunFailedTasksAdapter =
+        new RetryBootstrapRunFailedTasksHttpAdapter(
+            retryBootstrapRunFailedTasksUseCase,
         );
-    const retryBootstrapFailedTasksAdapter =
-        new RetryBootstrapFailedTasksHttpAdapter(
-            retryBootstrapFailedTasksUseCase,
-        );
-    const restartBootstrapRunAdapter = new RestartBootstrapRunHttpAdapter(
-        restartBootstrapRunUseCase,
-    );
     const getDefaultChainAdapter = new GetDefaultChainHttpAdapter(
         getDefaultChainUseCase,
     );
@@ -77,10 +76,10 @@ export function createApiApp(
         app,
         commonHandlers,
         createBootstrapRunAdapter,
+        listBootstrapRunsAdapter,
+        getBootstrapRunDetailAdapter,
         getBootstrapStatusAdapter,
-        listBootstrapMetadataTasksAdapter,
-        retryBootstrapFailedTasksAdapter,
-        restartBootstrapRunAdapter,
+        retryBootstrapRunFailedTasksAdapter,
         getDefaultChainAdapter,
         listCollectionsAdapter,
         getCollectionDetailAdapter,

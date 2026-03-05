@@ -37,6 +37,10 @@ export interface BootstrapRunsWritePort {
         chainId: number,
         collectionRef: string,
     ): CollectionBootstrapState | null;
+    getCollectionById(
+        chainId: number,
+        collectionId: number,
+    ): CollectionBootstrapState | null;
     upsertCollectionForBootstrap(input: {
         chainId: number;
         slug: string;
@@ -73,6 +77,21 @@ export interface BootstrapRunsWritePort {
         payloadJson: string | null;
     }): void;
     getLatestRun(chainId: number, collectionId: number): BootstrapRunRow | null;
+    getRunById(chainId: number, runId: number): BootstrapRunRow | null;
+    isLatestRunForCollection(
+        chainId: number,
+        collectionId: number,
+        runId: number,
+    ): boolean;
+    listRunsByChain(params: {
+        chainId: number;
+        status?: string;
+        limit: number;
+        cursorRunId?: number;
+    }): {
+        items: BootstrapRunRow[];
+        nextCursor: string | null;
+    };
     getRunTaskCounts(runId: number): {
         pending: number;
         retry: number;

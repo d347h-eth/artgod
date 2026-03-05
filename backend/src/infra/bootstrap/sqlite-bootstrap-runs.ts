@@ -71,9 +71,20 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "FROM collections WHERE chain_id = @chainId AND lower(address) = @address LIMIT 1",
     );
 
-    private selectCollectionBySlug = db.prepare<{ chainId: number; slug: string }>(
+    private selectCollectionBySlug = db.prepare<{
+        chainId: number;
+        slug: string;
+    }>(
         "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
             "FROM collections WHERE chain_id = @chainId AND slug = @slug LIMIT 1",
+    );
+
+    private selectCollectionById = db.prepare<{
+        chainId: number;
+        collectionId: number;
+    }>(
+        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
+            "FROM collections WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
     );
 
     private upsertCollectionByAddress = db.prepare<{
@@ -119,9 +130,17 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             "VALUES (@chainId, @collectionId, @requestSlug, @requestAddress, @requestStandard, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @deploymentBlock, 'requested')",
     );
 
-    private selectLatestRun = db.prepare<{ chainId: number; collectionId: number }>(
+    private selectLatestRun = db.prepare<{
+        chainId: number;
+        collectionId: number;
+    }>(
         "SELECT run_id, chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
             "FROM bootstrap_runs WHERE chain_id = @chainId AND collection_id = @collectionId ORDER BY run_id DESC LIMIT 1",
+    );
+
+    private selectRunById = db.prepare<{ chainId: number; runId: number }>(
+        "SELECT run_id, chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+            "FROM bootstrap_runs WHERE chain_id = @chainId AND run_id = @runId LIMIT 1",
     );
 
     private updateRunStatusStmt = db.prepare<{
@@ -193,6 +212,17 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             return row ? mapCollection(row) : null;
         }
         return null;
+    }
+
+    getCollectionById(
+        chainId: number,
+        collectionId: number,
+    ): CollectionBootstrapState | null {
+        const row = this.selectCollectionById.get({
+            chainId,
+            collectionId,
+        }) as CollectionRow | undefined;
+        return row ? mapCollection(row) : null;
     }
 
     upsertCollectionForBootstrap(input: {
@@ -284,12 +314,71 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         this.insertRunEventStmt.run(input);
     }
 
-    getLatestRun(chainId: number, collectionId: number): BootstrapRunRow | null {
+    getLatestRun(
+        chainId: number,
+        collectionId: number,
+    ): BootstrapRunRow | null {
         const row = this.selectLatestRun.get({
             chainId,
             collectionId,
         }) as BootstrapRunDbRow | undefined;
         return row ? mapRun(row) : null;
+    }
+
+    getRunById(chainId: number, runId: number): BootstrapRunRow | null {
+        const row = this.selectRunById.get({
+            chainId,
+            runId,
+        }) as BootstrapRunDbRow | undefined;
+        return row ? mapRun(row) : null;
+    }
+
+    isLatestRunForCollection(
+        chainId: number,
+        collectionId: number,
+        runId: number,
+    ): boolean {
+        const latest = this.selectLatestRun.get({
+            chainId,
+            collectionId,
+        }) as BootstrapRunDbRow | undefined;
+        return (latest?.run_id ?? 0) === runId;
+    }
+
+    listRunsByChain(params: {
+        chainId: number;
+        status?: string;
+        limit: number;
+        cursorRunId?: number;
+    }): {
+        items: BootstrapRunRow[];
+        nextCursor: string | null;
+    } {
+        const where: string[] = ["chain_id = ?"];
+        const values: unknown[] = [params.chainId];
+        if (params.status) {
+            where.push("status = ?");
+            values.push(params.status);
+        }
+        if (params.cursorRunId) {
+            where.push("run_id < ?");
+            values.push(params.cursorRunId);
+        }
+        const sql =
+            "SELECT run_id, chain_id, collection_id, request_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+            "FROM bootstrap_runs " +
+            `WHERE ${where.join(" AND ")} ` +
+            "ORDER BY run_id DESC LIMIT ?";
+        values.push(params.limit + 1);
+        const rows = db.raw.prepare(sql).all(...values) as BootstrapRunDbRow[];
+        const hasNext = rows.length > params.limit;
+        const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
+        return {
+            items: pageRows.map(mapRun),
+            nextCursor: hasNext
+                ? String(pageRows[pageRows.length - 1]!.run_id)
+                : null,
+        };
     }
 
     getRunTaskCounts(runId: number): {
@@ -357,7 +446,9 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
                 lastError: row.last_error,
                 lastErrorAt: row.last_error_at,
             })),
-            nextCursor: hasNext ? pageRows[pageRows.length - 1]!.token_id : null,
+            nextCursor: hasNext
+                ? pageRows[pageRows.length - 1]!.token_id
+                : null,
         };
     }
 

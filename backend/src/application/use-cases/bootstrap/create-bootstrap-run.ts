@@ -47,7 +47,7 @@ export class CreateBootstrapRunUseCase {
         );
         if (existing && existing.status === "live") {
             throw new BootstrapConflictError(
-                "Collection is live; use restart bootstrap",
+                "Collection is live; bootstrap run creation is not allowed",
             );
         }
 
@@ -65,7 +65,9 @@ export class CreateBootstrapRunUseCase {
                 collection.collectionId,
             )
         ) {
-            throw new BootstrapConflictError("Collection already bootstrapping");
+            throw new BootstrapConflictError(
+                "Collection already bootstrapping",
+            );
         }
 
         const run = this.bootstrapRunsPort.createRun({
@@ -172,7 +174,9 @@ function resolveEnumerationInput(
 
     if (manualInput.mode === "manual_token_ids") {
         if (manualInput.tokenIds.length === 0) {
-            throw new BootstrapValidationError("Token IDs list cannot be empty");
+            throw new BootstrapValidationError(
+                "Token IDs list cannot be empty",
+            );
         }
         if (manualInput.tokenIds.length > 50_000) {
             throw new BootstrapValidationError("Token IDs list is too large");
@@ -191,7 +195,9 @@ function resolveEnumerationInput(
     const startTokenId = normalizeTokenId(manualInput.startTokenId);
     const totalSupply = manualInput.totalSupply;
     if (!Number.isInteger(totalSupply) || totalSupply <= 0) {
-        throw new BootstrapValidationError("totalSupply must be a positive integer");
+        throw new BootstrapValidationError(
+            "totalSupply must be a positive integer",
+        );
     }
     if (totalSupply > 1_000_000) {
         throw new BootstrapValidationError("totalSupply is too large");

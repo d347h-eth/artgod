@@ -94,7 +94,7 @@ export type ApiBootstrapRun = {
 	manualRangeStartTokenId: string | null;
 	manualRangeTotalSupply: number | null;
 	deploymentBlock: number | null;
-	status: string;
+	status: 'requested' | 'queued' | 'metadata' | 'ownership' | 'backfill' | 'completed' | 'failed';
 	anchorBlock: number | null;
 	anchorBlockHash: string | null;
 	anchorBlockTimestamp: number | null;
@@ -121,9 +121,53 @@ export type BootstrapStatusApiResponse = {
 	};
 };
 
-export type BootstrapMetadataTasksApiResponse = {
-	runId: number;
-	items: Array<{
+export type ApiBootstrapRunCollectionSummary = {
+	chainId: number;
+	collectionId: number;
+	slug: string | null;
+	address: string;
+	status: 'bootstrapping' | 'live' | 'paused' | 'disabled';
+};
+
+export type ApiBootstrapRunTaskCounts = {
+	pending: number;
+	retry: number;
+	succeeded: number;
+	failedTerminal: number;
+	total: number;
+};
+
+export type ApiBootstrapRunListItem = {
+	run: ApiBootstrapRun;
+	collection: ApiBootstrapRunCollectionSummary;
+	metadataTasks: ApiBootstrapRunTaskCounts;
+};
+
+export type BootstrapRunsApiResponse = {
+	chain: ApiChain;
+	filters: {
+		status:
+			| 'requested'
+			| 'queued'
+			| 'metadata'
+			| 'ownership'
+			| 'backfill'
+			| 'completed'
+			| 'failed'
+			| null;
+	};
+	page: {
+		items: ApiBootstrapRunListItem[];
+		nextCursor: string | null;
+		limit: number;
+	};
+};
+
+export type BootstrapRunDetailApiResponse = {
+	run: ApiBootstrapRun;
+	collection: ApiBootstrapRunCollectionSummary;
+	metadataTasks: ApiBootstrapRunTaskCounts;
+	failedMetadataTasksPreview: Array<{
 		tokenId: string;
 		status: 'pending' | 'retry' | 'succeeded' | 'failed_terminal';
 		attempts: number;
@@ -131,8 +175,8 @@ export type BootstrapMetadataTasksApiResponse = {
 		lastError: string | null;
 		lastErrorAt: number | null;
 	}>;
-	nextCursor: string | null;
-	limit: number;
+	failedMetadataTasksPreviewLimit: number;
+	isLatestForCollection: boolean;
 };
 
 export type BootstrapRunCreateResponse = {

@@ -4,21 +4,21 @@ import type {
     CreateBootstrapRunRoute,
 } from "./http/handlers/bootstrap/create-bootstrap-run.js";
 import type {
+    GetBootstrapRunDetailHttpAdapter,
+    GetBootstrapRunDetailRoute,
+} from "./http/handlers/bootstrap/get-bootstrap-run-detail.js";
+import type {
     GetBootstrapStatusHttpAdapter,
     GetBootstrapStatusRoute,
 } from "./http/handlers/bootstrap/get-bootstrap-status.js";
 import type {
-    ListBootstrapMetadataTasksHttpAdapter,
-    ListBootstrapMetadataTasksRoute,
-} from "./http/handlers/bootstrap/list-bootstrap-metadata-tasks.js";
+    ListBootstrapRunsHttpAdapter,
+    ListBootstrapRunsRoute,
+} from "./http/handlers/bootstrap/list-bootstrap-runs.js";
 import type {
-    RestartBootstrapRunHttpAdapter,
-    RestartBootstrapRunRoute,
-} from "./http/handlers/bootstrap/restart-bootstrap-run.js";
-import type {
-    RetryBootstrapFailedTasksHttpAdapter,
-    RetryBootstrapFailedTasksRoute,
-} from "./http/handlers/bootstrap/retry-bootstrap-failed-tasks.js";
+    RetryBootstrapRunFailedTasksHttpAdapter,
+    RetryBootstrapRunFailedTasksRoute,
+} from "./http/handlers/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import type { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import type { GetDefaultChainRoute } from "./http/handlers/chains/get-default-chain.js";
 import type {
@@ -40,10 +40,10 @@ export function registerApiRoutes(
     app: FastifyInstance,
     commonHandlers: CommonHttpHandlers,
     createBootstrapRunAdapter: CreateBootstrapRunHttpAdapter,
+    listBootstrapRunsAdapter: ListBootstrapRunsHttpAdapter,
+    getBootstrapRunDetailAdapter: GetBootstrapRunDetailHttpAdapter,
     getBootstrapStatusAdapter: GetBootstrapStatusHttpAdapter,
-    listBootstrapMetadataTasksAdapter: ListBootstrapMetadataTasksHttpAdapter,
-    retryBootstrapFailedTasksAdapter: RetryBootstrapFailedTasksHttpAdapter,
-    restartBootstrapRunAdapter: RestartBootstrapRunHttpAdapter,
+    retryBootstrapRunFailedTasksAdapter: RetryBootstrapRunFailedTasksHttpAdapter,
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
@@ -72,20 +72,20 @@ export function registerApiRoutes(
         "/api/:chain_ref/collections/bootstrap",
         createBootstrapRunAdapter.handle,
     );
+    app.get<ListBootstrapRunsRoute>(
+        "/api/:chain_ref/bootstrap-runs",
+        listBootstrapRunsAdapter.handle,
+    );
+    app.get<GetBootstrapRunDetailRoute>(
+        "/api/:chain_ref/bootstrap-runs/:run_id",
+        getBootstrapRunDetailAdapter.handle,
+    );
     app.get<GetBootstrapStatusRoute>(
         "/api/:chain_ref/:collection_ref/bootstrap",
         getBootstrapStatusAdapter.handle,
     );
-    app.get<ListBootstrapMetadataTasksRoute>(
-        "/api/:chain_ref/:collection_ref/bootstrap/metadata-tasks",
-        listBootstrapMetadataTasksAdapter.handle,
-    );
-    app.post<RetryBootstrapFailedTasksRoute>(
-        "/api/:chain_ref/:collection_ref/bootstrap/retry-failed",
-        retryBootstrapFailedTasksAdapter.handle,
-    );
-    app.post<RestartBootstrapRunRoute>(
-        "/api/:chain_ref/:collection_ref/bootstrap/restart",
-        restartBootstrapRunAdapter.handle,
+    app.post<RetryBootstrapRunFailedTasksRoute>(
+        "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",
+        retryBootstrapRunFailedTasksAdapter.handle,
     );
 }

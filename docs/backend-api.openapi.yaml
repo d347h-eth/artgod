@@ -1,0 +1,1084 @@
+openapi: 3.0.3
+info:
+    title: ArtGod Backend API
+    version: 0.0.1-alpha
+    description: |
+        OpenAPI schema for the current local backend HTTP API.
+
+        Source of truth for routes is `backend/src/http-routes.ts`.
+servers:
+    - url: http://127.0.0.1:3000
+      description: Local desktop backend
+
+tags:
+    - name: Health
+    - name: Security
+    - name: Chains
+    - name: Collections
+    - name: Bootstrap
+
+paths:
+    /health:
+        get:
+            tags: [Health]
+            summary: Liveness check
+            operationId: getHealth
+            responses:
+                "200":
+                    description: Backend process is alive
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                required: [status]
+                                properties:
+                                    status:
+                                        type: string
+                                        enum: [ok]
+
+    /health/runtime:
+        get:
+            tags: [Health]
+            summary: Runtime dependency health checks
+            operationId: getRuntimeHealth
+            responses:
+                "200":
+                    description: Runtime checks completed, no failing checks
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/RuntimeHealthResponse"
+                "503":
+                    description: Runtime checks completed with one or more failing checks
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/RuntimeHealthResponse"
+
+    /api/security/csrf:
+        get:
+            tags: [Security]
+            summary: Issue CSRF token for mutating API calls
+            description: |
+                Returns a CSRF token and sets `artgod_csrf` cookie.
+                Required before POST/PUT/PATCH/DELETE calls under `/api/*`.
+            operationId: issueCsrfToken
+            responses:
+                "200":
+                    description: CSRF token issued
+                    headers:
+                        Set-Cookie:
+                            description: HttpOnly CSRF cookie (`artgod_csrf`)
+                            schema:
+                                type: string
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                required: [token]
+                                properties:
+                                    token:
+                                        type: string
+
+    /api/chains/default:
+        get:
+            tags: [Chains]
+            summary: Get default chain
+            operationId: getDefaultChain
+            responses:
+                "200":
+                    description: Default chain record
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetDefaultChainResponse"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/collections:
+        get:
+            tags: [Collections]
+            summary: List collections for chain
+            operationId: listCollections
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - name: status
+                  in: query
+                  required: false
+                  schema:
+                      $ref: "#/components/schemas/CollectionStatus"
+                - $ref: "#/components/parameters/Limit"
+                - $ref: "#/components/parameters/Cursor"
+            responses:
+                "200":
+                    description: Paged collection list
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ListCollectionsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}:
+        get:
+            tags: [Collections]
+            summary: Get collection detail with token page and trait facets
+            operationId: getCollectionDetail
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/Limit"
+                - $ref: "#/components/parameters/Cursor"
+                - name: traits
+                  in: query
+                  required: false
+                  description: Repeated `key:value` trait filter (preferred)
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+                - name: trait
+                  in: query
+                  required: false
+                  description: Repeated `key:value` trait filter (legacy alias)
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+            responses:
+                "200":
+                    description: Collection detail and paged token results
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetCollectionDetailResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/collections/bootstrap:
+        post:
+            tags: [Bootstrap]
+            summary: Create a new bootstrap run
+            description: |
+                Mutating endpoint protected by host/origin/CSRF checks.
+                Requires:
+                - loopback Host
+                - loopback Origin
+                - `x-artgod-csrf` header matching `artgod_csrf` cookie
+            operationId: createBootstrapRun
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/CreateBootstrapRunRequest"
+            responses:
+                "200":
+                    description: Bootstrap run created and queued
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CreateBootstrapRunResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bootstrap:
+        get:
+            tags: [Bootstrap]
+            summary: Get latest bootstrap status for collection
+            operationId: getBootstrapStatus
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            responses:
+                "200":
+                    description: Collection bootstrap status and latest run
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetBootstrapStatusResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/bootstrap-runs:
+        get:
+            tags: [Bootstrap]
+            summary: List bootstrap runs for chain
+            operationId: listBootstrapRuns
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - name: status
+                  in: query
+                  required: false
+                  schema:
+                      $ref: "#/components/schemas/BootstrapRunStatus"
+                - $ref: "#/components/parameters/Limit"
+                - $ref: "#/components/parameters/Cursor"
+            responses:
+                "200":
+                    description: Paged bootstrap run summaries (newest first)
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ListBootstrapRunsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/bootstrap-runs/{run_id}:
+        get:
+            tags: [Bootstrap]
+            summary: Get bootstrap run detail
+            operationId: getBootstrapRunDetail
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/RunId"
+            responses:
+                "200":
+                    description: Bootstrap run detail with failed-task preview
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetBootstrapRunDetailResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/bootstrap-runs/{run_id}/retry-failed:
+        post:
+            tags: [Bootstrap]
+            summary: Retry failed_terminal metadata tasks for a run
+            description: |
+                Mutating endpoint protected by host/origin/CSRF checks.
+                Applies only to the targeted run and only when allowed by run state.
+            operationId: retryBootstrapRunFailedTasks
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/RunId"
+            requestBody:
+                required: false
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            additionalProperties: false
+            responses:
+                "200":
+                    description: Retry accepted
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/RetryBootstrapRunFailedTasksResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+components:
+    securitySchemes:
+        csrfHeader:
+            type: apiKey
+            in: header
+            name: x-artgod-csrf
+            description: CSRF header token
+        csrfCookie:
+            type: apiKey
+            in: cookie
+            name: artgod_csrf
+            description: CSRF cookie token
+
+    parameters:
+        ChainRef:
+            name: chain_ref
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Chain reference (slug or public chain id string)
+        CollectionRef:
+            name: collection_ref
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Collection reference (slug or contract address)
+        RunId:
+            name: run_id
+            in: path
+            required: true
+            schema:
+                type: integer
+                minimum: 1
+            description: Bootstrap run id
+        Limit:
+            name: limit
+            in: query
+            required: false
+            schema:
+                type: integer
+                minimum: 1
+                default: 250
+            description: Page size (defaults to 250)
+        Cursor:
+            name: cursor
+            in: query
+            required: false
+            schema:
+                type: string
+            description: Opaque page cursor
+
+    responses:
+        BadRequest:
+            description: Invalid request payload or query/path parameter
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ErrorResponse"
+                    example:
+                        error: bad_request
+                        message: Invalid limit
+        Forbidden:
+            description: Security guard rejected request (host/origin/csrf)
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ErrorResponse"
+                    example:
+                        error: forbidden
+                        message: Missing CSRF header
+        NotFound:
+            description: Requested entity or route not found
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ErrorResponse"
+                    example:
+                        error: not_found
+                        message: Unknown bootstrap run
+        Conflict:
+            description: Request conflicts with current bootstrap state
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ErrorResponse"
+                    example:
+                        error: conflict
+                        message: Collection already bootstrapping
+        ValidationError:
+            description: Bootstrap validation failed
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ErrorResponse"
+                    example:
+                        error: validation_error
+                        message: Invalid metadata mode
+        InternalError:
+            description: Internal server error
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ErrorResponse"
+                    example:
+                        error: internal_error
+                        message: Internal server error
+
+    schemas:
+        ErrorResponse:
+            type: object
+            required: [error, message]
+            additionalProperties: false
+            properties:
+                error:
+                    type: string
+                message:
+                    type: string
+
+        ChainRecord:
+            type: object
+            required: [id, type, publicChainId, slug, name]
+            additionalProperties: false
+            properties:
+                id:
+                    type: integer
+                type:
+                    type: string
+                publicChainId:
+                    type: integer
+                slug:
+                    type: string
+                name:
+                    type: string
+
+        CollectionStandard:
+            type: string
+            enum: [erc721, erc1155]
+
+        CollectionStatus:
+            type: string
+            enum: [bootstrapping, live, paused, disabled]
+
+        CollectionListItem:
+            type: object
+            required:
+                - chainId
+                - collectionId
+                - slug
+                - address
+                - standard
+                - status
+                - deploymentBlock
+                - bootstrapAnchorBlock
+                - createdAt
+                - updatedAt
+            additionalProperties: false
+            properties:
+                chainId:
+                    type: integer
+                collectionId:
+                    type: integer
+                slug:
+                    type: string
+                    nullable: true
+                address:
+                    type: string
+                standard:
+                    $ref: "#/components/schemas/CollectionStandard"
+                status:
+                    $ref: "#/components/schemas/CollectionStatus"
+                deploymentBlock:
+                    type: integer
+                    nullable: true
+                bootstrapAnchorBlock:
+                    type: integer
+                    nullable: true
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+
+        CursorPageCollection:
+            type: object
+            required: [items, nextCursor, limit]
+            additionalProperties: false
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionListItem"
+                nextCursor:
+                    type: string
+                    nullable: true
+                limit:
+                    type: integer
+
+        ListCollectionsResponse:
+            type: object
+            required: [chain, filters, page]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                filters:
+                    type: object
+                    required: [status]
+                    additionalProperties: false
+                    properties:
+                        status:
+                            allOf:
+                                - $ref: "#/components/schemas/CollectionStatus"
+                            nullable: true
+                page:
+                    $ref: "#/components/schemas/CursorPageCollection"
+
+        TokenAttribute:
+            type: object
+            required: [key, value]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+                value:
+                    type: string
+
+        TokenCard:
+            type: object
+            required:
+                [
+                    tokenId,
+                    name,
+                    image,
+                    attributes,
+                    hasMetadata,
+                    metadataUpdatedAt,
+                ]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                name:
+                    type: string
+                    nullable: true
+                image:
+                    type: string
+                    nullable: true
+                attributes:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TokenAttribute"
+                hasMetadata:
+                    type: boolean
+                metadataUpdatedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+
+        TokenCursorPage:
+            type: object
+            required:
+                - items
+                - nextCursor
+                - limit
+                - prevCursor
+                - totalItems
+                - rangeStart
+                - rangeEnd
+                - currentPage
+                - totalPages
+            additionalProperties: false
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TokenCard"
+                nextCursor:
+                    type: string
+                    nullable: true
+                limit:
+                    type: integer
+                prevCursor:
+                    type: string
+                    nullable: true
+                totalItems:
+                    type: integer
+                rangeStart:
+                    type: integer
+                rangeEnd:
+                    type: integer
+                currentPage:
+                    type: integer
+                totalPages:
+                    type: integer
+
+        TraitFilter:
+            type: object
+            required: [key, value]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+                value:
+                    type: string
+
+        TraitFacetValue:
+            type: object
+            required: [value, tokenCount]
+            additionalProperties: false
+            properties:
+                value:
+                    type: string
+                tokenCount:
+                    type: integer
+
+        TraitFacet:
+            type: object
+            required: [key, values]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+                values:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TraitFacetValue"
+
+        GetCollectionDetailResponse:
+            type: object
+            required: [chain, collection, traits, tokens]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                traits:
+                    type: object
+                    required: [selected, facets]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFilter"
+                        facets:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFacet"
+                tokens:
+                    $ref: "#/components/schemas/TokenCursorPage"
+
+        GetDefaultChainResponse:
+            type: object
+            required: [chain]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+
+        BootstrapMetadataMode:
+            type: string
+            enum: [strict, best_effort]
+
+        BootstrapEnumerationMode:
+            type: string
+            enum: [enumerable, manual_token_ids, manual_range]
+
+        BootstrapRunStatus:
+            type: string
+            enum:
+                [
+                    requested,
+                    queued,
+                    metadata,
+                    ownership,
+                    backfill,
+                    completed,
+                    failed,
+                ]
+
+        BootstrapRunRow:
+            type: object
+            required:
+                - runId
+                - chainId
+                - collectionId
+                - requestSlug
+                - requestAddress
+                - requestStandard
+                - metadataMode
+                - enumerationMode
+                - manualTokenIdsJson
+                - manualRangeStartTokenId
+                - manualRangeTotalSupply
+                - deploymentBlock
+                - status
+                - anchorBlock
+                - anchorBlockHash
+                - anchorBlockTimestamp
+                - errorCode
+                - errorMessage
+                - createdAt
+                - updatedAt
+                - finishedAt
+            additionalProperties: false
+            properties:
+                runId:
+                    type: integer
+                chainId:
+                    type: integer
+                collectionId:
+                    type: integer
+                requestSlug:
+                    type: string
+                requestAddress:
+                    type: string
+                requestStandard:
+                    $ref: "#/components/schemas/CollectionStandard"
+                metadataMode:
+                    $ref: "#/components/schemas/BootstrapMetadataMode"
+                enumerationMode:
+                    $ref: "#/components/schemas/BootstrapEnumerationMode"
+                manualTokenIdsJson:
+                    type: string
+                    nullable: true
+                manualRangeStartTokenId:
+                    type: string
+                    nullable: true
+                manualRangeTotalSupply:
+                    type: integer
+                    nullable: true
+                deploymentBlock:
+                    type: integer
+                    nullable: true
+                status:
+                    $ref: "#/components/schemas/BootstrapRunStatus"
+                anchorBlock:
+                    type: integer
+                    nullable: true
+                anchorBlockHash:
+                    type: string
+                    nullable: true
+                anchorBlockTimestamp:
+                    type: integer
+                    nullable: true
+                errorCode:
+                    type: string
+                    nullable: true
+                errorMessage:
+                    type: string
+                    nullable: true
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+                finishedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+
+        BootstrapRunTaskCounts:
+            type: object
+            required: [pending, retry, succeeded, failedTerminal, total]
+            additionalProperties: false
+            properties:
+                pending:
+                    type: integer
+                retry:
+                    type: integer
+                succeeded:
+                    type: integer
+                failedTerminal:
+                    type: integer
+                total:
+                    type: integer
+
+        BootstrapRunCollectionSummary:
+            type: object
+            required: [chainId, collectionId, slug, address, status]
+            additionalProperties: false
+            properties:
+                chainId:
+                    type: integer
+                collectionId:
+                    type: integer
+                slug:
+                    type: string
+                    nullable: true
+                address:
+                    type: string
+                status:
+                    $ref: "#/components/schemas/CollectionStatus"
+
+        BootstrapRunListItem:
+            type: object
+            required: [run, collection, metadataTasks]
+            additionalProperties: false
+            properties:
+                run:
+                    $ref: "#/components/schemas/BootstrapRunRow"
+                collection:
+                    $ref: "#/components/schemas/BootstrapRunCollectionSummary"
+                metadataTasks:
+                    $ref: "#/components/schemas/BootstrapRunTaskCounts"
+
+        ListBootstrapRunsResponse:
+            type: object
+            required: [chain, filters, page]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                filters:
+                    type: object
+                    required: [status]
+                    additionalProperties: false
+                    properties:
+                        status:
+                            allOf:
+                                - $ref: "#/components/schemas/BootstrapRunStatus"
+                            nullable: true
+                page:
+                    type: object
+                    required: [items, nextCursor, limit]
+                    additionalProperties: false
+                    properties:
+                        items:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/BootstrapRunListItem"
+                        nextCursor:
+                            type: string
+                            nullable: true
+                        limit:
+                            type: integer
+
+        BootstrapMetadataTaskStatus:
+            type: string
+            enum: [pending, retry, succeeded, failed_terminal]
+
+        BootstrapMetadataTaskListItem:
+            type: object
+            required:
+                [
+                    tokenId,
+                    status,
+                    attempts,
+                    nextAttemptAt,
+                    lastError,
+                    lastErrorAt,
+                ]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                status:
+                    $ref: "#/components/schemas/BootstrapMetadataTaskStatus"
+                attempts:
+                    type: integer
+                nextAttemptAt:
+                    type: integer
+                lastError:
+                    type: string
+                    nullable: true
+                lastErrorAt:
+                    type: integer
+                    nullable: true
+
+        GetBootstrapRunDetailResponse:
+            type: object
+            required:
+                - run
+                - collection
+                - metadataTasks
+                - failedMetadataTasksPreview
+                - failedMetadataTasksPreviewLimit
+                - isLatestForCollection
+            additionalProperties: false
+            properties:
+                run:
+                    $ref: "#/components/schemas/BootstrapRunRow"
+                collection:
+                    $ref: "#/components/schemas/BootstrapRunCollectionSummary"
+                metadataTasks:
+                    $ref: "#/components/schemas/BootstrapRunTaskCounts"
+                failedMetadataTasksPreview:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BootstrapMetadataTaskListItem"
+                failedMetadataTasksPreviewLimit:
+                    type: integer
+                    example: 50
+                isLatestForCollection:
+                    type: boolean
+
+        BootstrapStatusCollection:
+            type: object
+            required:
+                - chainId
+                - collectionId
+                - slug
+                - address
+                - standard
+                - status
+                - deploymentBlock
+                - bootstrapAnchorBlock
+                - bootstrapStartedAt
+                - bootstrapFinishedAt
+                - bootstrapLastSyncedBlock
+            additionalProperties: false
+            properties:
+                chainId:
+                    type: integer
+                collectionId:
+                    type: integer
+                slug:
+                    type: string
+                    nullable: true
+                address:
+                    type: string
+                standard:
+                    $ref: "#/components/schemas/CollectionStandard"
+                status:
+                    $ref: "#/components/schemas/CollectionStatus"
+                deploymentBlock:
+                    type: integer
+                    nullable: true
+                bootstrapAnchorBlock:
+                    type: integer
+                    nullable: true
+                bootstrapStartedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                bootstrapFinishedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                bootstrapLastSyncedBlock:
+                    type: integer
+                    nullable: true
+
+        GetBootstrapStatusResponse:
+            type: object
+            required: [collection, latestRun, metadataTasks]
+            additionalProperties: false
+            properties:
+                collection:
+                    $ref: "#/components/schemas/BootstrapStatusCollection"
+                latestRun:
+                    allOf:
+                        - $ref: "#/components/schemas/BootstrapRunRow"
+                    nullable: true
+                metadataTasks:
+                    $ref: "#/components/schemas/BootstrapRunTaskCounts"
+
+        CreateBootstrapRunRequest:
+            type: object
+            required:
+                [slug, address, standard, metadataMode, supportsEnumerable]
+            additionalProperties: false
+            properties:
+                slug:
+                    type: string
+                address:
+                    type: string
+                    description: Lower/upper case accepted, normalized to lowercase by backend
+                standard:
+                    type: string
+                    enum: [erc721]
+                metadataMode:
+                    $ref: "#/components/schemas/BootstrapMetadataMode"
+                supportsEnumerable:
+                    type: boolean
+                manualInput:
+                    oneOf:
+                        - type: object
+                          required: [mode, tokenIds]
+                          additionalProperties: false
+                          properties:
+                              mode:
+                                  type: string
+                                  enum: [manual_token_ids]
+                              tokenIds:
+                                  type: array
+                                  items:
+                                      type: string
+                        - type: object
+                          required: [mode, startTokenId, totalSupply]
+                          additionalProperties: false
+                          properties:
+                              mode:
+                                  type: string
+                                  enum: [manual_range]
+                              startTokenId:
+                                  type: string
+                              totalSupply:
+                                  type: integer
+                                  minimum: 1
+                deploymentBlock:
+                    type: integer
+                    minimum: 1
+
+        CreateBootstrapRunResponse:
+            type: object
+            required: [runId, collectionId, status, createdAt]
+            additionalProperties: false
+            properties:
+                runId:
+                    type: integer
+                collectionId:
+                    type: integer
+                status:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+
+        RetryBootstrapRunFailedTasksResponse:
+            type: object
+            required: [runId, updatedCount, status]
+            additionalProperties: false
+            properties:
+                runId:
+                    type: integer
+                updatedCount:
+                    type: integer
+                status:
+                    type: string
+
+        RuntimeHealthCheck:
+            type: object
+            required: [key, status, message]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+                status:
+                    type: string
+                    enum: [pass, warn, fail]
+                message:
+                    type: string
+
+        RuntimeHealthResponse:
+            type: object
+            required: [ok, checks]
+            additionalProperties: false
+            properties:
+                ok:
+                    type: boolean
+                checks:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/RuntimeHealthCheck"

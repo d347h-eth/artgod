@@ -53,7 +53,7 @@ describe('CollectionDetailView', () => {
 			}
 		});
 
-		expect(body).toContain('Collection Browser');
+		expect(body).toContain('switch to table mode');
 		expect(body).toContain('token 1');
 		expect(body).toContain('Beanie');
 	});

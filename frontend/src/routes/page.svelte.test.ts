@@ -5,6 +5,6 @@ import Page from './+page.svelte';
 describe('/+page.svelte', () => {
 	it('renders collections heading', () => {
 		const { body } = render(Page);
-		expect(body).toContain('ArtGod Collections');
+		expect(body).toContain('ArtGod v0.0.1-alpha');
 	});
 });
