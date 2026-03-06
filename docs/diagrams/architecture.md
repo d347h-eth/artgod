@@ -1,3 +1,4 @@
+```mermaid
 flowchart LR
       %% External systems
       RPC[(Ethereum JSON-RPC)]
@@ -28,7 +29,7 @@ flowchart LR
       SyncWorker -->|persist blocks/transfers/fills| DB
       SyncWorker -->|domain sync jobs| NATS
       SyncWorker -->|order update jobs| NATS
-      SyncWorker -->|metadata refresh jobs (ERC-4906)| NATS
+      SyncWorker -->|metadata refresh jobs ERC4906| NATS
 
       %% Reorg handling
       NATS -->|BlockCheck| ReorgWorker
@@ -55,3 +56,4 @@ flowchart LR
       DomainWorker -->|read/write domain tables| DB
       DomainWorker -->|tokenURI / uri reads| RPC
       DomainWorker -->|metadata fetch| MetaHTTP
+```

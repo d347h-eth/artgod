@@ -293,21 +293,21 @@ pub fn run() {
             let open_userland = MenuItem::with_id(
                 app.handle(),
                 TRAY_OPEN_USERLAND_ID,
-                "open ArtGod in browser",
+                "Open ArtGod in browser",
                 true,
                 None::<&str>,
             )?;
             let open_admin = MenuItem::with_id(
                 app.handle(),
                 TRAY_OPEN_ADMIN_ID,
-                "open admin UI",
+                "Open Admin UI",
                 true,
                 None::<&str>,
             )?;
             let shutdown = MenuItem::with_id(
                 app.handle(),
                 TRAY_SHUTDOWN_ID,
-                "shutdown",
+                "Shutdown",
                 true,
                 None::<&str>,
             )?;

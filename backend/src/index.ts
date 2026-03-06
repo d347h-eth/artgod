@@ -14,6 +14,7 @@ import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/boo
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
+import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { BackendConfig } from "./config.js";
@@ -89,6 +90,11 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         chainsReadModel,
         collectionsReadModel,
     );
+    const getTokenDetailUseCase = new GetTokenDetailUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        collectionsReadModel,
+    );
     const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
         new SqliteRuntimeHealthAdapter(),
         new NatsRuntimeHealthAdapter(config.natsUrl),
@@ -104,6 +110,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,
+        getTokenDetailUseCase,
         runtimeHealthUseCase,
         config.userlandUiDistDir,
     );

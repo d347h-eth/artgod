@@ -169,6 +169,32 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/{token_ref}:
+        get:
+            tags: [Collections]
+            summary: Get single token detail
+            description: |
+                Reserved collection subpaths (for example `bootstrap`) are matched
+                by dedicated static routes first.
+            operationId: getTokenDetail
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+            responses:
+                "200":
+                    description: Token detail with animation_url and trait rarity stats
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetTokenDetailResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/collections/bootstrap:
         post:
             tags: [Bootstrap]
@@ -350,6 +376,13 @@ components:
             schema:
                 type: string
             description: Collection reference (slug or contract address)
+        TokenRef:
+            name: token_ref
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Token id reference
         RunId:
             name: run_id
             in: path
@@ -583,6 +616,59 @@ components:
                     format: date-time
                     nullable: true
 
+        TokenDetailTrait:
+            type: object
+            required: [key, value, tokenCount, rarityPercent]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+                value:
+                    type: string
+                tokenCount:
+                    type: integer
+                    nullable: true
+                rarityPercent:
+                    type: number
+                    format: double
+                    nullable: true
+
+        TokenDetail:
+            type: object
+            required:
+                [
+                    tokenId,
+                    name,
+                    image,
+                    animationUrl,
+                    attributes,
+                    hasMetadata,
+                    metadataUpdatedAt,
+                ]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                name:
+                    type: string
+                    nullable: true
+                image:
+                    type: string
+                    nullable: true
+                animationUrl:
+                    type: string
+                    nullable: true
+                attributes:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TokenDetailTrait"
+                hasMetadata:
+                    type: boolean
+                metadataUpdatedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+
         TokenCursorPage:
             type: object
             required:
@@ -676,6 +762,18 @@ components:
                                 $ref: "#/components/schemas/TraitFacet"
                 tokens:
                     $ref: "#/components/schemas/TokenCursorPage"
+
+        GetTokenDetailResponse:
+            type: object
+            required: [chain, collection, token]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                token:
+                    $ref: "#/components/schemas/TokenDetail"
 
         GetDefaultChainResponse:
             type: object

@@ -5,6 +5,8 @@ import type {
     CollectionListItem,
     CursorPage,
     TokenCard,
+    TokenDetail,
+    TokenDetailTrait,
     TokenCursorPage,
     TokenCursor,
     TokenAttribute,
@@ -41,6 +43,15 @@ type TokenRow = {
     metadata_updated_at: string | null;
 };
 
+type TokenDetailRow = {
+    token_id: string;
+    name: string | null;
+    image: string | null;
+    animation_url: string | null;
+    attributes_json: string | null;
+    metadata_updated_at: string | null;
+};
+
 type TokenIdRow = {
     token_id: string;
 };
@@ -49,6 +60,12 @@ type TraitFacetRow = {
     key: string;
     value: string;
     token_count: number;
+};
+
+type TokenDetailTraitRow = {
+    key: string;
+    value: string;
+    token_count: number | null;
 };
 
 type TokenSortKey = {
@@ -84,6 +101,12 @@ export type ListCollectionTokensParams = {
     traitFilters?: TraitFilter[];
 };
 
+export type GetCollectionTokenDetailParams = {
+    chainId: number;
+    contractAddress: string;
+    tokenId: string;
+};
+
 export class SqliteCollectionsReadModel {
     private selectCollectionBySlug = db.prepare<{
         chainId: number;
@@ -116,6 +139,33 @@ export class SqliteCollectionsReadModel {
             "AND attribute_keys.contract_address = collection_trait_stats.contract_address " +
             "WHERE collection_trait_stats.chain_id = ? AND collection_trait_stats.contract_address = ? " +
             "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
+    );
+
+    private selectTokenDetailRow = db.prepare<[number, string, string]>(
+        "SELECT t.token_id, m.name, m.image, m.animation_url, m.attributes_json, m.updated_at AS metadata_updated_at " +
+            "FROM tokens t " +
+            "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
+            "AND m.contract_address = t.contract_address " +
+            "AND m.token_id = t.token_id " +
+            "WHERE t.chain_id = ? AND t.contract_address = ? AND t.token_id = ? " +
+            "LIMIT 1",
+    );
+
+    private selectTokenDetailTraitRows = db.prepare<[number, string, string]>(
+        "SELECT ak.key AS key, a.value AS value, cts.token_count AS token_count " +
+            "FROM token_attributes ta " +
+            "JOIN attributes a ON a.id = ta.attribute_id " +
+            "AND a.chain_id = ta.chain_id " +
+            "AND a.contract_address = ta.contract_address " +
+            "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+            "AND ak.chain_id = a.chain_id " +
+            "AND ak.contract_address = a.contract_address " +
+            "LEFT JOIN collection_trait_stats cts ON cts.chain_id = ta.chain_id " +
+            "AND cts.contract_address = ta.contract_address " +
+            "AND cts.attribute_key_id = a.attribute_key_id " +
+            "AND cts.attribute_id = a.id " +
+            "WHERE ta.chain_id = ? AND ta.contract_address = ? AND ta.token_id = ? " +
+            "ORDER BY ak.key ASC, a.value ASC",
     );
 
     listCollections(
@@ -332,6 +382,51 @@ export class SqliteCollectionsReadModel {
         }
         return facets;
     }
+
+    getCollectionTokenDetail(
+        params: GetCollectionTokenDetailParams,
+    ): TokenDetail {
+        const tokenId = params.tokenId.trim();
+        if (!tokenId) {
+            throw new ReadModelBadRequestError("Invalid token_ref");
+        }
+
+        const contractAddress = normalizeAddressRef(params.contractAddress);
+        const row = this.selectTokenDetailRow.get(
+            params.chainId,
+            contractAddress,
+            tokenId,
+        ) as TokenDetailRow | undefined;
+        if (!row) {
+            throw new ReadModelNotFoundError("Unknown token_ref");
+        }
+
+        const totalItems = countCollectionTokens(
+            params.chainId,
+            contractAddress,
+        );
+        const attributeRows = this.selectTokenDetailTraitRows.all(
+            params.chainId,
+            contractAddress,
+            tokenId,
+        ) as TokenDetailTraitRow[];
+        const attributes = mergeTokenDetailTraits({
+            normalizedTraits: attributeRows.map((item) =>
+                mapTokenDetailTraitRow(item, totalItems),
+            ),
+            metadataTraits: parseTokenAttributes(row.attributes_json),
+        });
+
+        return {
+            tokenId: row.token_id,
+            name: row.name ?? null,
+            image: row.image ?? null,
+            animationUrl: row.animation_url ?? null,
+            attributes,
+            hasMetadata: row.metadata_updated_at !== null,
+            metadataUpdatedAt: row.metadata_updated_at ?? null,
+        };
+    }
 }
 
 function countMatchingTokens(
@@ -343,6 +438,18 @@ function countMatchingTokens(
         "FROM tokens t " +
         `WHERE ${whereClauses.join(" AND ")}`;
     const row = db.raw.prepare(sql).get(...values) as { count: number };
+    return row.count;
+}
+
+function countCollectionTokens(
+    chainId: number,
+    contractAddress: string,
+): number {
+    const row = db.raw
+        .prepare(
+            "SELECT COUNT(*) AS count FROM tokens WHERE chain_id = ? AND contract_address = ?",
+        )
+        .get(chainId, contractAddress) as { count: number };
     return row.count;
 }
 
@@ -516,6 +623,56 @@ function mapTokenRow(row: TokenRow): TokenCard {
         hasMetadata: row.metadata_updated_at !== null,
         metadataUpdatedAt: row.metadata_updated_at,
     };
+}
+
+function mapTokenDetailTraitRow(
+    row: TokenDetailTraitRow,
+    totalItems: number,
+): TokenDetailTrait {
+    const tokenCount = row.token_count ?? null;
+    const rarityPercent =
+        tokenCount === null || totalItems <= 0
+            ? null
+            : (tokenCount / totalItems) * 100;
+    return {
+        key: row.key,
+        value: row.value,
+        tokenCount,
+        rarityPercent,
+    };
+}
+
+function mergeTokenDetailTraits(params: {
+    normalizedTraits: TokenDetailTrait[];
+    metadataTraits: TokenAttribute[];
+}): TokenDetailTrait[] {
+    const merged: TokenDetailTrait[] = [];
+    const seen = new Set<string>();
+
+    for (const trait of params.normalizedTraits) {
+        const signature = `${trait.key}:${trait.value}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        merged.push(trait);
+    }
+
+    for (const trait of params.metadataTraits) {
+        const signature = `${trait.key}:${trait.value}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        merged.push({
+            key: trait.key,
+            value: trait.value,
+            tokenCount: null,
+            rarityPercent: null,
+        });
+    }
+
+    return merged.sort((a, b) => {
+        const byKey = a.key.localeCompare(b.key);
+        if (byKey !== 0) return byKey;
+        return a.value.localeCompare(b.value);
+    });
 }
 
 function parseTokenAttributes(raw: string | null): TokenAttribute[] {

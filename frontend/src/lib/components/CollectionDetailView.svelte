@@ -10,7 +10,7 @@
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
-	import { getBootstrapStatus } from '$lib/backend-api';
+	import { getBootstrapStatus, getTokenDetail } from '$lib/backend-api';
 	import {
 		readTokenWindow,
 		type TokenWindowState,
@@ -69,6 +69,12 @@
 	let bootstrapLoading = $state(false);
 	let bootstrapError = $state<string | null>(null);
 	let bootstrapRequestInFlight = false;
+	let tokenPreviewOpen = $state(false);
+	let tokenPreviewMediaKind = $state<'iframe' | 'image' | null>(null);
+	let tokenPreviewMediaUrl = $state<string | null>(null);
+	let tokenPreviewTokenId = $state<string | null>(null);
+	let tokenPreviewRequestId = 0;
+	let tokenGridAspectRatioById = $state<Record<string, number>>({});
 
 	$effect(() => {
 		activeTraits = selectedTraits;
@@ -130,7 +136,22 @@
 	}
 
 	function tokenDetailHref(tokenId: string): string {
-		return `${basePath}/${encodeURIComponent(tokenId)}`;
+		const query = new URLSearchParams();
+		if (requestCursor) {
+			query.set('returnCursor', requestCursor);
+		}
+		const suffix = query.toString();
+		return `${basePath}/${encodeURIComponent(tokenId)}${suffix ? `?${suffix}` : ''}`;
+	}
+
+	function tokenPreviewAriaLabel(tokenId: string): string {
+		return `preview token ${tokenId}`;
+	}
+
+	function tokenPreviewGridStyle(tokenId: string): string | undefined {
+		const ratio = tokenGridAspectRatioById[tokenId];
+		if (!Number.isFinite(ratio) || ratio <= 0) return undefined;
+		return `--token-grid-media-ar:${ratio};`;
 	}
 
 	function collectionsHref(): string {
@@ -154,6 +175,21 @@
 			lines.push(values.slice(index, index + 3).join(' / '));
 		}
 		return lines;
+	}
+
+	function onTokenGridImageLoad(tokenId: string, event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLImageElement)) return;
+		if (target.naturalWidth <= 0 || target.naturalHeight <= 0) return;
+
+		const ratio = target.naturalWidth / target.naturalHeight;
+		if (!Number.isFinite(ratio) || ratio <= 0) return;
+		if (tokenGridAspectRatioById[tokenId] === ratio) return;
+
+		tokenGridAspectRatioById = {
+			...tokenGridAspectRatioById,
+			[tokenId]: ratio
+		};
 	}
 
 	function onTraitSearchInput(key: string, event: Event): void {
@@ -366,7 +402,8 @@
 		sourceTraits: ApiTokenAttribute[],
 		key: string,
 		value: string,
-		checked: boolean
+		checked: boolean,
+		unionMode: boolean
 	): ApiTokenAttribute[] {
 		const grouped = new Map<string, Set<string>>();
 		for (const trait of sourceTraits) {
@@ -376,15 +413,23 @@
 		}
 
 		const current = grouped.get(key) ?? new Set<string>();
-		if (checked) {
-			current.add(value);
+		if (unionMode) {
+			if (checked) {
+				current.add(value);
+			} else {
+				current.delete(value);
+			}
+			if (current.size === 0) {
+				grouped.delete(key);
+			} else {
+				grouped.set(key, current);
+			}
 		} else {
-			current.delete(value);
-		}
-		if (current.size === 0) {
-			grouped.delete(key);
-		} else {
-			grouped.set(key, current);
+			if (checked) {
+				grouped.set(key, new Set([value]));
+			} else {
+				grouped.delete(key);
+			}
 		}
 
 		const next: ApiTokenAttribute[] = [];
@@ -397,8 +442,13 @@
 		return next;
 	}
 
-	async function onTraitToggle(key: string, value: string, checked: boolean): Promise<void> {
-		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked);
+	async function onTraitToggleWithMode(
+		key: string,
+		value: string,
+		checked: boolean,
+		unionMode: boolean
+	): Promise<void> {
+		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, unionMode);
 		activeTraits = nextTraits;
 		await goto(buildFiltersHref(nextTraits), {
 			invalidateAll: true,
@@ -407,10 +457,14 @@
 		});
 	}
 
-	function onTraitCheckboxChange(key: string, value: string, event: Event): void {
+	function onTraitCheckboxClick(key: string, value: string, event: MouseEvent): void {
 		const target = event.target;
 		if (!(target instanceof HTMLInputElement)) return;
-		void onTraitToggle(key, value, target.checked);
+		void onTraitToggleWithMode(key, value, target.checked, event.ctrlKey);
+	}
+
+	function traitGroupActive(key: string): boolean {
+		return activeTraits.some((item) => item.key === key);
 	}
 
 	function resetHref(): string {
@@ -463,6 +517,13 @@
 	}
 
 	function onGlobalKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape' && tokenPreviewOpen) {
+			event.preventDefault();
+			closeTokenPreview();
+			return;
+		}
+		if (tokenPreviewOpen) return;
+
 		if (event.defaultPrevented) return;
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
 		if (event.key.toLowerCase() !== 't') return;
@@ -486,6 +547,56 @@
 	function latestRunHref(): string | null {
 		if (!chain || !bootstrapStatus?.latestRun) return null;
 		return `/${chain.slug}/bootstrap-runs/${bootstrapStatus.latestRun.runId}`;
+	}
+
+	function closeTokenPreview(): void {
+		tokenPreviewRequestId += 1;
+		tokenPreviewOpen = false;
+		tokenPreviewMediaKind = null;
+		tokenPreviewMediaUrl = null;
+		tokenPreviewTokenId = null;
+	}
+
+	function onTokenPreviewBackdropClick(event: MouseEvent): void {
+		if (event.target !== event.currentTarget) return;
+		closeTokenPreview();
+	}
+
+	function onTokenPreviewBackdropKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Escape') return;
+		event.preventDefault();
+		closeTokenPreview();
+	}
+
+	async function onOpenTokenPreview(token: ApiTokenCard): Promise<void> {
+		if (!chain || !collection) return;
+		const collectionRef = activeCollectionRef() ?? collection.address;
+		const requestId = ++tokenPreviewRequestId;
+		tokenPreviewOpen = true;
+		tokenPreviewMediaKind = null;
+		tokenPreviewMediaUrl = null;
+		tokenPreviewTokenId = token.tokenId;
+
+		try {
+			const response = await getTokenDetail(fetch, chain.slug, collectionRef, token.tokenId);
+			if (requestId !== tokenPreviewRequestId) return;
+
+			tokenPreviewTokenId = response.token.tokenId;
+			if (response.token.animationUrl) {
+				tokenPreviewMediaKind = 'iframe';
+				tokenPreviewMediaUrl = response.token.animationUrl;
+				return;
+			}
+			if (response.token.image) {
+				tokenPreviewMediaKind = 'image';
+				tokenPreviewMediaUrl = response.token.image;
+				return;
+			}
+			closeTokenPreview();
+		} catch (error) {
+			if (requestId !== tokenPreviewRequestId) return;
+			closeTokenPreview();
+		}
 	}
 
 	async function refreshBootstrapStatus(): Promise<void> {
@@ -548,7 +659,7 @@
 		{/if}
 
 		<div class="detail-layout" class:sidebar-collapsed={traitsCollapsed}>
-		<div class="facet-column">
+		<div class="facet-column" class:facet-column-sticky={!traitsCollapsed}>
 			<button
 				class="facet-collapse-button"
 				type="button"
@@ -572,17 +683,17 @@
 						<p class="muted">no trait facets yet</p>
 					{:else}
 						{#each facets as facet}
-							<details class="trait-group">
-								<summary>
-									<span>{facet.key}</span>
-									<span class="muted">{facet.values.length} values</span>
-								</summary>
+								<details class="trait-group">
+									<summary>
+										<span class:trait-group-active={traitGroupActive(facet.key)}>{facet.key}</span>
+										<span class="muted">{facet.values.length}</span>
+									</summary>
 
 								<div class="trait-group-body">
 									<input
 										class="trait-search-input"
 										type="search"
-										placeholder="search values (*query*)"
+										placeholder="search"
 										value={traitSearchValue(facet.key)}
 										oninput={(event) => onTraitSearchInput(facet.key, event)}
 									/>
@@ -597,11 +708,11 @@
 														id={traitId(facet.key, value.value)}
 														type="checkbox"
 														checked={traitChecked(facet.key, value.value)}
-														onchange={(event) =>
-															onTraitCheckboxChange(facet.key, value.value, event)}
+														onclick={(event) =>
+															onTraitCheckboxClick(facet.key, value.value, event)}
 													/>
 													<span class="trait-value-text">{value.value}</span>
-													<span class="muted">({value.tokenCount})</span>
+													<span class="trait-value-count mono">{value.tokenCount}</span>
 												</label>
 											{/each}
 										{/if}
@@ -638,16 +749,25 @@
 								<article class="token-grid-card">
 									<div class="token-grid-media">
 										{#if token.image}
-											<img
-												class="token-grid-thumb"
-												src={token.image}
-												alt={`token ${token.tokenId}`}
-												loading="lazy"
-												decoding="async"
-												referrerpolicy="no-referrer"
-											/>
+											<button
+												type="button"
+												class="token-preview-trigger token-preview-trigger-grid"
+												style={tokenPreviewGridStyle(token.tokenId)}
+												aria-label={tokenPreviewAriaLabel(token.tokenId)}
+												onclick={() => void onOpenTokenPreview(token)}
+											>
+												<img
+													class="token-grid-thumb"
+													src={token.image}
+													alt={`token ${token.tokenId}`}
+													loading="lazy"
+													decoding="async"
+													referrerpolicy="no-referrer"
+													onload={(event) => onTokenGridImageLoad(token.tokenId, event)}
+												/>
+											</button>
 										{:else}
-											<div class="token-grid-thumb token-thumb-empty">-</div>
+											<div class="token-grid-thumb token-grid-thumb-empty token-thumb-empty">-</div>
 										{/if}
 									</div>
 									<div class="token-grid-meta">
@@ -687,17 +807,28 @@
 							{:else}
 								{#each visibleTokens as token}
 									<tr>
-										<td class="mono token-id-cell">{token.tokenId}</td>
+										<td class="mono token-id-cell">
+											<a class="token-table-id-link" href={tokenDetailHref(token.tokenId)}
+												>{token.tokenId}</a
+											>
+										</td>
 										<td class="token-image-cell">
 											{#if token.image}
-												<img
-													class="token-thumb"
-													src={token.image}
-													alt={`token ${token.tokenId}`}
-													loading="lazy"
-													decoding="async"
-													referrerpolicy="no-referrer"
-												/>
+												<button
+													type="button"
+													class="token-preview-trigger token-preview-trigger-inline"
+													aria-label={tokenPreviewAriaLabel(token.tokenId)}
+													onclick={() => void onOpenTokenPreview(token)}
+												>
+													<img
+														class="token-thumb"
+														src={token.image}
+														alt={`token ${token.tokenId}`}
+														loading="lazy"
+														decoding="async"
+														referrerpolicy="no-referrer"
+													/>
+												</button>
 											{:else}
 												<div class="token-thumb token-thumb-empty">-</div>
 											{/if}
@@ -761,3 +892,34 @@
 		</div>
 	</div>
 </section>
+
+{#if tokenPreviewOpen}
+	<div
+		class="token-preview-overlay"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Token Preview"
+		tabindex="-1"
+		onclick={onTokenPreviewBackdropClick}
+		onkeydown={onTokenPreviewBackdropKeydown}
+	>
+		{#if tokenPreviewMediaKind === 'iframe' && tokenPreviewMediaUrl}
+			<iframe
+				class="token-preview-frame"
+				src={tokenPreviewMediaUrl}
+				title={tokenPreviewTokenId ? `token ${tokenPreviewTokenId}` : 'token preview'}
+				sandbox="allow-scripts"
+				referrerpolicy="no-referrer"
+			></iframe>
+		{:else if tokenPreviewMediaKind === 'image' && tokenPreviewMediaUrl}
+			<img
+				class="token-preview-image"
+				src={tokenPreviewMediaUrl}
+				alt={tokenPreviewTokenId ? `token ${tokenPreviewTokenId}` : 'token preview'}
+				loading="eager"
+				decoding="async"
+				referrerpolicy="no-referrer"
+			/>
+		{/if}
+	</div>
+{/if}

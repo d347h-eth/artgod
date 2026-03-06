@@ -51,6 +51,23 @@ export type TokenCard = {
     metadataUpdatedAt: string | null;
 };
 
+export type TokenDetailTrait = {
+    key: string;
+    value: string;
+    tokenCount: number | null;
+    rarityPercent: number | null;
+};
+
+export type TokenDetail = {
+    tokenId: string;
+    name: string | null;
+    image: string | null;
+    animationUrl: string | null;
+    attributes: TokenDetailTrait[];
+    hasMetadata: boolean;
+    metadataUpdatedAt: string | null;
+};
+
 export type TraitFacetValue = {
     value: string;
     tokenCount: number;

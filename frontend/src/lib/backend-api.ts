@@ -6,7 +6,8 @@ import type {
 	BootstrapStatusApiResponse,
 	CollectionDetailApiResponse,
 	CollectionsApiResponse,
-	DefaultChainResponse
+	DefaultChainResponse,
+	TokenDetailApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 
@@ -54,6 +55,18 @@ export async function getCollectionDetail(
 	return requestJson<CollectionDetailApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}${suffix}`
+	);
+}
+
+export async function getTokenDetail(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tokenRef: string
+): Promise<TokenDetailApiResponse> {
+	return requestJson<TokenDetailApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}`
 	);
 }
 

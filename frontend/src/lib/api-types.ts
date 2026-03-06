@@ -39,6 +39,23 @@ export type ApiTokenCard = {
 	metadataUpdatedAt: string | null;
 };
 
+export type ApiTokenDetailTrait = {
+	key: string;
+	value: string;
+	tokenCount: number | null;
+	rarityPercent: number | null;
+};
+
+export type ApiTokenDetail = {
+	tokenId: string;
+	name: string | null;
+	image: string | null;
+	animationUrl: string | null;
+	attributes: ApiTokenDetailTrait[];
+	hasMetadata: boolean;
+	metadataUpdatedAt: string | null;
+};
+
 export type ApiTokensPage = {
 	items: ApiTokenCard[];
 	prevCursor: string | null;
@@ -75,6 +92,12 @@ export type CollectionDetailApiResponse = {
 		facets: ApiTraitFacet[];
 	};
 	tokens: ApiTokensPage;
+};
+
+export type TokenDetailApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	token: ApiTokenDetail;
 };
 
 export type DefaultChainResponse = {

@@ -7,6 +7,7 @@
 		resolveStartupSurfacePolicy,
 		type AdminConsoleTab
 	} from '$lib/runtime/lifecycle-ui-policy';
+	import { APP_VERSION } from '$lib/runtime/app-version';
 
 	type FilterOption = string;
 	type ConsoleTab = AdminConsoleTab;
@@ -315,7 +316,7 @@
 {#if open}
 	<aside class={`runtime-drawer ${embedded ? 'runtime-drawer-embedded' : ''}`} aria-label="Desktop Runtime Operations">
 		<header class="runtime-drawer-header">
-			<h2>Desktop Runtime</h2>
+			<h2>ArtGod {APP_VERSION} - Admin UI</h2>
 			{#if !embedded}
 				<p class="muted">press <span class="mono">`</span> or <span class="mono">esc</span> to close</p>
 			{/if}
@@ -328,7 +329,7 @@
 					onclick={() => void desktopRuntimeStore.openUserlandUi()}
 					disabled={$runtimeState.busyAction !== null}
 				>
-					open ArtGod in browser
+					OPEN USER APP (OPENS BROWSER)
 				</button>
 			</div>
 		{/if}

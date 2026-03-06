@@ -26,6 +26,10 @@ import type {
     GetCollectionDetailRoute,
 } from "./http/handlers/collections/get-collection-detail.js";
 import type {
+    GetTokenDetailHttpAdapter,
+    GetTokenDetailRoute,
+} from "./http/handlers/collections/get-token-detail.js";
+import type {
     ListCollectionsHttpAdapter,
     ListCollectionsRoute,
 } from "./http/handlers/collections/list-collections.js";
@@ -47,6 +51,7 @@ export function registerApiRoutes(
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
+    getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
 ): void {
     app.get("/health", async () => ({ status: "ok" }));
@@ -83,6 +88,10 @@ export function registerApiRoutes(
     app.get<GetBootstrapStatusRoute>(
         "/api/:chain_ref/:collection_ref/bootstrap",
         getBootstrapStatusAdapter.handle,
+    );
+    app.get<GetTokenDetailRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref",
+        getTokenDetailAdapter.handle,
     );
     app.post<RetryBootstrapRunFailedTasksRoute>(
         "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",

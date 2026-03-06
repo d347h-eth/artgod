@@ -6,6 +6,7 @@ import type { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap
 import type { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import type { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import type { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
+import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-bootstrap-run.js";
@@ -15,6 +16,7 @@ import { ListBootstrapRunsHttpAdapter } from "./http/handlers/bootstrap/list-boo
 import { RetryBootstrapRunFailedTasksHttpAdapter } from "./http/handlers/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import { GetCollectionDetailHttpAdapter } from "./http/handlers/collections/get-collection-detail.js";
+import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token-detail.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
@@ -33,6 +35,7 @@ export function createApiApp(
     getDefaultChainUseCase: GetDefaultChainUseCase,
     listCollectionsUseCase: ListCollectionsUseCase,
     getCollectionDetailUseCase: GetCollectionDetailUseCase,
+    getTokenDetailUseCase: GetTokenDetailUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
     userlandUiDistDir: string | null,
 ): FastifyInstance {
@@ -66,6 +69,9 @@ export function createApiApp(
     const getCollectionDetailAdapter = new GetCollectionDetailHttpAdapter(
         getCollectionDetailUseCase,
     );
+    const getTokenDetailAdapter = new GetTokenDetailHttpAdapter(
+        getTokenDetailUseCase,
+    );
     const getRuntimeHealthAdapter = new GetRuntimeHealthHttpAdapter(
         getRuntimeHealthUseCase,
     );
@@ -83,6 +89,7 @@ export function createApiApp(
         getDefaultChainAdapter,
         listCollectionsAdapter,
         getCollectionDetailAdapter,
+        getTokenDetailAdapter,
         getRuntimeHealthAdapter,
     );
     if (userlandUiDistDir) {

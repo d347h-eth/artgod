@@ -31,6 +31,8 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/list-collections.js");
     const collectionDetailUseCaseModule =
         await import("./application/use-cases/collections/get-collection-detail.js");
+    const tokenDetailUseCaseModule =
+        await import("./application/use-cases/collections/get-token-detail.js");
     const runtimeHealthUseCaseModule =
         await import("./application/use-cases/health/get-runtime-health.js");
     const sqliteRuntimeHealthModule =
@@ -49,6 +51,12 @@ beforeAll(async () => {
         );
     const getCollectionDetailUseCase =
         new collectionDetailUseCaseModule.GetCollectionDetailUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+        );
+    const getTokenDetailUseCase =
+        new tokenDetailUseCaseModule.GetTokenDetailUseCase(
             1,
             chainsReadModel,
             collectionsReadModel,
@@ -126,6 +134,7 @@ beforeAll(async () => {
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,
+        getTokenDetailUseCase,
         runtimeHealthUseCase,
         null,
     );
@@ -209,6 +218,42 @@ describe("backend api routes", () => {
                 expect.objectContaining({ key: "Mood" }),
             ]),
         );
+    });
+
+    it("returns token detail with animation_url fallback data and rarity stats", async () => {
+        const result = await resolve("GET", "/api/ethereum/milady/1");
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.collection.slug).toBe("milady");
+        expect(result.payload.token.tokenId).toBe("1");
+        expect(result.payload.token.name).toBe("Milady #1");
+        expect(result.payload.token.image).toBe("https://example.com/1.png");
+        expect(result.payload.token.animationUrl).toBe(
+            "https://example.com/1.html",
+        );
+        expect(result.payload.token.attributes).toHaveLength(2);
+        expect(result.payload.token.attributes[0]).toMatchObject({
+            key: "Hat",
+            value: "Beanie",
+            tokenCount: 2,
+        });
+        expect(result.payload.token.attributes[1]).toMatchObject({
+            key: "Mood",
+            value: "Calm",
+            tokenCount: 2,
+        });
+        expect(result.payload.token.attributes[0].rarityPercent).toBeCloseTo(
+            66.6666,
+            3,
+        );
+        expect(result.payload.token.attributes[1].rarityPercent).toBeCloseTo(
+            66.6666,
+            3,
+        );
+    });
+
+    it("returns 404 for unknown token detail", async () => {
+        const result = await resolve("GET", "/api/ethereum/milady/999999");
+        expect(result.statusCode).toBe(404);
     });
 
     it("supports backward paging with prevCursor", async () => {
@@ -548,8 +593,8 @@ function seedData(): void {
 
     const insertMetadata = db.prepare(
         "INSERT INTO token_metadata " +
-            "(chain_id, contract_address, token_id, uri, name, image, attributes_json, raw_json, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(chain_id, contract_address, token_id, uri, name, image, animation_url, attributes_json, raw_json, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
 
     insertMetadata.run(
@@ -559,6 +604,7 @@ function seedData(): void {
         "ipfs://1",
         "Milady #1",
         "https://example.com/1.png",
+        "https://example.com/1.html",
         JSON.stringify([
             { traitType: "Hat", value: "Beanie" },
             { traitType: "Mood", value: "Calm" },
@@ -573,6 +619,7 @@ function seedData(): void {
         "ipfs://2",
         "Milady #2",
         "https://example.com/2.png",
+        "https://example.com/2.mp4",
         JSON.stringify([
             { traitType: "Hat", value: "Beanie" },
             { traitType: "Mood", value: "Angry" },
@@ -587,6 +634,7 @@ function seedData(): void {
         "ipfs://10",
         "Milady #10",
         "https://example.com/10.png",
+        null,
         JSON.stringify([
             { traitType: "Hat", value: "Cap" },
             { traitType: "Mood", value: "Calm" },
