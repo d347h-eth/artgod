@@ -154,7 +154,6 @@ Responsibilities:
     - `.yarn/install-state.gz`
     - `.pnp.cjs`
     - `.pnp.loader.mjs`
-    - `fixtures/opensea-event-payloads/*` (desktop-first default path)
 
 ### `scripts/build/clean-build-artifacts.mjs`
 
@@ -189,6 +188,9 @@ Produced runtime artifacts:
 - `indexer/dist-desktop/bootstrap-worker.mjs`
 - `indexer/dist-desktop/offchain-ingest-worker.mjs`
 - `indexer/dist-desktop/opensea-stream-worker.mjs`
+- `indexer/dist-desktop/opensea-bootstrap-worker.mjs`
+- `indexer/dist-desktop/opensea-reconcile-worker.mjs`
+- `indexer/dist-desktop/opensea-reconcile-scheduler-worker.mjs`
 - `indexer/dist-desktop/dead-letter-worker.mjs`
 
 During Tauri build these artifacts are copied to `src-tauri/resources/runtime/...` and that staged tree is bundled into the desktop app resources.
@@ -228,7 +230,6 @@ Desktop-first default path behavior:
 
 - `ARTGOD_DB_PATH` defaults to `sqlite/main/db` and is resolved relative to app-data dir unless absolute.
 - `USERLAND_UI_DIST_DIR` defaults to `frontend/userland` and is resolved relative to desktop runtime resources dir unless absolute.
-- `OPENSEA_FIXTURES_DIR` defaults to `fixtures/opensea-event-payloads` and is resolved relative to desktop runtime resources dir unless absolute.
 
 Important:
 

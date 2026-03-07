@@ -206,9 +206,10 @@ async function main() {
             },
             async (job: JobEnvelope<BackfillSyncPayload>) => {
                 if (job.kind !== SYNC_JOB_KIND.BackfillRange) return;
-                const collections = collectionRegistry.listCollectionsForSync(
+                const collections = resolveBackfillCollections(
+                    collectionRegistry,
                     config.chainId,
-                    "backfill",
+                    job.collectionId ?? null,
                 );
                 if (collections.length === 0) {
                     logger.debug("No collections for backfill sync", {
@@ -216,6 +217,7 @@ async function main() {
                         action: "backfillRange",
                         fromBlock: job.payload.fromBlock,
                         toBlock: job.payload.toBlock,
+                        collectionId: job.collectionId ?? null,
                     });
                     return;
                 }
@@ -414,6 +416,7 @@ async function publishOrderUpdateJobs(
             kind: ORDER_JOB_KIND.UpdateByMaker,
             queue: QUEUE_NAMES.OrdersUpdateByMaker,
             payload: {
+                chainId,
                 maker: makerInfo.maker,
                 contract: makerInfo.contract,
                 tokenId: makerInfo.tokenId,
@@ -462,6 +465,24 @@ async function publishOrderUpdateJobs(
             order,
         );
     }
+}
+
+function resolveBackfillCollections(
+    collectionRegistry: SqliteCollectionRegistry,
+    chainId: number,
+    collectionId: number | null,
+): CollectionRecord[] {
+    if (!collectionId) {
+        return collectionRegistry.listCollectionsForSync(chainId, "backfill");
+    }
+
+    const collection = collectionRegistry.getCollection(chainId, collectionId);
+    if (!collection) return [];
+    if (collection.status !== "live" && collection.status !== "bootstrapping") {
+        return [];
+    }
+
+    return [collection];
 }
 
 // Metadata refresh jobs are triggered by on-chain refresh events (e.g. ERC-4906).

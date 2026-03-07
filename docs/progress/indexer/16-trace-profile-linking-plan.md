@@ -194,7 +194,7 @@ Requirements:
 Files:
 
 - `indexer/src/config/index.ts`
-- `indexer/src/config/offchain.ts`
+- `indexer/src/config/opensea.ts`
 - `.env.example`
 - `.env.test.example`
 
@@ -307,7 +307,7 @@ ArtGod:
 
 - `indexer/src/observability/apm.ts`
 - `indexer/src/config/index.ts`
-- `indexer/src/config/offchain.ts`
+- `indexer/src/config/opensea.ts`
 - `.env.example`
 - `.env.test.example`
 - `observability/grafana/provisioning/datasources/tempo.yaml`

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
     normalizeOpenSeaEvent,
+    normalizeOpenSeaMakerUpdate,
     normalizeOpenSeaMetadataRefresh,
     normalizeOpenSeaOrderUpdate,
 } from "../src/application/offchain/opensea-normalize.js";
@@ -61,6 +62,21 @@ describe("opensea normalizer", () => {
         expect(normalized.price).toBe("3310000000000000000");
         expect(normalized.currency).toBe(
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        );
+    });
+
+    it("normalizes item_received_offer into a buy order", async () => {
+        const fixture = await readFixture("item_received_bid.json");
+        const normalized = normalizeOpenSeaEvent({
+            event_type: "item_received_offer",
+            payload: fixture.payload,
+        });
+        expect(normalized).not.toBeNull();
+        if (!normalized) return;
+
+        expect(normalized.side).toBe("buy");
+        expect(normalized.orderId).toBe(
+            "0xca2f030878888d975a62f94f5abcceda4b7b075e836eb112d1b9008ac0d22eaa",
         );
     });
 
@@ -140,6 +156,7 @@ describe("opensea normalizer", () => {
             orderId:
                 "0xe7385bf786154848873d89e0b4e2e03406e396ee9d3cb4da47f801f719c0a792",
             reason: "cancel",
+            sourceStatus: "cancelled",
         });
     });
 
@@ -153,6 +170,7 @@ describe("opensea normalizer", () => {
             orderId:
                 "0xeed6698a43cbee5651b3cf0097e94c2b74db22afb8d3e9ea33770721907bfdef",
             reason: "cancel",
+            sourceStatus: "invalidated",
         });
     });
 
@@ -166,6 +184,69 @@ describe("opensea normalizer", () => {
             orderId:
                 "0xeed6698a43cbee5651b3cf0097e94c2b74db22afb8d3e9ea33770721907bfdef",
             reason: "order",
+            sourceStatus: "active",
+        });
+    });
+
+    it("normalizes order_invalidate into an order update-by-id cancel", async () => {
+        const fixture = await readFixture("order_invalidation.json");
+        const normalized = normalizeOpenSeaOrderUpdate({
+            event_type: "order_invalidate",
+            payload: fixture,
+        });
+        expect(normalized).toEqual({
+            orderId:
+                "0xeed6698a43cbee5651b3cf0097e94c2b74db22afb8d3e9ea33770721907bfdef",
+            reason: "cancel",
+            sourceStatus: "invalidated",
+        });
+    });
+
+    it("normalizes order_revalidate into an order update-by-id order", async () => {
+        const fixture = await readFixture("order_revalidation.json");
+        const normalized = normalizeOpenSeaOrderUpdate({
+            event_type: "order_revalidate",
+            payload: fixture,
+        });
+        expect(normalized).toEqual({
+            orderId:
+                "0xeed6698a43cbee5651b3cf0097e94c2b74db22afb8d3e9ea33770721907bfdef",
+            reason: "order",
+            sourceStatus: "active",
+        });
+    });
+
+    it("normalizes item_sold into a source filled update", async () => {
+        const fixture = await readFixture("item_sold.json");
+        const normalized = normalizeOpenSeaOrderUpdate(fixture);
+        expect(normalized).toEqual({
+            orderId:
+                "0x1f8622e3ac13442daa31ce49c7a5e3ae6086f857a435017eb37aed4901cd7c96",
+            reason: "fill",
+            sourceStatus: "filled",
+        });
+    });
+
+    it("normalizes item_transferred into a maker update", async () => {
+        const fixture = await readFixture("item_transferred.json");
+        const normalized = normalizeOpenSeaMakerUpdate(fixture.payload);
+        expect(normalized).toEqual({
+            maker: "0x0000000000000000000000000000000000000000",
+            contract: "0x495f947276749ce646f68ac8c248420045cb7b5e",
+            tokenId:
+                "91577084333317265455693574180089203123053062749515767918158455086200710496257",
+            reason: "item_transferred",
+        });
+    });
+
+    it("normalizes item_sold into a maker update", async () => {
+        const fixture = await readFixture("item_sold.json");
+        const normalized = normalizeOpenSeaMakerUpdate(fixture);
+        expect(normalized).toEqual({
+            maker: "0x44d3376971080f0716ef1f498093521d412b8dec",
+            contract: "0x5af0d9827e0c53e4799bb226655a1de152a425a5",
+            tokenId: "832",
+            reason: "item_sold",
         });
     });
 

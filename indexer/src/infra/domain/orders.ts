@@ -1,6 +1,6 @@
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { ORDER_STATUS } from "../../domain/orders.js";
+import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
 import type {
     OrderUpdateByIdPayload,
     OrderUpdateByMakerPayload,
@@ -13,13 +13,11 @@ import type {
 import type { ConduitRegistryPort } from "../../ports/conduits.js";
 import type { RpcProviderPort } from "../../ports/rpc.js";
 import { validateSeaportOrder } from "../../application/offchain/seaport-validate.js";
-import type { OrderRecord, OrderStatus } from "../../domain/orders.js";
-
-type TransferRow = {
-    contract: string;
-    from_address: string;
-    token_id: string;
-};
+import type {
+    OrderRecord,
+    OrderSourceStatus,
+    OrderStatus,
+} from "../../domain/orders.js";
 
 type OrderRow = {
     id: string;
@@ -38,37 +36,87 @@ type OrderRow = {
     valid_from: number | null;
     valid_until: number | null;
     fillability_status: string;
+    source_status: string;
     raw_data: string | null;
     block_number: number | null;
     tx_hash: string | null;
     log_index: number | null;
 };
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+type SeaportOrderValidator = (
+    order: OrderRecord,
+) => Promise<{ status: OrderStatus; reason: string }>;
+
+type OrderIdentityParams = {
+    chainId: number;
+    orderId: string;
+};
+
+type OrderFillabilityStatusParams = OrderIdentityParams & {
+    fillabilityStatus: OrderStatus;
+};
+
+type OrderSourceStatusParams = OrderIdentityParams & {
+    sourceStatus: OrderSourceStatus;
+};
+
+type MakerSellOrdersForTokenParams = {
+    chainId: number;
+    maker: string;
+    contract: string;
+    tokenId: string;
+};
+
+type MakerWethBuyOrdersParams = {
+    chainId: number;
+    maker: string;
+    currency: string;
+};
+
+type MakerSeaportOrdersParams = {
+    chainId: number;
+    maker: string;
+};
+
+const SELECT_ORDER_FIELDS =
+    "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, token_set_id, token_set_schema_hash, price, currency, " +
+    "valid_from, valid_until, fillability_status, source_status, raw_data, block_number, tx_hash, log_index " +
+    "FROM orders ";
 
 export class SqliteOrdersDomain implements OrdersDomainPort {
     private readonly rpc: RpcProviderPort;
     private readonly conduits: ConduitRegistryPort;
     private readonly seaportConfig: { conduitController: string };
-    private selectTransfers = db.prepare<[number, number, number, string]>(
-        "SELECT contract_address AS contract, from_address, token_id FROM nft_transfer_events " +
-            "WHERE chain_id = ? AND block_number >= ? AND block_number <= ? AND from_address != ?",
+    private readonly wethAddress: string;
+    private readonly validateOrder: SeaportOrderValidator;
+    private updateOrderFillabilityStatus =
+        db.prepare<OrderFillabilityStatusParams>(
+            "UPDATE orders SET fillability_status = @fillabilityStatus, updated_at = CURRENT_TIMESTAMP " +
+                "WHERE chain_id = @chainId AND id = @orderId",
+        );
+    private updateOrderSourceStatus = db.prepare<OrderSourceStatusParams>(
+        "UPDATE orders SET source_status = @sourceStatus, updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = @chainId AND id = @orderId",
     );
-    private invalidateOrders = db.prepare<
-        [string, number, string, string, string, string]
-    >(
-        "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = ? AND maker = ? AND contract_address = ? AND token_id = ? " +
-            "AND fillability_status != ?",
-    );
-    private updateOrderStatus = db.prepare<[string, number, string]>(
-        "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = ? AND id = ?",
-    );
-    private selectOrderById = db.prepare<[number, string]>(
+    private selectOrderById = db.prepare<OrderIdentityParams>(
         "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, token_set_id, token_set_schema_hash, price, currency, " +
-            "valid_from, valid_until, fillability_status, raw_data, block_number, tx_hash, log_index " +
-            "FROM orders WHERE chain_id = ? AND id = ?",
+            "valid_from, valid_until, fillability_status, source_status, raw_data, block_number, tx_hash, log_index " +
+            "FROM orders WHERE chain_id = @chainId AND id = @orderId",
+    );
+    private selectMakerSellOrdersForToken =
+        db.prepare<MakerSellOrdersForTokenParams>(
+            SELECT_ORDER_FIELDS +
+                "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
+                "AND contract_address = @contract AND token_id = @tokenId AND raw_data IS NOT NULL",
+        );
+    private selectMakerWethBuyOrders = db.prepare<MakerWethBuyOrdersParams>(
+        SELECT_ORDER_FIELDS +
+            "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'buy' " +
+            "AND currency = @currency AND raw_data IS NOT NULL",
+    );
+    private selectMakerSeaportOrders = db.prepare<MakerSeaportOrdersParams>(
+        SELECT_ORDER_FIELDS +
+            "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND raw_data IS NOT NULL",
     );
     private upsertOrder = db.prepare<{
         id: string;
@@ -87,10 +135,11 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         validFrom: number | null;
         validUntil: number | null;
         fillabilityStatus: string;
+        sourceStatus: string;
         rawData: string | null;
     }>(
-        "INSERT INTO orders (id, chain_id, kind, side, source, maker, taker, contract_address, token_id, token_set_id, token_set_schema_hash, price, currency, valid_from, valid_until, fillability_status, raw_data) " +
-            "VALUES (@id, @chainId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @tokenSetId, @tokenSetSchemaHash, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @rawData) " +
+        "INSERT INTO orders (id, chain_id, kind, side, source, maker, taker, contract_address, token_id, token_set_id, token_set_schema_hash, price, currency, valid_from, valid_until, fillability_status, source_status, raw_data) " +
+            "VALUES (@id, @chainId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @tokenSetId, @tokenSetSchemaHash, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @rawData) " +
             "ON CONFLICT(id) DO UPDATE SET " +
             "kind = excluded.kind, " +
             "side = excluded.side, " +
@@ -105,6 +154,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "currency = excluded.currency, " +
             "valid_from = excluded.valid_from, " +
             "valid_until = excluded.valid_until, " +
+            "source_status = excluded.source_status, " +
             "raw_data = excluded.raw_data, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
@@ -113,71 +163,97 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         rpc: RpcProviderPort,
         conduits: ConduitRegistryPort,
         seaportConfig: { conduitController: string },
+        wethAddress: string,
+        validateOrder?: SeaportOrderValidator,
     ) {
         this.rpc = rpc;
         this.conduits = conduits;
         this.seaportConfig = seaportConfig;
+        this.wethAddress = wethAddress.toLowerCase();
+        this.validateOrder =
+            validateOrder ??
+            ((order) =>
+                validateSeaportOrder(
+                    this.rpc,
+                    this.conduits,
+                    this.seaportConfig,
+                    order,
+                ));
     }
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
-        const { chainId, fromBlock, toBlock } = context;
-        if (fromBlock > toBlock) return;
-
-        const rows = this.selectTransfers.all(
-            chainId,
-            fromBlock,
-            toBlock,
-            ZERO_ADDRESS,
-        ) as TransferRow[];
-
-        const uniqueKeys = new Set<string>();
-        for (const row of rows) {
-            const maker = row.from_address.toLowerCase();
-            const contract = row.contract.toLowerCase();
-            const tokenId = row.token_id;
-            uniqueKeys.add(`${maker}:${contract}:${tokenId}`);
-        }
-
-        let invalidated = 0;
-        for (const key of uniqueKeys) {
-            const [maker, contract, tokenId] = key.split(":");
-            if (!maker || !contract || tokenId === undefined) continue;
-            const result = this.invalidateOrders.run(
-                ORDER_STATUS.NoBalance,
-                chainId,
-                maker,
-                contract,
-                tokenId,
-                ORDER_STATUS.NoBalance,
-            );
-            invalidated += result.changes;
-        }
-
-        logger.debug("Orders domain sync applied", {
+        logger.debug("Orders domain sync ignored", {
             component: "OrdersDomain",
             action: "handleDomainSync",
-            chainId,
-            fromBlock,
-            toBlock,
-            transfers: rows.length,
-            invalidatedOrders: invalidated,
+            ...context,
+            reason: "order-updates-flow-through-dedicated-jobs",
         });
     }
 
     async handleOrderUpdateByMaker(
         payload: OrderUpdateByMakerPayload,
     ): Promise<void> {
-        // Maker triggers indicate fillability changed (not an explicit cancel).
-        logger.debug("Orders update-by-maker received", {
+        const rows = this.selectMakerUpdateCandidates(payload);
+        if (rows.length === 0) {
+            logger.debug("Orders update-by-maker matched no candidate orders", {
+                component: "OrdersDomain",
+                action: "handleOrderUpdateByMaker",
+                ...payload,
+            });
+            return;
+        }
+
+        let updated = 0;
+        for (const row of rows) {
+            const validation = await this.revalidateSeaportOrder(row);
+            const result = this.updateOrderFillabilityStatus.run({
+                fillabilityStatus: validation.status,
+                chainId: payload.chainId,
+                orderId: row.id,
+            });
+            updated += result.changes;
+            logger.debug("Orders update-by-maker validation result", {
+                component: "OrdersDomain",
+                action: "handleOrderUpdateByMaker",
+                chainId: payload.chainId,
+                orderId: row.id,
+                triggerReason: payload.reason,
+                status: validation.status,
+                reason: validation.reason,
+            });
+        }
+
+        logger.debug("Orders update-by-maker applied", {
             component: "OrdersDomain",
             action: "handleOrderUpdateByMaker",
             ...payload,
+            matchedOrders: rows.length,
+            updated,
         });
     }
 
     async handleOrderUpdateById(
         payload: OrderUpdateByIdPayload,
     ): Promise<void> {
+        if (payload.sourceStatus) {
+            const result = this.updateOrderSourceStatus.run({
+                sourceStatus: payload.sourceStatus,
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+            });
+
+            logger.debug("Orders source update-by-id applied", {
+                component: "OrdersDomain",
+                action: "handleOrderUpdateById",
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+                reason: payload.reason,
+                sourceStatus: payload.sourceStatus,
+                updated: result.changes,
+            });
+            return;
+        }
+
         // Order updates by id handle explicit cancels/fills or on-chain order creation.
         const status = statusFromReason(payload.reason);
 
@@ -192,10 +268,10 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
 
         let finalStatus: OrderStatus = status;
         if (payload.reason === "order") {
-            const row = this.selectOrderById.get(
-                payload.chainId,
-                payload.orderId,
-            ) as OrderRow | undefined;
+            const row = this.selectOrderById.get({
+                chainId: payload.chainId,
+                orderId: payload.orderId,
+            }) as OrderRow | undefined;
             if (!row) {
                 logger.warn("Orders update-by-id missing order", {
                     component: "OrdersDomain",
@@ -205,12 +281,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 return;
             }
             if (row.kind === "seaport" && row.raw_data) {
-                const validation = await validateSeaportOrder(
-                    this.rpc,
-                    this.conduits,
-                    this.seaportConfig,
-                    mapOrderRow(row),
-                );
+                const validation = await this.validateOrder(mapOrderRow(row));
                 finalStatus = validation.status;
                 logger.debug("Orders validation result", {
                     component: "OrdersDomain",
@@ -223,11 +294,11 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             }
         }
 
-        const result = this.updateOrderStatus.run(
-            finalStatus,
-            payload.chainId,
-            payload.orderId,
-        );
+        const result = this.updateOrderFillabilityStatus.run({
+            fillabilityStatus: finalStatus,
+            chainId: payload.chainId,
+            orderId: payload.orderId,
+        });
 
         logger.debug("Orders update-by-id applied", {
             component: "OrdersDomain",
@@ -259,6 +330,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             validFrom: payload.validFrom ?? null,
             validUntil: payload.validUntil ?? null,
             fillabilityStatus: ORDER_STATUS.Fillable,
+            sourceStatus: payload.sourceStatus ?? ORDER_SOURCE_STATUS.Active,
             rawData,
         });
 
@@ -271,6 +343,54 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             side: payload.side,
             updated: result.changes,
         });
+    }
+
+    private selectMakerUpdateCandidates(
+        payload: OrderUpdateByMakerPayload,
+    ): OrderRow[] {
+        const maker = payload.maker.toLowerCase();
+        switch (payload.reason) {
+            case "nft-transfer":
+            case "item_sold":
+            case "item_transferred":
+                if (!payload.contract || payload.tokenId === undefined) {
+                    logger.debug(
+                        "Orders update-by-maker ignored (missing token scope)",
+                        {
+                            component: "OrdersDomain",
+                            action: "handleOrderUpdateByMaker",
+                            ...payload,
+                        },
+                    );
+                    return [];
+                }
+                return this.selectMakerSellOrdersForToken.all({
+                    chainId: payload.chainId,
+                    maker,
+                    contract: payload.contract.toLowerCase(),
+                    tokenId: payload.tokenId,
+                }) as OrderRow[];
+            case "erc20-balance":
+            case "approval-change":
+                return this.selectMakerWethBuyOrders.all({
+                    chainId: payload.chainId,
+                    maker,
+                    currency: this.wethAddress,
+                }) as OrderRow[];
+            case "order-counter":
+                return this.selectMakerSeaportOrders.all({
+                    chainId: payload.chainId,
+                    maker,
+                }) as OrderRow[];
+            default:
+                return assertNeverReason(payload.reason);
+        }
+    }
+
+    private async revalidateSeaportOrder(
+        row: OrderRow,
+    ): Promise<{ status: OrderStatus; reason: string }> {
+        return this.validateOrder(mapOrderRow(row));
     }
 }
 
@@ -293,6 +413,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
         validUntil: row.valid_until,
         fillabilityStatus:
             row.fillability_status as OrderRecord["fillabilityStatus"],
+        sourceStatus: row.source_status as OrderRecord["sourceStatus"],
         rawData: row.raw_data,
         blockNumber: row.block_number,
         txHash: row.tx_hash,
@@ -313,4 +434,8 @@ function statusFromReason(
         default:
             return null;
     }
+}
+
+function assertNeverReason(reason: never): never {
+    throw new Error(`Unsupported order update-by-maker reason: ${reason}`);
 }

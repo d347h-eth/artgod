@@ -51,6 +51,18 @@ const INDEXER_WORKERS: &[(&str, &str)] = &[
         "indexer/dist-desktop/opensea-stream-worker.mjs",
     ),
     (
+        "indexer-opensea-bootstrap-worker",
+        "indexer/dist-desktop/opensea-bootstrap-worker.mjs",
+    ),
+    (
+        "indexer-opensea-reconcile-worker",
+        "indexer/dist-desktop/opensea-reconcile-worker.mjs",
+    ),
+    (
+        "indexer-opensea-reconcile-scheduler-worker",
+        "indexer/dist-desktop/opensea-reconcile-scheduler-worker.mjs",
+    ),
+    (
         "indexer-bootstrap-worker",
         "indexer/dist-desktop/bootstrap-worker.mjs",
     ),

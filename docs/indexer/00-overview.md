@@ -11,7 +11,7 @@ The indexer is a local-first pipeline that reads blockchain data and builds a lo
 - All persisted state lives in SQLite (better-sqlite3).
 - Every job is idempotent; at-least-once delivery is assumed.
 
-The system currently focuses on on-chain NFT transfer data (ERC721 and ERC1155), plus early-stage domain projections (orders invalidation, metadata fetch, activity feed).
+The system currently focuses on on-chain NFT transfer data (ERC721 and ERC1155), plus early-stage domain projections (order maintenance, metadata fetch, activity feed).
 
 ## Runtime Topology
 
@@ -36,15 +36,25 @@ Each runtime is an independent Node.js process. There is no shared memory across
     - Schedules backfill jobs to resync the rolled-back range.
 
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
-    - Consumes domain jobs (orders, metadata, activities).
-    - Writes domain-specific tables derived from transfer events.
+    - Consumes domain jobs (orders, metadata, activities) and order update jobs.
+    - Writes domain-specific tables and re-validates affected orders.
 
 - Offchain ingest runtime (`indexer/src/runtime/offchain-ingest-worker.ts`)
     - Consumes raw offchain order payloads.
     - Validates and normalizes them into order upsert jobs.
 
+- OpenSea bootstrap runtime (`indexer/src/runtime/opensea-bootstrap-worker.ts`)
+    - Resolves OpenSea collection identity and runs initial orderbook snapshots.
+
 - OpenSea stream runtime (`indexer/src/runtime/opensea-stream-worker.ts`)
-    - Replays OpenSea fixture payloads into the raw offchain queue (stub).
+    - Maintains live per-collection OpenSea stream subscriptions.
+    - Publishes raw OpenSea events into the offchain queue.
+
+- OpenSea reconcile runtime (`indexer/src/runtime/opensea-reconcile-worker.ts`)
+    - Runs full orderbook reconciliation passes for tracked collections.
+
+- OpenSea reconcile scheduler runtime (`indexer/src/runtime/opensea-reconcile-scheduler-worker.ts`)
+    - Schedules periodic and stale-start OpenSea reconciliation jobs.
 
 - Dead-letter runtime (`indexer/src/runtime/dead-letter-worker.ts`)
     - Consumes dead-letter jobs and logs failures.
@@ -87,8 +97,8 @@ These are the assumptions that the implementation relies on and should be preser
     - Decodes transfers.
     - Writes blocks/transfers/balances.
     - Publishes domain jobs for the same range.
-4. Domain worker consumes domain jobs:
-    - Orders domain invalidates orders based on transfers.
+4. Domain worker consumes domain jobs and order update jobs:
+    - Orders domain persists normalized offchain orders and re-validates affected orders from maker/order triggers.
     - Metadata domain fetches and stores token metadata.
     - Activity domain writes activity records.
 5. Scheduler-worker publishes `block-check` jobs once blocks are old enough.

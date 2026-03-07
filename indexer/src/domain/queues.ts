@@ -3,6 +3,8 @@ export const QUEUE_NAMES = {
     BackfillSync: "events-sync-backfill",
     BlockCheck: "block-check",
     CollectionBootstrap: "collection-bootstrap",
+    OpenSeaBootstrap: "opensea-bootstrap",
+    OpenSeaReconcile: "opensea-reconcile",
     OffchainOrdersRaw: "offchain-orders-raw",
     OrdersDomain: "orders-domain",
     OrdersUpsert: "orders-upsert",

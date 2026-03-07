@@ -1,15 +1,26 @@
+import type { OrderSourceStatus } from "./orders.js";
+
 export const ORDER_JOB_KIND = {
     UpdateByMaker: "orders.update-by-maker",
     UpdateById: "orders.update-by-id",
     Upsert: "orders.upsert",
 } as const;
 
+export type OrderUpdateByMakerReason =
+    | "nft-transfer"
+    | "erc20-balance"
+    | "approval-change"
+    | "order-counter"
+    | "item_sold"
+    | "item_transferred";
+
 // Maker update = fillability changed (balance/approval/ownership), re-validate orders.
 export type OrderUpdateByMakerPayload = {
+    chainId: number;
     maker: string;
     contract?: string;
     tokenId?: string;
-    reason: string;
+    reason: OrderUpdateByMakerReason;
     blockNumber: number;
     blockHash: string;
     txHash: string;
@@ -21,6 +32,7 @@ export type OrderUpdateByIdPayload = {
     chainId: number;
     orderId: string;
     reason: string;
+    sourceStatus?: OrderSourceStatus | null;
     blockNumber: number;
     blockHash: string;
     txHash: string;
@@ -43,6 +55,7 @@ export type OrderUpsertPayload = {
     validFrom?: number | null;
     validUntil?: number | null;
     source: string;
+    sourceStatus?: OrderSourceStatus | null;
     rawData?: unknown;
     // validateAfterUpsert is expected to be "true" by default to trigger onchain validation of the order,
     // otherwise the order might be persisted optimistically as "fillable".

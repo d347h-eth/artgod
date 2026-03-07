@@ -29,7 +29,7 @@ The sync worker:
     - Fetches logs for the target block/range.
     - Fetches full block details for the same range.
     - Persists results via SQLite storage.
-    - Publishes domain sync jobs (orders, metadata, activities).
+    - Publishes domain sync jobs (orders, metadata, activities) and order update jobs.
 
 The worker uses `maxInFlight = 1` to keep block processing strictly ordered within each queue.
 
@@ -74,7 +74,7 @@ Seaport fills are decoded from transaction calldata (no traces) and emitted as `
 
 WETH transfer/approval logs are decoded into maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the bidder index is ready and non-empty (quiet default). When the index is empty or not yet loaded, WETH logs are skipped and no maker triggers are emitted.
 
-Maker triggers are derived from NFT transfers and are published as order update jobs; other trigger types (fills, cancels, on-chain orders) are defined but only Seaport fills are extracted so far.
+Maker triggers are re-validation hints, not unconditional cancels. NFT transfers scope to exact-token sell orders, WETH transfer/approval triggers scope to WETH-denominated buy orders, and Seaport counter bumps scope to maker-wide Seaport orders.
 
 ## Gap Check
 
@@ -109,6 +109,11 @@ These jobs carry:
 - `sourceJobId`, `sourceKind`
 
 See `indexer/src/runtime/sync-worker.ts` for the exact payloads.
+
+Order maintenance then continues through dedicated update queues:
+
+- `orders.update-by-maker`
+- `orders.update-by-id`
 
 ## Notes and Current Limitations
 

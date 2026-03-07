@@ -4,7 +4,7 @@ This document describes the explicit configuration model used by the indexer and
 
 ## Runtime Config Loader
 
-Config is loaded in `indexer/src/config/index.ts` (sync/scheduler-worker/domain workers) and `indexer/src/config/offchain.ts` (offchain stream worker). There are no scattered `process.env` reads in runtime logic; values are pulled once and passed through.
+Config is loaded in `indexer/src/config/index.ts` (core indexer workers) and `indexer/src/config/opensea.ts` (OpenSea bootstrap/stream/reconcile workers). There are no scattered `process.env` reads in runtime logic; values are pulled once and passed through.
 
 - `.env` is loaded at startup via `dotenv`.
 - `loadConfig()` reads the current environment and produces a typed config object.
@@ -42,13 +42,23 @@ The indexer reads these variables from the root `.env`:
 
 `RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
 
-### Offchain Stream (.env)
+### OpenSea Offchain (.env)
 
-The OpenSea stream stub uses a separate config loader (`indexer/src/config/offchain.ts`) and requires:
+The OpenSea workers use a separate config loader (`indexer/src/config/opensea.ts`) and require:
 
-- `OPENSEA_STREAM_MODE` (required, current supported value: `fixtures`)
-- `OPENSEA_FIXTURES_DIR` (required, directory with JSON payloads)
-- `OPENSEA_FIXTURE_DELAY_MS` (optional, delay between fixture events)
+- `OPENSEA_API_KEY` (required)
+- `OPENSEA_SNAPSHOT_PAGE_SIZE` (default: `100`)
+- `OPENSEA_RECONCILE_INTERVAL_MS` (default: `900000`)
+- `OPENSEA_STALE_START_THRESHOLD_MS` (default: `1800000`)
+- `OPENSEA_STREAM_SUBSCRIPTION_POLL_MS` (default: `5000`)
+- `OPENSEA_HTTP_RETRY_MAX_ATTEMPTS` (default: `3`)
+- `OPENSEA_HTTP_RETRY_BASE_DELAY_MS` (default: `500`)
+- `OPENSEA_HTTP_RETRY_MAX_DELAY_MS` (default: `10000`)
+- `OPENSEA_HTTP_RETRY_JITTER_RATIO` (default: `0.2`)
+- `OPENSEA_RATE_LIMIT_GET_MAX` (default: `4`)
+- `OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND` (default: `1`)
+- `OPENSEA_RATE_LIMIT_POST_MAX` (default: `2`)
+- `OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND` (default: `0.5`)
 
 Example (from `.env.example`):
 
@@ -66,9 +76,19 @@ CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
-OPENSEA_STREAM_MODE=fixtures
-OPENSEA_FIXTURES_DIR=indexer/tests/fixtures/opensea-event-payloads
-OPENSEA_FIXTURE_DELAY_MS=0
+OPENSEA_API_KEY=
+OPENSEA_SNAPSHOT_PAGE_SIZE=100
+OPENSEA_RECONCILE_INTERVAL_MS=900000
+OPENSEA_STALE_START_THRESHOLD_MS=1800000
+OPENSEA_STREAM_SUBSCRIPTION_POLL_MS=5000
+OPENSEA_HTTP_RETRY_MAX_ATTEMPTS=3
+OPENSEA_HTTP_RETRY_BASE_DELAY_MS=500
+OPENSEA_HTTP_RETRY_MAX_DELAY_MS=10000
+OPENSEA_HTTP_RETRY_JITTER_RATIO=0.2
+OPENSEA_RATE_LIMIT_GET_MAX=4
+OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND=1
+OPENSEA_RATE_LIMIT_POST_MAX=2
+OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND=0.5
 ```
 
 ## Test Environment (.env.test)
@@ -91,6 +111,7 @@ Example (from `.env.test.example`):
 
 ```
 ARTGOD_DB_PATH=database/sqlite/test/db
+OPENSEA_API_KEY=test-opensea-api-key
 SMOKE_NATS_PORT=10247
 SMOKE_RPC_URL=http://127.0.0.1:8545
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2

@@ -86,21 +86,6 @@ const copySpecs = [
         target: path.join(resourcesRootDir, ".yarn", "install-state.gz"),
         description: "Yarn install state",
     },
-    {
-        source: path.join(
-            rootDir,
-            "indexer",
-            "tests",
-            "fixtures",
-            "opensea-event-payloads",
-        ),
-        target: path.join(
-            resourcesRootDir,
-            "fixtures",
-            "opensea-event-payloads",
-        ),
-        description: "OpenSea fixture payloads",
-    },
 ];
 
 await rm(resourcesRootDir, { recursive: true, force: true });

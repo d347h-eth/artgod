@@ -1,5 +1,7 @@
 import type { RawOrderPayload } from "./normalize.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
+import type { OrderUpdateByMakerReason } from "../../domain/order-jobs.js";
+import type { OrderSourceStatus } from "../../domain/orders.js";
 import {
     asObject,
     assertAddress,
@@ -18,7 +20,8 @@ const SEAPORT_ITEM_TYPE_ERC1155_WITH_CRITERIA = 5;
 
 export type OpenSeaOrderUpdate = {
     orderId: string;
-    reason: "cancel" | "order";
+    reason: "cancel" | "order" | "fill";
+    sourceStatus: OrderSourceStatus;
 };
 
 export type OpenSeaMetadataRefresh = {
@@ -26,6 +29,13 @@ export type OpenSeaMetadataRefresh = {
     tokenId: string;
     metadataUrl: string | null;
     reason: "metadata_updated";
+};
+
+export type OpenSeaMakerUpdate = {
+    maker: string;
+    contract: string;
+    tokenId: string;
+    reason: Extract<OrderUpdateByMakerReason, "item_sold" | "item_transferred">;
 };
 
 export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
@@ -37,6 +47,9 @@ export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
     if (eventType === "item_received_bid") {
         return normalizeItemReceivedBid(payload);
     }
+    if (eventType === "item_received_offer") {
+        return normalizeItemReceivedBid(payload);
+    }
     if (eventType === "collection_offer") {
         return normalizeCollectionOffer(payload);
     }
@@ -44,7 +57,7 @@ export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
         return normalizeTraitOffer(payload);
     }
 
-    // Other OpenSea events are currently ignored by the offchain pipeline.
+    // This event is not for "order upsert".
     return null;
 }
 
@@ -53,19 +66,42 @@ export function normalizeOpenSeaOrderUpdate(
 ): OpenSeaOrderUpdate | null {
     const { eventType, payload } = parseOpenSeaEnvelope(raw);
 
-    if (eventType === "item_cancelled" || eventType === "order_invalidation") {
+    if (eventType === "item_cancelled") {
         return {
             orderId: parseOrderHash(payload),
             reason: "cancel",
+            sourceStatus: "cancelled",
         };
     }
-    if (eventType === "order_revalidation") {
+    if (
+        eventType === "order_invalidate" ||
+        eventType === "order_invalidation"
+    ) {
+        return {
+            orderId: parseOrderHash(payload),
+            reason: "cancel",
+            sourceStatus: "invalidated",
+        };
+    }
+    if (
+        eventType === "order_revalidate" ||
+        eventType === "order_revalidation"
+    ) {
         return {
             orderId: parseOrderHash(payload),
             reason: "order",
+            sourceStatus: "active",
+        };
+    }
+    if (eventType === "item_sold") {
+        return {
+            orderId: parseOrderHash(payload),
+            reason: "fill",
+            sourceStatus: "filled",
         };
     }
 
+    // This event is not for the specific order update.
     return null;
 }
 
@@ -84,6 +120,35 @@ export function normalizeOpenSeaMetadataRefresh(
         metadataUrl,
         reason: "metadata_updated",
     };
+}
+
+export function normalizeOpenSeaMakerUpdate(
+    raw: unknown,
+): OpenSeaMakerUpdate | null {
+    const { eventType, payload } = parseOpenSeaEnvelope(raw);
+
+    if (eventType === "item_transferred") {
+        const { contract, tokenId } = parseRequiredNftId(payload.item);
+        return {
+            maker: assertAddress(payload.from_account, "from_account"),
+            contract,
+            tokenId,
+            reason: "item_transferred",
+        };
+    }
+
+    if (eventType === "item_sold") {
+        const { contract, tokenId } = parseRequiredNftId(payload.item);
+        return {
+            maker: assertAddress(payload.maker, "maker"),
+            contract,
+            tokenId,
+            reason: "item_sold",
+        };
+    }
+
+    // This event is not for maker-scoped orders update.
+    return null;
 }
 
 function normalizeItemListed(

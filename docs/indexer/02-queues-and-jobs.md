@@ -114,12 +114,12 @@ DLQ payload:
     - `orders.update-by-maker`
     - `orders.update-by-id`
 
-Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected.
+Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected. Offchain ingest also emits order update jobs for OpenSea fill/transfer side-effects and explicit order status changes.
 
 - Offchain ingestion jobs (`indexer/src/domain/offchain-jobs.ts`):
     - `offchain.order.raw`
 
-`offchain.order.raw` jobs are produced by the OpenSea stream worker (fixture stub today) and consumed by the offchain ingest worker.
+`offchain.order.raw` jobs are produced by the OpenSea stream/bootstrap/reconcile workers and consumed by the offchain ingest worker.
 
 - Bootstrap jobs (`indexer/src/domain/bootstrap-jobs.ts`):
     - `bootstrap.collection.start`

@@ -10,6 +10,19 @@ export const ORDER_STATUS = {
 
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 
+export const ORDER_SOURCE_STATUS = {
+    Active: "active",
+    Inactive: "inactive",
+    Cancelled: "cancelled",
+    Filled: "filled",
+    Invalidated: "invalidated",
+    Expired: "expired",
+    Unknown: "unknown",
+} as const;
+
+export type OrderSourceStatus =
+    (typeof ORDER_SOURCE_STATUS)[keyof typeof ORDER_SOURCE_STATUS];
+
 export type OrderRecord = {
     id: string;
     chainId: number;
@@ -27,6 +40,7 @@ export type OrderRecord = {
     validFrom?: number | null;
     validUntil?: number | null;
     fillabilityStatus: OrderStatus;
+    sourceStatus: OrderSourceStatus;
     rawData?: string | null;
     blockNumber?: number | null;
     txHash?: string | null;

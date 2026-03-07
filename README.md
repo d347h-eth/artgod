@@ -13,7 +13,7 @@ Current implementation snapshot:
 - Realtime sync, backfill sync, and reorg checks are implemented.
 - Collection bootstrap is implemented (metadata-first, then ownership snapshot + short backfill).
 - Domain projections for orders, metadata, and activities are implemented.
-- Offchain ingestion exists with an OpenSea stream fixture replay path and normalization pipeline.
+- Offchain ingestion includes OpenSea live stream ingestion, bootstrap snapshots, periodic reconciliation, and normalization into canonical order state.
 - Local observability stack is available (logs, metrics, traces, profiles).
 - Tauri desktop runtime supervisor composes local NATS + backend + indexer workers from production runtime artifacts.
 
@@ -61,7 +61,7 @@ Desktop runtime env file is generated on first launch at:
 Desktop-first path defaults:
 
 - `ARTGOD_DB_PATH=sqlite/main/db` (resolved relative to app-data dir unless absolute)
-- `OPENSEA_FIXTURES_DIR=fixtures/opensea-event-payloads` (resolved relative to desktop runtime resources dir unless absolute)
+- `USERLAND_UI_DIST_DIR=frontend/userland` (resolved relative to desktop runtime resources dir unless absolute)
 
 VSCode (Yarn PnP):
 
@@ -101,6 +101,9 @@ yarn workspace @artgod/indexer run dev:domain-worker
 yarn workspace @artgod/indexer run dev:bootstrap-worker
 yarn workspace @artgod/indexer run dev:offchain-ingest-worker
 yarn workspace @artgod/indexer run dev:opensea-stream-worker
+yarn workspace @artgod/indexer run dev:opensea-bootstrap-worker
+yarn workspace @artgod/indexer run dev:opensea-reconcile-worker
+yarn workspace @artgod/indexer run dev:opensea-reconcile-scheduler-worker
 yarn workspace @artgod/indexer run dev:dead-letter-worker
 ```
 

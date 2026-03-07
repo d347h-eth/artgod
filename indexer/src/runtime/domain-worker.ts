@@ -71,6 +71,7 @@ async function main() {
             rpc,
             conduits,
             config.seaport,
+            config.tokens.wethAddress,
         );
         const metadataResolver = new ViemTokenUriResolver({
             url: config.rpc.primaryUrl,

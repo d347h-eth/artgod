@@ -21,6 +21,10 @@ import {
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
 } from "../domain/sync-jobs.js";
+import {
+    OPENSEA_JOB_KIND,
+    type OpenSeaBootstrapCollectionPayload,
+} from "../domain/opensea-jobs.js";
 import { SqliteBootstrapStorage } from "../infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../infra/bootstrap/sqlite-runs.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
@@ -879,6 +883,12 @@ async function ensureBackfillScheduled(
     traceId: string,
     sourceJobId: string,
 ): Promise<void> {
+    collections.markOpenSeaPending(payload.chainId, payload.collectionId);
+    await scheduleOpenSeaBootstrap(queue, {
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+    });
+
     const fromBlock = payload.anchorBlock + 1;
     if (fromBlock <= 0) {
         logger.warn("Bootstrap backfill skipped (invalid range)", {
@@ -1138,6 +1148,23 @@ async function scheduleBackfillCheck(
         collectionId: payload.collectionId,
     };
     await queue.publish(QUEUE_NAMES.CollectionBootstrap, job);
+}
+
+async function scheduleOpenSeaBootstrap(
+    queue: QueuePort,
+    payload: OpenSeaBootstrapCollectionPayload,
+): Promise<void> {
+    const job: JobEnvelope<OpenSeaBootstrapCollectionPayload> = {
+        jobId: `opensea:bootstrap:${payload.chainId}:${payload.collectionId}`,
+        kind: OPENSEA_JOB_KIND.BootstrapCollection,
+        queue: QUEUE_NAMES.OpenSeaBootstrap,
+        payload,
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
+    };
+    await queue.publish(QUEUE_NAMES.OpenSeaBootstrap, job);
 }
 
 async function resolveAnchorBlock(

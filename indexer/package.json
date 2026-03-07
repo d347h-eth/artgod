@@ -11,6 +11,9 @@
         "dev:domain-worker": "tsx src/runtime/domain-worker.ts",
         "dev:offchain-ingest-worker": "tsx src/runtime/offchain-ingest-worker.ts",
         "dev:opensea-stream-worker": "tsx src/runtime/opensea-stream-worker.ts",
+        "dev:opensea-bootstrap-worker": "tsx src/runtime/opensea-bootstrap-worker.ts",
+        "dev:opensea-reconcile-worker": "tsx src/runtime/opensea-reconcile-worker.ts",
+        "dev:opensea-reconcile-scheduler-worker": "tsx src/runtime/opensea-reconcile-scheduler-worker.ts",
         "dev:bootstrap-worker": "tsx src/runtime/bootstrap-worker.ts",
         "dev:bootstrap-trigger": "tsx scripts/trigger-bootstrap.ts",
         "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts",
@@ -19,9 +22,11 @@
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
+        "@opensea/stream-js": "github:ProjectOpenSea/stream-js#v0.2.3",
         "better-sqlite3": "^v12.2.0",
         "dotenv": "^16.4.5",
         "nats": "^2.29.1",
+        "opensea-js": "github:ProjectOpenSea/opensea-js#v8.0.17",
         "viem": "2.41.2"
     },
     "devDependencies": {

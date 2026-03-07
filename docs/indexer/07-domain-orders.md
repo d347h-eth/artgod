@@ -1,6 +1,6 @@
 # Orders Domain
 
-The orders domain is a minimal first pass that reacts to transfers by invalidating orders whose makers no longer hold the token.
+The orders domain persists canonical order rows and maintains their fillability through dedicated update queues.
 
 Primary file:
 
@@ -19,9 +19,9 @@ The orders domain consumes `domain.orders.sync` jobs. Each job provides:
 - `mode` (`realtime` or `backfill`)
 - `sourceJobId`, `sourceKind`
 
-The domain reads transfer events from `nft_transfer_events` within the block range.
+`domain.orders.sync` is currently a no-op placeholder. Order state changes flow through dedicated order update jobs instead of hidden range-wide invalidation logic.
 
-The orders domain also consumes `orders.upsert` jobs for offchain order ingestion. These jobs carry a normalized order payload (maker/side/price/token) and are persisted directly into the `orders` table. The OpenSea normalizer currently supports `item_listed` and `item_received_bid` events; collection and trait offers are ignored for now.
+The orders domain also consumes `orders.upsert` jobs for offchain order ingestion. These jobs carry a normalized order payload (maker/side/price/token) and are persisted directly into the `orders` table.
 
 After an upsert with `validateAfterUpsert`, the domain worker emits an `orders.update-by-id` job to validate the offchain order on-chain (Seaport).
 
@@ -61,25 +61,28 @@ Handlers now update order status by id for `fill`, `cancel`, and `order` trigger
 
 Validation can set `fillability_status` to `fillable`, `expired`, `cancelled`, `filled`, `no-balance`, `no-approval`, or `invalid`.
 
-Maker-based updates remain minimal and only log.
+Maker-based updates are selective re-validation triggers:
+
+- `nft-transfer`, `item_sold`, `item_transferred`
+  - re-validate exact-token sell orders for the maker
+- `erc20-balance`, `approval-change`
+  - re-validate WETH-denominated buy orders for the maker
+- `order-counter`
+  - re-validate all Seaport orders for the maker
 
 ## Logic
 
 The current implementation:
 
-1. Reads all transfers in the range where `from_address != ZERO_ADDRESS`.
-2. Builds unique keys `(maker, contract, tokenId)` for each outgoing transfer.
-3. For each unique key, updates orders where:
-    - `chain_id`, `maker`, `contract`, `token_id` match.
-    - `fillability_status != 'no-balance'`.
-4. Sets `fillability_status` to `no-balance` and updates `updated_at`.
-
-This keeps order invalidation simple and idempotent, while offchain validation handles fillability correctness.
+1. Persists offchain order upserts into the canonical `orders` table.
+2. Uses `orders.update-by-id` for explicit fills, cancels, and on-chain order re-checks.
+3. Uses `orders.update-by-maker` for reason-scoped Seaport re-validation.
+4. Updates only `fillability_status` from validation results; source-market activity remains tracked separately via `source_status`.
 
 On reorg rollback, orders that were invalidated by transfers in orphaned blocks are reset back to `fillable` (best-effort), and on-chain orders in the rolled-back range are deleted.
 
 ## Current Scope and Limits
 
-- Order invalidation, status updates, and offchain order upserts are implemented.
+- Order update queues, status updates, and offchain order upserts are implemented.
 - The schema supports richer fields (price, currency, validity), but only the normalized subset is populated.
 - This domain is intentionally minimal to keep the pipeline lean for MVP.
