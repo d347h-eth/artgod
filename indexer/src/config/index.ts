@@ -95,6 +95,7 @@ export type IndexerConfig = {
             openseaReconcileWorker: number;
             openseaReconcileSchedulerWorker: number;
             bootstrapWorker: number;
+            collectionExtensionWorker: number;
             deadLetterWorker: number;
         };
     };
@@ -341,6 +342,11 @@ export function loadConfig(
                     env.METRICS_PORT_BOOTSTRAP_WORKER,
                     "METRICS_PORT_BOOTSTRAP_WORKER",
                     9470,
+                ),
+                collectionExtensionWorker: parseNumber(
+                    env.METRICS_PORT_COLLECTION_EXTENSION_WORKER,
+                    "METRICS_PORT_COLLECTION_EXTENSION_WORKER",
+                    9475,
                 ),
                 deadLetterWorker: parseNumber(
                     env.METRICS_PORT_DEAD_LETTER_WORKER,

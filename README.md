@@ -14,6 +14,7 @@ Current implementation snapshot:
 - Collection bootstrap is implemented (metadata-first, then ownership snapshot + short backfill).
 - Domain projections for orders, metadata, and activities are implemented.
 - Offchain ingestion includes OpenSea live stream ingestion, bootstrap snapshots, periodic reconciliation, and normalization into canonical order state.
+- Collection extensions are build-bundled and DB-activated; Terraforms is the first embedded extension for metadata-side artifacts, sync enrichment, and backend media overrides.
 - Local observability stack is available (logs, metrics, traces, profiles).
 - Tauri desktop runtime supervisor composes local NATS + backend + indexer workers from production runtime artifacts.
 
@@ -209,6 +210,7 @@ Runtime entrypoints:
 - `indexer/src/runtime/reorg-worker.ts`
 - `indexer/src/runtime/domain-worker.ts`
 - `indexer/src/runtime/bootstrap-worker.ts`
+- `indexer/src/runtime/collection-extension-worker.ts`
 - `indexer/src/runtime/offchain-ingest-worker.ts`
 - `indexer/src/runtime/opensea-stream-worker.ts`
 - `indexer/src/runtime/opensea-bootstrap-worker.ts`
@@ -229,6 +231,7 @@ Queue contracts (`indexer/src/domain/queues.ts`):
 - `orders-upsert`
 - `order-updates-by-maker`
 - `order-updates-by-id`
+- `collection-extension-artifacts`
 - `metadata-domain`
 - `metadata-refresh`
 - `metadata-stats`
@@ -249,12 +252,14 @@ Per-collection bootstrap flow:
 
 1. Register collection (`status = bootstrapping`).
 2. Pick anchor block (`head - reorgDepth`).
-3. Run metadata snapshot first (strict or `best_effort` mode).
-4. Run ownership snapshot at the same anchor.
-5. Schedule short backfill (`anchor + 1` to head).
-6. Enqueue OpenSea bootstrap once local metadata + ownership are ready.
-7. Mark collection `live` once short backfill completes.
-8. Mark OpenSea offchain `ready` once the first full snapshot succeeds; periodic reconcile maintains eventual consistency after that.
+3. Auto-install any embedded collection extension for the collection contract.
+4. Run metadata snapshot first (strict or `best_effort` mode).
+5. Fan out collection-extension artifact refresh jobs as non-blocking side-effects behind canonical metadata writes.
+6. Run ownership snapshot at the same anchor.
+7. Schedule short backfill (`anchor + 1` to head).
+8. Enqueue OpenSea bootstrap once local metadata + ownership are ready.
+9. Mark collection `live` once short backfill completes.
+10. Mark OpenSea offchain `ready` once the first full snapshot succeeds; periodic reconcile maintains eventual consistency after that.
 
 `nft_balances` is canonical ownership state after bootstrap completion.
 

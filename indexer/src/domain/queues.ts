@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
     OrdersUpsert: "orders-upsert",
     OrdersUpdateByMaker: "order-updates-by-maker",
     OrdersUpdateById: "order-updates-by-id",
+    CollectionExtensionArtifacts: "collection-extension-artifacts",
     MetadataDomain: "metadata-domain",
     MetadataRefresh: "metadata-refresh",
     MetadataStats: "metadata-stats",

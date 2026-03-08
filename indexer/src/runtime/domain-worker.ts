@@ -2,6 +2,8 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
+import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
+import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import type { JobEnvelope } from "../domain/jobs.js";
@@ -25,6 +27,8 @@ import { SqliteActivityDomain } from "../infra/domain/activities.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
 import { validateSeaportOrder } from "../application/offchain/seaport-validate.js";
+import type { MetadataUpdatedToken } from "../domain/metadata.js";
+import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { QueuePort } from "../ports/queue.js";
 import {
     ORDER_JOB_KIND,
@@ -87,6 +91,7 @@ async function main() {
         );
         const metadataStatsDomain = new SqliteMetadataStatsDomain();
         const activityDomain = new SqliteActivityDomain();
+        const collectionExtensions = new SqliteCollectionExtensions();
 
         const stopOrders = await runWorker(
             queue,
@@ -195,10 +200,10 @@ async function main() {
             },
             async (job: JobEnvelope<DomainSyncPayload>) => {
                 if (job.kind !== DOMAIN_JOB_KIND.MetadataSync) return;
-                const contracts = await metadataDomain.handleDomainSync(
+                const result = await metadataDomain.handleDomainSync(
                     toDomainContext(job),
                 );
-                for (const contract of contracts) {
+                for (const contract of result.contracts) {
                     await publishMetadataStatsRecompute(
                         queue,
                         {
@@ -212,6 +217,15 @@ async function main() {
                         job.traceId ?? job.jobId,
                     );
                 }
+                await publishCollectionExtensionArtifactJobs(
+                    queue,
+                    collectionExtensions,
+                    job.chainId,
+                    result.updatedTokens,
+                    "metadata-sync",
+                    "onchain",
+                    job.traceId ?? job.jobId,
+                );
             },
             {
                 apm: runtimeApm.apm,
@@ -250,6 +264,15 @@ async function main() {
                             },
                             job.traceId ?? job.jobId,
                         );
+                        await publishCollectionExtensionArtifactJobs(
+                            queue,
+                            collectionExtensions,
+                            job.chainId,
+                            [updated],
+                            (job.payload as MetadataRefreshPayload).reason,
+                            (job.payload as MetadataRefreshPayload).source,
+                            job.traceId ?? job.jobId,
+                        );
                     }
                     return;
                 }
@@ -257,6 +280,7 @@ async function main() {
                     await handleMetadataRefreshRangeJob(
                         queue,
                         metadataDomain,
+                        collectionExtensions,
                         job.payload as MetadataRefreshRangePayload,
                         config.metadata.refreshRangeChunkSize,
                         job.traceId ?? job.jobId,
@@ -359,6 +383,7 @@ function deriveMetadataStatsReason(
 async function handleMetadataRefreshRangeJob(
     queue: QueuePort,
     metadataDomain: SqliteMetadataDomain,
+    collectionExtensions: CollectionExtensionInstallPort,
     payload: MetadataRefreshRangePayload,
     chunkSize: number,
     traceId: string,
@@ -372,7 +397,7 @@ async function handleMetadataRefreshRangeJob(
         chunkSize,
     );
 
-    let updatedAny = false;
+    const updatedTokens: MetadataUpdatedToken[] = [];
     for (const tokenId of tokenIds) {
         const updated = await metadataDomain.handleMetadataRefresh({
             chainId: payload.chainId,
@@ -382,9 +407,11 @@ async function handleMetadataRefreshRangeJob(
             reason: payload.reason,
             source: payload.source,
         });
-        updatedAny = updatedAny || updated;
+        if (updated) {
+            updatedTokens.push(updated);
+        }
     }
-    if (updatedAny) {
+    if (updatedTokens.length > 0) {
         await publishMetadataStatsRecompute(
             queue,
             {
@@ -393,6 +420,15 @@ async function handleMetadataRefreshRangeJob(
                 reason: "metadata-refresh",
                 sourceJobId,
             },
+            traceId,
+        );
+        await publishCollectionExtensionArtifactJobs(
+            queue,
+            collectionExtensions,
+            payload.chainId,
+            updatedTokens,
+            payload.reason,
+            payload.source,
             traceId,
         );
     }
@@ -493,4 +529,46 @@ function toDomainContext(
         sourceJobId: job.payload.sourceJobId,
         sourceKind: job.payload.sourceKind,
     };
+}
+
+async function publishCollectionExtensionArtifactJobs(
+    queue: QueuePort,
+    collectionExtensions: CollectionExtensionInstallPort,
+    chainId: number,
+    updatedTokens: MetadataUpdatedToken[],
+    reason: string,
+    source?: string | null,
+    traceId: string,
+): Promise<void> {
+    const installsByContract = new Map<string, number | null>();
+
+    for (const updated of updatedTokens) {
+        const contract = updated.contract.toLowerCase();
+        let collectionId = installsByContract.get(contract);
+        if (collectionId === undefined) {
+            const install = collectionExtensions.getInstallByContract(
+                chainId,
+                contract,
+            );
+            collectionId = install?.enabled ? install.collectionId : null;
+            installsByContract.set(contract, collectionId);
+        }
+
+        if (collectionId === null) {
+            continue;
+        }
+
+        await publishCollectionExtensionRefreshArtifacts(
+            queue,
+            {
+                chainId,
+                collectionId,
+                contract,
+                tokenId: updated.tokenId,
+                reason,
+                source,
+            },
+            traceId,
+        );
+    }
 }

@@ -35,6 +35,9 @@ scrape_configs:
           - targets: ["127.0.0.1:9470"]
             labels:
                 runtime: "bootstrap-worker"
+          - targets: ["127.0.0.1:9475"]
+            labels:
+                runtime: "collection-extension-worker"
           - targets: ["127.0.0.1:9471"]
             labels:
                 runtime: "dead-letter-worker"

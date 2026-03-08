@@ -1,6 +1,11 @@
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import type { TokenMetadata, TokenStandard } from "../../domain/metadata.js";
+import type {
+    MetadataDomainSyncResult,
+    MetadataRefreshResult,
+    TokenMetadata,
+    TokenStandard,
+} from "../../domain/metadata.js";
 import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
 import type {
     DomainSyncContext,
@@ -107,9 +112,16 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         private fetcher: MetadataFetcherPort,
     ) {}
 
-    async handleDomainSync(context: DomainSyncContext): Promise<string[]> {
+    async handleDomainSync(
+        context: DomainSyncContext,
+    ): Promise<MetadataDomainSyncResult> {
         const { chainId, fromBlock, toBlock } = context;
-        if (fromBlock > toBlock) return [];
+        if (fromBlock > toBlock) {
+            return {
+                contracts: [],
+                updatedTokens: [],
+            };
+        }
 
         const rows = this.selectFirstTransferPerToken.all(
             chainId,
@@ -117,6 +129,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             toBlock,
         ) as TokenRow[];
         const contracts = new Set<string>();
+        const updatedTokens: MetadataDomainSyncResult["updatedTokens"] = [];
         for (const row of rows) {
             contracts.add(row.contract.toLowerCase());
         }
@@ -156,6 +169,10 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 continue;
             }
             this.persistMetadata(chainId, contract, tokenId, metadata, row);
+            updatedTokens.push({
+                contract,
+                tokenId,
+            });
             fetched += 1;
         }
 
@@ -168,12 +185,15 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             tokens: rows.length,
             fetched,
         });
-        return Array.from(contracts);
+        return {
+            contracts: Array.from(contracts),
+            updatedTokens,
+        };
     }
 
     async handleMetadataRefresh(
         payload: MetadataRefreshPayload,
-    ): Promise<boolean> {
+    ): Promise<MetadataRefreshResult> {
         const { chainId } = payload;
         const contract = payload.contract.toLowerCase();
         const tokenId = payload.tokenId;
@@ -185,7 +205,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             const standard =
                 tokenStandard ??
                 this.resolveCollectionStandard(chainId, contract);
-            if (!standard) return false;
+            if (!standard) return null;
             uri = await this.resolver.resolveTokenUri(
                 contract,
                 tokenId,
@@ -201,7 +221,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 contract,
                 tokenId,
             });
-            return false;
+            return null;
         }
 
         const metadata = await this.fetcher.fetchMetadata(uri);
@@ -214,7 +234,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 tokenId,
                 uri,
             });
-            return false;
+            return null;
         }
 
         this.persistMetadata(chainId, contract, tokenId, metadata, {
@@ -233,7 +253,10 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             tokenId,
             reason: payload.reason,
         });
-        return true;
+        return {
+            contract,
+            tokenId,
+        };
     }
 
     private resolveCollectionStandard(

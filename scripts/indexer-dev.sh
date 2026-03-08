@@ -41,6 +41,7 @@ start_worker "indexer-opensea-bootstrap-worker" "dev:opensea-bootstrap-worker"
 start_worker "indexer-opensea-reconcile-worker" "dev:opensea-reconcile-worker"
 start_worker "indexer-opensea-reconcile-scheduler-worker" "dev:opensea-reconcile-scheduler-worker"
 start_worker "indexer-bootstrap-worker" "dev:bootstrap-worker"
+start_worker "indexer-collection-extension-worker" "dev:collection-extension-worker"
 start_worker "indexer-dead-letter-worker" "dev:dead-letter-worker"
 
 echo "Indexer workers running. Logs: $LOG_DIR"

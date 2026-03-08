@@ -2,6 +2,8 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
+import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
+import type { CollectionExtensionSyncWatchSpec } from "../application/collection-extensions/types.js";
 import { syncRange, type SyncRange } from "../application/sync.js";
 import { runWorker } from "../application/worker-runner.js";
 import { BidderIndex } from "../application/bidder-index.js";
@@ -30,6 +32,7 @@ import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
+import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { initRuntimeMetrics } from "../metrics/runtime.js";
 import {
     ORDER_JOB_KIND,
@@ -40,6 +43,7 @@ import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
 import type { Hex } from "../ports/rpc.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import type { CollectionRecord } from "../domain/collections.js";
+import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import { initRuntimeApm } from "../observability/apm.js";
 
 const BIDDER_INDEX_REFRESH_MS = 30_000;
@@ -95,6 +99,7 @@ async function main() {
             : primaryRpc;
         const storage = new SqliteStorage();
         const collectionRegistry = new SqliteCollectionRegistry();
+        const collectionExtensions = new SqliteCollectionExtensions();
         const bidderIndex = new BidderIndex(
             new SqliteBidderIndex(),
             config.chainId,
@@ -160,6 +165,7 @@ async function main() {
                 const { data, blocks } = await processRange(
                     primaryRpc,
                     storage,
+                    collectionExtensions,
                     config.chainId,
                     collections,
                     range,
@@ -228,6 +234,7 @@ async function main() {
                 const { data, blocks } = await processRange(
                     backfillRpc,
                     storage,
+                    collectionExtensions,
                     config.chainId,
                     collections,
                     range,
@@ -295,6 +302,7 @@ main();
 async function processRange(
     rpc: RpcProviderPort,
     storage: SqliteStorage,
+    collectionExtensions: CollectionExtensionInstallPort,
     chainId: number,
     collections: CollectionRecord[],
     range: SyncRange,
@@ -304,7 +312,12 @@ async function processRange(
     data: Awaited<ReturnType<typeof syncRange>>;
     blocks: RpcBlock[];
 }> {
-    const data = await syncRange(rpc, collections, range);
+    const extensionWatchSpecs = resolveCollectionExtensionWatchSpecs(
+        collectionExtensions,
+        chainId,
+        collections,
+    );
+    const data = await syncRange(rpc, collections, range, extensionWatchSpecs);
     const blocks = await fetchBlocks(rpc, range);
     storage.persistSyncResult(chainId, blocks, data);
     await appendWethMakerInfos(rpc, range, wethAddress, bidderIndex, data);
@@ -483,6 +496,38 @@ function resolveBackfillCollections(
     }
 
     return [collection];
+}
+
+function resolveCollectionExtensionWatchSpecs(
+    collectionExtensions: CollectionExtensionInstallPort,
+    chainId: number,
+    collections: CollectionRecord[],
+): CollectionExtensionSyncWatchSpec[] {
+    const specs: CollectionExtensionSyncWatchSpec[] = [];
+    const seen = new Set<string>();
+
+    for (const collection of collections) {
+        const install = collectionExtensions.getInstall(chainId, collection.id);
+        if (!install?.enabled) {
+            continue;
+        }
+
+        const extension = resolveIndexerCollectionExtension(install);
+        if (!extension) {
+            continue;
+        }
+
+        for (const spec of extension.buildSyncWatchSpecs(install)) {
+            const dedupeKey = `${install.collectionId}:${install.extensionKey}:${spec.sourceId}`;
+            if (seen.has(dedupeKey)) {
+                continue;
+            }
+            seen.add(dedupeKey);
+            specs.push(spec);
+        }
+    }
+
+    return specs;
 }
 
 // Metadata refresh jobs are triggered by on-chain refresh events (e.g. ERC-4906).

@@ -67,6 +67,10 @@ const INDEXER_WORKERS: &[(&str, &str)] = &[
         "indexer/dist-desktop/bootstrap-worker.mjs",
     ),
     (
+        "indexer-collection-extension-worker",
+        "indexer/dist-desktop/collection-extension-worker.mjs",
+    ),
+    (
         "indexer-dead-letter-worker",
         "indexer/dist-desktop/dead-letter-worker.mjs",
     ),

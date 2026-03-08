@@ -22,6 +22,8 @@ import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
 import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
+import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extension-aware-collection-detail-read.js";
+import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 
@@ -48,6 +50,10 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         ZERO_ADDRESS,
         config.wethAddress,
     ]);
+    const extensionAwareCollectionsReadModel = new ExtensionAwareCollectionDetailRead(
+        collectionsReadModel,
+        new SqliteCollectionExtensionRecords(),
+    );
     const bootstrapRunsRepository = new SqliteBootstrapRunsRepository();
     const bootstrapCommandQueue = new NatsBootstrapCommandQueue(
         config.natsUrl,
@@ -93,12 +99,12 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
     const getCollectionDetailUseCase = new GetCollectionDetailUseCase(
         config.defaultChainId,
         chainsReadModel,
-        collectionsReadModel,
+        extensionAwareCollectionsReadModel,
     );
     const getTokenDetailUseCase = new GetTokenDetailUseCase(
         config.defaultChainId,
         chainsReadModel,
-        collectionsReadModel,
+        extensionAwareCollectionsReadModel,
     );
     const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
         new SqliteRuntimeHealthAdapter(),

@@ -1,7 +1,9 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
+import { resolveEmbeddedCollectionExtensionInstall } from "@artgod/shared/extensions";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
+import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import { runWorker } from "../application/worker-runner.js";
 import { publishMetadataStatsRecompute } from "../application/metadata/stats-recompute.js";
 import { loadConfig } from "../config/index.js";
@@ -27,6 +29,7 @@ import {
 } from "../domain/opensea-jobs.js";
 import { SqliteBootstrapStorage } from "../infra/bootstrap/sqlite.js";
 import { SqliteBootstrapRuns } from "../infra/bootstrap/sqlite-runs.js";
+import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
@@ -39,6 +42,7 @@ import type {
 } from "../ports/bootstrap.js";
 import type { BootstrapRunsPort } from "../ports/bootstrap-runs.js";
 import type { CollectionRegistryPort } from "../ports/collections.js";
+import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { MetadataRefreshPayload } from "../domain/domain-jobs.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { Hex, RpcProviderPort } from "../ports/rpc.js";
@@ -87,6 +91,7 @@ async function main() {
             resilience: config.rpc.resilience,
         });
         const collections = new SqliteCollectionRegistry();
+        const collectionExtensions = new SqliteCollectionExtensions();
         const bootstrapStorage = new SqliteBootstrapStorage();
         const bootstrapRuns = new SqliteBootstrapRuns();
         const storage = new SqliteStorage();
@@ -124,6 +129,7 @@ async function main() {
                             rpc,
                             queue,
                             collections,
+                            collectionExtensions,
                             bootstrapStorage,
                             bootstrapRuns,
                             config.sync.reorgDepth,
@@ -139,6 +145,7 @@ async function main() {
                             rpc,
                             queue,
                             collections,
+                            collectionExtensions,
                             bootstrapStorage,
                             bootstrapRuns,
                             metadataDomain,
@@ -250,6 +257,7 @@ async function handleBootstrapStart(
     rpc: RpcProviderPort,
     queue: QueuePort,
     collections: CollectionRegistryPort,
+    collectionExtensions: CollectionExtensionInstallPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     reorgDepth: number,
@@ -351,6 +359,13 @@ async function handleBootstrapStart(
         });
         return;
     }
+
+    ensureEmbeddedCollectionExtensionInstalled(
+        collectionExtensions,
+        run.chainId,
+        run.collectionId,
+        run.requestAddress,
+    );
 
     try {
         bootstrapStorage.resetSnapshot(run.runId);
@@ -591,6 +606,7 @@ async function handleBootstrapMetadataProcess(
     rpc: RpcProviderPort,
     queue: QueuePort,
     collections: CollectionRegistryPort,
+    collectionExtensions: CollectionExtensionInstallPort,
     bootstrapStorage: BootstrapSnapshotPort,
     bootstrapRuns: BootstrapRunsPort,
     metadataDomain: SqliteMetadataDomain,
@@ -645,10 +661,13 @@ async function handleBootstrapMetadataProcess(
     const processed = await processDueMetadataTasks(
         bootstrapStorage,
         metadataDomain,
+        collectionExtensions,
+        queue,
         payload,
         metadataBatchSize,
         metadataConcurrency,
         metadataRetryPolicy,
+        traceId,
     );
 
     const counts = bootstrapStorage.getMetadataTaskCounts(payload.runId);
@@ -748,10 +767,13 @@ async function handleBootstrapMetadataProcess(
 async function processDueMetadataTasks(
     bootstrapStorage: BootstrapSnapshotPort,
     metadataDomain: SqliteMetadataDomain,
+    collectionExtensions: CollectionExtensionInstallPort,
+    queue: QueuePort,
     payload: BootstrapMetadataProcessPayload,
     metadataBatchSize: number,
     metadataConcurrency: number,
     metadataRetryPolicy: RetryPolicy,
+    traceId: string,
 ): Promise<number> {
     const dueTasks = bootstrapStorage.listMetadataTasksDueNow(
         payload.runId,
@@ -769,9 +791,12 @@ async function processDueMetadataTasks(
             await processSingleMetadataTask(
                 bootstrapStorage,
                 metadataDomain,
+                collectionExtensions,
+                queue,
                 payload,
                 task,
                 metadataRetryPolicy,
+                traceId,
             );
         },
     );
@@ -782,9 +807,12 @@ async function processDueMetadataTasks(
 async function processSingleMetadataTask(
     bootstrapStorage: BootstrapSnapshotPort,
     metadataDomain: SqliteMetadataDomain,
+    collectionExtensions: CollectionExtensionInstallPort,
+    queue: QueuePort,
     payload: BootstrapMetadataProcessPayload,
     task: BootstrapMetadataTask,
     metadataRetryPolicy: RetryPolicy,
+    traceId: string,
 ): Promise<void> {
     const attempts = task.attempts + 1;
     try {
@@ -808,6 +836,24 @@ async function processSingleMetadataTask(
                 task.tokenId,
                 attempts,
             );
+            const install = collectionExtensions.getInstall(
+                payload.chainId,
+                payload.collectionId,
+            );
+            if (install?.enabled) {
+                await publishCollectionExtensionRefreshArtifacts(
+                    queue,
+                    {
+                        chainId: payload.chainId,
+                        collectionId: payload.collectionId,
+                        contract: updated.contract,
+                        tokenId: updated.tokenId,
+                        reason: refreshPayload.reason,
+                        source: refreshPayload.source,
+                    },
+                    traceId,
+                );
+            }
             return;
         }
 
@@ -829,6 +875,32 @@ async function processSingleMetadataTask(
             String(error),
         );
     }
+}
+
+function ensureEmbeddedCollectionExtensionInstalled(
+    collectionExtensions: CollectionExtensionInstallPort,
+    chainId: number,
+    collectionId: number,
+    contractAddress: string,
+): void {
+    const existing = collectionExtensions.getInstall(chainId, collectionId);
+    if (existing) {
+        return;
+    }
+    const embedded = resolveEmbeddedCollectionExtensionInstall({
+        chainId,
+        contractAddress,
+    });
+    if (!embedded) {
+        return;
+    }
+    collectionExtensions.upsertInstall({
+        chainId,
+        collectionId,
+        extensionKey: embedded.extensionKey,
+        enabled: true,
+        configJson: embedded.configJson,
+    });
 }
 
 function markMetadataTaskFailed(

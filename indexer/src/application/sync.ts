@@ -12,6 +12,7 @@ import type {
 } from "../domain/onchain.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
 import { decodeSeaportFill } from "./fills/seaport.js";
+import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
 import {
     decodeMetadataRefreshLog,
     METADATA_REFRESH_EVENT_FILTERS,
@@ -53,6 +54,7 @@ export async function syncRange(
     rpc: RpcProviderPort,
     collections: CollectionRecord[],
     range: SyncRange,
+    collectionExtensionWatchSpecs: CollectionExtensionSyncWatchSpec[] = [],
 ): Promise<OnChainData> {
     const addresses = collections.map(
         (collection) => collection.address as Hex,
@@ -105,6 +107,21 @@ export async function syncRange(
         const decoded = decodeMetadataRefreshLog(log);
         metadataRefreshEvents.push(...decoded.tokenEvents);
         metadataRefreshRangeEvents.push(...decoded.rangeEvents);
+    }
+    for (const spec of collectionExtensionWatchSpecs) {
+        const logs = await rpc.getLogs({
+            fromBlock: range.fromBlock,
+            toBlock: range.toBlock,
+            address: spec.address,
+            events: spec.events,
+        });
+        for (const log of logs) {
+            const decoded = spec.decode(log);
+            metadataRefreshEvents.push(...decoded.metadataRefreshEvents);
+            metadataRefreshRangeEvents.push(
+                ...decoded.metadataRefreshRangeEvents,
+            );
+        }
     }
 
     const transactions = await buildEnhancedTransactions(rpc, enhancedEvents);

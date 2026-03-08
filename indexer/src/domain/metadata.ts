@@ -16,3 +16,15 @@ export type TokenMetadata = {
     attributes: MetadataAttribute[];
     rawJson: string;
 };
+
+export type MetadataUpdatedToken = {
+    contract: string;
+    tokenId: string;
+};
+
+export type MetadataDomainSyncResult = {
+    contracts: string[];
+    updatedTokens: MetadataUpdatedToken[];
+};
+
+export type MetadataRefreshResult = MetadataUpdatedToken | null;

@@ -128,6 +128,13 @@ await build({
             "runtime",
             "bootstrap-worker.ts",
         ),
+        "collection-extension-worker": path.join(
+            rootDir,
+            "indexer",
+            "src",
+            "runtime",
+            "collection-extension-worker.ts",
+        ),
         "dead-letter-worker": path.join(
             rootDir,
             "indexer",

@@ -4,6 +4,10 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import {
+    COLLECTION_EXTENSION_KEYS,
+    TERRAFORMS_EXTENSION_ARTIFACT_REFS,
+} from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
@@ -40,19 +44,29 @@ beforeAll(async () => {
     const sqliteRuntimeHealthModule =
         await import("./infra/runtime-health/sqlite-runtime-health.js");
     const readModels = await import("@artgod/shared/read-models");
+    const collectionExtensionRecordsModule = await import(
+        "./infra/collections/sqlite-collection-extension-records.js"
+    );
+    const extensionAwareReadModule = await import(
+        "./infra/collections/extension-aware-collection-detail-read.js"
+    );
 
     const chainsReadModel = new readModels.SqliteChainsReadModel();
-    const collectionsReadModel = new readModels.SqliteCollectionsReadModel([
-        ZERO_ADDRESS,
-        WETH_ADDRESS,
-    ]);
+    const baseCollectionsReadModel = new readModels.SqliteCollectionsReadModel(
+        [ZERO_ADDRESS, WETH_ADDRESS],
+    );
+    const collectionsReadModel =
+        new extensionAwareReadModule.ExtensionAwareCollectionDetailRead(
+            baseCollectionsReadModel,
+            new collectionExtensionRecordsModule.SqliteCollectionExtensionRecords(),
+        );
     const getDefaultChainUseCase =
         new chainsUseCaseModule.GetDefaultChainUseCase(1, chainsReadModel);
     const listCollectionsUseCase =
         new listCollectionsUseCaseModule.ListCollectionsUseCase(
             1,
             chainsReadModel,
-            collectionsReadModel,
+            baseCollectionsReadModel,
         );
     const getCollectionDetailUseCase =
         new collectionDetailUseCaseModule.GetCollectionDetailUseCase(
@@ -286,6 +300,35 @@ describe("backend api routes", () => {
         expect(result.payload.token.attributes[1].rarityPercent).toBeCloseTo(
             66.6666,
             3,
+        );
+    });
+
+    it("returns Terraforms media overrides from extension artifacts", async () => {
+        const result = await resolve(
+            "GET",
+            `/api/ethereum/${TERRAFORMS_ADDRESS}/7710`,
+        );
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.collection.address).toBe(TERRAFORMS_ADDRESS);
+        expect(result.payload.token.tokenId).toBe("7710");
+        expect(result.payload.token.image).toBe(
+            "data:image/svg+xml;base64,terraforms-v2-image",
+        );
+        expect(result.payload.token.animationUrl).toBe(
+            `data:text/html;base64,${Buffer.from("<html><body>terraforms-v2</body></html>", "utf8").toString("base64")}`,
+        );
+    });
+
+    it("returns Terraforms collection tokens with overridden images", async () => {
+        const result = await resolve(
+            "GET",
+            `/api/ethereum/${TERRAFORMS_ADDRESS}?token_status=all&limit=10`,
+        );
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.tokens.items).toHaveLength(1);
+        expect(result.payload.tokens.items[0].tokenId).toBe("7710");
+        expect(result.payload.tokens.items[0].image).toBe(
+            "data:image/svg+xml;base64,terraforms-v2-image",
         );
     });
 
@@ -694,6 +737,8 @@ function seedData(): void {
     db.exec(
         [
             "DELETE FROM orders;",
+            "DELETE FROM token_extension_artifacts;",
+            "DELETE FROM collection_extension_installs;",
             "DELETE FROM collection_trait_stats;",
             "DELETE FROM token_attributes;",
             "DELETE FROM attributes;",
@@ -704,11 +749,13 @@ function seedData(): void {
         ].join("\n"),
     );
 
-    db.prepare(
+    const insertCollection = db.prepare(
         "INSERT INTO collections " +
             "(chain_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(
+    );
+
+    insertCollection.run(
         1,
         "milady",
         MILADY_ADDRESS,
@@ -720,20 +767,18 @@ function seedData(): void {
         "2026-01-01T00:00:00Z",
     );
 
-    db.prepare(
-        "INSERT INTO collections " +
-            "(chain_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(
-        1,
-        null,
-        TERRAFORMS_ADDRESS,
-        "erc721",
-        "bootstrapping",
-        1,
-        null,
-        "2025-12-01T00:00:00Z",
-        "2025-12-01T00:00:00Z",
+    const terraformsCollectionId = Number(
+        insertCollection.run(
+            1,
+            null,
+            TERRAFORMS_ADDRESS,
+            "erc721",
+            "bootstrapping",
+            1,
+            null,
+            "2025-12-01T00:00:00Z",
+            "2025-12-01T00:00:00Z",
+        ).lastInsertRowid,
     );
 
     const insertToken = db.prepare(
@@ -742,6 +787,7 @@ function seedData(): void {
     insertToken.run(1, MILADY_ADDRESS, "1");
     insertToken.run(1, MILADY_ADDRESS, "2");
     insertToken.run(1, MILADY_ADDRESS, "10");
+    insertToken.run(1, TERRAFORMS_ADDRESS, "7710");
 
     const insertMetadata = db.prepare(
         "INSERT INTO token_metadata " +
@@ -763,6 +809,52 @@ function seedData(): void {
         ]),
         "{}",
         "2026-01-01T00:00:00Z",
+    );
+    insertMetadata.run(
+        1,
+        TERRAFORMS_ADDRESS,
+        "7710",
+        "ipfs://terraforms/7710",
+        "Terraform #7710",
+        "https://example.com/terraforms-default.png",
+        "https://example.com/terraforms-default.html",
+        JSON.stringify([{ traitType: "Mode", value: "Terraform" }]),
+        "{}",
+        "2026-01-01T00:00:00Z",
+    );
+
+    db.prepare(
+        "INSERT INTO collection_extension_installs " +
+            "(chain_id, collection_id, extension_key, enabled, config_json) " +
+            "VALUES (?, ?, ?, ?, ?)",
+    ).run(
+        1,
+        terraformsCollectionId,
+        COLLECTION_EXTENSION_KEYS.Terraforms,
+        1,
+        JSON.stringify({
+            mainContractAddress: TERRAFORMS_ADDRESS.toLowerCase(),
+            rendererV2ContractAddress:
+                "0x8af860c8f157f4e3b6a54913bfa6bb96ab2605c2",
+            tokenUriV2ContractAddress:
+                "0xfca647387e28e73e291dd90e7b09fa32bcbb2604",
+            beaconV2ContractAddress:
+                "0x331512a28a4cf80221af949b5d43041ff0fc7f01",
+        }),
+    );
+    db.prepare(
+        "INSERT INTO token_extension_artifacts " +
+            "(chain_id, contract_address, token_id, extension_key, artifact_ref, image, animation_url, html_content) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        1,
+        TERRAFORMS_ADDRESS.toLowerCase(),
+        "7710",
+        COLLECTION_EXTENSION_KEYS.Terraforms,
+        TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+        "data:image/svg+xml;base64,terraforms-v2-image",
+        "https://example.com/terraforms-v2-animation.json",
+        "<html><body>terraforms-v2</body></html>",
     );
     insertMetadata.run(
         1,
