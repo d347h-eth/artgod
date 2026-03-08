@@ -34,6 +34,8 @@ export type ApiTokenCard = {
 	tokenId: string;
 	name: string | null;
 	image: string | null;
+	listingPrice: string | null;
+	listingCurrency: string | null;
 	attributes: ApiTokenAttribute[];
 	hasMetadata: boolean;
 	metadataUpdatedAt: string | null;

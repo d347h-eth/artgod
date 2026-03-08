@@ -31,6 +31,8 @@ describe('CollectionDetailView', () => {
 							tokenId: '1',
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
+							listingPrice: '500000000000000000',
+							listingCurrency: '0x0000000000000000000000000000000000000000',
 							attributes: [{ key: 'Hat', value: 'Beanie' }],
 							hasMetadata: true,
 							metadataUpdatedAt: '2026-01-01T00:00:00Z'
@@ -49,12 +51,19 @@ describe('CollectionDetailView', () => {
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				basePath: '/ethereum/milady',
 				requestCursor: null,
+				tokenStatus: 'listed',
 				displayMode: 'grid'
 			}
 		});
 
+		expect(body).toContain('tokens');
 		expect(body).toContain('switch to table mode');
+		expect(body).toContain('1 listed');
 		expect(body).toContain('token 1');
+		expect(body).toContain('0.5 ETH');
+		expect(body).toContain(
+			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
+		);
 		expect(body).toContain('Beanie');
 	});
 });

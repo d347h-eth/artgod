@@ -24,11 +24,13 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraits: [],
 			basePath: '/',
 			requestCursor: null,
+			tokenStatus: 'listed' as const,
 			displayMode: 'grid' as const
 		};
 	}
 	const query = normalizeCollectionDetailParams(url.searchParams);
 	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
+	const tokenStatus = parseTokenStatus(url.searchParams.get('token_status'));
 
 	try {
 		const response = await getCollectionDetail(
@@ -45,6 +47,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraits: response.traits.selected,
 			basePath: `/${response.chain.slug}/${response.collection.slug ?? response.collection.address}`,
 			requestCursor: query.get('cursor') ?? null,
+			tokenStatus,
 			displayMode
 		};
 	} catch (cause) {
@@ -63,6 +66,9 @@ function normalizeCollectionDetailParams(raw: URLSearchParams): URLSearchParams 
 		params.set('cursor', cursor.trim());
 	}
 
+	const tokenStatus = parseTokenStatus(raw.get('token_status'));
+	params.set('token_status', tokenStatus);
+
 	const traitValues = [...raw.getAll('traits'), ...raw.getAll('trait')];
 	for (const value of traitValues) {
 		for (const segment of value.split(',')) {
@@ -78,6 +84,11 @@ function normalizeCollectionDetailParams(raw: URLSearchParams): URLSearchParams 
 function parseDisplayMode(raw: string | null): 'grid' | 'table' {
 	if (raw?.trim().toLowerCase() === 'table') return 'table';
 	return 'grid';
+}
+
+function parseTokenStatus(raw: string | null): 'listed' | 'all' {
+	if (raw?.trim().toLowerCase() === 'all') return 'all';
+	return 'listed';
 }
 
 function toKitError(cause: unknown): never {

@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type {
     CollectionStatus,
+    TokenBrowserStatus,
     TraitFilter,
 } from "@artgod/shared/types/browse";
 import type {
@@ -15,6 +16,11 @@ const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
     "live",
     "paused",
     "disabled",
+]);
+
+const ALLOWED_TOKEN_BROWSER_STATUSES = new Set<TokenBrowserStatus>([
+    "listed",
+    "all",
 ]);
 
 const ALLOWED_BOOTSTRAP_TASK_STATUSES = new Set<BootstrapMetadataTaskStatus>([
@@ -58,6 +64,16 @@ export function parseLimit(raw: string | null): number {
 export function parseCursor(raw: string | null): string | null {
     if (!raw || !raw.trim()) return null;
     return raw.trim();
+}
+
+export function parseTokenBrowserStatus(
+    raw: string | null,
+): TokenBrowserStatus {
+    if (!raw || !raw.trim()) return "listed";
+    if (!ALLOWED_TOKEN_BROWSER_STATUSES.has(raw as TokenBrowserStatus)) {
+        throw new ReadModelBadRequestError("Invalid token_status");
+    }
+    return raw as TokenBrowserStatus;
 }
 
 export function parseBootstrapTaskStatus(

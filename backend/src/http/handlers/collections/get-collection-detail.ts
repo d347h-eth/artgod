@@ -7,6 +7,7 @@ import {
     getSearchParams,
     parseCursor,
     parseLimit,
+    parseTokenBrowserStatus,
     parseTraits,
 } from "../../common/request-query.js";
 
@@ -41,6 +42,9 @@ export class GetCollectionDetailHttpAdapter {
         request: FastifyRequest<GetCollectionDetailRoute>,
     ): GetCollectionDetailInput {
         const searchParams = getSearchParams(request);
+        const tokenStatus = parseTokenBrowserStatus(
+            searchParams.get("token_status"),
+        );
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
         const traits = parseTraits(searchParams);
@@ -48,6 +52,7 @@ export class GetCollectionDetailHttpAdapter {
         return {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
+            tokenStatus,
             limit,
             cursor: cursor ?? undefined,
             traits,

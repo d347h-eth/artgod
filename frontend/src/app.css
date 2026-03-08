@@ -214,6 +214,10 @@ th {
 	width: 4.75rem;
 }
 
+.token-price-col {
+	width: 7rem;
+}
+
 .token-id-cell {
 	white-space: nowrap;
 }
@@ -395,6 +399,11 @@ th {
 	border-color: var(--c-yellow);
 }
 
+.detail-layout.sidebar-collapsed .facet-collapse-button:hover,
+.detail-layout.sidebar-collapsed .facet-collapse-button:focus-visible {
+	border-bottom-color: var(--c-yellow);
+}
+
 .facet-panel {
 	border-right: 1px solid var(--c-blue);
 	border-bottom: 1px solid var(--c-blue);
@@ -414,6 +423,37 @@ th {
 	justify-content: space-between;
 	gap: 0.5rem;
 	margin: 0 0 0.75rem;
+}
+
+.facet-status-options {
+	display: grid;
+	gap: 0.45rem;
+	margin: 0 0 0.75rem;
+}
+
+.facet-status-option {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	width: 100%;
+	border: 1px solid var(--c-blue);
+	background: var(--c-bg);
+	color: var(--c-sand);
+	padding: 0.4rem 0.5rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.facet-status-option:hover,
+.facet-status-option:focus-visible {
+	outline: none;
+	border-color: var(--c-yellow);
+	color: var(--c-yellow);
+}
+
+.facet-status-option-active {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
 }
 
 .button-link:hover,
@@ -540,6 +580,11 @@ th {
 	justify-content: space-between;
 	gap: 0.75rem;
 	padding: 0.75rem 0.75rem 0;
+}
+
+.token-results-summary {
+	color: var(--c-sand);
+	font-size: 0.8rem;
 }
 
 .mode-toggle {
@@ -716,8 +761,27 @@ th {
 }
 
 .token-grid-id {
+	display: inline-block;
+	width: max-content;
+	justify-self: center;
 	font-size: 0.82rem;
 	text-decoration: underline;
+}
+
+.token-grid-price {
+	font-size: 0.78rem;
+	color: var(--c-yellow);
+}
+
+.token-price-link {
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 0.12rem;
+}
+
+.token-price-link:hover,
+.token-price-link:focus-visible {
+	color: var(--c-pink);
 }
 
 .token-grid-traits {
@@ -725,6 +789,10 @@ th {
 	color: var(--c-sand);
 	line-height: 1.2;
 	word-break: break-word;
+}
+
+.token-price-cell {
+	white-space: nowrap;
 }
 
 .pagination-summary {
@@ -1013,12 +1081,25 @@ th {
 	color: var(--c-yellow);
 }
 
+.runtime-tabs button:disabled {
+	cursor: default;
+	opacity: 1;
+	border-color: var(--c-blue);
+	color: var(--c-sand);
+}
+
 .runtime-tabs button:hover,
 .runtime-tabs a:hover,
 .runtime-tabs button:focus-visible,
 .runtime-tabs a:focus-visible {
 	border-color: var(--c-yellow);
 	color: var(--c-yellow);
+}
+
+.runtime-tabs button:disabled:hover,
+.runtime-tabs button:disabled:focus-visible {
+	border-color: var(--c-blue);
+	color: var(--c-sand);
 }
 
 .runtime-tab-panel {

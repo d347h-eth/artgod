@@ -25,6 +25,7 @@
 		selectedTraits,
 		basePath,
 		requestCursor,
+		tokenStatus,
 		displayMode
 	}: {
 		chain: ApiChain | null;
@@ -34,11 +35,14 @@
 		selectedTraits: ApiTokenAttribute[];
 		basePath: string;
 		requestCursor: string | null;
+		tokenStatus: 'listed' | 'all';
 		displayMode: 'grid' | 'table';
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
 	const BOOTSTRAP_POLL_INTERVAL_MS = 5_000;
+	const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+	const WEI_BASE = 10n ** 18n;
 
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let traitValueSearch = $state<Record<string, string>>({});
@@ -81,7 +85,7 @@
 	});
 
 	$effect(() => {
-		const signature = filtersSignature(selectedTraits, tokens.limit, displayMode);
+		const signature = filtersSignature(selectedTraits, tokens.limit, displayMode, tokenStatus);
 		const incoming = incomingWindowState(tokens);
 		const cached = browser ? readTokenWindow(signature) : null;
 		const resolved = resolveWindowState({
@@ -137,11 +141,23 @@
 
 	function tokenDetailHref(tokenId: string): string {
 		const query = new URLSearchParams();
-		if (requestCursor) {
-			query.set('returnCursor', requestCursor);
-		}
+		query.set('returnQuery', buildReturnQuery());
 		const suffix = query.toString();
 		return `${basePath}/${encodeURIComponent(tokenId)}${suffix ? `?${suffix}` : ''}`;
+	}
+
+	function buildReturnQuery(): string {
+		const query = new URLSearchParams();
+		query.set('limit', String(tokens.limit));
+		query.set('mode', displayMode);
+		query.set('token_status', tokenStatus);
+		if (requestCursor) {
+			query.set('cursor', requestCursor);
+		}
+		for (const trait of activeTraits) {
+			query.append('traits', `${trait.key}:${trait.value}`);
+		}
+		return query.toString();
 	}
 
 	function tokenPreviewAriaLabel(tokenId: string): string {
@@ -175,6 +191,34 @@
 			lines.push(values.slice(index, index + 3).join(' / '));
 		}
 		return lines;
+	}
+
+	function listingCurrencyLabel(currency: string | null): string | null {
+		if (!currency) return null;
+		return currency.toLowerCase() === ZERO_ADDRESS ? 'ETH' : 'WETH';
+	}
+
+	function formatListingPrice(rawPrice: string | null, currency: string | null): string | null {
+		if (!rawPrice || !currency || !/^\d+$/.test(rawPrice)) return null;
+		const value = BigInt(rawPrice);
+		const whole = value / WEI_BASE;
+		const fraction = value % WEI_BASE;
+		const fractionText = fraction.toString().padStart(18, '0').slice(0, 4).replace(/0+$/, '');
+		const amount = fractionText ? `${whole}.${fractionText}` : `${whole}`;
+		return `${amount} ${listingCurrencyLabel(currency)}`;
+	}
+
+	function browserResultsSummary(): string {
+		return `${tokens.totalItems} ${tokenStatus === 'listed' ? 'listed' : 'total'}`;
+	}
+
+	function tokenListingLabel(token: ApiTokenCard): string | null {
+		return formatListingPrice(token.listingPrice, token.listingCurrency);
+	}
+
+	function openseaItemHref(token: ApiTokenCard): string | null {
+		if (!chain || !collection) return null;
+		return `https://opensea.io/item/${chain.slug}/${collection.address}/${encodeURIComponent(token.tokenId)}`;
 	}
 
 	function onTokenGridImageLoad(tokenId: string, event: Event): void {
@@ -228,11 +272,13 @@
 	function buildFiltersHref(
 		traits: ApiTokenAttribute[],
 		cursor: string | null = null,
-		mode: 'grid' | 'table' = displayMode
+		mode: 'grid' | 'table' = displayMode,
+		nextTokenStatus: 'listed' | 'all' = tokenStatus
 	): string {
 		const query = new URLSearchParams();
 		query.set('limit', String(tokens.limit));
 		query.set('mode', mode);
+		query.set('token_status', nextTokenStatus);
 		if (cursor) {
 			query.set('cursor', cursor);
 		}
@@ -242,11 +288,16 @@
 		return `${basePath}?${query.toString()}`;
 	}
 
-	function filtersSignature(traits: ApiTokenAttribute[], limit: number, mode: 'grid' | 'table'): string {
+	function filtersSignature(
+		traits: ApiTokenAttribute[],
+		limit: number,
+		mode: 'grid' | 'table',
+		activeTokenStatus: 'listed' | 'all'
+	): string {
 		const normalized = traits
 			.map((item) => `${item.key}:${item.value}`)
 			.sort((a, b) => a.localeCompare(b));
-		return `${basePath}|${limit}|${mode}|${normalized.join(',')}`;
+		return `${basePath}|${limit}|${mode}|${activeTokenStatus}|${normalized.join(',')}`;
 	}
 
 	function appendUniqueTokens(
@@ -398,6 +449,10 @@
 		return buildFiltersHref(activeTraits, requestCursor, mode);
 	}
 
+	function tokenStatusHref(nextTokenStatus: 'listed' | 'all'): string {
+		return buildFiltersHref(activeTraits, null, displayMode, nextTokenStatus);
+	}
+
 	function nextSelectedTraits(
 		sourceTraits: ApiTokenAttribute[],
 		key: string,
@@ -506,6 +561,15 @@
 
 	async function onToggleDisplayMode(): Promise<void> {
 		await goto(modeHref(nextDisplayMode), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onTokenStatusChange(nextTokenStatus: 'listed' | 'all'): Promise<void> {
+		if (nextTokenStatus === tokenStatus) return;
+		await goto(tokenStatusHref(nextTokenStatus), {
 			invalidateAll: true,
 			keepFocus: true,
 			noScroll: true
@@ -628,8 +692,13 @@
 		{/if}
 	</nav>
 
-	<header class="panel-header panel-header-right">
+	<header class="panel-header">
 		{#if collection}
+			<div class="runtime-tabs" aria-label="Collection sections">
+				<button type="button" class="runtime-tab-active">tokens</button>
+				<button type="button" disabled>offers</button>
+				<button type="button" disabled>holders</button>
+			</div>
 			<div class="mode-toggle">
 				<button
 					type="button"
@@ -672,6 +741,24 @@
 
 			{#if !traitsCollapsed}
 				<aside class="facet-panel">
+					<div class="facet-header">
+						<h2>status</h2>
+					</div>
+					<div class="facet-status-options">
+						<button
+							type="button"
+							class="facet-status-option"
+							class:facet-status-option-active={tokenStatus === 'listed'}
+							onclick={() => void onTokenStatusChange('listed')}>only listed</button
+						>
+						<button
+							type="button"
+							class="facet-status-option"
+							class:facet-status-option-active={tokenStatus === 'all'}
+							onclick={() => void onTokenStatusChange('all')}>show all</button
+						>
+					</div>
+
 					<div class="facet-header">
 						<h2>traits</h2>
 						{#if hasActiveFilters}
@@ -727,16 +814,15 @@
 
 		<div class="token-panel">
 			<div class="panel-top-actions">
-				<div>
-					{#if hasPreviousPage}
-						<a
-							class="button-link"
-							href={loadPreviousHref()}
-							aria-busy={pagingPending}
-							onclick={onLoadPrevious}>load previous</a
-						>
-					{/if}
-				</div>
+				<span class="mono token-results-summary">{browserResultsSummary()}</span>
+				{#if hasPreviousPage}
+					<a
+						class="button-link"
+						href={loadPreviousHref()}
+						aria-busy={pagingPending}
+						onclick={onLoadPrevious}>load previous</a
+					>
+				{/if}
 			</div>
 
 			{#if isGridMode}
@@ -772,6 +858,22 @@
 									</div>
 									<div class="token-grid-meta">
 										<a class="mono token-grid-id" href={tokenDetailHref(token.tokenId)}>{token.tokenId}</a>
+										{#if tokenListingLabel(token)}
+											<div class="mono token-grid-price">
+												{#if openseaItemHref(token)}
+													<a
+														class="token-price-link"
+														href={openseaItemHref(token)}
+														target="_blank"
+														rel="noreferrer noopener"
+													>
+														{tokenListingLabel(token)}
+													</a>
+												{:else}
+													{tokenListingLabel(token)}
+												{/if}
+											</div>
+										{/if}
 										{#each tokenTraitLines(token) as line}
 											<div class="mono token-grid-traits">{line}</div>
 										{/each}
@@ -788,6 +890,7 @@
 							<tr>
 								<th class="token-id-col">id</th>
 								<th class="token-image-col">image</th>
+								<th class="token-price-col">price</th>
 								{#if traitColumns.length === 0}
 									<th>traits</th>
 								{:else}
@@ -800,7 +903,7 @@
 						<tbody>
 							{#if visibleTokens.length === 0}
 								<tr>
-									<td colspan={traitColumns.length === 0 ? 3 : 2 + traitColumns.length} class="empty-cell"
+									<td colspan={traitColumns.length === 0 ? 4 : 3 + traitColumns.length} class="empty-cell"
 										>no tokens match current filters</td
 									>
 								</tr>
@@ -831,6 +934,24 @@
 												</button>
 											{:else}
 												<div class="token-thumb token-thumb-empty">-</div>
+											{/if}
+										</td>
+										<td class="mono token-price-cell">
+											{#if tokenListingLabel(token)}
+												{#if openseaItemHref(token)}
+													<a
+														class="token-price-link"
+														href={openseaItemHref(token)}
+														target="_blank"
+														rel="noreferrer noopener"
+													>
+														{tokenListingLabel(token)}
+													</a>
+												{:else}
+													{tokenListingLabel(token)}
+												{/if}
+											{:else}
+												<span class="muted">-</span>
 											{/if}
 										</td>
 										{#if traitColumns.length === 0}

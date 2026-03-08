@@ -42,13 +42,13 @@ describe('token detail page', () => {
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
 					},
-					backCursor: 'opaque-cursor-token'
+					backQuery: 'cursor=opaque-cursor-token&token_status=listed&mode=grid'
 				}
 			}
 		});
 
 		expect(body).toContain('back to collection');
-		expect(body).toContain('?cursor=opaque-cursor-token');
+		expect(body).toContain('?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid');
 		expect(body).toContain('milady #1');
 		expect(body).toContain('https://example.com/1.html');
 		expect(body).toContain('Beanie');

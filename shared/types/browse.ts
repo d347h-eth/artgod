@@ -28,9 +28,18 @@ export type CollectionListCursor = {
     address: string;
 };
 
-export type TokenCursor = {
-    tokenId: string;
-};
+export type TokenCursor =
+    | {
+          kind: "all";
+          tokenId: string;
+      }
+    | {
+          kind: "listed";
+          tokenId: string;
+          listingPrice: string;
+      };
+
+export type TokenBrowserStatus = "listed" | "all";
 
 export type TraitFilter = {
     key: string;
@@ -46,6 +55,8 @@ export type TokenCard = {
     tokenId: string;
     name: string | null;
     image: string | null;
+    listingPrice: string | null;
+    listingCurrency: string | null;
     attributes: TokenAttribute[];
     hasMetadata: boolean;
     metadataUpdatedAt: string | null;

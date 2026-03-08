@@ -10,7 +10,7 @@
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		token: ApiTokenDetail | null;
-		backCursor: string | null;
+		backQuery: string | null;
 	};
 
 	let { data }: { data?: PageData } = $props();
@@ -18,10 +18,8 @@
 	function collectionHref(): string {
 		if (!data?.chain || !data.collection) return '/';
 		const base = `/${data.chain.slug}/${data.collection.slug ?? data.collection.address}`;
-		if (!data.backCursor) return base;
-		const query = new URLSearchParams();
-		query.set('cursor', data.backCursor);
-		return `${base}?${query.toString()}`;
+		if (!data.backQuery) return base;
+		return `${base}?${data.backQuery}`;
 	}
 
 	function sortedTraits(): ApiTokenDetailTrait[] {

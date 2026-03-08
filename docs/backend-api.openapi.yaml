@@ -135,6 +135,14 @@ paths:
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
+                - name: token_status
+                  in: query
+                  required: false
+                  description: |
+                      Token browser mode.
+                      Defaults to `listed`.
+                  schema:
+                      $ref: "#/components/schemas/TokenBrowserStatus"
                 - name: traits
                   in: query
                   required: false
@@ -591,6 +599,8 @@ components:
                     tokenId,
                     name,
                     image,
+                    listingPrice,
+                    listingCurrency,
                     attributes,
                     hasMetadata,
                     metadataUpdatedAt,
@@ -603,6 +613,12 @@ components:
                     type: string
                     nullable: true
                 image:
+                    type: string
+                    nullable: true
+                listingPrice:
+                    type: string
+                    nullable: true
+                listingCurrency:
                     type: string
                     nullable: true
                 attributes:
@@ -705,6 +721,10 @@ components:
                     type: integer
                 totalPages:
                     type: integer
+
+        TokenBrowserStatus:
+            type: string
+            enum: [listed, all]
 
         TraitFilter:
             type: object

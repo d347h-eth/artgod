@@ -25,6 +25,8 @@ import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstra
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 export async function startBackendServer(
     config: BackendConfig,
 ): Promise<FastifyInstance> {
@@ -42,7 +44,10 @@ export async function startBackendServer(
 
 export function createBackendApp(config: BackendConfig): FastifyInstance {
     const chainsReadModel = new SqliteChainsReadModel();
-    const collectionsReadModel = new SqliteCollectionsReadModel();
+    const collectionsReadModel = new SqliteCollectionsReadModel([
+        ZERO_ADDRESS,
+        config.wethAddress,
+    ]);
     const bootstrapRunsRepository = new SqliteBootstrapRunsRepository();
     const bootstrapCommandQueue = new NatsBootstrapCommandQueue(
         config.natsUrl,

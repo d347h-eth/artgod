@@ -8,6 +8,8 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 
 let dbPath = "";
 let app: FastifyInstance | null = null;
@@ -40,7 +42,10 @@ beforeAll(async () => {
     const readModels = await import("@artgod/shared/read-models");
 
     const chainsReadModel = new readModels.SqliteChainsReadModel();
-    const collectionsReadModel = new readModels.SqliteCollectionsReadModel();
+    const collectionsReadModel = new readModels.SqliteCollectionsReadModel([
+        ZERO_ADDRESS,
+        WETH_ADDRESS,
+    ]);
     const getDefaultChainUseCase =
         new chainsUseCaseModule.GetDefaultChainUseCase(1, chainsReadModel);
     const listCollectionsUseCase =
@@ -200,11 +205,40 @@ describe("backend api routes", () => {
         expect(result.payload.page.items[0].address).toBe(TERRAFORMS_ADDRESS);
     });
 
-    it("returns collection detail with facets and paged tokens", async () => {
-        const result = await resolve("GET", "/api/ethereum/milady?limit=2");
+    it("defaults collection detail to listed tokens sorted by price", async () => {
+        const result = await resolve("GET", "/api/ethereum/milady?limit=1");
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.collection.address).toBe(MILADY_ADDRESS);
+        expect(result.payload.tokens.items).toHaveLength(1);
+        expect(result.payload.tokens.items[0].tokenId).toBe("1");
+        expect(result.payload.tokens.items[0].listingPrice).toBe(
+            "500000000000000000",
+        );
+        expect(result.payload.tokens.items[0].listingCurrency).toBe(
+            ZERO_ADDRESS,
+        );
+        expect(result.payload.tokens.prevCursor).toBeNull();
+        expect(result.payload.tokens.nextCursor).toEqual(expect.any(String));
+        expect(result.payload.tokens.totalItems).toBe(2);
+        expect(result.payload.tokens.rangeStart).toBe(1);
+        expect(result.payload.tokens.rangeEnd).toBe(1);
+        expect(result.payload.tokens.currentPage).toBe(1);
+        expect(result.payload.tokens.totalPages).toBe(2);
+    });
+
+    it("returns show-all collection detail with existing token-id ordering", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=all&limit=2",
+        );
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.address).toBe(MILADY_ADDRESS);
         expect(result.payload.tokens.items).toHaveLength(2);
+        expect(
+            result.payload.tokens.items.map(
+                (token: { tokenId: string }) => token.tokenId,
+            ),
+        ).toEqual(["1", "2"]);
         expect(result.payload.tokens.prevCursor).toBeNull();
         expect(result.payload.tokens.nextCursor).toEqual(expect.any(String));
         expect(result.payload.tokens.totalItems).toBe(3);
@@ -218,6 +252,10 @@ describe("backend api routes", () => {
                 expect.objectContaining({ key: "Mood" }),
             ]),
         );
+        expect(result.payload.tokens.items[0].listingPrice).toBe(
+            "500000000000000000",
+        );
+        expect(result.payload.tokens.items[1].listingPrice).toBeNull();
     });
 
     it("returns token detail with animation_url fallback data and rarity stats", async () => {
@@ -257,14 +295,17 @@ describe("backend api routes", () => {
     });
 
     it("supports backward paging with prevCursor", async () => {
-        const first = await resolve("GET", "/api/ethereum/milady?limit=1");
+        const first = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=all&limit=1",
+        );
         const second = await resolve(
             "GET",
-            `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(first.payload.tokens.nextCursor)}`,
+            `/api/ethereum/milady?token_status=all&limit=1&cursor=${encodeURIComponent(first.payload.tokens.nextCursor)}`,
         );
         const third = await resolve(
             "GET",
-            `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(second.payload.tokens.nextCursor)}`,
+            `/api/ethereum/milady?token_status=all&limit=1&cursor=${encodeURIComponent(second.payload.tokens.nextCursor)}`,
         );
 
         expect(second.payload.tokens.prevCursor).toBeNull();
@@ -272,7 +313,7 @@ describe("backend api routes", () => {
 
         const previousOfThird = await resolve(
             "GET",
-            `/api/ethereum/milady?limit=1&cursor=${encodeURIComponent(third.payload.tokens.prevCursor)}`,
+            `/api/ethereum/milady?token_status=all&limit=1&cursor=${encodeURIComponent(third.payload.tokens.prevCursor)}`,
         );
         expect(previousOfThird.payload.tokens.items[0].tokenId).toBe("2");
     });
@@ -280,7 +321,7 @@ describe("backend api routes", () => {
     it("applies AND semantics across different trait keys", async () => {
         const result = await resolve(
             "GET",
-            "/api/1/milady?traits=Hat:Beanie,Mood:Calm&limit=10",
+            "/api/1/milady?token_status=all&traits=Hat:Beanie,Mood:Calm&limit=10",
         );
         expect(result.statusCode).toBe(200);
         expect(
@@ -293,7 +334,7 @@ describe("backend api routes", () => {
     it("applies OR semantics for values within the same trait key", async () => {
         const result = await resolve(
             "GET",
-            "/api/1/milady?traits=Hat:Beanie,Hat:Cap&limit=10",
+            "/api/1/milady?token_status=all&traits=Hat:Beanie,Hat:Cap&limit=10",
         );
         expect(result.statusCode).toBe(200);
         expect(
@@ -306,10 +347,18 @@ describe("backend api routes", () => {
     it("resolves collection by address", async () => {
         const result = await resolve(
             "GET",
-            `/api/ethereum/${MILADY_ADDRESS}?limit=10`,
+            `/api/ethereum/${MILADY_ADDRESS}?token_status=all&limit=10`,
         );
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.slug).toBe("milady");
+    });
+
+    it("rejects invalid token browser status values", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=bad&limit=10",
+        );
+        expect(result.statusCode).toBe(400);
     });
 
     it("creates and reads bootstrap run via secured endpoints", async () => {
@@ -542,6 +591,7 @@ async function resolve(
 function seedData(): void {
     db.exec(
         [
+            "DELETE FROM orders;",
             "DELETE FROM collection_trait_stats;",
             "DELETE FROM token_attributes;",
             "DELETE FROM attributes;",
@@ -670,6 +720,157 @@ function seedData(): void {
     insertTraitStats.run(1, MILADY_ADDRESS, hatKeyId, capId, 1);
     insertTraitStats.run(1, MILADY_ADDRESS, moodKeyId, calmId, 2);
     insertTraitStats.run(1, MILADY_ADDRESS, moodKeyId, angryId, 1);
+
+    insertOrderFixture({
+        id: "listed-milady-1-cheapest",
+        side: "sell",
+        contract: MILADY_ADDRESS,
+        tokenId: "1",
+        sourceScopeKind: "token",
+        price: "500000000000000000",
+        currency: ZERO_ADDRESS,
+        sourceStatus: "active",
+        fillabilityStatus: "fillable",
+        validFrom: 1_700_000_000,
+        validUntil: 1_900_000_000,
+    });
+    insertOrderFixture({
+        id: "listed-milady-1-higher",
+        side: "sell",
+        contract: MILADY_ADDRESS,
+        tokenId: "1",
+        sourceScopeKind: "token",
+        price: "750000000000000000",
+        currency: WETH_ADDRESS,
+        sourceStatus: "active",
+        fillabilityStatus: "fillable",
+        validFrom: 1_700_000_000,
+        validUntil: 1_900_000_000,
+    });
+    insertOrderFixture({
+        id: "listed-milady-10",
+        side: "sell",
+        contract: MILADY_ADDRESS,
+        tokenId: "10",
+        sourceScopeKind: "token",
+        price: "1200000000000000000",
+        currency: WETH_ADDRESS,
+        sourceStatus: "active",
+        fillabilityStatus: "fillable",
+        validFrom: 1_700_000_000,
+        validUntil: 1_900_000_000,
+    });
+    insertOrderFixture({
+        id: "unsupported-currency-token-2",
+        side: "sell",
+        contract: MILADY_ADDRESS,
+        tokenId: "2",
+        sourceScopeKind: "token",
+        price: "1000000",
+        currency: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        sourceStatus: "active",
+        fillabilityStatus: "fillable",
+        validFrom: 1_700_000_000,
+        validUntil: 1_900_000_000,
+    });
+    insertOrderFixture({
+        id: "inactive-token-2",
+        side: "sell",
+        contract: MILADY_ADDRESS,
+        tokenId: "2",
+        sourceScopeKind: "token",
+        price: "200000000000000000",
+        currency: ZERO_ADDRESS,
+        sourceStatus: "inactive",
+        fillabilityStatus: "fillable",
+        validFrom: 1_700_000_000,
+        validUntil: 1_900_000_000,
+    });
+    insertOrderFixture({
+        id: "buy-order-token-2",
+        side: "buy",
+        contract: MILADY_ADDRESS,
+        tokenId: "2",
+        sourceScopeKind: "token",
+        price: "300000000000000000",
+        currency: WETH_ADDRESS,
+        sourceStatus: "active",
+        fillabilityStatus: "fillable",
+        validFrom: 1_700_000_000,
+        validUntil: 1_900_000_000,
+    });
+    insertOrderFixture({
+        id: "collection-offer",
+        side: "buy",
+        contract: MILADY_ADDRESS,
+        tokenId: null,
+        sourceScopeKind: "collection",
+        price: "900000000000000000",
+        currency: WETH_ADDRESS,
+        sourceStatus: "active",
+        fillabilityStatus: "fillable",
+        validFrom: 1_700_000_000,
+        validUntil: 1_900_000_000,
+    });
+    insertOrderFixture({
+        id: "expired-listing-token-2",
+        side: "sell",
+        contract: MILADY_ADDRESS,
+        tokenId: "2",
+        sourceScopeKind: "token",
+        price: "100000000000000000",
+        currency: ZERO_ADDRESS,
+        sourceStatus: "active",
+        fillabilityStatus: "fillable",
+        validFrom: 1_600_000_000,
+        validUntil: 1_600_000_100,
+    });
+}
+
+function insertOrderFixture(input: {
+    id: string;
+    side: "buy" | "sell";
+    contract: string;
+    tokenId: string | null;
+    sourceScopeKind: "token" | "collection" | "attribute";
+    price: string;
+    currency: string;
+    sourceStatus:
+        | "active"
+        | "inactive"
+        | "cancelled"
+        | "filled"
+        | "invalidated"
+        | "expired"
+        | "unknown";
+    fillabilityStatus:
+        | "fillable"
+        | "filled"
+        | "cancelled"
+        | "expired"
+        | "no-balance"
+        | "no-approval"
+        | "invalid";
+    validFrom: number;
+    validUntil: number;
+}): void {
+    db.prepare(
+        "INSERT INTO orders " +
+            "(id, chain_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, price, currency, valid_from, valid_until, fillability_status, source_status, created_at, updated_at) " +
+            "VALUES (?, 1, 'seaport', ?, 'opensea', '0x9999999999999999999999999999999999999999', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ).run(
+        input.id,
+        input.side,
+        input.contract.toLowerCase(),
+        input.tokenId,
+        input.sourceScopeKind,
+        input.price,
+        input.currency.toLowerCase(),
+        input.validFrom,
+        input.validUntil,
+        input.fillabilityStatus,
+        input.sourceStatus,
+    );
 }
 
 function insertBootstrapRun(input: {

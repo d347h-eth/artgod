@@ -1,6 +1,7 @@
 import type {
     ChainRecord,
     CollectionListItem,
+    TokenBrowserStatus,
     TokenCursorPage,
     TraitFacet,
     TraitFilter,
@@ -9,6 +10,7 @@ import type {
 export type GetCollectionDetailInput = {
     chainRef: string;
     collectionRef: string;
+    tokenStatus: TokenBrowserStatus;
     limit: number;
     cursor?: string;
     traits: TraitFilter[];
@@ -41,6 +43,7 @@ export class GetCollectionDetailUseCase {
             listCollectionTokens(params: {
                 chainId: number;
                 contractAddress: string;
+                tokenStatus: TokenBrowserStatus;
                 limit: number;
                 cursor?: string;
                 traitFilters?: TraitFilter[];
@@ -68,6 +71,7 @@ export class GetCollectionDetailUseCase {
         const tokens = this.collectionDetailReadPort.listCollectionTokens({
             chainId: chain.publicChainId,
             contractAddress: collection.address,
+            tokenStatus: input.tokenStatus,
             limit: input.limit,
             cursor: input.cursor,
             traitFilters: input.traits,

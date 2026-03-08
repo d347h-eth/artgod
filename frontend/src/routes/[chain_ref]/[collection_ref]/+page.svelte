@@ -17,6 +17,7 @@
 		selectedTraits: ApiTokenAttribute[];
 		basePath: string;
 		requestCursor: string | null;
+		tokenStatus: 'listed' | 'all';
 		displayMode: 'grid' | 'table';
 	};
 
@@ -43,5 +44,6 @@
 	selectedTraits={data?.selectedTraits ?? []}
 	basePath={data?.basePath ?? '/'}
 	requestCursor={data?.requestCursor ?? null}
+	tokenStatus={data?.tokenStatus ?? 'listed'}
 	displayMode={data?.displayMode ?? 'grid'}
 />
