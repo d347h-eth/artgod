@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import path from "node:path";
 import fs from "node:fs/promises";
 import { zeroAddress } from "viem";
 import { decodeSeaportFill } from "../src/application/fills/seaport.js";
@@ -11,6 +10,7 @@ import {
 import type { EnhancedTransaction } from "../src/domain/onchain.js";
 import type { RpcLog } from "../src/ports/rpc.js";
 import type { Hex } from "../src/ports/rpc.js";
+import { resolveFixturePath } from "./helpers/fixture-paths.js";
 
 type TxDump = {
     tx: {
@@ -39,8 +39,8 @@ const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const CASES = [
     {
         name: "seaport take bid (fulfillAdvancedOrder)",
-        dumpPath:
-            "indexer/tests/fixtures/tx/0xff81723998672fc56590b551ce13ac409cb3f365219e2aef20fcf194652b7d00.json",
+        dumpFile:
+            "0xff81723998672fc56590b551ce13ac409cb3f365219e2aef20fcf194652b7d00.json",
         expected: {
             orderSide: "buy",
             maker: "0x8790aa2c89aece345bd8fe757bf8a675ea31af3c",
@@ -53,8 +53,8 @@ const CASES = [
     },
     {
         name: "seaport take ask (fulfillBasicOrder_efficient_6GL6yc)",
-        dumpPath:
-            "indexer/tests/fixtures/tx/0x30e4c9eabe1a74cb71ea2d9f4405318d277f0d0e5590f31d450704c5c98803cd.json",
+        dumpFile:
+            "0x30e4c9eabe1a74cb71ea2d9f4405318d277f0d0e5590f31d450704c5c98803cd.json",
         expected: {
             orderSide: "sell",
             maker: "0x3f51e7af7cf3e4be9af7b8f58324d0b085f4e4d9",
@@ -68,8 +68,8 @@ const CASES = [
 ];
 
 describe("seaport fill decoding (no traces)", () => {
-    it.each(CASES)("$name", async ({ dumpPath, expected }) => {
-        const dump = await readTxDump(dumpPath);
+    it.each(CASES)("$name", async ({ dumpFile, expected }) => {
+        const dump = await readTxDump(dumpFile);
         const tx = toEnhancedTransaction(dump);
         const collections = new Set([expected.contract]);
 
@@ -87,8 +87,8 @@ describe("seaport fill decoding (no traces)", () => {
     });
 });
 
-async function readTxDump(relativePath: string): Promise<TxDump> {
-    const resolved = path.resolve(process.cwd(), "..", relativePath);
+async function readTxDump(file: string): Promise<TxDump> {
+    const resolved = resolveFixturePath(import.meta.url, "tx", file);
     const raw = await fs.readFile(resolved, "utf8");
     return JSON.parse(raw) as TxDump;
 }

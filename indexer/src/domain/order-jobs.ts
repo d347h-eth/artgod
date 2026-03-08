@@ -27,10 +27,10 @@ export type OrderUpdateByMakerPayload = {
     contract?: string;
     tokenId?: string;
     reason: OrderUpdateByMakerReason;
-    blockNumber: number;
-    blockHash: string;
-    txHash: string;
-    logIndex: number;
+    blockNumber?: number | null;
+    blockHash?: string | null;
+    txHash?: string | null;
+    logIndex?: number | null;
 };
 
 // Order update by id = explicit fill/cancel/on-chain order create for a single order.
@@ -39,10 +39,10 @@ export type OrderUpdateByIdPayload = {
     orderId: string;
     reason: string;
     sourceStatus?: OrderSourceStatus | null;
-    blockNumber: number;
-    blockHash: string;
-    txHash: string;
-    logIndex: number;
+    blockNumber?: number | null;
+    blockHash?: string | null;
+    txHash?: string | null;
+    logIndex?: number | null;
 };
 
 export type OrderUpsertPayload = {

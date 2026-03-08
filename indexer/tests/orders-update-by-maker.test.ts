@@ -12,6 +12,7 @@ import {
 import { normalizeOffchainOrder } from "../src/application/offchain/normalize.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import type { OffchainOrderRawPayload } from "../src/domain/offchain-jobs.js";
+import { resolveFixturePath } from "./helpers/fixture-paths.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
@@ -69,7 +70,9 @@ describe("orders update by maker", () => {
     it("revalidates only WETH buy orders for erc20-balance triggers", async () => {
         const chainId = 1;
         const buyFixture = await readFixture("item_received_bid.json");
-        const buyOrder = await insertOrderFromFixture(chainId, buyFixture);
+        const buyOrder = await insertOrderFromFixture(chainId, buyFixture, {
+            currency: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        });
 
         const sellFixture = await readFixture("item_listed.json");
         const sellOrder = await insertOrderFromFixture(chainId, sellFixture, {
@@ -211,9 +214,9 @@ async function insertOrderFromFixture(
 }
 
 async function readFixture(file: string): Promise<FixtureEnvelope> {
-    const fixturePath = path.resolve(
-        process.cwd(),
-        "tests/fixtures/opensea-event-payloads",
+    const fixturePath = resolveFixturePath(
+        import.meta.url,
+        "opensea-event-payloads",
         file,
     );
     const raw = await fs.readFile(fixturePath, "utf8");

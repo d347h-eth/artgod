@@ -34,6 +34,8 @@ describe("offchain dispatch", () => {
     beforeEach(() => {
         db.exec(
             [
+                "DELETE FROM orders;",
+                "DELETE FROM collection_trait_stats;",
                 "DELETE FROM token_sets_tokens;",
                 "DELETE FROM token_sets;",
                 "DELETE FROM token_attributes;",
@@ -41,7 +43,6 @@ describe("offchain dispatch", () => {
                 "DELETE FROM attribute_keys;",
                 "DELETE FROM tokens;",
                 "DELETE FROM nft_balances;",
-                "DELETE FROM orders;",
             ].join("\n"),
         );
     });

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
-import path from "node:path";
 import {
     normalizeOpenSeaEvent,
     normalizeOpenSeaMakerUpdate,
     normalizeOpenSeaMetadataRefresh,
     normalizeOpenSeaOrderUpdate,
 } from "../src/application/offchain/opensea-normalize.js";
+import { resolveFixturePath } from "./helpers/fixture-paths.js";
 
 type Fixture = {
     event: string;
@@ -301,9 +301,9 @@ describe("opensea normalizer", () => {
 });
 
 async function readFixture(file: string): Promise<Fixture> {
-    const fixturePath = path.resolve(
-        process.cwd(),
-        "tests/fixtures/opensea-event-payloads",
+    const fixturePath = resolveFixturePath(
+        import.meta.url,
+        "opensea-event-payloads",
         file,
     );
     const raw = await fs.readFile(fixturePath, "utf8");

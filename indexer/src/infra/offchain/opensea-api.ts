@@ -263,8 +263,7 @@ function toRestOfferRecord(
     const parameters = getProtocolParameters(offer.protocol_data);
     const orderHash = stringOrNull(offer.order_hash);
     if (!orderHash) return null;
-    const eventTimestamp =
-        unixToIso(parameters.startTime) ?? new Date().toISOString();
+    const eventTimestamp = unixToIso(parameters.startTime);
 
     const criteria = asRecord(offer.criteria);
     const criteriaContract = stringOrNull(asRecord(criteria.contract).address);

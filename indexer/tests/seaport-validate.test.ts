@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { logger } from "@artgod/shared/utils";
 import {
@@ -24,6 +23,7 @@ import type {
     RpcTransaction,
     RpcTransactionReceipt,
 } from "../src/ports/rpc.js";
+import { resolveFixturePath } from "./helpers/fixture-paths.js";
 
 const SEAPORT = "0x0000000000000068f116a894984e2db1123eb395";
 const SEAPORT_CONDUIT = "0x1e0049783f008a0085193e00003d00cd54003c71";
@@ -497,9 +497,9 @@ async function readFixture(name: string): Promise<{
     event_type: string;
     payload: Record<string, unknown>;
 }> {
-    const filePath = path.resolve(
-        process.cwd(),
-        "tests/fixtures/opensea-event-payloads",
+    const filePath = resolveFixturePath(
+        import.meta.url,
+        "opensea-event-payloads",
         name,
     );
     const raw = await fs.readFile(filePath, "utf8");

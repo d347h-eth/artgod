@@ -19,9 +19,12 @@ describe("metadata trait stats recompute", () => {
         db.exec(
             [
                 "DELETE FROM collection_trait_stats;",
+                "DELETE FROM token_sets_tokens;",
+                "DELETE FROM token_sets;",
                 "DELETE FROM token_attributes;",
                 "DELETE FROM attributes;",
                 "DELETE FROM attribute_keys;",
+                "DELETE FROM tokens;",
             ].join("\n"),
         );
     });

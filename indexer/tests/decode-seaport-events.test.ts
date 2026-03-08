@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import path from "node:path";
 import fs from "node:fs/promises";
 import { decodeSeaportOrderEvents } from "../src/application/fills/seaport-events.js";
 import type { Hex, RpcLog } from "../src/ports/rpc.js";
+import { resolveFixturePath } from "./helpers/fixture-paths.js";
 
 type TxDump = {
     receipt?: {
@@ -21,8 +21,8 @@ type TxDump = {
 const CASES = [
     {
         name: "OrderCancelled",
-        dumpPath:
-            "indexer/tests/fixtures/tx/0x79473e1015cf9131735dd3edc422b22b7884a2f372eaac7cd72af6e163459cac.json",
+        dumpFile:
+            "0x79473e1015cf9131735dd3edc422b22b7884a2f372eaac7cd72af6e163459cac.json",
         expectCancel: true,
         expectCounter: false,
         expectedMaker: "0xa8df7cfc1fa79979f0e84dc7d4679b277ba84127",
@@ -31,8 +31,8 @@ const CASES = [
     },
     {
         name: "CounterIncremented",
-        dumpPath:
-            "indexer/tests/fixtures/tx/0xb439334318e0675f7af61797eabc7753654e255f8be54773aa80172ad80ef362.json",
+        dumpFile:
+            "0xb439334318e0675f7af61797eabc7753654e255f8be54773aa80172ad80ef362.json",
         expectCancel: false,
         expectCounter: true,
         expectedMaker: "0xa8df7cfc1fa79979f0e84dc7d4679b277ba84127",
@@ -43,13 +43,13 @@ describe("seaport order lifecycle events", () => {
     it.each(CASES)(
         "$name",
         async ({
-            dumpPath,
+            dumpFile,
             expectCancel,
             expectCounter,
             expectedMaker,
             expectedOrderId,
         }) => {
-            const dump = await readTxDump(dumpPath);
+            const dump = await readTxDump(dumpFile);
             const logs = toRpcLogs(dump);
             const collections = new Set<string>();
             const result = decodeSeaportOrderEvents(logs, collections);
@@ -70,8 +70,8 @@ describe("seaport order lifecycle events", () => {
     );
 });
 
-async function readTxDump(relativePath: string): Promise<TxDump> {
-    const resolved = path.resolve(process.cwd(), "..", relativePath);
+async function readTxDump(file: string): Promise<TxDump> {
+    const resolved = resolveFixturePath(import.meta.url, "tx", file);
     const raw = await fs.readFile(resolved, "utf8");
     return JSON.parse(raw) as TxDump;
 }
