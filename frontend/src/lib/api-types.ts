@@ -162,6 +162,34 @@ export type ApiBootstrapRunTaskCounts = {
 	total: number;
 };
 
+export type ApiBootstrapFlowStep = {
+	key:
+		| 'requested'
+		| 'queued'
+		| 'anchor'
+		| 'enumeration'
+		| 'metadata'
+		| 'ownership'
+		| 'backfill'
+		| 'collection_live'
+		| 'opensea_identity'
+		| 'opensea_snapshot'
+		| 'opensea_ready';
+	label: string;
+	state: 'pending' | 'active' | 'completed' | 'failed';
+	detailText: string | null;
+	progress: {
+		completed: number;
+		total: number;
+	} | null;
+};
+
+export type ApiBootstrapRunFlow = {
+	steps: ApiBootstrapFlowStep[];
+	isTerminal: boolean;
+	shouldPoll: boolean;
+};
+
 export type ApiBootstrapRunListItem = {
 	run: ApiBootstrapRun;
 	collection: ApiBootstrapRunCollectionSummary;
@@ -192,6 +220,7 @@ export type BootstrapRunDetailApiResponse = {
 	run: ApiBootstrapRun;
 	collection: ApiBootstrapRunCollectionSummary;
 	metadataTasks: ApiBootstrapRunTaskCounts;
+	flow: ApiBootstrapRunFlow;
 	failedMetadataTasksPreview: Array<{
 		tokenId: string;
 		status: 'pending' | 'retry' | 'succeeded' | 'failed_terminal';

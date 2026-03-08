@@ -75,6 +75,14 @@ export type BootstrapMetadataTaskListItem = {
     lastErrorAt: number | null;
 };
 
+export type BootstrapRunEventRecord = {
+    eventCode: string;
+    eventLevel: "info" | "warn" | "error";
+    message: string;
+    createdAt: string;
+    payloadJson: string | null;
+};
+
 export type BootstrapRunStatus =
     | "requested"
     | "queued"
@@ -90,6 +98,42 @@ export type BootstrapRunTaskCounts = {
     succeeded: number;
     failedTerminal: number;
     total: number;
+};
+
+export type BootstrapFlowStepKey =
+    | "requested"
+    | "queued"
+    | "anchor"
+    | "enumeration"
+    | "metadata"
+    | "ownership"
+    | "backfill"
+    | "collection_live"
+    | "opensea_identity"
+    | "opensea_snapshot"
+    | "opensea_ready";
+
+export type BootstrapFlowStepState =
+    | "pending"
+    | "active"
+    | "completed"
+    | "failed";
+
+export type BootstrapFlowStep = {
+    key: BootstrapFlowStepKey;
+    label: string;
+    state: BootstrapFlowStepState;
+    detailText: string | null;
+    progress: {
+        completed: number;
+        total: number;
+    } | null;
+};
+
+export type BootstrapRunFlow = {
+    steps: BootstrapFlowStep[];
+    isTerminal: boolean;
+    shouldPoll: boolean;
 };
 
 export type BootstrapRunCollectionSummary = {
@@ -122,6 +166,7 @@ export type BootstrapRunDetailOutput = {
     run: BootstrapRunRow;
     collection: BootstrapRunCollectionSummary;
     metadataTasks: BootstrapRunTaskCounts;
+    flow: BootstrapRunFlow;
     failedMetadataTasksPreview: BootstrapMetadataTaskListItem[];
     failedMetadataTasksPreviewLimit: number;
     isLatestForCollection: boolean;

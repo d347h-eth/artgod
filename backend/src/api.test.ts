@@ -418,8 +418,26 @@ describe("backend api routes", () => {
                 "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             anchorBlockTimestamp: 1_726_000_000,
         });
+        insertBootstrapRunEvent(runId, "run.requested");
+        insertBootstrapRunEvent(runId, "run.queued");
+        insertBootstrapRunEvent(runId, "run.anchor.selected");
+        insertBootstrapRunEvent(runId, "metadata.enumeration.started");
+        insertBootstrapRunEvent(runId, "metadata.enumeration.completed");
+        insertBootstrapRunEvent(runId, "metadata.tasks.seeded");
+        insertBootstrapRunEvent(runId, "metadata.queued");
         insertBootstrapMetadataTask(runId, "1", "failed_terminal");
         insertBootstrapMetadataTask(runId, "2", "succeeded");
+        updateCollectionLifecycle(MILADY_ADDRESS, {
+            status: "live",
+            bootstrapFinishedAt: "2026-02-01T00:01:00Z",
+            bootstrapLastSyncedBlock: 24_500_100,
+            openseaSlug: "milady-maker",
+            openseaStatus: "ready",
+            openseaReadyAt: "2026-02-01T00:02:00Z",
+            openseaSnapshotStartedAt: "2026-02-01T00:01:10Z",
+            openseaSnapshotCompletedAt: "2026-02-01T00:01:50Z",
+            openseaLastError: null,
+        });
 
         const list = await resolve(
             "GET",
@@ -441,11 +459,95 @@ describe("backend api routes", () => {
         expect(detail.payload.run.runId).toBe(runId);
         expect(detail.payload.collection.address).toBe(MILADY_ADDRESS);
         expect(detail.payload.metadataTasks.total).toBe(2);
+        expect(detail.payload.flow.shouldPoll).toBe(false);
+        expect(
+            detail.payload.flow.steps.map((step: { key: string }) => step.key),
+        ).toEqual([
+            "requested",
+            "queued",
+            "anchor",
+            "enumeration",
+            "metadata",
+            "ownership",
+            "backfill",
+            "collection_live",
+            "opensea_identity",
+            "opensea_snapshot",
+            "opensea_ready",
+        ]);
+        expect(
+            detail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === "metadata",
+            ),
+        ).toEqual(
+            expect.objectContaining({
+                state: "completed",
+                progress: {
+                    completed: 1,
+                    total: 2,
+                },
+            }),
+        );
+        expect(
+            detail.payload.flow.steps.find(
+                (step: { key: string }) => step.key === "opensea_ready",
+            ),
+        ).toEqual(expect.objectContaining({ state: "completed" }));
         expect(detail.payload.failedMetadataTasksPreview).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({ status: "failed_terminal" }),
             ]),
         );
+    });
+
+    it("suppresses opensea flow steps for non-latest runs", async () => {
+        const olderRunId = insertBootstrapRun({
+            chainId: 1,
+            collectionAddress: MILADY_ADDRESS,
+            status: "completed",
+            metadataMode: "best_effort",
+            anchorBlock: 24_500_200,
+            anchorBlockHash:
+                "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            anchorBlockTimestamp: 1_726_000_200,
+        });
+        insertBootstrapRunEvent(olderRunId, "run.requested");
+        insertBootstrapRunEvent(olderRunId, "run.queued");
+        insertBootstrapRunEvent(olderRunId, "run.anchor.selected");
+        insertBootstrapRunEvent(olderRunId, "metadata.enumeration.completed");
+        insertBootstrapRunEvent(olderRunId, "metadata.queued");
+
+        insertBootstrapRun({
+            chainId: 1,
+            collectionAddress: MILADY_ADDRESS,
+            status: "completed",
+            metadataMode: "best_effort",
+            anchorBlock: 24_500_210,
+            anchorBlockHash:
+                "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            anchorBlockTimestamp: 1_726_000_210,
+        });
+        updateCollectionLifecycle(MILADY_ADDRESS, {
+            status: "live",
+            openseaSlug: "milady-maker",
+            openseaStatus: "ready",
+            openseaReadyAt: "2026-02-02T00:02:00Z",
+            openseaSnapshotStartedAt: "2026-02-02T00:01:00Z",
+            openseaSnapshotCompletedAt: "2026-02-02T00:01:40Z",
+            openseaLastError: null,
+        });
+
+        const detail = await resolve(
+            "GET",
+            `/api/ethereum/bootstrap-runs/${olderRunId}`,
+        );
+        expect(detail.statusCode).toBe(200);
+        expect(detail.payload.isLatestForCollection).toBe(false);
+        expect(
+            detail.payload.flow.steps.some((step: { key: string }) =>
+                step.key.startsWith("opensea_"),
+            ),
+        ).toBe(false);
     });
 
     it("retries failed tasks for a specific run", async () => {
@@ -980,6 +1082,82 @@ function insertBootstrapMetadataTask(
         run.anchor_block_hash,
         run.anchor_block_timestamp,
         status,
+    );
+}
+
+function insertBootstrapRunEvent(
+    runId: number,
+    eventCode: string,
+    eventLevel: "info" | "warn" | "error" = "info",
+): void {
+    const run = db
+        .prepare<[number]>(
+            "SELECT chain_id, collection_id FROM bootstrap_runs WHERE run_id = ? LIMIT 1",
+        )
+        .get(runId) as
+        | {
+              chain_id: number;
+              collection_id: number;
+          }
+        | undefined;
+    if (!run) {
+        throw new Error("Missing bootstrap run for event fixture insertion");
+    }
+
+    db.prepare(
+        "INSERT INTO bootstrap_run_events " +
+            "(run_id, chain_id, collection_id, event_code, event_level, message, payload_json, created_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)",
+    ).run(runId, run.chain_id, run.collection_id, eventCode, eventLevel, eventCode);
+}
+
+function updateCollectionLifecycle(
+    collectionAddress: string,
+    input: {
+        status?: "bootstrapping" | "live" | "paused" | "disabled";
+        bootstrapFinishedAt?: string | null;
+        bootstrapLastSyncedBlock?: number | null;
+        openseaSlug?: string | null;
+        openseaStatus?:
+            | "pending"
+            | "identity_running"
+            | "subscribing"
+            | "snapshot_pending"
+            | "snapshot_running"
+            | "ready"
+            | "retrying"
+            | "failed"
+            | null;
+        openseaReadyAt?: string | null;
+        openseaSnapshotStartedAt?: string | null;
+        openseaSnapshotCompletedAt?: string | null;
+        openseaLastError?: string | null;
+    },
+): void {
+    db.prepare(
+        "UPDATE collections SET " +
+            "status = COALESCE(?, status), " +
+            "bootstrap_finished_at = COALESCE(?, bootstrap_finished_at), " +
+            "bootstrap_last_synced_block = COALESCE(?, bootstrap_last_synced_block), " +
+            "opensea_slug = COALESCE(?, opensea_slug), " +
+            "opensea_status = COALESCE(?, opensea_status), " +
+            "opensea_ready_at = COALESCE(?, opensea_ready_at), " +
+            "opensea_snapshot_started_at = COALESCE(?, opensea_snapshot_started_at), " +
+            "opensea_snapshot_completed_at = COALESCE(?, opensea_snapshot_completed_at), " +
+            "opensea_last_error = ?, " +
+            "updated_at = CURRENT_TIMESTAMP " +
+            "WHERE chain_id = 1 AND lower(address) = ?",
+    ).run(
+        input.status ?? null,
+        input.bootstrapFinishedAt ?? null,
+        input.bootstrapLastSyncedBlock ?? null,
+        input.openseaSlug ?? null,
+        input.openseaStatus ?? null,
+        input.openseaReadyAt ?? null,
+        input.openseaSnapshotStartedAt ?? null,
+        input.openseaSnapshotCompletedAt ?? null,
+        input.openseaLastError ?? null,
+        collectionAddress.toLowerCase(),
     );
 }
 

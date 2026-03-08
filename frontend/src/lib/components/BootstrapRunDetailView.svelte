@@ -51,7 +51,7 @@
 		loadError = null;
 		try {
 			detail = await getBootstrapRunDetail(fetch, chainRef, runId);
-			if (detail?.run.status === 'completed') {
+			if (detail?.flow.shouldPoll === false) {
 				stopRefreshTimer();
 			}
 		} catch (error) {
@@ -82,6 +82,13 @@
 			retryPending = false;
 		}
 	}
+
+	function flowProgressLabel(
+		step: NonNullable<BootstrapRunDetailApiResponse['flow']>['steps'][number]
+	): string | null {
+		if (!step.progress) return null;
+		return `${step.progress.completed} / ${step.progress.total}`;
+	}
 </script>
 
 <section class="panel">
@@ -104,8 +111,8 @@
 	</header>
 
 	{#if detail}
-		<section class="panel-header bootstrap-panel">
-			<div class="bootstrap-summary-grid">
+		<section class="panel-header bootstrap-panel bootstrap-detail-summary">
+			<div class="bootstrap-summary-grid bootstrap-detail-summary-grid">
 				<div>
 					<div class="muted">collection</div>
 					<div>
@@ -127,18 +134,6 @@
 				<div>
 					<div class="muted">enumeration</div>
 					<div>{detail.run.enumerationMode}</div>
-				</div>
-				<div>
-					<div class="muted">tasks</div>
-					<div class="mono">{detail.metadataTasks.succeeded}/{detail.metadataTasks.total}</div>
-				</div>
-				<div>
-					<div class="muted">retry</div>
-					<div class="mono">{detail.metadataTasks.retry}</div>
-				</div>
-				<div>
-					<div class="muted">failed</div>
-					<div class="mono">{detail.metadataTasks.failedTerminal}</div>
 				</div>
 				<div>
 					<div class="muted">anchor block</div>
@@ -164,9 +159,28 @@
 			{#if retryMessage}
 				<div class="muted">{retryMessage}</div>
 			{/if}
+			{#if detail.run.errorMessage}
+				<div class="muted">{detail.run.errorMessage}</div>
+			{/if}
 			{#if loadError}
 				<div class="muted">{loadError}</div>
 			{/if}
+		</section>
+
+		<section class="bootstrap-flow-panel">
+			<div class="bootstrap-flow-strip" role="list" aria-label="bootstrap flow">
+				{#each detail.flow.steps as step}
+					<div class={`bootstrap-flow-step bootstrap-flow-step-${step.state}`} role="listitem">
+						<div class="bootstrap-flow-step-label">{step.label}</div>
+						{#if flowProgressLabel(step)}
+							<div class="mono bootstrap-flow-step-progress">{flowProgressLabel(step)}</div>
+						{/if}
+						{#if step.detailText}
+							<div class="mono bootstrap-flow-step-detail">{step.detailText}</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
 		</section>
 
 		{#if detail.failedMetadataTasksPreview.length > 0}

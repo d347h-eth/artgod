@@ -116,16 +116,100 @@ a:hover {
 	gap: 0.75rem;
 }
 
+.bootstrap-detail-summary {
+	border-bottom: 1px solid var(--c-blue);
+}
+
 .bootstrap-summary-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
 	gap: 0.6rem;
 }
 
+.bootstrap-detail-summary-grid {
+	grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+}
+
 .bootstrap-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.45rem;
+}
+
+.bootstrap-flow-panel {
+	border-bottom: 1px solid var(--c-blue);
+	padding: 0.75rem;
+	overflow-x: auto;
+}
+
+.bootstrap-flow-strip {
+	display: grid;
+	grid-auto-flow: column;
+	grid-auto-columns: minmax(10rem, 1fr);
+	gap: 0.5rem;
+	min-width: max-content;
+}
+
+.bootstrap-flow-step {
+	min-height: 6.5rem;
+	padding: 0.65rem;
+	border: 1px solid var(--c-blue);
+	display: grid;
+	align-content: start;
+	gap: 0.35rem;
+	color: var(--c-bg);
+}
+
+.bootstrap-flow-step-completed {
+	background: var(--c-blue);
+}
+
+.bootstrap-flow-step-active {
+	background: var(--c-cyan);
+	animation: bootstrap-flow-active-pulse 2s ease-in-out infinite;
+}
+
+.bootstrap-flow-step-pending {
+	background: var(--c-sand);
+}
+
+.bootstrap-flow-step-failed {
+	background: var(--c-orange);
+}
+
+.bootstrap-flow-step-label {
+	font-size: 0.76rem;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.bootstrap-flow-step-progress {
+	font-size: 0.88rem;
+}
+
+.bootstrap-flow-step-detail {
+	font-size: 0.7rem;
+	line-height: 1.25;
+	word-break: break-word;
+}
+
+@keyframes bootstrap-flow-active-pulse {
+	0%,
+	100% {
+		background: var(--c-blue);
+		border-color: var(--c-blue);
+	}
+
+	50% {
+		background: var(--c-cyan);
+		border-color: var(--c-cyan);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bootstrap-flow-step-active {
+		animation: none;
+	}
 }
 
 .bootstrap-form {

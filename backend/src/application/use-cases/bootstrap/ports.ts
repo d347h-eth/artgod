@@ -4,8 +4,19 @@ import type {
     BootstrapMetadataMode,
     BootstrapMetadataTaskListItem,
     BootstrapMetadataTaskStatus,
+    BootstrapRunEventRecord,
     BootstrapRunRow,
 } from "./types.js";
+
+type OpenSeaCollectionStatus =
+    | "pending"
+    | "identity_running"
+    | "subscribing"
+    | "snapshot_pending"
+    | "snapshot_running"
+    | "ready"
+    | "retrying"
+    | "failed";
 
 export type CollectionBootstrapState = {
     chainId: number;
@@ -19,6 +30,12 @@ export type CollectionBootstrapState = {
     bootstrapStartedAt: string | null;
     bootstrapFinishedAt: string | null;
     bootstrapLastSyncedBlock: number | null;
+    openseaSlug: string | null;
+    openseaStatus: OpenSeaCollectionStatus | null;
+    openseaReadyAt: string | null;
+    openseaSnapshotStartedAt: string | null;
+    openseaSnapshotCompletedAt: string | null;
+    openseaLastError: string | null;
 };
 
 export interface ChainRefResolverPort {
@@ -78,6 +95,7 @@ export interface BootstrapRunsWritePort {
     }): void;
     getLatestRun(chainId: number, collectionId: number): BootstrapRunRow | null;
     getRunById(chainId: number, runId: number): BootstrapRunRow | null;
+    listRunEvents(runId: number): BootstrapRunEventRecord[];
     isLatestRunForCollection(
         chainId: number,
         collectionId: number,

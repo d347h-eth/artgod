@@ -10,6 +10,7 @@ import type {
     CollectionBootstrapState,
 } from "../../application/use-cases/bootstrap/ports.js";
 import type {
+    BootstrapRunEventRecord,
     BootstrapMetadataTaskListItem,
     BootstrapMetadataTaskStatus,
     BootstrapRunRow,
@@ -27,6 +28,21 @@ type CollectionRow = {
     bootstrap_started_at: string | null;
     bootstrap_finished_at: string | null;
     bootstrap_last_synced_block: number | null;
+    opensea_slug: string | null;
+    opensea_status:
+        | "pending"
+        | "identity_running"
+        | "subscribing"
+        | "snapshot_pending"
+        | "snapshot_running"
+        | "ready"
+        | "retrying"
+        | "failed"
+        | null;
+    opensea_ready_at: string | null;
+    opensea_snapshot_started_at: string | null;
+    opensea_snapshot_completed_at: string | null;
+    opensea_last_error: string | null;
 };
 
 type BootstrapRunDbRow = {
@@ -62,12 +78,23 @@ type BootstrapTaskDbRow = {
     last_error_at: number | null;
 };
 
+type BootstrapRunEventDbRow = {
+    event_code: string;
+    event_level: "info" | "warn" | "error";
+    message: string;
+    created_at: string;
+    payload_json: string | null;
+};
+
+const COLLECTION_COLUMNS =
+    "chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block, opensea_slug, opensea_status, opensea_ready_at, opensea_snapshot_started_at, opensea_snapshot_completed_at, opensea_last_error";
+
 export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private selectCollectionByAddress = db.prepare<{
         chainId: number;
         address: string;
     }>(
-        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
+        `SELECT ${COLLECTION_COLUMNS} ` +
             "FROM collections WHERE chain_id = @chainId AND lower(address) = @address LIMIT 1",
     );
 
@@ -75,7 +102,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         chainId: number;
         slug: string;
     }>(
-        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
+        `SELECT ${COLLECTION_COLUMNS} ` +
             "FROM collections WHERE chain_id = @chainId AND slug = @slug LIMIT 1",
     );
 
@@ -83,7 +110,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         chainId: number;
         collectionId: number;
     }>(
-        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block " +
+        `SELECT ${COLLECTION_COLUMNS} ` +
             "FROM collections WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
     );
 
@@ -173,6 +200,11 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
     private selectRunTaskCounts = db.prepare<{ runId: number }>(
         "SELECT status, COUNT(*) AS count FROM bootstrap_metadata_snapshot_tasks " +
             "WHERE run_id = @runId GROUP BY status",
+    );
+
+    private selectRunEvents = db.prepare<{ runId: number }>(
+        "SELECT event_code, event_level, message, created_at, payload_json " +
+            "FROM bootstrap_run_events WHERE run_id = @runId ORDER BY id ASC",
     );
 
     private markFailedTasksRetry = db.prepare<{ runId: number }>(
@@ -333,6 +365,19 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         return row ? mapRun(row) : null;
     }
 
+    listRunEvents(runId: number): BootstrapRunEventRecord[] {
+        const rows = this.selectRunEvents.all({
+            runId,
+        }) as BootstrapRunEventDbRow[];
+        return rows.map((row) => ({
+            eventCode: row.event_code,
+            eventLevel: row.event_level,
+            message: row.message,
+            createdAt: row.created_at,
+            payloadJson: row.payload_json,
+        }));
+    }
+
     isLatestRunForCollection(
         chainId: number,
         collectionId: number,
@@ -471,6 +516,12 @@ function mapCollection(row: CollectionRow): CollectionBootstrapState {
         bootstrapStartedAt: row.bootstrap_started_at,
         bootstrapFinishedAt: row.bootstrap_finished_at,
         bootstrapLastSyncedBlock: row.bootstrap_last_synced_block,
+        openseaSlug: row.opensea_slug,
+        openseaStatus: row.opensea_status,
+        openseaReadyAt: row.opensea_ready_at,
+        openseaSnapshotStartedAt: row.opensea_snapshot_started_at,
+        openseaSnapshotCompletedAt: row.opensea_snapshot_completed_at,
+        openseaLastError: row.opensea_last_error,
     };
 }
 

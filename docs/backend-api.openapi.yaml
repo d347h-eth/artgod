@@ -303,7 +303,7 @@ paths:
                 - $ref: "#/components/parameters/RunId"
             responses:
                 "200":
-                    description: Bootstrap run detail with failed-task preview
+                    description: Bootstrap run detail with derived flow state and failed-task preview
                     content:
                         application/json:
                             schema:
@@ -922,6 +922,66 @@ components:
                 total:
                     type: integer
 
+        BootstrapFlowStepState:
+            type: string
+            enum: [pending, active, completed, failed]
+
+        BootstrapFlowStepKey:
+            type: string
+            enum:
+                [
+                    requested,
+                    queued,
+                    anchor,
+                    enumeration,
+                    metadata,
+                    ownership,
+                    backfill,
+                    collection_live,
+                    opensea_identity,
+                    opensea_snapshot,
+                    opensea_ready,
+                ]
+
+        BootstrapFlowStep:
+            type: object
+            required: [key, label, state, detailText, progress]
+            additionalProperties: false
+            properties:
+                key:
+                    $ref: "#/components/schemas/BootstrapFlowStepKey"
+                label:
+                    type: string
+                state:
+                    $ref: "#/components/schemas/BootstrapFlowStepState"
+                detailText:
+                    type: string
+                    nullable: true
+                progress:
+                    type: object
+                    nullable: true
+                    required: [completed, total]
+                    additionalProperties: false
+                    properties:
+                        completed:
+                            type: integer
+                        total:
+                            type: integer
+
+        BootstrapRunFlow:
+            type: object
+            required: [steps, isTerminal, shouldPoll]
+            additionalProperties: false
+            properties:
+                steps:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BootstrapFlowStep"
+                isTerminal:
+                    type: boolean
+                shouldPoll:
+                    type: boolean
+
         BootstrapRunCollectionSummary:
             type: object
             required: [chainId, collectionId, slug, address, status]
@@ -1020,6 +1080,7 @@ components:
                 - run
                 - collection
                 - metadataTasks
+                - flow
                 - failedMetadataTasksPreview
                 - failedMetadataTasksPreviewLimit
                 - isLatestForCollection
@@ -1031,6 +1092,8 @@ components:
                     $ref: "#/components/schemas/BootstrapRunCollectionSummary"
                 metadataTasks:
                     $ref: "#/components/schemas/BootstrapRunTaskCounts"
+                flow:
+                    $ref: "#/components/schemas/BootstrapRunFlow"
                 failedMetadataTasksPreview:
                     type: array
                     items:
