@@ -18,6 +18,10 @@ import { QUEUE_NAMES } from "../../domain/queues.js";
 import type { QueuePort } from "../../ports/queue.js";
 import type { TokenSetRegistryPort } from "../../ports/token-sets.js";
 import type { MetadataRefreshPayload } from "../../domain/domain-jobs.js";
+import {
+    ORDER_LOCAL_TOKEN_SET_STATUS,
+    ORDER_SOURCE_SCOPE_KIND,
+} from "../../domain/orders.js";
 
 export type DispatchOffchainPayloadResult = {
     handled: boolean;
@@ -36,13 +40,17 @@ export async function dispatchOffchainPayload(
     if (normalized) {
         let tokenSetId: string | null = null;
         let tokenSetSchemaHash: string | null = null;
-        if (normalized.tokenSetSchema) {
+        let localTokenSetStatus =
+            normalized.localTokenSetStatus ??
+            ORDER_LOCAL_TOKEN_SET_STATUS.None;
+
+        if (normalized.sourceSchema) {
             const resolved = tokenSets.ensureTokenSet({
                 chainId: normalized.chainId,
-                schema: normalized.tokenSetSchema,
-                criteriaRoot: normalized.criteriaRoot ?? null,
+                schema: normalized.sourceSchema,
             });
             if (!resolved) {
+                localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved;
                 logger.warn("Offchain token set unresolved", {
                     component: "OffchainDispatch",
                     action: "dispatch",
@@ -50,14 +58,31 @@ export async function dispatchOffchainPayload(
                     orderId: normalized.orderId,
                     chainId: normalized.chainId,
                     collectionId: payload.collectionId,
+                    sourceScopeKind: normalized.sourceScopeKind,
                 });
-                return {
-                    handled: true,
-                    upsertedOrderId: null,
-                };
+            } else if (
+                normalized.sourceScopeKind === ORDER_SOURCE_SCOPE_KIND.Attribute &&
+                normalized.sourceCriteriaRoot &&
+                normalized.sourceCriteriaRoot.toLowerCase() !==
+                    resolved.merkleRoot.toLowerCase()
+            ) {
+                localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Mismatch;
+                logger.warn("Offchain token set criteria mismatch", {
+                    component: "OffchainDispatch",
+                    action: "dispatch",
+                    source: normalized.source,
+                    orderId: normalized.orderId,
+                    chainId: normalized.chainId,
+                    collectionId: payload.collectionId,
+                    sourceScopeKind: normalized.sourceScopeKind,
+                    expected: normalized.sourceCriteriaRoot,
+                    resolved: resolved.merkleRoot,
+                });
+            } else {
+                localTokenSetStatus = ORDER_LOCAL_TOKEN_SET_STATUS.Resolved;
+                tokenSetId = resolved.tokenSetId;
+                tokenSetSchemaHash = resolved.schemaHash;
             }
-            tokenSetId = resolved.tokenSetId;
-            tokenSetSchemaHash = resolved.schemaHash;
         }
 
         const upsertJob: JobEnvelope<OrderUpsertPayload> = {
@@ -73,15 +98,21 @@ export async function dispatchOffchainPayload(
                 taker: normalized.taker ?? null,
                 contract: normalized.contract,
                 tokenId: normalized.tokenId ?? null,
+                sourceScopeKind: normalized.sourceScopeKind,
+                sourceCriteriaRoot: normalized.sourceCriteriaRoot ?? null,
+                sourceSchema: normalized.sourceSchema ?? null,
+                localTokenSetStatus,
                 tokenSetId,
                 tokenSetSchemaHash,
                 price: normalized.price ?? null,
                 currency: normalized.currency ?? null,
                 validFrom: normalized.validFrom ?? null,
                 validUntil: normalized.validUntil ?? null,
+                seaportData: normalized.seaportData ?? null,
                 source: normalized.source,
                 sourceStatus: "active",
-                rawData: normalized.rawData,
+                rawSourceKind: normalized.rawSourceKind,
+                rawPayload: normalized.rawPayload,
                 validateAfterUpsert: true,
             },
             attempt: 0,

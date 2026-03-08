@@ -5,6 +5,7 @@ export default defineConfig({
     test: {
         environment: "node",
         globals: true,
+        fileParallelism: false,
         testTimeout: 10_000,
         hookTimeout: 10_000,
         maxConcurrency: 1,

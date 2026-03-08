@@ -91,6 +91,9 @@ export type IndexerConfig = {
             domainWorker: number;
             offchainIngestWorker: number;
             openseaStreamWorker: number;
+            openseaBootstrapWorker: number;
+            openseaReconcileWorker: number;
+            openseaReconcileSchedulerWorker: number;
             bootstrapWorker: number;
             deadLetterWorker: number;
         };
@@ -318,6 +321,21 @@ export function loadConfig(
                     env.METRICS_PORT_OPENSEA_STREAM_WORKER,
                     "METRICS_PORT_OPENSEA_STREAM_WORKER",
                     9469,
+                ),
+                openseaBootstrapWorker: parseNumber(
+                    env.METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
+                    "METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
+                    9472,
+                ),
+                openseaReconcileWorker: parseNumber(
+                    env.METRICS_PORT_OPENSEA_RECONCILE_WORKER,
+                    "METRICS_PORT_OPENSEA_RECONCILE_WORKER",
+                    9473,
+                ),
+                openseaReconcileSchedulerWorker: parseNumber(
+                    env.METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
+                    "METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
+                    9474,
                 ),
                 bootstrapWorker: parseNumber(
                     env.METRICS_PORT_BOOTSTRAP_WORKER,

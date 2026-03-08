@@ -1,6 +1,11 @@
 import type { OffchainOrderRawPayload } from "../../domain/offchain-jobs.js";
 import type { OrderUpdateByMakerReason } from "../../domain/order-jobs.js";
-import type { OrderSourceStatus } from "../../domain/orders.js";
+import type {
+    OrderLocalTokenSetStatus,
+    SeaportOrderData,
+    OrderSourceScopeKind,
+    OrderSourceStatus,
+} from "../../domain/orders.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
 import {
     normalizeOpenSeaEvent,
@@ -8,6 +13,7 @@ import {
     normalizeOpenSeaMetadataRefresh,
     normalizeOpenSeaOrderUpdate,
 } from "./opensea-normalize.js";
+import { normalizeOpenSeaRestOrder } from "./opensea-rest-normalize.js";
 import {
     asObject,
     assertAddress,
@@ -26,18 +32,22 @@ export type RawOrderPayload = {
     taker?: string | null;
     contract: string;
     tokenId?: string | null;
-    tokenSetSchema?: TokenSetSchema;
-    criteriaRoot?: string | null;
+    sourceScopeKind: OrderSourceScopeKind;
+    sourceSchema?: TokenSetSchema | null;
+    sourceCriteriaRoot?: string | null;
+    localTokenSetStatus?: OrderLocalTokenSetStatus | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;
     validUntil?: number | null;
+    seaportData?: SeaportOrderData | null;
 };
 
 export type NormalizedOffchainOrder = RawOrderPayload & {
     chainId: number;
     source: string;
-    rawData: unknown;
+    rawSourceKind: "stream" | "rest";
+    rawPayload: unknown;
 };
 
 export type NormalizedOffchainOrderUpdateById = {
@@ -83,7 +93,7 @@ export function normalizeOffchainOrder(
 
     const order =
         raw.source === "opensea"
-            ? normalizeOpenSeaEvent(raw.payload)
+            ? normalizeOpenSeaOrderPayload(raw)
             : toRawOrderPayload(asObject(raw.payload, "payload"));
     if (!order) return null;
 
@@ -96,14 +106,18 @@ export function normalizeOffchainOrder(
         taker: parseOptionalAddress(order.taker, "taker"),
         contract: assertAddress(order.contract, "contract"),
         tokenId: order.tokenId ?? null,
-        tokenSetSchema: order.tokenSetSchema,
-        criteriaRoot: order.criteriaRoot ?? null,
+        sourceScopeKind: order.sourceScopeKind,
+        sourceSchema: order.sourceSchema ?? null,
+        sourceCriteriaRoot: order.sourceCriteriaRoot ?? null,
+        localTokenSetStatus: order.localTokenSetStatus ?? null,
         price: order.price ?? null,
         currency: parseOptionalAddress(order.currency, "currency"),
         validFrom: order.validFrom ?? null,
         validUntil: order.validUntil ?? null,
+        seaportData: order.seaportData ?? null,
         source: raw.source,
-        rawData: raw.payload,
+        rawSourceKind: raw.channel === "stream" ? "stream" : "rest",
+        rawPayload: raw.payload,
     };
 }
 
@@ -118,8 +132,13 @@ function toRawOrderPayload(value: Record<string, unknown>): RawOrderPayload {
         tokenId: parseOptionalString(value.tokenId, "tokenId"),
         price: parseOptionalString(value.price, "price"),
         currency: parseOptionalString(value.currency, "currency"),
+        sourceScopeKind: "token",
+        sourceSchema: null,
+        sourceCriteriaRoot: null,
+        localTokenSetStatus: "none",
         validFrom: parseOptionalNumber(value.validFrom, "validFrom"),
         validUntil: parseOptionalNumber(value.validUntil, "validUntil"),
+        seaportData: null,
     };
 }
 
@@ -133,7 +152,7 @@ export function normalizeOffchainOrderUpdateById(
         throw new Error("Invalid offchain order chainId");
     }
 
-    if (raw.source !== "opensea") return null;
+    if (raw.source !== "opensea" || raw.channel !== "stream") return null;
     const update = normalizeOpenSeaOrderUpdate(raw.payload);
     if (!update) return null;
 
@@ -156,7 +175,7 @@ export function normalizeOffchainOrderUpdateByMaker(
         throw new Error("Invalid offchain order chainId");
     }
 
-    if (raw.source !== "opensea") return null;
+    if (raw.source !== "opensea" || raw.channel !== "stream") return null;
     const update = normalizeOpenSeaMakerUpdate(raw.payload);
     if (!update) return null;
 
@@ -180,7 +199,7 @@ export function normalizeOffchainMetadataRefresh(
         throw new Error("Invalid offchain order chainId");
     }
 
-    if (raw.source !== "opensea") return null;
+    if (raw.source !== "opensea" || raw.channel !== "stream") return null;
     const refresh = normalizeOpenSeaMetadataRefresh(raw.payload);
     if (!refresh) return null;
 
@@ -192,4 +211,14 @@ export function normalizeOffchainMetadataRefresh(
         metadataUrl: refresh.metadataUrl,
         reason: refresh.reason,
     };
+}
+
+function normalizeOpenSeaOrderPayload(
+    raw: OffchainOrderRawPayload,
+): RawOrderPayload | null {
+    if (raw.channel === "stream") {
+        return normalizeOpenSeaEvent(raw.payload);
+    }
+
+    return normalizeOpenSeaRestOrder(raw.eventType, raw.payload);
 }

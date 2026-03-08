@@ -13,7 +13,7 @@ use runtime::{DesktopRuntimeConfig, RuntimeEndpoints, RuntimeManager, RuntimeSta
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, include_image};
 use time::OffsetDateTime;
 
 struct DesktopState {
@@ -24,6 +24,7 @@ struct DesktopState {
 const TRAY_OPEN_USERLAND_ID: &str = "tray.open_userland";
 const TRAY_OPEN_ADMIN_ID: &str = "tray.open_admin";
 const TRAY_SHUTDOWN_ID: &str = "tray.shutdown";
+const TRAY_ICON: tauri::image::Image<'_> = include_image!("./icons/tray_icon.png");
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -315,6 +316,7 @@ pub fn run() {
                 Menu::with_items(app.handle(), &[&open_userland, &open_admin, &shutdown])?;
 
             TrayIconBuilder::new()
+                .icon(TRAY_ICON)
                 .tooltip("ArtGod")
                 .menu(&tray_menu)
                 .on_menu_event(|app_handle: &AppHandle, event| {

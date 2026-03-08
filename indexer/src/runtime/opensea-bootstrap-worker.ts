@@ -11,12 +11,10 @@ import {
 } from "../domain/opensea-jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
-import { SqliteOffchainObservationStore } from "../infra/offchain/sqlite-observations.js";
 import { SqliteOpenSeaOrderbookRuns } from "../infra/offchain/sqlite-orderbook-runs.js";
 import { SqliteOrderSourceStateStore } from "../infra/offchain/sqlite-order-source-state.js";
 import { OpenSeaApiAdapter } from "../infra/offchain/opensea-api.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
-import { SqliteTokenSetRegistry } from "../infra/token-sets/sqlite.js";
 import { initRuntimeMetrics } from "../metrics/runtime.js";
 import { initRuntimeApm } from "../observability/apm.js";
 
@@ -47,8 +45,6 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const collections = new SqliteCollectionRegistry();
-        const tokenSets = new SqliteTokenSetRegistry();
-        const observations = new SqliteOffchainObservationStore();
         const orderbookRuns = new SqliteOpenSeaOrderbookRuns();
         const sourceState = new SqliteOrderSourceStateStore();
         const api = new OpenSeaApiAdapter({
@@ -60,8 +56,6 @@ async function main() {
         const sync = new OpenSeaOrderbookSync(
             api,
             queue,
-            tokenSets,
-            observations,
             sourceState,
         );
 

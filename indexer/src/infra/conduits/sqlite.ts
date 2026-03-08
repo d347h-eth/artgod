@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import { logger } from "@artgod/shared/utils";
 import type {
     ConduitRecord,
     ConduitRegistryPort,
@@ -35,18 +36,42 @@ export class SqliteConduitRegistry implements ConduitRegistryPort {
     );
 
     getConduit(chainId: number, conduitKey: string): string | null {
-        const row = this.select.get(chainId, conduitKey.toLowerCase()) as
-            | ConduitRow
-            | undefined;
-        return row?.conduit_address ?? null;
+        const normalizedConduitKey = conduitKey.toLowerCase();
+
+        try {
+            const row = this.select.get(chainId, normalizedConduitKey) as
+                | ConduitRow
+                | undefined;
+            return row?.conduit_address ?? null;
+        } catch (error) {
+            logger.error("Conduit registry lookup failed", {
+                component: "SqliteConduitRegistry",
+                action: "getConduit",
+                chainId,
+                conduitKey: normalizedConduitKey,
+                error: String(error),
+            });
+            throw error;
+        }
     }
 
     upsertConduit(record: ConduitRecord): void {
-        this.upsert.run(
-            record.chainId,
-            record.conduitKey.toLowerCase(),
-            record.conduitAddress.toLowerCase(),
-        );
+        const conduitKey = record.conduitKey.toLowerCase();
+        const conduitAddress = record.conduitAddress.toLowerCase();
+
+        try {
+            this.upsert.run(record.chainId, conduitKey, conduitAddress);
+        } catch (error) {
+            logger.error("Conduit registry upsert failed", {
+                component: "SqliteConduitRegistry",
+                action: "upsertConduit",
+                chainId: record.chainId,
+                conduitKey,
+                conduitAddress,
+                error: String(error),
+            });
+            throw error;
+        }
     }
 
     hasChannel(
@@ -54,12 +79,27 @@ export class SqliteConduitRegistry implements ConduitRegistryPort {
         conduitAddress: string,
         channelAddress: string,
     ): boolean {
-        const row = this.selectChannel.get(
-            chainId,
-            conduitAddress.toLowerCase(),
-            channelAddress.toLowerCase(),
-        );
-        return Boolean(row);
+        const normalizedConduitAddress = conduitAddress.toLowerCase();
+        const normalizedChannelAddress = channelAddress.toLowerCase();
+
+        try {
+            const row = this.selectChannel.get(
+                chainId,
+                normalizedConduitAddress,
+                normalizedChannelAddress,
+            );
+            return Boolean(row);
+        } catch (error) {
+            logger.error("Conduit channel lookup failed", {
+                component: "SqliteConduitRegistry",
+                action: "hasChannel",
+                chainId,
+                conduitAddress: normalizedConduitAddress,
+                channelAddress: normalizedChannelAddress,
+                error: String(error),
+            });
+            throw error;
+        }
     }
 
     replaceChannels(
@@ -67,6 +107,9 @@ export class SqliteConduitRegistry implements ConduitRegistryPort {
         conduitAddress: string,
         channels: string[],
     ): void {
+        const normalizedConduitAddress = conduitAddress.toLowerCase();
+        const normalizedChannels = channels.map((channel) => channel.toLowerCase());
+
         const replace = db.raw.transaction(
             (payload: {
                 chainId: number;
@@ -86,6 +129,24 @@ export class SqliteConduitRegistry implements ConduitRegistryPort {
                 }
             },
         );
-        replace({ chainId, conduitAddress, channels });
+
+        try {
+            replace({
+                chainId,
+                conduitAddress: normalizedConduitAddress,
+                channels: normalizedChannels,
+            });
+        } catch (error) {
+            logger.error("Conduit channel replace failed", {
+                component: "SqliteConduitRegistry",
+                action: "replaceChannels",
+                chainId,
+                conduitAddress: normalizedConduitAddress,
+                channelCount: normalizedChannels.length,
+                channels: normalizedChannels,
+                error: String(error),
+            });
+            throw error;
+        }
     }
 }

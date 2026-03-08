@@ -1,6 +1,5 @@
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { toHex } from "viem";
 import type {
     TokenSetRegistryPort,
     TokenSetRequest,
@@ -88,19 +87,10 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
                       request.chainId,
                       contractAddress,
                   );
-        const criteriaRoot = request.criteriaRoot
-            ? safeNormalizeCriteriaRoot(
-                  request.criteriaRoot,
-                  request.chainId,
-                  contractAddress,
-              )
-            : null;
 
         let merkleRoot: string | null = null;
         if (tokenIds.length > 0) {
             merkleRoot = generateMerkleRoot(tokenIds);
-        } else if (criteriaRoot) {
-            merkleRoot = criteriaRoot;
         }
 
         if (!merkleRoot) {
@@ -112,22 +102,6 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
                 kind: schema.kind,
             });
             return null;
-        }
-
-        if (tokenIds.length > 0 && criteriaRoot) {
-            const expected = criteriaRoot;
-            if (expected.toLowerCase() !== merkleRoot.toLowerCase()) {
-                logger.warn("Token set criteria root mismatch", {
-                    component: "TokenSetRegistry",
-                    action: "ensureTokenSet",
-                    chainId: request.chainId,
-                    contractAddress,
-                    kind: schema.kind,
-                    expected,
-                    resolved: merkleRoot,
-                });
-                return null;
-            }
         }
 
         const tokenSetId = buildTokenSetId(contractAddress, merkleRoot);
@@ -246,23 +220,4 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         }) as AttributeIdRow | undefined;
         return attributeRow?.id ?? null;
     }
-}
-
-function safeNormalizeCriteriaRoot(
-    value: string,
-    chainId: number,
-    contractAddress: string,
-): string | null {
-    if (value.startsWith("0x")) return value.toLowerCase();
-    if (!/^\d+$/.test(value)) {
-        logger.warn("Token set criteria root not parseable", {
-            component: "TokenSetRegistry",
-            action: "normalizeCriteriaRoot",
-            chainId,
-            contractAddress,
-            value,
-        });
-        return null;
-    }
-    return toHex(BigInt(value), { size: 32 });
 }

@@ -24,6 +24,7 @@ import { initRuntimeMetrics } from "../metrics/runtime.js";
 import { SqliteActivityDomain } from "../infra/domain/activities.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
+import { validateSeaportOrder } from "../application/offchain/seaport-validate.js";
 import type { QueuePort } from "../ports/queue.js";
 import {
     ORDER_JOB_KIND,
@@ -67,11 +68,11 @@ async function main() {
             resilience: config.rpc.resilience,
         });
         const conduits = new SqliteConduitRegistry();
+        const validateOrder = (order: Parameters<typeof validateSeaportOrder>[3]) =>
+            validateSeaportOrder(rpc, conduits, config.seaport, order);
         const ordersDomain = new SqliteOrdersDomain(
-            rpc,
-            conduits,
-            config.seaport,
             config.tokens.wethAddress,
+            validateOrder,
         );
         const metadataResolver = new ViemTokenUriResolver({
             url: config.rpc.primaryUrl,

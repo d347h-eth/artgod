@@ -1,4 +1,10 @@
 import type { OrderSourceStatus } from "./orders.js";
+import type {
+    OrderLocalTokenSetStatus,
+    SeaportOrderData,
+    OrderSourceScopeKind,
+} from "./orders.js";
+import type { TokenSetSchema } from "./token-sets.js";
 
 export const ORDER_JOB_KIND = {
     UpdateByMaker: "orders.update-by-maker",
@@ -48,6 +54,10 @@ export type OrderUpsertPayload = {
     taker?: string | null;
     contract: string;
     tokenId?: string | null;
+    sourceScopeKind: OrderSourceScopeKind;
+    sourceCriteriaRoot?: string | null;
+    sourceSchema?: TokenSetSchema | null;
+    localTokenSetStatus?: OrderLocalTokenSetStatus | null;
     tokenSetId?: string | null;
     tokenSetSchemaHash?: string | null;
     price?: string | null;
@@ -56,7 +66,9 @@ export type OrderUpsertPayload = {
     validUntil?: number | null;
     source: string;
     sourceStatus?: OrderSourceStatus | null;
-    rawData?: unknown;
+    rawSourceKind: "stream" | "rest";
+    rawPayload?: unknown;
+    seaportData?: SeaportOrderData | null;
     // validateAfterUpsert is expected to be "true" by default to trigger onchain validation of the order,
     // otherwise the order might be persisted optimistically as "fillable".
     validateAfterUpsert: boolean;

@@ -1,6 +1,12 @@
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { ORDER_SOURCE_STATUS, ORDER_STATUS } from "../../domain/orders.js";
+import {
+    ORDER_LOCAL_TOKEN_SET_STATUS,
+    ORDER_SEAPORT_DATA_SOURCE_KIND,
+    ORDER_SOURCE_SCOPE_KIND,
+    ORDER_SOURCE_STATUS,
+    ORDER_STATUS,
+} from "../../domain/orders.js";
 import type {
     OrderUpdateByIdPayload,
     OrderUpdateByMakerPayload,
@@ -10,14 +16,16 @@ import type {
     DomainSyncContext,
     OrdersDomainPort,
 } from "../../ports/domain-handlers.js";
-import type { ConduitRegistryPort } from "../../ports/conduits.js";
-import type { RpcProviderPort } from "../../ports/rpc.js";
-import { validateSeaportOrder } from "../../application/offchain/seaport-validate.js";
 import type {
+    OrderLocalTokenSetStatus,
     OrderRecord,
+    OrderSeaportDataSourceKind,
+    SeaportOrderData,
+    OrderSourceScopeKind,
     OrderSourceStatus,
     OrderStatus,
 } from "../../domain/orders.js";
+import type { TokenSetSchema } from "../../domain/token-sets.js";
 
 type OrderRow = {
     id: string;
@@ -29,6 +37,10 @@ type OrderRow = {
     taker: string | null;
     contract: string;
     token_id: string | null;
+    source_scope_kind: string;
+    source_criteria_root: string | null;
+    source_schema_json: string | null;
+    local_token_set_status: string;
     token_set_id: string | null;
     token_set_schema_hash: string | null;
     price: string | null;
@@ -37,7 +49,8 @@ type OrderRow = {
     valid_until: number | null;
     fillability_status: string;
     source_status: string;
-    raw_data: string | null;
+    seaport_data_json: string | null;
+    seaport_data_source_kind: string | null;
     block_number: number | null;
     tx_hash: string | null;
     log_index: number | null;
@@ -79,14 +92,11 @@ type MakerSeaportOrdersParams = {
 };
 
 const SELECT_ORDER_FIELDS =
-    "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, token_set_id, token_set_schema_hash, price, currency, " +
-    "valid_from, valid_until, fillability_status, source_status, raw_data, block_number, tx_hash, log_index " +
+    "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, " +
+    "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index " +
     "FROM orders ";
 
 export class SqliteOrdersDomain implements OrdersDomainPort {
-    private readonly rpc: RpcProviderPort;
-    private readonly conduits: ConduitRegistryPort;
-    private readonly seaportConfig: { conduitController: string };
     private readonly wethAddress: string;
     private readonly validateOrder: SeaportOrderValidator;
     private updateOrderFillabilityStatus =
@@ -99,24 +109,27 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "WHERE chain_id = @chainId AND id = @orderId",
     );
     private selectOrderById = db.prepare<OrderIdentityParams>(
-        "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, token_set_id, token_set_schema_hash, price, currency, " +
-            "valid_from, valid_until, fillability_status, source_status, raw_data, block_number, tx_hash, log_index " +
+        "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, " +
+            "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index " +
             "FROM orders WHERE chain_id = @chainId AND id = @orderId",
     );
     private selectMakerSellOrdersForToken =
         db.prepare<MakerSellOrdersForTokenParams>(
             SELECT_ORDER_FIELDS +
                 "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
-                "AND contract_address = @contract AND token_id = @tokenId AND raw_data IS NOT NULL",
+                "AND contract_address = @contract AND token_id = @tokenId " +
+                "AND seaport_data_json IS NOT NULL",
         );
     private selectMakerWethBuyOrders = db.prepare<MakerWethBuyOrdersParams>(
         SELECT_ORDER_FIELDS +
             "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'buy' " +
-            "AND currency = @currency AND raw_data IS NOT NULL",
+            "AND currency = @currency " +
+            "AND seaport_data_json IS NOT NULL",
     );
     private selectMakerSeaportOrders = db.prepare<MakerSeaportOrdersParams>(
         SELECT_ORDER_FIELDS +
-            "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND raw_data IS NOT NULL",
+            "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker " +
+            "AND seaport_data_json IS NOT NULL",
     );
     private upsertOrder = db.prepare<{
         id: string;
@@ -128,18 +141,25 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         taker: string | null;
         contract: string;
         tokenId: string | null;
+        sourceScopeKind: OrderSourceScopeKind;
+        sourceCriteriaRoot: string | null;
+        sourceSchemaJson: string | null;
+        localTokenSetStatus: OrderLocalTokenSetStatus;
         tokenSetId: string | null;
         tokenSetSchemaHash: string | null;
         price: string | null;
         currency: string | null;
         validFrom: number | null;
         validUntil: number | null;
-        fillabilityStatus: string;
-        sourceStatus: string;
-        rawData: string | null;
+        fillabilityStatus: OrderStatus;
+        sourceStatus: OrderSourceStatus;
+        seaportDataJson: string | null;
+        seaportDataSourceKind: OrderSeaportDataSourceKind | null;
+        rawRestData: string | null;
+        rawStreamData: string | null;
     }>(
-        "INSERT INTO orders (id, chain_id, kind, side, source, maker, taker, contract_address, token_id, token_set_id, token_set_schema_hash, price, currency, valid_from, valid_until, fillability_status, source_status, raw_data) " +
-            "VALUES (@id, @chainId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @tokenSetId, @tokenSetSchemaHash, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @rawData) " +
+        "INSERT INTO orders (id, chain_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, raw_rest_data, raw_stream_data) " +
+            "VALUES (@id, @chainId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @sourceScopeKind, @sourceCriteriaRoot, @sourceSchemaJson, @localTokenSetStatus, @tokenSetId, @tokenSetSchemaHash, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @seaportDataJson, @seaportDataSourceKind, @rawRestData, @rawStreamData) " +
             "ON CONFLICT(id) DO UPDATE SET " +
             "kind = excluded.kind, " +
             "side = excluded.side, " +
@@ -148,6 +168,10 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "taker = excluded.taker, " +
             "contract_address = excluded.contract_address, " +
             "token_id = excluded.token_id, " +
+            "source_scope_kind = excluded.source_scope_kind, " +
+            "source_criteria_root = excluded.source_criteria_root, " +
+            "source_schema_json = excluded.source_schema_json, " +
+            "local_token_set_status = excluded.local_token_set_status, " +
             "token_set_id = excluded.token_set_id, " +
             "token_set_schema_hash = excluded.token_set_schema_hash, " +
             "price = excluded.price, " +
@@ -155,30 +179,16 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "valid_from = excluded.valid_from, " +
             "valid_until = excluded.valid_until, " +
             "source_status = excluded.source_status, " +
-            "raw_data = excluded.raw_data, " +
+            "seaport_data_json = COALESCE(excluded.seaport_data_json, orders.seaport_data_json), " +
+            "seaport_data_source_kind = COALESCE(excluded.seaport_data_source_kind, orders.seaport_data_source_kind), " +
+            "raw_rest_data = COALESCE(excluded.raw_rest_data, orders.raw_rest_data), " +
+            "raw_stream_data = COALESCE(excluded.raw_stream_data, orders.raw_stream_data), " +
             "updated_at = CURRENT_TIMESTAMP",
     );
 
-    constructor(
-        rpc: RpcProviderPort,
-        conduits: ConduitRegistryPort,
-        seaportConfig: { conduitController: string },
-        wethAddress: string,
-        validateOrder?: SeaportOrderValidator,
-    ) {
-        this.rpc = rpc;
-        this.conduits = conduits;
-        this.seaportConfig = seaportConfig;
+    constructor(wethAddress: string, validateOrder: SeaportOrderValidator) {
         this.wethAddress = wethAddress.toLowerCase();
-        this.validateOrder =
-            validateOrder ??
-            ((order) =>
-                validateSeaportOrder(
-                    this.rpc,
-                    this.conduits,
-                    this.seaportConfig,
-                    order,
-                ));
+        this.validateOrder = validateOrder;
     }
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
@@ -280,8 +290,9 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 });
                 return;
             }
-            if (row.kind === "seaport" && row.raw_data) {
-                const validation = await this.validateOrder(mapOrderRow(row));
+            const order = mapOrderRow(row);
+            if (row.kind === "seaport" && hasSeaportData(order)) {
+                const validation = await this.validateOrder(order);
                 finalStatus = validation.status;
                 logger.debug("Orders validation result", {
                     component: "OrdersDomain",
@@ -290,6 +301,14 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     chainId: row.chain_id,
                     status: validation.status,
                     reason: validation.reason,
+                });
+            } else if (row.kind === "seaport") {
+                finalStatus = ORDER_STATUS.Invalid;
+                logger.warn("Orders update-by-id missing canonical seaport data", {
+                    component: "OrdersDomain",
+                    action: "handleOrderUpdateById",
+                    chainId: row.chain_id,
+                    orderId: row.id,
                 });
             }
         }
@@ -310,8 +329,36 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     }
 
     async handleOrderUpsert(payload: OrderUpsertPayload): Promise<void> {
-        const rawData = payload.rawData
-            ? JSON.stringify(payload.rawData)
+        const sourceScopeKind =
+            payload.sourceScopeKind ?? ORDER_SOURCE_SCOPE_KIND.Token;
+        const rawSourceKind = payload.rawSourceKind ?? "stream";
+        const existingRow = this.selectOrderById.get({
+            chainId: payload.chainId,
+            orderId: payload.orderId,
+        }) as OrderRow | undefined;
+        const existingOrder = existingRow ? mapOrderRow(existingRow) : null;
+        const mergedSeaportData = mergeSeaportData(
+            existingOrder?.seaportData ?? null,
+            existingOrder?.seaportDataSourceKind ?? null,
+            payload.seaportData ?? null,
+            rawSourceKind,
+        );
+        const seaportDataSourceKind = resolveSeaportDataSourceKind(
+            existingOrder?.seaportDataSourceKind ?? null,
+            payload.seaportData ?? null,
+            rawSourceKind,
+        );
+        const rawPayload = payload.rawPayload
+            ? JSON.stringify(payload.rawPayload)
+            : null;
+        const rawStreamData =
+            rawSourceKind === "stream" ? rawPayload : null;
+        const rawRestData = rawSourceKind === "rest" ? rawPayload : null;
+        const sourceSchemaJson = payload.sourceSchema
+            ? JSON.stringify(payload.sourceSchema)
+            : null;
+        const seaportDataJson = mergedSeaportData
+            ? JSON.stringify(mergedSeaportData)
             : null;
         const result = this.upsertOrder.run({
             id: payload.orderId,
@@ -323,6 +370,12 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             taker: payload.taker ?? null,
             contract: payload.contract,
             tokenId: payload.tokenId ?? null,
+            sourceScopeKind,
+            sourceCriteriaRoot: payload.sourceCriteriaRoot ?? null,
+            sourceSchemaJson,
+            localTokenSetStatus:
+                payload.localTokenSetStatus ??
+                defaultLocalTokenSetStatus(sourceScopeKind),
             tokenSetId: payload.tokenSetId ?? null,
             tokenSetSchemaHash: payload.tokenSetSchemaHash ?? null,
             price: payload.price ?? null,
@@ -331,7 +384,10 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             validUntil: payload.validUntil ?? null,
             fillabilityStatus: ORDER_STATUS.Fillable,
             sourceStatus: payload.sourceStatus ?? ORDER_SOURCE_STATUS.Active,
-            rawData,
+            seaportDataJson,
+            seaportDataSourceKind,
+            rawRestData,
+            rawStreamData,
         });
 
         logger.debug("Orders upsert applied", {
@@ -405,6 +461,11 @@ function mapOrderRow(row: OrderRow): OrderRecord {
         taker: row.taker,
         contract: row.contract,
         tokenId: row.token_id,
+        sourceScopeKind: row.source_scope_kind as OrderSourceScopeKind,
+        sourceCriteriaRoot: row.source_criteria_root,
+        sourceSchemaJson: row.source_schema_json,
+        localTokenSetStatus:
+            row.local_token_set_status as OrderLocalTokenSetStatus,
         tokenSetId: row.token_set_id,
         tokenSetSchemaHash: row.token_set_schema_hash,
         price: row.price,
@@ -414,11 +475,68 @@ function mapOrderRow(row: OrderRow): OrderRecord {
         fillabilityStatus:
             row.fillability_status as OrderRecord["fillabilityStatus"],
         sourceStatus: row.source_status as OrderRecord["sourceStatus"],
-        rawData: row.raw_data,
+        seaportData: parseSeaportDataJson(row.seaport_data_json),
+        seaportDataSourceKind:
+            row.seaport_data_source_kind as OrderSeaportDataSourceKind | null,
         blockNumber: row.block_number,
         txHash: row.tx_hash,
         logIndex: row.log_index,
     };
+}
+
+function parseSeaportDataJson(value: string | null): SeaportOrderData | null {
+    if (!value) return null;
+    return JSON.parse(value) as SeaportOrderData;
+}
+
+function hasSeaportData(order: OrderRecord): boolean {
+    return Boolean(order.seaportData);
+}
+
+function mergeSeaportData(
+    existing: SeaportOrderData | null,
+    existingSourceKind: OrderSeaportDataSourceKind | null,
+    incoming: SeaportOrderData | null,
+    incomingSourceKind: "stream" | "rest",
+): SeaportOrderData | null {
+    if (!incoming) {
+        return existing;
+    }
+
+    if (
+        incomingSourceKind === ORDER_SEAPORT_DATA_SOURCE_KIND.Rest &&
+        existing &&
+        existingSourceKind === ORDER_SEAPORT_DATA_SOURCE_KIND.Stream &&
+        !incoming.signature &&
+        existing.signature
+    ) {
+        return {
+            ...incoming,
+            signature: existing.signature,
+        };
+    }
+
+    return incoming;
+}
+
+function resolveSeaportDataSourceKind(
+    existing: OrderSeaportDataSourceKind | null,
+    incoming: SeaportOrderData | null,
+    incomingSourceKind: "stream" | "rest",
+): OrderSeaportDataSourceKind | null {
+    if (!incoming) {
+        return existing;
+    }
+
+    if (incomingSourceKind === ORDER_SEAPORT_DATA_SOURCE_KIND.Stream) {
+        return ORDER_SEAPORT_DATA_SOURCE_KIND.Stream;
+    }
+
+    if (existing === ORDER_SEAPORT_DATA_SOURCE_KIND.Stream) {
+        return ORDER_SEAPORT_DATA_SOURCE_KIND.Stream;
+    }
+
+    return ORDER_SEAPORT_DATA_SOURCE_KIND.Rest;
 }
 
 function statusFromReason(
@@ -438,4 +556,14 @@ function statusFromReason(
 
 function assertNeverReason(reason: never): never {
     throw new Error(`Unsupported order update-by-maker reason: ${reason}`);
+}
+
+function defaultLocalTokenSetStatus(
+    sourceScopeKind: OrderSourceScopeKind,
+): OrderLocalTokenSetStatus {
+    if (sourceScopeKind === ORDER_SOURCE_SCOPE_KIND.Token) {
+        return ORDER_LOCAL_TOKEN_SET_STATUS.None;
+    }
+
+    return ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved;
 }

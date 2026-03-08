@@ -23,6 +23,15 @@ scrape_configs:
           - targets: ["127.0.0.1:9469"]
             labels:
                 runtime: "opensea-stream-worker"
+          - targets: ["127.0.0.1:9472"]
+            labels:
+                runtime: "opensea-bootstrap-worker"
+          - targets: ["127.0.0.1:9473"]
+            labels:
+                runtime: "opensea-reconcile-worker"
+          - targets: ["127.0.0.1:9474"]
+            labels:
+                runtime: "opensea-reconcile-scheduler-worker"
           - targets: ["127.0.0.1:9470"]
             labels:
                 runtime: "bootstrap-worker"

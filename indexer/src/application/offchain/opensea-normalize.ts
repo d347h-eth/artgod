@@ -1,19 +1,30 @@
 import type { RawOrderPayload } from "./normalize.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
 import type { OrderUpdateByMakerReason } from "../../domain/order-jobs.js";
-import type { OrderSourceStatus } from "../../domain/orders.js";
+import {
+    ORDER_LOCAL_TOKEN_SET_STATUS,
+    ORDER_SOURCE_SCOPE_KIND,
+    type OrderSourceStatus,
+} from "../../domain/orders.js";
 import {
     asObject,
     assertAddress,
     assertPaymentToken,
     assertPrice,
     assertString,
+    normalizeCriteriaRoot,
     parseNftId,
     parseOptionalAddress,
     parseTimestamp,
 } from "./normalizer-utils.js";
 import { logger } from "@artgod/shared/utils";
 import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
+import {
+    extractSeaportCriteriaOfferTerms,
+    extractSeaportItemOfferTerms,
+    extractSeaportSellTerms,
+    normalizeSeaportOrderData,
+} from "./seaport-order-data.js";
 
 const SEAPORT_ITEM_TYPE_ERC721_WITH_CRITERIA = 4;
 const SEAPORT_ITEM_TYPE_ERC1155_WITH_CRITERIA = 5;
@@ -154,16 +165,26 @@ export function normalizeOpenSeaMakerUpdate(
 function normalizeItemListed(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
+    const seaportData = normalizeSeaportOrderData(payload);
+    const protocolTerms = extractSeaportSellTerms(seaportData);
     const orderHash = assertString(payload.order_hash, "order_hash");
-    const maker = assertAddress(payload.maker, "maker");
-    const { contract, tokenId } = parseNftId(payload.item);
-    const price = assertPrice(payload.base_price, "base_price");
-    const currency = assertPaymentToken(payload.payment_token, "payment_token");
-    const validFrom = parseTimestamp(payload.listing_date, "listing_date");
-    const validUntil = parseTimestamp(
-        payload.expiration_date,
-        "expiration_date",
-    );
+    const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
+    const { contract, tokenId } = protocolTerms
+        ? {
+              contract: protocolTerms.contract,
+              tokenId: protocolTerms.tokenId,
+          }
+        : parseNftId(payload.item);
+    const price = protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
+    const currency =
+        protocolTerms?.currency ??
+        assertPaymentToken(payload.payment_token, "payment_token");
+    const validFrom =
+        protocolTerms?.validFrom ??
+        parseTimestamp(payload.listing_date, "listing_date");
+    const validUntil =
+        protocolTerms?.validUntil ??
+        parseTimestamp(payload.expiration_date, "expiration_date");
 
     return {
         orderId: orderHash.toLowerCase(),
@@ -173,26 +194,41 @@ function normalizeItemListed(
         taker: parseOptionalAddress(payload.taker, "taker"),
         contract,
         tokenId,
+        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Token,
+        sourceSchema: null,
+        sourceCriteriaRoot: null,
+        localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.None,
         price,
         currency,
         validFrom,
         validUntil,
+        seaportData,
     };
 }
 
 function normalizeItemReceivedBid(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
+    const seaportData = normalizeSeaportOrderData(payload);
+    const protocolTerms = extractSeaportItemOfferTerms(seaportData);
     const orderHash = assertString(payload.order_hash, "order_hash");
-    const maker = assertAddress(payload.maker, "maker");
-    const { contract, tokenId } = parseNftId(payload.item);
-    const price = assertPrice(payload.base_price, "base_price");
-    const currency = assertPaymentToken(payload.payment_token, "payment_token");
-    const validFrom = parseTimestamp(payload.created_date, "created_date");
-    const validUntil = parseTimestamp(
-        payload.expiration_date,
-        "expiration_date",
-    );
+    const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
+    const { contract, tokenId } = protocolTerms
+        ? {
+              contract: protocolTerms.contract,
+              tokenId: protocolTerms.tokenId,
+          }
+        : parseNftId(payload.item);
+    const price = protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
+    const currency =
+        protocolTerms?.currency ??
+        assertPaymentToken(payload.payment_token, "payment_token");
+    const validFrom =
+        protocolTerms?.validFrom ??
+        parseTimestamp(payload.created_date, "created_date");
+    const validUntil =
+        protocolTerms?.validUntil ??
+        parseTimestamp(payload.expiration_date, "expiration_date");
 
     return {
         orderId: orderHash.toLowerCase(),
@@ -202,26 +238,36 @@ function normalizeItemReceivedBid(
         taker: parseOptionalAddress(payload.taker, "taker"),
         contract,
         tokenId,
+        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Token,
+        sourceSchema: null,
+        sourceCriteriaRoot: null,
+        localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.None,
         price,
         currency,
         validFrom,
         validUntil,
+        seaportData,
     };
 }
 
 function normalizeCollectionOffer(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
+    const seaportData = normalizeSeaportOrderData(payload);
+    const protocolTerms = extractSeaportCriteriaOfferTerms(seaportData);
     const orderHash = assertString(payload.order_hash, "order_hash");
-    const maker = assertAddress(payload.maker, "maker");
-    const contract = parseCriteriaContract(payload);
-    const price = assertPrice(payload.base_price, "base_price");
-    const currency = assertPaymentToken(payload.payment_token, "payment_token");
-    const validFrom = parseTimestamp(payload.created_date, "created_date");
-    const validUntil = parseTimestamp(
-        payload.expiration_date,
-        "expiration_date",
-    );
+    const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
+    const contract = protocolTerms?.contract ?? parseCriteriaContract(payload);
+    const price = protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
+    const currency =
+        protocolTerms?.currency ??
+        assertPaymentToken(payload.payment_token, "payment_token");
+    const validFrom =
+        protocolTerms?.validFrom ??
+        parseTimestamp(payload.created_date, "created_date");
+    const validUntil =
+        protocolTerms?.validUntil ??
+        parseTimestamp(payload.expiration_date, "expiration_date");
 
     return {
         orderId: orderHash.toLowerCase(),
@@ -231,31 +277,39 @@ function normalizeCollectionOffer(
         taker: parseOptionalAddress(payload.taker, "taker"),
         contract,
         tokenId: null,
-        tokenSetSchema: {
+        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Collection,
+        sourceSchema: {
             kind: "collection",
             data: { collection: contract },
         },
-        criteriaRoot: parseCriteriaRoot(payload),
+        sourceCriteriaRoot: protocolTerms?.criteriaRoot ?? parseCriteriaRoot(payload),
+        localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
         price,
         currency,
         validFrom,
         validUntil,
+        seaportData,
     };
 }
 
 function normalizeTraitOffer(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
+    const seaportData = normalizeSeaportOrderData(payload);
+    const protocolTerms = extractSeaportCriteriaOfferTerms(seaportData);
     const orderHash = assertString(payload.order_hash, "order_hash");
-    const maker = assertAddress(payload.maker, "maker");
-    const contract = parseCriteriaContract(payload);
-    const price = assertPrice(payload.base_price, "base_price");
-    const currency = assertPaymentToken(payload.payment_token, "payment_token");
-    const validFrom = parseTimestamp(payload.created_date, "created_date");
-    const validUntil = parseTimestamp(
-        payload.expiration_date,
-        "expiration_date",
-    );
+    const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
+    const contract = protocolTerms?.contract ?? parseCriteriaContract(payload);
+    const price = protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
+    const currency =
+        protocolTerms?.currency ??
+        assertPaymentToken(payload.payment_token, "payment_token");
+    const validFrom =
+        protocolTerms?.validFrom ??
+        parseTimestamp(payload.created_date, "created_date");
+    const validUntil =
+        protocolTerms?.validUntil ??
+        parseTimestamp(payload.expiration_date, "expiration_date");
 
     const attributes = parseTraitCriteria(payload);
     const tokenSetSchema: TokenSetSchema = {
@@ -274,12 +328,15 @@ function normalizeTraitOffer(
         taker: parseOptionalAddress(payload.taker, "taker"),
         contract,
         tokenId: null,
-        tokenSetSchema,
-        criteriaRoot: parseCriteriaRoot(payload),
+        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Attribute,
+        sourceSchema: tokenSetSchema,
+        sourceCriteriaRoot: protocolTerms?.criteriaRoot ?? parseCriteriaRoot(payload),
+        localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
         price,
         currency,
         validFrom,
         validUntil,
+        seaportData,
     };
 }
 
@@ -346,12 +403,10 @@ function parseCriteriaRoot(payload: Record<string, unknown>): string | null {
         ) {
             continue;
         }
-        const identifier = entry.identifierOrCriteria;
-        if (typeof identifier === "string") return identifier;
-        if (typeof identifier === "bigint") return identifier.toString();
-        if (typeof identifier === "number" && Number.isFinite(identifier)) {
-            return String(identifier);
-        }
+        return normalizeCriteriaRoot(
+            entry.identifierOrCriteria,
+            "protocol_data.parameters.consideration.identifierOrCriteria",
+        );
     }
 
     return null;

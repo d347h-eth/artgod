@@ -1,3 +1,5 @@
+import { toHex } from "viem";
+
 export function asObject(
     value: unknown,
     name: string,
@@ -110,4 +112,24 @@ export function toBigInt(value: unknown, name: string): bigint {
         return BigInt(value);
     }
     throw new Error(`Invalid ${name}: expected bigint-compatible value`);
+}
+
+export function normalizeCriteriaRoot(value: unknown, name: string): string | null {
+    if (value === undefined || value === null) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+
+    if (typeof value === "string") {
+        if (value.startsWith("0x")) return value.toLowerCase();
+        return toHex(BigInt(value), { size: 32 });
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return toHex(BigInt(value), { size: 32 });
+    }
+
+    if (typeof value === "bigint") {
+        return toHex(value, { size: 32 });
+    }
+
+    throw new Error(`Invalid ${name}: expected criteria root`);
 }

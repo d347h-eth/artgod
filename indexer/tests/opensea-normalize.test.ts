@@ -80,6 +80,39 @@ describe("opensea normalizer", () => {
         );
     });
 
+    it("prefers Seaport protocol data over wrapped OpenSea listing fields when both are present", async () => {
+        const fixture = await readFixture("item_listed.json");
+        const normalized = normalizeOpenSeaEvent({
+            event_type: fixture.event_type,
+            payload: {
+                ...fixture.payload,
+                item: {
+                    nft_id:
+                        "ethereum/0x000000000000000000000000000000000000dEaD/999999",
+                },
+                base_price: "1",
+                payment_token: {
+                    address: "0x000000000000000000000000000000000000dEaD",
+                },
+                listing_date: "2000-01-01T00:00:00.000Z",
+                expiration_date: "2000-01-02T00:00:00.000Z",
+            },
+        });
+        expect(normalized).not.toBeNull();
+        if (!normalized) return;
+
+        expect(normalized.contract).toBe(
+            "0x5af0d9827e0c53e4799bb226655a1de152a425a5",
+        );
+        expect(normalized.tokenId).toBe("2522");
+        expect(normalized.price).toBe("989199990000000000");
+        expect(normalized.currency).toBe(
+            "0x0000000000000000000000000000000000000000",
+        );
+        expect(normalized.validFrom).toBe(1769383297);
+        expect(normalized.validUntil).toBe(1769384197);
+    });
+
     it("ignores unsupported event types", async () => {
         const fixture = await readFixture("item_sold.json");
         const normalized = normalizeOpenSeaEvent(fixture);
@@ -98,7 +131,8 @@ describe("opensea normalizer", () => {
             "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e",
         );
         expect(normalized.tokenId).toBeNull();
-        expect(normalized.tokenSetSchema?.kind).toBe("collection");
+        expect(normalized.sourceScopeKind).toBe("collection");
+        expect(normalized.sourceSchema?.kind).toBe("collection");
     });
 
     it("normalizes trait_offer into an attribute token set (single trait)", async () => {
@@ -110,9 +144,10 @@ describe("opensea normalizer", () => {
         expect(normalized.side).toBe("buy");
         expect(normalized.kind).toBe("seaport");
         expect(normalized.tokenId).toBeNull();
-        expect(normalized.tokenSetSchema?.kind).toBe("attribute");
-        if (normalized.tokenSetSchema?.kind !== "attribute") return;
-        expect(normalized.tokenSetSchema.data.attributes).toEqual([
+        expect(normalized.sourceScopeKind).toBe("attribute");
+        expect(normalized.sourceSchema?.kind).toBe("attribute");
+        if (normalized.sourceSchema?.kind !== "attribute") return;
+        expect(normalized.sourceSchema.data.attributes).toEqual([
             { key: "piercing", value: "airpod" },
         ]);
     });
@@ -125,9 +160,10 @@ describe("opensea normalizer", () => {
         expect(normalized).not.toBeNull();
         if (!normalized) return;
 
-        expect(normalized.tokenSetSchema?.kind).toBe("attribute");
-        if (normalized.tokenSetSchema?.kind !== "attribute") return;
-        expect(normalized.tokenSetSchema.data.attributes).toEqual([
+        expect(normalized.sourceScopeKind).toBe("attribute");
+        expect(normalized.sourceSchema?.kind).toBe("attribute");
+        if (normalized.sourceSchema?.kind !== "attribute") return;
+        expect(normalized.sourceSchema.data.attributes).toEqual([
             { key: "Zone", value: "Xleph" },
         ]);
     });
@@ -141,9 +177,10 @@ describe("opensea normalizer", () => {
         expect(normalized.side).toBe("buy");
         expect(normalized.kind).toBe("seaport");
         expect(normalized.tokenId).toBeNull();
-        expect(normalized.tokenSetSchema?.kind).toBe("attribute");
-        if (normalized.tokenSetSchema?.kind !== "attribute") return;
-        expect(normalized.tokenSetSchema.data.attributes).toEqual([
+        expect(normalized.sourceScopeKind).toBe("attribute");
+        expect(normalized.sourceSchema?.kind).toBe("attribute");
+        if (normalized.sourceSchema?.kind !== "attribute") return;
+        expect(normalized.sourceSchema.data.attributes).toEqual([
             { key: "Biome", value: "81" },
             { key: "Mode", value: "Terrain" },
         ]);

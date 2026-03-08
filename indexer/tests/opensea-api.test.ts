@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     OpenSeaApiAdapter,
-    type OpenSeaSyntheticEvent,
+    type OpenSeaRestRecord,
 } from "../src/infra/offchain/opensea-api.js";
 
 const CONTRACT = "0x5af0d9827e0c53e4799bb226655a1de152a425a5";
@@ -12,8 +12,8 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ZERO_BYTES32 =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-describe("OpenSeaApiAdapter synthetic events", () => {
-    it("includes protocol fields on synthetic listing events", async () => {
+describe("OpenSeaApiAdapter REST records", () => {
+    it("emits raw listing records with rest.listing type", async () => {
         const listing = buildListingRecord();
         const adapter = createAdapter();
         adapter.api = {
@@ -23,23 +23,17 @@ describe("OpenSeaApiAdapter synthetic events", () => {
             }),
         };
 
-        const events: OpenSeaSyntheticEvent[] = [];
+        const events: OpenSeaRestRecord[] = [];
         await adapter.instance.forEachListing("test-collection", CONTRACT, async (event) => {
             events.push(event);
         });
 
         expect(events).toHaveLength(1);
-        expect(events[0]?.eventType).toBe("item_listed");
-        expect(events[0]?.payload).toMatchObject({
-            event_type: "item_listed",
-            payload: {
-                protocol_address: SEAPORT,
-                protocol_data: listing.protocol_data,
-            },
-        });
+        expect(events[0]?.eventType).toBe("rest.listing");
+        expect(events[0]?.payload).toEqual(listing);
     });
 
-    it("includes protocol fields on synthetic offer events", async () => {
+    it("emits raw offer records with rest offer types", async () => {
         const itemOffer = buildItemOfferRecord();
         const collectionOffer = buildCollectionOfferRecord();
         const adapter = createAdapter();
@@ -50,21 +44,16 @@ describe("OpenSeaApiAdapter synthetic events", () => {
             }),
         };
 
-        const events: OpenSeaSyntheticEvent[] = [];
+        const events: OpenSeaRestRecord[] = [];
         await adapter.instance.forEachOffer("test-collection", CONTRACT, async (event) => {
             events.push(event);
         });
 
         expect(events).toHaveLength(2);
-        expect(events[0]?.eventType).toBe("item_received_offer");
-        expect(events[1]?.eventType).toBe("collection_offer");
+        expect(events[0]?.eventType).toBe("rest.offer.item");
+        expect(events[1]?.eventType).toBe("rest.offer.collection");
         for (const [index, source] of [itemOffer, collectionOffer].entries()) {
-            expect(events[index]?.payload).toMatchObject({
-                payload: {
-                    protocol_address: SEAPORT,
-                    protocol_data: source.protocol_data,
-                },
-            });
+            expect(events[index]?.payload).toEqual(source);
         }
     });
 });

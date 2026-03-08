@@ -100,6 +100,27 @@ await build({
             "runtime",
             "opensea-stream-worker.ts",
         ),
+        "opensea-bootstrap-worker": path.join(
+            rootDir,
+            "indexer",
+            "src",
+            "runtime",
+            "opensea-bootstrap-worker.ts",
+        ),
+        "opensea-reconcile-worker": path.join(
+            rootDir,
+            "indexer",
+            "src",
+            "runtime",
+            "opensea-reconcile-worker.ts",
+        ),
+        "opensea-reconcile-scheduler-worker": path.join(
+            rootDir,
+            "indexer",
+            "src",
+            "runtime",
+            "opensea-reconcile-scheduler-worker.ts",
+        ),
         "bootstrap-worker": path.join(
             rootDir,
             "indexer",

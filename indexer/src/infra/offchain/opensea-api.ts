@@ -27,7 +27,7 @@ export type OpenSeaResolvedCollection = {
     slug: string;
 };
 
-export type OpenSeaSyntheticEvent = {
+export type OpenSeaRestRecord = {
     eventType: string;
     orderId: string;
     sourceEventAt: number | null;
@@ -71,7 +71,7 @@ export class OpenSeaApiAdapter {
     async forEachListing(
         collectionSlug: string,
         contractAddress: string,
-        handler: (event: OpenSeaSyntheticEvent) => Promise<void>,
+        handler: (record: OpenSeaRestRecord) => Promise<void>,
     ): Promise<void> {
         let cursor: string | undefined;
 
@@ -88,13 +88,9 @@ export class OpenSeaApiAdapter {
             for (const entry of listings) {
                 const listing = asRecord(entry);
                 if (!isActiveStatus(listing.status)) continue;
-                const event = toSyntheticListingEvent(
-                    listing,
-                    collectionSlug,
-                    contractAddress,
-                );
-                if (!event) continue;
-                await handler(event);
+                const record = toRestListingRecord(listing, contractAddress);
+                if (!record) continue;
+                await handler(record);
             }
             cursor =
                 typeof response?.next === "string" ? response.next : undefined;
@@ -104,7 +100,7 @@ export class OpenSeaApiAdapter {
     async forEachOffer(
         collectionSlug: string,
         contractAddress: string,
-        handler: (event: OpenSeaSyntheticEvent) => Promise<void>,
+        handler: (record: OpenSeaRestRecord) => Promise<void>,
     ): Promise<void> {
         let cursor: string | undefined;
 
@@ -116,13 +112,9 @@ export class OpenSeaApiAdapter {
             for (const entry of offers) {
                 const offer = asRecord(entry);
                 if (!isActiveStatus(offer.status)) continue;
-                const event = toSyntheticOfferEvent(
-                    offer,
-                    collectionSlug,
-                    contractAddress,
-                );
-                if (!event) continue;
-                await handler(event);
+                const record = toRestOfferRecord(offer, contractAddress);
+                if (!record) continue;
+                await handler(record);
             }
             cursor =
                 typeof response?.next === "string" ? response.next : undefined;
@@ -236,15 +228,10 @@ async function retry<T>(
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-function toSyntheticListingEvent(
+function toRestListingRecord(
     listing: ListingRecord,
-    collectionSlug: string,
     contractAddress: string,
-): OpenSeaSyntheticEvent | null {
-    const protocolData = asRecord(listing.protocol_data);
-    const protocolAddress = protocolAddressOrNull(listing.protocol_address);
-    if (!protocolAddress) return null;
-
+): OpenSeaRestRecord | null {
     const parameters = getProtocolParameters(listing.protocol_data);
     const nftItem = findNftItem(asArray(parameters.offer));
     if (!nftItem) return null;
@@ -256,65 +243,28 @@ function toSyntheticListingEvent(
     if (!tokenId) return null;
 
     const paymentItem = findPaymentItem(asArray(parameters.consideration));
-    const currencyAddress = paymentItem?.token
-        ? String(paymentItem.token).toLowerCase()
-        : ZERO_ADDRESS;
     const orderHash = stringOrNull(listing.order_hash);
     if (!orderHash) return null;
 
-    const startTime = unixToIso(parameters.startTime);
-    const endTime = unixToIso(parameters.endTime);
-    const eventTimestamp = startTime ?? new Date().toISOString();
+    const eventTimestamp = unixToIso(parameters.startTime);
 
     return {
-        eventType: "item_listed",
+        eventType: "rest.listing",
         orderId: orderHash.toLowerCase(),
         sourceEventAt: isoToUnix(eventTimestamp),
-        payload: {
-            event_type: "item_listed",
-            payload: {
-                item: {
-                    nft_id: buildNftId(contract, tokenId),
-                },
-                collection: { slug: collectionSlug },
-                maker: { address: String(parameters.offerer).toLowerCase() },
-                base_price: extractListingPrice(listing),
-                payment_token: { address: currencyAddress },
-                listing_date: startTime,
-                expiration_date: endTime,
-                order_hash: orderHash.toLowerCase(),
-                protocol_address: protocolAddress,
-                protocol_data: protocolData,
-                event_timestamp: eventTimestamp,
-                is_private: false,
-                quantity: numberOrDefault(listing.remaining_quantity, 1),
-                listing_type: stringOrNull(listing.type) ?? "basic",
-            },
-        },
+        payload: listing,
     };
 }
 
-function toSyntheticOfferEvent(
+function toRestOfferRecord(
     offer: OfferRecord,
-    collectionSlug: string,
     contractAddress: string,
-): OpenSeaSyntheticEvent | null {
-    const protocolData = asRecord(offer.protocol_data);
-    const protocolAddress = protocolAddressOrNull(offer.protocol_address);
-    if (!protocolAddress) return null;
-
+): OpenSeaRestRecord | null {
     const parameters = getProtocolParameters(offer.protocol_data);
     const orderHash = stringOrNull(offer.order_hash);
     if (!orderHash) return null;
     const eventTimestamp =
         unixToIso(parameters.startTime) ?? new Date().toISOString();
-    const createdDate = unixToIso(parameters.startTime);
-    const expirationDate = unixToIso(parameters.endTime);
-    const maker = String(parameters.offerer ?? "").toLowerCase();
-    const currencyItem = findPaymentItem(asArray(parameters.offer));
-    const currencyAddress = currencyItem?.token
-        ? String(currencyItem.token).toLowerCase()
-        : ZERO_ADDRESS;
 
     const criteria = asRecord(offer.criteria);
     const criteriaContract = stringOrNull(asRecord(criteria.contract).address);
@@ -329,58 +279,18 @@ function toSyntheticOfferEvent(
         const traits = normalizeCriteriaTraits(criteria);
         if (traits.length === 0) {
             return {
-                eventType: "collection_offer",
+                eventType: "rest.offer.collection",
                 orderId: orderHash.toLowerCase(),
                 sourceEventAt: isoToUnix(eventTimestamp),
-                payload: {
-                    event_type: "collection_offer",
-                    payload: {
-                        collection: { slug: collectionSlug },
-                        maker: { address: maker },
-                        base_price: extractOfferPrice(offer),
-                        payment_token: { address: currencyAddress },
-                        created_date: createdDate,
-                        expiration_date: expirationDate,
-                        order_hash: orderHash.toLowerCase(),
-                        protocol_address: protocolAddress,
-                        event_timestamp: eventTimestamp,
-                        asset_contract_criteria: {
-                            address: criteriaContract.toLowerCase(),
-                        },
-                        protocol_data: protocolData,
-                    },
-                },
+                payload: offer,
             };
         }
 
-        const [firstTrait, ...restTraits] = traits;
         return {
-            eventType: "trait_offer",
+            eventType: "rest.offer.trait",
             orderId: orderHash.toLowerCase(),
             sourceEventAt: isoToUnix(eventTimestamp),
-            payload: {
-                event_type: "trait_offer",
-                payload: {
-                    collection: { slug: collectionSlug },
-                    maker: { address: maker },
-                    base_price: extractOfferPrice(offer),
-                    payment_token: { address: currencyAddress },
-                    created_date: createdDate,
-                    expiration_date: expirationDate,
-                    order_hash: orderHash.toLowerCase(),
-                    protocol_address: protocolAddress,
-                    event_timestamp: eventTimestamp,
-                    asset_contract_criteria: {
-                        address: criteriaContract.toLowerCase(),
-                    },
-                    trait_criteria: firstTrait,
-                    trait_criteria_list:
-                        restTraits.length > 0
-                            ? [firstTrait, ...restTraits]
-                            : [firstTrait],
-                    protocol_data: protocolData,
-                },
-            },
+            payload: offer,
         };
     }
 
@@ -393,43 +303,16 @@ function toSyntheticOfferEvent(
     if (!tokenId) return null;
 
     return {
-        eventType: "item_received_offer",
+        eventType: "rest.offer.item",
         orderId: orderHash.toLowerCase(),
         sourceEventAt: isoToUnix(eventTimestamp),
-        payload: {
-            event_type: "item_received_offer",
-            payload: {
-                item: {
-                    nft_id: buildNftId(contract, tokenId),
-                },
-                collection: { slug: collectionSlug },
-                maker: { address: maker },
-                base_price: extractOfferPrice(offer),
-                payment_token: { address: currencyAddress },
-                created_date: createdDate,
-                expiration_date: expirationDate,
-                order_hash: orderHash.toLowerCase(),
-                protocol_address: protocolAddress,
-                protocol_data: protocolData,
-                event_timestamp: eventTimestamp,
-            },
-        },
+        payload: offer,
     };
 }
 
 function getProtocolParameters(value: unknown): Record<string, unknown> {
     const protocol = asRecord(value);
     return asRecord(protocol.parameters);
-}
-
-function protocolAddressOrNull(value: unknown): string | null {
-    if (typeof value === "string" && value.trim() !== "") {
-        return value.toLowerCase();
-    }
-
-    const record = asRecord(value);
-    const address = stringOrNull(record.address);
-    return address ? address.toLowerCase() : null;
 }
 
 function normalizeCriteriaTraits(
@@ -482,21 +365,6 @@ function findPaymentItem(
     return null;
 }
 
-function extractListingPrice(listing: ListingRecord): string {
-    const price = asRecord(listing.price);
-    const current = asRecord(price.current);
-    return String(current.value);
-}
-
-function extractOfferPrice(offer: OfferRecord): string {
-    const price = asRecord(offer.price);
-    return String(price.value);
-}
-
-function buildNftId(contract: string, tokenId: string): string {
-    return `ethereum/${contract}/${tokenId}`;
-}
-
 function identifierToString(value: unknown): string | null {
     if (typeof value === "string" && value.length > 0) return value;
     if (typeof value === "number" && Number.isFinite(value))
@@ -521,14 +389,6 @@ function unixToIso(value: unknown): string | null {
     } catch {
         return null;
     }
-}
-
-function numberOrDefault(value: unknown, fallback: number): number {
-    const parsed =
-        typeof value === "number" && Number.isFinite(value)
-            ? value
-            : Number(String(value));
-    return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function stringOrNull(value: unknown): string | null {

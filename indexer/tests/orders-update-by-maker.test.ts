@@ -4,20 +4,14 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
-import { ORDER_STATUS } from "../src/domain/orders.js";
+import {
+    ORDER_STATUS,
+    type OrderRecord,
+    type OrderStatus,
+} from "../src/domain/orders.js";
 import { normalizeOffchainOrder } from "../src/application/offchain/normalize.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import type { OffchainOrderRawPayload } from "../src/domain/offchain-jobs.js";
-import type { ConduitRegistryPort } from "../src/ports/conduits.js";
-import type {
-    Hex,
-    RpcBlock,
-    RpcLog,
-    RpcLogFilter,
-    RpcProviderPort,
-    RpcTransaction,
-    RpcTransactionReceipt,
-} from "../src/ports/rpc.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
@@ -46,12 +40,6 @@ describe("orders update by maker", () => {
         const order = await insertOrderFromFixture(chainId, fixture);
         const validatedOrderIds: string[] = [];
         const domain = new SqliteOrdersDomain(
-            new NullRpc(),
-            new StaticConduitRegistry(),
-            {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
-            },
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             async (candidate) => {
                 validatedOrderIds.push(candidate.id);
@@ -92,12 +80,6 @@ describe("orders update by maker", () => {
 
         const validatedOrderIds: string[] = [];
         const domain = new SqliteOrdersDomain(
-            new NullRpc(),
-            new StaticConduitRegistry(),
-            {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
-            },
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             async (candidate) => {
                 validatedOrderIds.push(candidate.id);
@@ -137,12 +119,6 @@ describe("orders update by maker", () => {
         const order = await insertOrderFromFixture(chainId, fixture);
         const validatedOrderIds: string[] = [];
         const domain = new SqliteOrdersDomain(
-            new NullRpc(),
-            new StaticConduitRegistry(),
-            {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
-            },
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             async (candidate) => {
                 validatedOrderIds.push(candidate.id);
@@ -203,26 +179,32 @@ async function insertOrderFromFixture(
         taker: overrides.taker ?? normalized.taker ?? null,
         contract: overrides.contract ?? normalized.contract,
         tokenId: overrides.tokenId ?? normalized.tokenId ?? null,
+        sourceScopeKind:
+            overrides.sourceScopeKind ?? normalized.sourceScopeKind,
+        sourceCriteriaRoot:
+            overrides.sourceCriteriaRoot ?? normalized.sourceCriteriaRoot ?? null,
+        sourceSchema: overrides.sourceSchema ?? normalized.sourceSchema ?? null,
+        localTokenSetStatus:
+            overrides.localTokenSetStatus ??
+            normalized.localTokenSetStatus ??
+            null,
         tokenSetId: overrides.tokenSetId ?? null,
         tokenSetSchemaHash: overrides.tokenSetSchemaHash ?? null,
         price: overrides.price ?? normalized.price ?? null,
         currency: overrides.currency ?? normalized.currency ?? null,
         validFrom: overrides.validFrom ?? normalized.validFrom ?? null,
         validUntil: overrides.validUntil ?? normalized.validUntil ?? null,
+        seaportData: overrides.seaportData ?? normalized.seaportData ?? null,
         source: overrides.source ?? normalized.source,
         sourceStatus: overrides.sourceStatus ?? null,
-        rawData: overrides.rawData ?? normalized.rawData,
+        rawSourceKind: overrides.rawSourceKind ?? normalized.rawSourceKind,
+        rawPayload: overrides.rawPayload ?? normalized.rawPayload,
         validateAfterUpsert: false,
     };
 
     const domain = new SqliteOrdersDomain(
-        new NullRpc(),
-        new StaticConduitRegistry(),
-        {
-            conduitController:
-                "0x00000000f9490004c11cef243f5400493c00ad63",
-        },
         "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+        createUnusedValidator(),
     );
     await domain.handleOrderUpsert(payload);
     return payload;
@@ -249,56 +231,11 @@ function getFillabilityStatus(orderId: string): string | null {
     return row?.fillability_status ?? null;
 }
 
-class StaticConduitRegistry implements ConduitRegistryPort {
-    getConduit(): string | null {
-        return "0x00000000000000000000000000000000000000c0";
-    }
-
-    upsertConduit(): void {}
-
-    hasChannel(): boolean {
-        return true;
-    }
-
-    replaceChannels(): void {}
-}
-
-class NullRpc implements RpcProviderPort {
-    async getBlockNumber(): Promise<number> {
-        throw new Error("not implemented");
-    }
-
-    async getBlock(_blockNumber: number): Promise<RpcBlock> {
-        throw new Error("not implemented");
-    }
-
-    async getLogs(_filter: RpcLogFilter): Promise<RpcLog[]> {
-        throw new Error("not implemented");
-    }
-
-    async getTransaction(_txHash: string): Promise<RpcTransaction> {
-        throw new Error("not implemented");
-    }
-
-    async getTransactionReceipt(
-        _txHash: string,
-    ): Promise<RpcTransactionReceipt> {
-        throw new Error("not implemented");
-    }
-
-    async readContract<T = unknown>(params: {
-        address: Hex;
-        abi: readonly unknown[];
-        functionName: string;
-        args?: readonly unknown[];
-        blockNumber?: number;
-    }): Promise<T> {
-        throw new Error(
-            `Unexpected readContract call in test: ${params.functionName}`,
-        );
-    }
-
-    async getBalance(_address: Hex): Promise<bigint> {
-        return 0n;
-    }
+function createUnusedValidator() {
+    return async (
+        _order: OrderRecord,
+    ): Promise<{ status: OrderStatus; reason: string }> => ({
+        status: ORDER_STATUS.Fillable,
+        reason: "unused-in-upsert-only-test",
+    });
 }

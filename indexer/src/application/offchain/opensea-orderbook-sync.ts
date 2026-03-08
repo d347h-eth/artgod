@@ -1,12 +1,15 @@
 import { logger } from "@artgod/shared/utils";
 import type { CollectionRecord } from "../../domain/collections.js";
+import {
+    OFFCHAIN_JOB_KIND,
+    type OffchainOrderRawPayload,
+} from "../../domain/offchain-jobs.js";
+import type { JobEnvelope } from "../../domain/jobs.js";
 import type { OpenSeaOrderbookRunKind } from "../../domain/opensea-jobs.js";
-import type { OffchainObservationPort } from "../../ports/offchain-observations.js";
 import type { QueuePort } from "../../ports/queue.js";
-import type { TokenSetRegistryPort } from "../../ports/token-sets.js";
-import { dispatchOffchainPayload } from "./dispatch.js";
+import { QUEUE_NAMES } from "../../domain/queues.js";
 
-type OpenSeaSyntheticEvent = {
+type OpenSeaRestRecord = {
     eventType: string;
     orderId: string;
     sourceEventAt: number | null;
@@ -17,12 +20,12 @@ type OpenSeaOrderbookApiPort = {
     forEachListing(
         collectionSlug: string,
         contractAddress: string,
-        handler: (event: OpenSeaSyntheticEvent) => Promise<void>,
+        handler: (record: OpenSeaRestRecord) => Promise<void>,
     ): Promise<void>;
     forEachOffer(
         collectionSlug: string,
         contractAddress: string,
-        handler: (event: OpenSeaSyntheticEvent) => Promise<void>,
+        handler: (record: OpenSeaRestRecord) => Promise<void>,
     ): Promise<void>;
 };
 
@@ -39,8 +42,6 @@ export class OpenSeaOrderbookSync {
     constructor(
         private readonly api: OpenSeaOrderbookApiPort,
         private readonly queue: QueuePort,
-        private readonly tokenSets: TokenSetRegistryPort,
-        private readonly observations: OffchainObservationPort,
         private readonly sourceState: OrderSourceStatePort,
     ) {}
 
@@ -59,12 +60,12 @@ export class OpenSeaOrderbookSync {
         await this.api.forEachListing(
             collection.openseaSlug,
             collection.address,
-            async (event) => {
-                const orderId = await this.processSyntheticEvent(
+            async (record) => {
+                const orderId = await this.publishRestRecord(
                     collection,
                     kind,
                     runId,
-                    event,
+                    record,
                 );
                 if (orderId) activeOrderIds.push(orderId);
             },
@@ -72,12 +73,12 @@ export class OpenSeaOrderbookSync {
         await this.api.forEachOffer(
             collection.openseaSlug,
             collection.address,
-            async (event) => {
-                const orderId = await this.processSyntheticEvent(
+            async (record) => {
+                const orderId = await this.publishRestRecord(
                     collection,
                     kind,
                     runId,
-                    event,
+                    record,
                 );
                 if (orderId) activeOrderIds.push(orderId);
             },
@@ -104,34 +105,39 @@ export class OpenSeaOrderbookSync {
         return { activeOrderIds, deactivatedOrders };
     }
 
-    private async processSyntheticEvent(
+    private async publishRestRecord(
         collection: CollectionRecord,
         kind: OpenSeaOrderbookRunKind,
         runId: number,
-        event: OpenSeaSyntheticEvent,
+        record: OpenSeaRestRecord,
     ): Promise<string | null> {
         const channel = kind === "snapshot" ? "snapshot" : "reconcile";
         const receivedAt = Date.now();
-        const payload = {
+        const payload: OffchainOrderRawPayload = {
             source: "opensea",
             chainId: collection.chainId,
             collectionId: collection.id,
             receivedAt,
             channel,
-            dedupeKey: `${channel}:${runId}:${event.orderId}`,
-            eventType: event.eventType,
-            orderId: event.orderId,
+            dedupeKey: `${channel}:${runId}:${record.eventType}:${record.orderId}`,
+            eventType: record.eventType,
+            orderId: record.orderId,
             runId,
-            sourceEventAt: event.sourceEventAt,
-            payload: event.payload,
-        } as const;
-
-        this.observations.recordObservation(payload);
-        const result = await dispatchOffchainPayload(
-            this.queue,
-            this.tokenSets,
+            sourceEventAt: record.sourceEventAt,
+            payload: record.payload,
+        };
+        const job: JobEnvelope<OffchainOrderRawPayload> = {
+            jobId: `offchain:raw:${collection.chainId}:${collection.id}:${payload.dedupeKey}`,
+            kind: OFFCHAIN_JOB_KIND.OrderRaw,
+            queue: QUEUE_NAMES.OffchainOrdersRaw,
             payload,
-        );
-        return result.upsertedOrderId;
+            attempt: 0,
+            scheduledAt: receivedAt,
+            traceId: record.orderId,
+            chainId: collection.chainId,
+            collectionId: collection.id,
+        };
+        await this.queue.publish(QUEUE_NAMES.OffchainOrdersRaw, job);
+        return record.orderId;
     }
 }
