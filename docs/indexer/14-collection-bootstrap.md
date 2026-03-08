@@ -1,99 +1,158 @@
-# Collection Bootstrap (Ownership Snapshot + Short Backfill)
+# Collection Bootstrap
 
-This document describes the intended per-collection bootstrap sequence. The goal is to reach a correct, production‑quality ownership state **without** requiring a full historical backfill.
+This document describes the implemented per-collection bootstrap flow.
+
+The goal is to reach a correct local ownership state quickly and then attach OpenSea orderbook tracking without blocking core onchain correctness.
 
 ## Why Bootstrap Exists
 
-`nft_balances` is the canonical "current ownership" table, but it is only correct when:
+`nft_balances` is the canonical current ownership table, but it is only correct when:
 
-1. We have a snapshot anchored to a specific block, **plus**
-2. We have processed every transfer after that block with no gaps.
+1. we have a snapshot anchored to a specific block, and
+2. we have processed every transfer after that block with no gaps
 
-Full backfill from genesis also works, but is too expensive for normal usage.
+Full backfill from genesis also works, but it is too expensive for the normal local-first path.
 
-## Lifecycle Overview
+## Current Lifecycle
 
-Each collection starts in a "not indexed" state. When a user adds a collection, the indexer runs a deterministic bootstrap pipeline:
+Each collection starts outside the indexed set. When the user adds a collection, the bootstrap worker runs a deterministic pipeline.
 
-1. **Register collection**
-    - Persist collection config (address, chain, optional metadata).
-    - Store state in the `collections` table with `status = bootstrapping`.
-    - Create internal state record for bootstrap progress.
-    - Enqueue a `bootstrap.collection.start` job to begin orchestration.
+### 1. Register collection
 
-2. **Pick anchor block**
-    - Choose a recent block number (near head) as the snapshot anchor.
-    - Current implementation uses `head - reorgDepth` to avoid shallow reorgs.
-    - This block number becomes the "truth point" for ownership.
+- persist collection config in `collections`
+- set `status = bootstrapping`
+- create a bootstrap run
+- enqueue `bootstrap.collection.start`
 
-3. **Ownership snapshot (anchor)**
-    - Query the chain at the anchor block:
-        - **ERC-721 only**: `ownerOf(tokenId)` for every token.
-        - Token IDs are enumerated via `totalSupply()` + `tokenByIndex()` (ERC721Enumerable).
-    - ERC-1155 and ERC-20 support are **out of scope for now**.
-    - Persist snapshot rows to a dedicated table (`nft_balance_snapshots`).
-    - Snapshot data is **read‑only** and used as the base truth.
+### 2. Pick anchor block
 
-4. **Short backfill (anchor → head)**
-    - Backfill from `anchorBlock + 1` to current head.
-    - Apply deltas so `nft_balances` reflects the current state.
-    - This range is small, so it finishes quickly.
-    - Bootstrap worker schedules the backfill range and periodically checks
-      `blocks` table completeness before marking the collection live.
+- choose `head - reorgDepth`
+- persist `bootstrap_anchor_block`
+- this block becomes the ownership truth point for snapshotting
 
-5. **Live sync**
-    - Switch the collection to realtime indexing (`status = live`).
-    - `nft_balances` now stays correct from this point forward.
+### 3. Metadata snapshot
 
-6. **Optional full historical backfill (later)**
-    - Only if the user explicitly requests it.
-    - Used for complete historical analytics and long‑range charting.
+- enumerate collection token ids
+- fetch/store metadata first
+- this step runs before OpenSea offchain work so local token/attribute context exists
+
+### 4. Ownership snapshot
+
+- capture ownership at the anchor block
+- persist snapshot rows and finalize `nft_balances` base state
+
+### 5. Schedule short backfill
+
+- enqueue short backfill from `anchor + 1` to current head
+- bootstrap later checks block coverage before finishing the onchain bootstrap run
+- the short backfill is collection-scoped
+
+### 6. Schedule OpenSea bootstrap
+
+After local metadata + ownership are available, bootstrap enqueues an OpenSea bootstrap job.
+
+That OpenSea flow does:
+
+1. resolve OpenSea slug from collection contract
+2. persist the slug in `collections.opensea_slug`
+3. start the initial OpenSea orderbook snapshot
+4. let the stream worker subscribe using the persisted slug
+
+This OpenSea work runs in parallel with the short onchain backfill.
+
+### 7. Mark collection `live`
+
+When the short backfill is complete, the bootstrap worker marks the collection `status = live`.
+
+This means:
+
+- local ownership state is ready
+- realtime onchain sync should include the collection
+
+It does **not** mean OpenSea is necessarily ready yet.
+
+### 8. Mark OpenSea offchain `ready`
+
+The OpenSea bootstrap worker marks the collection OpenSea state `ready` after the first full snapshot succeeds.
+
+This is tracked separately via:
+
+- `opensea_status`
+- `opensea_ready_at`
+- snapshot/reconcile timestamps
+- stream health timestamps
+
+## OpenSea Reconcile Behavior
+
+After the initial snapshot:
+
+- live stream updates continue through the stream worker
+- periodic reconcile keeps the local source-active set from drifting if stream events were missed
+- reconcile scheduler also triggers an immediate run on startup for collections whose OpenSea state is stale
+
+Current defaults:
+
+- periodic reconcile: every 15 minutes
+- stale-start threshold: 30 minutes
+
+These are config-driven, not hardcoded business invariants.
 
 ## Correctness Guarantees
 
-The indexer should only claim "correct ownership state" for a collection when:
+### Onchain guarantee
 
-- Snapshot is complete, and
-- Short backfill (anchor → head) is complete.
+A collection should be considered ownership-correct once:
 
-While a bootstrap is running, ownership reads should be treated as **incomplete**:
+- metadata snapshot completed
+- ownership snapshot completed
+- short backfill completed
+- `collections.status = live`
 
-- API responses should signal "bootstrap in progress" and/or pause ownership endpoints.
-- Consumers should not assume `nft_balances` is correct until the bootstrap completes.
+### OpenSea guarantee
 
-## Notes for Future Implementation
+A collection should be considered OpenSea-ready once:
 
-- Snapshot storage should remain separate from `nft_balances` so we can:
-    - Keep anchored truth distinct from delta‑applied state.
-    - Delete or ignore snapshot rows once `nft_balances` becomes fully consistent.
-- The snapshot anchor block should be recorded and exposed in API responses so clients can reason about timing.
+- slug resolution succeeded
+- initial snapshot succeeded
+- `collections.opensea_status = ready`
 
-## Bootstrap Runtime
+Stream health is tracked separately. Stream degradation does not unset OpenSea readiness; reconcile is the recovery path.
 
-Bootstrap orchestration is handled by the collection bootstrap worker:
+## Eventual Consistency Note
 
-- Queue: `collection-bootstrap`
-- Job kind: `bootstrap.collection.start`
-- Runtime: `indexer/src/runtime/bootstrap-worker.ts`
+OpenSea snapshot/reconcile completion is currently queue-publication completion, not a guarantee that every published order has already completed downstream validation.
 
-The worker is responsible for sequencing the snapshot and short backfill steps for a collection.
+That tradeoff is intentional for now:
 
-Dev helper:
+- source-complete data is published quickly
+- canonical order rows and validation converge through the queue pipeline shortly after
 
-- `yarn workspace @artgod/indexer dev:bootstrap-trigger --address <0x...>`
-  enqueues a `bootstrap.collection.start` job for manual testing.
+## Relevant Tables
 
-## Collection Registry Table
+Bootstrap and OpenSea lifecycle state is tracked primarily in:
 
-Bootstrap state is tracked in SQLite:
+- `collections`
+- `nft_balance_snapshots`
+- `opensea_orderbook_runs`
+- `offchain_order_observations`
 
-- Table: `collections`
-- Key columns:
-    - `chain_id`, `collection_id`, `address`
-    - `status` (`bootstrapping` or `live` today; future: `paused`, `disabled`)
-    - `deployment_block` (metadata only)
-    - `bootstrap_anchor_block` (anchor block for snapshot)
-    - `bootstrap_started_at`, `bootstrap_finished_at`
-    - `bootstrap_last_synced_block`
+## Relevant Queues and Workers
 
-Realtime sync uses only `status = live`. Backfill jobs can include `bootstrapping` collections while their short-range bootstrap backfill runs.
+Queues:
+
+- `collection-bootstrap`
+- `events-sync-backfill`
+- `opensea-bootstrap`
+- `opensea-reconcile`
+- `offchain-orders-raw`
+
+Workers:
+
+- `bootstrap-worker`
+- `sync-worker`
+- `opensea-bootstrap-worker`
+- `opensea-stream-worker`
+- `opensea-reconcile-worker`
+- `opensea-reconcile-scheduler-worker`
+- `offchain-ingest-worker`
+- `domain-worker`

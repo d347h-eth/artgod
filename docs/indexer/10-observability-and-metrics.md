@@ -14,7 +14,7 @@ It also records known limitations and what is still missing for complete trace-t
 Current setup is local-first and split by signal type:
 
 - Logs: indexer runtimes write JSON log files to `tmp/logs/*.log` on host, Alloy tails files, pushes to Loki, Grafana reads Loki.
-- Metrics: each runtime exposes `/metrics` over HTTP on host ports `9464..9471`, Prometheus scrapes, Grafana reads Prometheus.
+- Metrics: each runtime exposes `/metrics` over HTTP on host ports `9464..9474`, Prometheus scrapes, Grafana reads Prometheus.
 - Traces: runtimes send OTLP traces directly to Tempo (`:4318`), Grafana reads Tempo.
 - Profiles: runtimes send profiles directly to Pyroscope (`:4040`), Grafana reads Pyroscope.
 
@@ -53,6 +53,9 @@ Observability containers run behind the `observability` compose profile in `dock
     - `9469` opensea-stream-worker
     - `9470` bootstrap-worker
     - `9471` dead-letter-worker
+    - `9472` opensea-bootstrap-worker
+    - `9473` opensea-reconcile-worker
+    - `9474` opensea-reconcile-scheduler-worker
 - Runtime metrics bootstrap:
     - `indexer/src/metrics/runtime.ts` initializes metrics only when enabled.
     - `indexer/src/metrics/prometheus.ts` lazily imports `prom-client`.
@@ -144,11 +147,15 @@ Queue consumer spans via `runWorker` in `indexer/src/application/worker-runner.t
 - `worker.metadataStats.consume`
 - `worker.activityDomain.consume`
 - `worker.offchainIngest.consume`
+- `worker.openseaBootstrap.consume`
+- `worker.openseaReconcile.consume`
 - `worker.deadLetter.consume`
 
 OpenSea stream publish path has explicit span:
 
 - `worker.openseaStream.publish`
+
+The OpenSea reconcile scheduler currently runs on a timer loop and logs directly rather than through `runWorker`.
 
 ## Grafana Provisioning
 

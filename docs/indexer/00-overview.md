@@ -1,17 +1,19 @@
 # ArtGod Indexer Overview
 
-This document describes the current indexer architecture and the main invariants the system relies on. It is meant to give a new contributor a complete mental model before diving into the individual components.
+This document describes the current indexer architecture and the main invariants the system relies on. It is meant to give a new contributor a complete mental model before diving into individual components.
 
 ## Purpose and Scope
 
-The indexer is a local-first pipeline that reads blockchain data and builds a local queryable state for the ArtGod app. It is designed as a minimal but production-shaped system:
+The indexer is a local-first pipeline that reads blockchain data and marketplace data and builds a local queryable state for the ArtGod app.
+
+Current scope:
 
 - All processing runs locally on the user's machine.
 - All cross-process communication goes through a durable queue (NATS JetStream).
-- All persisted state lives in SQLite (better-sqlite3).
+- All persisted state lives in SQLite (`better-sqlite3`).
+- Onchain ownership, metadata, and activities are maintained from RPC data.
+- Offchain orders are ingested from OpenSea streams plus REST snapshot/reconcile passes.
 - Every job is idempotent; at-least-once delivery is assumed.
-
-The system currently focuses on on-chain NFT transfer data (ERC721 and ERC1155), plus early-stage domain projections (order maintenance, metadata fetch, activity feed).
 
 ## Runtime Topology
 
@@ -23,12 +25,12 @@ Each runtime is an independent Node.js process. There is no shared memory across
 
 - Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
     - Consumes collection bootstrap jobs.
-    - Orchestrates per-collection bootstrap steps (anchor snapshot + short backfill).
+    - Orchestrates per-collection metadata snapshot, ownership snapshot, short backfill, and OpenSea bootstrap job emission.
 
 - Sync worker runtime (`indexer/src/runtime/sync-worker.ts`)
     - Consumes realtime/backfill sync jobs.
-    - Fetches logs, decodes transfers, persists blocks/transfers/balances.
-    - Fan-outs domain jobs (orders, metadata, activities).
+    - Fetches logs, decodes transfers/fills/cancels/counters, persists blocks/transfers/balances.
+    - Fan-outs domain sync jobs and targeted order update jobs.
 
 - Reorg worker runtime (`indexer/src/runtime/reorg-worker.ts`)
     - Consumes block-check jobs.
@@ -36,28 +38,35 @@ Each runtime is an independent Node.js process. There is no shared memory across
     - Schedules backfill jobs to resync the rolled-back range.
 
 - Domain worker runtime (`indexer/src/runtime/domain-worker.ts`)
-    - Consumes domain jobs (orders, metadata, activities) and order update jobs.
-    - Writes domain-specific tables and re-validates affected orders.
+    - Consumes domain jobs plus order upsert/update jobs.
+    - Persists canonical orders, metadata, and activities.
+    - Re-validates Seaport orders asynchronously from canonical order state.
 
 - Offchain ingest runtime (`indexer/src/runtime/offchain-ingest-worker.ts`)
     - Consumes raw offchain order payloads.
-    - Validates and normalizes them into order upsert jobs.
-
-- OpenSea bootstrap runtime (`indexer/src/runtime/opensea-bootstrap-worker.ts`)
-    - Resolves OpenSea collection identity and runs initial orderbook snapshots.
+    - Stores raw observations for audit/debug.
+    - Normalizes OpenSea stream and REST records into canonical order jobs.
 
 - OpenSea stream runtime (`indexer/src/runtime/opensea-stream-worker.ts`)
-    - Maintains live per-collection OpenSea stream subscriptions.
-    - Publishes raw OpenSea events into the offchain queue.
+    - Maintains per-collection stream subscriptions using persisted OpenSea slug.
+    - Publishes raw OpenSea stream events into the offchain queue.
+    - Tracks collection-level stream health timestamps.
+
+- OpenSea bootstrap runtime (`indexer/src/runtime/opensea-bootstrap-worker.ts`)
+    - Resolves OpenSea collection slug by contract address from OS API.
+    - Starts initial full orderbook snapshot for a collection.
+    - Marks OpenSea offchain readiness when the first snapshot run succeeds.
 
 - OpenSea reconcile runtime (`indexer/src/runtime/opensea-reconcile-worker.ts`)
     - Runs full orderbook reconciliation passes for tracked collections.
+    - Applies authoritative source-active/inactive updates at the source-status layer.
 
 - OpenSea reconcile scheduler runtime (`indexer/src/runtime/opensea-reconcile-scheduler-worker.ts`)
-    - Schedules periodic and stale-start OpenSea reconciliation jobs.
+    - Schedules periodic reconcile jobs.
+    - Schedules immediate reconcile on startup for stale collections.
 
 - Dead-letter runtime (`indexer/src/runtime/dead-letter-worker.ts`)
-    - Consumes dead-letter jobs and logs failures.
+    - Consumes dead-letter jobs and logs terminal failures.
 
 Queue broker:
 
@@ -69,57 +78,73 @@ Database:
 
 ## Core Invariants
 
-These are the assumptions that the implementation relies on and should be preserved in future work:
+These assumptions are relied on by the implementation and should be preserved in future work:
 
-1. **Only the scheduler-worker publishes realtime sync jobs.**
-    - WebSocket listeners and pollers can notify the scheduler-worker, but the scheduler-worker is the sole publisher.
-
-2. **Idempotent processing everywhere.**
-    - Jobs can be redelivered; persistence uses unique constraints and upserts.
-
-3. **No implicit full historical backfill on startup.**
-    - Startup schedules only the recent reorg window. Full backfills are user-triggered.
-
-4. **Ports and adapters at process boundaries.**
-    - Runtime logic depends on interfaces in `indexer/src/ports/`.
-    - Infrastructure implementations live in `indexer/src/infra/`.
-
-5. **Explicit configuration and contracts.**
-    - Config is loaded from `.env` into explicit TypeScript objects.
-    - Cross-process contracts are defined in domain types and job envelopes.
+1. Only the scheduler-worker publishes realtime sync jobs.
+2. Job handling is idempotent everywhere; at-least-once delivery is assumed.
+3. No implicit full historical backfill runs on startup. Full backfills are user-triggered.
+4. Runtime logic depends on ports (`indexer/src/ports/`); infra adapters implemented in `indexer/src/infra/`.
+5. Configuration is explicit and loaded through typed env/config modules.
+6. Raw OpenSea payloads persisted into SQLite are audit/debug-only. Downstream runtime logic must operate on normalized canonical order data, not raw JSON.
+7. `fillability_status` and `source_status` are separate concerns.
+    - `fillability_status` is protocol/onchain executability.
+    - `source_status` is source-visible activity from OpenSea snapshot/stream/reconcile.
+8. OpenSea readiness is separate from collection `status = live`.
+    - onchain `live` means bootstrap ownership/backfill is done.
+    - OpenSea `ready` means the initial offchain snapshot has succeeded.
 
 ## High-Level Data Flow
+
+### Onchain flow
 
 1. Scheduler-worker observes head updates.
 2. Scheduler-worker publishes `events-sync-realtime` jobs for each new block.
 3. Sync worker consumes sync jobs:
-    - Fetches block + logs.
-    - Decodes transfers.
-    - Writes blocks/transfers/balances.
-    - Publishes domain jobs for the same range.
-4. Domain worker consumes domain jobs and order update jobs:
-    - Orders domain persists normalized offchain orders and re-validates affected orders from maker/order triggers.
-    - Metadata domain fetches and stores token metadata.
-    - Activity domain writes activity records.
+    - fetches blocks/logs/transactions/receipts
+    - decodes transfers, fills, cancels, and maker triggers
+    - writes blocks/transfers/fills/balances
+    - publishes domain sync jobs and targeted order update jobs
+4. Domain worker consumes domain jobs and targeted order jobs:
+    - orders domain persists canonical orders and updates `fillability_status`
+    - metadata domain fetches and stores token metadata
+    - activity domain writes activity rows
 5. Scheduler-worker publishes `block-check` jobs once blocks are old enough.
 6. Reorg worker verifies block hashes and rolls back on mismatch.
 
-This flow is designed to be minimal and durable without requiring centralized services.
+### OpenSea offchain flow
 
-Offchain orders follow a separate ingestion path (raw queue → normalize → orders upsert) and then join the same order maintenance pipeline.
+1. Bootstrap completes local metadata + ownership capture for a collection.
+2. Bootstrap schedules short onchain backfill and an OpenSea bootstrap job in parallel.
+3. OpenSea bootstrap worker resolves OpenSea slug, marks offchain snapshot running, and streams the full orderbook through the offchain raw queue.
+4. OpenSea stream worker maintains live subscriptions for `live` collections with known OpenSea slug and publishes raw events into the same offchain raw queue.
+5. Offchain ingest worker records raw observations and normalizes:
+    - canonical order upserts
+    - source-status updates by order id
+    - maker revalidation hints
+    - metadata refresh hints
+6. Domain worker persists canonical orders, then validates Seaport orders asynchronously from canonical `seaport_data_json`.
+7. OpenSea reconcile worker periodically re-fetches the full orderbook and marks locally active-but-missing orders `source_status = inactive`.
+
+## Eventual Consistency Notes
+
+OpenSea snapshot/reconcile completion currently means:
+
+- the REST fetch completed
+- raw records were published to the offchain queue
+- source-active/inactive reconciliation for the run was applied
+
+It does **not** mean every published order has already completed downstream upsert + validation. The local orderbook converges through the queue pipeline shortly after the snapshot/reconcile run completes.
 
 ## Code Map
 
 The most important directories:
 
-- `indexer/src/runtime/`: process entrypoints and orchestration.
-- `indexer/src/application/`: shared runtime logic (scheduler-worker, sync, worker runner).
-- `indexer/src/ports/`: contracts used across runtimes.
-- `indexer/src/infra/`: queue, RPC, storage, cache, and domain adapters.
-- `indexer/src/domain/`: job and data model definitions.
-- `database/migrations/`: SQLite schema.
-- `indexer/tests/`: smoke test and test helpers.
+- `indexer/src/runtime/`: process entrypoints and orchestration
+- `indexer/src/application/`: worker logic, normalization, validation, scheduling helpers
+- `indexer/src/domain/`: job and data model definitions
+- `indexer/src/ports/`: contracts used across runtimes
+- `indexer/src/infra/`: queue, RPC, storage, cache, OpenSea, and domain adapters
+- `database/migrations/`: SQLite schema
+- `indexer/tests/`: unit, DB-backed, and smoke tests
 
-The rest of the docs in this folder go deeper into each segment.
-
-See `docs/indexer/14-collection-bootstrap.md` for the per‑collection bootstrap sequence (ownership snapshot + short backfill) that replaces full historical backfill for normal usage.
+See `docs/indexer/14-collection-bootstrap.md` for the per-collection bootstrap sequence and `docs/indexer/13-sequence-diagrams.md` for the key end-to-end flows.

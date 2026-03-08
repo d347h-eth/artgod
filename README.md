@@ -211,6 +211,9 @@ Runtime entrypoints:
 - `indexer/src/runtime/bootstrap-worker.ts`
 - `indexer/src/runtime/offchain-ingest-worker.ts`
 - `indexer/src/runtime/opensea-stream-worker.ts`
+- `indexer/src/runtime/opensea-bootstrap-worker.ts`
+- `indexer/src/runtime/opensea-reconcile-worker.ts`
+- `indexer/src/runtime/opensea-reconcile-scheduler-worker.ts`
 - `indexer/src/runtime/dead-letter-worker.ts`
 
 Queue contracts (`indexer/src/domain/queues.ts`):
@@ -219,12 +222,15 @@ Queue contracts (`indexer/src/domain/queues.ts`):
 - `events-sync-backfill`
 - `block-check`
 - `collection-bootstrap`
+- `opensea-bootstrap`
+- `opensea-reconcile`
 - `offchain-orders-raw`
 - `orders-domain`
 - `orders-upsert`
 - `order-updates-by-maker`
 - `order-updates-by-id`
 - `metadata-domain`
+- `metadata-refresh`
 - `metadata-stats`
 - `activity-domain`
 - `dead-letter`
@@ -243,10 +249,12 @@ Per-collection bootstrap flow:
 
 1. Register collection (`status = bootstrapping`).
 2. Pick anchor block (`head - reorgDepth`).
-3. Run metadata snapshot first (strict or best_effort mode).
+3. Run metadata snapshot first (strict or `best_effort` mode).
 4. Run ownership snapshot at the same anchor.
 5. Schedule short backfill (`anchor + 1` to head).
-6. Mark collection `live` once short backfill completes.
+6. Enqueue OpenSea bootstrap once local metadata + ownership are ready.
+7. Mark collection `live` once short backfill completes.
+8. Mark OpenSea offchain `ready` once the first full snapshot succeeds; periodic reconcile maintains eventual consistency after that.
 
 `nft_balances` is canonical ownership state after bootstrap completion.
 
@@ -289,7 +297,7 @@ Use these as primary references for design and implementation details:
 - `docs/indexer/00-overview.md` through `docs/indexer/14-collection-bootstrap.md`
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
-- `docs/diagrams/architecture.mmd`
+- `docs/diagrams/architecture.md`
 - `docs/progress/indexer/15-unified-backlog.md`
 - `docs/ui/01-interaction-guidelines.md`
 

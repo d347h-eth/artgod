@@ -1,59 +1,75 @@
 ```mermaid
 flowchart LR
-      %% External systems
       RPC[(Ethereum JSON-RPC)]
-      OS[(OpenSea Stream)]
+      OSStream[(OpenSea Stream)]
+      OSApi[(OpenSea REST API)]
       MetaHTTP[(Metadata HTTP/IPFS)]
 
-      %% Core infra
       NATS[(NATS JetStream)]
       DB[(SQLite DB)]
 
-      %% Runtimes
-      SchedulerWorker[Scheduler-Worker Runtime]
-      SyncWorker[Sync Worker]
-      ReorgWorker[Reorg Worker]
-      BootstrapWorker[Bootstrap Worker]
-      OffchainIngest[Offchain Ingest Worker]
-      OpenSeaStream[OpenSea Stream Worker]
-      DomainWorker[Domain Worker]
+      Scheduler[Scheduler Worker]
+      Sync[Sync Worker]
+      Reorg[Reorg Worker]
+      Bootstrap[Bootstrap Worker]
+      OSBootstrap[OpenSea Bootstrap Worker]
+      OSReconcileSched[OpenSea Reconcile Scheduler]
+      OSReconcile[OpenSea Reconcile Worker]
+      OSWorker[OpenSea Stream Worker]
+      Offchain[Offchain Ingest Worker]
+      Domain[Domain Worker]
+      DeadLetter[Dead-Letter Worker]
 
-      %% SchedulerWorker -> sync jobs
-      SchedulerWorker -->|realtime block jobs| NATS
-      SchedulerWorker -->|backfill range jobs| NATS
-      SchedulerWorker -->|reorg check jobs| NATS
+      Scheduler -->|realtime sync jobs| NATS
+      Scheduler -->|reorg block-check jobs| NATS
 
-      %% Sync pipeline
-      NATS -->|RealtimeSync / BackfillSync| SyncWorker
-      SyncWorker -->|getLogs / getTx / getReceipts| RPC
-      SyncWorker -->|persist blocks/transfers/fills| DB
-      SyncWorker -->|domain sync jobs| NATS
-      SyncWorker -->|order update jobs| NATS
-      SyncWorker -->|metadata refresh jobs ERC4906| NATS
+      NATS -->|RealtimeSync / BackfillSync| Sync
+      Sync -->|logs / tx / receipts| RPC
+      Sync -->|persist blocks / transfers / fills / balances| DB
+      Sync -->|domain sync jobs| NATS
+      Sync -->|order update jobs| NATS
+      Sync -->|metadata refresh jobs| NATS
 
-      %% Reorg handling
-      NATS -->|BlockCheck| ReorgWorker
-      ReorgWorker -->|rollback + resync jobs| DB
-      ReorgWorker -->|backfill jobs| NATS
+      NATS -->|BlockCheck| Reorg
+      Reorg -->|read/rollback blocks| DB
+      Reorg -->|canonical block lookup| RPC
+      Reorg -->|resync backfill jobs| NATS
 
-      %% Bootstrap
-      NATS -->|CollectionBootstrap| BootstrapWorker
-      BootstrapWorker -->|snapshot ownerOf/tokenByIndex| RPC
-      BootstrapWorker -->|persist snapshot + balances| DB
-      BootstrapWorker -->|short backfill jobs| NATS
+      NATS -->|CollectionBootstrap| Bootstrap
+      Bootstrap -->|metadata snapshot / ownership snapshot| RPC
+      Bootstrap -->|persist collection + balances + snapshot state| DB
+      Bootstrap -->|short backfill jobs| NATS
+      Bootstrap -->|OpenSea bootstrap jobs| NATS
 
-      %% Offchain ingestion
-      OpenSeaStream -->|events| OffchainIngest
-      OffchainIngest -->|orders-upsert| NATS
-      OffchainIngest -->|order-update-by-id| NATS
-      OffchainIngest -->|metadata-refresh| NATS
-      OS --> OpenSeaStream
+      NATS -->|OpenSeaBootstrap| OSBootstrap
+      OSBootstrap -->|resolve slug + fetch snapshot pages| OSApi
+      OSBootstrap -->|update OpenSea collection state + orderbook runs| DB
+      OSBootstrap -->|snapshot raw order jobs| NATS
 
-      %% Domain worker
-      NATS -->|OrdersDomain / MetadataDomain / ActivityDomain| DomainWorker
-      NATS -->|OrdersUpsert / OrdersUpdateBy*| DomainWorker
-      NATS -->|MetadataRefresh| DomainWorker
-      DomainWorker -->|read/write domain tables| DB
-      DomainWorker -->|tokenURI / uri reads| RPC
-      DomainWorker -->|metadata fetch| MetaHTTP
+      OSReconcileSched -->|query due collections| DB
+      OSReconcileSched -->|OpenSea reconcile jobs| NATS
+      NATS -->|OpenSeaReconcile| OSReconcile
+      OSReconcile -->|fetch reconcile pages| OSApi
+      OSReconcile -->|complete runs + mark missing orders inactive| DB
+      OSReconcile -->|reconcile raw order jobs| NATS
+
+      OSStream -->|live events| OSWorker
+      OSWorker -->|touch stream health| DB
+      OSWorker -->|stream raw order jobs| NATS
+
+      NATS -->|OffchainOrdersRaw| Offchain
+      Offchain -->|append raw observations| DB
+      Offchain -->|orders.upsert| NATS
+      Offchain -->|order-updates-by-id| NATS
+      Offchain -->|order-updates-by-maker| NATS
+      Offchain -->|metadata-refresh| NATS
+
+      NATS -->|OrdersDomain / MetadataDomain / ActivityDomain| Domain
+      NATS -->|OrdersUpsert / OrdersUpdateBy*| Domain
+      NATS -->|MetadataRefresh| Domain
+      Domain -->|canonical orders / metadata / activities| DB
+      Domain -->|Seaport validation + metadata reads| RPC
+      Domain -->|metadata fetch| MetaHTTP
+
+      NATS -->|DLQ jobs| DeadLetter
 ```

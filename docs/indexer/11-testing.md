@@ -1,30 +1,72 @@
 # Testing (Indexer)
 
-The indexer currently has a single smoke test that exercises the end-to-end happy path: queue -> sync worker -> domain worker -> database.
+This document describes the current indexer test layout and the environment assumptions behind it.
 
 Primary files:
 
-- `indexer/tests/smoke.test.ts`
+- `indexer/tests/*`
 - `indexer/tests/helpers/test-env.ts`
-- `indexer/tests/helpers/smoke-config.ts`
 - `indexer/tests/helpers/test-helpers.ts`
+- `indexer/tests/helpers/fixture-paths.ts`
 - `indexer/vitest.config.ts`
+- `indexer/vitest.workspace.ts`
 
-## Smoke Test Goals
+## Current Test Layout
 
-The smoke test verifies:
+The indexer test suite is split into two Vitest projects.
 
-1. A backfill job can be published to the queue.
-2. The sync worker processes the job and persists blocks/transfers.
-3. The domain worker processes derived jobs and writes activities.
+### Unit project
 
-The test is intentionally minimal and fast. It is meant to catch regressions in the pipeline wiring.
+Configured in `indexer/vitest.workspace.ts` as `name: "unit"`.
 
-## Test Configuration
+Characteristics:
 
-Tests require a `.env.test` file. This file is loaded by `loadTestEnv()` and applied to `process.env`.
+- runs under normal parallelism
+- includes pure/unit tests that do not mutate the shared SQLite singleton
+- covers normalization, decoding, validation helpers, API adapters, and other isolated logic
 
-Required keys:
+### DB-backed project
+
+Configured in `indexer/vitest.workspace.ts` as `name: "db"`.
+
+Characteristics:
+
+- includes suites that call `setDbPath()` and mutate the shared SQLite singleton
+- runs serially (`fileParallelism: false`, `maxConcurrency: 1`)
+- covers canonical order persistence, token sets, metadata stats, offchain dispatch, and smoke test wiring
+
+Current DB-backed files include:
+
+- `tests/metadata-stats.test.ts`
+- `tests/token-sets.test.ts`
+- `tests/smoke.test.ts`
+- `tests/offchain-dispatch.test.ts`
+- `tests/orders-raw-source.test.ts`
+- `tests/orders-update-by-maker.test.ts`
+
+This keeps only the shared-DB suites serialized instead of slowing down the entire test suite.
+
+## Running Tests
+
+From the repo root:
+
+```sh
+yarn test
+```
+
+This delegates to workspace-specific runners, so the frontend and indexer each run under their own Vitest config.
+
+From `indexer/` specifically:
+
+```sh
+yarn workspace @artgod/indexer test
+```
+
+## Test Environment
+
+Tests load `.env.test` via `loadTestEnv()`.
+
+Required keys for smoke/integration paths:
 
 - `ARTGOD_DB_PATH`
 - `SMOKE_NATS_PORT`
@@ -32,52 +74,55 @@ Required keys:
 - `SMOKE_TARGET_COLLECTIONS`
 - `SMOKE_RANGE_FROM`
 - `SMOKE_RANGE_TO`
+- `WETH_ADDRESS`
+- `SEAPORT_CONDUIT_CONTROLLER`
 
-If any required value is missing, the test fails immediately (no silent skipping).
+Tests fail fast on missing config. There are no silent skips for missing required env.
 
-`SMOKE_TARGET_COLLECTIONS` is written into the `collections` table before the
-workers start so sync has a live collection to process.
+## Fixture Path Rule
 
-## NATS Test Container
+Fixture reads use file-relative paths through `tests/helpers/fixture-paths.ts`, not `process.cwd()`.
 
-`startNats()` uses `testcontainers` to run a local NATS server with JetStream enabled:
+Reason:
 
-- Image: `nats:2.10.17`
-- Command: `-js`
-- Host port is fixed to `SMOKE_NATS_PORT`.
-- Readiness is detected via log output (`Server is ready`).
+- tests must work whether they are invoked from `indexer/` or from repo root via workspace commands
+- file-relative resolution avoids brittle root-dependent fixture paths
 
-This ensures the test can run on any machine without manual NATS setup.
+## Smoke Test
 
-## Running the Smoke Test
+The smoke test exercises the minimal end-to-end happy path:
 
-From `indexer/`:
+1. load `.env.test`
+2. set DB path and run migrations
+3. start a NATS JetStream container through `testcontainers`
+4. spawn `dev:sync-worker` and `dev:domain-worker`
+5. publish a backfill job
+6. wait for rows in `blocks`, `nft_transfer_events`, and `activities`
+7. shut everything down
 
-```
-yarn test
-```
+Files:
 
-The test uses `vitest` with:
+- `indexer/tests/smoke.test.ts`
+- `indexer/tests/helpers/test-helpers.ts`
 
-- `testTimeout = 10s`
-- `maxConcurrency = 1`
-- Serial execution (no concurrent tests)
-- Cache directory set to `.vitest`
+Important environment assumption:
 
-## What the Test Actually Does
+- `smoke.test.ts` requires Docker or another supported container runtime
+- if Docker is unavailable, this test fails explicitly
 
-1. Loads `.env.test` and validates smoke config.
-2. Sets the database path and runs migrations.
-3. Starts a NATS container.
-4. Spawns `dev:sync-worker` and `dev:domain-worker` via `execa`.
-5. Publishes a backfill job to the queue.
-6. Waits for rows to appear in `blocks`, `nft_transfer_events`, `activities`.
-7. Shuts down workers and the NATS container.
+## Offchain / OpenSea Coverage
 
-## Extending Tests
+Current focused coverage includes:
 
-The current setup is intentionally lightweight so additional tests can be layered on later:
+- OpenSea REST adapter shaping (`tests/opensea-api.test.ts`)
+- OpenSea stream/REST normalization (`tests/opensea-normalize.test.ts`)
+- offchain dispatch and token-set mismatch persistence (`tests/offchain-dispatch.test.ts`)
+- canonical order raw-source precedence and Seaport data usage (`tests/orders-raw-source.test.ts`)
+- Seaport validation (`tests/seaport-validate.test.ts`)
+- maker-triggered order revalidation (`tests/orders-update-by-maker.test.ts`)
 
-- Integration tests can reuse `startNats()` and spawn only the runtimes needed.
-- Acceptance tests can reuse the same environment config loader.
-- Load tests can publish a burst of jobs to test scheduling and throughput.
+## Practical Notes
+
+- The Vite `spawnSync /bin/sh EPERM` warning can appear in restricted sandboxes. It is unrelated to actual test results.
+- DB-backed tests need teardown order to respect current foreign-key chains (`collection_trait_stats`, `token_sets`, `attributes`, etc.).
+- Workspace-level orchestration matters: running a single unconfigured repo-level Vitest sweep can bypass workspace-specific config such as the frontend SvelteKit plugin.

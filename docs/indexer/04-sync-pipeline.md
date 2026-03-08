@@ -1,6 +1,6 @@
 # Sync Pipeline
 
-The sync pipeline consumes block sync jobs, fetches on-chain data, persists it, and fans out domain jobs.
+The sync pipeline consumes block sync jobs, fetches on-chain data, persists it, and fans out domain jobs plus targeted order update jobs.
 
 Primary files:
 
@@ -115,7 +115,9 @@ Order maintenance then continues through dedicated update queues:
 - `orders.update-by-maker`
 - `orders.update-by-id`
 
+The collection bootstrap worker also uses the sync pipeline for short-range bootstrap backfill. These bootstrap-published backfill jobs are collection-scoped so completion checks only track the intended collection.
+
 ## Notes and Current Limitations
 
-- The sync worker is minimal and focused on transfer events. Order capture is not yet implemented.
+- Onchain order creation capture is still limited; the fully implemented orderbook path today is the separate OpenSea offchain pipeline (stream + snapshot/reconcile).
 - ERC1155 balances are derived from deltas only; without full historical backfill, balances may be incomplete for tokens that existed before the indexed range.

@@ -10,12 +10,15 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `events-sync-backfill`
 - `block-check`
 - `collection-bootstrap`
+- `opensea-bootstrap`
+- `opensea-reconcile`
 - `offchain-orders-raw`
 - `orders-domain`
 - `orders-upsert`
 - `order-updates-by-maker`
 - `order-updates-by-id`
 - `metadata-domain`
+- `metadata-refresh`
 - `activity-domain`
 - `dead-letter`
 
@@ -116,10 +119,22 @@ DLQ payload:
 
 Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected. Offchain ingest also emits order update jobs for OpenSea fill/transfer side-effects and explicit order status changes.
 
+- OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
+    - `opensea.collection.bootstrap`
+    - `opensea.collection.reconcile`
+
 - Offchain ingestion jobs (`indexer/src/domain/offchain-jobs.ts`):
     - `offchain.order.raw`
 
-`offchain.order.raw` jobs are produced by the OpenSea stream/bootstrap/reconcile workers and consumed by the offchain ingest worker.
+`offchain.order.raw` jobs are produced by the OpenSea stream/bootstrap/reconcile workers and consumed by the offchain ingest worker. These payloads carry:
+
+- `channel` (`stream`, `snapshot`, `reconcile`)
+- `eventType`
+- optional `orderId`
+- optional `runId`
+- `receivedAt` (local observation time)
+- `sourceEventAt` (source-derived timestamp or `null`)
+- raw source payload
 
 - Bootstrap jobs (`indexer/src/domain/bootstrap-jobs.ts`):
     - `bootstrap.collection.start`
@@ -128,4 +143,13 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 `bootstrap.collection.start` jobs are produced by future API/UI actions and consumed by the collection bootstrap worker runtime.
 `bootstrap.collection.backfill-check` jobs are produced by the bootstrap worker to verify short backfill completion before switching a collection to `live`.
 
-These jobs are produced by the scheduler-worker, sync worker, offchain ingest/stream workers, and future API/UI actions, and consumed by the sync, reorg, domain, offchain ingest, and bootstrap runtimes.
+OpenSea job production/consumption:
+
+- `opensea.collection.bootstrap`
+  - produced by `bootstrap-worker`
+  - consumed by `opensea-bootstrap-worker`
+- `opensea.collection.reconcile`
+  - produced by `opensea-reconcile-scheduler-worker`
+  - consumed by `opensea-reconcile-worker`
+
+These jobs are produced by the scheduler-worker, bootstrap worker, sync worker, OpenSea workers, offchain ingest worker, and future API/UI actions, and consumed by the sync, reorg, domain, offchain ingest, bootstrap, and OpenSea runtimes.
