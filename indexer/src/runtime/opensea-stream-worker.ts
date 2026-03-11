@@ -153,7 +153,6 @@ async function main() {
 
         process.on("SIGINT", shutdown);
         process.on("SIGTERM", shutdown);
-        process.stdin.resume();
     } catch (error) {
         logger.error("OpenSea stream worker failed", {
             component: "OpenSeaStreamWorker",

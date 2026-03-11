@@ -84,7 +84,6 @@ async function main() {
 
         process.on("SIGINT", shutdown);
         process.on("SIGTERM", shutdown);
-        process.stdin.resume();
     } catch (error) {
         logger.error("OpenSea reconcile scheduler worker failed", {
             component: "OpenSeaReconcileSchedulerWorker",

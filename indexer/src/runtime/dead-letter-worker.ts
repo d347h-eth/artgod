@@ -83,7 +83,6 @@ async function main() {
 
         process.on("SIGINT", shutdown);
         process.on("SIGTERM", shutdown);
-        process.stdin.resume();
     } catch (error) {
         logger.error("Dead-letter worker startup failed", {
             component: "IndexerDeadLetter",
