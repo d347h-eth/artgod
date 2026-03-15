@@ -177,6 +177,30 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/holders:
+        get:
+            tags: [Collections]
+            summary: Get collection holders
+            operationId: getCollectionHolders
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/Limit"
+                - $ref: "#/components/parameters/Cursor"
+            responses:
+                "200":
+                    description: Collection holders sorted by token count descending with forward cursor pagination
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetCollectionHoldersResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/{token_ref}:
         get:
             tags: [Collections]
@@ -758,6 +782,49 @@ components:
                     items:
                         $ref: "#/components/schemas/TraitFacetValue"
 
+        CollectionHolder:
+            type: object
+            required: [owner, tokenCount]
+            additionalProperties: false
+            properties:
+                owner:
+                    type: string
+                tokenCount:
+                    type: string
+
+        CollectionHolderPage:
+            type: object
+            required:
+                - items
+                - nextCursor
+                - limit
+                - totalItems
+                - rangeStart
+                - rangeEnd
+                - currentPage
+                - totalPages
+            additionalProperties: false
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionHolder"
+                nextCursor:
+                    type: string
+                    nullable: true
+                limit:
+                    type: integer
+                totalItems:
+                    type: integer
+                rangeStart:
+                    type: integer
+                rangeEnd:
+                    type: integer
+                currentPage:
+                    type: integer
+                totalPages:
+                    type: integer
+
         GetCollectionDetailResponse:
             type: object
             required: [chain, collection, traits, tokens]
@@ -782,6 +849,18 @@ components:
                                 $ref: "#/components/schemas/TraitFacet"
                 tokens:
                     $ref: "#/components/schemas/TokenCursorPage"
+
+        GetCollectionHoldersResponse:
+            type: object
+            required: [chain, collection, holders]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                holders:
+                    $ref: "#/components/schemas/CollectionHolderPage"
 
         GetTokenDetailResponse:
             type: object

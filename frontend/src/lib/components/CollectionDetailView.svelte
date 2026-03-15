@@ -175,6 +175,10 @@
 		return `/${chain.slug}`;
 	}
 
+	function holdersHref(): string {
+		return collection ? `${basePath}/holders` : '#';
+	}
+
 	function tokenTraitsLabel(token: ApiTokenCard): string {
 		if (token.attributes.length === 0) return 'no traits';
 		return token.attributes.map((item) => `${item.key}:${item.value}`).join(' | ');
@@ -695,9 +699,9 @@
 	<header class="panel-header">
 		{#if collection}
 			<div class="runtime-tabs" aria-label="Collection sections">
-				<button type="button" class="runtime-tab-active">tokens</button>
+				<a href={basePath} class="runtime-tab-active" aria-current="page">tokens</a>
 				<button type="button" disabled>offers</button>
-				<button type="button" disabled>holders</button>
+				<a href={holdersHref()}>holders</a>
 			</div>
 			<div class="mode-toggle">
 				<button

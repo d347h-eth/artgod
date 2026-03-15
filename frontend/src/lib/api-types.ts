@@ -19,6 +19,22 @@ export type ApiCollection = {
 	updatedAt: string;
 };
 
+export type ApiCollectionHolder = {
+	owner: string;
+	tokenCount: string;
+};
+
+export type ApiCollectionHoldersPage = {
+	items: ApiCollectionHolder[];
+	nextCursor: string | null;
+	limit: number;
+	totalItems: number;
+	rangeStart: number;
+	rangeEnd: number;
+	currentPage: number;
+	totalPages: number;
+};
+
 export type ApiCollectionsPage = {
 	items: ApiCollection[];
 	nextCursor: string | null;
@@ -94,6 +110,12 @@ export type CollectionDetailApiResponse = {
 		facets: ApiTraitFacet[];
 	};
 	tokens: ApiTokensPage;
+};
+
+export type CollectionHoldersApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	holders: ApiCollectionHoldersPage;
 };
 
 export type TokenDetailApiResponse = {

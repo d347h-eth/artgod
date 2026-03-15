@@ -89,17 +89,27 @@ export type TraitFacet = {
     values: TraitFacetValue[];
 };
 
+export type CollectionHolder = {
+    owner: string;
+    tokenCount: string;
+};
+
 export type CursorPage<TItem> = {
     items: TItem[];
     nextCursor: string | null;
     limit: number;
 };
 
-export type TokenCursorPage = CursorPage<TokenCard> & {
-    prevCursor: string | null;
+export type ForwardCursorPage<TItem> = CursorPage<TItem> & {
     totalItems: number;
     rangeStart: number;
     rangeEnd: number;
     currentPage: number;
     totalPages: number;
 };
+
+export type TokenCursorPage = ForwardCursorPage<TokenCard> & {
+    prevCursor: string | null;
+};
+
+export type CollectionHolderPage = ForwardCursorPage<CollectionHolder>;

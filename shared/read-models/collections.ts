@@ -1,6 +1,8 @@
 import { db } from "../database/db.js";
 import { MAX_PAGE_LIMIT } from "../config/pagination.js";
 import type {
+    CollectionHolder,
+    CollectionHolderPage,
     CollectionListCursor,
     CollectionListItem,
     CursorPage,
@@ -65,6 +67,11 @@ type TraitFacetRow = {
     token_count: number;
 };
 
+type HolderRow = {
+    owner: string;
+    token_count: string;
+};
+
 type TokenDetailTraitRow = {
     key: string;
     value: string;
@@ -87,6 +94,22 @@ type ListingPriceSortKey = {
 type ListingCursorKey = {
     price: ListingPriceSortKey;
     token: TokenSortKey;
+};
+
+type HolderCountSortKey = {
+    raw: string;
+    length: number;
+    value: string;
+};
+
+type HolderCursor = {
+    tokenCount: string;
+    owner: string;
+};
+
+type HolderCursorKey = {
+    count: HolderCountSortKey;
+    owner: string;
 };
 
 const TOKEN_ID_IS_NUMERIC_SQL =
@@ -128,6 +151,13 @@ export type GetCollectionTokenDetailParams = {
     chainId: number;
     contractAddress: string;
     tokenId: string;
+};
+
+export type ListCollectionHoldersParams = {
+    chainId: number;
+    contractAddress: string;
+    limit: number;
+    cursor?: string;
 };
 
 export class SqliteCollectionsReadModel {
@@ -612,6 +642,77 @@ export class SqliteCollectionsReadModel {
             metadataUpdatedAt: row.metadata_updated_at ?? null,
         };
     }
+
+    listCollectionHolders(
+        params: ListCollectionHoldersParams,
+    ): CollectionHolderPage {
+        const contractAddress = normalizeAddressRef(params.contractAddress);
+        const limit = normalizeLimit(params.limit);
+        const cursor =
+            params.cursor !== undefined
+                ? decodeHolderCursor(params.cursor)
+                : null;
+        const whereClauses: string[] = [];
+        const values: unknown[] = [params.chainId, contractAddress];
+
+        if (cursor) {
+            whereClauses.push(buildHolderAfterCursorWhereClause());
+            values.push(
+                cursor.count.length,
+                cursor.count.length,
+                cursor.count.value,
+                cursor.count.length,
+                cursor.count.value,
+                cursor.owner,
+            );
+        }
+
+        const sql =
+            `SELECT h.owner, h.token_count FROM (${buildCollectionHoldersSql()}) h ` +
+            `${whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")} ` : ""}` +
+            "ORDER BY h.count_sort_length DESC, h.count_sort_value DESC, h.owner ASC " +
+            "LIMIT ?";
+
+        const rows = db.raw
+            .prepare(sql)
+            .all(...values, limit + 1) as HolderRow[];
+        const hasNext = rows.length > limit;
+        const pageRows = hasNext ? rows.slice(0, limit) : rows;
+        const items = pageRows.map(mapHolderRow);
+        const totalItems = countCollectionHolders(
+            params.chainId,
+            contractAddress,
+        );
+        const beforeItems = cursor
+            ? countCollectionHoldersBeforeOrAtCursor(
+                  params.chainId,
+                  contractAddress,
+                  cursor,
+              )
+            : 0;
+        const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
+        const rangeEnd = beforeItems + items.length;
+        const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
+        const currentPage =
+            totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
+        const nextCursor = hasNext
+            ? encodeOpaqueCursor({
+                  tokenCount: pageRows[pageRows.length - 1]!.token_count,
+                  owner: pageRows[pageRows.length - 1]!.owner,
+              })
+            : null;
+
+        return {
+            items,
+            nextCursor,
+            limit,
+            totalItems,
+            rangeStart,
+            rangeEnd,
+            currentPage,
+            totalPages,
+        };
+    }
 }
 
 function countMatchingTokens(
@@ -654,6 +755,41 @@ function countCollectionTokens(
             "SELECT COUNT(*) AS count FROM tokens WHERE chain_id = ? AND contract_address = ?",
         )
         .get(chainId, contractAddress) as { count: number };
+    return row.count;
+}
+
+function countCollectionHolders(
+    chainId: number,
+    contractAddress: string,
+): number {
+    const row = db.raw
+        .prepare(
+            `SELECT COUNT(*) AS count FROM (${buildCollectionHoldersSql()}) h`,
+        )
+        .get(chainId, contractAddress) as { count: number };
+    return row.count;
+}
+
+function countCollectionHoldersBeforeOrAtCursor(
+    chainId: number,
+    contractAddress: string,
+    cursor: HolderCursorKey,
+): number {
+    const row = db.raw
+        .prepare(
+            `SELECT COUNT(*) AS count FROM (${buildCollectionHoldersSql()}) h ` +
+                `WHERE ${buildHolderBeforeOrAtCursorWhereClause()}`,
+        )
+        .get(
+            chainId,
+            contractAddress,
+            cursor.count.length,
+            cursor.count.length,
+            cursor.count.value,
+            cursor.count.length,
+            cursor.count.value,
+            cursor.owner,
+        ) as { count: number };
     return row.count;
 }
 
@@ -810,6 +946,25 @@ function decodeTokenCursor(cursor: string): TokenCursor {
     }
 }
 
+function decodeHolderCursor(cursor: string): HolderCursorKey {
+    try {
+        const decoded = decodeOpaqueCursor<HolderCursor>(cursor);
+        if (
+            !decoded ||
+            typeof decoded.tokenCount !== "string" ||
+            typeof decoded.owner !== "string"
+        ) {
+            throw new Error("bad payload");
+        }
+        return {
+            count: toHolderCountSortKey(decoded.tokenCount),
+            owner: decoded.owner.toLowerCase(),
+        };
+    } catch {
+        throw new ReadModelBadRequestError("Invalid cursor");
+    }
+}
+
 function toTokenSortKey(tokenId: string): TokenSortKey {
     const isNumeric = /^\d+$/.test(tokenId);
     if (!isNumeric) {
@@ -838,6 +993,59 @@ function tokenSortKeyParams(
     return [key.bucket, key.length, key.value, key.tokenId];
 }
 
+function buildCollectionHoldersSql(): string {
+    return `
+        WITH holder_totals AS (
+            SELECT
+                lower(owner) AS owner,
+                CAST(SUM(CAST(amount AS INTEGER)) AS TEXT) AS token_count
+            FROM nft_balances
+            WHERE chain_id = ? AND contract_address = ?
+            GROUP BY lower(owner)
+            HAVING SUM(CAST(amount AS INTEGER)) > 0
+        ),
+        holder_sort_keys AS (
+            SELECT
+                owner,
+                token_count,
+                CASE
+                    WHEN LTRIM(token_count, '0') = '' THEN '0'
+                    ELSE LTRIM(token_count, '0')
+                END AS count_sort_value
+            FROM holder_totals
+        )
+        SELECT
+            owner,
+            token_count,
+            LENGTH(count_sort_value) AS count_sort_length,
+            count_sort_value
+        FROM holder_sort_keys
+    `.trim();
+}
+
+function buildHolderAfterCursorWhereClause(): string {
+    return (
+        "(h.count_sort_length < ? " +
+        "OR (h.count_sort_length = ? AND h.count_sort_value < ?) " +
+        "OR (h.count_sort_length = ? AND h.count_sort_value = ? AND h.owner > ?))"
+    );
+}
+
+function buildHolderBeforeOrAtCursorWhereClause(): string {
+    return (
+        "(h.count_sort_length > ? " +
+        "OR (h.count_sort_length = ? AND h.count_sort_value > ?) " +
+        "OR (h.count_sort_length = ? AND h.count_sort_value = ? AND h.owner <= ?))"
+    );
+}
+
+function mapHolderRow(row: HolderRow): CollectionHolder {
+    return {
+        owner: row.owner.toLowerCase(),
+        tokenCount: row.token_count,
+    };
+}
+
 function toListingPriceSortKey(rawPrice: string): ListingPriceSortKey {
     if (!/^\d+$/.test(rawPrice)) {
         throw new ReadModelBadRequestError("Invalid cursor");
@@ -845,6 +1053,18 @@ function toListingPriceSortKey(rawPrice: string): ListingPriceSortKey {
     const normalized = rawPrice.replace(/^0+/, "") || "0";
     return {
         raw: rawPrice,
+        length: normalized.length,
+        value: normalized,
+    };
+}
+
+function toHolderCountSortKey(rawCount: string): HolderCountSortKey {
+    if (!/^\d+$/.test(rawCount)) {
+        throw new ReadModelBadRequestError("Invalid cursor");
+    }
+    const normalized = rawCount.replace(/^0+/, "") || "0";
+    return {
+        raw: rawCount,
         length: normalized.length,
         value: normalized,
     };

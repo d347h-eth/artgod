@@ -37,6 +37,8 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/list-collections.js");
     const collectionDetailUseCaseModule =
         await import("./application/use-cases/collections/get-collection-detail.js");
+    const collectionHoldersUseCaseModule =
+        await import("./application/use-cases/collections/get-collection-holders.js");
     const tokenDetailUseCaseModule =
         await import("./application/use-cases/collections/get-token-detail.js");
     const runtimeHealthUseCaseModule =
@@ -69,6 +71,12 @@ beforeAll(async () => {
         );
     const getCollectionDetailUseCase =
         new collectionDetailUseCaseModule.GetCollectionDetailUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+        );
+    const getCollectionHoldersUseCase =
+        new collectionHoldersUseCaseModule.GetCollectionHoldersUseCase(
             1,
             chainsReadModel,
             collectionsReadModel,
@@ -152,6 +160,7 @@ beforeAll(async () => {
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,
+        getCollectionHoldersUseCase,
         getTokenDetailUseCase,
         runtimeHealthUseCase,
         null,
@@ -329,6 +338,117 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.items[0].image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
         );
+    });
+
+    it("returns collection holders as a forward cursor page", async () => {
+        clearNftBalances(MILADY_ADDRESS);
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "1",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "1",
+        );
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "2",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "1",
+        );
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "10",
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "1",
+        );
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "999",
+            "0xcccccccccccccccccccccccccccccccccccccccc",
+            "1",
+        );
+
+        const first = await resolve(
+            "GET",
+            "/api/ethereum/milady/holders?limit=2",
+        );
+        expect(first.statusCode).toBe(200);
+        expect(first.payload.collection.address).toBe(MILADY_ADDRESS);
+        expect(first.payload.holders.items).toEqual([
+            {
+                owner: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                tokenCount: "2",
+            },
+            {
+                owner: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                tokenCount: "1",
+            },
+        ]);
+        expect(first.payload.holders.totalItems).toBe(3);
+        expect(first.payload.holders.limit).toBe(2);
+        expect(first.payload.holders.rangeStart).toBe(1);
+        expect(first.payload.holders.rangeEnd).toBe(2);
+        expect(first.payload.holders.currentPage).toBe(1);
+        expect(first.payload.holders.totalPages).toBe(2);
+        expect(first.payload.holders.nextCursor).toEqual(expect.any(String));
+
+        const second = await resolve(
+            "GET",
+            `/api/ethereum/milady/holders?limit=2&cursor=${encodeURIComponent(first.payload.holders.nextCursor)}`,
+        );
+        expect(second.statusCode).toBe(200);
+        expect(second.payload.holders.items).toEqual([
+            {
+                owner: "0xcccccccccccccccccccccccccccccccccccccccc",
+                tokenCount: "1",
+            },
+        ]);
+        expect(second.payload.holders.nextCursor).toBeNull();
+        expect(second.payload.holders.rangeStart).toBe(3);
+        expect(second.payload.holders.rangeEnd).toBe(3);
+        expect(second.payload.holders.currentPage).toBe(2);
+        expect(second.payload.holders.totalPages).toBe(2);
+    });
+
+    it("normalizes holder owner casing in holder list", async () => {
+        clearNftBalances(TERRAFORMS_ADDRESS);
+        insertNftBalance(
+            TERRAFORMS_ADDRESS,
+            "7710",
+            "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+            "1",
+        );
+        insertNftBalance(
+            TERRAFORMS_ADDRESS,
+            "7711",
+            "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            "1",
+        );
+        insertNftBalance(
+            TERRAFORMS_ADDRESS,
+            "7712",
+            "0xCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCc",
+            "1",
+        );
+
+        const first = await resolve(
+            "GET",
+            `/api/ethereum/${TERRAFORMS_ADDRESS}/holders`,
+        );
+
+        expect(first.statusCode).toBe(200);
+        expect(first.payload.holders.items).toHaveLength(3);
+        expect(first.payload.holders.items[2].owner).toBe(
+            "0xcccccccccccccccccccccccccccccccccccccccc",
+        );
+        expect(first.payload.holders.nextCursor).toBeNull();
+    });
+
+    it("rejects invalid holders cursor values", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady/holders?limit=2&cursor=not-a-valid-cursor",
+        );
+        expect(result.statusCode).toBe(400);
     });
 
     it("returns 404 for unknown token detail", async () => {
@@ -744,6 +864,7 @@ function seedData(): void {
             "DELETE FROM attribute_keys;",
             "DELETE FROM token_metadata;",
             "DELETE FROM tokens;",
+            "DELETE FROM nft_balances;",
             "DELETE FROM collections;",
         ].join("\n"),
     );
@@ -1125,6 +1246,36 @@ function insertBootstrapRun(input: {
         throw new Error("Failed to resolve inserted bootstrap run");
     }
     return row.run_id;
+}
+
+function insertNftBalance(
+    contractAddress: string,
+    tokenId: string,
+    owner: string,
+    amount: string,
+): void {
+    db.prepare(
+        "INSERT OR REPLACE INTO nft_balances " +
+            "(chain_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    ).run(
+        1,
+        contractAddress.toLowerCase(),
+        tokenId,
+        owner.toLowerCase(),
+        amount,
+        1,
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        1_726_000_000,
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        0,
+    );
+}
+
+function clearNftBalances(contractAddress: string): void {
+    db.prepare(
+        "DELETE FROM nft_balances WHERE chain_id = ? AND contract_address = ?",
+    ).run(1, contractAddress.toLowerCase());
 }
 
 function insertBootstrapMetadataTask(

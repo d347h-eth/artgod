@@ -14,6 +14,7 @@ import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/boo
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
+import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
@@ -102,6 +103,11 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         chainsReadModel,
         extensionAwareCollectionsReadModel,
     );
+    const getCollectionHoldersUseCase = new GetCollectionHoldersUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+    );
     const getTokenDetailUseCase = new GetTokenDetailUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -122,6 +128,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         getDefaultChainUseCase,
         listCollectionsUseCase,
         getCollectionDetailUseCase,
+        getCollectionHoldersUseCase,
         getTokenDetailUseCase,
         runtimeHealthUseCase,
         config.userlandUiDistDir,

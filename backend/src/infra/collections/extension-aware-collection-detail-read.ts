@@ -5,6 +5,7 @@ import {
 } from "@artgod/shared/extensions";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 import type {
+    CollectionHolderPage,
     CollectionListItem,
     TokenBrowserStatus,
     TokenCursorPage,
@@ -45,6 +46,12 @@ type CollectionDetailReadPort = {
         chainId: number,
         contractAddress: string,
     ): TraitFacet[];
+    listCollectionHolders(params: {
+        chainId: number;
+        contractAddress: string;
+        limit: number;
+        cursor?: string;
+    }): CollectionHolderPage;
     getCollectionTokenDetail(params: {
         chainId: number;
         contractAddress: string;
@@ -112,6 +119,15 @@ export class ExtensionAwareCollectionDetailRead {
             chainId,
             contractAddress,
         );
+    }
+
+    listCollectionHolders(params: {
+        chainId: number;
+        contractAddress: string;
+        limit: number;
+        cursor?: string;
+    }): CollectionHolderPage {
+        return this.baseReadPort.listCollectionHolders(params);
     }
 
     getCollectionTokenDetail(params: {

@@ -26,6 +26,10 @@ import type {
     GetCollectionDetailRoute,
 } from "./http/handlers/collections/get-collection-detail.js";
 import type {
+    GetCollectionHoldersHttpAdapter,
+    GetCollectionHoldersRoute,
+} from "./http/handlers/collections/get-collection-holders.js";
+import type {
     GetTokenDetailHttpAdapter,
     GetTokenDetailRoute,
 } from "./http/handlers/collections/get-token-detail.js";
@@ -51,6 +55,7 @@ export function registerApiRoutes(
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
+    getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
 ): void {
@@ -72,6 +77,10 @@ export function registerApiRoutes(
     app.get<GetCollectionDetailRoute>(
         "/api/:chain_ref/:collection_ref",
         getCollectionDetailAdapter.handle,
+    );
+    app.get<GetCollectionHoldersRoute>(
+        "/api/:chain_ref/:collection_ref/holders",
+        getCollectionHoldersAdapter.handle,
     );
     app.post<CreateBootstrapRunRoute>(
         "/api/:chain_ref/collections/bootstrap",
