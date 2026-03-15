@@ -44,7 +44,9 @@ export function normalizeOpenSeaRestOrder(
     }
 }
 
-function normalizeRestListing(payload: Record<string, unknown>): RawOrderPayload {
+function normalizeRestListing(
+    payload: Record<string, unknown>,
+): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
     const protocolTerms = extractSeaportSellTerms(seaportData);
     const parameters = parseProtocolParameters(payload.protocol_data);
@@ -57,11 +59,17 @@ function normalizeRestListing(payload: Record<string, unknown>): RawOrderPayload
         side: "sell",
         maker:
             protocolTerms?.maker ??
-            assertAddress(parameters.offerer, "protocol_data.parameters.offerer"),
+            assertAddress(
+                parameters.offerer,
+                "protocol_data.parameters.offerer",
+            ),
         taker: parseOptionalAddress(payload.taker, "taker"),
         contract:
             protocolTerms?.contract ??
-            assertAddress(nftItem.token, "protocol_data.parameters.offer.token"),
+            assertAddress(
+                nftItem.token,
+                "protocol_data.parameters.offer.token",
+            ),
         tokenId:
             protocolTerms?.tokenId ??
             identifierToString(
@@ -71,7 +79,8 @@ function normalizeRestListing(payload: Record<string, unknown>): RawOrderPayload
         sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Token,
         sourceSchema: null,
         sourceCriteriaRoot: null,
-        price: protocolTerms?.price ?? extractListingPrice(payload, paymentItem),
+        price:
+            protocolTerms?.price ?? extractListingPrice(payload, paymentItem),
         currency:
             protocolTerms?.currency ??
             (paymentItem
@@ -90,7 +99,9 @@ function normalizeRestListing(payload: Record<string, unknown>): RawOrderPayload
     };
 }
 
-function normalizeRestItemOffer(payload: Record<string, unknown>): RawOrderPayload {
+function normalizeRestItemOffer(
+    payload: Record<string, unknown>,
+): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
     const protocolTerms = extractSeaportItemOfferTerms(seaportData);
     const parameters = parseProtocolParameters(payload.protocol_data);
@@ -103,7 +114,10 @@ function normalizeRestItemOffer(payload: Record<string, unknown>): RawOrderPaylo
         side: "buy",
         maker:
             protocolTerms?.maker ??
-            assertAddress(parameters.offerer, "protocol_data.parameters.offerer"),
+            assertAddress(
+                parameters.offerer,
+                "protocol_data.parameters.offerer",
+            ),
         taker: parseOptionalAddress(payload.taker, "taker"),
         contract:
             protocolTerms?.contract ??
@@ -154,12 +168,17 @@ function normalizeRestCollectionOffer(
         side: "buy",
         maker:
             protocolTerms?.maker ??
-            assertAddress(parameters.offerer, "protocol_data.parameters.offerer"),
+            assertAddress(
+                parameters.offerer,
+                "protocol_data.parameters.offerer",
+            ),
         taker: parseOptionalAddress(payload.taker, "taker"),
         contract: protocolTerms?.contract ?? contract,
         tokenId: null,
         sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Collection,
-        sourceSchema: buildCollectionSchema(protocolTerms?.contract ?? contract),
+        sourceSchema: buildCollectionSchema(
+            protocolTerms?.contract ?? contract,
+        ),
         sourceCriteriaRoot:
             protocolTerms?.criteriaRoot ??
             parseCriteriaRootFromItems(parameters.consideration),
@@ -182,7 +201,9 @@ function normalizeRestCollectionOffer(
     };
 }
 
-function normalizeRestTraitOffer(payload: Record<string, unknown>): RawOrderPayload {
+function normalizeRestTraitOffer(
+    payload: Record<string, unknown>,
+): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
     const protocolTerms = extractSeaportCriteriaOfferTerms(seaportData);
     const parameters = parseProtocolParameters(payload.protocol_data);
@@ -196,7 +217,10 @@ function normalizeRestTraitOffer(payload: Record<string, unknown>): RawOrderPayl
         side: "buy",
         maker:
             protocolTerms?.maker ??
-            assertAddress(parameters.offerer, "protocol_data.parameters.offerer"),
+            assertAddress(
+                parameters.offerer,
+                "protocol_data.parameters.offerer",
+            ),
         taker: parseOptionalAddress(payload.taker, "taker"),
         contract: protocolTerms?.contract ?? contract,
         tokenId: null,
@@ -227,9 +251,7 @@ function normalizeRestTraitOffer(payload: Record<string, unknown>): RawOrderPayl
     };
 }
 
-function parseProtocolParameters(
-    value: unknown,
-): Record<string, unknown> & {
+function parseProtocolParameters(value: unknown): Record<string, unknown> & {
     offer: unknown;
     consideration: unknown;
     offerer: unknown;
@@ -304,10 +326,7 @@ function parseTraitCriteria(
     return normalized;
 }
 
-function requireNftItem(
-    items: unknown,
-    name: string,
-): Record<string, unknown> {
+function requireNftItem(items: unknown, name: string): Record<string, unknown> {
     const item = findNftItem(items);
     if (!item) {
         throw new Error(`Missing NFT item in ${name}`);
@@ -381,7 +400,10 @@ function extractListingPrice(
     if (current.value !== undefined && current.value !== null) {
         return String(current.value);
     }
-    if (paymentItem?.startAmount !== undefined && paymentItem.startAmount !== null) {
+    if (
+        paymentItem?.startAmount !== undefined &&
+        paymentItem.startAmount !== null
+    ) {
         return String(paymentItem.startAmount);
     }
     throw new Error("Missing listing price");
@@ -395,7 +417,10 @@ function extractOfferPrice(
     if (price.value !== undefined && price.value !== null) {
         return String(price.value);
     }
-    if (paymentItem?.startAmount !== undefined && paymentItem.startAmount !== null) {
+    if (
+        paymentItem?.startAmount !== undefined &&
+        paymentItem.startAmount !== null
+    ) {
         return String(paymentItem.startAmount);
     }
     throw new Error("Missing offer price");

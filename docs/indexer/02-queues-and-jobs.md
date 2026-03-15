@@ -17,6 +17,7 @@ Queue names are defined in `indexer/src/domain/queues.ts`:
 - `orders-upsert`
 - `order-updates-by-maker`
 - `order-updates-by-id`
+- `collection-extension-artifacts`
 - `metadata-domain`
 - `metadata-refresh`
 - `activity-domain`
@@ -140,16 +141,42 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
     - `bootstrap.collection.start`
     - `bootstrap.collection.backfill-check`
 
+- Collection extension jobs (`indexer/src/domain/collection-extension-jobs.ts`):
+    - `collection-extension.refresh-artifacts`
+
 `bootstrap.collection.start` jobs are produced by future API/UI actions and consumed by the collection bootstrap worker runtime.
 `bootstrap.collection.backfill-check` jobs are produced by the bootstrap worker to verify short backfill completion before switching a collection to `live`.
+
+`collection-extension.refresh-artifacts` jobs are produced only after a successful canonical metadata write:
+
+- by `bootstrap-worker` during bootstrap metadata snapshot processing
+- by `domain-worker` during `domain.metadata.sync`
+- by `domain-worker` during token and range metadata refresh handling
+
+These jobs are consumed by `collection-extension-worker` and carry:
+
+- `chainId`
+- optional `collectionId`
+- `contract`
+- `tokenId`
+- `reason`
+- optional `source`
+
+The dedicated queue keeps collection-specific artifact retries isolated from canonical metadata throughput.
 
 OpenSea job production/consumption:
 
 - `opensea.collection.bootstrap`
-  - produced by `bootstrap-worker`
-  - consumed by `opensea-bootstrap-worker`
+    - produced by `bootstrap-worker`
+    - consumed by `opensea-bootstrap-worker`
 - `opensea.collection.reconcile`
-  - produced by `opensea-reconcile-scheduler-worker`
-  - consumed by `opensea-reconcile-worker`
+    - produced by `opensea-reconcile-scheduler-worker`
+    - consumed by `opensea-reconcile-worker`
 
-These jobs are produced by the scheduler-worker, bootstrap worker, sync worker, OpenSea workers, offchain ingest worker, and future API/UI actions, and consumed by the sync, reorg, domain, offchain ingest, bootstrap, and OpenSea runtimes.
+Collection extension job production/consumption:
+
+- `collection-extension.refresh-artifacts`
+    - produced by `bootstrap-worker` and `domain-worker`
+    - consumed by `collection-extension-worker`
+
+These jobs are produced by the scheduler-worker, bootstrap worker, sync worker, domain worker, OpenSea workers, offchain ingest worker, and future API/UI actions, and consumed by the sync, reorg, domain, bootstrap, collection-extension, offchain ingest, and OpenSea runtimes.

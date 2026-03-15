@@ -87,8 +87,7 @@ describe("opensea normalizer", () => {
             payload: {
                 ...fixture.payload,
                 item: {
-                    nft_id:
-                        "ethereum/0x000000000000000000000000000000000000dEaD/999999",
+                    nft_id: "ethereum/0x000000000000000000000000000000000000dEaD/999999",
                 },
                 base_price: "1",
                 payment_token: {

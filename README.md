@@ -245,6 +245,7 @@ Queue contracts (`indexer/src/domain/queues.ts`):
 3. No implicit full historical backfill runs on startup.
 4. Runtime logic depends on ports (`indexer/src/ports/`); infra adapters live in `indexer/src/infra/`.
 5. Configuration is explicit and loaded through typed env loaders.
+6. Collection extensions are build-bundled and DB-activated; canonical metadata remains authoritative and extension artifact jobs are non-blocking side-effects.
 
 ### Bootstrap Lifecycle
 

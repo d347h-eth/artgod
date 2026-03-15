@@ -8,7 +8,10 @@ import {
     type OrderRecord,
     type SeaportOrderData,
 } from "../src/domain/orders.js";
-import type { OrderUpsertPayload, OrderUpdateByIdPayload } from "../src/domain/order-jobs.js";
+import type {
+    OrderUpsertPayload,
+    OrderUpdateByIdPayload,
+} from "../src/domain/order-jobs.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
@@ -39,12 +42,16 @@ describe("orders raw source selection", () => {
             },
         );
 
-        await domain.handleOrderUpsert(buildOrderUpsert("rest", {
-            source: "rest",
-        }));
-        await domain.handleOrderUpsert(buildOrderUpsert("stream", {
-            source: "stream",
-        }));
+        await domain.handleOrderUpsert(
+            buildOrderUpsert("rest", {
+                source: "rest",
+            }),
+        );
+        await domain.handleOrderUpsert(
+            buildOrderUpsert("stream", {
+                source: "stream",
+            }),
+        );
 
         await domain.handleOrderUpdateById(buildOrderUpdate());
 
@@ -67,15 +74,23 @@ describe("orders raw source selection", () => {
         );
 
         await domain.handleOrderUpsert(
-            buildOrderUpsert("stream", { source: "stream" }, {
-                signature:
-                    "0x4a02955b3d1b3f24610cc2f3fe742c19e284a7e10abf5777ecb74601556130f7011cdf9b1c1f637a9e93692d2f38bf4d76f3afa6d0e0f8d4b7201e2440d096001c",
-            }),
+            buildOrderUpsert(
+                "stream",
+                { source: "stream" },
+                {
+                    signature:
+                        "0x4a02955b3d1b3f24610cc2f3fe742c19e284a7e10abf5777ecb74601556130f7011cdf9b1c1f637a9e93692d2f38bf4d76f3afa6d0e0f8d4b7201e2440d096001c",
+                },
+            ),
         );
         await domain.handleOrderUpsert(
-            buildOrderUpsert("rest", { source: "rest" }, {
-                signature: null,
-            }),
+            buildOrderUpsert(
+                "rest",
+                { source: "rest" },
+                {
+                    signature: null,
+                },
+            ),
         );
 
         await domain.handleOrderUpdateById(buildOrderUpdate());

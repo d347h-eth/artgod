@@ -53,11 +53,7 @@ async function main() {
             retryPolicy: config.opensea.retryPolicy,
             rateLimiter: config.opensea.rateLimiter,
         });
-        const sync = new OpenSeaOrderbookSync(
-            api,
-            queue,
-            sourceState,
-        );
+        const sync = new OpenSeaOrderbookSync(api, queue, sourceState);
 
         const stopWorker = await runWorker(
             queue,

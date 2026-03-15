@@ -20,11 +20,11 @@ sequenceDiagram
     Scheduler->>NATS: Publish block-check jobs
 
     NATS-->>Sync: Deliver sync job
-    Sync->>RPC: getLogs + getBlock + getTx + getReceipts
+    Sync->>RPC: getLogs + extension watch logs + getBlock + getTx + getReceipts
     Sync->>DB: Persist blocks/transfers/fills/balances
     Sync->>NATS: Publish domain sync jobs
     Sync->>NATS: Publish targeted order update jobs
-    Sync->>NATS: Publish metadata refresh jobs
+    Sync->>NATS: Publish metadata refresh jobs (core + extension-derived)
 
     NATS-->>Domain: Deliver domain sync + order jobs
     Domain->>DB: Persist activities / metadata / orders
@@ -39,6 +39,7 @@ sequenceDiagram
     participant RPC as RPC Node
     participant DB as SQLite
     participant NATS as NATS JetStream
+    participant Ext as Collection Extension Worker
     participant OSBoot as OpenSea Bootstrap Worker
     participant OSAPI as OpenSea REST API
     participant Offchain as Offchain Ingest Worker
@@ -46,9 +47,13 @@ sequenceDiagram
 
     NATS-->>Bootstrap: bootstrap.collection.start
     Bootstrap->>RPC: Read head
-    Bootstrap->>DB: Set collection bootstrapping + anchor
+    Bootstrap->>DB: Set collection bootstrapping + anchor + auto-install embedded extension
     Bootstrap->>RPC: Metadata snapshot
     Bootstrap->>DB: Persist metadata
+    Bootstrap->>NATS: Publish collection-extension.refresh-artifacts
+    NATS-->>Ext: collection-extension.refresh-artifacts
+    Ext->>RPC: Read collection-specific onchain artifact inputs
+    Ext->>DB: Upsert token_extension_artifacts
     Bootstrap->>RPC: Ownership snapshot
     Bootstrap->>DB: Persist snapshot + balances
     Bootstrap->>NATS: Publish short backfill job
@@ -70,6 +75,33 @@ sequenceDiagram
     Domain->>NATS: Publish orders.update-by-id(reason=order)
     NATS-->>Domain: orders.update-by-id
     Domain->>DB: Validate Seaport order and update fillability_status
+```
+
+## Canonical Metadata Refresh + Collection Extension Artifacts
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Sync as Sync Worker
+    participant NATS as NATS JetStream
+    participant Domain as Domain Worker
+    participant DB as SQLite
+    participant Ext as Collection Extension Worker
+    participant RPC as RPC Node
+    participant MetaHTTP as Metadata Fetcher
+
+    Sync->>NATS: Publish metadata refresh job
+    NATS-->>Domain: metadata refresh job
+    Domain->>RPC: Resolve tokenURI
+    Domain->>MetaHTTP: Fetch / parse metadata
+    Domain->>DB: Upsert token_metadata + normalized attributes
+    Domain->>NATS: Publish collection-extension.refresh-artifacts
+
+    NATS-->>Ext: collection-extension.refresh-artifacts
+    Ext->>DB: Read enabled install + normalized token attributes
+    Ext->>RPC: Read collection-specific artifact inputs
+    Ext->>MetaHTTP: Parse/fetch extension metadata if needed
+    Ext->>DB: Upsert token_extension_artifacts
 ```
 
 ## OpenSea Stream + Reconcile

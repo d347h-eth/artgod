@@ -90,3 +90,50 @@ Also caches conduit channel lists used to ensure the Seaport exchange is an open
     - `indexer/src/infra/metadata/http-fetcher.ts`
 
 These ports keep metadata resolution and HTTP fetching swappable.
+
+## Collection Extension Ports
+
+- Interface: `indexer/src/ports/collection-extensions.ts`
+- Adapter: `indexer/src/infra/collection-extensions/sqlite.ts`
+
+Provides two related storage-facing responsibilities:
+
+- install registry access
+    - get install by collection
+    - get install by contract
+    - list enabled installs
+    - upsert install rows
+- artifact and normalized-token reads
+    - upsert extension artifact rows
+    - read extension artifact rows
+    - resolve normalized token attribute values for extension logic
+
+This adapter intentionally reads normalized attribute state from SQLite so collection-specific logic can depend on canonical metadata outputs without re-parsing raw metadata JSON.
+
+## Embedded Extension Registry
+
+Shared embedded extension definitions live in `shared/extensions/index.ts`.
+
+The original design discussion considered a single dedicated top-level extension module directory. The implemented version keeps the shared install/config registry in `shared/` and separates indexer/backend extension logic by layer instead, so each runtime stays within its own port/adapter boundary.
+
+Current responsibilities:
+
+- define known extension keys
+- resolve embedded installs by `chainId + contractAddress`
+- validate extension-owned config JSON
+- define stable artifact refs used across indexer and backend
+
+Indexer-side extension implementations live in:
+
+- `indexer/src/application/collection-extensions/index.ts`
+- `indexer/src/application/collection-extensions/types.ts`
+- `indexer/src/application/collection-extensions/terraforms.ts`
+
+The indexer extension contract currently exposes two behaviors:
+
+- `buildSyncWatchSpecs(...)`
+    - returns extra log watch definitions for sync-worker
+- `refreshArtifacts(...)`
+    - executes extension-owned artifact refresh logic on the dedicated collection-extension queue
+
+Backend keeps a separate presentation-oriented extension registry under `backend/src/application/collection-extensions/*` so backend read-model code depends only on backend-local contracts, not on indexer adapters.

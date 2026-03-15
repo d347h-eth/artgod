@@ -206,13 +206,14 @@ export async function validateSeaportOrder(
         | readonly [boolean, boolean, bigint, bigint]
         | undefined;
     try {
-        orderStatusResult =
-            (await rpc.readContract<readonly [boolean, boolean, bigint, bigint]>({
-                address: parsed.protocolAddress as Hex,
-                abi: SEAPORT_ABI,
-                functionName: "getOrderStatus",
-                args: [orderHash as Hex],
-            })) ?? [false, false, 0n, 1n];
+        orderStatusResult = (await rpc.readContract<
+            readonly [boolean, boolean, bigint, bigint]
+        >({
+            address: parsed.protocolAddress as Hex,
+            abi: SEAPORT_ABI,
+            functionName: "getOrderStatus",
+            args: [orderHash as Hex],
+        })) ?? [false, false, 0n, 1n];
     } catch (error) {
         const reason = `protocol-error:${String(error)}`;
         logger.error("Seaport getOrderStatus RPC failed", {
@@ -550,9 +551,10 @@ function logInvalidValidation(
     });
 }
 
-function invalidValidationResult(
-    reason: string,
-): { status: OrderStatus; reason: string } {
+function invalidValidationResult(reason: string): {
+    status: OrderStatus;
+    reason: string;
+} {
     return {
         status: ORDER_STATUS.Invalid,
         reason,

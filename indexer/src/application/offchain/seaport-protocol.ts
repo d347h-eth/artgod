@@ -12,8 +12,14 @@ import type { SeaportOrderData } from "../../domain/orders.js";
 const SEAPORT_CONTRACT_NAME = "Seaport";
 const SEAPORT_VERSION_V1_6 = "1.6";
 const SEAPORT_V1_6_PROTOCOL_ADDRESSES = new Map<string, string>([
-    [getAddress("0x0000000000000068F116a894984e2DB1123eB395"), SEAPORT_VERSION_V1_6],
-    [getAddress("0x00000000006687982678b03100B9bDC8be440814"), SEAPORT_VERSION_V1_6],
+    [
+        getAddress("0x0000000000000068F116a894984e2DB1123eB395"),
+        SEAPORT_VERSION_V1_6,
+    ],
+    [
+        getAddress("0x00000000006687982678b03100B9bDC8be440814"),
+        SEAPORT_VERSION_V1_6,
+    ],
 ]);
 
 const EIP_712_ORDER_TYPE = {
@@ -78,7 +84,9 @@ export function resolveSeaportProtocolVersion(protocolAddress: string): string {
         getAddress(protocolAddress),
     );
     if (!version) {
-        throw new Error(`Unsupported Seaport protocol address: ${protocolAddress}`);
+        throw new Error(
+            `Unsupported Seaport protocol address: ${protocolAddress}`,
+        );
     }
     return version;
 }
@@ -128,7 +136,10 @@ export async function recoverSeaportSigner(
 
     const orderComponents = buildSeaportOrderComponents(seaportData);
     const recovered = await recoverTypedDataAddress({
-        domain: buildSeaportTypedDataDomain(chainId, seaportData.protocolAddress),
+        domain: buildSeaportTypedDataDomain(
+            chainId,
+            seaportData.protocolAddress,
+        ),
         types: EIP_712_ORDER_TYPE,
         primaryType: "OrderComponents",
         message: orderComponents,
@@ -138,10 +149,7 @@ export async function recoverSeaportSigner(
     return getAddress(recovered);
 }
 
-function buildSeaportTypedDataDomain(
-    chainId: number,
-    protocolAddress: string,
-) {
+function buildSeaportTypedDataDomain(chainId: number, protocolAddress: string) {
     return {
         name: SEAPORT_CONTRACT_NAME,
         version: resolveSeaportProtocolVersion(protocolAddress),

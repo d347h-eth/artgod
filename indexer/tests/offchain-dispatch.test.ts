@@ -3,11 +3,18 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { dispatchOffchainPayload } from "../src/application/offchain/dispatch.js";
 import type { OffchainOrderRawPayload } from "../src/domain/offchain-jobs.js";
-import { ORDER_JOB_KIND, type OrderUpsertPayload } from "../src/domain/order-jobs.js";
+import {
+    ORDER_JOB_KIND,
+    type OrderUpsertPayload,
+} from "../src/domain/order-jobs.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import { QUEUE_NAMES, type QueueName } from "../src/domain/queues.js";
 import { SqliteTokenSetRegistry } from "../src/infra/token-sets/sqlite.js";
-import type { QueuePort, QueueMessage, SubscribeOptions } from "../src/ports/queue.js";
+import type {
+    QueuePort,
+    QueueMessage,
+    SubscribeOptions,
+} from "../src/ports/queue.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 
@@ -84,7 +91,9 @@ describe("offchain dispatch", () => {
         expect(upsert.payload.localTokenSetStatus).toBe("resolved");
         expect(upsert.payload.tokenSetId).not.toBeNull();
         expect(upsert.payload.rawSourceKind).toBe("rest");
-        expect(upsert.payload.rawPayload).toEqual(buildRestCollectionOfferRecord());
+        expect(upsert.payload.rawPayload).toEqual(
+            buildRestCollectionOfferRecord(),
+        );
     });
 
     it("persists trait offers with local token-set mismatch instead of dropping them", async () => {
@@ -181,8 +190,7 @@ function buildRestCollectionOfferRecord(): Record<string, unknown> {
                         identifierOrCriteria: "0",
                         startAmount: "1570000000000000",
                         endAmount: "1570000000000000",
-                        recipient:
-                            "0x0000a26b00c1f0df003000390027140000faa719",
+                        recipient: "0x0000a26b00c1f0df003000390027140000faa719",
                     },
                 ],
                 startTime: "1772907789",

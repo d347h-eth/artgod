@@ -186,6 +186,7 @@ Produced runtime artifacts:
 - `indexer/dist-desktop/reorg-worker.mjs`
 - `indexer/dist-desktop/domain-worker.mjs`
 - `indexer/dist-desktop/bootstrap-worker.mjs`
+- `indexer/dist-desktop/collection-extension-worker.mjs`
 - `indexer/dist-desktop/offchain-ingest-worker.mjs`
 - `indexer/dist-desktop/opensea-stream-worker.mjs`
 - `indexer/dist-desktop/opensea-bootstrap-worker.mjs`

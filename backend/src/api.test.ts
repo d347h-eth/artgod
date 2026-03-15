@@ -44,17 +44,16 @@ beforeAll(async () => {
     const sqliteRuntimeHealthModule =
         await import("./infra/runtime-health/sqlite-runtime-health.js");
     const readModels = await import("@artgod/shared/read-models");
-    const collectionExtensionRecordsModule = await import(
-        "./infra/collections/sqlite-collection-extension-records.js"
-    );
-    const extensionAwareReadModule = await import(
-        "./infra/collections/extension-aware-collection-detail-read.js"
-    );
+    const collectionExtensionRecordsModule =
+        await import("./infra/collections/sqlite-collection-extension-records.js");
+    const extensionAwareReadModule =
+        await import("./infra/collections/extension-aware-collection-detail-read.js");
 
     const chainsReadModel = new readModels.SqliteChainsReadModel();
-    const baseCollectionsReadModel = new readModels.SqliteCollectionsReadModel(
-        [ZERO_ADDRESS, WETH_ADDRESS],
-    );
+    const baseCollectionsReadModel = new readModels.SqliteCollectionsReadModel([
+        ZERO_ADDRESS,
+        WETH_ADDRESS,
+    ]);
     const collectionsReadModel =
         new extensionAwareReadModule.ExtensionAwareCollectionDetailRead(
             baseCollectionsReadModel,
@@ -1183,9 +1182,9 @@ function insertBootstrapRunEvent(
     eventLevel: "info" | "warn" | "error" = "info",
 ): void {
     const run = db
-        .prepare<[number]>(
-            "SELECT chain_id, collection_id FROM bootstrap_runs WHERE run_id = ? LIMIT 1",
-        )
+        .prepare<
+            [number]
+        >("SELECT chain_id, collection_id FROM bootstrap_runs WHERE run_id = ? LIMIT 1")
         .get(runId) as
         | {
               chain_id: number;
@@ -1200,7 +1199,14 @@ function insertBootstrapRunEvent(
         "INSERT INTO bootstrap_run_events " +
             "(run_id, chain_id, collection_id, event_code, event_level, message, payload_json, created_at) " +
             "VALUES (?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)",
-    ).run(runId, run.chain_id, run.collection_id, eventCode, eventLevel, eventCode);
+    ).run(
+        runId,
+        run.chain_id,
+        run.collection_id,
+        eventCode,
+        eventLevel,
+        eventCode,
+    );
 }
 
 function updateCollectionLifecycle(

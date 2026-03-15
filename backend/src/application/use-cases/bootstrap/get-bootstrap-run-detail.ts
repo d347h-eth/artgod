@@ -112,7 +112,9 @@ function buildBootstrapRunFlow(input: {
         eventCodes.has("run.queued") || input.run.status !== "requested";
     const hasAnchor =
         eventCodes.has("run.anchor.selected") || input.run.anchorBlock !== null;
-    const hasEnumerationStarted = eventCodes.has("metadata.enumeration.started");
+    const hasEnumerationStarted = eventCodes.has(
+        "metadata.enumeration.started",
+    );
     const hasEnumerationCompleted = eventCodes.has(
         "metadata.enumeration.completed",
     );

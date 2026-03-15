@@ -30,7 +30,10 @@ export function normalizeSeaportOrderData(
         "protocol_address",
     );
     const protocol = asObject(protocolData, "protocol_data");
-    const parameters = asObject(protocol.parameters, "protocol_data.parameters");
+    const parameters = asObject(
+        protocol.parameters,
+        "protocol_data.parameters",
+    );
 
     return {
         protocolAddress: normalizedProtocolAddress,
@@ -154,9 +157,7 @@ function parseOfferItems(value: unknown): SeaportOrderItem[] {
         throw new Error("Invalid offer: expected array");
     }
 
-    return value.map((entry, index) =>
-        normalizeItem(entry, `offer[${index}]`),
-    );
+    return value.map((entry, index) => normalizeItem(entry, `offer[${index}]`));
 }
 
 function parseConsiderationItems(value: unknown): SeaportConsiderationItem[] {

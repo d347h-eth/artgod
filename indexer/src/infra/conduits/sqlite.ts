@@ -108,7 +108,9 @@ export class SqliteConduitRegistry implements ConduitRegistryPort {
         channels: string[],
     ): void {
         const normalizedConduitAddress = conduitAddress.toLowerCase();
-        const normalizedChannels = channels.map((channel) => channel.toLowerCase());
+        const normalizedChannels = channels.map((channel) =>
+            channel.toLowerCase(),
+        );
 
         const replace = db.raw.transaction(
             (payload: {

@@ -114,7 +114,10 @@ export function toBigInt(value: unknown, name: string): bigint {
     throw new Error(`Invalid ${name}: expected bigint-compatible value`);
 }
 
-export function normalizeCriteriaRoot(value: unknown, name: string): string | null {
+export function normalizeCriteriaRoot(
+    value: unknown,
+    name: string,
+): string | null {
     if (value === undefined || value === null) return null;
     if (typeof value === "string" && value.trim() === "") return null;
 

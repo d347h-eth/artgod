@@ -304,12 +304,15 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 });
             } else if (row.kind === "seaport") {
                 finalStatus = ORDER_STATUS.Invalid;
-                logger.warn("Orders update-by-id missing canonical seaport data", {
-                    component: "OrdersDomain",
-                    action: "handleOrderUpdateById",
-                    chainId: row.chain_id,
-                    orderId: row.id,
-                });
+                logger.warn(
+                    "Orders update-by-id missing canonical seaport data",
+                    {
+                        component: "OrdersDomain",
+                        action: "handleOrderUpdateById",
+                        chainId: row.chain_id,
+                        orderId: row.id,
+                    },
+                );
             }
         }
 
@@ -351,8 +354,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         const rawPayload = payload.rawPayload
             ? JSON.stringify(payload.rawPayload)
             : null;
-        const rawStreamData =
-            rawSourceKind === "stream" ? rawPayload : null;
+        const rawStreamData = rawSourceKind === "stream" ? rawPayload : null;
         const rawRestData = rawSourceKind === "rest" ? rawPayload : null;
         const sourceSchemaJson = payload.sourceSchema
             ? JSON.stringify(payload.sourceSchema)

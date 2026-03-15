@@ -114,8 +114,11 @@ describe("terraforms collection extension", () => {
                     return buildMetadataDataUri({
                         name: "Terraform #7710 v2",
                         image: "data:image/svg+xml;base64,terraform-v2",
-                        animation_url: "https://example.com/terraform-v2-animation",
-                        attributes: [{ trait_type: "Mode", value: "Terraform" }],
+                        animation_url:
+                            "https://example.com/terraform-v2-animation",
+                        attributes: [
+                            { trait_type: "Mode", value: "Terraform" },
+                        ],
                     });
                 }
                 if (functionName === "tokenHTML") {
@@ -197,7 +200,8 @@ describe("terraforms collection extension", () => {
                     return buildMetadataDataUri({
                         name: "Terraform #7711 v2",
                         image: "data:image/svg+xml;base64,daydream-v2",
-                        animation_url: "https://example.com/daydream-v2-animation",
+                        animation_url:
+                            "https://example.com/daydream-v2-animation",
                         attributes: [{ trait_type: "Mode", value: "Daydream" }],
                     });
                 }
@@ -278,19 +282,13 @@ function resetExtensionTables(): void {
 
 function seedCollectionToken(tokenId: string, mode: string): void {
     const collectionId = Number(
-        db.prepare(
-            "INSERT INTO collections " +
-                "(chain_id, slug, address, standard, status, deployment_block, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-        )
-            .run(
-                1,
-                "terraforms",
-                TERRAFORMS_ADDRESS,
-                "erc721",
-                "live",
-                1,
+        db
+            .prepare(
+                "INSERT INTO collections " +
+                    "(chain_id, slug, address, standard, status, deployment_block, created_at, updated_at) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
             )
+            .run(1, "terraforms", TERRAFORMS_ADDRESS, "erc721", "live", 1)
             .lastInsertRowid,
     );
 
@@ -311,18 +309,18 @@ function seedCollectionToken(tokenId: string, mode: string): void {
     ).run(1, TERRAFORMS_ADDRESS, tokenId);
 
     const modeKeyId = Number(
-        db.prepare(
-            "INSERT INTO attribute_keys (chain_id, contract_address, key) VALUES (?, ?, ?)",
-        )
-            .run(1, TERRAFORMS_ADDRESS, "Mode")
-            .lastInsertRowid,
+        db
+            .prepare(
+                "INSERT INTO attribute_keys (chain_id, contract_address, key) VALUES (?, ?, ?)",
+            )
+            .run(1, TERRAFORMS_ADDRESS, "Mode").lastInsertRowid,
     );
     const attributeId = Number(
-        db.prepare(
-            "INSERT INTO attributes (chain_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?)",
-        )
-            .run(1, TERRAFORMS_ADDRESS, modeKeyId, mode)
-            .lastInsertRowid,
+        db
+            .prepare(
+                "INSERT INTO attributes (chain_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?)",
+            )
+            .run(1, TERRAFORMS_ADDRESS, modeKeyId, mode).lastInsertRowid,
     );
     db.prepare(
         "INSERT INTO token_attributes (chain_id, contract_address, token_id, attribute_id) VALUES (?, ?, ?, ?)",

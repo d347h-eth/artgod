@@ -199,7 +199,9 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
         ];
     },
     async refreshArtifacts(context: CollectionExtensionArtifactRefreshContext) {
-        const config = parseTerraformsExtensionConfig(context.install.configJson);
+        const config = parseTerraformsExtensionConfig(
+            context.install.configJson,
+        );
         const tokenId = context.payload.tokenId;
         const contract = context.payload.contract.toLowerCase();
         const tokenMode = context.artifacts.getTokenAttributeValue({
@@ -414,14 +416,17 @@ async function resolveRendererArgs(
             address: params.rendererV2ContractAddress as Hex,
             abi: TERRAFORMS_RENDERER_ABI,
             functionName: "tokenHeightmapIndices",
-            args: [0n, params.placement, params.seed, DEFAULT_DECAY, zeroCanvas],
+            args: [
+                0n,
+                params.placement,
+                params.seed,
+                DEFAULT_DECAY,
+                zeroCanvas,
+            ],
         })) as readonly (readonly bigint[])[];
 
         return {
-            status:
-                params.status.slug === "daydream"
-                    ? 2n
-                    : 4n,
+            status: params.status.slug === "daydream" ? 2n : 4n,
             placement: params.placement,
             seed: params.seed,
             decay: DEFAULT_DECAY,

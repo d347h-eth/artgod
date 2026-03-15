@@ -28,6 +28,12 @@ Metadata refreshes are handled out-of-band via `domain.metadata.refresh` jobs. T
 
 The refresh job payload carries a reason/source string so the metadata domain can log what triggered the refresh. The trigger registry is the extension point for future collection-specific metadata update events.
 
+Collection extensions already participate in this path in v1, but through sync-worker enrichment rather than through the core ERC-4906 trigger registry:
+
+- sync-worker resolves enabled extension watch specs for the tracked collections
+- extension-specific logs are normalized into the same metadata refresh job shapes
+- domain-worker consumes those jobs exactly like any other metadata refresh trigger
+
 ## Trait Stats Recompute
 
 Trait counts are recomputed into `collection_trait_stats` through `domain.metadata.stats-recompute` jobs on the dedicated `metadata-stats` queue.
@@ -67,6 +73,37 @@ Metrics are recorded for latency and failures.
 
 Results are stored in `token_metadata` with JSON strings for attributes and raw metadata.
 
+## Canonical Metadata First, Extension Artifacts Second
+
+Collection extensions do **not** replace the canonical metadata domain.
+
+Current behavior:
+
+1. canonical metadata resolution/fetch/normalization completes first
+2. `token_metadata` and normalized attribute rows are committed
+3. bootstrap-worker or domain-worker publishes `collection-extension.refresh-artifacts` as a side-effect if the collection has an enabled install
+4. collection-extension-worker performs extension-specific artifact refresh and writes `token_extension_artifacts`
+
+This split is intentional:
+
+- canonical metadata stays authoritative for token identity and normalized traits
+- extension logic can fail/retry independently
+- bootstrap readiness and canonical metadata refreshes do not wait on extension artifact completion
+
+## Terraforms-Specific Metadata Behavior
+
+The first embedded extension, `terraforms`, shadows the metadata path in a very specific way:
+
+- it always targets the Terraforms version-2 renderer artifacts, regardless of the token owner-selected renderer version
+- it reads the normalized `Mode` attribute from SQLite joins over `attribute_keys`, `attributes`, and `token_attributes`
+- it does **not** parse `token_metadata.raw_json` to determine token state
+- it reconstructs the renderer inputs and fetches:
+    - v2 `tokenURI(...)`
+    - v2 `tokenHTML(...)`
+- for `Daydream` and `Origin Daydream` modes it follows the canvas-override path before calling the v2 renderer
+
+The resulting extension artifact row is then used later by backend read paths to override effective `image` and `animationUrl` while leaving canonical `token_metadata` untouched.
+
 ## Failure Behavior
 
 - If URI resolution fails, the token is skipped.
@@ -74,3 +111,9 @@ Results are stored in `token_metadata` with JSON strings for attributes and raw 
 - Metadata is only written once, unless updated by a new fetch.
 
 This is intentionally conservative and idempotent.
+
+Collection-extension artifact failures are handled separately:
+
+- the canonical metadata write is already committed
+- the extension job retries on its own queue
+- a terminal extension failure does not roll back the canonical metadata row

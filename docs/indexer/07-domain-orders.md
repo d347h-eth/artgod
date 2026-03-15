@@ -101,9 +101,9 @@ Current validation flow:
 1. Parse canonical Seaport data from the order row.
 2. Reconstruct the Seaport order hash locally and compare with `order.id`.
 3. Signature handling:
-   - stream-derived order with signature -> verify typed-data signer
-   - stream-derived order without signature -> warn and continue
-   - REST-derived order -> no signature expectation
+    - stream-derived order with signature -> verify typed-data signer
+    - stream-derived order without signature -> warn and continue
+    - REST-derived order -> no signature expectation
 4. Check time window with local wall clock.
 5. Read Seaport `getOrderStatus(orderHash)`.
 6. Read Seaport `getCounter(offerer)`.
@@ -132,9 +132,9 @@ The orders domain distinguishes source scope from local token-set linkage.
 
 - persisted even when local token-set linkage fails
 - local linkage may be:
-  - `resolved`
-  - `unresolved`
-  - `mismatch`
+    - `resolved`
+    - `unresolved`
+    - `mismatch`
 - `source_criteria_root` is preserved for diagnostics and future repair work
 
 The key rule is: local token-set resolution failure or mismatch must not drop otherwise valid source orders.
@@ -158,11 +158,11 @@ Maker triggers are re-validation hints, not unconditional cancels.
 Current maker trigger scoping:
 
 - `nft-transfer`, `item_sold`, `item_transferred`
-  - re-validate exact-token sell orders for that maker
+    - re-validate exact-token sell orders for that maker
 - `erc20-balance`, `approval-change`
-  - re-validate WETH-denominated buy orders for that maker
+    - re-validate WETH-denominated buy orders for that maker
 - `order-counter`
-  - re-validate all Seaport orders for that maker
+    - re-validate all Seaport orders for that maker
 
 These updates only change `fillability_status`.
 

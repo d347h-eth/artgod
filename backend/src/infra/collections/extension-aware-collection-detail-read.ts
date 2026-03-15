@@ -3,9 +3,7 @@ import {
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
     type CollectionExtensionInstall,
 } from "@artgod/shared/extensions";
-import type {
-    BackendCollectionExtensionArtifactRecord,
-} from "../../application/collection-extensions/types.js";
+import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 import type {
     CollectionListItem,
     TokenBrowserStatus,

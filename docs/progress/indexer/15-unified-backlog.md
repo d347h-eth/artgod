@@ -97,6 +97,8 @@ Priority legend:
       Sources: user notes
 - [ ] `BKL-040` Implement span-to-profile linking in Pyroscope Node orchestration according to the plan.
       Sources: `docs/progress/indexer/16-trace-profile-linking-plan.md`
+- [ ] `BKL-041` Add operator-managed collection-extension install/uninstall flows and a late-install redrive path for already-indexed collections.
+      Sources: `docs/indexer/00-overview.md`, `docs/indexer/14-collection-bootstrap.md`, user notes
 
 ## P3: Long-Term Architecture
 
@@ -108,6 +110,12 @@ Priority legend:
       Sources: `docs/blueprint/05-offchain-indexing.md`, `docs/progress/indexer/02-sync-pipeline-gaps.md`
 - [ ] `BKL-028` Add optional analytics/search pipeline jobs (activity indexing fan-out) if product scope needs it.
       Sources: `docs/blueprint/04-job-queueing.md`, `docs/progress/indexer/04-job-queueing-gaps.md`
+- [ ] `BKL-042` Support multiple enabled collection extensions per collection and define precedence/conflict policy for overlapping hooks and presentation overrides.
+      Sources: `docs/indexer/00-overview.md`, user notes
+- [ ] `BKL-043` Extend collection-extension hook outputs beyond metadata refresh triggers so sync hooks can drive broader domain behaviors without redesigning the contract.
+      Sources: `docs/indexer/04-sync-pipeline.md`, user notes
+- [ ] `BKL-044` Explore trusted remote or onchain-backed collection-extension distribution beyond build-bundled embedded installs.
+      Sources: `docs/indexer/00-overview.md`, user notes
 
 ## Maintenance
 

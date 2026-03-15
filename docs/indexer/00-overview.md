@@ -13,6 +13,7 @@ Current scope:
 - All persisted state lives in SQLite (`better-sqlite3`).
 - Onchain ownership, metadata, and activities are maintained from RPC data.
 - Offchain orders are ingested from OpenSea streams plus REST snapshot/reconcile passes.
+- Collection-specific extensions can enrich indexing and presentation without changing canonical metadata or order storage.
 - Every job is idempotent; at-least-once delivery is assumed.
 
 ## Runtime Topology
@@ -25,7 +26,13 @@ Each runtime is an independent Node.js process. There is no shared memory across
 
 - Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
     - Consumes collection bootstrap jobs.
+    - Auto-installs embedded collection extensions during bootstrap start when the collection contract matches a known extension.
     - Orchestrates per-collection metadata snapshot, ownership snapshot, short backfill, and OpenSea bootstrap job emission.
+
+- Collection extension runtime (`indexer/src/runtime/collection-extension-worker.ts`)
+    - Consumes collection-extension artifact refresh jobs.
+    - Loads enabled collection-extension installs and executes extension-specific artifact refresh logic.
+    - Persists extension-owned token artifacts without blocking canonical metadata progress.
 
 - Sync worker runtime (`indexer/src/runtime/sync-worker.ts`)
     - Consumes realtime/backfill sync jobs.
@@ -92,6 +99,16 @@ These assumptions are relied on by the implementation and should be preserved in
 8. OpenSea readiness is separate from collection `status = live`.
     - onchain `live` means bootstrap ownership/backfill is done.
     - OpenSea `ready` means the initial offchain snapshot has succeeded.
+9. Collection extensions are build-bundled and DB-activated.
+    - v1 supports at most one enabled extension install per collection.
+    - bootstrap auto-installs known embedded extensions by `chain_id + contract`.
+10. Canonical metadata remains authoritative.
+    - `token_metadata` and normalized attributes are the source of truth for token identity and traits.
+    - extension artifact rows are secondary caches used for collection-specific behavior such as media overrides.
+11. Collection-extension jobs are non-blocking side-effects.
+    - extension failures must never fail canonical metadata writes, ownership bootstrap, or collection liveness.
+12. Collection-extension sync hooks are intentionally narrow in v1.
+    - extension watch specs may currently normalize only into metadata refresh events/ranges.
 
 ## High-Level Data Flow
 
@@ -108,6 +125,7 @@ These assumptions are relied on by the implementation and should be preserved in
     - orders domain persists canonical orders and updates `fillability_status`
     - metadata domain fetches and stores token metadata
     - activity domain writes activity rows
+    - successful metadata writes fan out collection-extension artifact refresh jobs when an enabled install exists
 5. Scheduler-worker publishes `block-check` jobs once blocks are old enough.
 6. Reorg worker verifies block hashes and rolls back on mismatch.
 
@@ -125,6 +143,21 @@ These assumptions are relied on by the implementation and should be preserved in
 6. Domain worker persists canonical orders, then validates Seaport orders asynchronously from canonical `seaport_data_json`.
 7. OpenSea reconcile worker periodically re-fetches the full orderbook and marks locally active-but-missing orders `source_status = inactive`.
 
+### Collection extension flow
+
+1. Bootstrap start checks whether the collection contract matches an embedded extension definition and upserts a `collection_extension_installs` row before metadata snapshot work begins.
+2. Any successful canonical metadata write can publish `collection-extension.refresh-artifacts` on the dedicated `collection-extension-artifacts` queue.
+3. Collection extension worker resolves the enabled install and executes extension-specific artifact refresh logic against normalized token state and onchain/metadata ports.
+4. Extension artifact results are upserted into `token_extension_artifacts`.
+5. Backend read paths can resolve effective collection-specific presentation from extension artifacts while frontend components remain generic.
+
+Current embedded extension:
+
+- `terraforms`
+    - watches collection-specific onchain events and normalizes them into metadata refresh triggers
+    - caches Terraforms version-2 renderer artifacts in `token_extension_artifacts`
+    - drives backend media overrides for token cards and token detail pages
+
 ## Eventual Consistency Notes
 
 OpenSea snapshot/reconcile completion currently means:
@@ -134,6 +167,22 @@ OpenSea snapshot/reconcile completion currently means:
 - source-active/inactive reconciliation for the run was applied
 
 It does **not** mean every published order has already completed downstream upsert + validation. The local orderbook converges through the queue pipeline shortly after the snapshot/reconcile run completes.
+
+Collection-extension artifact completion is similarly eventual:
+
+- canonical metadata is committed first
+- extension jobs run afterward on their own queue
+- backend overrides converge once the artifact refresh worker completes
+
+## Current Limits and Planned Evolution
+
+Collection extensions intentionally ship as a narrow first pass:
+
+- one enabled extension install per collection
+- build-bundled code only; no remote or onchain-loaded extension source yet
+- bootstrap auto-install exists, but operator-driven install/uninstall flows are not implemented yet
+- sync hooks currently emit only metadata refresh triggers
+- collection-extension artifact readiness is not tracked separately from canonical collection/bootstrap readiness
 
 ## Code Map
 

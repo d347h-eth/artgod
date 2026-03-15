@@ -27,6 +27,7 @@ The sync worker:
 3. Consumes realtime and backfill queues (one worker each).
 4. For each job:
     - Fetches logs for the target block/range.
+    - Resolves enabled collection-extension watch specs for the targeted collections.
     - Fetches full block details for the same range.
     - Persists results via SQLite storage.
     - Publishes domain sync jobs (orders, metadata, activities) and order update jobs.
@@ -76,6 +77,33 @@ WETH transfer/approval logs are decoded into maker triggers (`erc20-balance`, `a
 
 Maker triggers are re-validation hints, not unconditional cancels. NFT transfers scope to exact-token sell orders, WETH transfer/approval triggers scope to WETH-denominated buy orders, and Seaport counter bumps scope to maker-wide Seaport orders.
 
+## Collection Extension Watch Specs
+
+`sync-worker` asks the collection-extension install registry for enabled installs on the collections in the current range, resolves the concrete extension implementation, and collects `CollectionExtensionSyncWatchSpec[]`.
+
+Each watch spec defines:
+
+- `sourceId`
+- one address or an address set
+- event filters
+- a decode function that normalizes raw logs into internal metadata refresh events/ranges
+
+The sync pipeline then executes those extra `getLogs()` calls separately from the core transfer / ERC-4906 / Seaport queries and merges the normalized outputs into the same metadata refresh fanout path used by the rest of the system.
+
+Current Terraforms watch specs:
+
+- `terraforms-main`
+    - watches `Daydreaming` and `Terraformed` on the main contract
+- `terraforms-token-uri-v2`
+    - watches `AttunementSet` on the v2 token URI contract
+- `terraforms-beacon-v2`
+    - watches `ParcelModified` on the v2 beacon contract
+
+All of these normalize to token-level metadata refresh events with:
+
+- `reason = "collection-extension"`
+- `trigger = "terraforms.extension-event"`
+
 ## Gap Check
 
 After persisting a realtime block, the sync worker checks whether the previous block exists in SQLite. If it is missing, the worker enqueues a single-block backfill job to close the gap.
@@ -121,3 +149,4 @@ The collection bootstrap worker also uses the sync pipeline for short-range boot
 
 - Onchain order creation capture is still limited; the fully implemented orderbook path today is the separate OpenSea offchain pipeline (stream + snapshot/reconcile).
 - ERC1155 balances are derived from deltas only; without full historical backfill, balances may be incomplete for tokens that existed before the indexed range.
+- Collection-extension sync hooks are intentionally narrow in v1. They can request extra logs and emit metadata refresh events/ranges, but they do not yet publish broader domain actions.

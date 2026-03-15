@@ -134,7 +134,13 @@ export class SqliteCollectionsReadModel {
     private readonly supportedListingCurrencies: string[];
 
     constructor(supportedListingCurrencies: string[]) {
-        const normalized = [...new Set(supportedListingCurrencies.map((value) => normalizeAddressRef(value)))];
+        const normalized = [
+            ...new Set(
+                supportedListingCurrencies.map((value) =>
+                    normalizeAddressRef(value),
+                ),
+            ),
+        ];
         if (normalized.length === 0) {
             throw new Error(
                 "SqliteCollectionsReadModel requires supported listing currencies",
@@ -449,7 +455,9 @@ export class SqliteCollectionsReadModel {
         const values: unknown[] = [...listingValues, ...baseValues];
 
         if (cursorKey) {
-            whereClauses.push(`${LISTED_TOKEN_SORT_KEY_SQL} > (?, ?, ?, ?, ?, ?)`);
+            whereClauses.push(
+                `${LISTED_TOKEN_SORT_KEY_SQL} > (?, ?, ?, ?, ?, ?)`,
+            );
             values.push(...listingCursorKeyParams(cursorKey));
         }
 
@@ -466,10 +474,9 @@ export class SqliteCollectionsReadModel {
             `ORDER BY ${LISTED_ORDER_BY_ASC_SQL} ` +
             "LIMIT ?";
 
-        const rows = db.raw.prepare(sql).all(
-            ...values,
-            params.limit + 1,
-        ) as TokenRow[];
+        const rows = db.raw
+            .prepare(sql)
+            .all(...values, params.limit + 1) as TokenRow[];
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
         const items = pageRows.map(mapTokenRow);
@@ -634,10 +641,7 @@ function countMatchingListedTokens(params: {
         `WHERE ${params.whereClauses.join(" AND ")}`;
     const row = db.raw
         .prepare(sql)
-        .get(
-            ...params.listingValues,
-            ...params.values,
-        ) as { count: number };
+        .get(...params.listingValues, ...params.values) as { count: number };
     return row.count;
 }
 
@@ -736,9 +740,9 @@ function deriveListedPrevCursor(params: {
             ...listingCursorKeyParams(anchorKey),
             limit + 1,
         ) as Array<{
-            token_id: string;
-            listing_price: string;
-        }>;
+        token_id: string;
+        listing_price: string;
+    }>;
 
     if (previousRows.length <= limit) {
         return null;

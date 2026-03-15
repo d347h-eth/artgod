@@ -41,8 +41,7 @@ export async function dispatchOffchainPayload(
         let tokenSetId: string | null = null;
         let tokenSetSchemaHash: string | null = null;
         let localTokenSetStatus =
-            normalized.localTokenSetStatus ??
-            ORDER_LOCAL_TOKEN_SET_STATUS.None;
+            normalized.localTokenSetStatus ?? ORDER_LOCAL_TOKEN_SET_STATUS.None;
 
         if (normalized.sourceSchema) {
             const resolved = tokenSets.ensureTokenSet({
@@ -61,7 +60,8 @@ export async function dispatchOffchainPayload(
                     sourceScopeKind: normalized.sourceScopeKind,
                 });
             } else if (
-                normalized.sourceScopeKind === ORDER_SOURCE_SCOPE_KIND.Attribute &&
+                normalized.sourceScopeKind ===
+                    ORDER_SOURCE_SCOPE_KIND.Attribute &&
                 normalized.sourceCriteriaRoot &&
                 normalized.sourceCriteriaRoot.toLowerCase() !==
                     resolved.merkleRoot.toLowerCase()

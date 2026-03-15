@@ -30,24 +30,58 @@ Each collection starts outside the indexed set. When the user adds a collection,
 - persist `bootstrap_anchor_block`
 - this block becomes the ownership truth point for snapshotting
 
-### 3. Metadata snapshot
+### 3. Auto-install embedded collection extension
+
+Before metadata tasks start, bootstrap checks whether the collection contract matches a known embedded extension definition.
+
+If it does:
+
+- bootstrap upserts a `collection_extension_installs` row
+- the install is DB-activated immediately
+- later metadata writes in the same bootstrap run can already fan out extension artifact refresh jobs
+
+Current v1 limits:
+
+- bootstrap only auto-installs build-bundled embedded extensions
+- one extension install per collection
+
+### 4. Metadata snapshot
 
 - enumerate collection token ids
 - fetch/store metadata first
 - this step runs before OpenSea offchain work so local token/attribute context exists
+- successful canonical metadata writes can publish `collection-extension.refresh-artifacts` as non-blocking side-effects
 
-### 4. Ownership snapshot
+### Collection Extension Shadow Path
+
+Collection extensions intentionally run behind the canonical metadata snapshot rather than replacing it.
+
+Current behavior:
+
+- bootstrap metadata writes `token_metadata` and normalized attributes first
+- extension artifact refresh is queued afterward on the dedicated collection-extension queue
+- bootstrap does not wait for extension artifact completion before moving to ownership snapshot or later phases
+
+This ordering is important because:
+
+- `token_extension_artifacts` references canonical `tokens` rows
+- extension logic can depend on normalized attributes already written by the canonical metadata path
+- canonical ownership correctness must not be blocked by collection-specific extras
+
+The first embedded extension, Terraforms, uses this shadow path to cache version-2 renderer artifacts and later drive backend media overrides.
+
+### 5. Ownership snapshot
 
 - capture ownership at the anchor block
 - persist snapshot rows and finalize `nft_balances` base state
 
-### 5. Schedule short backfill
+### 6. Schedule short backfill
 
 - enqueue short backfill from `anchor + 1` to current head
 - bootstrap later checks block coverage before finishing the onchain bootstrap run
 - the short backfill is collection-scoped
 
-### 6. Schedule OpenSea bootstrap
+### 7. Schedule OpenSea bootstrap
 
 After local metadata + ownership are available, bootstrap enqueues an OpenSea bootstrap job.
 
@@ -60,7 +94,7 @@ That OpenSea flow does:
 
 This OpenSea work runs in parallel with the short onchain backfill.
 
-### 7. Mark collection `live`
+### 8. Mark collection `live`
 
 When the short backfill is complete, the bootstrap worker marks the collection `status = live`.
 
@@ -71,7 +105,9 @@ This means:
 
 It does **not** mean OpenSea is necessarily ready yet.
 
-### 8. Mark OpenSea offchain `ready`
+It also does **not** mean collection-extension artifact refresh has fully converged yet. Extension artifacts are eventual side-effects and do not gate collection liveness.
+
+### 9. Mark OpenSea offchain `ready`
 
 The OpenSea bootstrap worker marks the collection OpenSea state `ready` after the first full snapshot succeeds.
 
@@ -132,7 +168,9 @@ That tradeoff is intentional for now:
 Bootstrap and OpenSea lifecycle state is tracked primarily in:
 
 - `collections`
+- `collection_extension_installs`
 - `nft_balance_snapshots`
+- `token_extension_artifacts`
 - `opensea_orderbook_runs`
 - `offchain_order_observations`
 
@@ -142,6 +180,7 @@ Queues:
 
 - `collection-bootstrap`
 - `events-sync-backfill`
+- `collection-extension-artifacts`
 - `opensea-bootstrap`
 - `opensea-reconcile`
 - `offchain-orders-raw`
@@ -150,6 +189,7 @@ Workers:
 
 - `bootstrap-worker`
 - `sync-worker`
+- `collection-extension-worker`
 - `opensea-bootstrap-worker`
 - `opensea-stream-worker`
 - `opensea-reconcile-worker`

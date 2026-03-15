@@ -54,8 +54,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
+                conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
                 seaportDataSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Rest,
@@ -85,8 +84,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
+                conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
                 seaportDataSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Stream,
@@ -115,8 +113,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
+                conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
                 id: "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -146,16 +143,13 @@ describe("validateSeaportOrder", () => {
             maker: normalized.maker,
             contract: normalized.contract,
         });
-        const nowSpy = vi
-            .spyOn(Date, "now")
-            .mockReturnValue(1769383500 * 1000);
+        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1769383500 * 1000);
 
         const result = await validateSeaportOrder(
             rpc,
             new MemoryConduitRegistry(),
             {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
+                conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecordFromNormalized(normalized, {
                 seaportDataSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Stream,
@@ -183,15 +177,12 @@ describe("validateSeaportOrder", () => {
         if (!normalized) return;
 
         const rpc = new MockRpc();
-        const nowSpy = vi
-            .spyOn(Date, "now")
-            .mockReturnValue(1769383500 * 1000);
+        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1769383500 * 1000);
         const result = await validateSeaportOrder(
             rpc,
             new MemoryConduitRegistry(),
             {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
+                conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecordFromNormalized(normalized, {
                 maker: "0x000000000000000000000000000000000000dead",
@@ -217,8 +208,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
+                conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
                 seaportDataSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Rest,
@@ -248,8 +238,7 @@ describe("validateSeaportOrder", () => {
             rpc,
             new MemoryConduitRegistry(),
             {
-                conduitController:
-                    "0x00000000f9490004c11cef243f5400493c00ad63",
+                conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
             },
             buildOrderRecord({
                 seaportDataSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Rest,
@@ -301,7 +290,9 @@ class MockRpc implements RpcProviderPort {
         throw new Error("not implemented");
     }
 
-    async getTransactionReceipt(_txHash: string): Promise<RpcTransactionReceipt> {
+    async getTransactionReceipt(
+        _txHash: string,
+    ): Promise<RpcTransactionReceipt> {
         throw new Error("not implemented");
     }
 
@@ -336,11 +327,13 @@ class MockRpc implements RpcProviderPort {
             case "getApproved":
                 return (this.options.conduitAddress ?? SEAPORT) as T;
             case "allowance":
-                return 10n ** 19n as T;
+                return (10n ** 19n) as T;
             case "balanceOf":
-                return 10n ** 19n as T;
+                return (10n ** 19n) as T;
             default:
-                throw new Error(`Unexpected readContract call: ${params.functionName}`);
+                throw new Error(
+                    `Unexpected readContract call: ${params.functionName}`,
+                );
         }
     }
 
@@ -357,7 +350,9 @@ class MemoryConduitRegistry implements ConduitRegistryPort {
     private readonly channels = new Set<string>();
 
     getConduit(chainId: number, conduitKey: string): string | null {
-        return this.conduits.get(`${chainId}:${conduitKey.toLowerCase()}`) ?? null;
+        return (
+            this.conduits.get(`${chainId}:${conduitKey.toLowerCase()}`) ?? null
+        );
     }
 
     upsertConduit(params: {
@@ -394,9 +389,7 @@ class MemoryConduitRegistry implements ConduitRegistryPort {
     }
 }
 
-function buildOrderRecord(
-    overrides: Partial<OrderRecord> = {},
-): OrderRecord {
+function buildOrderRecord(overrides: Partial<OrderRecord> = {}): OrderRecord {
     return {
         id: overrides.id ?? ORDER_ID,
         chainId: overrides.chainId ?? 1,
@@ -411,8 +404,7 @@ function buildOrderRecord(
         tokenSetSchemaHash: overrides.tokenSetSchemaHash ?? null,
         price: overrides.price ?? "276500000000000000",
         currency:
-            overrides.currency ??
-            "0x0000000000000000000000000000000000000000",
+            overrides.currency ?? "0x0000000000000000000000000000000000000000",
         validFrom: overrides.validFrom ?? 1772850621,
         validUntil: overrides.validUntil ?? 1775442621,
         fillabilityStatus: overrides.fillabilityStatus ?? ORDER_STATUS.Fillable,

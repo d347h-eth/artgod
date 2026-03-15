@@ -72,8 +72,9 @@ async function main() {
             resilience: config.rpc.resilience,
         });
         const conduits = new SqliteConduitRegistry();
-        const validateOrder = (order: Parameters<typeof validateSeaportOrder>[3]) =>
-            validateSeaportOrder(rpc, conduits, config.seaport, order);
+        const validateOrder = (
+            order: Parameters<typeof validateSeaportOrder>[3],
+        ) => validateSeaportOrder(rpc, conduits, config.seaport, order);
         const ordersDomain = new SqliteOrdersDomain(
             config.tokens.wethAddress,
             validateOrder,

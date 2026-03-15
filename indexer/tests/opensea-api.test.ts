@@ -24,9 +24,13 @@ describe("OpenSeaApiAdapter REST records", () => {
         };
 
         const events: OpenSeaRestRecord[] = [];
-        await adapter.instance.forEachListing("test-collection", CONTRACT, async (event) => {
-            events.push(event);
-        });
+        await adapter.instance.forEachListing(
+            "test-collection",
+            CONTRACT,
+            async (event) => {
+                events.push(event);
+            },
+        );
 
         expect(events).toHaveLength(1);
         expect(events[0]?.eventType).toBe("rest.listing");
@@ -45,9 +49,13 @@ describe("OpenSeaApiAdapter REST records", () => {
         };
 
         const events: OpenSeaRestRecord[] = [];
-        await adapter.instance.forEachOffer("test-collection", CONTRACT, async (event) => {
-            events.push(event);
-        });
+        await adapter.instance.forEachOffer(
+            "test-collection",
+            CONTRACT,
+            async (event) => {
+                events.push(event);
+            },
+        );
 
         expect(events).toHaveLength(2);
         expect(events[0]?.eventType).toBe("rest.offer.item");

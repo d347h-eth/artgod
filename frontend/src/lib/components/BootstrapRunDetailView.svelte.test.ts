@@ -24,8 +24,7 @@ describe('BootstrapRunDetailView', () => {
 						deploymentBlock: null,
 						status: 'completed',
 						anchorBlock: 24500000,
-						anchorBlockHash:
-							'0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						anchorBlockHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						anchorBlockTimestamp: 1726000000,
 						errorCode: null,
 						errorMessage: null,
@@ -113,8 +112,7 @@ describe('BootstrapRunDetailView', () => {
 						deploymentBlock: null,
 						status: 'completed',
 						anchorBlock: 24500000,
-						anchorBlockHash:
-							'0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						anchorBlockHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						anchorBlockTimestamp: 1726000000,
 						errorCode: null,
 						errorMessage: null,

@@ -109,7 +109,9 @@ describe("orders update by maker", () => {
             logIndex: 0,
         });
 
-        expect(getFillabilityStatus(buyOrder.orderId)).toBe(ORDER_STATUS.NoBalance);
+        expect(getFillabilityStatus(buyOrder.orderId)).toBe(
+            ORDER_STATUS.NoBalance,
+        );
         expect(getFillabilityStatus(sellOrder.orderId)).toBe(
             ORDER_STATUS.Fillable,
         );
@@ -142,7 +144,9 @@ describe("orders update by maker", () => {
             logIndex: 0,
         });
 
-        expect(getFillabilityStatus(order.orderId)).toBe(ORDER_STATUS.Cancelled);
+        expect(getFillabilityStatus(order.orderId)).toBe(
+            ORDER_STATUS.Cancelled,
+        );
         expect(validatedOrderIds).toEqual([order.orderId]);
     });
 });
@@ -185,7 +189,9 @@ async function insertOrderFromFixture(
         sourceScopeKind:
             overrides.sourceScopeKind ?? normalized.sourceScopeKind,
         sourceCriteriaRoot:
-            overrides.sourceCriteriaRoot ?? normalized.sourceCriteriaRoot ?? null,
+            overrides.sourceCriteriaRoot ??
+            normalized.sourceCriteriaRoot ??
+            null,
         sourceSchema: overrides.sourceSchema ?? normalized.sourceSchema ?? null,
         localTokenSetStatus:
             overrides.localTokenSetStatus ??

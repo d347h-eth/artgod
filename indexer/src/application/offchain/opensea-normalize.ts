@@ -175,7 +175,8 @@ function normalizeItemListed(
               tokenId: protocolTerms.tokenId,
           }
         : parseNftId(payload.item);
-    const price = protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
+    const price =
+        protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
     const currency =
         protocolTerms?.currency ??
         assertPaymentToken(payload.payment_token, "payment_token");
@@ -219,7 +220,8 @@ function normalizeItemReceivedBid(
               tokenId: protocolTerms.tokenId,
           }
         : parseNftId(payload.item);
-    const price = protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
+    const price =
+        protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
     const currency =
         protocolTerms?.currency ??
         assertPaymentToken(payload.payment_token, "payment_token");
@@ -258,7 +260,8 @@ function normalizeCollectionOffer(
     const orderHash = assertString(payload.order_hash, "order_hash");
     const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
     const contract = protocolTerms?.contract ?? parseCriteriaContract(payload);
-    const price = protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
+    const price =
+        protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
     const currency =
         protocolTerms?.currency ??
         assertPaymentToken(payload.payment_token, "payment_token");
@@ -282,7 +285,8 @@ function normalizeCollectionOffer(
             kind: "collection",
             data: { collection: contract },
         },
-        sourceCriteriaRoot: protocolTerms?.criteriaRoot ?? parseCriteriaRoot(payload),
+        sourceCriteriaRoot:
+            protocolTerms?.criteriaRoot ?? parseCriteriaRoot(payload),
         localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
         price,
         currency,
@@ -300,7 +304,8 @@ function normalizeTraitOffer(
     const orderHash = assertString(payload.order_hash, "order_hash");
     const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
     const contract = protocolTerms?.contract ?? parseCriteriaContract(payload);
-    const price = protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
+    const price =
+        protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
     const currency =
         protocolTerms?.currency ??
         assertPaymentToken(payload.payment_token, "payment_token");
@@ -330,7 +335,8 @@ function normalizeTraitOffer(
         tokenId: null,
         sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Attribute,
         sourceSchema: tokenSetSchema,
-        sourceCriteriaRoot: protocolTerms?.criteriaRoot ?? parseCriteriaRoot(payload),
+        sourceCriteriaRoot:
+            protocolTerms?.criteriaRoot ?? parseCriteriaRoot(payload),
         localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
         price,
         currency,

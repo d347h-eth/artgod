@@ -50,10 +50,11 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         ZERO_ADDRESS,
         config.wethAddress,
     ]);
-    const extensionAwareCollectionsReadModel = new ExtensionAwareCollectionDetailRead(
-        collectionsReadModel,
-        new SqliteCollectionExtensionRecords(),
-    );
+    const extensionAwareCollectionsReadModel =
+        new ExtensionAwareCollectionDetailRead(
+            collectionsReadModel,
+            new SqliteCollectionExtensionRecords(),
+        );
     const bootstrapRunsRepository = new SqliteBootstrapRunsRepository();
     const bootstrapCommandQueue = new NatsBootstrapCommandQueue(
         config.natsUrl,

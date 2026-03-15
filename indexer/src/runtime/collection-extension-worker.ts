@@ -64,8 +64,12 @@ async function main() {
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
-            async (job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>) => {
-                if (job.kind !== COLLECTION_EXTENSION_JOB_KIND.RefreshArtifacts) {
+            async (
+                job: JobEnvelope<CollectionExtensionRefreshArtifactsPayload>,
+            ) => {
+                if (
+                    job.kind !== COLLECTION_EXTENSION_JOB_KIND.RefreshArtifacts
+                ) {
                     return;
                 }
 

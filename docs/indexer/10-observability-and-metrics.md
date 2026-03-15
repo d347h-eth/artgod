@@ -14,7 +14,7 @@ It also records known limitations and what is still missing for complete trace-t
 Current setup is local-first and split by signal type:
 
 - Logs: indexer runtimes write JSON log files to `tmp/logs/*.log` on host, Alloy tails files, pushes to Loki, Grafana reads Loki.
-- Metrics: each runtime exposes `/metrics` over HTTP on host ports `9464..9474`, Prometheus scrapes, Grafana reads Prometheus.
+- Metrics: each runtime exposes `/metrics` over HTTP on host ports `9464..9475`, Prometheus scrapes, Grafana reads Prometheus.
 - Traces: runtimes send OTLP traces directly to Tempo (`:4318`), Grafana reads Tempo.
 - Profiles: runtimes send profiles directly to Pyroscope (`:4040`), Grafana reads Pyroscope.
 
@@ -56,6 +56,7 @@ Observability containers run behind the `observability` compose profile in `dock
     - `9472` opensea-bootstrap-worker
     - `9473` opensea-reconcile-worker
     - `9474` opensea-reconcile-scheduler-worker
+    - `9475` collection-extension-worker
 - Runtime metrics bootstrap:
     - `indexer/src/metrics/runtime.ts` initializes metrics only when enabled.
     - `indexer/src/metrics/prometheus.ts` lazily imports `prom-client`.
@@ -146,6 +147,7 @@ Queue consumer spans via `runWorker` in `indexer/src/application/worker-runner.t
 - `worker.metadataRefresh.consume`
 - `worker.metadataStats.consume`
 - `worker.activityDomain.consume`
+- `worker.collectionExtension.consume`
 - `worker.offchainIngest.consume`
 - `worker.openseaBootstrap.consume`
 - `worker.openseaReconcile.consume`
@@ -237,6 +239,7 @@ To reach full trace-profile correlation:
     - `./scripts/indexer-dev.sh`
 - Check metrics endpoint:
     - `curl http://127.0.0.1:9465/metrics`
+    - `curl http://127.0.0.1:9475/metrics`
 - Check Grafana:
     - logs in Loki Explore
     - `up{job="artgod-indexer"}` in Prometheus Explore

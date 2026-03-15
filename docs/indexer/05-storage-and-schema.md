@@ -91,24 +91,47 @@ Tracked by `database/migrations/007_collections_schema.sql`, `008_bootstrap_sche
 Current important columns:
 
 - onchain bootstrap state
-  - `status` (`bootstrapping`, `live`, `paused`, `disabled`)
-  - `bootstrap_anchor_block`
-  - `bootstrap_started_at`, `bootstrap_finished_at`
-  - `bootstrap_last_synced_block`
+    - `status` (`bootstrapping`, `live`, `paused`, `disabled`)
+    - `bootstrap_anchor_block`
+    - `bootstrap_started_at`, `bootstrap_finished_at`
+    - `bootstrap_last_synced_block`
 - OpenSea source identity/state
-  - `opensea_slug`
-  - `opensea_status`
-  - `opensea_ready_at`
-  - `opensea_snapshot_started_at`, `opensea_snapshot_completed_at`
-  - `opensea_reconcile_started_at`, `opensea_reconcile_completed_at`
-  - `opensea_last_stream_event_at`
-  - `opensea_last_stream_healthy_at`
-  - `opensea_last_error`
+    - `opensea_slug`
+    - `opensea_status`
+    - `opensea_ready_at`
+    - `opensea_snapshot_started_at`, `opensea_snapshot_completed_at`
+    - `opensea_reconcile_started_at`, `opensea_reconcile_completed_at`
+    - `opensea_last_stream_event_at`
+    - `opensea_last_stream_healthy_at`
+    - `opensea_last_error`
 
 Important semantic split:
 
 - `status = live` means onchain bootstrap finished
 - `opensea_status = ready` means the first OpenSea snapshot finished successfully
+
+### `collection_extension_installs`
+
+Defined in `017_collection_extensions_schema.sql`.
+
+Purpose:
+
+- records which build-bundled collection extension is installed for a collection
+- persists extension-owned config JSON in DB so runtime logic is DB-activated rather than hard-wired to the current process state
+
+Key columns:
+
+- `chain_id`
+- `collection_id`
+- `extension_key`
+- `enabled`
+- `config_json`
+- `created_at`, `updated_at`
+
+Current v1 constraint:
+
+- primary key is `(chain_id, collection_id)`
+- this means exactly one extension install row per collection in the current design
 
 ### `nft_balance_snapshots`
 
@@ -126,32 +149,32 @@ The `orders` table is now the canonical normalized order model, not just a light
 Important column groups:
 
 - identity / scope
-  - `id`
-  - `chain_id`
-  - `kind`
-  - `side`
-  - `source`
-  - `maker`, `taker`
-  - `contract_address`, `token_id`
+    - `id`
+    - `chain_id`
+    - `kind`
+    - `side`
+    - `source`
+    - `maker`, `taker`
+    - `contract_address`, `token_id`
 - source scope model
-  - `source_scope_kind` (`token`, `collection`, `attribute`)
-  - `source_criteria_root`
-  - `source_schema_json`
-  - `local_token_set_status` (`none`, `resolved`, `unresolved`, `mismatch`)
-  - `token_set_id`, `token_set_schema_hash`
+    - `source_scope_kind` (`token`, `collection`, `attribute`)
+    - `source_criteria_root`
+    - `source_schema_json`
+    - `local_token_set_status` (`none`, `resolved`, `unresolved`, `mismatch`)
+    - `token_set_id`, `token_set_schema_hash`
 - pricing / validity
-  - `price`
-  - `currency`
-  - `valid_from`, `valid_until`
+    - `price`
+    - `currency`
+    - `valid_from`, `valid_until`
 - status split
-  - `fillability_status`
-  - `source_status`
+    - `fillability_status`
+    - `source_status`
 - Seaport canonical data
-  - `seaport_data_json`
-  - `seaport_data_source_kind` (`stream` or `rest`)
+    - `seaport_data_json`
+    - `seaport_data_source_kind` (`stream` or `rest`)
 - audit/debug payloads
-  - `raw_rest_data`
-  - `raw_stream_data`
+    - `raw_rest_data`
+    - `raw_stream_data`
 
 ### Status semantics
 
@@ -252,6 +275,55 @@ Defined in `database/migrations/010_token_sets_schema.sql`.
 
 Token-set materialization is still local SQLite state. Offchain order ingestion may attach local linkage (`token_set_id`, `token_set_schema_hash`) when it can resolve the source scope against local metadata, but canonical order persistence no longer depends on successful token-set resolution.
 
+## Collection Extension Artifact Tables
+
+### `token_extension_artifacts`
+
+Defined in `017_collection_extensions_schema.sql`.
+
+Purpose:
+
+- stores extension-owned, latest-state token artifacts separately from canonical `token_metadata`
+- keeps collection-specific caches isolated from the default metadata model
+- supports backend read-time presentation overrides without mutating canonical token metadata rows
+
+Key columns:
+
+- identity
+    - `chain_id`
+    - `contract_address`
+    - `token_id`
+    - `extension_key`
+    - `artifact_ref`
+- artifact payload
+    - `uri`
+    - `raw_json`
+    - `attributes_json`
+    - `image`
+    - `animation_url`
+    - `html_content`
+- audit timestamps
+    - `created_at`
+    - `updated_at`
+
+Important semantics:
+
+- primary key is `(chain_id, contract_address, token_id, extension_key, artifact_ref)`
+- writes are upserts, so the table holds current artifact state rather than history
+- foreign key references `tokens(chain_id, contract_address, token_id)`
+    - canonical token rows must exist first
+    - this is why collection-extension refresh runs only after canonical metadata persistence succeeds
+
+Current Terraforms artifact usage:
+
+- `extension_key = "terraforms"`
+- `artifact_ref = "terraforms-v2-media"`
+- `uri` stores the raw v2 renderer `tokenURI(...)` response
+- `raw_json` stores the decoded JSON payload returned by the metadata fetcher
+- `attributes_json`, `image`, and `animation_url` store the parsed v2 metadata fields
+- `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
+- backend currently resolves Terraforms token cards from artifact `image` and token detail animation from `html_content` encoded as `data:text/html;base64,...`
+
 ## Storage Adapter Behavior
 
 ### Onchain storage (`indexer/src/infra/storage/sqlite.ts`)
@@ -259,14 +331,14 @@ Token-set materialization is still local SQLite state. Offchain order ingestion 
 Key operations:
 
 - `persistSyncResult()`
-  - writes blocks
-  - inserts transfer events and fills idempotently
-  - applies balance updates only for newly inserted transfers
+    - writes blocks
+    - inserts transfer events and fills idempotently
+    - applies balance updates only for newly inserted transfers
 - `getBlockHash()`
-  - reads block hash for reorg verification
+    - reads block hash for reorg verification
 - `rollbackFromBlock()`
-  - reverses balances from orphaned transfers
-  - deletes transfers, fills, activities, transactions, and blocks from the rollback point onward
+    - reverses balances from orphaned transfers
+    - deletes transfers, fills, activities, transactions, and blocks from the rollback point onward
 
 ### Collection registry (`indexer/src/infra/collections/sqlite.ts`)
 

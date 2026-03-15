@@ -8,10 +8,13 @@ flowchart LR
       NATS[(NATS JetStream)]
       DB[(SQLite DB)]
 
+      Frontend[Frontend UI]
+      Backend[Backend API]
       Scheduler[Scheduler Worker]
       Sync[Sync Worker]
       Reorg[Reorg Worker]
       Bootstrap[Bootstrap Worker]
+      CollectionExt[Collection Extension Worker]
       OSBootstrap[OpenSea Bootstrap Worker]
       OSReconcileSched[OpenSea Reconcile Scheduler]
       OSReconcile[OpenSea Reconcile Worker]
@@ -38,8 +41,15 @@ flowchart LR
       NATS -->|CollectionBootstrap| Bootstrap
       Bootstrap -->|metadata snapshot / ownership snapshot| RPC
       Bootstrap -->|persist collection + balances + snapshot state| DB
+      Bootstrap -->|auto-install embedded extension| DB
       Bootstrap -->|short backfill jobs| NATS
+      Bootstrap -->|collection-extension artifact jobs| NATS
       Bootstrap -->|OpenSea bootstrap jobs| NATS
+
+      NATS -->|CollectionExtensionArtifacts| CollectionExt
+      CollectionExt -->|collection-specific onchain reads| RPC
+      CollectionExt -->|extension metadata parse/fetch when needed| MetaHTTP
+      CollectionExt -->|upsert token_extension_artifacts| DB
 
       NATS -->|OpenSeaBootstrap| OSBootstrap
       OSBootstrap -->|resolve slug + fetch snapshot pages| OSApi
@@ -70,6 +80,10 @@ flowchart LR
       Domain -->|canonical orders / metadata / activities| DB
       Domain -->|Seaport validation + metadata reads| RPC
       Domain -->|metadata fetch| MetaHTTP
+      Domain -->|collection-extension artifact jobs| NATS
 
       NATS -->|DLQ jobs| DeadLetter
+
+      Frontend -->|HTTP| Backend
+      Backend -->|read canonical tokens + extension artifacts| DB
 ```
