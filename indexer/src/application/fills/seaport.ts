@@ -4,11 +4,7 @@ import {
     encodeEventTopics,
     zeroAddress,
 } from "viem";
-import type {
-    EnhancedEvent,
-    EnhancedTransaction,
-    FillEvent,
-} from "../../domain/onchain.js";
+import type { EnhancedEvent, EnhancedTransaction } from "../../domain/onchain.js";
 import type { Hex } from "../../ports/rpc.js";
 import {
     findTrackedNftItem,
@@ -64,6 +60,23 @@ type AdvancedOrder = {
     denominator: bigint;
     signature: Hex;
     extraData: Hex;
+};
+
+export type DecodedFillEvent = {
+    orderId?: string;
+    kind?: string;
+    orderSide?: "sell" | "buy";
+    maker?: string;
+    taker?: string;
+    contract: string;
+    tokenId: string;
+    amount?: string;
+    price?: string;
+    currency?: string;
+    blockNumber: number;
+    blockHash: string;
+    txHash: string;
+    logIndex: number;
 };
 
 const SEAPORT_ABI = [
@@ -262,7 +275,7 @@ const [ERC20_TRANSFER_TOPIC] = encodeEventTopics({
 export function decodeSeaportFill(
     tx: EnhancedTransaction,
     collections: Set<string>,
-): FillEvent | null {
+): DecodedFillEvent | null {
     const to = tx.transaction.to?.toLowerCase();
     if (!to || !SEAPORT_EXCHANGE_ADDRESSES.has(to)) return null;
 
@@ -300,8 +313,8 @@ export function decodeSeaportFill(
 
 function enrichFillWithErc20Transfers(
     tx: EnhancedTransaction,
-    fill: FillEvent,
-): FillEvent {
+    fill: DecodedFillEvent,
+): DecodedFillEvent {
     // For ERC20-denominated fills, use receipt logs to infer the actual paid
     // amount (fees included) by summing transfers from the payer address.
     const currency = fill.currency?.toLowerCase();
@@ -314,7 +327,7 @@ function enrichFillWithErc20Transfers(
     return { ...fill, price: total.toString() };
 }
 
-function resolvePayer(fill: FillEvent): string | null {
+function resolvePayer(fill: DecodedFillEvent): string | null {
     if (fill.orderSide === "sell") {
         return fill.taker?.toLowerCase() ?? null;
     }
@@ -355,7 +368,7 @@ function decodeBasicOrderFill(
     tx: EnhancedTransaction,
     order: BasicOrderParameters,
     collections: Set<string>,
-): FillEvent | null {
+): DecodedFillEvent | null {
     const offerToken = order.offerToken.toLowerCase();
     const considerationToken = order.considerationToken.toLowerCase();
     const offerIsTracked = collections.has(offerToken);
@@ -411,7 +424,7 @@ function decodeAdvancedOrderFill(
     tx: EnhancedTransaction,
     order: AdvancedOrder,
     collections: Set<string>,
-): FillEvent | null {
+): DecodedFillEvent | null {
     const maker = order.parameters.offerer.toLowerCase();
     const taker = tx.transaction.from.toLowerCase();
     const logIndex = firstTransferLogIndex(tx.events);

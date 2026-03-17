@@ -1,9 +1,5 @@
 import { decodeEventLog, encodeEventTopics } from "viem";
 import { ERC4906_ABI } from "../../abi/index.js";
-import type {
-    MetadataRefreshEvent,
-    MetadataRefreshRangeEvent,
-} from "../../domain/onchain.js";
 import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
 
 const [METADATA_UPDATE_TOPIC] = encodeEventTopics({
@@ -15,9 +11,32 @@ const [BATCH_METADATA_UPDATE_TOPIC] = encodeEventTopics({
     eventName: "BatchMetadataUpdate",
 }) as [Hex];
 
+export type DecodedMetadataRefreshEvent = {
+    contract: string;
+    tokenId: string;
+    reason: string;
+    trigger: string;
+    blockNumber: number;
+    blockHash: string;
+    txHash: string;
+    logIndex: number;
+};
+
+export type DecodedMetadataRefreshRangeEvent = {
+    contract: string;
+    fromTokenId: string;
+    toTokenId: string;
+    reason: string;
+    trigger: string;
+    blockNumber: number;
+    blockHash: string;
+    txHash: string;
+    logIndex: number;
+};
+
 type MetadataRefreshLogDecode = {
-    tokenEvents: MetadataRefreshEvent[];
-    rangeEvents: MetadataRefreshRangeEvent[];
+    tokenEvents: DecodedMetadataRefreshEvent[];
+    rangeEvents: DecodedMetadataRefreshRangeEvent[];
 };
 
 export const METADATA_REFRESH_EVENT_FILTERS =

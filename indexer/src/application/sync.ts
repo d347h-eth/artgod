@@ -4,23 +4,28 @@ import type { CollectionRecord } from "../domain/collections.js";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
-    MetadataRefreshEvent,
-    MetadataRefreshRangeEvent,
     OnChainData,
     TransactionSummary,
     TransactionRecord,
 } from "../domain/onchain.js";
+import type { CollectionScopeResolverPort } from "../ports/collections.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
-import { decodeSeaportFill } from "./fills/seaport.js";
+import {
+    decodeSeaportFill,
+    type DecodedFillEvent,
+} from "./fills/seaport.js";
 import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
 import {
     decodeMetadataRefreshLog,
+    type DecodedMetadataRefreshEvent,
+    type DecodedMetadataRefreshRangeEvent,
     METADATA_REFRESH_EVENT_FILTERS,
 } from "./metadata/refresh-triggers.js";
 import {
     decodeSeaportOrderEvents,
     getSeaportLogAddresses,
     SEAPORT_EVENT_FILTERS,
+    type DecodedOrderInfo,
 } from "./fills/seaport-events.js";
 
 export type SyncRange = {
@@ -52,7 +57,9 @@ const TRANSFER_EVENTS = [
  */
 export async function syncRange(
     rpc: RpcProviderPort,
+    chainId: number,
     collections: CollectionRecord[],
+    collectionScopeResolver: CollectionScopeResolverPort,
     range: SyncRange,
     collectionExtensionWatchSpecs: CollectionExtensionSyncWatchSpec[] = [],
 ): Promise<OnChainData> {
@@ -101,8 +108,12 @@ export async function syncRange(
         enhancedEvents.push(...decodeTransferLog(log));
     }
 
-    const metadataRefreshEvents: MetadataRefreshEvent[] = [];
-    const metadataRefreshRangeEvents: MetadataRefreshRangeEvent[] = [];
+    const metadataRefreshEvents: DecodedMetadataRefreshEvent[] = [];
+    const metadataRefreshRangeEvents: DecodedMetadataRefreshRangeEvent[] = [];
+    const extensionMetadataRefreshEvents: OnChainData["metadataRefreshEvents"] =
+        [];
+    const extensionMetadataRefreshRangeEvents:
+        OnChainData["metadataRefreshRangeEvents"] = [];
     for (const log of metadataRefreshLogs) {
         const decoded = decodeMetadataRefreshLog(log);
         metadataRefreshEvents.push(...decoded.tokenEvents);
@@ -117,26 +128,56 @@ export async function syncRange(
         });
         for (const log of logs) {
             const decoded = spec.decode(log);
-            metadataRefreshEvents.push(...decoded.metadataRefreshEvents);
-            metadataRefreshRangeEvents.push(
+            extensionMetadataRefreshEvents.push(...decoded.metadataRefreshEvents);
+            extensionMetadataRefreshRangeEvents.push(
                 ...decoded.metadataRefreshRangeEvents,
             );
         }
     }
 
     const transactions = await buildEnhancedTransactions(rpc, enhancedEvents);
-    const collectionSet = new Set(
+    const trackedContracts = new Set(
         collections.map((collection) => collection.address.toLowerCase()),
     );
-    const data = accumulateOnChainData(transactions, collectionSet);
-    data.metadataRefreshEvents = metadataRefreshEvents;
-    data.metadataRefreshRangeEvents = metadataRefreshRangeEvents;
-    const seaportEvents = decodeSeaportOrderEvents(seaportLogs, collectionSet);
+    const resolutionContext: CollectionResolutionContext = {
+        chainId,
+        collections,
+        trackedContracts,
+        collectionScopeResolver,
+    };
+    const data = accumulateOnChainData(transactions, resolutionContext);
+    data.metadataRefreshEvents = [
+        ...resolveMetadataRefreshEvents(
+            metadataRefreshEvents,
+            resolutionContext,
+        ),
+        ...extensionMetadataRefreshEvents,
+    ];
+    data.metadataRefreshRangeEvents = [
+        ...resolveMetadataRefreshRangeEvents(
+            metadataRefreshRangeEvents,
+            resolutionContext,
+        ),
+        ...extensionMetadataRefreshRangeEvents,
+    ];
+    const seaportEvents = decodeSeaportOrderEvents(seaportLogs, trackedContracts);
     data.cancelEvents.push(...seaportEvents.cancels);
-    data.orderInfos.push(...seaportEvents.orders);
+    for (const order of seaportEvents.orders) {
+        const resolved = resolveOrderInfo(order, resolutionContext);
+        if (resolved) {
+            data.orderInfos.push(resolved);
+        }
+    }
     data.makerInfos.push(...seaportEvents.makerInfos);
     return data;
 }
+
+type CollectionResolutionContext = {
+    chainId: number;
+    collections: CollectionRecord[];
+    trackedContracts: Set<string>;
+    collectionScopeResolver: CollectionScopeResolverPort;
+};
 
 /**
  * Route a log to the correct transfer decoder based on topic0.
@@ -346,7 +387,7 @@ async function buildEnhancedTransactions(
  */
 function accumulateOnChainData(
     transactions: EnhancedTransaction[],
-    collections: Set<string>,
+    resolutionContext: CollectionResolutionContext,
 ): OnChainData {
     const data: OnChainData = {
         nftTransferEvents: [],
@@ -363,14 +404,20 @@ function accumulateOnChainData(
     for (const tx of transactions) {
         data.transactions.push(toTransactionRecord(tx));
         for (const event of tx.events) {
-            const transfer = toTransferEvent(event);
+            const transfer = toTransferEvent(event, resolutionContext);
+            if (!transfer) {
+                continue;
+            }
             data.nftTransferEvents.push(transfer);
             pushBalanceDeltas(data, transfer);
         }
         // Seaport fills are decoded from calldata (no traces) and attached per tx.
-        const fill = decodeSeaportFill(tx, collections);
+        const fill = decodeSeaportFill(tx, resolutionContext.trackedContracts);
         if (fill) {
-            data.fillEvents.push(fill);
+            const resolved = resolveFillEvent(fill, resolutionContext);
+            if (resolved) {
+                data.fillEvents.push(resolved);
+            }
         }
     }
 
@@ -385,9 +432,20 @@ function accumulateOnChainData(
  */
 function toTransferEvent(
     event: EnhancedEvent,
-): OnChainData["nftTransferEvents"][number] {
+    resolutionContext: CollectionResolutionContext,
+): OnChainData["nftTransferEvents"][number] | null {
+    const contract = event.base.contract.toLowerCase();
+    const collectionId = resolveCollectionId(
+        resolutionContext,
+        contract,
+        event.decoded.tokenId,
+    );
+    if (collectionId === null) {
+        return null;
+    }
     return {
-        contract: event.base.contract,
+        collectionId,
+        contract,
         from: event.decoded.from,
         to: event.decoded.to,
         tokenId: event.decoded.tokenId,
@@ -455,22 +513,26 @@ function pushBalanceDeltas(
     const zero = zeroAddress.toLowerCase();
     if (event.from.toLowerCase() !== zero) {
         data.nftBalanceDeltas.push({
+            collectionId: event.collectionId,
             contract: event.contract,
             tokenId: event.tokenId,
             owner: event.from,
             delta: (-amount).toString(),
             blockNumber: event.blockNumber,
+            blockHash: event.blockHash,
             txHash: event.txHash,
             logIndex: event.logIndex,
         });
     }
     if (event.to.toLowerCase() !== zero) {
         data.nftBalanceDeltas.push({
+            collectionId: event.collectionId,
             contract: event.contract,
             tokenId: event.tokenId,
             owner: event.to,
             delta: amount.toString(),
             blockNumber: event.blockNumber,
+            blockHash: event.blockHash,
             txHash: event.txHash,
             logIndex: event.logIndex,
         });
@@ -501,4 +563,126 @@ function deriveMakerInfosFromTransfers(
         });
     }
     return out;
+}
+
+function resolveCollectionId(
+    resolutionContext: CollectionResolutionContext,
+    contract: string,
+    tokenId: string,
+): number | null {
+    if (!resolutionContext.trackedContracts.has(contract.toLowerCase())) {
+        return null;
+    }
+
+    return resolutionContext.collectionScopeResolver.resolveTokenScopedCollectionId(
+        resolutionContext.chainId,
+        resolutionContext.collections,
+        contract,
+        tokenId,
+    );
+}
+
+function resolveFillEvent(
+    fill: DecodedFillEvent,
+    resolutionContext: CollectionResolutionContext,
+): OnChainData["fillEvents"][number] | null {
+    const contract = fill.contract.toLowerCase();
+    const collectionId = resolveCollectionId(
+        resolutionContext,
+        contract,
+        fill.tokenId,
+    );
+    if (collectionId === null) {
+        return null;
+    }
+
+    return {
+        collectionId,
+        ...fill,
+        contract,
+    };
+}
+
+function resolveOrderInfo(
+    order: DecodedOrderInfo,
+    resolutionContext: CollectionResolutionContext,
+): OnChainData["orderInfos"][number] | null {
+    const contract = order.contract.toLowerCase();
+    const collectionId = resolveCollectionId(
+        resolutionContext,
+        contract,
+        order.tokenId,
+    );
+    if (collectionId === null) {
+        return null;
+    }
+
+    return {
+        collectionId,
+        ...order,
+        contract,
+    };
+}
+
+function resolveMetadataRefreshEvents(
+    events: DecodedMetadataRefreshEvent[],
+    resolutionContext: CollectionResolutionContext,
+): OnChainData["metadataRefreshEvents"] {
+    const resolved: OnChainData["metadataRefreshEvents"] = [];
+
+    for (const event of events) {
+        const contract = event.contract.toLowerCase();
+        const collectionId = resolveCollectionId(
+            resolutionContext,
+            contract,
+            event.tokenId,
+        );
+        if (collectionId === null) {
+            continue;
+        }
+
+        resolved.push({
+            collectionId,
+            ...event,
+            contract,
+        });
+    }
+
+    return resolved;
+}
+
+function resolveMetadataRefreshRangeEvents(
+    events: DecodedMetadataRefreshRangeEvent[],
+    resolutionContext: CollectionResolutionContext,
+): OnChainData["metadataRefreshRangeEvents"] {
+    const resolved: OnChainData["metadataRefreshRangeEvents"] = [];
+
+    for (const event of events) {
+        const contract = event.contract.toLowerCase();
+        const ranges =
+            resolutionContext.collectionScopeResolver.splitRangeByCollectionScope(
+                resolutionContext.chainId,
+                resolutionContext.collections,
+                contract,
+                event.fromTokenId,
+                event.toTokenId,
+            );
+
+        for (const range of ranges) {
+            resolved.push({
+                collectionId: range.collectionId,
+                contract,
+                fromTokenId: range.fromTokenId,
+                toTokenId: range.toTokenId,
+                reason: event.reason,
+                trigger: event.trigger,
+                blockNumber: event.blockNumber,
+                blockHash: event.blockHash,
+                txHash: event.txHash,
+                logIndex: event.logIndex,
+            });
+        }
+    }
+
+    return resolved;
 }

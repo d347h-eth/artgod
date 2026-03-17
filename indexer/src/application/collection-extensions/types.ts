@@ -19,6 +19,7 @@ export type CollectionExtensionSyncDecodeResult = {
 };
 
 export type CollectionExtensionSyncWatchSpec = {
+    collectionId: number;
     sourceId: string;
     address: `0x${string}` | `0x${string}`[];
     events: readonly RpcEvent[];

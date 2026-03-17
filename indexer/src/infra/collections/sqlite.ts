@@ -5,6 +5,8 @@ import {
     OpenSeaCollectionStatus,
 } from "../../domain/collections.js";
 import type {
+    CollectionScopeRange,
+    CollectionScopeResolverPort,
     CollectionRegistryPort,
     CollectionSyncMode,
 } from "../../ports/collections.js";
@@ -44,7 +46,9 @@ const SELECT_COLLECTIONS_FIELDS =
     "opensea_last_stream_event_at, opensea_last_stream_healthy_at, opensea_last_error " +
     "FROM collections ";
 
-export class SqliteCollectionRegistry implements CollectionRegistryPort {
+export class SqliteCollectionRegistry
+    implements CollectionRegistryPort, CollectionScopeResolverPort
+{
     private selectOne = db.prepare<{ chainId: number; collectionId: number }>(
         SELECT_COLLECTIONS_FIELDS +
             "WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
@@ -506,6 +510,92 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
             collectionId,
         }) as Array<{ token_id: string }>;
         return rows.map((row) => row.token_id);
+    }
+
+    resolveTokenScopedCollectionId(
+        chainId: number,
+        collections: CollectionRecord[],
+        contract: string,
+        tokenId: string,
+    ): number | null {
+        const matchingCollections = collections.filter((collection) =>
+            collection.address.toLowerCase() === contract.toLowerCase(),
+        );
+        if (matchingCollections.length === 0) {
+            return null;
+        }
+
+        const matches = matchingCollections.filter((collection) =>
+            collection.containsTokenInScope(tokenId, (candidateTokenId) =>
+                this.hasExplicitScopeToken(
+                    chainId,
+                    collection.id,
+                    candidateTokenId,
+                ),
+            ),
+        );
+        if (matches.length !== 1) {
+            return null;
+        }
+
+        return matches[0]!.id;
+    }
+
+    splitRangeByCollectionScope(
+        chainId: number,
+        collections: CollectionRecord[],
+        contract: string,
+        fromTokenId: string,
+        toTokenId: string,
+    ): CollectionScopeRange[] {
+        const matchingCollections = collections.filter(
+            (collection) =>
+                collection.address.toLowerCase() === contract.toLowerCase(),
+        );
+        if (matchingCollections.length === 0) {
+            return [];
+        }
+
+        const rangeStart = BigInt(fromTokenId);
+        const rangeEnd = BigInt(toTokenId);
+        const ranges: CollectionScopeRange[] = [];
+
+        for (const collection of matchingCollections) {
+            const continuousRange = collection.intersectContinuousTokenRange(
+                fromTokenId,
+                toTokenId,
+            );
+            if (continuousRange) {
+                ranges.push({
+                    collectionId: collection.id,
+                    fromTokenId: continuousRange.fromTokenId,
+                    toTokenId: continuousRange.toTokenId,
+                });
+                continue;
+            }
+
+            if (!collection.isExplicitTokenIdsScope()) {
+                continue;
+            }
+
+            const tokenIds = this.listExplicitScopeTokenIds(
+                chainId,
+                collection.id,
+            ).filter((tokenId) => {
+                const value = BigInt(tokenId);
+                return value >= rangeStart && value <= rangeEnd;
+            });
+
+            for (const tokenId of tokenIds) {
+                ranges.push({
+                    collectionId: collection.id,
+                    fromTokenId: tokenId,
+                    toTokenId: tokenId,
+                });
+            }
+        }
+
+        return ranges;
     }
 }
 

@@ -75,6 +75,13 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             toBlock,
         );
         const inserted = transferResult.inserted + fillResult.inserted;
+        const collectionIds = new Set<number>();
+        for (const collectionId of transferResult.collectionIds) {
+            collectionIds.add(collectionId);
+        }
+        for (const collectionId of fillResult.collectionIds) {
+            collectionIds.add(collectionId);
+        }
 
         logger.debug("Activity domain sync applied", {
             component: "ActivityDomain",
@@ -82,6 +89,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             chainId,
             fromBlock,
             toBlock,
+            collectionIds: Array.from(collectionIds),
             transfers: transferResult.rows,
             fills: fillResult.rows,
             inserted,
@@ -92,7 +100,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         chainId: number,
         fromBlock: number,
         toBlock: number,
-    ): { rows: number; inserted: number } {
+    ): { rows: number; inserted: number; collectionIds: number[] } {
         const rows = this.selectTransfers.all(
             chainId,
             fromBlock,
@@ -117,14 +125,18 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             inserted += result.changes;
         }
 
-        return { rows: rows.length, inserted };
+        return {
+            rows: rows.length,
+            inserted,
+            collectionIds: rows.map((row) => row.collection_id),
+        };
     }
 
     private persistFillActivities(
         chainId: number,
         fromBlock: number,
         toBlock: number,
-    ): { rows: number; inserted: number } {
+    ): { rows: number; inserted: number; collectionIds: number[] } {
         const fillRows = this.selectFills.all(
             chainId,
             fromBlock,
@@ -156,6 +168,10 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             inserted += result.changes;
         }
 
-        return { rows: fillRows.length, inserted };
+        return {
+            rows: fillRows.length,
+            inserted,
+            collectionIds: fillRows.map((row) => row.collection_id),
+        };
     }
 }

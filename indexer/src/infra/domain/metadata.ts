@@ -58,13 +58,6 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
     private selectCollectionStandardById = db.prepare<[number, number]>(
         "SELECT collection_id, standard FROM collections WHERE chain_id = ? AND collection_id = ? LIMIT 1",
     );
-    private selectTokenCollection = db.prepare<[number, string, string]>(
-        "SELECT tokens.collection_id, standard FROM tokens " +
-            "JOIN collections ON collections.collection_id = tokens.collection_id " +
-            "AND collections.chain_id = tokens.chain_id " +
-            "WHERE tokens.chain_id = ? AND tokens.contract_address = ? AND tokens.token_id = ? " +
-            "LIMIT 1",
-    );
     private upsertMetadata = db.prepare<{
         chainId: number;
         collectionId: number;
@@ -145,9 +138,11 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             toBlock,
         ) as TokenRow[];
         const contracts = new Set<string>();
+        const collectionIds = new Set<number>();
         const updatedTokens: MetadataDomainSyncResult["updatedTokens"] = [];
         for (const row of rows) {
             contracts.add(row.contract.toLowerCase());
+            collectionIds.add(row.collection_id);
         }
 
         let fetched = 0;
@@ -167,6 +162,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                     component: "MetadataDomain",
                     action: "handleDomainSync",
                     chainId,
+                    collectionId: row.collection_id,
                     contract,
                     tokenId,
                 });
@@ -178,6 +174,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                     component: "MetadataDomain",
                     action: "handleDomainSync",
                     chainId,
+                    collectionId: row.collection_id,
                     contract,
                     tokenId,
                     uri,
@@ -206,6 +203,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             chainId,
             fromBlock,
             toBlock,
+            collectionIds: Array.from(collectionIds),
             tokens: rows.length,
             fetched,
         });
@@ -224,8 +222,6 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         const collection = this.resolveCollectionStandard(
             chainId,
             payload.collectionId,
-            contract,
-            tokenId,
         );
 
         let uri = payload.metadataUrl ?? null;
@@ -246,6 +242,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 component: "MetadataDomain",
                 action: "handleMetadataRefresh",
                 chainId,
+                collectionId: payload.collectionId,
                 contract,
                 tokenId,
             });
@@ -258,6 +255,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 component: "MetadataDomain",
                 action: "handleMetadataRefresh",
                 chainId,
+                collectionId: payload.collectionId,
                 contract,
                 tokenId,
                 uri,
@@ -270,6 +268,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 component: "MetadataDomain",
                 action: "handleMetadataRefresh",
                 chainId,
+                collectionId: payload.collectionId,
                 contract,
                 tokenId,
             });
@@ -295,6 +294,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             component: "MetadataDomain",
             action: "handleMetadataRefresh",
             chainId,
+            collectionId: collection.collection_id,
             contract,
             tokenId,
             reason: payload.reason,
@@ -309,8 +309,6 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
     private resolveCollectionStandard(
         chainId: number,
         collectionId: number,
-        contract: string,
-        tokenId: string,
     ): CollectionStandardRow | null {
         const row = this.selectCollectionStandardById.get(
             chainId,
@@ -319,22 +317,11 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         if (row) {
             return row;
         }
-
-        const tokenRow = this.selectTokenCollection.get(
-            chainId,
-            contract,
-            tokenId,
-        ) as CollectionStandardRow | undefined;
-        if (tokenRow) {
-            return tokenRow;
-        }
         logger.debug("Metadata refresh skipped (missing collection standard)", {
             component: "MetadataDomain",
             action: "handleMetadataRefresh",
             chainId,
             collectionId,
-            contract,
-            tokenId,
         });
         return null;
     }

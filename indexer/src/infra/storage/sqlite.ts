@@ -1,5 +1,4 @@
 import { db } from "@artgod/shared/database";
-import { CollectionTokenScope } from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
 import type { RpcBlock } from "../../ports/rpc.js";
@@ -33,13 +32,6 @@ type BalanceContext = {
     blockTimestamp: number;
     txHash: string;
     logIndex: number;
-};
-
-type CollectionScopeRow = {
-    collection_id: number;
-    token_scope_kind: string;
-    scope_start_token_id: string | null;
-    scope_total_supply: number | null;
 };
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -168,16 +160,6 @@ export class SqliteStorage implements StoragePort {
             "WHERE chain_id = ? AND collection_id = ? AND maker = ? AND contract_address = ? AND token_id = ? " +
             "AND fillability_status = ?",
     );
-    private selectTokenCollectionId = db.prepare<[number, string, string]>(
-        "SELECT collection_id FROM tokens WHERE chain_id = ? AND contract_address = ? AND token_id = ? LIMIT 1",
-    );
-    private selectCollectionScopesByAddress = db.prepare<[number, string]>(
-        "SELECT collection_id, token_scope_kind, scope_start_token_id, scope_total_supply " +
-            "FROM collections WHERE chain_id = ? AND lower(address) = ? ORDER BY collection_id ASC",
-    );
-    private selectScopeTokenMatch = db.prepare<[number, number, string]>(
-        "SELECT 1 FROM collection_scope_tokens WHERE chain_id = ? AND collection_id = ? AND token_id = ? LIMIT 1",
-    );
     private deleteBlocksFromBlock = db.prepare<[number, number]>(
         "DELETE FROM blocks WHERE chain_id = ? AND block_number >= ?",
     );
@@ -262,21 +244,13 @@ export class SqliteStorage implements StoragePort {
         const inserted: OnChainData["nftTransferEvents"] = [];
         for (const event of data.nftTransferEvents) {
             const contract = event.contract.toLowerCase();
-            const collectionId = this.resolveCollectionId(
-                chainId,
-                contract,
-                event.tokenId,
-            );
-            if (collectionId === null) {
-                continue;
-            }
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
                 event.blockNumber,
             );
             const result = this.insertTransfer.run(
                 chainId,
-                collectionId,
+                event.collectionId,
                 contract,
                 event.from.toLowerCase(),
                 event.to.toLowerCase(),
@@ -302,23 +276,14 @@ export class SqliteStorage implements StoragePort {
         blockMeta: Map<number, BlockMeta>,
     ): void {
         for (const fill of data.fillEvents) {
-            if (!fill.contract || !fill.tokenId) continue;
             const contract = fill.contract.toLowerCase();
-            const collectionId = this.resolveCollectionId(
-                chainId,
-                contract,
-                fill.tokenId,
-            );
-            if (collectionId === null) {
-                continue;
-            }
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
                 fill.blockNumber,
             );
             this.insertFill.run(
                 chainId,
-                collectionId,
+                fill.collectionId,
                 fill.kind ?? "unknown",
                 fill.orderId ?? null,
                 fill.orderSide ?? null,
@@ -355,19 +320,11 @@ export class SqliteStorage implements StoragePort {
             const contract = event.contract.toLowerCase();
             const from = event.from.toLowerCase();
             const to = event.to.toLowerCase();
-            const collectionId = this.resolveCollectionId(
-                chainId,
-                contract,
-                event.tokenId,
-            );
-            if (collectionId === null) {
-                continue;
-            }
 
             if (event.kind === "erc721") {
                 this.applyErc721Transfer(
                     chainId,
-                    collectionId,
+                    event.collectionId,
                     contract,
                     event.tokenId,
                     from,
@@ -380,7 +337,7 @@ export class SqliteStorage implements StoragePort {
             const amount = BigInt(event.amount);
             this.applyErc1155Transfer(
                 chainId,
-                collectionId,
+                event.collectionId,
                 contract,
                 event.tokenId,
                 from,
@@ -546,46 +503,6 @@ export class SqliteStorage implements StoragePort {
         );
     }
 
-    private resolveCollectionId(
-        chainId: number,
-        contract: string,
-        tokenId: string,
-    ): number | null {
-        const tokenRow = this.selectTokenCollectionId.get(
-            chainId,
-            contract,
-            tokenId,
-        ) as { collection_id: number } | undefined;
-        if (tokenRow) {
-            return tokenRow.collection_id;
-        }
-
-        const scopes = this.selectCollectionScopesByAddress.all(
-            chainId,
-            contract,
-        ) as CollectionScopeRow[];
-        if (scopes.length === 0) {
-            return null;
-        }
-
-        const matches = scopes.filter((scope) =>
-            collectionScopeMatchesToken(
-                scope,
-                tokenId,
-                (collectionId, token) =>
-                    this.selectScopeTokenMatch.get(
-                        chainId,
-                        collectionId,
-                        token,
-                    ) !== undefined,
-            ),
-        );
-        if (matches.length !== 1) {
-            return null;
-        }
-        return matches[0]!.collection_id;
-    }
-
     private persistTransactions(
         chainId: number,
         transactions: TransactionRecord[],
@@ -643,18 +560,4 @@ function buildBalanceContext(
         txHash,
         logIndex,
     };
-}
-
-function collectionScopeMatchesToken(
-    scope: CollectionScopeRow,
-    tokenId: string,
-    hasExplicitToken: (collectionId: number, tokenId: string) => boolean,
-): boolean {
-    return CollectionTokenScope.fromPersistence({
-        tokenScopeKind: scope.token_scope_kind,
-        scopeStartTokenId: scope.scope_start_token_id,
-        scopeTotalSupply: scope.scope_total_supply,
-    }).containsToken(tokenId, (candidateTokenId) =>
-        hasExplicitToken(scope.collection_id, candidateTokenId),
-    );
 }

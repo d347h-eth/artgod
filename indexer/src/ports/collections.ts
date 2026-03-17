@@ -6,6 +6,12 @@ import type {
 
 export type CollectionSyncMode = "realtime" | "backfill";
 
+export type CollectionScopeRange = {
+    collectionId: number;
+    fromTokenId: string;
+    toTokenId: string;
+};
+
 export interface CollectionRegistryPort {
     getCollection(
         chainId: number,
@@ -62,4 +68,20 @@ export interface CollectionRegistryPort {
     markOpenSeaReady(chainId: number, collectionId: number): boolean;
     touchOpenSeaStreamHealthy(chainId: number, collectionId: number): boolean;
     touchOpenSeaStreamEvent(chainId: number, collectionId: number): boolean;
+}
+
+export interface CollectionScopeResolverPort {
+    resolveTokenScopedCollectionId(
+        chainId: number,
+        collections: CollectionRecord[],
+        contract: string,
+        tokenId: string,
+    ): number | null;
+    splitRangeByCollectionScope(
+        chainId: number,
+        collections: CollectionRecord[],
+        contract: string,
+        fromTokenId: string,
+        toTokenId: string,
+    ): CollectionScopeRange[];
 }

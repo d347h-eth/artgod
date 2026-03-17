@@ -1,28 +1,5 @@
 import type { Hex, RpcLog } from "../ports/rpc.js";
 
-export type NftTransferEvent = {
-    contract: string;
-    from: string;
-    to: string;
-    tokenId: string;
-    amount: string;
-    blockNumber: number;
-    blockHash: string;
-    txHash: string;
-    logIndex: number;
-    kind: "erc721" | "erc1155";
-};
-
-export type NftBalanceDelta = {
-    contract: string;
-    tokenId: string;
-    owner: string;
-    delta: string;
-    blockNumber: number;
-    txHash: string;
-    logIndex: number;
-};
-
 export type ChainAttribution = {
     blockNumber: number;
     blockHash: string;
@@ -30,15 +7,35 @@ export type ChainAttribution = {
     logIndex: number;
 };
 
+type CollectionScopedChainAttribution = ChainAttribution & {
+    collectionId: number;
+};
+
+type CollectionScopedTokenAttribution = CollectionScopedChainAttribution & {
+    contract: string;
+    tokenId: string;
+};
+
+// Collection-scoped token transfer captured from on-chain logs.
+export type NftTransferEvent = CollectionScopedTokenAttribution & {
+    from: string;
+    to: string;
+    amount: string;
+    kind: "erc721" | "erc1155";
+};
+
+export type NftBalanceDelta = CollectionScopedTokenAttribution & {
+    owner: string;
+    delta: string;
+};
+
 // Fill = an on-chain execution of an order (Seaport/Blur/on-chain orderbooks).
-export type FillEvent = ChainAttribution & {
+export type FillEvent = CollectionScopedTokenAttribution & {
     orderId?: string;
     kind?: string;
     orderSide?: "sell" | "buy";
     maker?: string;
     taker?: string;
-    contract?: string;
-    tokenId?: string;
     amount?: string;
     price?: string;
     currency?: string;
@@ -52,12 +49,10 @@ export type CancelEvent = ChainAttribution & {
 };
 
 // Order = on-chain creation/listing for orderbooks that emit orders on-chain.
-export type OrderInfo = ChainAttribution & {
+export type OrderInfo = CollectionScopedTokenAttribution & {
     orderId?: string;
     kind?: string;
     maker?: string;
-    contract?: string;
-    tokenId?: string;
     price?: string;
     currency?: string;
 };
@@ -75,14 +70,12 @@ export type MakerInfo = ChainAttribution & {
 };
 
 // Metadata refresh trigger derived from on-chain events (e.g. ERC-4906).
-export type MetadataRefreshEvent = ChainAttribution & {
-    contract: string;
-    tokenId: string;
+export type MetadataRefreshEvent = CollectionScopedTokenAttribution & {
     reason: string;
     trigger: string;
 };
 
-export type MetadataRefreshRangeEvent = ChainAttribution & {
+export type MetadataRefreshRangeEvent = CollectionScopedChainAttribution & {
     contract: string;
     fromTokenId: string;
     toTokenId: string;
@@ -99,6 +92,10 @@ export type TransactionRecord = {
     blockHash: string;
 };
 
+// OnChainData intentionally mixes collection-scoped token events with broader
+// global triggers. Transfers/fills/orders/metadata refreshes are resolved to a
+// concrete collection up front; cancels and some maker triggers remain global
+// until downstream processing because they do not identify one collection yet.
 export type OnChainData = {
     nftTransferEvents: NftTransferEvent[];
     nftBalanceDeltas: NftBalanceDelta[];

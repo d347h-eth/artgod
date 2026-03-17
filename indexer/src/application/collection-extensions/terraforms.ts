@@ -173,6 +173,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
         const config = parseTerraformsExtensionConfig(install.configJson);
         return [
             {
+                collectionId: install.collectionId,
                 sourceId: "terraforms-main",
                 address: config.mainContractAddress as Hex,
                 events: [
@@ -180,21 +181,35 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                     TERRAFORMS_MAIN_ABI[4],
                 ] as const,
                 decode: (log) =>
-                    decodeTokenRefreshLog(log, config.mainContractAddress),
+                    decodeTokenRefreshLog(
+                        log,
+                        install.collectionId,
+                        config.mainContractAddress,
+                    ),
             },
             {
+                collectionId: install.collectionId,
                 sourceId: "terraforms-token-uri-v2",
                 address: config.tokenUriV2ContractAddress as Hex,
                 events: [TERRAFORMS_TOKEN_URI_V2_ABI[0]] as const,
                 decode: (log) =>
-                    decodeTokenRefreshLog(log, config.mainContractAddress),
+                    decodeTokenRefreshLog(
+                        log,
+                        install.collectionId,
+                        config.mainContractAddress,
+                    ),
             },
             {
+                collectionId: install.collectionId,
                 sourceId: "terraforms-beacon-v2",
                 address: config.beaconV2ContractAddress as Hex,
                 events: [TERRAFORMS_BEACON_V2_ABI[0]] as const,
                 decode: (log) =>
-                    decodeTokenRefreshLog(log, config.mainContractAddress),
+                    decodeTokenRefreshLog(
+                        log,
+                        install.collectionId,
+                        config.mainContractAddress,
+                    ),
             },
         ];
     },
@@ -307,6 +322,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
 
 function decodeTokenRefreshLog(
     log: RpcLog,
+    collectionId: number,
     targetContract: string,
 ): CollectionExtensionSyncDecodeResult {
     const topic0 = log.topics[0];
@@ -358,6 +374,7 @@ function decodeTokenRefreshLog(
     }
 
     const event: MetadataRefreshEvent = {
+        collectionId,
         contract: targetContract.toLowerCase(),
         tokenId,
         reason: "collection-extension",

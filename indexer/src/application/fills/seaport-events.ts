@@ -1,9 +1,5 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
-import type {
-    CancelEvent,
-    MakerInfo,
-    OrderInfo,
-} from "../../domain/onchain.js";
+import type { CancelEvent, MakerInfo } from "../../domain/onchain.js";
 import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
 import { SEAPORT_EXCHANGE_ADDRESSES } from "./seaport.js";
 import {
@@ -31,6 +27,20 @@ type OrderParameters = {
     salt: bigint;
     conduitKey: Hex;
     totalOriginalConsiderationItems: bigint;
+};
+
+export type DecodedOrderInfo = {
+    orderId?: string;
+    kind?: string;
+    maker?: string;
+    contract: string;
+    tokenId: string;
+    price?: string;
+    currency?: string;
+    blockNumber: number;
+    blockHash: string;
+    txHash: string;
+    logIndex: number;
 };
 
 const SEAPORT_EVENT_ABI = [
@@ -130,7 +140,7 @@ export const SEAPORT_EVENT_FILTERS = SEAPORT_EVENT_ABI as unknown as RpcEvent[];
 
 export type SeaportOrderEvents = {
     cancels: CancelEvent[];
-    orders: OrderInfo[];
+    orders: DecodedOrderInfo[];
     makerInfos: MakerInfo[];
 };
 
@@ -140,7 +150,7 @@ export function decodeSeaportOrderEvents(
     collections: Set<string>,
 ): SeaportOrderEvents {
     const cancels: CancelEvent[] = [];
-    const orders: OrderInfo[] = [];
+    const orders: DecodedOrderInfo[] = [];
     const makerInfos: MakerInfo[] = [];
 
     for (const log of logs) {
@@ -220,7 +230,7 @@ function decodeCounterIncremented(log: RpcLog): MakerInfo | null {
 function decodeOrderValidated(
     log: RpcLog,
     collections: Set<string>,
-): OrderInfo | null {
+): DecodedOrderInfo | null {
     try {
         const decoded = decodeEventLog({
             abi: SEAPORT_EVENT_ABI,
