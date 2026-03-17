@@ -115,7 +115,10 @@ export class ExtensionAwareCollectionDetailRead {
         chainId: number,
         collectionId: number,
     ): TraitFacet[] {
-        return this.baseReadPort.listCollectionTraitFacets(chainId, collectionId);
+        return this.baseReadPort.listCollectionTraitFacets(
+            chainId,
+            collectionId,
+        );
     }
 
     listCollectionHolders(params: {

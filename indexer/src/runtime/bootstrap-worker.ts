@@ -998,12 +998,12 @@ async function ensureBackfillScheduled(
         if (updated) {
             await publishMetadataStatsRecompute(
                 queue,
-                    {
-                        chainId: payload.chainId,
-                        collectionId: payload.collectionId,
-                        reason: "bootstrap-finalized",
-                        sourceJobId,
-                    },
+                {
+                    chainId: payload.chainId,
+                    collectionId: payload.collectionId,
+                    reason: "bootstrap-finalized",
+                    sourceJobId,
+                },
                 traceId,
             );
         }

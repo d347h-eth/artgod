@@ -193,7 +193,9 @@ async function main() {
                     component: "IndexerSyncWorker",
                     action: "syncBlock",
                     blockNumber: job.payload.blockNumber,
-                    collectionIds: collections.map((collection) => collection.id),
+                    collectionIds: collections.map(
+                        (collection) => collection.id,
+                    ),
                     blocks: blocks.length,
                     transfers: data.collectionScoped.nftTransferEvents.length,
                     balanceDeltas:
@@ -260,7 +262,9 @@ async function main() {
                     action: "backfillRange",
                     fromBlock: job.payload.fromBlock,
                     toBlock: job.payload.toBlock,
-                    collectionIds: collections.map((collection) => collection.id),
+                    collectionIds: collections.map(
+                        (collection) => collection.id,
+                    ),
                     blocks: blocks.length,
                     transfers: data.collectionScoped.nftTransferEvents.length,
                     balanceDeltas:

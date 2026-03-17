@@ -276,36 +276,42 @@ function assertCollectionScopeDoesNotOverlap(
     chainId: number,
     siblingCollections: Array<{
         collectionId: number;
-        tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+        tokenScopeKind:
+            | "contract_all_tokens"
+            | "token_range"
+            | "explicit_token_ids";
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         slug: string;
     }>,
     nextScope: {
-        tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+        tokenScopeKind:
+            | "contract_all_tokens"
+            | "token_range"
+            | "explicit_token_ids";
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];
     },
-    bootstrapRunsPort: Pick<BootstrapRunsWritePort, "listCollectionScopeTokenIds">,
+    bootstrapRunsPort: Pick<
+        BootstrapRunsWritePort,
+        "listCollectionScopeTokenIds"
+    >,
 ): void {
     for (const sibling of siblingCollections) {
         if (
-            scopesOverlap(
-                nextScope,
-                {
-                    tokenScopeKind: sibling.tokenScopeKind,
-                    scopeStartTokenId: sibling.scopeStartTokenId,
-                    scopeTotalSupply: sibling.scopeTotalSupply,
-                    explicitTokenIds:
-                        sibling.tokenScopeKind === "explicit_token_ids"
-                            ? bootstrapRunsPort.listCollectionScopeTokenIds(
-                                  chainId,
-                                  sibling.collectionId,
-                              )
-                            : [],
-                },
-            )
+            scopesOverlap(nextScope, {
+                tokenScopeKind: sibling.tokenScopeKind,
+                scopeStartTokenId: sibling.scopeStartTokenId,
+                scopeTotalSupply: sibling.scopeTotalSupply,
+                explicitTokenIds:
+                    sibling.tokenScopeKind === "explicit_token_ids"
+                        ? bootstrapRunsPort.listCollectionScopeTokenIds(
+                              chainId,
+                              sibling.collectionId,
+                          )
+                        : [],
+            })
         ) {
             throw new BootstrapConflictError(
                 `Collection scope overlaps with existing collection ${sibling.slug}`,
@@ -316,13 +322,19 @@ function assertCollectionScopeDoesNotOverlap(
 
 function scopesOverlap(
     left: {
-        tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+        tokenScopeKind:
+            | "contract_all_tokens"
+            | "token_range"
+            | "explicit_token_ids";
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];
     },
     right: {
-        tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+        tokenScopeKind:
+            | "contract_all_tokens"
+            | "token_range"
+            | "explicit_token_ids";
         scopeStartTokenId: string | null;
         scopeTotalSupply: number | null;
         explicitTokenIds: string[];

@@ -309,10 +309,9 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         chainId: number,
         collectionId: number,
     ): CollectionMetadataContextRow | null {
-        const row = this.selectCollectionById.get(
-            chainId,
-            collectionId,
-        ) as CollectionMetadataContextRow | undefined;
+        const row = this.selectCollectionById.get(chainId, collectionId) as
+            | CollectionMetadataContextRow
+            | undefined;
         if (row) {
             return row;
         }

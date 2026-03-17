@@ -4,7 +4,10 @@ import {
     encodeEventTopics,
     zeroAddress,
 } from "viem";
-import type { EnhancedEvent, EnhancedTransaction } from "../../domain/onchain.js";
+import type {
+    EnhancedEvent,
+    EnhancedTransaction,
+} from "../../domain/onchain.js";
 import type { Hex } from "../../ports/rpc.js";
 import {
     findTrackedNftItem,

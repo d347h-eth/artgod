@@ -28,17 +28,21 @@ export class SqliteMetadataStatsDomain implements MetadataStatsDomainPort {
         payload: MetadataStatsRecomputePayload,
     ): Promise<void> {
         const run = db.raw.transaction(() => {
-            this.deleteCollectionStats.run(payload.chainId, payload.collectionId);
-            this.insertCollectionStats.run(payload.chainId, payload.collectionId);
+            this.deleteCollectionStats.run(
+                payload.chainId,
+                payload.collectionId,
+            );
+            this.insertCollectionStats.run(
+                payload.chainId,
+                payload.collectionId,
+            );
         });
         run();
 
         const row = this.countCollectionStats.get(
             payload.chainId,
             payload.collectionId,
-        ) as
-            | StatsCountRow
-            | undefined;
+        ) as StatsCountRow | undefined;
         logger.debug("Metadata trait stats recomputed", {
             component: "MetadataStatsDomain",
             action: "handleRecompute",

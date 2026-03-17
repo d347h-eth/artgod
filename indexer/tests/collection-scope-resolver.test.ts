@@ -55,7 +55,10 @@ describe("collection scope resolver", () => {
         insertScopeToken(chainId, explicit, "35");
 
         const registry = new SqliteCollectionRegistry();
-        const collections = registry.listCollectionsForSync(chainId, "backfill");
+        const collections = registry.listCollectionsForSync(
+            chainId,
+            "backfill",
+        );
 
         expect(
             registry.resolveTokenScopedCollectionId(
@@ -146,11 +149,7 @@ function insertCollection(input: {
     const result = db
         .prepare<
             [number, string, string, string, string | null, number | null]
-        >(
-            "INSERT INTO collections " +
-                "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply) " +
-                "VALUES (?, ?, ?, 'erc721', 'live', ?, ?, ?)",
-        )
+        >("INSERT INTO collections " + "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply) " + "VALUES (?, ?, ?, 'erc721', 'live', ?, ?, ?)")
         .run(
             input.chainId,
             input.slug,

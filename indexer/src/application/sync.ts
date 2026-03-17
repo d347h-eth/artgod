@@ -11,10 +11,7 @@ import type {
 } from "../domain/onchain.js";
 import type { CollectionScopeResolverPort } from "../ports/collections.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
-import {
-    decodeSeaportFill,
-    type DecodedFillEvent,
-} from "./fills/seaport.js";
+import { decodeSeaportFill, type DecodedFillEvent } from "./fills/seaport.js";
 import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
 import {
     decodeMetadataRefreshLog,
@@ -116,10 +113,10 @@ export async function syncRange(
 
     const metadataRefreshEvents: DecodedMetadataRefreshEvent[] = [];
     const metadataRefreshRangeEvents: DecodedMetadataRefreshRangeEvent[] = [];
-    const extensionMetadataRefreshEvents:
-        OnChainData["collectionScoped"]["metadataRefreshEvents"] = [];
-    const extensionMetadataRefreshRangeEvents:
-        OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] = [];
+    const extensionMetadataRefreshEvents: OnChainData["collectionScoped"]["metadataRefreshEvents"] =
+        [];
+    const extensionMetadataRefreshRangeEvents: OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] =
+        [];
     for (const log of metadataRefreshLogs) {
         const decoded = decodeMetadataRefreshLog(log);
         metadataRefreshEvents.push(...decoded.tokenEvents);
@@ -134,7 +131,9 @@ export async function syncRange(
         });
         for (const log of logs) {
             const decoded = spec.decode(log);
-            extensionMetadataRefreshEvents.push(...decoded.metadataRefreshEvents);
+            extensionMetadataRefreshEvents.push(
+                ...decoded.metadataRefreshEvents,
+            );
             extensionMetadataRefreshRangeEvents.push(
                 ...decoded.metadataRefreshRangeEvents,
             );
@@ -166,7 +165,10 @@ export async function syncRange(
         ),
         ...extensionMetadataRefreshRangeEvents,
     ];
-    const seaportEvents = decodeSeaportOrderEvents(seaportLogs, trackedContracts);
+    const seaportEvents = decodeSeaportOrderEvents(
+        seaportLogs,
+        trackedContracts,
+    );
     data.global.cancelEvents.push(...seaportEvents.cancels);
     for (const order of seaportEvents.orders) {
         const resolved = resolveOrderInfo(order, resolutionContext);
@@ -434,9 +436,10 @@ function accumulateOnChainData(
 
     // Ownership-driven maker triggers are collection-scoped and derived from
     // transfers. Broader maker triggers are appended separately by callers.
-    data.collectionScoped.makerTriggers = deriveTokenScopedMakerTriggersFromTransfers(
-        data.collectionScoped.nftTransferEvents,
-    );
+    data.collectionScoped.makerTriggers =
+        deriveTokenScopedMakerTriggersFromTransfers(
+            data.collectionScoped.nftTransferEvents,
+        );
 
     return data;
 }
@@ -671,8 +674,8 @@ function resolveMetadataRefreshRangeEvents(
     events: DecodedMetadataRefreshRangeEvent[],
     resolutionContext: CollectionResolutionContext,
 ): OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] {
-    const resolved:
-        OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] = [];
+    const resolved: OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] =
+        [];
 
     for (const event of events) {
         const contract = event.contract.toLowerCase();

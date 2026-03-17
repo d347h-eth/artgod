@@ -1,9 +1,6 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
 import { GLOBAL_MAKER_TRIGGER_REASON } from "../../domain/maker-triggers.js";
-import type {
-    CancelEvent,
-    GlobalMakerTrigger,
-} from "../../domain/onchain.js";
+import type { CancelEvent, GlobalMakerTrigger } from "../../domain/onchain.js";
 import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
 import { SEAPORT_EXCHANGE_ADDRESSES } from "./seaport.js";
 import {

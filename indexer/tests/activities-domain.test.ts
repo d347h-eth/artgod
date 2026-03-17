@@ -81,10 +81,9 @@ describe("activity domain sync", () => {
         });
 
         const rows = db
-            .prepare<[number]>(
-                "SELECT collection_id, kind, contract_address, token_id, from_address, to_address " +
-                    "FROM activities WHERE chain_id = ? ORDER BY block_number ASC, log_index ASC",
-            )
+            .prepare<
+                [number]
+            >("SELECT collection_id, kind, contract_address, token_id, from_address, to_address " + "FROM activities WHERE chain_id = ? ORDER BY block_number ASC, log_index ASC")
             .all(chainId) as Array<{
             collection_id: number;
             kind: string;
@@ -125,11 +124,7 @@ function insertCollection(
     const result = db
         .prepare<
             [number, string, string, string, number]
-        >(
-            "INSERT INTO collections " +
-                "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply) " +
-                "VALUES (?, ?, ?, 'erc721', 'live', 'token_range', ?, ?)",
-        )
+        >("INSERT INTO collections " + "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply) " + "VALUES (?, ?, ?, 'erc721', 'live', 'token_range', ?, ?)")
         .run(
             chainId,
             slug,
@@ -154,7 +149,20 @@ function insertTransfer(input: {
     logIndex: number;
 }): void {
     db.prepare<
-        [number, number, string, string, string, string, string, number, string, number, string, number]
+        [
+            number,
+            number,
+            string,
+            string,
+            string,
+            string,
+            string,
+            number,
+            string,
+            number,
+            string,
+            number,
+        ]
     >(
         "INSERT INTO nft_transfer_events " +
             "(chain_id, collection_id, contract_address, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +

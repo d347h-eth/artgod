@@ -274,7 +274,10 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         return rows.map(mapCollection);
     }
 
-    listCollectionScopeTokenIds(chainId: number, collectionId: number): string[] {
+    listCollectionScopeTokenIds(
+        chainId: number,
+        collectionId: number,
+    ): string[] {
         const rows = this.selectCollectionScopeTokens.all({
             chainId,
             collectionId,

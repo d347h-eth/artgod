@@ -557,8 +557,10 @@ export class SqliteCollectionsReadModel {
         chainId: number,
         collectionId: number,
     ): TraitFacet[] {
-        const rows = this.selectTraitFacetRows.all(chainId, collectionId) as
-            | TraitFacetRow[];
+        const rows = this.selectTraitFacetRows.all(
+            chainId,
+            collectionId,
+        ) as TraitFacetRow[];
 
         const facets: TraitFacet[] = [];
         const byKey = new Map<string, TraitFacet>();
@@ -594,7 +596,10 @@ export class SqliteCollectionsReadModel {
             throw new ReadModelNotFoundError("Unknown token_ref");
         }
 
-        const totalItems = countCollectionTokens(params.chainId, params.collectionId);
+        const totalItems = countCollectionTokens(
+            params.chainId,
+            params.collectionId,
+        );
         const attributeRows = this.selectTokenDetailTraitRows.all(
             params.chainId,
             params.collectionId,
@@ -720,10 +725,7 @@ function countMatchingListedTokens(params: {
     return row.count;
 }
 
-function countCollectionTokens(
-    chainId: number,
-    collectionId: number,
-): number {
+function countCollectionTokens(chainId: number, collectionId: number): number {
     const row = db.raw
         .prepare(
             "SELECT COUNT(*) AS count FROM tokens WHERE chain_id = ? AND collection_id = ?",
@@ -732,10 +734,7 @@ function countCollectionTokens(
     return row.count;
 }
 
-function countCollectionHolders(
-    chainId: number,
-    collectionId: number,
-): number {
+function countCollectionHolders(chainId: number, collectionId: number): number {
     const row = db.raw
         .prepare(
             `SELECT COUNT(*) AS count FROM (${buildCollectionHoldersSql()}) h`,

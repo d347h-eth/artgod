@@ -25,7 +25,10 @@ export type CollectionBootstrapState = {
     address: string;
     standard: "erc721" | "erc1155";
     status: "bootstrapping" | "live" | "paused" | "disabled";
-    tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+    tokenScopeKind:
+        | "contract_all_tokens"
+        | "token_range"
+        | "explicit_token_ids";
     scopeStartTokenId: string | null;
     scopeTotalSupply: number | null;
     deploymentBlock: number | null;

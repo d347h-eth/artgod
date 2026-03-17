@@ -518,8 +518,9 @@ export class SqliteCollectionRegistry
         contract: string,
         tokenId: string,
     ): number | null {
-        const matchingCollections = collections.filter((collection) =>
-            collection.address.toLowerCase() === contract.toLowerCase(),
+        const matchingCollections = collections.filter(
+            (collection) =>
+                collection.address.toLowerCase() === contract.toLowerCase(),
         );
         if (matchingCollections.length === 0) {
             return null;
