@@ -4,7 +4,7 @@ export const COLLECTION_EXTENSION_JOB_KIND = {
 
 export type CollectionExtensionRefreshArtifactsPayload = {
     chainId: number;
-    collectionId?: number | null;
+    collectionId: number;
     contract: string;
     tokenId: string;
     reason: string;

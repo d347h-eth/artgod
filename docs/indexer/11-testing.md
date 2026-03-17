@@ -114,12 +114,13 @@ Important environment assumption:
 
 Current focused coverage includes:
 
+- embedded collection-extension resolution by contract + token scope (`tests/embedded-collection-extensions.test.ts`)
 - OpenSea REST adapter shaping (`tests/opensea-api.test.ts`)
 - OpenSea stream/REST normalization (`tests/opensea-normalize.test.ts`)
 - offchain dispatch and token-set mismatch persistence (`tests/offchain-dispatch.test.ts`)
 - canonical order raw-source precedence and Seaport data usage (`tests/orders-raw-source.test.ts`)
 - Seaport validation (`tests/seaport-validate.test.ts`)
-- maker-triggered order revalidation (`tests/orders-update-by-maker.test.ts`)
+- scoped maker-triggered order revalidation (`tests/orders-update-by-maker.test.ts`)
 
 ## Practical Notes
 

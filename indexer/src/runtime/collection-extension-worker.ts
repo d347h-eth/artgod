@@ -73,12 +73,10 @@ async function main() {
                     return;
                 }
 
-                const install = job.payload.collectionId
-                    ? collectionExtensions.getInstall(
-                          job.payload.chainId,
-                          job.payload.collectionId,
-                      )
-                    : null;
+                const install = collectionExtensions.getInstall(
+                    job.payload.chainId,
+                    job.payload.collectionId,
+                );
 
                 if (!install?.enabled) {
                     logger.debug(
@@ -87,7 +85,7 @@ async function main() {
                             component: "CollectionExtensionWorker",
                             action: "handleRefreshArtifacts",
                             chainId: job.payload.chainId,
-                            collectionId: job.payload.collectionId ?? null,
+                            collectionId: job.payload.collectionId,
                             contract: job.payload.contract,
                             tokenId: job.payload.tokenId,
                             reason: job.payload.reason,

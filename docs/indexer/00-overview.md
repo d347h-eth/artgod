@@ -26,7 +26,7 @@ Each runtime is an independent Node.js process. There is no shared memory across
 
 - Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
     - Consumes collection bootstrap jobs.
-    - Auto-installs embedded collection extensions during bootstrap start when the collection contract matches a known extension.
+    - Auto-installs embedded collection extensions during bootstrap start when the bootstrap request matches a known embedded extension by contract plus token scope.
     - Orchestrates per-collection metadata snapshot, ownership snapshot, short backfill, and OpenSea bootstrap job emission.
 
 - Collection extension runtime (`indexer/src/runtime/collection-extension-worker.ts`)
@@ -60,7 +60,7 @@ Each runtime is an independent Node.js process. There is no shared memory across
     - Tracks collection-level stream health timestamps.
 
 - OpenSea bootstrap runtime (`indexer/src/runtime/opensea-bootstrap-worker.ts`)
-    - Resolves OpenSea collection slug by contract address from OS API.
+    - Uses the persisted OpenSea slug from the collection row.
     - Starts initial full orderbook snapshot for a collection.
     - Marks OpenSea offchain readiness when the first snapshot run succeeds.
 
@@ -101,7 +101,7 @@ These assumptions are relied on by the implementation and should be preserved in
     - OpenSea `ready` means the initial offchain snapshot has succeeded.
 9. Collection extensions are build-bundled and DB-activated.
     - v1 supports at most one enabled extension install per collection.
-    - bootstrap auto-installs known embedded extensions by `chain_id + contract`.
+    - bootstrap auto-installs known embedded extensions by `chain_id + contract + token_scope`.
 10. Canonical metadata remains authoritative.
     - `token_metadata` and normalized attributes are the source of truth for token identity and traits.
     - extension artifact rows are secondary caches used for collection-specific behavior such as media overrides.
@@ -145,7 +145,7 @@ These assumptions are relied on by the implementation and should be preserved in
 
 ### Collection extension flow
 
-1. Bootstrap start checks whether the collection contract matches an embedded extension definition and upserts a `collection_extension_installs` row before metadata snapshot work begins.
+1. Bootstrap request resolution checks whether the collection contract plus token scope matches an embedded extension definition, persists the requested extension key on the run, and bootstrap start upserts a `collection_extension_installs` row before metadata snapshot work begins.
 2. Any successful canonical metadata write can publish `collection-extension.refresh-artifacts` on the dedicated `collection-extension-artifacts` queue.
 3. Collection extension worker resolves the enabled install and executes extension-specific artifact refresh logic against normalized token state and onchain/metadata ports.
 4. Extension artifact results are upserted into `token_extension_artifacts`.

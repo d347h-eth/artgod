@@ -27,7 +27,7 @@ The orders domain consumes four relevant job streams:
 
 `orders.upsert` carries the normalized ArtGod order DTO:
 
-- order identity, side, maker/taker, contract/token
+- order identity, `collectionId`, side, maker/taker, contract/token
 - source scope (`token`, `collection`, `attribute`)
 - source criteria root + normalized source schema
 - local token-set linkage status (`none`, `resolved`, `unresolved`, `mismatch`)
@@ -155,13 +155,17 @@ For `reason = "order"`, the handler loads the canonical `orders` row and validat
 
 Maker triggers are re-validation hints, not unconditional cancels.
 
-Current maker trigger scoping:
+Current maker trigger scoping is split explicitly:
 
 - `nft-transfer`, `item_sold`, `item_transferred`
+    - token-scoped payload
+    - includes `collectionId + tokenId`
     - re-validate exact-token sell orders for that maker
 - `erc20-balance`, `approval-change`
+    - global payload
     - re-validate WETH-denominated buy orders for that maker
 - `order-counter`
+    - global payload
     - re-validate all Seaport orders for that maker
 
 These updates only change `fillability_status`.

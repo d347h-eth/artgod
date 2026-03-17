@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS bootstrap_runs (
   request_opensea_slug TEXT,
   request_address TEXT NOT NULL,
   request_standard TEXT NOT NULL,
+  request_extension_key TEXT,
   metadata_mode TEXT NOT NULL,
   enumeration_mode TEXT NOT NULL,
   manual_token_ids_json TEXT,

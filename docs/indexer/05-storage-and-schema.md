@@ -62,23 +62,23 @@ transactions(chain_id, tx_hash, from_address, to_address, input,
 ### `nft_transfer_events`
 
 ```sql
-nft_transfer_events(chain_id, contract, from_address, to_address, token_id, amount,
+nft_transfer_events(chain_id, collection_id, contract_address, from_address, to_address, token_id, amount,
                     block_number, block_hash, block_timestamp, tx_hash, log_index, kind)
 ```
 
-- Unique constraint on `(chain_id, tx_hash, log_index, contract, token_id)`
-- Indexed by `(chain_id, contract, token_id)` and `(chain_id, tx_hash)`
+- Unique constraint on `(chain_id, tx_hash, log_index, collection_id, token_id)`
+- Indexed by `(chain_id, collection_id, token_id)`, `(chain_id, contract_address, token_id)`, and `(chain_id, tx_hash)`
 - `amount` stored as `TEXT` to preserve integer precision
 
 ### `nft_balances`
 
 ```sql
-nft_balances(chain_id, contract, token_id, owner, amount,
+nft_balances(chain_id, collection_id, contract_address, token_id, owner, amount,
              last_block_number, last_block_hash, last_block_timestamp,
              last_tx_hash, last_log_index)
 ```
 
-- Primary key: `(chain_id, contract, token_id, owner)`
+- Primary key: `(chain_id, collection_id, token_id, owner)`
 - Canonical current ownership table after bootstrap completion
 - Attribution columns capture the last onchain event that changed the balance
 
@@ -133,6 +133,36 @@ Current v1 constraint:
 - primary key is `(chain_id, collection_id)`
 - this means exactly one extension install row per collection in the current design
 
+### `bootstrap_runs`
+
+Defined in `014_bootstrap_runs.sql`.
+
+Purpose:
+
+- records the durable bootstrap request and lifecycle state per collection run
+- persists request-time identity decisions that the bootstrap worker must honor later
+
+Key columns:
+
+- `chain_id`
+- `collection_id`
+- `request_slug`
+- `request_opensea_slug`
+- `request_address`
+- `request_standard`
+- `request_extension_key`
+- `metadata_mode`
+- `enumeration_mode`
+- `manual_token_ids_json`
+- `manual_range_start_token_id`
+- `manual_range_total_supply`
+- `status`
+
+Important contract:
+
+- `request_extension_key` is resolved during bootstrap run creation from `chain_id + contract_address + token_scope`
+- bootstrap-worker later installs that requested embedded extension by `collection_id`, without re-resolving by contract
+
 ### `nft_balance_snapshots`
 
 Temporary ownership snapshot table used during collection bootstrap.
@@ -151,6 +181,7 @@ Important column groups:
 - identity / scope
     - `id`
     - `chain_id`
+    - `collection_id`
     - `kind`
     - `side`
     - `source`
@@ -291,6 +322,7 @@ Key columns:
 
 - identity
     - `chain_id`
+    - `collection_id`
     - `contract_address`
     - `token_id`
     - `extension_key`
@@ -308,9 +340,9 @@ Key columns:
 
 Important semantics:
 
-- primary key is `(chain_id, contract_address, token_id, extension_key, artifact_ref)`
+- primary key is `(chain_id, collection_id, token_id, extension_key, artifact_ref)`
 - writes are upserts, so the table holds current artifact state rather than history
-- foreign key references `tokens(chain_id, contract_address, token_id)`
+- foreign key references `tokens(chain_id, collection_id, token_id)`
     - canonical token rows must exist first
     - this is why collection-extension refresh runs only after canonical metadata persistence succeeds
 
@@ -360,7 +392,7 @@ Important operations:
 
 - marks missing previously-active orders `source_status = inactive`
 - does **not** mark them `cancelled`
-- scope is `(chain_id, source, contract_address)` plus `id NOT IN (...)`
+- scope is `(chain_id, collection_id, source)` plus `id NOT IN (...)`
 
 ### Orders domain storage (`indexer/src/infra/domain/orders.ts`)
 

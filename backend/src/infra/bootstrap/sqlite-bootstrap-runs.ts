@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import {
     normalizeAddressRef,
     normalizeSlugRef,
@@ -57,6 +58,7 @@ type BootstrapRunDbRow = {
     request_opensea_slug: string | null;
     request_address: string;
     request_standard: string;
+    request_extension_key: CollectionExtensionKey | null;
     metadata_mode: "strict" | "best_effort";
     enumeration_mode: "enumerable" | "manual_token_ids" | "manual_range";
     manual_token_ids_json: string | null;
@@ -184,6 +186,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         requestOpenseaSlug: string | null;
         requestAddress: string;
         requestStandard: string;
+        requestExtensionKey: CollectionExtensionKey | null;
         metadataMode: string;
         enumerationMode: string;
         manualTokenIdsJson: string | null;
@@ -192,20 +195,20 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         deploymentBlock: number | null;
     }>(
         "INSERT INTO bootstrap_runs " +
-            "(chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status) " +
-            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @deploymentBlock, 'requested')",
+            "(chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status) " +
+            "VALUES (@chainId, @collectionId, @requestSlug, @requestOpenseaSlug, @requestAddress, @requestStandard, @requestExtensionKey, @metadataMode, @enumerationMode, @manualTokenIdsJson, @manualRangeStartTokenId, @manualRangeTotalSupply, @deploymentBlock, 'requested')",
     );
 
     private selectLatestRun = db.prepare<{
         chainId: number;
         collectionId: number;
     }>(
-        "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+        "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
             "FROM bootstrap_runs WHERE chain_id = @chainId AND collection_id = @collectionId ORDER BY run_id DESC LIMIT 1",
     );
 
     private selectRunById = db.prepare<{ chainId: number; runId: number }>(
-        "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+        "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
             "FROM bootstrap_runs WHERE chain_id = @chainId AND run_id = @runId LIMIT 1",
     );
 
@@ -378,6 +381,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
         requestOpenseaSlug: string | null;
         requestAddress: string;
         requestStandard: "erc721" | "erc1155";
+        requestExtensionKey: CollectionExtensionKey | null;
         metadataMode: "strict" | "best_effort";
         enumerationMode: "enumerable" | "manual_token_ids" | "manual_range";
         manualTokenIdsJson: string | null;
@@ -493,7 +497,7 @@ export class SqliteBootstrapRunsRepository implements BootstrapRunsWritePort {
             values.push(params.cursorRunId);
         }
         const sql =
-            "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
+            "SELECT run_id, chain_id, collection_id, request_slug, request_opensea_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp, error_code, error_message, created_at, updated_at, finished_at " +
             "FROM bootstrap_runs " +
             `WHERE ${where.join(" AND ")} ` +
             "ORDER BY run_id DESC LIMIT ?";
@@ -620,6 +624,7 @@ function mapRun(row: BootstrapRunDbRow): BootstrapRunRow {
         requestOpenseaSlug: row.request_opensea_slug,
         requestAddress: row.request_address,
         requestStandard: row.request_standard as "erc721" | "erc1155",
+        requestExtensionKey: row.request_extension_key,
         metadataMode: row.metadata_mode,
         enumerationMode: row.enumeration_mode,
         manualTokenIdsJson: row.manual_token_ids_json,

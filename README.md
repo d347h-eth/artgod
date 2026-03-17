@@ -253,7 +253,7 @@ Per-collection bootstrap flow:
 
 1. Register collection (`status = bootstrapping`).
 2. Pick anchor block (`head - reorgDepth`).
-3. Auto-install any embedded collection extension for the collection contract.
+3. Auto-install any embedded collection extension whose build-bundled match exactly fits the collection contract plus token scope.
 4. Run metadata snapshot first (strict or `best_effort` mode).
 5. Fan out collection-extension artifact refresh jobs as non-blocking side-effects behind canonical metadata writes.
 6. Run ownership snapshot at the same anchor.

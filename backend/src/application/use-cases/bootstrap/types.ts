@@ -1,4 +1,5 @@
 import type { ChainRecord } from "@artgod/shared/types/browse";
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 
 export type BootstrapMetadataMode = "strict" | "best_effort";
 
@@ -45,6 +46,7 @@ export type BootstrapRunRow = {
     requestOpenseaSlug: string | null;
     requestAddress: string;
     requestStandard: "erc721" | "erc1155";
+    requestExtensionKey: CollectionExtensionKey | null;
     metadataMode: BootstrapMetadataMode;
     enumerationMode: BootstrapEnumerationMode;
     manualTokenIdsJson: string | null;

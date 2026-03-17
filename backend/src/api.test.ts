@@ -12,6 +12,8 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
+const EMBEDDED_TERRAFORMS_MAIN_ADDRESS =
+    "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 
@@ -560,6 +562,46 @@ describe("backend api routes", () => {
         expect(status.statusCode).toBe(200);
         expect(status.payload.collection.address).toBe(TERRAFORMS_ADDRESS);
         expect(status.payload.latestRun.runId).toBe(create.payload.runId);
+    });
+
+    it("persists embedded extension key when bootstrap scope matches", async () => {
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:3000",
+            origin: "http://127.0.0.1:5173",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        const create = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            {
+                slug: "terraforms-embedded-extension",
+                address: EMBEDDED_TERRAFORMS_MAIN_ADDRESS,
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+            },
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+        expect(create.statusCode).toBe(200);
+
+        const row = db
+            .prepare<
+                [number]
+            >("SELECT request_extension_key FROM bootstrap_runs WHERE run_id = ? LIMIT 1")
+            .get(create.payload.runId) as
+            | { request_extension_key: string | null }
+            | undefined;
+        expect(row?.request_extension_key).toBe(
+            COLLECTION_EXTENSION_KEYS.Terraforms,
+        );
     });
 
     it("lists bootstrap runs and returns run detail", async () => {

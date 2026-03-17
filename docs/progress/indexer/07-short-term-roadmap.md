@@ -12,9 +12,9 @@ This roadmap ranks the most important missing capabilities from the blueprint an
 
 - Persist calldata for txs that emitted relevant events and enrich tables with block/tx attribution.
 
-3. OnChainData expansion + domain job scaffolding
+3. Collection-scoped OnChainData + domain job scaffolding
 
-- Extend OnChainData to include order/fill/cancel signals and maker triggers; add queues and handlers to route them.
+- Keep token-scoped onchain signals resolved to `collectionId` before downstream jobs and split broader invalidation signals into explicit global triggers.
 
 4. Reorg rollback completeness
 
@@ -40,7 +40,7 @@ This roadmap ranks the most important missing capabilities from the blueprint an
 
 ### Phase 3: OnChainData + Orderbook Scaffolding
 
-[x] Extend OnChainData with fill/cancel/order/maker triggers (stubs allowed)
+[x] Extend OnChainData with collection-scoped fill/order/metadata signals and explicit global triggers
 [x] Add order update queues (by maker / by id)
 [x] Wire new domain jobs from sync worker (no-op handlers ok)
 

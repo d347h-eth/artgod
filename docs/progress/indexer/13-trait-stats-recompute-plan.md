@@ -20,12 +20,12 @@ Scope is intentionally narrow: reliable recompute for ERC-721 collections, no in
 ### `collection_trait_stats`
 
 - `chain_id INTEGER NOT NULL`
-- `contract_address TEXT NOT NULL`
+- `collection_id INTEGER NOT NULL`
 - `attribute_key_id INTEGER NOT NULL`
 - `attribute_id INTEGER NOT NULL`
 - `token_count INTEGER NOT NULL`
 - `updated_at TEXT DEFAULT CURRENT_TIMESTAMP`
-- `PRIMARY KEY (chain_id, contract_address, attribute_id)`
+- `PRIMARY KEY (chain_id, collection_id, attribute_id)`
 
 Notes:
 
@@ -34,7 +34,7 @@ Notes:
 
 ## Recompute Algorithm (Phase 1)
 
-Input: `chain_id + contract_address`.
+Input: `chain_id + collection_id`.
 
 1. Build aggregated counts from normalized rows:
     - `token_attributes` -> `attributes` -> `attribute_keys`
@@ -57,7 +57,7 @@ Why recompute-first:
 - `domain.metadata.stats-recompute`
 - payload:
     - `chainId`
-    - `contract`
+    - `collectionId`
     - `reason` (`metadata-sync`, `metadata-refresh`, `bootstrap-finalized`, `reorg-resync`)
     - `sourceJobId?`
 
@@ -69,7 +69,7 @@ Why recompute-first:
 ### Idempotency / dedupe
 
 - Use deterministic `jobId` key:
-    - `metadata:stats:${chainId}:${contract}:${reason}:${timeBucket}`
+    - `metadata:stats:${chainId}:${collectionId}:${reason}:${timeBucket}`
 - Use `10s` bucket dedupe to avoid queue storms during backfill.
 
 ## Trigger Points
@@ -89,7 +89,7 @@ Phase 2 triggers (later):
 
 First pass query should join stats rows to attributes/keys:
 
-- filter by `chain_id + contract_address`
+- filter by `chain_id + collection_id`
 - return:
     - `key`
     - `value`

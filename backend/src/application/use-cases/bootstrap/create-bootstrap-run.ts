@@ -4,6 +4,12 @@ import {
     type CreateBootstrapRunInput,
     type CreateBootstrapRunOutput,
 } from "./types.js";
+import {
+    EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
+    resolveEmbeddedCollectionExtensionInstall,
+    type CollectionExtensionKey,
+    type EmbeddedCollectionExtensionScope,
+} from "@artgod/shared/extensions";
 import type {
     BootstrapCommandQueuePort,
     BootstrapRunsWritePort,
@@ -40,6 +46,11 @@ export class CreateBootstrapRunUseCase {
         const enumeration = resolveEnumerationInput(
             input.supportsEnumerable,
             input.manualInput,
+        );
+        const requestExtensionKey = resolveRequestedExtensionKey(
+            chain.publicChainId,
+            address,
+            enumeration,
         );
 
         const existing = this.bootstrapRunsPort.findCollectionBySlug(
@@ -101,6 +112,7 @@ export class CreateBootstrapRunUseCase {
             requestOpenseaSlug: openseaSlug,
             requestAddress: address,
             requestStandard: "erc721",
+            requestExtensionKey,
             metadataMode,
             enumerationMode: enumeration.mode,
             manualTokenIdsJson: enumeration.manualTokenIdsJson,
@@ -149,6 +161,67 @@ export class CreateBootstrapRunUseCase {
             createdAt,
         };
     }
+}
+
+function resolveRequestedExtensionKey(
+    chainId: number,
+    address: string,
+    enumeration: {
+        tokenScopeKind:
+            | "contract_all_tokens"
+            | "token_range"
+            | "explicit_token_ids";
+        scopeStartTokenId: string | null;
+        scopeTotalSupply: number | null;
+        explicitTokenIds: string[];
+    },
+): CollectionExtensionKey | null {
+    const install = resolveEmbeddedCollectionExtensionInstall({
+        chainId,
+        contractAddress: address,
+        scope: toEmbeddedCollectionExtensionScope(enumeration),
+    });
+    return install?.extensionKey ?? null;
+}
+
+function toEmbeddedCollectionExtensionScope(input: {
+    tokenScopeKind:
+        | "contract_all_tokens"
+        | "token_range"
+        | "explicit_token_ids";
+    scopeStartTokenId: string | null;
+    scopeTotalSupply: number | null;
+    explicitTokenIds: string[];
+}): EmbeddedCollectionExtensionScope {
+    switch (input.tokenScopeKind) {
+        case EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens:
+            return {
+                kind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.AllContractTokens,
+            };
+        case EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange:
+            if (
+                input.scopeStartTokenId === null ||
+                input.scopeTotalSupply === null
+            ) {
+                throw new BootstrapValidationError(
+                    "Token-range scope requires start token and supply",
+                );
+            }
+            return {
+                kind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.TokenRange,
+                startTokenId: input.scopeStartTokenId,
+                totalSupply: input.scopeTotalSupply,
+            };
+        case EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds:
+            return {
+                kind: EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND.ExplicitTokenIds,
+                tokenIds: input.explicitTokenIds,
+            };
+    }
+
+    throw new BootstrapValidationError(
+        `Unsupported token scope kind: ${String(input.tokenScopeKind)}`,
+    );
 }
 
 function normalizeSlug(raw: string): string {

@@ -1,7 +1,10 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import { resolveEmbeddedCollectionExtensionInstall } from "@artgod/shared/extensions";
+import {
+    resolveEmbeddedCollectionExtensionInstallByKey,
+    type CollectionExtensionKey,
+} from "@artgod/shared/extensions";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -359,11 +362,11 @@ async function handleBootstrapStart(
         return;
     }
 
-    ensureEmbeddedCollectionExtensionInstalled(
+    ensureRequestedCollectionExtensionInstalled(
         collectionExtensions,
         run.chainId,
         run.collectionId,
-        run.requestAddress,
+        run.requestExtensionKey,
     );
 
     try {
@@ -876,27 +879,29 @@ async function processSingleMetadataTask(
     }
 }
 
-function ensureEmbeddedCollectionExtensionInstalled(
+function ensureRequestedCollectionExtensionInstalled(
     collectionExtensions: CollectionExtensionInstallPort,
     chainId: number,
     collectionId: number,
-    contractAddress: string,
+    extensionKey: CollectionExtensionKey | null,
 ): void {
-    const existing = collectionExtensions.getInstall(chainId, collectionId);
-    if (existing) {
+    if (!extensionKey) {
         return;
     }
-    const embedded = resolveEmbeddedCollectionExtensionInstall({
+
+    const embedded = resolveEmbeddedCollectionExtensionInstallByKey({
         chainId,
-        contractAddress,
+        extensionKey,
     });
     if (!embedded) {
-        return;
+        throw new Error(
+            `Embedded collection extension config missing for ${chainId}:${extensionKey}`,
+        );
     }
     collectionExtensions.upsertInstall({
         chainId,
         collectionId,
-        extensionKey: embedded.extensionKey,
+        extensionKey,
         enabled: true,
         configJson: embedded.configJson,
     });

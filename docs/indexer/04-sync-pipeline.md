@@ -30,7 +30,7 @@ The sync worker:
     - Resolves enabled collection-extension watch specs for the targeted collections.
     - Fetches full block details for the same range.
     - Persists results via SQLite storage.
-    - Publishes domain sync jobs (orders, metadata, activities) and order update jobs.
+    - Publishes domain sync jobs (orders, metadata, activities), collection-scoped metadata refresh jobs, and order update jobs.
 
 The worker uses `maxInFlight = 1` to keep block processing strictly ordered within each queue.
 
@@ -40,7 +40,7 @@ Backfill jobs use `RPC_BACKFILL_URL` when configured; realtime jobs always use `
 
 The sync logic lives in `indexer/src/application/sync.ts`:
 
-- Uses viem `getLogs()` with `events` filtering (Transfer events only).
+- Uses viem `getLogs()` with `events` filtering across transfer events, ERC-4906 metadata refresh logs, Seaport logs, and collection-extension watch specs.
 - Supports both ERC721 and ERC1155 transfers.
 - Logs are decoded with `decodeEventLog` against the ABI defined in `indexer/src/abi/index.ts`.
 - Each log is converted into a minimal `EnhancedEvent` structure containing:
@@ -51,15 +51,24 @@ The resulting data is returned as:
 
 ```
 OnChainData = {
-  nftTransferEvents: NftTransferEvent[];
-  nftBalanceDeltas: NftBalanceDelta[];
   transactions: TransactionRecord[];
-  fillEvents: FillEvent[];
-  cancelEvents: CancelEvent[];
-  orderInfos: OrderInfo[];
-  makerInfos: MakerInfo[];
+  collectionScoped: {
+    nftTransferEvents: NftTransferEvent[];
+    nftBalanceDeltas: NftBalanceDelta[];
+    fillEvents: FillEvent[];
+    orderInfos: OrderInfo[];
+    makerTriggers: TokenScopedMakerTrigger[];
+    metadataRefreshEvents: MetadataRefreshEvent[];
+    metadataRefreshRangeEvents: MetadataRefreshRangeEvent[];
+  };
+  global: {
+    cancelEvents: CancelEvent[];
+    makerTriggers: GlobalMakerTrigger[];
+  };
 }
 ```
+
+Collection-scoped events are resolved to a concrete `collectionId` inside `sync.ts` before they leave the sync boundary. Only broader invalidation signals stay in the `global` bucket.
 
 Balance deltas are produced for each transfer event. ERC721 generates +/-1 deltas; ERC1155 uses the transfer amount.
 
@@ -71,11 +80,11 @@ Transactions associated with transfer events are persisted into SQLite so downst
 
 Each transaction is also paired with its receipt logs. The receipt logs are not persisted, but they are used during fill decoding to enrich prices for ERC20-denominated fills (by summing ERC20 `Transfer` logs from the payer within the same transaction).
 
-Seaport fills are decoded from transaction calldata (no traces) and emitted as `fillEvents` when the tx calls a Seaport exchange and references a tracked collection. ERC20-denominated fills are enriched with prices inferred from receipt logs. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `cancelEvents`/`orderInfos` (criteria-based orders are skipped for now). Counter increments emit maker triggers (`order-counter`).
+Seaport fills are decoded from transaction calldata (no traces) and emitted as collection-scoped `fillEvents` when the tx calls a Seaport exchange and references a tracked collection. ERC20-denominated fills are enriched with prices inferred from receipt logs. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `global.cancelEvents` / collection-scoped `orderInfos` (criteria-based orders are skipped for now). Counter increments emit global maker triggers (`order-counter`).
 
-WETH transfer/approval logs are decoded into maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the bidder index is ready and non-empty (quiet default). When the index is empty or not yet loaded, WETH logs are skipped and no maker triggers are emitted.
+WETH transfer/approval logs are decoded into global maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the bidder index is ready and non-empty (quiet default). When the index is empty or not yet loaded, WETH logs are skipped and no maker triggers are emitted.
 
-Maker triggers are re-validation hints, not unconditional cancels. NFT transfers scope to exact-token sell orders, WETH transfer/approval triggers scope to WETH-denominated buy orders, and Seaport counter bumps scope to maker-wide Seaport orders.
+Maker triggers are re-validation hints, not unconditional cancels. NFT transfers and fill-derived item movements emit token-scoped maker triggers, while WETH transfer/approval triggers and Seaport counter bumps stay global.
 
 ## Collection Extension Watch Specs
 
@@ -88,7 +97,7 @@ Each watch spec defines:
 - event filters
 - a decode function that normalizes raw logs into internal metadata refresh events/ranges
 
-The sync pipeline then executes those extra `getLogs()` calls separately from the core transfer / ERC-4906 / Seaport queries and merges the normalized outputs into the same metadata refresh fanout path used by the rest of the system.
+The sync pipeline executes those extra `getLogs()` calls separately from the core transfer / ERC-4906 / Seaport queries and merges the normalized outputs into the same collection-scoped metadata refresh fanout path used by the rest of the system.
 
 Current Terraforms watch specs:
 
@@ -101,6 +110,7 @@ Current Terraforms watch specs:
 
 All of these normalize to token-level metadata refresh events with:
 
+- `collectionId` already resolved from the install
 - `reason = "collection-extension"`
 - `trigger = "terraforms.extension-event"`
 
@@ -142,6 +152,11 @@ Order maintenance then continues through dedicated update queues:
 
 - `orders.update-by-maker`
 - `orders.update-by-id`
+
+`orders.update-by-maker` now carries a discriminated scope:
+
+- token-scoped updates include `collectionId + tokenId`
+- global updates carry maker-wide invalidation reasons only
 
 The collection bootstrap worker also uses the sync pipeline for short-range bootstrap backfill. These bootstrap-published backfill jobs are collection-scoped so completion checks only track the intended collection.
 

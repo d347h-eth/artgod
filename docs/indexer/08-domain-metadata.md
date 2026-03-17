@@ -22,16 +22,16 @@ Metadata refreshes are handled out-of-band via `domain.metadata.refresh` jobs. T
 
 - **On-chain triggers**: the sync pipeline decodes ERC‑4906 `MetadataUpdate` / `BatchMetadataUpdate` logs via the trigger registry in `indexer/src/application/metadata/refresh-triggers.ts`.
 - `MetadataUpdate` publishes token-level refresh jobs.
-- `BatchMetadataUpdate` publishes range refresh jobs (`domain.metadata.refresh-range`) with a queue cursor.
+- `BatchMetadataUpdate` publishes collection-scoped range refresh jobs (`domain.metadata.refresh-range`) with a queue cursor.
 - The domain worker processes range jobs in chunks (`METADATA_REFRESH_RANGE_CHUNK_SIZE`) and re-enqueues the next cursor until complete.
-- **Offchain triggers**: the OpenSea stream `item_metadata_updated` event is normalized into a refresh job with a known `contract` + `tokenId`.
+- **Offchain triggers**: the OpenSea stream `item_metadata_updated` event is normalized into a refresh job with a known `collectionId + tokenId`.
 
-The refresh job payload carries a reason/source string so the metadata domain can log what triggered the refresh. The trigger registry is the extension point for future collection-specific metadata update events.
+The refresh job payload carries a reason/source string so the metadata domain can log what triggered the refresh. `collectionId` is the authoritative job anchor; contract address is derived from the collection row only when the metadata domain needs onchain reads such as `tokenURI(...)`.
 
 Collection extensions already participate in this path in v1, but through sync-worker enrichment rather than through the core ERC-4906 trigger registry:
 
 - sync-worker resolves enabled extension watch specs for the tracked collections
-- extension-specific logs are normalized into the same metadata refresh job shapes
+- extension-specific logs are normalized into the same collection-scoped metadata refresh job shapes
 - domain-worker consumes those jobs exactly like any other metadata refresh trigger
 
 ## Trait Stats Recompute
@@ -50,7 +50,7 @@ Trait counts are recomputed into `collection_trait_stats` through `domain.metada
 
 For each block range:
 
-- Query `nft_transfer_events` grouped by `(contract, token_id, kind)`.
+- Query `nft_transfer_events` grouped by `(collection_id, token_id, kind)`.
 - For each token, skip if metadata already exists in `token_metadata`.
 
 ## URI Resolution

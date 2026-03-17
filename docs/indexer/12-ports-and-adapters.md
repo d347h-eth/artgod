@@ -100,7 +100,6 @@ Provides two related storage-facing responsibilities:
 
 - install registry access
     - get install by collection
-    - get install by contract
     - list enabled installs
     - upsert install rows
 - artifact and normalized-token reads
@@ -119,7 +118,8 @@ The original design discussion considered a single dedicated top-level extension
 Current responsibilities:
 
 - define known extension keys
-- resolve embedded installs by `chainId + contractAddress`
+- resolve embedded installs by `chainId + contractAddress + tokenScope` during bootstrap run creation
+- resolve persisted embedded install definitions by `chainId + extensionKey` during bootstrap worker install
 - validate extension-owned config JSON
 - define stable artifact refs used across indexer and backend
 

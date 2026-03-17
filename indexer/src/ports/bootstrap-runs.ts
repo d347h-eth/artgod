@@ -1,3 +1,5 @@
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+
 export type BootstrapRunDefinition = {
     runId: number;
     chainId: number;
@@ -5,6 +7,7 @@ export type BootstrapRunDefinition = {
     requestSlug: string;
     requestAddress: string;
     requestStandard: "erc721" | "erc1155";
+    requestExtensionKey: CollectionExtensionKey | null;
     metadataMode: "strict" | "best_effort";
     enumerationMode: "enumerable" | "manual_token_ids" | "manual_range";
     manualTokenIdsJson: string | null;

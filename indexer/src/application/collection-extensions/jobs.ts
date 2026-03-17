@@ -11,9 +11,8 @@ export function buildCollectionExtensionRefreshArtifactsJob(
     traceId: string,
 ): JobEnvelope<CollectionExtensionRefreshArtifactsPayload> {
     const contract = payload.contract.toLowerCase();
-    const scopeKey = payload.collectionId ?? contract;
     return {
-        jobId: `collection-extension:artifacts:${payload.chainId}:${scopeKey}:${payload.tokenId}:${payload.reason}`,
+        jobId: `collection-extension:artifacts:${payload.chainId}:${payload.collectionId}:${payload.tokenId}:${payload.reason}`,
         kind: COLLECTION_EXTENSION_JOB_KIND.RefreshArtifacts,
         queue: QUEUE_NAMES.CollectionExtensionArtifacts,
         payload: {
@@ -23,7 +22,7 @@ export function buildCollectionExtensionRefreshArtifactsJob(
         attempt: 0,
         scheduledAt: Date.now(),
         chainId: payload.chainId,
-        collectionId: payload.collectionId ?? undefined,
+        collectionId: payload.collectionId,
         traceId,
     };
 }

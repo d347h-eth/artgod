@@ -38,7 +38,7 @@ type JobEnvelope<TPayload> = {
   attempt: number;
   scheduledAt: number;
   traceId?: string;
-  collectionId?: string;
+  collectionId?: number;
   chainId: number;
 }
 ```
@@ -120,6 +120,11 @@ DLQ payload:
 
 Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected. Offchain ingest also emits order update jobs for OpenSea fill/transfer side-effects and explicit order status changes.
 
+`orders.update-by-maker` now uses a scoped payload contract:
+
+- token-scoped updates include `scope = token`, `collectionId`, and `tokenId`
+- global updates include `scope = global` and omit collection/token attribution
+
 - OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
     - `opensea.collection.bootstrap`
     - `opensea.collection.reconcile`
@@ -156,7 +161,7 @@ Order update jobs are emitted by the sync worker whenever maker state changes (N
 These jobs are consumed by `collection-extension-worker` and carry:
 
 - `chainId`
-- optional `collectionId`
+- `collectionId`
 - `contract`
 - `tokenId`
 - `reason`

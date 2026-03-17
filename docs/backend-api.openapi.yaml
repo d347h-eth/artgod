@@ -552,7 +552,6 @@ components:
                     type: integer
                 slug:
                     type: string
-                    nullable: true
                 address:
                     type: string
                 standard:
@@ -910,8 +909,10 @@ components:
                 - chainId
                 - collectionId
                 - requestSlug
+                - requestOpenseaSlug
                 - requestAddress
                 - requestStandard
+                - requestExtensionKey
                 - metadataMode
                 - enumerationMode
                 - manualTokenIdsJson
@@ -937,10 +938,16 @@ components:
                     type: integer
                 requestSlug:
                     type: string
+                requestOpenseaSlug:
+                    type: string
+                    nullable: true
                 requestAddress:
                     type: string
                 requestStandard:
                     $ref: "#/components/schemas/CollectionStandard"
+                requestExtensionKey:
+                    type: string
+                    nullable: true
                 metadataMode:
                     $ref: "#/components/schemas/BootstrapMetadataMode"
                 enumerationMode:
@@ -1072,7 +1079,6 @@ components:
                     type: integer
                 slug:
                     type: string
-                    nullable: true
                 address:
                     type: string
                 status:
@@ -1205,7 +1211,6 @@ components:
                     type: integer
                 slug:
                     type: string
-                    nullable: true
                 address:
                     type: string
                 standard:
@@ -1255,6 +1260,9 @@ components:
                 address:
                     type: string
                     description: Lower/upper case accepted, normalized to lowercase by backend
+                openseaSlug:
+                    type: string
+                    nullable: true
                 standard:
                     type: string
                     enum: [erc721]

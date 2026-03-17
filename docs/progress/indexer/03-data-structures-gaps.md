@@ -6,13 +6,16 @@ This file lists items described in `docs/blueprint/03-data-structures.md` that a
 
 The current `OnChainData` includes:
 
-- `nftTransferEvents`
-- `nftBalanceDeltas`
 - `transactions`
-- `fillEvents` (stubbed, no extraction yet)
-- `cancelEvents` (stubbed, no extraction yet)
-- `orderInfos` (stubbed, no extraction yet)
-- `makerInfos` (derived from NFT transfers only)
+- `collectionScoped.nftTransferEvents`
+- `collectionScoped.nftBalanceDeltas`
+- `collectionScoped.fillEvents`
+- `collectionScoped.orderInfos`
+- `collectionScoped.metadataRefreshEvents`
+- `collectionScoped.metadataRefreshRangeEvents`
+- `collectionScoped.makerTriggers`
+- `global.cancelEvents`
+- `global.makerTriggers`
 
 Still missing from the blueprint accumulator:
 
@@ -24,13 +27,15 @@ Still missing from the blueprint accumulator:
 
 ## Order and Fill Models
 
-- No `fills` table or persistence logic.
-- No logic to update orders to `filled` or to track partial fills.
+- `fills` persistence exists.
+- Order invalidation/update flows exist for fill/cancel/maker-trigger paths.
+- Partial-fill semantics remain limited.
 
 ## Maker Trigger Pattern
 
-- Maker triggers exist and are derived from NFT transfers only.
-- No ERC20 balance/approval-based maker triggers yet.
+- Maker triggers are split into token-scoped and global forms.
+- NFT transfers and fill-derived item movement produce token-scoped triggers.
+- ERC20 balance/approval and Seaport counter invalidations produce global triggers.
 
 ## Transfer Uniqueness
 

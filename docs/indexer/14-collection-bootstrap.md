@@ -32,7 +32,7 @@ Each collection starts outside the indexed set. When the user adds a collection,
 
 ### 3. Auto-install embedded collection extension
 
-Before metadata tasks start, bootstrap checks whether the collection contract matches a known embedded extension definition.
+During bootstrap run creation, the system checks whether the requested collection contract plus token scope exactly matches a known embedded extension definition. If it does, the run stores the requested extension key. During bootstrap start, the worker installs that requested extension onto the resolved `collection_id`.
 
 If it does:
 
@@ -87,10 +87,10 @@ After local metadata + ownership are available, bootstrap enqueues an OpenSea bo
 
 That OpenSea flow does:
 
-1. resolve OpenSea slug from collection contract
-2. persist the slug in `collections.opensea_slug`
+1. read the persisted `collections.opensea_slug`
+2. mark OpenSea lifecycle state pending/running for that collection
 3. start the initial OpenSea orderbook snapshot
-4. let the stream worker subscribe using the persisted slug
+4. let the stream worker subscribe using the persisted slug when the snapshot path completes
 
 This OpenSea work runs in parallel with the short onchain backfill.
 
@@ -148,7 +148,7 @@ A collection should be considered ownership-correct once:
 
 A collection should be considered OpenSea-ready once:
 
-- slug resolution succeeded
+- an explicit OpenSea slug was provided and persisted
 - initial snapshot succeeded
 - `collections.opensea_status = ready`
 

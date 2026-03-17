@@ -47,7 +47,7 @@ sequenceDiagram
 
     NATS-->>Bootstrap: bootstrap.collection.start
     Bootstrap->>RPC: Read head
-    Bootstrap->>DB: Set collection bootstrapping + anchor + auto-install embedded extension
+    Bootstrap->>DB: Set collection bootstrapping + anchor + install requested embedded extension
     Bootstrap->>RPC: Metadata snapshot
     Bootstrap->>DB: Persist metadata
     Bootstrap->>NATS: Publish collection-extension.refresh-artifacts
@@ -60,8 +60,7 @@ sequenceDiagram
     Bootstrap->>NATS: Publish opensea.collection.bootstrap job
 
     NATS-->>OSBoot: OpenSea bootstrap job
-    OSBoot->>OSAPI: Resolve collection by contract
-    OSBoot->>DB: Persist OpenSea slug + snapshot status
+    OSBoot->>DB: Load persisted OpenSea slug + mark snapshot status
     OSBoot->>OSAPI: Fetch full orderbook pages
     OSBoot->>NATS: Publish offchain.order.raw snapshot jobs
     OSBoot->>DB: Complete orderbook run + mark OpenSea ready
