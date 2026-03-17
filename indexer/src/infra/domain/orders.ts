@@ -1,6 +1,10 @@
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import {
+    GLOBAL_MAKER_TRIGGER_REASON,
+    MAKER_TRIGGER_SCOPE,
+} from "../../domain/maker-triggers.js";
+import {
     ORDER_LOCAL_TOKEN_SET_STATUS,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_SOURCE_SCOPE_KIND,
@@ -76,8 +80,8 @@ type OrderSourceStatusParams = OrderIdentityParams & {
 
 type MakerSellOrdersForTokenParams = {
     chainId: number;
+    collectionId: number;
     maker: string;
-    contract: string;
     tokenId: string;
 };
 
@@ -118,7 +122,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         db.prepare<MakerSellOrdersForTokenParams>(
             SELECT_ORDER_FIELDS +
                 "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
-                "AND contract_address = @contract AND token_id = @tokenId " +
+                "AND collection_id = @collectionId AND token_id = @tokenId " +
                 "AND seaport_data_json IS NOT NULL",
         );
     private selectMakerWethBuyOrders = db.prepare<MakerWethBuyOrdersParams>(
@@ -411,41 +415,28 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         payload: OrderUpdateByMakerPayload,
     ): OrderRow[] {
         const maker = payload.maker.toLowerCase();
+        if (payload.scope === MAKER_TRIGGER_SCOPE.Token) {
+            return this.selectMakerSellOrdersForToken.all({
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+                maker,
+                tokenId: payload.tokenId,
+            }) as OrderRow[];
+        }
+
         switch (payload.reason) {
-            case "nft-transfer":
-            case "item_sold":
-            case "item_transferred":
-                if (!payload.contract || payload.tokenId === undefined) {
-                    logger.debug(
-                        "Orders update-by-maker ignored (missing token scope)",
-                        {
-                            component: "OrdersDomain",
-                            action: "handleOrderUpdateByMaker",
-                            ...payload,
-                        },
-                    );
-                    return [];
-                }
-                return this.selectMakerSellOrdersForToken.all({
-                    chainId: payload.chainId,
-                    maker,
-                    contract: payload.contract.toLowerCase(),
-                    tokenId: payload.tokenId,
-                }) as OrderRow[];
-            case "erc20-balance":
-            case "approval-change":
+            case GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance:
+            case GLOBAL_MAKER_TRIGGER_REASON.ApprovalChange:
                 return this.selectMakerWethBuyOrders.all({
                     chainId: payload.chainId,
                     maker,
                     currency: this.wethAddress,
                 }) as OrderRow[];
-            case "order-counter":
+            case GLOBAL_MAKER_TRIGGER_REASON.OrderCounter:
                 return this.selectMakerSeaportOrders.all({
                     chainId: payload.chainId,
                     maker,
                 }) as OrderRow[];
-            default:
-                return assertNeverReason(payload.reason);
         }
     }
 
@@ -559,10 +550,6 @@ function statusFromReason(
         default:
             return null;
     }
-}
-
-function assertNeverReason(reason: never): never {
-    throw new Error(`Unsupported order update-by-maker reason: ${reason}`);
 }
 
 function defaultLocalTokenSetStatus(

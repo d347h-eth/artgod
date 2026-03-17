@@ -239,10 +239,11 @@ export class SqliteStorage implements StoragePort {
         chainId: number,
         data: OnChainData,
         blockMeta: Map<number, BlockMeta>,
-    ): OnChainData["nftTransferEvents"] {
+    ): OnChainData["collectionScoped"]["nftTransferEvents"] {
         // Transfers are immutable; insert once (ignore duplicates).
-        const inserted: OnChainData["nftTransferEvents"] = [];
-        for (const event of data.nftTransferEvents) {
+        const inserted: OnChainData["collectionScoped"]["nftTransferEvents"] =
+            [];
+        for (const event of data.collectionScoped.nftTransferEvents) {
             const contract = event.contract.toLowerCase();
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
@@ -275,7 +276,7 @@ export class SqliteStorage implements StoragePort {
         data: OnChainData,
         blockMeta: Map<number, BlockMeta>,
     ): void {
-        for (const fill of data.fillEvents) {
+        for (const fill of data.collectionScoped.fillEvents) {
             const contract = fill.contract.toLowerCase();
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
@@ -305,7 +306,7 @@ export class SqliteStorage implements StoragePort {
 
     private applyBalanceUpdatesFromEvents(
         chainId: number,
-        events: OnChainData["nftTransferEvents"],
+        events: OnChainData["collectionScoped"]["nftTransferEvents"],
         blockMeta: Map<number, BlockMeta>,
     ): void {
         // Only apply balance deltas for newly inserted transfers (idempotent).

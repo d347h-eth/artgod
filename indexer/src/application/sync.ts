@@ -1,6 +1,7 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
 import { ERC1155_ABI, ERC721_ABI } from "../abi/index.js";
 import type { CollectionRecord } from "../domain/collections.js";
+import { TOKEN_SCOPED_MAKER_TRIGGER_REASON } from "../domain/maker-triggers.js";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
@@ -68,15 +69,20 @@ export async function syncRange(
     );
     if (addresses.length === 0) {
         return {
-            nftTransferEvents: [],
-            nftBalanceDeltas: [],
             transactions: [],
-            fillEvents: [],
-            cancelEvents: [],
-            orderInfos: [],
-            makerInfos: [],
-            metadataRefreshEvents: [],
-            metadataRefreshRangeEvents: [],
+            collectionScoped: {
+                nftTransferEvents: [],
+                nftBalanceDeltas: [],
+                fillEvents: [],
+                orderInfos: [],
+                makerTriggers: [],
+                metadataRefreshEvents: [],
+                metadataRefreshRangeEvents: [],
+            },
+            global: {
+                cancelEvents: [],
+                makerTriggers: [],
+            },
         };
     }
 
@@ -110,10 +116,10 @@ export async function syncRange(
 
     const metadataRefreshEvents: DecodedMetadataRefreshEvent[] = [];
     const metadataRefreshRangeEvents: DecodedMetadataRefreshRangeEvent[] = [];
-    const extensionMetadataRefreshEvents: OnChainData["metadataRefreshEvents"] =
-        [];
+    const extensionMetadataRefreshEvents:
+        OnChainData["collectionScoped"]["metadataRefreshEvents"] = [];
     const extensionMetadataRefreshRangeEvents:
-        OnChainData["metadataRefreshRangeEvents"] = [];
+        OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] = [];
     for (const log of metadataRefreshLogs) {
         const decoded = decodeMetadataRefreshLog(log);
         metadataRefreshEvents.push(...decoded.tokenEvents);
@@ -146,14 +152,14 @@ export async function syncRange(
         collectionScopeResolver,
     };
     const data = accumulateOnChainData(transactions, resolutionContext);
-    data.metadataRefreshEvents = [
+    data.collectionScoped.metadataRefreshEvents = [
         ...resolveMetadataRefreshEvents(
             metadataRefreshEvents,
             resolutionContext,
         ),
         ...extensionMetadataRefreshEvents,
     ];
-    data.metadataRefreshRangeEvents = [
+    data.collectionScoped.metadataRefreshRangeEvents = [
         ...resolveMetadataRefreshRangeEvents(
             metadataRefreshRangeEvents,
             resolutionContext,
@@ -161,14 +167,14 @@ export async function syncRange(
         ...extensionMetadataRefreshRangeEvents,
     ];
     const seaportEvents = decodeSeaportOrderEvents(seaportLogs, trackedContracts);
-    data.cancelEvents.push(...seaportEvents.cancels);
+    data.global.cancelEvents.push(...seaportEvents.cancels);
     for (const order of seaportEvents.orders) {
         const resolved = resolveOrderInfo(order, resolutionContext);
         if (resolved) {
-            data.orderInfos.push(resolved);
+            data.collectionScoped.orderInfos.push(resolved);
         }
     }
-    data.makerInfos.push(...seaportEvents.makerInfos);
+    data.global.makerTriggers.push(...seaportEvents.globalMakerTriggers);
     return data;
 }
 
@@ -390,15 +396,20 @@ function accumulateOnChainData(
     resolutionContext: CollectionResolutionContext,
 ): OnChainData {
     const data: OnChainData = {
-        nftTransferEvents: [],
-        nftBalanceDeltas: [],
         transactions: [],
-        fillEvents: [],
-        cancelEvents: [],
-        orderInfos: [],
-        makerInfos: [],
-        metadataRefreshEvents: [],
-        metadataRefreshRangeEvents: [],
+        collectionScoped: {
+            nftTransferEvents: [],
+            nftBalanceDeltas: [],
+            fillEvents: [],
+            orderInfos: [],
+            makerTriggers: [],
+            metadataRefreshEvents: [],
+            metadataRefreshRangeEvents: [],
+        },
+        global: {
+            cancelEvents: [],
+            makerTriggers: [],
+        },
     };
 
     for (const tx of transactions) {
@@ -408,7 +419,7 @@ function accumulateOnChainData(
             if (!transfer) {
                 continue;
             }
-            data.nftTransferEvents.push(transfer);
+            data.collectionScoped.nftTransferEvents.push(transfer);
             pushBalanceDeltas(data, transfer);
         }
         // Seaport fills are decoded from calldata (no traces) and attached per tx.
@@ -416,13 +427,16 @@ function accumulateOnChainData(
         if (fill) {
             const resolved = resolveFillEvent(fill, resolutionContext);
             if (resolved) {
-                data.fillEvents.push(resolved);
+                data.collectionScoped.fillEvents.push(resolved);
             }
         }
     }
 
-    // Maker triggers are derived from transfers for now (other triggers added later).
-    data.makerInfos = deriveMakerInfosFromTransfers(data.nftTransferEvents);
+    // Ownership-driven maker triggers are collection-scoped and derived from
+    // transfers. Broader maker triggers are appended separately by callers.
+    data.collectionScoped.makerTriggers = deriveTokenScopedMakerTriggersFromTransfers(
+        data.collectionScoped.nftTransferEvents,
+    );
 
     return data;
 }
@@ -433,7 +447,7 @@ function accumulateOnChainData(
 function toTransferEvent(
     event: EnhancedEvent,
     resolutionContext: CollectionResolutionContext,
-): OnChainData["nftTransferEvents"][number] | null {
+): OnChainData["collectionScoped"]["nftTransferEvents"][number] | null {
     const contract = event.base.contract.toLowerCase();
     const collectionId = resolveCollectionId(
         resolutionContext,
@@ -507,12 +521,12 @@ function compareEvents(a: EnhancedEvent, b: EnhancedEvent): number {
  */
 function pushBalanceDeltas(
     data: OnChainData,
-    event: OnChainData["nftTransferEvents"][number],
+    event: OnChainData["collectionScoped"]["nftTransferEvents"][number],
 ) {
     const amount = BigInt(event.amount);
     const zero = zeroAddress.toLowerCase();
     if (event.from.toLowerCase() !== zero) {
-        data.nftBalanceDeltas.push({
+        data.collectionScoped.nftBalanceDeltas.push({
             collectionId: event.collectionId,
             contract: event.contract,
             tokenId: event.tokenId,
@@ -525,7 +539,7 @@ function pushBalanceDeltas(
         });
     }
     if (event.to.toLowerCase() !== zero) {
-        data.nftBalanceDeltas.push({
+        data.collectionScoped.nftBalanceDeltas.push({
             collectionId: event.collectionId,
             contract: event.contract,
             tokenId: event.tokenId,
@@ -543,19 +557,20 @@ function pushBalanceDeltas(
  * Derive maker triggers from transfer events.
  * Maker triggers are not cancels: they request order fillability re-validation.
  */
-function deriveMakerInfosFromTransfers(
-    transfers: OnChainData["nftTransferEvents"],
-): OnChainData["makerInfos"] {
-    const out: OnChainData["makerInfos"] = [];
+function deriveTokenScopedMakerTriggersFromTransfers(
+    transfers: OnChainData["collectionScoped"]["nftTransferEvents"],
+): OnChainData["collectionScoped"]["makerTriggers"] {
+    const out: OnChainData["collectionScoped"]["makerTriggers"] = [];
     const zero = zeroAddress.toLowerCase();
     for (const event of transfers) {
         const from = event.from.toLowerCase();
         if (from === zero) continue;
         out.push({
             maker: from,
+            collectionId: event.collectionId,
             contract: event.contract,
             tokenId: event.tokenId,
-            reason: "nft-transfer",
+            reason: TOKEN_SCOPED_MAKER_TRIGGER_REASON.NftTransfer,
             blockNumber: event.blockNumber,
             blockHash: event.blockHash,
             txHash: event.txHash,
@@ -585,7 +600,7 @@ function resolveCollectionId(
 function resolveFillEvent(
     fill: DecodedFillEvent,
     resolutionContext: CollectionResolutionContext,
-): OnChainData["fillEvents"][number] | null {
+): OnChainData["collectionScoped"]["fillEvents"][number] | null {
     const contract = fill.contract.toLowerCase();
     const collectionId = resolveCollectionId(
         resolutionContext,
@@ -606,7 +621,7 @@ function resolveFillEvent(
 function resolveOrderInfo(
     order: DecodedOrderInfo,
     resolutionContext: CollectionResolutionContext,
-): OnChainData["orderInfos"][number] | null {
+): OnChainData["collectionScoped"]["orderInfos"][number] | null {
     const contract = order.contract.toLowerCase();
     const collectionId = resolveCollectionId(
         resolutionContext,
@@ -627,8 +642,9 @@ function resolveOrderInfo(
 function resolveMetadataRefreshEvents(
     events: DecodedMetadataRefreshEvent[],
     resolutionContext: CollectionResolutionContext,
-): OnChainData["metadataRefreshEvents"] {
-    const resolved: OnChainData["metadataRefreshEvents"] = [];
+): OnChainData["collectionScoped"]["metadataRefreshEvents"] {
+    const resolved: OnChainData["collectionScoped"]["metadataRefreshEvents"] =
+        [];
 
     for (const event of events) {
         const contract = event.contract.toLowerCase();
@@ -654,8 +670,9 @@ function resolveMetadataRefreshEvents(
 function resolveMetadataRefreshRangeEvents(
     events: DecodedMetadataRefreshRangeEvent[],
     resolutionContext: CollectionResolutionContext,
-): OnChainData["metadataRefreshRangeEvents"] {
-    const resolved: OnChainData["metadataRefreshRangeEvents"] = [];
+): OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] {
+    const resolved:
+        OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] = [];
 
     for (const event of events) {
         const contract = event.contract.toLowerCase();

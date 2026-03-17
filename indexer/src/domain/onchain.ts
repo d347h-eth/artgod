@@ -1,4 +1,8 @@
 import type { Hex, RpcLog } from "../ports/rpc.js";
+import type {
+    GlobalMakerTriggerReason,
+    TokenScopedMakerTriggerReason,
+} from "./maker-triggers.js";
 
 export type ChainAttribution = {
     blockNumber: number;
@@ -57,16 +61,17 @@ export type OrderInfo = CollectionScopedTokenAttribution & {
     currency?: string;
 };
 
-// Maker trigger = maker's fillability changed (balance/approval/ownership/counter).
-export type MakerInfo = ChainAttribution & {
+// Token-scoped maker trigger = ownership changed for a specific collection token.
+export type TokenScopedMakerTrigger = CollectionScopedTokenAttribution & {
     maker: string;
-    contract?: string;
-    tokenId?: string;
-    reason:
-        | "nft-transfer"
-        | "erc20-balance"
-        | "approval-change"
-        | "order-counter";
+    reason: TokenScopedMakerTriggerReason;
+};
+
+// Global maker trigger = maker-wide fillability changed, but no single collection
+// can be identified at sync time yet.
+export type GlobalMakerTrigger = ChainAttribution & {
+    maker: string;
+    reason: GlobalMakerTriggerReason;
 };
 
 // Metadata refresh trigger derived from on-chain events (e.g. ERC-4906).
@@ -92,20 +97,28 @@ export type TransactionRecord = {
     blockHash: string;
 };
 
-// OnChainData intentionally mixes collection-scoped token events with broader
-// global triggers. Transfers/fills/orders/metadata refreshes are resolved to a
-// concrete collection up front; cancels and some maker triggers remain global
-// until downstream processing because they do not identify one collection yet.
-export type OnChainData = {
+export type CollectionScopedOnChainData = {
     nftTransferEvents: NftTransferEvent[];
     nftBalanceDeltas: NftBalanceDelta[];
-    transactions: TransactionRecord[];
     fillEvents: FillEvent[];
-    cancelEvents: CancelEvent[];
     orderInfos: OrderInfo[];
-    makerInfos: MakerInfo[];
+    makerTriggers: TokenScopedMakerTrigger[];
     metadataRefreshEvents: MetadataRefreshEvent[];
     metadataRefreshRangeEvents: MetadataRefreshRangeEvent[];
+};
+
+export type GlobalOnChainTriggers = {
+    cancelEvents: CancelEvent[];
+    makerTriggers: GlobalMakerTrigger[];
+};
+
+// Sync output is split by scope on purpose:
+// - collectionScoped: work that is already resolved to one collection
+// - global: broader triggers that still need downstream lookup/orchestration
+export type OnChainData = {
+    transactions: TransactionRecord[];
+    collectionScoped: CollectionScopedOnChainData;
+    global: GlobalOnChainTriggers;
 };
 
 export type EventBase = {

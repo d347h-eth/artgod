@@ -11,8 +11,9 @@ export function buildCollectionExtensionRefreshArtifactsJob(
     traceId: string,
 ): JobEnvelope<CollectionExtensionRefreshArtifactsPayload> {
     const contract = payload.contract.toLowerCase();
+    const scopeKey = payload.collectionId ?? contract;
     return {
-        jobId: `collection-extension:artifacts:${payload.chainId}:${payload.collectionId ?? "contract"}:${contract}:${payload.tokenId}:${payload.reason}`,
+        jobId: `collection-extension:artifacts:${payload.chainId}:${scopeKey}:${payload.tokenId}:${payload.reason}`,
         kind: COLLECTION_EXTENSION_JOB_KIND.RefreshArtifacts,
         queue: QUEUE_NAMES.CollectionExtensionArtifacts,
         payload: {

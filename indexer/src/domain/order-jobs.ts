@@ -1,4 +1,10 @@
 import type { OrderSourceStatus } from "./orders.js";
+import {
+    MAKER_TRIGGER_SCOPE,
+    type GlobalMakerTriggerReason,
+    type MakerTriggerReason,
+    type TokenScopedMakerTriggerReason,
+} from "./maker-triggers.js";
 import type {
     OrderLocalTokenSetStatus,
     SeaportOrderData,
@@ -11,27 +17,36 @@ export const ORDER_JOB_KIND = {
     UpdateById: "orders.update-by-id",
     Upsert: "orders.upsert",
 } as const;
+export { MAKER_TRIGGER_SCOPE };
+export type OrderUpdateByMakerReason = MakerTriggerReason;
 
-export type OrderUpdateByMakerReason =
-    | "nft-transfer"
-    | "erc20-balance"
-    | "approval-change"
-    | "order-counter"
-    | "item_sold"
-    | "item_transferred";
-
-// Maker update = fillability changed (balance/approval/ownership), re-validate orders.
-export type OrderUpdateByMakerPayload = {
+type OrderUpdateByMakerAttribution = {
     chainId: number;
     maker: string;
-    contract?: string;
-    tokenId?: string;
-    reason: OrderUpdateByMakerReason;
     blockNumber?: number | null;
     blockHash?: string | null;
     txHash?: string | null;
     logIndex?: number | null;
 };
+
+// Maker update = fillability changed (balance/approval/ownership), re-validate orders.
+export type TokenScopedOrderUpdateByMakerPayload =
+    OrderUpdateByMakerAttribution & {
+        scope: typeof MAKER_TRIGGER_SCOPE.Token;
+        collectionId: number;
+        tokenId: string;
+        contract?: string;
+        reason: TokenScopedMakerTriggerReason;
+    };
+
+export type GlobalOrderUpdateByMakerPayload = OrderUpdateByMakerAttribution & {
+    scope: typeof MAKER_TRIGGER_SCOPE.Global;
+    reason: GlobalMakerTriggerReason;
+};
+
+export type OrderUpdateByMakerPayload =
+    | TokenScopedOrderUpdateByMakerPayload
+    | GlobalOrderUpdateByMakerPayload;
 
 // Order update by id = explicit fill/cancel/on-chain order create for a single order.
 export type OrderUpdateByIdPayload = {

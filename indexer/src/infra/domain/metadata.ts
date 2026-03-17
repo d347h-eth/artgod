@@ -30,8 +30,9 @@ type TokenRow = {
 };
 
 type MetadataRow = { uri: string };
-type CollectionStandardRow = {
+type CollectionMetadataContextRow = {
     collection_id: number;
+    address: string;
     standard: TokenStandard;
 };
 
@@ -55,8 +56,8 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
     private selectMetadata = db.prepare<[number, number, string]>(
         "SELECT uri FROM token_metadata WHERE chain_id = ? AND collection_id = ? AND token_id = ? LIMIT 1",
     );
-    private selectCollectionStandardById = db.prepare<[number, number]>(
-        "SELECT collection_id, standard FROM collections WHERE chain_id = ? AND collection_id = ? LIMIT 1",
+    private selectCollectionById = db.prepare<[number, number]>(
+        "SELECT collection_id, address, standard FROM collections WHERE chain_id = ? AND collection_id = ? LIMIT 1",
     );
     private upsertMetadata = db.prepare<{
         chainId: number;
@@ -217,15 +218,25 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         payload: MetadataRefreshPayload,
     ): Promise<MetadataRefreshResult> {
         const { chainId } = payload;
-        const contract = payload.contract.toLowerCase();
         const tokenId = payload.tokenId;
-        const collection = this.resolveCollectionStandard(
+        const collection = this.resolveCollectionMetadataContext(
             chainId,
             payload.collectionId,
         );
+        if (!collection) {
+            logger.debug("Metadata refresh skipped (missing collection)", {
+                component: "MetadataDomain",
+                action: "handleMetadataRefresh",
+                chainId,
+                collectionId: payload.collectionId,
+                tokenId,
+            });
+            return null;
+        }
 
+        const contract = collection.address.toLowerCase();
         let uri = payload.metadataUrl ?? null;
-        const tokenStandard = payload.standard ?? collection?.standard ?? null;
+        const tokenStandard = payload.standard ?? collection.standard;
         const blockNumber = payload.blockNumber;
         if (!uri) {
             const standard = tokenStandard;
@@ -263,18 +274,6 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             return null;
         }
 
-        if (!collection) {
-            logger.debug("Metadata refresh skipped (missing collection)", {
-                component: "MetadataDomain",
-                action: "handleMetadataRefresh",
-                chainId,
-                collectionId: payload.collectionId,
-                contract,
-                tokenId,
-            });
-            return null;
-        }
-
         this.persistMetadata(
             chainId,
             collection.collection_id,
@@ -306,18 +305,18 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         };
     }
 
-    private resolveCollectionStandard(
+    private resolveCollectionMetadataContext(
         chainId: number,
         collectionId: number,
-    ): CollectionStandardRow | null {
-        const row = this.selectCollectionStandardById.get(
+    ): CollectionMetadataContextRow | null {
+        const row = this.selectCollectionById.get(
             chainId,
             collectionId,
-        ) as CollectionStandardRow | undefined;
+        ) as CollectionMetadataContextRow | undefined;
         if (row) {
             return row;
         }
-        logger.debug("Metadata refresh skipped (missing collection standard)", {
+        logger.debug("Metadata refresh skipped (missing collection)", {
             component: "MetadataDomain",
             action: "handleMetadataRefresh",
             chainId,

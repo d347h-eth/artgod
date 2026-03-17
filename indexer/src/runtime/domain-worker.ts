@@ -204,23 +204,16 @@ async function main() {
                 const result = await metadataDomain.handleDomainSync(
                     toDomainContext(job),
                 );
-                const statsTargets = new Map<number, string>();
+                const statsTargets = new Set<number>();
                 for (const updated of result.updatedTokens) {
-                    if (statsTargets.has(updated.collectionId)) {
-                        continue;
-                    }
-                    statsTargets.set(
-                        updated.collectionId,
-                        updated.contract.toLowerCase(),
-                    );
+                    statsTargets.add(updated.collectionId);
                 }
-                for (const [collectionId, contract] of statsTargets) {
+                for (const collectionId of statsTargets) {
                     await publishMetadataStatsRecompute(
                         queue,
                         {
                             chainId: job.chainId,
                             collectionId,
-                            contract,
                             reason: deriveMetadataStatsReason(
                                 job.payload.sourceJobId,
                             ),
@@ -269,9 +262,6 @@ async function main() {
                             {
                                 chainId: job.chainId,
                                 collectionId: updated.collectionId,
-                                contract: (
-                                    job.payload as MetadataRefreshPayload
-                                ).contract,
                                 reason: "metadata-refresh",
                                 sourceJobId: job.jobId,
                             },
@@ -401,7 +391,6 @@ async function handleMetadataRefreshRangeJob(
     traceId: string,
     sourceJobId: string,
 ): Promise<void> {
-    const contract = payload.contract.toLowerCase();
     const { tokenIds, nextCursorTokenId } = chunkTokenIdRange(
         payload.fromTokenId,
         payload.toTokenId,
@@ -414,7 +403,6 @@ async function handleMetadataRefreshRangeJob(
         const updated = await metadataDomain.handleMetadataRefresh({
             chainId: payload.chainId,
             collectionId: payload.collectionId,
-            contract,
             tokenId,
             metadataUrl: null,
             reason: payload.reason,
@@ -425,23 +413,16 @@ async function handleMetadataRefreshRangeJob(
         }
     }
     if (updatedTokens.length > 0) {
-        const statsTargets = new Map<number, string>();
+        const statsTargets = new Set<number>();
         for (const updated of updatedTokens) {
-            if (statsTargets.has(updated.collectionId)) {
-                continue;
-            }
-            statsTargets.set(
-                updated.collectionId,
-                updated.contract.toLowerCase(),
-            );
+            statsTargets.add(updated.collectionId);
         }
-        for (const [collectionId, statsContract] of statsTargets) {
+        for (const collectionId of statsTargets) {
             await publishMetadataStatsRecompute(
                 queue,
                 {
                     chainId: payload.chainId,
                     collectionId,
-                    contract: statsContract,
                     reason: "metadata-refresh",
                     sourceJobId,
                 },
@@ -463,7 +444,7 @@ async function handleMetadataRefreshRangeJob(
         component: "IndexerDomainWorker",
         action: "handleMetadataRefreshRange",
         chainId: payload.chainId,
-        contract,
+        collectionId: payload.collectionId,
         fromTokenId: payload.fromTokenId,
         toTokenId: payload.toTokenId,
         cursorTokenId: payload.cursorTokenId,
@@ -477,11 +458,10 @@ async function handleMetadataRefreshRangeJob(
 
     const nextPayload: MetadataRefreshRangePayload = {
         ...payload,
-        contract,
         cursorTokenId: nextCursorTokenId,
     };
     const nextJob: JobEnvelope<MetadataRefreshRangePayload> = {
-        jobId: `metadata:refresh-range:${payload.chainId}:${contract}:${payload.fromTokenId}:${payload.toTokenId}:${nextCursorTokenId}`,
+        jobId: `metadata:refresh-range:${payload.chainId}:${payload.collectionId}:${payload.fromTokenId}:${payload.toTokenId}:${nextCursorTokenId}`,
         kind: DOMAIN_JOB_KIND.MetadataRefreshRange,
         queue: QUEUE_NAMES.MetadataRefresh,
         payload: nextPayload,

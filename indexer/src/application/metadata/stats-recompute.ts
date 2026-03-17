@@ -11,7 +11,6 @@ export function buildMetadataStatsRecomputeJob(
     traceId: string,
     now: number = Date.now(),
 ): JobEnvelope<MetadataStatsRecomputePayload> {
-    const contract = payload.contract.toLowerCase();
     const bucketStart =
         Math.floor(now / METADATA_STATS_DEDUPE_BUCKET_MS) *
         METADATA_STATS_DEDUPE_BUCKET_MS;
@@ -24,10 +23,7 @@ export function buildMetadataStatsRecomputeJob(
         jobId: `metadata:stats:${payload.chainId}:${payload.collectionId}:${payload.reason}:${bucketStart}`,
         kind: DOMAIN_JOB_KIND.MetadataStatsRecompute,
         queue: QUEUE_NAMES.MetadataStats,
-        payload: {
-            ...payload,
-            contract,
-        },
+        payload,
         attempt: 0,
         scheduledAt,
         chainId: payload.chainId,

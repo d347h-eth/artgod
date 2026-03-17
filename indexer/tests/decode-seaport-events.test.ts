@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import { decodeSeaportOrderEvents } from "../src/application/fills/seaport-events.js";
+import { GLOBAL_MAKER_TRIGGER_REASON } from "../src/domain/maker-triggers.js";
 import type { Hex, RpcLog } from "../src/ports/rpc.js";
 import { resolveFixturePath } from "./helpers/fixture-paths.js";
 
@@ -55,16 +56,18 @@ describe("seaport order lifecycle events", () => {
             const result = decodeSeaportOrderEvents(logs, collections);
 
             expect(result.cancels.length > 0).toBe(expectCancel);
-            expect(result.makerInfos.length > 0).toBe(expectCounter);
+            expect(result.globalMakerTriggers.length > 0).toBe(expectCounter);
             if (expectCancel && expectedOrderId) {
                 const cancel = result.cancels[0];
                 expect(cancel?.orderId).toBe(expectedOrderId);
                 expect(cancel?.maker).toBe(expectedMaker);
             }
             if (expectCounter) {
-                const maker = result.makerInfos[0];
+                const maker = result.globalMakerTriggers[0];
                 expect(maker?.maker).toBe(expectedMaker);
-                expect(maker?.reason).toBe("order-counter");
+                expect(maker?.reason).toBe(
+                    GLOBAL_MAKER_TRIGGER_REASON.OrderCounter,
+                );
             }
         },
     );

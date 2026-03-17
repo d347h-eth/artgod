@@ -1,5 +1,6 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
-import type { MakerInfo } from "../../domain/onchain.js";
+import { GLOBAL_MAKER_TRIGGER_REASON } from "../../domain/maker-triggers.js";
+import type { GlobalMakerTrigger } from "../../domain/onchain.js";
 import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
 import type { BidderIndex } from "../bidder-index.js";
 
@@ -42,8 +43,8 @@ export const WETH_EVENT_FILTERS = ERC20_EVENT_ABI as unknown as RpcEvent[];
 export function decodeWethMakerInfos(
     logs: RpcLog[],
     bidderIndex: BidderIndex,
-): MakerInfo[] {
-    const infos = new Map<string, MakerInfo>();
+): GlobalMakerTrigger[] {
+    const infos = new Map<string, GlobalMakerTrigger>();
     for (const log of logs) {
         const topic0 = log.topics[0];
         if (!topic0) continue;
@@ -54,8 +55,20 @@ export function decodeWethMakerInfos(
             const args = decoded.args as { from: string; to: string };
             const from = args.from.toLowerCase();
             const to = args.to.toLowerCase();
-            pushMakerInfo(infos, bidderIndex, from, "erc20-balance", log);
-            pushMakerInfo(infos, bidderIndex, to, "erc20-balance", log);
+            pushMakerInfo(
+                infos,
+                bidderIndex,
+                from,
+                GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance,
+                log,
+            );
+            pushMakerInfo(
+                infos,
+                bidderIndex,
+                to,
+                GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance,
+                log,
+            );
             continue;
         }
 
@@ -64,7 +77,13 @@ export function decodeWethMakerInfos(
             if (!decoded) continue;
             const args = decoded.args as { owner: string };
             const owner = args.owner.toLowerCase();
-            pushMakerInfo(infos, bidderIndex, owner, "approval-change", log);
+            pushMakerInfo(
+                infos,
+                bidderIndex,
+                owner,
+                GLOBAL_MAKER_TRIGGER_REASON.ApprovalChange,
+                log,
+            );
         }
     }
     return Array.from(infos.values());
@@ -84,10 +103,10 @@ function safeDecode(log: RpcLog, eventName: "Transfer" | "Approval") {
 }
 
 function pushMakerInfo(
-    infos: Map<string, MakerInfo>,
+    infos: Map<string, GlobalMakerTrigger>,
     bidderIndex: BidderIndex,
     maker: string,
-    reason: MakerInfo["reason"],
+    reason: GlobalMakerTrigger["reason"],
     log: RpcLog,
 ) {
     if (!maker || maker === zeroAddress) return;

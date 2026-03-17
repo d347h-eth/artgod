@@ -35,6 +35,7 @@ import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { initRuntimeMetrics } from "../metrics/runtime.js";
 import {
+    MAKER_TRIGGER_SCOPE,
     ORDER_JOB_KIND,
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
@@ -194,8 +195,9 @@ async function main() {
                     blockNumber: job.payload.blockNumber,
                     collectionIds: collections.map((collection) => collection.id),
                     blocks: blocks.length,
-                    transfers: data.nftTransferEvents.length,
-                    balanceDeltas: data.nftBalanceDeltas.length,
+                    transfers: data.collectionScoped.nftTransferEvents.length,
+                    balanceDeltas:
+                        data.collectionScoped.nftBalanceDeltas.length,
                 });
             },
             {
@@ -260,8 +262,9 @@ async function main() {
                     toBlock: job.payload.toBlock,
                     collectionIds: collections.map((collection) => collection.id),
                     blocks: blocks.length,
-                    transfers: data.nftTransferEvents.length,
-                    balanceDeltas: data.nftBalanceDeltas.length,
+                    transfers: data.collectionScoped.nftTransferEvents.length,
+                    balanceDeltas:
+                        data.collectionScoped.nftBalanceDeltas.length,
                 });
             },
             {
@@ -432,24 +435,48 @@ async function publishOrderUpdateJobs(
     chainId: number,
     data: OnChainData,
 ): Promise<void> {
-    for (const makerInfo of data.makerInfos) {
-        const maker = makerInfo.maker.toLowerCase();
-        const contract = makerInfo.contract?.toLowerCase() ?? "all";
-        const tokenId = makerInfo.tokenId ?? "all";
+    for (const makerTrigger of data.collectionScoped.makerTriggers) {
+        const maker = makerTrigger.maker.toLowerCase();
         const job: JobEnvelope<OrderUpdateByMakerPayload> = {
-            jobId: `orders:update:maker:${chainId}:${maker}:${contract}:${tokenId}:${makerInfo.blockNumber}:${makerInfo.logIndex}`,
+            jobId: `orders:update:maker:${chainId}:${maker}:${makerTrigger.collectionId}:${makerTrigger.tokenId}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
             kind: ORDER_JOB_KIND.UpdateByMaker,
             queue: QUEUE_NAMES.OrdersUpdateByMaker,
             payload: {
                 chainId,
-                maker: makerInfo.maker,
-                contract: makerInfo.contract,
-                tokenId: makerInfo.tokenId,
-                reason: makerInfo.reason,
-                blockNumber: makerInfo.blockNumber,
-                blockHash: makerInfo.blockHash,
-                txHash: makerInfo.txHash,
-                logIndex: makerInfo.logIndex,
+                scope: MAKER_TRIGGER_SCOPE.Token,
+                maker: makerTrigger.maker,
+                collectionId: makerTrigger.collectionId,
+                contract: makerTrigger.contract,
+                tokenId: makerTrigger.tokenId,
+                reason: makerTrigger.reason,
+                blockNumber: makerTrigger.blockNumber,
+                blockHash: makerTrigger.blockHash,
+                txHash: makerTrigger.txHash,
+                logIndex: makerTrigger.logIndex,
+            },
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId,
+            collectionId: makerTrigger.collectionId,
+        };
+        await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, job);
+    }
+
+    for (const makerTrigger of data.global.makerTriggers) {
+        const maker = makerTrigger.maker.toLowerCase();
+        const job: JobEnvelope<OrderUpdateByMakerPayload> = {
+            jobId: `orders:update:maker:${chainId}:${maker}:global:${makerTrigger.reason}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
+            kind: ORDER_JOB_KIND.UpdateByMaker,
+            queue: QUEUE_NAMES.OrdersUpdateByMaker,
+            payload: {
+                chainId,
+                scope: MAKER_TRIGGER_SCOPE.Global,
+                maker: makerTrigger.maker,
+                reason: makerTrigger.reason,
+                blockNumber: makerTrigger.blockNumber,
+                blockHash: makerTrigger.blockHash,
+                txHash: makerTrigger.txHash,
+                logIndex: makerTrigger.logIndex,
             },
             attempt: 0,
             scheduledAt: Date.now(),
@@ -458,7 +485,7 @@ async function publishOrderUpdateJobs(
         await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, job);
     }
 
-    for (const fill of data.fillEvents) {
+    for (const fill of data.collectionScoped.fillEvents) {
         if (!fill.orderId) continue;
         await publishOrderUpdateById(
             queue,
@@ -469,7 +496,7 @@ async function publishOrderUpdateJobs(
         );
     }
 
-    for (const cancel of data.cancelEvents) {
+    for (const cancel of data.global.cancelEvents) {
         if (!cancel.orderId) continue;
         await publishOrderUpdateById(
             queue,
@@ -480,7 +507,7 @@ async function publishOrderUpdateJobs(
         );
     }
 
-    for (const order of data.orderInfos) {
+    for (const order of data.collectionScoped.orderInfos) {
         if (!order.orderId) continue;
         await publishOrderUpdateById(
             queue,
@@ -549,8 +576,7 @@ async function publishMetadataRefreshJobs(
     data: OnChainData,
 ): Promise<void> {
     const seen = new Set<string>();
-    for (const refresh of data.metadataRefreshEvents) {
-        const contract = refresh.contract.toLowerCase();
+    for (const refresh of data.collectionScoped.metadataRefreshEvents) {
         const tokenId = refresh.tokenId;
         const collectionId = refresh.collectionId;
         const key = `${collectionId}:${tokenId}`;
@@ -564,7 +590,6 @@ async function publishMetadataRefreshJobs(
             payload: {
                 chainId,
                 collectionId,
-                contract,
                 tokenId,
                 metadataUrl: null,
                 reason: refresh.trigger,
@@ -573,13 +598,13 @@ async function publishMetadataRefreshJobs(
             attempt: 0,
             scheduledAt: Date.now(),
             chainId,
+            collectionId,
         };
         await queue.publish(QUEUE_NAMES.MetadataRefresh, job);
     }
 
     const seenRanges = new Set<string>();
-    for (const refresh of data.metadataRefreshRangeEvents) {
-        const contract = refresh.contract.toLowerCase();
+    for (const refresh of data.collectionScoped.metadataRefreshRangeEvents) {
         const key = `${refresh.collectionId}:${refresh.fromTokenId}:${refresh.toTokenId}`;
         if (seenRanges.has(key)) {
             continue;
@@ -593,7 +618,6 @@ async function publishMetadataRefreshJobs(
             payload: {
                 chainId,
                 collectionId: refresh.collectionId,
-                contract,
                 fromTokenId: refresh.fromTokenId,
                 toTokenId: refresh.toTokenId,
                 cursorTokenId: refresh.fromTokenId,
@@ -626,7 +650,7 @@ async function appendWethMakerInfos(
         events: WETH_EVENT_FILTERS,
     });
     const makers = decodeWethMakerInfos(logs, bidderIndex);
-    data.makerInfos.push(...makers);
+    data.global.makerTriggers.push(...makers);
 }
 
 async function publishOrderUpdateById(

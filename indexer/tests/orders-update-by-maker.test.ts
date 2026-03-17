@@ -3,12 +3,17 @@ import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
-import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
+import { MAKER_TRIGGER_SCOPE } from "../src/domain/order-jobs.js";
+import {
+    GLOBAL_MAKER_TRIGGER_REASON,
+    TOKEN_SCOPED_MAKER_TRIGGER_REASON,
+} from "../src/domain/maker-triggers.js";
 import {
     ORDER_STATUS,
     type OrderRecord,
     type OrderStatus,
 } from "../src/domain/orders.js";
+import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
 import { normalizeOffchainOrder } from "../src/application/offchain/normalize.js";
 import { SqliteOrdersDomain } from "../src/infra/domain/orders.js";
 import type { OffchainOrderRawPayload } from "../src/domain/offchain-jobs.js";
@@ -53,10 +58,12 @@ describe("orders update by maker", () => {
 
         await domain.handleOrderUpdateByMaker({
             chainId,
+            scope: MAKER_TRIGGER_SCOPE.Token,
+            collectionId: order.collectionId,
             maker: order.maker,
             contract: order.contract,
-            tokenId: order.tokenId ?? undefined,
-            reason: "nft-transfer",
+            tokenId: order.tokenId ?? "0",
+            reason: TOKEN_SCOPED_MAKER_TRIGGER_REASON.NftTransfer,
             blockNumber: 1,
             blockHash: "0x1",
             txHash: "0x2",
@@ -64,6 +71,48 @@ describe("orders update by maker", () => {
         });
 
         expect(getFillabilityStatus(order.orderId)).toBe(ORDER_STATUS.Fillable);
+        expect(validatedOrderIds).toEqual([order.orderId]);
+    });
+
+    it("scopes nft-transfer revalidation by collectionId for sibling collections on one contract", async () => {
+        const chainId = 1;
+        const fixture = await readFixture("item_listed.json");
+        const order = await insertOrderFromFixture(chainId, fixture);
+        const siblingOrder = await insertOrderFromFixture(chainId, fixture, {
+            collectionId: 2,
+            orderId:
+                "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        });
+
+        const validatedOrderIds: string[] = [];
+        const domain = new SqliteOrdersDomain(
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            async (candidate) => {
+                validatedOrderIds.push(candidate.id);
+                return {
+                    status: ORDER_STATUS.Fillable,
+                    reason: "owner-and-approval-still-valid",
+                };
+            },
+        );
+
+        await domain.handleOrderUpdateByMaker({
+            chainId,
+            scope: MAKER_TRIGGER_SCOPE.Token,
+            collectionId: order.collectionId,
+            maker: order.maker,
+            tokenId: order.tokenId ?? "0",
+            reason: TOKEN_SCOPED_MAKER_TRIGGER_REASON.NftTransfer,
+            blockNumber: 1,
+            blockHash: "0x1",
+            txHash: "0x2",
+            logIndex: 0,
+        });
+
+        expect(getFillabilityStatus(order.orderId)).toBe(ORDER_STATUS.Fillable);
+        expect(getFillabilityStatus(siblingOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
         expect(validatedOrderIds).toEqual([order.orderId]);
     });
 
@@ -101,8 +150,9 @@ describe("orders update by maker", () => {
 
         await domain.handleOrderUpdateByMaker({
             chainId,
+            scope: MAKER_TRIGGER_SCOPE.Global,
             maker: buyOrder.maker,
-            reason: "erc20-balance",
+            reason: GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance,
             blockNumber: 1,
             blockHash: "0x1",
             txHash: "0x2",
@@ -136,8 +186,9 @@ describe("orders update by maker", () => {
 
         await domain.handleOrderUpdateByMaker({
             chainId,
+            scope: MAKER_TRIGGER_SCOPE.Global,
             maker: order.maker,
-            reason: "order-counter",
+            reason: GLOBAL_MAKER_TRIGGER_REASON.OrderCounter,
             blockNumber: 1,
             blockHash: "0x1",
             txHash: "0x2",

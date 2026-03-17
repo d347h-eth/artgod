@@ -1,5 +1,5 @@
 import type { OffchainOrderRawPayload } from "../../domain/offchain-jobs.js";
-import type { OrderUpdateByMakerReason } from "../../domain/order-jobs.js";
+import type { TokenScopedMakerTriggerReason } from "../../domain/maker-triggers.js";
 import type {
     OrderLocalTokenSetStatus,
     SeaportOrderData,
@@ -64,7 +64,7 @@ export type NormalizedOffchainOrderUpdateByMaker = {
     maker: string;
     contract: string;
     tokenId: string;
-    reason: OrderUpdateByMakerReason;
+    reason: TokenScopedMakerTriggerReason;
 };
 
 export type NormalizedOffchainMetadataRefresh = {

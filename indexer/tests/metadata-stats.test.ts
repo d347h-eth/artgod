@@ -72,7 +72,6 @@ describe("metadata trait stats recompute", () => {
         await domain.handleRecompute({
             chainId,
             collectionId,
-            contract,
             reason: "metadata-sync",
         });
 
@@ -119,7 +118,6 @@ describe("metadata trait stats recompute", () => {
         await domain.handleRecompute({
             chainId,
             collectionId,
-            contract,
             reason: "metadata-sync",
         });
 
@@ -129,7 +127,6 @@ describe("metadata trait stats recompute", () => {
         await domain.handleRecompute({
             chainId,
             collectionId,
-            contract,
             reason: "metadata-refresh",
         });
 

@@ -7,6 +7,7 @@ import {
 } from "./normalize.js";
 import { DOMAIN_JOB_KIND } from "../../domain/domain-jobs.js";
 import {
+    MAKER_TRIGGER_SCOPE,
     ORDER_JOB_KIND,
     type OrderUpdateByIdPayload,
     type OrderUpdateByMakerPayload,
@@ -151,13 +152,16 @@ export async function dispatchOffchainPayload(
 
     const updateByMaker = normalizeOffchainOrderUpdateByMaker(payload);
     if (updateByMaker) {
+        const collectionId = payload.collectionId;
         const makerJob: JobEnvelope<OrderUpdateByMakerPayload> = {
-            jobId: `orders:update:maker:offchain:${updateByMaker.chainId}:${updateByMaker.maker}:${updateByMaker.contract}:${updateByMaker.tokenId}:${payload.receivedAt}`,
+            jobId: `orders:update:maker:offchain:${updateByMaker.chainId}:${updateByMaker.maker}:${collectionId}:${updateByMaker.tokenId}:${payload.receivedAt}`,
             kind: ORDER_JOB_KIND.UpdateByMaker,
             queue: QUEUE_NAMES.OrdersUpdateByMaker,
             payload: {
                 chainId: updateByMaker.chainId,
+                scope: MAKER_TRIGGER_SCOPE.Token,
                 maker: updateByMaker.maker,
+                collectionId,
                 contract: updateByMaker.contract,
                 tokenId: updateByMaker.tokenId,
                 reason: updateByMaker.reason,
@@ -175,13 +179,12 @@ export async function dispatchOffchainPayload(
     const metadataRefresh = normalizeOffchainMetadataRefresh(payload);
     if (metadataRefresh) {
         const refreshJob: JobEnvelope<MetadataRefreshPayload> = {
-            jobId: `metadata:refresh:offchain:${metadataRefresh.chainId}:${metadataRefresh.contract}:${metadataRefresh.tokenId}:${payload.receivedAt}`,
+            jobId: `metadata:refresh:offchain:${metadataRefresh.chainId}:${payload.collectionId}:${metadataRefresh.tokenId}:${payload.receivedAt}`,
             kind: DOMAIN_JOB_KIND.MetadataRefresh,
             queue: QUEUE_NAMES.MetadataRefresh,
             payload: {
                 chainId: metadataRefresh.chainId,
                 collectionId: payload.collectionId,
-                contract: metadataRefresh.contract,
                 tokenId: metadataRefresh.tokenId,
                 metadataUrl: metadataRefresh.metadataUrl,
                 reason: metadataRefresh.reason,

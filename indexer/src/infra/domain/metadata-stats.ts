@@ -27,7 +27,6 @@ export class SqliteMetadataStatsDomain implements MetadataStatsDomainPort {
     async handleRecompute(
         payload: MetadataStatsRecomputePayload,
     ): Promise<void> {
-        const contract = payload.contract.toLowerCase();
         const run = db.raw.transaction(() => {
             this.deleteCollectionStats.run(payload.chainId, payload.collectionId);
             this.insertCollectionStats.run(payload.chainId, payload.collectionId);
@@ -45,7 +44,6 @@ export class SqliteMetadataStatsDomain implements MetadataStatsDomainPort {
             action: "handleRecompute",
             chainId: payload.chainId,
             collectionId: payload.collectionId,
-            contract,
             reason: payload.reason,
             rows: row?.count ?? 0,
         });

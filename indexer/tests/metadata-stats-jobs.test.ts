@@ -10,7 +10,7 @@ describe("metadata stats recompute jobs", () => {
         const job = buildMetadataStatsRecomputeJob(
             {
                 chainId: 1,
-                contract: "0xabc0000000000000000000000000000000000000",
+                collectionId: 7,
                 reason: "metadata-refresh",
                 sourceJobId: "source-1",
             },
@@ -25,7 +25,7 @@ describe("metadata stats recompute jobs", () => {
     it("produces same jobId inside one bucket and different jobId across buckets", () => {
         const payload = {
             chainId: 1,
-            contract: "0xabc0000000000000000000000000000000000000",
+            collectionId: 7,
             reason: "metadata-refresh" as const,
             sourceJobId: "source-1",
         };
@@ -40,5 +40,6 @@ describe("metadata stats recompute jobs", () => {
 
         expect(jobA.jobId).toBe(jobB.jobId);
         expect(jobA.jobId).not.toBe(jobC.jobId);
+        expect(jobA.payload).toEqual(payload);
     });
 });

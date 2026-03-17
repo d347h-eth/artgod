@@ -1,5 +1,9 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
-import type { CancelEvent, MakerInfo } from "../../domain/onchain.js";
+import { GLOBAL_MAKER_TRIGGER_REASON } from "../../domain/maker-triggers.js";
+import type {
+    CancelEvent,
+    GlobalMakerTrigger,
+} from "../../domain/onchain.js";
 import type { Hex, RpcEvent, RpcLog } from "../../ports/rpc.js";
 import { SEAPORT_EXCHANGE_ADDRESSES } from "./seaport.js";
 import {
@@ -141,7 +145,7 @@ export const SEAPORT_EVENT_FILTERS = SEAPORT_EVENT_ABI as unknown as RpcEvent[];
 export type SeaportOrderEvents = {
     cancels: CancelEvent[];
     orders: DecodedOrderInfo[];
-    makerInfos: MakerInfo[];
+    globalMakerTriggers: GlobalMakerTrigger[];
 };
 
 // Decode Seaport order lifecycle events from logs (no traces).
@@ -151,7 +155,7 @@ export function decodeSeaportOrderEvents(
 ): SeaportOrderEvents {
     const cancels: CancelEvent[] = [];
     const orders: DecodedOrderInfo[] = [];
-    const makerInfos: MakerInfo[] = [];
+    const globalMakerTriggers: GlobalMakerTrigger[] = [];
 
     for (const log of logs) {
         const topic0 = log.topics[0];
@@ -165,7 +169,7 @@ export function decodeSeaportOrderEvents(
 
         if (topic0 === COUNTER_INCREMENTED_TOPIC) {
             const maker = decodeCounterIncremented(log);
-            if (maker) makerInfos.push(maker);
+            if (maker) globalMakerTriggers.push(maker);
             continue;
         }
 
@@ -175,7 +179,7 @@ export function decodeSeaportOrderEvents(
         }
     }
 
-    return { cancels, orders, makerInfos };
+    return { cancels, orders, globalMakerTriggers };
 }
 
 // OrderCancelled = explicit on-chain cancellation of a specific Seaport order hash.
@@ -204,7 +208,7 @@ function decodeOrderCancelled(log: RpcLog): CancelEvent | null {
 }
 
 // CounterIncremented = maker invalidated all prior Seaport orders (counter bump).
-function decodeCounterIncremented(log: RpcLog): MakerInfo | null {
+function decodeCounterIncremented(log: RpcLog): GlobalMakerTrigger | null {
     try {
         const decoded = decodeEventLog({
             abi: SEAPORT_EVENT_ABI,
@@ -215,7 +219,7 @@ function decodeCounterIncremented(log: RpcLog): MakerInfo | null {
         const offerer = decoded.args.offerer as Hex;
         return {
             maker: offerer.toLowerCase(),
-            reason: "order-counter",
+            reason: GLOBAL_MAKER_TRIGGER_REASON.OrderCounter,
             blockNumber: log.blockNumber,
             blockHash: log.blockHash,
             txHash: log.transactionHash,
