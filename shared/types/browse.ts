@@ -37,9 +37,14 @@ export type TokenCursor =
           kind: "listed";
           tokenId: string;
           listingPrice: string;
+      }
+    | {
+          kind: "listed_then_unlisted";
+          tokenId: string;
+          listingPrice: string | null;
       };
 
-export type TokenBrowserStatus = "listed" | "all";
+export type TokenBrowserStatus = "listed" | "all" | "listed_then_unlisted";
 
 export type TraitFilter = {
     key: string;
@@ -74,6 +79,7 @@ export type TokenDetail = {
     name: string | null;
     image: string | null;
     animationUrl: string | null;
+    currentHolder: string | null;
     attributes: TokenDetailTrait[];
     hasMetadata: boolean;
     metadataUpdatedAt: string | null;

@@ -143,6 +143,12 @@ paths:
                       Defaults to `listed`.
                   schema:
                       $ref: "#/components/schemas/TokenBrowserStatus"
+                - name: owner
+                  in: query
+                  required: false
+                  description: Optional owner address for holder-scoped token browsing
+                  schema:
+                      type: string
                 - name: traits
                   in: query
                   required: false
@@ -680,6 +686,7 @@ components:
                     name,
                     image,
                     animationUrl,
+                    currentHolder,
                     attributes,
                     hasMetadata,
                     metadataUpdatedAt,
@@ -695,6 +702,9 @@ components:
                     type: string
                     nullable: true
                 animationUrl:
+                    type: string
+                    nullable: true
+                currentHolder:
                     type: string
                     nullable: true
                 attributes:
@@ -747,7 +757,7 @@ components:
 
         TokenBrowserStatus:
             type: string
-            enum: [listed, all]
+            enum: [listed, all, listed_then_unlisted]
 
         TraitFilter:
             type: object

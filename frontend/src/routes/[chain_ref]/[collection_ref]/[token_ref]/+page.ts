@@ -4,13 +4,14 @@ import { BackendApiError, getTokenDetail } from '$lib/backend-api';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
-	const backQuery = normalizeReturnQuery(url.searchParams);
+	const { backPath, backQuery } = normalizeReturnState(url.searchParams);
 
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
 			chain: null,
 			collection: null,
 			token: null,
+			backPath,
 			backQuery
 		};
 	}
@@ -26,6 +27,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			chain: response.chain,
 			collection: response.collection,
 			token: response.token,
+			backPath,
 			backQuery
 		};
 	} catch (cause) {
@@ -33,20 +35,35 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	}
 };
 
-function normalizeReturnQuery(searchParams: URLSearchParams): string | null {
+function normalizeReturnState(searchParams: URLSearchParams): {
+	backPath: string | null;
+	backQuery: string | null;
+} {
+	const rawPath = searchParams.get('returnPath');
+	const backPath = rawPath && rawPath.startsWith('/') ? rawPath : null;
+
 	const rawQuery = searchParams.get('returnQuery');
 	if (rawQuery && rawQuery.trim()) {
-		return rawQuery.trim();
+		return {
+			backPath,
+			backQuery: rawQuery.trim()
+		};
 	}
 
 	const rawCursor = searchParams.get('returnCursor');
 	if (!rawCursor || !rawCursor.trim()) {
-		return null;
+		return {
+			backPath,
+			backQuery: null
+		};
 	}
 
 	const query = new URLSearchParams();
 	query.set('cursor', rawCursor.trim());
-	return query.toString();
+	return {
+		backPath,
+		backQuery: query.toString()
+	};
 }
 
 function toKitError(cause: unknown): never {

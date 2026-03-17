@@ -41,10 +41,12 @@ type CollectionDetailReadPort = {
         limit: number;
         cursor?: string;
         traitFilters?: TraitFilter[];
+        owner?: string;
     }): TokenCursorPage;
     listCollectionTraitFacets(
         chainId: number,
         collectionId: number,
+        owner?: string,
     ): TraitFacet[];
     listCollectionHolders(params: {
         chainId: number;
@@ -79,6 +81,7 @@ export class ExtensionAwareCollectionDetailRead {
         limit: number;
         cursor?: string;
         traitFilters?: TraitFilter[];
+        owner?: string;
     }): TokenCursorPage {
         const page = this.baseReadPort.listCollectionTokens(params);
         const install = this.extensionRecords.getInstallByCollectionId(
@@ -114,10 +117,12 @@ export class ExtensionAwareCollectionDetailRead {
     listCollectionTraitFacets(
         chainId: number,
         collectionId: number,
+        owner?: string,
     ): TraitFacet[] {
         return this.baseReadPort.listCollectionTraitFacets(
             chainId,
             collectionId,
+            owner,
         );
     }
 

@@ -59,6 +59,15 @@ type TokenIdRow = {
     token_id: string;
 };
 
+type TokenListingRow = {
+    token_id: string;
+    listing_price: string | null;
+};
+
+type TokenCurrentHolderRow = {
+    owner: string;
+};
+
 type TraitFacetRow = {
     key: string;
     value: string;
@@ -92,6 +101,15 @@ type ListingPriceSortKey = {
 type ListingCursorKey = {
     price: ListingPriceSortKey;
     token: TokenSortKey;
+};
+
+type ListedThenUnlistedCursorKey = {
+    block: number;
+    priceLength: number;
+    priceValue: string;
+    token: TokenSortKey;
+    tokenId: string;
+    listingPrice: string | null;
 };
 
 type HolderCountSortKey = {
@@ -128,6 +146,14 @@ const LISTING_PRICE_LENGTH_SQL = `LENGTH(${LISTING_PRICE_NORMALIZED_SQL})`;
 const LISTED_TOKEN_SORT_KEY_SQL = `(l.price_sort_length, l.price_sort_value, ${TOKEN_SORT_BUCKET_SQL}, ${TOKEN_SORT_LENGTH_SQL}, ${TOKEN_SORT_VALUE_SQL}, t.token_id)`;
 const LISTED_ORDER_BY_ASC_SQL = `l.price_sort_length ASC, l.price_sort_value ASC, ${TOKEN_ORDER_BY_ASC_SQL}`;
 const LISTED_ORDER_BY_DESC_SQL = `l.price_sort_length DESC, l.price_sort_value DESC, ${TOKEN_ORDER_BY_DESC_SQL}`;
+const LISTED_THEN_UNLISTED_BLOCK_SQL = "CASE WHEN l.price IS NULL THEN 1 ELSE 0 END";
+const LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL =
+    "CASE WHEN l.price IS NULL THEN 0 ELSE l.price_sort_length END";
+const LISTED_THEN_UNLISTED_PRICE_VALUE_SQL =
+    "CASE WHEN l.price IS NULL THEN '' ELSE l.price_sort_value END";
+const LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL = `(${LISTED_THEN_UNLISTED_BLOCK_SQL}, ${LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL}, ${LISTED_THEN_UNLISTED_PRICE_VALUE_SQL}, ${TOKEN_SORT_BUCKET_SQL}, ${TOKEN_SORT_LENGTH_SQL}, ${TOKEN_SORT_VALUE_SQL}, t.token_id)`;
+const LISTED_THEN_UNLISTED_ORDER_BY_ASC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL} ASC, ${LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL} ASC, ${LISTED_THEN_UNLISTED_PRICE_VALUE_SQL} ASC, ${TOKEN_ORDER_BY_ASC_SQL}`;
+const LISTED_THEN_UNLISTED_ORDER_BY_DESC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL} DESC, ${LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL} DESC, ${LISTED_THEN_UNLISTED_PRICE_VALUE_SQL} DESC, ${TOKEN_ORDER_BY_DESC_SQL}`;
 
 export type ListCollectionsParams = {
     chainId: number;
@@ -143,6 +169,7 @@ export type ListCollectionTokensParams = {
     limit: number;
     cursor?: string;
     traitFilters?: TraitFilter[];
+    owner?: string;
 };
 
 export type GetCollectionTokenDetailParams = {
@@ -200,6 +227,31 @@ export class SqliteCollectionsReadModel {
             "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
     );
 
+    private selectOwnerScopedTraitFacetRows = db.prepare<
+        [number, number, string]
+    >(
+        "SELECT ak.key AS key, a.value AS value, COUNT(*) AS token_count " +
+            "FROM token_attributes ta " +
+            "JOIN attributes a ON a.id = ta.attribute_id " +
+            "AND a.chain_id = ta.chain_id " +
+            "AND a.collection_id = ta.collection_id " +
+            "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+            "AND ak.chain_id = a.chain_id " +
+            "AND ak.collection_id = a.collection_id " +
+            "WHERE ta.chain_id = ? " +
+            "AND ta.collection_id = ? " +
+            "AND EXISTS ( " +
+            "SELECT 1 FROM nft_balances b " +
+            "WHERE b.chain_id = ta.chain_id " +
+            "AND b.collection_id = ta.collection_id " +
+            "AND b.token_id = ta.token_id " +
+            "AND lower(b.owner) = ? " +
+            "AND CAST(b.amount AS INTEGER) > 0" +
+            ") " +
+            "GROUP BY ak.key, a.value " +
+            "ORDER BY ak.key ASC, token_count ASC, a.value ASC",
+    );
+
     private selectTokenDetailRow = db.prepare<[number, number, string]>(
         "SELECT t.token_id, m.name, m.image, m.animation_url, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
@@ -207,6 +259,15 @@ export class SqliteCollectionsReadModel {
             "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
             "WHERE t.chain_id = ? AND t.collection_id = ? AND t.token_id = ? " +
+            "LIMIT 1",
+    );
+
+    private selectTokenCurrentHolderRow = db.prepare<[number, number, string]>(
+        "SELECT lower(owner) AS owner " +
+            "FROM nft_balances " +
+            "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
+            "AND CAST(amount AS INTEGER) > 0 " +
+            "ORDER BY lower(owner) ASC " +
             "LIMIT 1",
     );
 
@@ -311,6 +372,9 @@ export class SqliteCollectionsReadModel {
         const traitFilterGroups = groupTraitFilters(
             normalizeTraitFilters(params.traitFilters ?? []),
         );
+        const owner = params.owner
+            ? normalizeAddressRef(params.owner)
+            : undefined;
 
         if (params.tokenStatus === "listed") {
             if (cursor && cursor.kind !== "listed") {
@@ -323,6 +387,22 @@ export class SqliteCollectionsReadModel {
                 nowSeconds,
                 cursor,
                 traitFilterGroups,
+                owner,
+            });
+        }
+
+        if (params.tokenStatus === "listed_then_unlisted") {
+            if (cursor && cursor.kind !== "listed_then_unlisted") {
+                throw new ReadModelBadRequestError("Invalid cursor");
+            }
+            return this.listListedThenUnlistedCollectionTokens({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                limit,
+                nowSeconds,
+                cursor,
+                traitFilterGroups,
+                owner,
             });
         }
 
@@ -337,6 +417,7 @@ export class SqliteCollectionsReadModel {
             nowSeconds,
             cursor,
             traitFilterGroups,
+            owner,
         });
     }
 
@@ -347,11 +428,13 @@ export class SqliteCollectionsReadModel {
         nowSeconds: number;
         cursor: Extract<TokenCursor, { kind: "all" }> | null;
         traitFilterGroups: TraitFilterGroup[];
+        owner?: string;
     }): TokenCursorPage {
         const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
+            owner: params.owner,
         });
         const cursorSortKey = params.cursor
             ? toTokenSortKey(params.cursor.tokenId)
@@ -444,11 +527,13 @@ export class SqliteCollectionsReadModel {
         nowSeconds: number;
         cursor: Extract<TokenCursor, { kind: "listed" }> | null;
         traitFilterGroups: TraitFilterGroup[];
+        owner?: string;
     }): TokenCursorPage {
         const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
+            owner: params.owner,
         });
         const listingValues = buildCheapestListingValues({
             chainId: params.chainId,
@@ -553,14 +638,135 @@ export class SqliteCollectionsReadModel {
         };
     }
 
+    private listListedThenUnlistedCollectionTokens(params: {
+        chainId: number;
+        collectionId: number;
+        limit: number;
+        nowSeconds: number;
+        cursor: Extract<TokenCursor, { kind: "listed_then_unlisted" }> | null;
+        traitFilterGroups: TraitFilterGroup[];
+        owner?: string;
+    }): TokenCursorPage {
+        const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            traitFilterGroups: params.traitFilterGroups,
+            owner: params.owner,
+        });
+        const listingSql = buildCheapestListingSql(
+            this.supportedListingCurrencies.length,
+        );
+        const listingValues = buildCheapestListingValues({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            supportedCurrencies: this.supportedListingCurrencies,
+            nowSeconds: params.nowSeconds,
+        });
+        const cursorKey = params.cursor
+            ? toListedThenUnlistedCursorKey(
+                  params.cursor.listingPrice,
+                  params.cursor.tokenId,
+              )
+            : null;
+        const whereClauses = [...baseWhereClauses];
+        const values: unknown[] = [...listingValues, ...baseValues];
+
+        if (cursorKey) {
+            whereClauses.push(
+                `${LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL} > (?, ?, ?, ?, ?, ?, ?)`,
+            );
+            values.push(...listedThenUnlistedCursorKeyParams(cursorKey));
+        }
+
+        const sql =
+            "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+            "FROM tokens t " +
+            `LEFT JOIN (${listingSql}) l ` +
+            "ON l.collection_id = t.collection_id " +
+            "AND l.token_id = t.token_id " +
+            "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
+            "AND m.collection_id = t.collection_id " +
+            "AND m.token_id = t.token_id " +
+            `WHERE ${whereClauses.join(" AND ")} ` +
+            `ORDER BY ${LISTED_THEN_UNLISTED_ORDER_BY_ASC_SQL} ` +
+            "LIMIT ?";
+
+        const rows = db.raw
+            .prepare(sql)
+            .all(...values, params.limit + 1) as TokenRow[];
+        const hasNext = rows.length > params.limit;
+        const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
+        const items = pageRows.map(mapTokenRow);
+
+        const prevCursor = deriveListedThenUnlistedPrevCursor({
+            listingSql,
+            listingValues,
+            baseWhereClauses,
+            baseValues,
+            cursor: params.cursor,
+            pageRows,
+            limit: params.limit,
+        });
+
+        const totalItems = countMatchingTokens(baseWhereClauses, baseValues);
+        const beforeItems = cursorKey
+            ? countMatchingMixedTokens({
+                  listingSql,
+                  listingValues,
+                  whereClauses: [
+                      ...baseWhereClauses,
+                      `${LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?, ?)`,
+                  ],
+                  values: [
+                      ...baseValues,
+                      ...listedThenUnlistedCursorKeyParams(cursorKey),
+                  ],
+              })
+            : 0;
+        const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
+        const rangeEnd = beforeItems + items.length;
+        const totalPages =
+            totalItems === 0 ? 0 : Math.ceil(totalItems / params.limit);
+        const currentPage =
+            totalItems === 0 ? 0 : Math.floor(beforeItems / params.limit) + 1;
+
+        const nextCursor = hasNext
+            ? encodeOpaqueCursor({
+                  kind: "listed_then_unlisted",
+                  tokenId: pageRows[pageRows.length - 1]!.token_id,
+                  listingPrice:
+                      pageRows[pageRows.length - 1]!.listing_price ?? null,
+              })
+            : null;
+
+        return {
+            items,
+            prevCursor,
+            nextCursor,
+            limit: params.limit,
+            totalItems,
+            rangeStart,
+            rangeEnd,
+            currentPage,
+            totalPages,
+        };
+    }
+
     listCollectionTraitFacets(
         chainId: number,
         collectionId: number,
+        owner?: string,
     ): TraitFacet[] {
-        const rows = this.selectTraitFacetRows.all(
-            chainId,
-            collectionId,
-        ) as TraitFacetRow[];
+        const rows = owner
+            ? (this.selectOwnerScopedTraitFacetRows.all(
+                  chainId,
+                  collectionId,
+                  normalizeAddressRef(owner),
+              ) as TraitFacetRow[])
+            : (this.selectTraitFacetRows.all(
+                  chainId,
+                  collectionId,
+              ) as TraitFacetRow[]);
 
         const facets: TraitFacet[] = [];
         const byKey = new Map<string, TraitFacet>();
@@ -617,6 +823,12 @@ export class SqliteCollectionsReadModel {
             name: row.name ?? null,
             image: row.image ?? null,
             animationUrl: row.animation_url ?? null,
+            currentHolder:
+                (this.selectTokenCurrentHolderRow.get(
+                    params.chainId,
+                    params.collectionId,
+                    tokenId,
+                ) as TokenCurrentHolderRow | undefined)?.owner ?? null,
             attributes,
             hasMetadata: row.metadata_updated_at !== null,
             metadataUpdatedAt: row.metadata_updated_at ?? null,
@@ -716,6 +928,25 @@ function countMatchingListedTokens(params: {
         "SELECT COUNT(*) AS count " +
         "FROM tokens t " +
         `JOIN (${params.listingSql}) l ` +
+        "ON l.collection_id = t.collection_id " +
+        "AND l.token_id = t.token_id " +
+        `WHERE ${params.whereClauses.join(" AND ")}`;
+    const row = db.raw
+        .prepare(sql)
+        .get(...params.listingValues, ...params.values) as { count: number };
+    return row.count;
+}
+
+function countMatchingMixedTokens(params: {
+    listingSql: string;
+    listingValues: unknown[];
+    whereClauses: string[];
+    values: unknown[];
+}): number {
+    const sql =
+        "SELECT COUNT(*) AS count " +
+        "FROM tokens t " +
+        `LEFT JOIN (${params.listingSql}) l ` +
         "ON l.collection_id = t.collection_id " +
         "AND l.token_id = t.token_id " +
         `WHERE ${params.whereClauses.join(" AND ")}`;
@@ -864,6 +1095,69 @@ function deriveListedPrevCursor(params: {
     });
 }
 
+function deriveListedThenUnlistedPrevCursor(params: {
+    listingSql: string;
+    listingValues: unknown[];
+    baseWhereClauses: string[];
+    baseValues: unknown[];
+    cursor: Extract<TokenCursor, { kind: "listed_then_unlisted" }> | null;
+    pageRows: TokenRow[];
+    limit: number;
+}): string | null {
+    const {
+        listingSql,
+        listingValues,
+        baseWhereClauses,
+        baseValues,
+        cursor,
+        pageRows,
+        limit,
+    } = params;
+
+    const anchorTokenId =
+        pageRows.length > 0
+            ? pageRows[0]!.token_id
+            : cursor?.tokenId ?? null;
+    if (!anchorTokenId) {
+        return null;
+    }
+
+    const anchorKey = toListedThenUnlistedCursorKey(
+        pageRows.length > 0
+            ? pageRows[0]!.listing_price ?? null
+            : cursor?.listingPrice ?? null,
+        anchorTokenId,
+    );
+
+    const previousRows = db.raw
+        .prepare(
+            "SELECT t.token_id, l.price AS listing_price " +
+                "FROM tokens t " +
+                `LEFT JOIN (${listingSql}) l ` +
+                "ON l.collection_id = t.collection_id " +
+                "AND l.token_id = t.token_id " +
+                `WHERE ${baseWhereClauses.join(" AND ")} AND ${LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL} < (?, ?, ?, ?, ?, ?, ?) ` +
+                `ORDER BY ${LISTED_THEN_UNLISTED_ORDER_BY_DESC_SQL} ` +
+                "LIMIT ?",
+        )
+        .all(
+            ...listingValues,
+            ...baseValues,
+            ...listedThenUnlistedCursorKeyParams(anchorKey),
+            limit + 1,
+        ) as TokenListingRow[];
+
+    if (previousRows.length <= limit) {
+        return null;
+    }
+
+    return encodeOpaqueCursor({
+        kind: "listed_then_unlisted",
+        tokenId: previousRows[limit]!.token_id,
+        listingPrice: previousRows[limit]!.listing_price ?? null,
+    });
+}
+
 function normalizeLimit(limit: number): number {
     if (!Number.isInteger(limit) || limit <= 0) {
         throw new ReadModelBadRequestError("Invalid limit");
@@ -901,6 +1195,15 @@ function decodeTokenCursor(cursor: string): TokenCursor {
             decoded.kind === "listed" &&
             typeof decoded.tokenId === "string" &&
             typeof decoded.listingPrice === "string"
+        ) {
+            return decoded;
+        }
+        if (
+            "kind" in decoded &&
+            decoded.kind === "listed_then_unlisted" &&
+            typeof decoded.tokenId === "string" &&
+            (decoded.listingPrice === null ||
+                typeof decoded.listingPrice === "string")
         ) {
             return decoded;
         }
@@ -1063,6 +1366,44 @@ function listingCursorKeyParams(
     ];
 }
 
+function toListedThenUnlistedCursorKey(
+    rawPrice: string | null,
+    tokenId: string,
+): ListedThenUnlistedCursorKey {
+    const token = toTokenSortKey(tokenId);
+    if (rawPrice === null) {
+        return {
+            block: 1,
+            priceLength: 0,
+            priceValue: "",
+            token,
+            tokenId,
+            listingPrice: null,
+        };
+    }
+
+    const price = toListingPriceSortKey(rawPrice);
+    return {
+        block: 0,
+        priceLength: price.length,
+        priceValue: price.value,
+        token,
+        tokenId,
+        listingPrice: rawPrice,
+    };
+}
+
+function listedThenUnlistedCursorKeyParams(
+    key: ListedThenUnlistedCursorKey,
+): [number, number, string, number, number, string, string] {
+    return [
+        key.block,
+        key.priceLength,
+        key.priceValue,
+        ...tokenSortKeyParams(key.token),
+    ];
+}
+
 function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {
     const deduped: TraitFilter[] = [];
     const seen = new Set<string>();
@@ -1109,6 +1450,7 @@ function buildTokenWhereClauses(params: {
     chainId: number;
     collectionId: number;
     traitFilterGroups: TraitFilterGroup[];
+    owner?: string;
 }): {
     baseWhereClauses: string[];
     baseValues: unknown[];
@@ -1118,6 +1460,20 @@ function buildTokenWhereClauses(params: {
         "t.collection_id = ?",
     ];
     const baseValues: unknown[] = [params.chainId, params.collectionId];
+
+    if (params.owner) {
+        baseWhereClauses.push(
+            "EXISTS (" +
+                "SELECT 1 FROM nft_balances b " +
+                "WHERE b.chain_id = t.chain_id " +
+                "AND b.collection_id = t.collection_id " +
+                "AND b.token_id = t.token_id " +
+                "AND lower(b.owner) = ? " +
+                "AND CAST(b.amount AS INTEGER) > 0" +
+                ")",
+        );
+        baseValues.push(params.owner);
+    }
 
     for (const filterGroup of params.traitFilterGroups) {
         const valuePlaceholders = filterGroup.values.map(() => "?").join(", ");

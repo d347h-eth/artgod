@@ -69,6 +69,7 @@ export type ApiTokenDetail = {
 	name: string | null;
 	image: string | null;
 	animationUrl: string | null;
+	currentHolder: string | null;
 	attributes: ApiTokenDetailTrait[];
 	hasMetadata: boolean;
 	metadataUpdatedAt: string | null;

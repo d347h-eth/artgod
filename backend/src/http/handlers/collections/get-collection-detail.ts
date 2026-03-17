@@ -7,6 +7,7 @@ import {
     getSearchParams,
     parseCursor,
     parseLimit,
+    parseOwner,
     parseTokenBrowserStatus,
     parseTraits,
 } from "../../common/request-query.js";
@@ -47,6 +48,7 @@ export class GetCollectionDetailHttpAdapter {
         );
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
+        const owner = parseOwner(searchParams.get("owner"));
         const traits = parseTraits(searchParams);
 
         return {
@@ -56,6 +58,7 @@ export class GetCollectionDetailHttpAdapter {
             limit,
             cursor: cursor ?? undefined,
             traits,
+            owner,
         };
     }
 

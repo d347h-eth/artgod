@@ -1,6 +1,10 @@
 import type { FastifyRequest } from "fastify";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
+import {
+    isAddressRef,
+    normalizeAddressRef,
+} from "@artgod/shared/utils/ref-resolver";
 import type {
     CollectionStatus,
     TokenBrowserStatus,
@@ -21,6 +25,7 @@ const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
 const ALLOWED_TOKEN_BROWSER_STATUSES = new Set<TokenBrowserStatus>([
     "listed",
     "all",
+    "listed_then_unlisted",
 ]);
 
 const ALLOWED_BOOTSTRAP_TASK_STATUSES = new Set<BootstrapMetadataTaskStatus>([
@@ -64,6 +69,14 @@ export function parseLimit(raw: string | null): number {
 export function parseCursor(raw: string | null): string | null {
     if (!raw || !raw.trim()) return null;
     return raw.trim();
+}
+
+export function parseOwner(raw: string | null): string | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    if (!isAddressRef(raw)) {
+        throw new ReadModelBadRequestError("Invalid owner");
+    }
+    return normalizeAddressRef(raw);
 }
 
 export function parseTokenBrowserStatus(

@@ -313,6 +313,155 @@ describe("backend api routes", () => {
         );
     });
 
+    it("returns owner-scoped collection detail with listed tokens first and owner-scoped facets", async () => {
+        clearNftBalances(MILADY_ADDRESS);
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "1",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "1",
+        );
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "2",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "1",
+        );
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "10",
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "1",
+        );
+
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady?owner=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&token_status=listed_then_unlisted&limit=10",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(
+            result.payload.tokens.items.map(
+                (token: { tokenId: string }) => token.tokenId,
+            ),
+        ).toEqual(["1", "2"]);
+        expect(result.payload.tokens.items[0].listingPrice).toBe(
+            "500000000000000000",
+        );
+        expect(result.payload.tokens.items[1].listingPrice).toBeNull();
+        expect(result.payload.tokens.totalItems).toBe(2);
+        expect(result.payload.traits.facets).toEqual([
+            {
+                key: "Hat",
+                values: [{ value: "Beanie", tokenCount: 2 }],
+            },
+            {
+                key: "Mood",
+                values: [
+                    { value: "Angry", tokenCount: 1 },
+                    { value: "Calm", tokenCount: 1 },
+                ],
+            },
+        ]);
+    });
+
+    it("supports backward paging for owner-scoped listed-then-unlisted mode", async () => {
+        clearNftBalances(MILADY_ADDRESS);
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "1",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "1",
+        );
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "2",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "1",
+        );
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "10",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "1",
+        );
+
+        const first = await resolve(
+            "GET",
+            "/api/ethereum/milady?owner=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&token_status=listed_then_unlisted&limit=1",
+        );
+        const second = await resolve(
+            "GET",
+            `/api/ethereum/milady?owner=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&token_status=listed_then_unlisted&limit=1&cursor=${encodeURIComponent(first.payload.tokens.nextCursor)}`,
+        );
+        const third = await resolve(
+            "GET",
+            `/api/ethereum/milady?owner=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&token_status=listed_then_unlisted&limit=1&cursor=${encodeURIComponent(second.payload.tokens.nextCursor)}`,
+        );
+
+        expect(first.payload.tokens.items[0].tokenId).toBe("1");
+        expect(second.payload.tokens.items[0].tokenId).toBe("10");
+        expect(third.payload.tokens.items[0].tokenId).toBe("2");
+        expect(third.payload.tokens.prevCursor).toEqual(expect.any(String));
+
+        const previousOfThird = await resolve(
+            "GET",
+            `/api/ethereum/milady?owner=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&token_status=listed_then_unlisted&limit=1&cursor=${encodeURIComponent(third.payload.tokens.prevCursor)}`,
+        );
+        expect(previousOfThird.payload.tokens.items[0].tokenId).toBe("10");
+    });
+
+    it("returns current holder on token detail", async () => {
+        clearNftBalances(MILADY_ADDRESS);
+        insertNftBalance(
+            MILADY_ADDRESS,
+            "1",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "1",
+        );
+
+        const result = await resolve("GET", "/api/ethereum/milady/1");
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.token.currentHolder).toBe(
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+    });
+
+    it("matches owner-scoped token queries against mixed-case stored owners", async () => {
+        clearNftBalances(MILADY_ADDRESS);
+        const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
+        db.prepare(
+            "INSERT OR REPLACE INTO nft_balances " +
+                "(chain_id, collection_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+        ).run(
+            1,
+            collection.collection_id,
+            MILADY_ADDRESS,
+            "1",
+            "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+            "1",
+            1,
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            1_726_000_000,
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            0,
+        );
+
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady?owner=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&token_status=listed_then_unlisted&limit=10",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(
+            result.payload.tokens.items.map(
+                (token: { tokenId: string }) => token.tokenId,
+            ),
+        ).toEqual(["1"]);
+    });
+
     it("returns Terraforms media overrides from extension artifacts", async () => {
         const result = await resolve("GET", "/api/ethereum/terraforms/7710");
         expect(result.statusCode).toBe(200);
@@ -514,6 +663,14 @@ describe("backend api routes", () => {
         const result = await resolve(
             "GET",
             "/api/ethereum/milady?token_status=bad&limit=10",
+        );
+        expect(result.statusCode).toBe(400);
+    });
+
+    it("rejects invalid owner values on collection detail", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady?owner=not-an-address&token_status=listed_then_unlisted&limit=10",
         );
         expect(result.statusCode).toBe(400);
     });

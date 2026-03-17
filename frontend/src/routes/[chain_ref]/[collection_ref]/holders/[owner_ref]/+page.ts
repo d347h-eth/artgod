@@ -1,15 +1,17 @@
 import { error } from '@sveltejs/kit';
+import { normalizeAddressRef } from '@artgod/shared/utils/ref-resolver';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionDetail } from '$lib/backend-api';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
-import {
-	normalizeTokenBrowserParams,
-	parseCollectionTokenStatus,
-	parseDisplayMode
-} from '$lib/token-browser-query';
+import { normalizeTokenBrowserParams, parseDisplayMode } from '$lib/token-browser-query';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
+	const owner = normalizeAddressRef(params.owner_ref);
+	const query = normalizeTokenBrowserParams(url.searchParams, 'listed_then_unlisted');
+	query.set('owner', owner);
+	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
+
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
 			chain: null,
@@ -27,32 +29,31 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			},
 			facets: [],
 			selectedTraits: [],
-			basePath: '/',
+			collectionBasePath: '/',
+			holdersBasePath: '/',
+			browserBasePath: '/',
+			owner,
 			requestCursor: null,
-			tokenStatus: 'listed' as const,
-			displayMode: 'grid' as const
+			displayMode
 		};
 	}
-	const tokenStatus = parseCollectionTokenStatus(url.searchParams.get('token_status'));
-	const query = normalizeTokenBrowserParams(url.searchParams, tokenStatus);
-	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
 	try {
-		const response = await getCollectionDetail(
-			fetch,
-			params.chain_ref,
-			params.collection_ref,
-			query
-		);
+		const response = await getCollectionDetail(fetch, params.chain_ref, params.collection_ref, query);
+		const collectionBasePath = `/${response.chain.slug}/${response.collection.slug}`;
+		const holdersBasePath = `${collectionBasePath}/holders`;
+		const browserBasePath = `${holdersBasePath}/${encodeURIComponent(owner)}`;
 		return {
 			chain: response.chain,
 			collection: response.collection,
 			tokens: response.tokens,
 			facets: response.traits.facets,
 			selectedTraits: response.traits.selected,
-			basePath: `/${response.chain.slug}/${response.collection.slug}`,
+			collectionBasePath,
+			holdersBasePath,
+			browserBasePath,
+			owner,
 			requestCursor: query.get('cursor') ?? null,
-			tokenStatus,
 			displayMode
 		};
 	} catch (cause) {

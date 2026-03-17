@@ -10,6 +10,7 @@
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		token: ApiTokenDetail | null;
+		backPath: string | null;
 		backQuery: string | null;
 	};
 
@@ -17,9 +18,20 @@
 
 	function collectionHref(): string {
 		if (!data?.chain || !data.collection) return '/';
-		const base = `/${data.chain.slug}/${data.collection.slug}`;
+		const base = data.backPath ?? `/${data.chain.slug}/${data.collection.slug}`;
 		if (!data.backQuery) return base;
 		return `${base}?${data.backQuery}`;
+	}
+
+	function holderHref(): string | null {
+		if (!data?.chain || !data.collection || !data.token?.currentHolder) return null;
+		return `/${data.chain.slug}/${data.collection.slug}/holders/${encodeURIComponent(data.token.currentHolder)}`;
+	}
+
+	function backLabel(): string {
+		if (!data?.chain || !data.collection) return 'back';
+		const collectionPath = `/${data.chain.slug}/${data.collection.slug}`;
+		return data.backPath && data.backPath !== collectionPath ? 'back to holder' : 'back to collection';
 	}
 
 	function sortedTraits(): ApiTokenDetailTrait[] {
@@ -59,7 +71,7 @@
 
 <section class="panel token-detail-panel">
 	<header class="panel-header">
-		<a class="button-link" href={collectionHref()}>back to collection</a>
+		<a class="button-link" href={collectionHref()}>{backLabel()}</a>
 	</header>
 
 	{#if data?.token}
@@ -87,6 +99,17 @@
 		</div>
 
 		<h1 class="token-detail-title">{resolveTokenTitle(data.token, data.collection ?? null)}</h1>
+
+		<section class="panel-header">
+			{#if holderHref()}
+				<p class="muted">
+					current holder
+					<a class="mono" href={holderHref() ?? '#'}>{data.token.currentHolder}</a>
+				</p>
+			{:else}
+				<p class="muted">current holder <span class="mono">{data.token.currentHolder ?? '-'}</span></p>
+			{/if}
+		</section>
 
 		<div class="token-detail-traits-wrap">
 			{#if sortedTraits().length === 0}

@@ -101,6 +101,10 @@
 		return collection ? `${basePath}/holders` : '#';
 	}
 
+	function holderHref(owner: string): string {
+		return `${holdersHref()}/${encodeURIComponent(owner)}`;
+	}
+
 	function holdersSignature(limit: number): string {
 		return `${holdersHref()}|${limit}`;
 	}
@@ -184,7 +188,9 @@
 					{#each visibleHolders as holder, index (holder.owner)}
 						<tr>
 							<td class="mono holder-position-cell">{holderRowRank(index)}</td>
-							<td class="mono holder-owner-cell">{holder.owner}</td>
+							<td class="mono holder-owner-cell">
+								<a href={holderHref(holder.owner)}>{holder.owner}</a>
+							</td>
 							<td class="mono holder-count-cell">{holder.tokenCount}</td>
 						</tr>
 					{/each}

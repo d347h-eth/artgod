@@ -14,6 +14,7 @@ export type GetCollectionDetailInput = {
     limit: number;
     cursor?: string;
     traits: TraitFilter[];
+    owner?: string;
 };
 
 export type GetCollectionDetailOutput = {
@@ -47,10 +48,12 @@ export class GetCollectionDetailUseCase {
                 limit: number;
                 cursor?: string;
                 traitFilters?: TraitFilter[];
+                owner?: string;
             }): TokenCursorPage;
             listCollectionTraitFacets(
                 chainId: number,
                 collectionId: number,
+                owner?: string,
             ): TraitFacet[];
         },
     ) {}
@@ -75,11 +78,13 @@ export class GetCollectionDetailUseCase {
             limit: input.limit,
             cursor: input.cursor,
             traitFilters: input.traits,
+            owner: input.owner,
         });
 
         const facets = this.collectionDetailReadPort.listCollectionTraitFacets(
             chain.publicChainId,
             collection.collectionId,
+            input.owner,
         );
 
         return {
