@@ -21,10 +21,13 @@ type OpenSeaCollectionStatus =
 export type CollectionBootstrapState = {
     chainId: number;
     collectionId: number;
-    slug: string | null;
+    slug: string;
     address: string;
     standard: "erc721" | "erc1155";
     status: "bootstrapping" | "live" | "paused" | "disabled";
+    tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+    scopeStartTokenId: string | null;
+    scopeTotalSupply: number | null;
     deploymentBlock: number | null;
     bootstrapAnchorBlock: number | null;
     bootstrapStartedAt: string | null;
@@ -46,10 +49,18 @@ export interface ChainRefResolverPort {
 }
 
 export interface BootstrapRunsWritePort {
-    findCollectionByAddress(
+    findCollectionBySlug(
+        chainId: number,
+        slug: string,
+    ): CollectionBootstrapState | null;
+    listCollectionsByAddress(
         chainId: number,
         address: string,
-    ): CollectionBootstrapState | null;
+    ): CollectionBootstrapState[];
+    listCollectionScopeTokenIds(
+        chainId: number,
+        collectionId: number,
+    ): string[];
     resolveCollectionRef(
         chainId: number,
         collectionRef: string,
@@ -62,7 +73,15 @@ export interface BootstrapRunsWritePort {
         chainId: number;
         slug: string;
         address: string;
+        openseaSlug: string | null;
         standard: "erc721" | "erc1155";
+        tokenScopeKind:
+            | "contract_all_tokens"
+            | "token_range"
+            | "explicit_token_ids";
+        scopeStartTokenId: string | null;
+        scopeTotalSupply: number | null;
+        explicitTokenIds: string[];
         deploymentBlock: number | null;
     }): CollectionBootstrapState;
     hasActiveRun(chainId: number, collectionId: number): boolean;
@@ -70,6 +89,7 @@ export interface BootstrapRunsWritePort {
         chainId: number;
         collectionId: number;
         requestSlug: string;
+        requestOpenseaSlug: string | null;
         requestAddress: string;
         requestStandard: "erc721" | "erc1155";
         metadataMode: BootstrapMetadataMode;

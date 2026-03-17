@@ -32,8 +32,8 @@ type OpenSeaOrderbookApiPort = {
 type OrderSourceStatePort = {
     markMissingOrdersInactive(
         chainId: number,
+        collectionId: number,
         source: string,
-        contract: string,
         activeOrderIds: Iterable<string>,
     ): number;
 };
@@ -86,8 +86,8 @@ export class OpenSeaOrderbookSync {
 
         const deactivatedOrders = this.sourceState.markMissingOrdersInactive(
             collection.chainId,
+            collection.id,
             "opensea",
-            collection.address.toLowerCase(),
             activeOrderIds,
         );
 

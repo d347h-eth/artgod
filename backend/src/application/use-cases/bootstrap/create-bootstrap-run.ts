@@ -28,6 +28,7 @@ export class CreateBootstrapRunUseCase {
 
         const slug = normalizeSlug(input.slug);
         const address = normalizeAddress(input.address);
+        const openseaSlug = normalizeOptionalSlug(input.openseaSlug);
         const metadataMode = input.metadataMode;
         if (metadataMode !== "best_effort" && metadataMode !== "strict") {
             throw new BootstrapValidationError("Invalid metadata mode");
@@ -41,21 +42,44 @@ export class CreateBootstrapRunUseCase {
             input.manualInput,
         );
 
-        const existing = this.bootstrapRunsPort.findCollectionByAddress(
+        const existing = this.bootstrapRunsPort.findCollectionBySlug(
             chain.publicChainId,
-            address,
+            slug,
         );
         if (existing && existing.status === "live") {
             throw new BootstrapConflictError(
                 "Collection is live; bootstrap run creation is not allowed",
             );
         }
+        if (existing && existing.address !== address) {
+            throw new BootstrapValidationError(
+                "Slug already belongs to a different contract address",
+            );
+        }
+
+        const siblingCollections = this.bootstrapRunsPort
+            .listCollectionsByAddress(chain.publicChainId, address)
+            .filter(
+                (collection) =>
+                    collection.collectionId !== existing?.collectionId,
+            );
+        assertCollectionScopeDoesNotOverlap(
+            chain.publicChainId,
+            siblingCollections,
+            enumeration,
+            this.bootstrapRunsPort,
+        );
 
         const collection = this.bootstrapRunsPort.upsertCollectionForBootstrap({
             chainId: chain.publicChainId,
             slug,
             address,
+            openseaSlug,
             standard: "erc721",
+            tokenScopeKind: enumeration.tokenScopeKind,
+            scopeStartTokenId: enumeration.scopeStartTokenId,
+            scopeTotalSupply: enumeration.scopeTotalSupply,
+            explicitTokenIds: enumeration.explicitTokenIds,
             deploymentBlock: input.deploymentBlock ?? null,
         });
 
@@ -74,6 +98,7 @@ export class CreateBootstrapRunUseCase {
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             requestSlug: slug,
+            requestOpenseaSlug: openseaSlug,
             requestAddress: address,
             requestStandard: "erc721",
             metadataMode,
@@ -140,6 +165,13 @@ function normalizeSlug(raw: string): string {
     return value;
 }
 
+function normalizeOptionalSlug(raw: string | undefined): string | null {
+    if (raw === undefined) return null;
+    const value = raw.trim();
+    if (!value) return null;
+    return normalizeSlug(value);
+}
+
 function normalizeAddress(raw: string): string {
     const value = raw.trim().toLowerCase();
     if (!/^0x[a-f0-9]{40}$/.test(value)) {
@@ -153,6 +185,13 @@ function resolveEnumerationInput(
     manualInput: CreateBootstrapRunInput["manualInput"],
 ): {
     mode: "enumerable" | "manual_token_ids" | "manual_range";
+    tokenScopeKind:
+        | "contract_all_tokens"
+        | "token_range"
+        | "explicit_token_ids";
+    scopeStartTokenId: string | null;
+    scopeTotalSupply: number | null;
+    explicitTokenIds: string[];
     manualTokenIdsJson: string | null;
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
@@ -160,6 +199,10 @@ function resolveEnumerationInput(
     if (supportsEnumerable) {
         return {
             mode: "enumerable",
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            explicitTokenIds: [],
             manualTokenIdsJson: null,
             manualRangeStartTokenId: null,
             manualRangeTotalSupply: null,
@@ -186,6 +229,10 @@ function resolveEnumerationInput(
         );
         return {
             mode: "manual_token_ids",
+            tokenScopeKind: "explicit_token_ids",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            explicitTokenIds: normalized,
             manualTokenIdsJson: JSON.stringify(normalized),
             manualRangeStartTokenId: null,
             manualRangeTotalSupply: null,
@@ -204,6 +251,10 @@ function resolveEnumerationInput(
     }
     return {
         mode: "manual_range",
+        tokenScopeKind: "token_range",
+        scopeStartTokenId: startTokenId,
+        scopeTotalSupply: totalSupply,
+        explicitTokenIds: [],
         manualTokenIdsJson: null,
         manualRangeStartTokenId: startTokenId,
         manualRangeTotalSupply: totalSupply,
@@ -219,4 +270,142 @@ function normalizeTokenId(raw: string): string {
         throw new BootstrapValidationError("Token id is too large");
     }
     return value;
+}
+
+function assertCollectionScopeDoesNotOverlap(
+    chainId: number,
+    siblingCollections: Array<{
+        collectionId: number;
+        tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+        scopeStartTokenId: string | null;
+        scopeTotalSupply: number | null;
+        slug: string;
+    }>,
+    nextScope: {
+        tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+        scopeStartTokenId: string | null;
+        scopeTotalSupply: number | null;
+        explicitTokenIds: string[];
+    },
+    bootstrapRunsPort: Pick<BootstrapRunsWritePort, "listCollectionScopeTokenIds">,
+): void {
+    for (const sibling of siblingCollections) {
+        if (
+            scopesOverlap(
+                nextScope,
+                {
+                    tokenScopeKind: sibling.tokenScopeKind,
+                    scopeStartTokenId: sibling.scopeStartTokenId,
+                    scopeTotalSupply: sibling.scopeTotalSupply,
+                    explicitTokenIds:
+                        sibling.tokenScopeKind === "explicit_token_ids"
+                            ? bootstrapRunsPort.listCollectionScopeTokenIds(
+                                  chainId,
+                                  sibling.collectionId,
+                              )
+                            : [],
+                },
+            )
+        ) {
+            throw new BootstrapConflictError(
+                `Collection scope overlaps with existing collection ${sibling.slug}`,
+            );
+        }
+    }
+}
+
+function scopesOverlap(
+    left: {
+        tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+        scopeStartTokenId: string | null;
+        scopeTotalSupply: number | null;
+        explicitTokenIds: string[];
+    },
+    right: {
+        tokenScopeKind: "contract_all_tokens" | "token_range" | "explicit_token_ids";
+        scopeStartTokenId: string | null;
+        scopeTotalSupply: number | null;
+        explicitTokenIds: string[];
+    },
+): boolean {
+    if (
+        left.tokenScopeKind === "contract_all_tokens" ||
+        right.tokenScopeKind === "contract_all_tokens"
+    ) {
+        return true;
+    }
+
+    if (
+        left.tokenScopeKind === "token_range" &&
+        right.tokenScopeKind === "token_range"
+    ) {
+        return rangeOverlapsRange(
+            left.scopeStartTokenId,
+            left.scopeTotalSupply,
+            right.scopeStartTokenId,
+            right.scopeTotalSupply,
+        );
+    }
+
+    if (
+        left.tokenScopeKind === "token_range" &&
+        right.tokenScopeKind === "explicit_token_ids"
+    ) {
+        return tokenIdsOverlapRange(
+            right.explicitTokenIds,
+            left.scopeStartTokenId,
+            left.scopeTotalSupply,
+        );
+    }
+
+    if (
+        left.tokenScopeKind === "explicit_token_ids" &&
+        right.tokenScopeKind === "token_range"
+    ) {
+        return tokenIdsOverlapRange(
+            left.explicitTokenIds,
+            right.scopeStartTokenId,
+            right.scopeTotalSupply,
+        );
+    }
+
+    const rightIds = new Set(right.explicitTokenIds);
+    return left.explicitTokenIds.some((tokenId) => rightIds.has(tokenId));
+}
+
+function rangeOverlapsRange(
+    leftStartTokenId: string | null,
+    leftTotalSupply: number | null,
+    rightStartTokenId: string | null,
+    rightTotalSupply: number | null,
+): boolean {
+    if (
+        leftStartTokenId === null ||
+        leftTotalSupply === null ||
+        rightStartTokenId === null ||
+        rightTotalSupply === null
+    ) {
+        return false;
+    }
+    const leftStart = BigInt(leftStartTokenId);
+    const leftEnd = leftStart + BigInt(leftTotalSupply - 1);
+    const rightStart = BigInt(rightStartTokenId);
+    const rightEnd = rightStart + BigInt(rightTotalSupply - 1);
+    return leftStart <= rightEnd && rightStart <= leftEnd;
+}
+
+function tokenIdsOverlapRange(
+    tokenIds: string[],
+    rangeStartTokenId: string | null,
+    totalSupply: number | null,
+): boolean {
+    if (rangeStartTokenId === null || totalSupply === null) {
+        return false;
+    }
+    const start = BigInt(rangeStartTokenId);
+    const end = start + BigInt(totalSupply - 1);
+    return tokenIds.some((tokenId) => {
+        const value = BigInt(tokenId);
+        return value >= start && value <= end;
+    });
 }

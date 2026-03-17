@@ -89,7 +89,7 @@ describe("terraforms collection extension", () => {
 
     it("persists v2 artifacts for terraform mode with direct canvas reads", async () => {
         resetExtensionTables();
-        seedCollectionToken("7710", "Terraform");
+        const collectionId = seedCollectionToken("7710", "Terraform");
 
         const collectionExtensions = new SqliteCollectionExtensions();
         const metadataFetcher = new HttpMetadataFetcher();
@@ -134,10 +134,10 @@ describe("terraforms collection extension", () => {
             metadataFetcher,
             installs: collectionExtensions,
             artifacts: collectionExtensions,
-            install: buildInstall(1),
+            install: buildInstall(collectionId),
             payload: {
                 chainId: 1,
-                collectionId: 1,
+                collectionId,
                 contract: TERRAFORMS_ADDRESS,
                 tokenId: "7710",
                 reason: "bootstrap-snapshot",
@@ -147,7 +147,7 @@ describe("terraforms collection extension", () => {
 
         const artifact = collectionExtensions.getArtifact({
             chainId: 1,
-            contractAddress: TERRAFORMS_ADDRESS,
+            collectionId,
             tokenId: "7710",
             extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
             artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
@@ -168,7 +168,7 @@ describe("terraforms collection extension", () => {
 
     it("uses terrain-derived canvas override for daydream mode", async () => {
         resetExtensionTables();
-        seedCollectionToken("7711", "Daydream");
+        const collectionId = seedCollectionToken("7711", "Daydream");
 
         const collectionExtensions = new SqliteCollectionExtensions();
         const metadataFetcher = new HttpMetadataFetcher();
@@ -218,10 +218,10 @@ describe("terraforms collection extension", () => {
             metadataFetcher,
             installs: collectionExtensions,
             artifacts: collectionExtensions,
-            install: buildInstall(1),
+            install: buildInstall(collectionId),
             payload: {
                 chainId: 1,
-                collectionId: 1,
+                collectionId,
                 contract: TERRAFORMS_ADDRESS,
                 tokenId: "7711",
                 reason: "erc4906",
@@ -231,7 +231,7 @@ describe("terraforms collection extension", () => {
 
         const artifact = collectionExtensions.getArtifact({
             chainId: 1,
-            contractAddress: TERRAFORMS_ADDRESS,
+            collectionId,
             tokenId: "7711",
             extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
             artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
@@ -280,13 +280,13 @@ function resetExtensionTables(): void {
     );
 }
 
-function seedCollectionToken(tokenId: string, mode: string): void {
+function seedCollectionToken(tokenId: string, mode: string): number {
     const collectionId = Number(
         db
             .prepare(
                 "INSERT INTO collections " +
-                    "(chain_id, slug, address, standard, status, deployment_block, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, created_at, updated_at) " +
+                    "VALUES (?, ?, ?, ?, ?, 'contract_all_tokens', NULL, NULL, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
             )
             .run(1, "terraforms", TERRAFORMS_ADDRESS, "erc721", "live", 1)
             .lastInsertRowid,
@@ -305,26 +305,29 @@ function seedCollectionToken(tokenId: string, mode: string): void {
     );
 
     db.prepare(
-        "INSERT INTO tokens (chain_id, contract_address, token_id) VALUES (?, ?, ?)",
-    ).run(1, TERRAFORMS_ADDRESS, tokenId);
+        "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id) VALUES (?, ?, ?, ?)",
+    ).run(1, collectionId, TERRAFORMS_ADDRESS, tokenId);
 
     const modeKeyId = Number(
         db
             .prepare(
-                "INSERT INTO attribute_keys (chain_id, contract_address, key) VALUES (?, ?, ?)",
+                "INSERT INTO attribute_keys (chain_id, collection_id, contract_address, key) VALUES (?, ?, ?, ?)",
             )
-            .run(1, TERRAFORMS_ADDRESS, "Mode").lastInsertRowid,
+            .run(1, collectionId, TERRAFORMS_ADDRESS, "Mode").lastInsertRowid,
     );
     const attributeId = Number(
         db
             .prepare(
-                "INSERT INTO attributes (chain_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?)",
+                "INSERT INTO attributes (chain_id, collection_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?, ?)",
             )
-            .run(1, TERRAFORMS_ADDRESS, modeKeyId, mode).lastInsertRowid,
+            .run(1, collectionId, TERRAFORMS_ADDRESS, modeKeyId, mode)
+            .lastInsertRowid,
     );
     db.prepare(
-        "INSERT INTO token_attributes (chain_id, contract_address, token_id, attribute_id) VALUES (?, ?, ?, ?)",
-    ).run(1, TERRAFORMS_ADDRESS, tokenId, attributeId);
+        "INSERT INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) VALUES (?, ?, ?, ?, ?)",
+    ).run(1, collectionId, TERRAFORMS_ADDRESS, tokenId, attributeId);
+
+    return collectionId;
 }
 
 function buildMetadataDataUri(payload: Record<string, unknown>): string {

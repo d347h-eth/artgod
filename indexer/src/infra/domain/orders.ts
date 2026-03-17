@@ -30,6 +30,7 @@ import type { TokenSetSchema } from "../../domain/token-sets.js";
 type OrderRow = {
     id: string;
     chain_id: number;
+    collection_id: number;
     kind: string;
     side: "buy" | "sell" | null;
     source: string | null;
@@ -92,7 +93,7 @@ type MakerSeaportOrdersParams = {
 };
 
 const SELECT_ORDER_FIELDS =
-    "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, " +
+    "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, " +
     "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index " +
     "FROM orders ";
 
@@ -109,7 +110,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "WHERE chain_id = @chainId AND id = @orderId",
     );
     private selectOrderById = db.prepare<OrderIdentityParams>(
-        "SELECT id, chain_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, " +
+        "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, " +
             "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index " +
             "FROM orders WHERE chain_id = @chainId AND id = @orderId",
     );
@@ -134,6 +135,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     private upsertOrder = db.prepare<{
         id: string;
         chainId: number;
+        collectionId: number;
         kind: string;
         side: string;
         source: string;
@@ -158,9 +160,10 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         rawRestData: string | null;
         rawStreamData: string | null;
     }>(
-        "INSERT INTO orders (id, chain_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, raw_rest_data, raw_stream_data) " +
-            "VALUES (@id, @chainId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @sourceScopeKind, @sourceCriteriaRoot, @sourceSchemaJson, @localTokenSetStatus, @tokenSetId, @tokenSetSchemaHash, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @seaportDataJson, @seaportDataSourceKind, @rawRestData, @rawStreamData) " +
+        "INSERT INTO orders (id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, raw_rest_data, raw_stream_data) " +
+            "VALUES (@id, @chainId, @collectionId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @sourceScopeKind, @sourceCriteriaRoot, @sourceSchemaJson, @localTokenSetStatus, @tokenSetId, @tokenSetSchemaHash, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @seaportDataJson, @seaportDataSourceKind, @rawRestData, @rawStreamData) " +
             "ON CONFLICT(id) DO UPDATE SET " +
+            "collection_id = excluded.collection_id, " +
             "kind = excluded.kind, " +
             "side = excluded.side, " +
             "source = excluded.source, " +
@@ -365,6 +368,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         const result = this.upsertOrder.run({
             id: payload.orderId,
             chainId: payload.chainId,
+            collectionId: payload.collectionId,
             kind: payload.kind,
             side: payload.side,
             source: payload.source,
@@ -456,6 +460,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     return {
         id: row.id,
         chainId: row.chain_id,
+        collectionId: row.collection_id,
         kind: row.kind,
         side: row.side,
         source: row.source,

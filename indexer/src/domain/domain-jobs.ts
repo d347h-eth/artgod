@@ -19,6 +19,7 @@ export type DomainSyncPayload = {
 
 export type MetadataRefreshPayload = {
     chainId: number;
+    collectionId: number;
     contract: string;
     tokenId: string;
     standard?: "erc721" | "erc1155";
@@ -32,6 +33,7 @@ export type MetadataRefreshPayload = {
 
 export type MetadataRefreshRangePayload = {
     chainId: number;
+    collectionId: number;
     contract: string;
     fromTokenId: string;
     toTokenId: string;
@@ -42,6 +44,7 @@ export type MetadataRefreshRangePayload = {
 
 export type MetadataStatsRecomputePayload = {
     chainId: number;
+    collectionId: number;
     contract: string;
     reason:
         | "metadata-sync"

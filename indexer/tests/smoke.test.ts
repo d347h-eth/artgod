@@ -21,6 +21,8 @@ describe("indexer smoke", () => {
     const runtimeEnv = loadTestEnv();
     const config = loadSmokeConfig(runtimeEnv);
 
+    const timeoutMs = 10_000;
+
     it("processes a small backfill range", async () => {
         const dbPath = await createTempDbPath();
         setDbPath(dbPath);
@@ -77,9 +79,9 @@ describe("indexer smoke", () => {
         await queue.publish(QUEUE_NAMES.BackfillSync, job);
         await queue.close();
 
-        await waitFor(() => count("blocks") > 0);
-        await waitFor(() => count("nft_transfer_events") > 0);
-        await waitFor(() => count("activities") > 0);
+        await waitFor(() => count("blocks") > 0, timeoutMs);
+        await waitFor(() => count("nft_transfer_events") > 0, timeoutMs);
+        await waitFor(() => count("activities") > 0, timeoutMs);
 
         expect(count("blocks")).toBeGreaterThan(0);
         expect(count("nft_transfer_events")).toBeGreaterThan(0);
@@ -107,9 +109,13 @@ function seedCollections(chainId: number, collectionsJson: string): void {
     >;
     const insert = db.prepare<{
         chainId: number;
+        slug: string;
         address: string;
         standard: string;
         status: string;
+        tokenScopeKind: string;
+        scopeStartTokenId: string | null;
+        scopeTotalSupply: number | null;
         deploymentBlock: number | null;
         bootstrapAnchorBlock: number | null;
         bootstrapStartedAt: string | null;
@@ -117,12 +123,15 @@ function seedCollections(chainId: number, collectionsJson: string): void {
         bootstrapLastSyncedBlock: number | null;
     }>(
         "INSERT INTO collections " +
-            "(chain_id, address, standard, status, deployment_block, bootstrap_anchor_block, " +
+            "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, bootstrap_anchor_block, " +
             "bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
-            "VALUES (@chainId, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock, " +
+            "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind, @scopeStartTokenId, @scopeTotalSupply, @deploymentBlock, @bootstrapAnchorBlock, " +
             "@bootstrapStartedAt, @bootstrapFinishedAt, @bootstrapLastSyncedBlock) " +
-            "ON CONFLICT(chain_id, address) DO UPDATE SET " +
-            "standard = excluded.standard, status = excluded.status, " +
+            "ON CONFLICT(chain_id, slug) DO UPDATE SET " +
+            "address = excluded.address, standard = excluded.standard, status = excluded.status, " +
+            "token_scope_kind = excluded.token_scope_kind, " +
+            "scope_start_token_id = excluded.scope_start_token_id, " +
+            "scope_total_supply = excluded.scope_total_supply, " +
             "deployment_block = excluded.deployment_block, bootstrap_anchor_block = excluded.bootstrap_anchor_block, " +
             "bootstrap_started_at = excluded.bootstrap_started_at, " +
             "bootstrap_finished_at = excluded.bootstrap_finished_at, " +
@@ -133,9 +142,15 @@ function seedCollections(chainId: number, collectionsJson: string): void {
         if (!entry?.address) continue;
         insert.run({
             chainId,
+            slug:
+                entry.id ??
+                `fixture-${entry.address.toLowerCase().slice(2, 10)}`,
             address: entry.address,
             standard: "erc721",
             status: "live",
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
             deploymentBlock: entry.deploymentBlock ?? null,
             bootstrapAnchorBlock: null,
             bootstrapStartedAt: null,

@@ -5,6 +5,7 @@ import type {
 
 export type CollectionExtensionArtifactUpsertInput = {
     chainId: number;
+    collectionId: number;
     contractAddress: string;
     tokenId: string;
     extensionKey: CollectionExtensionKey;
@@ -19,6 +20,7 @@ export type CollectionExtensionArtifactUpsertInput = {
 
 export type CollectionExtensionArtifactRecord = {
     chainId: number;
+    collectionId: number;
     contractAddress: string;
     tokenId: string;
     extensionKey: CollectionExtensionKey;
@@ -38,10 +40,6 @@ export interface CollectionExtensionInstallPort {
         chainId: number,
         collectionId: number,
     ): CollectionExtensionInstall | null;
-    getInstallByContract(
-        chainId: number,
-        contractAddress: string,
-    ): CollectionExtensionInstall | null;
     listEnabledInstalls(chainId: number): CollectionExtensionInstall[];
     upsertInstall(input: {
         chainId: number;
@@ -56,14 +54,14 @@ export interface CollectionExtensionArtifactPort {
     upsertArtifact(input: CollectionExtensionArtifactUpsertInput): void;
     getArtifact(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
         artifactRef: string;
     }): CollectionExtensionArtifactRecord | null;
     getTokenAttributeValue(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         key: string;
     }): string | null;

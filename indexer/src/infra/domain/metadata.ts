@@ -18,6 +18,7 @@ import type {
 } from "../../ports/metadata.js";
 
 type TokenRow = {
+    collection_id: number;
     contract: string;
     token_id: string;
     kind: TokenStandard;
@@ -29,7 +30,10 @@ type TokenRow = {
 };
 
 type MetadataRow = { uri: string };
-type CollectionStandardRow = { standard: TokenStandard };
+type CollectionStandardRow = {
+    collection_id: number;
+    standard: TokenStandard;
+};
 
 type MetadataAttribution = {
     block_number?: number | null;
@@ -42,20 +46,28 @@ type MetadataAttribution = {
 export class SqliteMetadataDomain implements MetadataDomainPort {
     // Select the first transfer per token in-range (used for metadata attribution).
     private selectFirstTransferPerToken = db.prepare<[number, number, number]>(
-        "SELECT contract_address AS contract, token_id, kind, block_number, block_hash, block_timestamp, tx_hash, log_index FROM (" +
-            "SELECT contract_address, token_id, kind, block_number, block_hash, block_timestamp, tx_hash, log_index, " +
-            "ROW_NUMBER() OVER (PARTITION BY contract_address, token_id, kind ORDER BY block_number ASC, log_index ASC) AS rn " +
+        "SELECT collection_id, contract_address AS contract, token_id, kind, block_number, block_hash, block_timestamp, tx_hash, log_index FROM (" +
+            "SELECT collection_id, contract_address, token_id, kind, block_number, block_hash, block_timestamp, tx_hash, log_index, " +
+            "ROW_NUMBER() OVER (PARTITION BY collection_id, token_id, kind ORDER BY block_number ASC, log_index ASC) AS rn " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? AND block_number <= ? " +
             ") WHERE rn = 1",
     );
-    private selectMetadata = db.prepare<[number, string, string]>(
-        "SELECT uri FROM token_metadata WHERE chain_id = ? AND contract_address = ? AND token_id = ? LIMIT 1",
+    private selectMetadata = db.prepare<[number, number, string]>(
+        "SELECT uri FROM token_metadata WHERE chain_id = ? AND collection_id = ? AND token_id = ? LIMIT 1",
     );
-    private selectCollectionStandard = db.prepare<[number, string]>(
-        "SELECT standard FROM collections WHERE chain_id = ? AND address = ? LIMIT 1",
+    private selectCollectionStandardById = db.prepare<[number, number]>(
+        "SELECT collection_id, standard FROM collections WHERE chain_id = ? AND collection_id = ? LIMIT 1",
+    );
+    private selectTokenCollection = db.prepare<[number, string, string]>(
+        "SELECT tokens.collection_id, standard FROM tokens " +
+            "JOIN collections ON collections.collection_id = tokens.collection_id " +
+            "AND collections.chain_id = tokens.chain_id " +
+            "WHERE tokens.chain_id = ? AND tokens.contract_address = ? AND tokens.token_id = ? " +
+            "LIMIT 1",
     );
     private upsertMetadata = db.prepare<{
         chainId: number;
+        collectionId: number;
         contract: string;
         tokenId: string;
         uri: string;
@@ -73,38 +85,42 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         logIndex: number | null;
     }>(
         "INSERT INTO token_metadata " +
-            "(chain_id, contract_address, token_id, uri, name, description, image, animation_url, external_url, attributes_json, raw_json, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
-            "VALUES (@chainId, @contract, @tokenId, @uri, @name, @description, @image, @animationUrl, @externalUrl, @attributesJson, @rawJson, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex) " +
-            "ON CONFLICT(chain_id, contract_address, token_id) DO UPDATE SET " +
+            "(chain_id, collection_id, contract_address, token_id, uri, name, description, image, animation_url, external_url, attributes_json, raw_json, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
+            "VALUES (@chainId, @collectionId, @contract, @tokenId, @uri, @name, @description, @image, @animationUrl, @externalUrl, @attributesJson, @rawJson, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex) " +
+            "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
             "uri = excluded.uri, name = excluded.name, description = excluded.description, image = excluded.image, " +
             "animation_url = excluded.animation_url, external_url = excluded.external_url, attributes_json = excluded.attributes_json, " +
             "raw_json = excluded.raw_json, block_number = excluded.block_number, block_hash = excluded.block_hash, " +
             "block_timestamp = excluded.block_timestamp, tx_hash = excluded.tx_hash, log_index = excluded.log_index, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
-    private upsertToken = db.prepare<[number, string, string]>(
-        "INSERT INTO tokens (chain_id, contract_address, token_id) VALUES (?, ?, ?) " +
-            "ON CONFLICT(chain_id, contract_address, token_id) DO UPDATE SET " +
+    private upsertToken = db.prepare<[number, number, string, string]>(
+        "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id) VALUES (?, ?, ?, ?) " +
+            "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
             "updated_at = CURRENT_TIMESTAMP",
     );
-    private deleteTokenAttributes = db.prepare<[number, string, string]>(
-        "DELETE FROM token_attributes WHERE chain_id = ? AND contract_address = ? AND token_id = ?",
+    private deleteTokenAttributes = db.prepare<[number, number, string]>(
+        "DELETE FROM token_attributes WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
     );
-    private insertAttributeKey = db.prepare<[number, string, string]>(
-        "INSERT OR IGNORE INTO attribute_keys (chain_id, contract_address, key) VALUES (?, ?, ?)",
+    private insertAttributeKey = db.prepare<[number, number, string, string]>(
+        "INSERT OR IGNORE INTO attribute_keys (chain_id, collection_id, contract_address, key) VALUES (?, ?, ?, ?)",
     );
-    private selectAttributeKeyId = db.prepare<[number, string, string]>(
-        "SELECT id FROM attribute_keys WHERE chain_id = ? AND contract_address = ? AND key = ?",
+    private selectAttributeKeyId = db.prepare<[number, number, string]>(
+        "SELECT id FROM attribute_keys WHERE chain_id = ? AND collection_id = ? AND key = ?",
     );
-    private insertAttribute = db.prepare<[number, string, number, string]>(
-        "INSERT OR IGNORE INTO attributes (chain_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?)",
+    private insertAttribute = db.prepare<
+        [number, number, string, number, string]
+    >(
+        "INSERT OR IGNORE INTO attributes (chain_id, collection_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?, ?)",
     );
-    private selectAttributeId = db.prepare<[number, string, number, string]>(
-        "SELECT id FROM attributes WHERE chain_id = ? AND contract_address = ? AND attribute_key_id = ? AND value = ?",
+    private selectAttributeId = db.prepare<[number, number, number, string]>(
+        "SELECT id FROM attributes WHERE chain_id = ? AND collection_id = ? AND attribute_key_id = ? AND value = ?",
     );
-    private insertTokenAttribute = db.prepare<[number, string, string, number]>(
-        "INSERT OR IGNORE INTO token_attributes (chain_id, contract_address, token_id, attribute_id) " +
-            "VALUES (?, ?, ?, ?)",
+    private insertTokenAttribute = db.prepare<
+        [number, number, string, string, number]
+    >(
+        "INSERT OR IGNORE INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) " +
+            "VALUES (?, ?, ?, ?, ?)",
     );
 
     constructor(
@@ -138,7 +154,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         for (const row of rows) {
             const contract = row.contract.toLowerCase();
             const tokenId = row.token_id;
-            if (this.hasMetadata(chainId, contract, tokenId)) {
+            if (this.hasMetadata(chainId, row.collection_id, tokenId)) {
                 continue;
             }
             const uri = await this.resolver.resolveTokenUri(
@@ -168,8 +184,16 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 });
                 continue;
             }
-            this.persistMetadata(chainId, contract, tokenId, metadata, row);
+            this.persistMetadata(
+                chainId,
+                row.collection_id,
+                contract,
+                tokenId,
+                metadata,
+                row,
+            );
             updatedTokens.push({
+                collectionId: row.collection_id,
                 contract,
                 tokenId,
             });
@@ -197,14 +221,18 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         const { chainId } = payload;
         const contract = payload.contract.toLowerCase();
         const tokenId = payload.tokenId;
+        const collection = this.resolveCollectionStandard(
+            chainId,
+            payload.collectionId,
+            contract,
+            tokenId,
+        );
 
         let uri = payload.metadataUrl ?? null;
-        const tokenStandard = payload.standard ?? null;
+        const tokenStandard = payload.standard ?? collection?.standard ?? null;
         const blockNumber = payload.blockNumber;
         if (!uri) {
-            const standard =
-                tokenStandard ??
-                this.resolveCollectionStandard(chainId, contract);
+            const standard = tokenStandard;
             if (!standard) return null;
             uri = await this.resolver.resolveTokenUri(
                 contract,
@@ -237,13 +265,31 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             return null;
         }
 
-        this.persistMetadata(chainId, contract, tokenId, metadata, {
-            block_number: payload.blockNumber ?? null,
-            block_hash: payload.blockHash ?? null,
-            block_timestamp: payload.blockTimestamp ?? null,
-            tx_hash: null,
-            log_index: null,
-        });
+        if (!collection) {
+            logger.debug("Metadata refresh skipped (missing collection)", {
+                component: "MetadataDomain",
+                action: "handleMetadataRefresh",
+                chainId,
+                contract,
+                tokenId,
+            });
+            return null;
+        }
+
+        this.persistMetadata(
+            chainId,
+            collection.collection_id,
+            contract,
+            tokenId,
+            metadata,
+            {
+                block_number: payload.blockNumber ?? null,
+                block_hash: payload.blockHash ?? null,
+                block_timestamp: payload.blockTimestamp ?? null,
+                tx_hash: null,
+                log_index: null,
+            },
+        );
 
         logger.debug("Metadata refresh applied", {
             component: "MetadataDomain",
@@ -254,6 +300,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             reason: payload.reason,
         });
         return {
+            collectionId: collection.collection_id,
             contract,
             tokenId,
         };
@@ -261,32 +308,43 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
 
     private resolveCollectionStandard(
         chainId: number,
+        collectionId: number,
         contract: string,
-    ): TokenStandard | null {
-        const row = this.selectCollectionStandard.get(chainId, contract) as
-            | CollectionStandardRow
-            | undefined;
-        if (!row) {
-            logger.debug(
-                "Metadata refresh skipped (missing collection standard)",
-                {
-                    component: "MetadataDomain",
-                    action: "handleMetadataRefresh",
-                    chainId,
-                    contract,
-                },
-            );
-            return null;
+        tokenId: string,
+    ): CollectionStandardRow | null {
+        const row = this.selectCollectionStandardById.get(
+            chainId,
+            collectionId,
+        ) as CollectionStandardRow | undefined;
+        if (row) {
+            return row;
         }
-        return row.standard;
+
+        const tokenRow = this.selectTokenCollection.get(
+            chainId,
+            contract,
+            tokenId,
+        ) as CollectionStandardRow | undefined;
+        if (tokenRow) {
+            return tokenRow;
+        }
+        logger.debug("Metadata refresh skipped (missing collection standard)", {
+            component: "MetadataDomain",
+            action: "handleMetadataRefresh",
+            chainId,
+            collectionId,
+            contract,
+            tokenId,
+        });
+        return null;
     }
 
     private hasMetadata(
         chainId: number,
-        contract: string,
+        collectionId: number,
         tokenId: string,
     ): boolean {
-        const row = this.selectMetadata.get(chainId, contract, tokenId) as
+        const row = this.selectMetadata.get(chainId, collectionId, tokenId) as
             | MetadataRow
             | undefined;
         return Boolean(row?.uri);
@@ -294,6 +352,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
 
     private persistMetadata(
         chainId: number,
+        collectionId: number,
         contract: string,
         tokenId: string,
         metadata: TokenMetadata,
@@ -309,10 +368,11 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
         const persist = db.raw.transaction(() => {
             // Persist token identity first so future FK constraints can safely
             // reference tokens before metadata/attributes are written.
-            this.upsertToken.run(chainId, contract, tokenId);
+            this.upsertToken.run(chainId, collectionId, contract, tokenId);
 
             this.upsertMetadata.run({
                 chainId,
+                collectionId,
                 contract,
                 tokenId,
                 uri: metadata.uri,
@@ -331,31 +391,38 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             });
 
             // Replace attribute links for this token on every metadata refresh.
-            this.deleteTokenAttributes.run(chainId, contract, tokenId);
+            this.deleteTokenAttributes.run(chainId, collectionId, tokenId);
 
             for (const attribute of normalizedAttributes) {
-                this.insertAttributeKey.run(chainId, contract, attribute.key);
+                this.insertAttributeKey.run(
+                    chainId,
+                    collectionId,
+                    contract,
+                    attribute.key,
+                );
                 const keyRow = this.selectAttributeKeyId.get(
                     chainId,
-                    contract,
+                    collectionId,
                     attribute.key,
                 ) as { id: number } | undefined;
                 if (!keyRow) continue;
                 this.insertAttribute.run(
                     chainId,
+                    collectionId,
                     contract,
                     keyRow.id,
                     attribute.value,
                 );
                 const attributeRow = this.selectAttributeId.get(
                     chainId,
-                    contract,
+                    collectionId,
                     keyRow.id,
                     attribute.value,
                 ) as { id: number } | undefined;
                 if (!attributeRow) continue;
                 this.insertTokenAttribute.run(
                     chainId,
+                    collectionId,
                     contract,
                     tokenId,
                     attributeRow.id,

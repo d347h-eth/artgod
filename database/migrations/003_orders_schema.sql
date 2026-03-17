@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
   chain_id INTEGER NOT NULL,
+  collection_id INTEGER NOT NULL,
   kind TEXT NOT NULL,
   side TEXT,
   source TEXT,
@@ -31,9 +32,11 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE INDEX IF NOT EXISTS orders_maker_idx
   ON orders (chain_id, maker);
+CREATE INDEX IF NOT EXISTS orders_collection_token_idx
+  ON orders (chain_id, collection_id, token_id);
 CREATE INDEX IF NOT EXISTS orders_contract_token_idx
   ON orders (chain_id, contract_address, token_id);
 CREATE INDEX IF NOT EXISTS orders_token_set_idx
-  ON orders (chain_id, token_set_id, token_set_schema_hash);
+  ON orders (chain_id, collection_id, token_set_id, token_set_schema_hash);
 CREATE INDEX IF NOT EXISTS orders_status_idx
   ON orders (chain_id, fillability_status);

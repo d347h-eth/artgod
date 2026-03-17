@@ -176,18 +176,16 @@ async function handleOpenSeaEvent(
     if (!eventType) return;
 
     const contract = getOpenSeaEventContract(rawEvent);
-    const scopedCollections = (routedCollections.get(slug) ?? []).filter(
-        (collection) => {
-            if (!contract) return false;
-            return collection.address.toLowerCase() === contract;
-        },
-    );
+    const scopedCollections = routedCollections.get(slug) ?? [];
 
     if (scopedCollections.length === 0) {
         return;
     }
 
     for (const collection of scopedCollections) {
+        if (contract && collection.address.toLowerCase() !== contract) {
+            continue;
+        }
         const receivedAt = Date.now();
         const orderId = getOpenSeaOrderId(rawEvent);
         const rawPayload: OffchainOrderRawPayload = {

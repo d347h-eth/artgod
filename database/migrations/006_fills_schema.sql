@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS fills (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chain_id INTEGER NOT NULL,
+  collection_id INTEGER NOT NULL,
   kind TEXT NOT NULL,
   order_id TEXT,
   order_side TEXT,
@@ -18,9 +19,11 @@ CREATE TABLE IF NOT EXISTS fills (
   tx_hash TEXT NOT NULL,
   log_index INTEGER NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (chain_id, tx_hash, log_index, contract_address, token_id, kind)
+  UNIQUE (chain_id, tx_hash, log_index, collection_id, token_id, kind)
 );
 
+CREATE INDEX IF NOT EXISTS fills_collection_token_idx
+  ON fills (chain_id, collection_id, token_id);
 CREATE INDEX IF NOT EXISTS fills_contract_token_idx
   ON fills (chain_id, contract_address, token_id);
 CREATE INDEX IF NOT EXISTS fills_maker_idx

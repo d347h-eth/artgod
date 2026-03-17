@@ -64,7 +64,7 @@
 	}
 
 	function collectionRef(collection: ApiCollection): string {
-		return collection.slug ?? collection.address;
+		return collection.slug;
 	}
 
 	function collectionHref(collection: ApiCollection): string {
@@ -139,7 +139,7 @@
 					{#each page.items as collection}
 						<tr>
 							<td>
-								<a href={collectionHref(collection)}>{collection.slug ?? '(no-slug)'}</a>
+								<a href={collectionHref(collection)}>{collection.slug}</a>
 							</td>
 							<td class="mono">{collection.address}</td>
 							<td>

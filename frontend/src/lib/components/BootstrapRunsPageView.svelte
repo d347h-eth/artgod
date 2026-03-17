@@ -28,6 +28,7 @@
 	let formOpen = $state(false);
 	let bootstrapSlug = $state('');
 	let bootstrapAddress = $state('');
+	let bootstrapOpenSeaSlug = $state('');
 	let metadataMode = $state<'best_effort' | 'strict'>('best_effort');
 	let supportsEnumerable = $state(true);
 	let manualMode = $state<'manual_token_ids' | 'manual_range'>('manual_token_ids');
@@ -54,7 +55,7 @@
 
 	function collectionHref(item: BootstrapRunsApiResponse['page']['items'][number]): string {
 		if (!chain) return '#';
-		return `/${chain.slug}/${item.collection.slug ?? item.collection.address}`;
+		return `/${chain.slug}/${item.collection.slug}`;
 	}
 
 	function loadMoreHref(): string {
@@ -89,6 +90,7 @@
 
 		const slug = normalizeFieldValue(bootstrapSlug).toLowerCase();
 		const address = normalizeFieldValue(bootstrapAddress).toLowerCase();
+		const openseaSlug = normalizeFieldValue(bootstrapOpenSeaSlug).toLowerCase();
 		if (!slug || !address) {
 			submitError = 'slug and address are required';
 			return;
@@ -154,6 +156,7 @@
 			const result = await createBootstrapRun(fetch, chain.slug, {
 				slug,
 				address,
+				openseaSlug: openseaSlug || undefined,
 				standard: 'erc721',
 				metadataMode,
 				supportsEnumerable,
@@ -225,6 +228,10 @@
 					name="address"
 					required
 				/>
+			</label>
+			<label>
+				opensea slug
+				<input bind:value={bootstrapOpenSeaSlug} class={bootstrapInputClass} type="text" />
 			</label>
 			<label>
 				metadata mode
@@ -301,7 +308,7 @@
 								<a href={runHref(item.run.runId)}>#{item.run.runId}</a>
 							</td>
 							<td>
-								<a href={collectionHref(item)}>{item.collection.slug ?? item.collection.address}</a>
+								<a href={collectionHref(item)}>{item.collection.slug}</a>
 							</td>
 							<td>{item.run.status}</td>
 							<td>{item.run.metadataMode}</td>

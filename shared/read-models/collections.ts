@@ -18,8 +18,6 @@ import type {
 } from "../types/browse.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
 import {
-    isAddressRef,
-    isSlugRef,
     normalizeAddressRef,
     normalizeSlugRef,
 } from "../utils/ref-resolver.js";
@@ -28,7 +26,7 @@ import { ReadModelBadRequestError, ReadModelNotFoundError } from "./errors.js";
 type CollectionRow = {
     chain_id: number;
     collection_id: number;
-    slug: string | null;
+    slug: string;
     address: string;
     standard: string;
     status: string;
@@ -140,7 +138,7 @@ export type ListCollectionsParams = {
 
 export type ListCollectionTokensParams = {
     chainId: number;
-    contractAddress: string;
+    collectionId: number;
     tokenStatus: TokenBrowserStatus;
     limit: number;
     cursor?: string;
@@ -149,13 +147,13 @@ export type ListCollectionTokensParams = {
 
 export type GetCollectionTokenDetailParams = {
     chainId: number;
-    contractAddress: string;
+    collectionId: number;
     tokenId: string;
 };
 
 export type ListCollectionHoldersParams = {
     chainId: number;
-    contractAddress: string;
+    collectionId: number;
     limit: number;
     cursor?: string;
 };
@@ -189,53 +187,43 @@ export class SqliteCollectionsReadModel {
             "LIMIT 1",
     );
 
-    private selectCollectionByAddress = db.prepare<{
-        chainId: number;
-        address: string;
-    }>(
-        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
-            "FROM collections " +
-            "WHERE chain_id = @chainId AND lower(address) = @address " +
-            "LIMIT 1",
-    );
-
-    private selectTraitFacetRows = db.prepare<[number, string]>(
+    private selectTraitFacetRows = db.prepare<[number, number]>(
         "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count " +
             "FROM collection_trait_stats " +
             "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
             "AND attributes.chain_id = collection_trait_stats.chain_id " +
-            "AND attributes.contract_address = collection_trait_stats.contract_address " +
+            "AND attributes.collection_id = collection_trait_stats.collection_id " +
             "JOIN attribute_keys ON attribute_keys.id = collection_trait_stats.attribute_key_id " +
             "AND attribute_keys.chain_id = collection_trait_stats.chain_id " +
-            "AND attribute_keys.contract_address = collection_trait_stats.contract_address " +
-            "WHERE collection_trait_stats.chain_id = ? AND collection_trait_stats.contract_address = ? " +
+            "AND attribute_keys.collection_id = collection_trait_stats.collection_id " +
+            "WHERE collection_trait_stats.chain_id = ? AND collection_trait_stats.collection_id = ? " +
             "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
     );
 
-    private selectTokenDetailRow = db.prepare<[number, string, string]>(
+    private selectTokenDetailRow = db.prepare<[number, number, string]>(
         "SELECT t.token_id, m.name, m.image, m.animation_url, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
-            "AND m.contract_address = t.contract_address " +
+            "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
-            "WHERE t.chain_id = ? AND t.contract_address = ? AND t.token_id = ? " +
+            "WHERE t.chain_id = ? AND t.collection_id = ? AND t.token_id = ? " +
             "LIMIT 1",
     );
 
-    private selectTokenDetailTraitRows = db.prepare<[number, string, string]>(
+    private selectTokenDetailTraitRows = db.prepare<[number, number, string]>(
         "SELECT ak.key AS key, a.value AS value, cts.token_count AS token_count " +
             "FROM token_attributes ta " +
             "JOIN attributes a ON a.id = ta.attribute_id " +
             "AND a.chain_id = ta.chain_id " +
-            "AND a.contract_address = ta.contract_address " +
+            "AND a.collection_id = ta.collection_id " +
             "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
             "AND ak.chain_id = a.chain_id " +
-            "AND ak.contract_address = a.contract_address " +
+            "AND ak.collection_id = a.collection_id " +
             "LEFT JOIN collection_trait_stats cts ON cts.chain_id = ta.chain_id " +
-            "AND cts.contract_address = ta.contract_address " +
+            "AND cts.collection_id = ta.collection_id " +
             "AND cts.attribute_key_id = a.attribute_key_id " +
             "AND cts.attribute_id = a.id " +
-            "WHERE ta.chain_id = ? AND ta.contract_address = ? AND ta.token_id = ? " +
+            "WHERE ta.chain_id = ? AND ta.collection_id = ? AND ta.token_id = ? " +
             "ORDER BY ak.key ASC, a.value ASC",
     );
 
@@ -258,16 +246,16 @@ export class SqliteCollectionsReadModel {
 
         if (cursor) {
             whereClauses.push(
-                "(created_at < ? OR (created_at = ? AND address > ?))",
+                "(created_at < ? OR (created_at = ? AND slug > ?))",
             );
-            values.push(cursor.createdAt, cursor.createdAt, cursor.address);
+            values.push(cursor.createdAt, cursor.createdAt, cursor.slug);
         }
 
         const sql =
             "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
             "FROM collections " +
             `WHERE ${whereClauses.join(" AND ")} ` +
-            "ORDER BY created_at DESC, address ASC " +
+            "ORDER BY created_at DESC, slug ASC " +
             "LIMIT ?";
 
         values.push(limit + 1);
@@ -280,7 +268,7 @@ export class SqliteCollectionsReadModel {
         const nextCursor = hasNext
             ? encodeOpaqueCursor({
                   createdAt: pageRows[pageRows.length - 1]!.created_at,
-                  address: pageRows[pageRows.length - 1]!.address.toLowerCase(),
+                  slug: pageRows[pageRows.length - 1]!.slug,
               })
             : null;
 
@@ -298,19 +286,13 @@ export class SqliteCollectionsReadModel {
         const ref = collectionRef.trim();
         let row: CollectionRow | undefined;
 
-        if (isAddressRef(ref)) {
-            row = this.selectCollectionByAddress.get({
-                chainId,
-                address: normalizeAddressRef(ref),
-            }) as CollectionRow | undefined;
-        } else if (isSlugRef(ref)) {
-            row = this.selectCollectionBySlug.get({
-                chainId,
-                slug: normalizeSlugRef(ref),
-            }) as CollectionRow | undefined;
-        } else {
+        if (!ref) {
             throw new ReadModelBadRequestError("Invalid collection_ref");
         }
+        row = this.selectCollectionBySlug.get({
+            chainId,
+            slug: normalizeSlugRef(ref),
+        }) as CollectionRow | undefined;
 
         if (!row) {
             throw new ReadModelNotFoundError("Unknown collection_ref");
@@ -326,7 +308,6 @@ export class SqliteCollectionsReadModel {
                 ? decodeTokenCursor(params.cursor)
                 : null;
         const nowSeconds = Math.floor(Date.now() / 1000);
-        const contractAddress = normalizeAddressRef(params.contractAddress);
         const traitFilterGroups = groupTraitFilters(
             normalizeTraitFilters(params.traitFilters ?? []),
         );
@@ -337,7 +318,7 @@ export class SqliteCollectionsReadModel {
             }
             return this.listListedCollectionTokens({
                 chainId: params.chainId,
-                contractAddress,
+                collectionId: params.collectionId,
                 limit,
                 nowSeconds,
                 cursor,
@@ -351,7 +332,7 @@ export class SqliteCollectionsReadModel {
 
         return this.listAllCollectionTokens({
             chainId: params.chainId,
-            contractAddress,
+            collectionId: params.collectionId,
             limit,
             nowSeconds,
             cursor,
@@ -361,7 +342,7 @@ export class SqliteCollectionsReadModel {
 
     private listAllCollectionTokens(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         limit: number;
         nowSeconds: number;
         cursor: Extract<TokenCursor, { kind: "all" }> | null;
@@ -369,7 +350,7 @@ export class SqliteCollectionsReadModel {
     }): TokenCursorPage {
         const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
             chainId: params.chainId,
-            contractAddress: params.contractAddress,
+            collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
         });
         const cursorSortKey = params.cursor
@@ -379,7 +360,7 @@ export class SqliteCollectionsReadModel {
         const values = [
             ...buildCheapestListingValues({
                 chainId: params.chainId,
-                contractAddress: params.contractAddress,
+                collectionId: params.collectionId,
                 supportedCurrencies: this.supportedListingCurrencies,
                 nowSeconds: params.nowSeconds,
             }),
@@ -395,10 +376,10 @@ export class SqliteCollectionsReadModel {
             "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
-            "AND m.contract_address = t.contract_address " +
+            "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
             `LEFT JOIN (${buildCheapestListingSql(this.supportedListingCurrencies.length)}) l ` +
-            "ON l.contract_address = t.contract_address " +
+            "ON l.collection_id = t.collection_id " +
             "AND l.token_id = t.token_id " +
             `WHERE ${whereClauses.join(" AND ")} ` +
             `ORDER BY ${TOKEN_ORDER_BY_ASC_SQL} ` +
@@ -458,7 +439,7 @@ export class SqliteCollectionsReadModel {
 
     private listListedCollectionTokens(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         limit: number;
         nowSeconds: number;
         cursor: Extract<TokenCursor, { kind: "listed" }> | null;
@@ -466,12 +447,12 @@ export class SqliteCollectionsReadModel {
     }): TokenCursorPage {
         const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
             chainId: params.chainId,
-            contractAddress: params.contractAddress,
+            collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
         });
         const listingValues = buildCheapestListingValues({
             chainId: params.chainId,
-            contractAddress: params.contractAddress,
+            collectionId: params.collectionId,
             supportedCurrencies: this.supportedListingCurrencies,
             nowSeconds: params.nowSeconds,
         });
@@ -495,10 +476,10 @@ export class SqliteCollectionsReadModel {
             "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
             `JOIN (${buildCheapestListingSql(this.supportedListingCurrencies.length)}) l ` +
-            "ON l.contract_address = t.contract_address " +
+            "ON l.collection_id = t.collection_id " +
             "AND l.token_id = t.token_id " +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
-            "AND m.contract_address = t.contract_address " +
+            "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
             `WHERE ${whereClauses.join(" AND ")} ` +
             `ORDER BY ${LISTED_ORDER_BY_ASC_SQL} ` +
@@ -574,12 +555,10 @@ export class SqliteCollectionsReadModel {
 
     listCollectionTraitFacets(
         chainId: number,
-        contractAddress: string,
+        collectionId: number,
     ): TraitFacet[] {
-        const rows = this.selectTraitFacetRows.all(
-            chainId,
-            normalizeAddressRef(contractAddress),
-        ) as TraitFacetRow[];
+        const rows = this.selectTraitFacetRows.all(chainId, collectionId) as
+            | TraitFacetRow[];
 
         const facets: TraitFacet[] = [];
         const byKey = new Map<string, TraitFacet>();
@@ -606,23 +585,19 @@ export class SqliteCollectionsReadModel {
             throw new ReadModelBadRequestError("Invalid token_ref");
         }
 
-        const contractAddress = normalizeAddressRef(params.contractAddress);
         const row = this.selectTokenDetailRow.get(
             params.chainId,
-            contractAddress,
+            params.collectionId,
             tokenId,
         ) as TokenDetailRow | undefined;
         if (!row) {
             throw new ReadModelNotFoundError("Unknown token_ref");
         }
 
-        const totalItems = countCollectionTokens(
-            params.chainId,
-            contractAddress,
-        );
+        const totalItems = countCollectionTokens(params.chainId, params.collectionId);
         const attributeRows = this.selectTokenDetailTraitRows.all(
             params.chainId,
-            contractAddress,
+            params.collectionId,
             tokenId,
         ) as TokenDetailTraitRow[];
         const attributes = mergeTokenDetailTraits({
@@ -646,14 +621,13 @@ export class SqliteCollectionsReadModel {
     listCollectionHolders(
         params: ListCollectionHoldersParams,
     ): CollectionHolderPage {
-        const contractAddress = normalizeAddressRef(params.contractAddress);
         const limit = normalizeLimit(params.limit);
         const cursor =
             params.cursor !== undefined
                 ? decodeHolderCursor(params.cursor)
                 : null;
         const whereClauses: string[] = [];
-        const values: unknown[] = [params.chainId, contractAddress];
+        const values: unknown[] = [params.chainId, params.collectionId];
 
         if (cursor) {
             whereClauses.push(buildHolderAfterCursorWhereClause());
@@ -681,12 +655,12 @@ export class SqliteCollectionsReadModel {
         const items = pageRows.map(mapHolderRow);
         const totalItems = countCollectionHolders(
             params.chainId,
-            contractAddress,
+            params.collectionId,
         );
         const beforeItems = cursor
             ? countCollectionHoldersBeforeOrAtCursor(
                   params.chainId,
-                  contractAddress,
+                  params.collectionId,
                   cursor,
               )
             : 0;
@@ -737,7 +711,7 @@ function countMatchingListedTokens(params: {
         "SELECT COUNT(*) AS count " +
         "FROM tokens t " +
         `JOIN (${params.listingSql}) l ` +
-        "ON l.contract_address = t.contract_address " +
+        "ON l.collection_id = t.collection_id " +
         "AND l.token_id = t.token_id " +
         `WHERE ${params.whereClauses.join(" AND ")}`;
     const row = db.raw
@@ -748,31 +722,31 @@ function countMatchingListedTokens(params: {
 
 function countCollectionTokens(
     chainId: number,
-    contractAddress: string,
+    collectionId: number,
 ): number {
     const row = db.raw
         .prepare(
-            "SELECT COUNT(*) AS count FROM tokens WHERE chain_id = ? AND contract_address = ?",
+            "SELECT COUNT(*) AS count FROM tokens WHERE chain_id = ? AND collection_id = ?",
         )
-        .get(chainId, contractAddress) as { count: number };
+        .get(chainId, collectionId) as { count: number };
     return row.count;
 }
 
 function countCollectionHolders(
     chainId: number,
-    contractAddress: string,
+    collectionId: number,
 ): number {
     const row = db.raw
         .prepare(
             `SELECT COUNT(*) AS count FROM (${buildCollectionHoldersSql()}) h`,
         )
-        .get(chainId, contractAddress) as { count: number };
+        .get(chainId, collectionId) as { count: number };
     return row.count;
 }
 
 function countCollectionHoldersBeforeOrAtCursor(
     chainId: number,
-    contractAddress: string,
+    collectionId: number,
     cursor: HolderCursorKey,
 ): number {
     const row = db.raw
@@ -782,7 +756,7 @@ function countCollectionHoldersBeforeOrAtCursor(
         )
         .get(
             chainId,
-            contractAddress,
+            collectionId,
             cursor.count.length,
             cursor.count.length,
             cursor.count.value,
@@ -864,7 +838,7 @@ function deriveListedPrevCursor(params: {
             "SELECT t.token_id, l.price AS listing_price " +
                 "FROM tokens t " +
                 `JOIN (${listingSql}) l ` +
-                "ON l.contract_address = t.contract_address " +
+                "ON l.collection_id = t.collection_id " +
                 "AND l.token_id = t.token_id " +
                 `WHERE ${baseWhereClauses.join(" AND ")} AND ${LISTED_TOKEN_SORT_KEY_SQL} < (?, ?, ?, ?, ?, ?) ` +
                 `ORDER BY ${LISTED_ORDER_BY_DESC_SQL} ` +
@@ -904,13 +878,13 @@ function decodeCollectionCursor(cursor: string): CollectionListCursor {
         if (
             !decoded ||
             typeof decoded.createdAt !== "string" ||
-            typeof decoded.address !== "string"
+            typeof decoded.slug !== "string"
         ) {
             throw new Error("bad payload");
         }
         return {
             createdAt: decoded.createdAt,
-            address: decoded.address.toLowerCase(),
+            slug: decoded.slug,
         };
     } catch {
         throw new ReadModelBadRequestError("Invalid cursor");
@@ -1000,7 +974,7 @@ function buildCollectionHoldersSql(): string {
                 lower(owner) AS owner,
                 CAST(SUM(CAST(amount AS INTEGER)) AS TEXT) AS token_count
             FROM nft_balances
-            WHERE chain_id = ? AND contract_address = ?
+            WHERE chain_id = ? AND collection_id = ?
             GROUP BY lower(owner)
             HAVING SUM(CAST(amount AS INTEGER)) > 0
         ),
@@ -1134,7 +1108,7 @@ function groupTraitFilters(filters: TraitFilter[]): TraitFilterGroup[] {
 
 function buildTokenWhereClauses(params: {
     chainId: number;
-    contractAddress: string;
+    collectionId: number;
     traitFilterGroups: TraitFilterGroup[];
 }): {
     baseWhereClauses: string[];
@@ -1142,9 +1116,9 @@ function buildTokenWhereClauses(params: {
 } {
     const baseWhereClauses: string[] = [
         "t.chain_id = ?",
-        "t.contract_address = ?",
+        "t.collection_id = ?",
     ];
-    const baseValues: unknown[] = [params.chainId, params.contractAddress];
+    const baseValues: unknown[] = [params.chainId, params.collectionId];
 
     for (const filterGroup of params.traitFilterGroups) {
         const valuePlaceholders = filterGroup.values.map(() => "?").join(", ");
@@ -1154,12 +1128,12 @@ function buildTokenWhereClauses(params: {
                 "FROM token_attributes ta " +
                 "JOIN attributes a ON a.id = ta.attribute_id " +
                 "AND a.chain_id = ta.chain_id " +
-                "AND a.contract_address = ta.contract_address " +
+                "AND a.collection_id = ta.collection_id " +
                 "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
                 "AND ak.chain_id = a.chain_id " +
-                "AND ak.contract_address = a.contract_address " +
+                "AND ak.collection_id = a.collection_id " +
                 "WHERE ta.chain_id = t.chain_id " +
-                "AND ta.contract_address = t.contract_address " +
+                "AND ta.collection_id = t.collection_id " +
                 "AND ta.token_id = t.token_id " +
                 "AND ak.key = ? " +
                 `AND a.value IN (${valuePlaceholders}) ` +
@@ -1179,18 +1153,18 @@ function buildCheapestListingSql(supportedCurrencyCount: number): string {
         .fill("?")
         .join(", ");
     return (
-        "SELECT ranked.contract_address, ranked.token_id, ranked.price, ranked.currency, ranked.price_sort_length, ranked.price_sort_value " +
+        "SELECT ranked.collection_id, ranked.token_id, ranked.price, ranked.currency, ranked.price_sort_length, ranked.price_sort_value " +
         "FROM (" +
-        "SELECT o.contract_address, o.token_id, o.price, o.currency, " +
+        "SELECT o.collection_id, o.token_id, o.price, o.currency, " +
         `${LISTING_PRICE_LENGTH_SQL} AS price_sort_length, ` +
         `${LISTING_PRICE_NORMALIZED_SQL} AS price_sort_value, ` +
         "ROW_NUMBER() OVER (" +
-        "PARTITION BY o.contract_address, o.token_id " +
+        "PARTITION BY o.collection_id, o.token_id " +
         `ORDER BY ${LISTING_PRICE_LENGTH_SQL} ASC, ${LISTING_PRICE_NORMALIZED_SQL} ASC, o.currency ASC, o.id ASC` +
         ") AS row_number " +
         "FROM orders o " +
         "WHERE o.chain_id = ? " +
-        "AND o.contract_address = ? " +
+        "AND o.collection_id = ? " +
         "AND o.source_scope_kind = 'token' " +
         "AND o.side = 'sell' " +
         "AND o.token_id IS NOT NULL " +
@@ -1207,13 +1181,13 @@ function buildCheapestListingSql(supportedCurrencyCount: number): string {
 
 function buildCheapestListingValues(params: {
     chainId: number;
-    contractAddress: string;
+    collectionId: number;
     supportedCurrencies: string[];
     nowSeconds: number;
 }): unknown[] {
     return [
         params.chainId,
-        params.contractAddress,
+        params.collectionId,
         ...params.supportedCurrencies,
         params.nowSeconds,
         params.nowSeconds,

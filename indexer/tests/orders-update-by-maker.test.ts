@@ -179,6 +179,7 @@ async function insertOrderFromFixture(
 
     const payload: OrderUpsertPayload = {
         chainId,
+        collectionId: overrides.collectionId ?? raw.collectionId,
         orderId: overrides.orderId ?? normalized.orderId,
         kind: overrides.kind ?? normalized.kind,
         side: overrides.side ?? normalized.side,

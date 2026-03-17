@@ -13,7 +13,7 @@ export type ChainRecord = {
 export type CollectionListItem = {
     chainId: number;
     collectionId: number;
-    slug: string | null;
+    slug: string;
     address: string;
     standard: CollectionStandard;
     status: CollectionStatus;
@@ -25,7 +25,7 @@ export type CollectionListItem = {
 
 export type CollectionListCursor = {
     createdAt: string;
-    address: string;
+    slug: string;
 };
 
 export type TokenCursor =

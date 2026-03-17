@@ -77,17 +77,17 @@ function upsertCollection(input: {
 }): { collectionId: number } {
     db.prepare(
         "INSERT INTO collections " +
-            "(chain_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
-            "VALUES (?, ?, ?, 'erc721', 'bootstrapping', ?, NULL, NULL, NULL, NULL) " +
-            "ON CONFLICT(chain_id, address) DO UPDATE SET " +
-            "slug = excluded.slug, status = 'bootstrapping', deployment_block = COALESCE(excluded.deployment_block, collections.deployment_block), updated_at = CURRENT_TIMESTAMP",
+            "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
+            "VALUES (?, ?, ?, 'erc721', 'bootstrapping', 'contract_all_tokens', NULL, NULL, ?, NULL, NULL, NULL, NULL) " +
+            "ON CONFLICT(chain_id, slug) DO UPDATE SET " +
+            "address = excluded.address, status = 'bootstrapping', deployment_block = COALESCE(excluded.deployment_block, collections.deployment_block), updated_at = CURRENT_TIMESTAMP",
     ).run(input.chainId, input.slug, input.address, input.deploymentBlock);
 
     const row = db
         .prepare(
-            "SELECT collection_id FROM collections WHERE chain_id = ? AND address = ? LIMIT 1",
+            "SELECT collection_id FROM collections WHERE chain_id = ? AND slug = ? LIMIT 1",
         )
-        .get(input.chainId, input.address) as
+        .get(input.chainId, input.slug) as
         | { collection_id: number }
         | undefined;
     if (!row) {

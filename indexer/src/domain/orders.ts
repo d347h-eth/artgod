@@ -82,6 +82,7 @@ export type SeaportOrderData = {
 export type OrderRecord = {
     id: string;
     chainId: number;
+    collectionId: number;
     kind: string;
     side?: "buy" | "sell" | null;
     source?: string | null;

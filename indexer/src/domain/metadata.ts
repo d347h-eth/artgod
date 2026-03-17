@@ -18,6 +18,7 @@ export type TokenMetadata = {
 };
 
 export type MetadataUpdatedToken = {
+    collectionId: number;
     contract: string;
     tokenId: string;
 };

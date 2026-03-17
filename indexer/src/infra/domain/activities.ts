@@ -7,6 +7,7 @@ import type {
 } from "../../ports/domain-handlers.js";
 
 type TransferRow = {
+    collection_id: number;
     contract: string;
     token_id: string;
     from_address: string;
@@ -18,6 +19,7 @@ type TransferRow = {
 };
 
 type FillRow = {
+    collection_id: number;
     contract: string;
     token_id: string;
     order_side: string | null;
@@ -31,15 +33,16 @@ type FillRow = {
 
 export class SqliteActivityDomain implements ActivityDomainPort {
     private selectTransfers = db.prepare<[number, number, number]>(
-        "SELECT contract_address AS contract, token_id, from_address, to_address, amount, block_number, tx_hash, log_index " +
+        "SELECT collection_id, contract_address AS contract, token_id, from_address, to_address, amount, block_number, tx_hash, log_index " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
     );
     private selectFills = db.prepare<[number, number, number]>(
-        "SELECT contract_address AS contract, token_id, order_side, maker, taker, amount, block_number, tx_hash, log_index " +
+        "SELECT collection_id, contract_address AS contract, token_id, order_side, maker, taker, amount, block_number, tx_hash, log_index " +
             "FROM fills WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
     );
     private insertActivity = db.prepare<
         [
+            number,
             number,
             string,
             string,
@@ -53,8 +56,8 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         ]
     >(
         "INSERT OR IGNORE INTO activities " +
-            "(chain_id, kind, contract_address, token_id, from_address, to_address, amount, block_number, tx_hash, log_index, created_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            "(chain_id, collection_id, kind, contract_address, token_id, from_address, to_address, amount, block_number, tx_hash, log_index, created_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
     );
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
@@ -100,6 +103,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         for (const row of rows) {
             const result = this.insertActivity.run(
                 chainId,
+                row.collection_id,
                 ACTIVITY_KIND.Transfer,
                 row.contract.toLowerCase(),
                 row.token_id,
@@ -138,6 +142,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
 
             const result = this.insertActivity.run(
                 chainId,
+                row.collection_id,
                 ACTIVITY_KIND.Fill,
                 row.contract.toLowerCase(),
                 row.token_id,

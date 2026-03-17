@@ -45,7 +45,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			tokens: response.tokens,
 			facets: response.traits.facets,
 			selectedTraits: response.traits.selected,
-			basePath: `/${response.chain.slug}/${response.collection.slug ?? response.collection.address}`,
+			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			requestCursor: query.get('cursor') ?? null,
 			tokenStatus,
 			displayMode

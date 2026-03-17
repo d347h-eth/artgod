@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS bootstrap_runs (
   chain_id INTEGER NOT NULL,
   collection_id INTEGER NOT NULL,
   request_slug TEXT NOT NULL,
+  request_opensea_slug TEXT,
   request_address TEXT NOT NULL,
   request_standard TEXT NOT NULL,
   metadata_mode TEXT NOT NULL,

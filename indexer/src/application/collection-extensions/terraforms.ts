@@ -206,7 +206,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
         const contract = context.payload.contract.toLowerCase();
         const tokenMode = context.artifacts.getTokenAttributeValue({
             chainId: context.payload.chainId,
-            contractAddress: contract,
+            collectionId: context.payload.collectionId,
             tokenId,
             key: MODE_ATTRIBUTE_KEY,
         });
@@ -278,6 +278,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
 
         context.artifacts.upsertArtifact({
             chainId: context.payload.chainId,
+            collectionId: context.payload.collectionId,
             contractAddress: contract,
             tokenId,
             extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,

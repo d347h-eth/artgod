@@ -407,7 +407,7 @@ components:
             required: true
             schema:
                 type: string
-            description: Collection reference (slug or contract address)
+            description: Collection slug
         TokenRef:
             name: token_ref
             in: path

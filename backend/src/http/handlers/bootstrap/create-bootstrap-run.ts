@@ -12,6 +12,7 @@ export type CreateBootstrapRunRoute = {
     Body: {
         slug?: string;
         address?: string;
+        openseaSlug?: string;
         standard?: string;
         metadataMode?: string;
         supportsEnumerable?: boolean;
@@ -50,6 +51,7 @@ export class CreateBootstrapRunHttpAdapter {
         const body = request.body ?? {};
         const slug = mustString(body.slug, "slug");
         const address = mustString(body.address, "address");
+        const openseaSlug = optionalString(body.openseaSlug);
         const standard = mustString(body.standard, "standard");
         const metadataMode = mustString(body.metadataMode, "metadataMode");
         const supportsEnumerable = body.supportsEnumerable;
@@ -69,6 +71,7 @@ export class CreateBootstrapRunHttpAdapter {
             chainRef: request.params.chain_ref,
             slug,
             address,
+            openseaSlug: openseaSlug ?? undefined,
             standard: standard as "erc721",
             metadataMode: metadataMode as "strict" | "best_effort",
             supportsEnumerable,
@@ -89,6 +92,15 @@ function mustString(value: unknown, field: string): string {
         throw new ReadModelBadRequestError(`${field} is required`);
     }
     return value.trim();
+}
+
+function optionalString(value: unknown): string | null {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "string") {
+        throw new ReadModelBadRequestError("Expected string");
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
 }
 
 function parseOptionalPositiveInteger(

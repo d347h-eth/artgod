@@ -17,7 +17,7 @@
 
 	function collectionHref(): string {
 		if (!data?.chain || !data.collection) return '/';
-		const base = `/${data.chain.slug}/${data.collection.slug ?? data.collection.address}`;
+		const base = `/${data.chain.slug}/${data.collection.slug}`;
 		if (!data.backQuery) return base;
 		return `${base}?${data.backQuery}`;
 	}

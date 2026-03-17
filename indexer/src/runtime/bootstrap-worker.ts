@@ -817,6 +817,7 @@ async function processSingleMetadataTask(
     try {
         const refreshPayload: MetadataRefreshPayload = {
             chainId: payload.chainId,
+            collectionId: payload.collectionId,
             contract: payload.address.toLowerCase(),
             tokenId: task.tokenId,
             standard: "erc721",
@@ -1000,6 +1001,7 @@ async function ensureBackfillScheduled(
                 queue,
                 {
                     chainId: payload.chainId,
+                    collectionId: payload.collectionId,
                     contract: payload.address,
                     reason: "bootstrap-finalized",
                     sourceJobId,
@@ -1148,6 +1150,7 @@ async function handleBootstrapBackfillCheck(
         queue,
         {
             chainId: payload.chainId,
+            collectionId: payload.collectionId,
             contract: payload.address,
             reason: "bootstrap-finalized",
             sourceJobId,

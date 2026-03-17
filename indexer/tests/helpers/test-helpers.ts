@@ -72,9 +72,12 @@ export async function createTempDbPath(): Promise<string> {
     if (!envPath) {
         throw new Error("Missing ARTGOD_DB_PATH");
     }
-    const resolved = path.isAbsolute(envPath)
+    const resolvedBase = path.isAbsolute(envPath)
         ? envPath
         : resolveProjectPath(envPath);
+    const resolved = `${resolvedBase}-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
     await fs.mkdir(path.dirname(resolved), { recursive: true });
     return resolved;
 }
@@ -87,7 +90,7 @@ export async function waitFor(
     const start = Date.now();
     for (;;) {
         if (predicate()) return;
-        if (Date.now() - start > timeoutMs) {
+        if (timeoutMs > 0 && Date.now() - start > timeoutMs) {
             throw new Error("Timed out waiting for condition");
         }
         await delay(intervalMs);

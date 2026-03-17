@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import { CollectionTokenScope } from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
 import type { RpcBlock } from "../../ports/rpc.js";
@@ -8,6 +9,7 @@ type BalanceRow = { amount: string };
 type BlockHashRow = { block_hash: string };
 type BlockCountRow = { count: number };
 type TransferRow = {
+    collection_id: number;
     contract: string;
     from_address: string;
     to_address: string;
@@ -33,6 +35,13 @@ type BalanceContext = {
     logIndex: number;
 };
 
+type CollectionScopeRow = {
+    collection_id: number;
+    token_scope_kind: string;
+    scope_start_token_id: string | null;
+    scope_total_supply: number | null;
+};
+
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export class SqliteStorage implements StoragePort {
@@ -51,6 +60,7 @@ export class SqliteStorage implements StoragePort {
     private insertTransfer = db.prepare<
         [
             number,
+            number,
             string,
             string,
             string,
@@ -65,11 +75,12 @@ export class SqliteStorage implements StoragePort {
         ]
     >(
         "INSERT OR IGNORE INTO nft_transfer_events " +
-            "(chain_id, contract_address, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(chain_id, collection_id, contract_address, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     private insertFill = db.prepare<
         [
+            number,
             number,
             string,
             string | null,
@@ -89,11 +100,11 @@ export class SqliteStorage implements StoragePort {
         ]
     >(
         "INSERT OR IGNORE INTO fills " +
-            "(chain_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(chain_id, collection_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
-    private selectBalance = db.prepare<[number, string, string, string]>(
-        "SELECT amount FROM nft_balances WHERE chain_id = ? AND contract_address = ? AND token_id = ? AND owner = ?",
+    private selectBalance = db.prepare<[number, number, string, string]>(
+        "SELECT amount FROM nft_balances WHERE chain_id = ? AND collection_id = ? AND token_id = ? AND owner = ?",
     );
     private selectBlockHash = db.prepare<[number, number]>(
         "SELECT block_hash FROM blocks WHERE chain_id = ? AND block_number = ?",
@@ -102,12 +113,13 @@ export class SqliteStorage implements StoragePort {
         "SELECT COUNT(1) as count FROM blocks WHERE chain_id = ? AND block_number BETWEEN ? AND ?",
     );
     private selectTransfersFromBlock = db.prepare<[number, number]>(
-        "SELECT contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
+        "SELECT collection_id, contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? " +
             "ORDER BY block_number DESC, log_index DESC",
     );
     private upsertBalance = db.prepare<
         [
+            number,
             number,
             string,
             string,
@@ -121,15 +133,15 @@ export class SqliteStorage implements StoragePort {
         ]
     >(
         "INSERT INTO nft_balances " +
-            "(chain_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-            "ON CONFLICT(chain_id, contract_address, token_id, owner) DO UPDATE SET " +
+            "(chain_id, collection_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+            "ON CONFLICT(chain_id, collection_id, token_id, owner) DO UPDATE SET " +
             "amount = excluded.amount, last_block_number = excluded.last_block_number, last_block_hash = excluded.last_block_hash, " +
             "last_block_timestamp = excluded.last_block_timestamp, last_tx_hash = excluded.last_tx_hash, last_log_index = excluded.last_log_index, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
-    private deleteBalance = db.prepare<[number, string, string, string]>(
-        "DELETE FROM nft_balances WHERE chain_id = ? AND contract_address = ? AND token_id = ? AND owner = ?",
+    private deleteBalance = db.prepare<[number, number, string, string]>(
+        "DELETE FROM nft_balances WHERE chain_id = ? AND collection_id = ? AND token_id = ? AND owner = ?",
     );
     private deleteTransactionsFromBlock = db.prepare<[number, number]>(
         "DELETE FROM transactions WHERE chain_id = ? AND block_number >= ?",
@@ -150,11 +162,21 @@ export class SqliteStorage implements StoragePort {
         "DELETE FROM orders WHERE chain_id = ? AND block_number IS NOT NULL AND block_number >= ?",
     );
     private resetOrderFillability = db.prepare<
-        [string, number, string, string, string, string]
+        [string, number, number, string, string, string, string]
     >(
         "UPDATE orders SET fillability_status = ?, updated_at = CURRENT_TIMESTAMP " +
-            "WHERE chain_id = ? AND maker = ? AND contract_address = ? AND token_id = ? " +
+            "WHERE chain_id = ? AND collection_id = ? AND maker = ? AND contract_address = ? AND token_id = ? " +
             "AND fillability_status = ?",
+    );
+    private selectTokenCollectionId = db.prepare<[number, string, string]>(
+        "SELECT collection_id FROM tokens WHERE chain_id = ? AND contract_address = ? AND token_id = ? LIMIT 1",
+    );
+    private selectCollectionScopesByAddress = db.prepare<[number, string]>(
+        "SELECT collection_id, token_scope_kind, scope_start_token_id, scope_total_supply " +
+            "FROM collections WHERE chain_id = ? AND lower(address) = ? ORDER BY collection_id ASC",
+    );
+    private selectScopeTokenMatch = db.prepare<[number, number, string]>(
+        "SELECT 1 FROM collection_scope_tokens WHERE chain_id = ? AND collection_id = ? AND token_id = ? LIMIT 1",
     );
     private deleteBlocksFromBlock = db.prepare<[number, number]>(
         "DELETE FROM blocks WHERE chain_id = ? AND block_number >= ?",
@@ -239,13 +261,23 @@ export class SqliteStorage implements StoragePort {
         // Transfers are immutable; insert once (ignore duplicates).
         const inserted: OnChainData["nftTransferEvents"] = [];
         for (const event of data.nftTransferEvents) {
+            const contract = event.contract.toLowerCase();
+            const collectionId = this.resolveCollectionId(
+                chainId,
+                contract,
+                event.tokenId,
+            );
+            if (collectionId === null) {
+                continue;
+            }
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
                 event.blockNumber,
             );
             const result = this.insertTransfer.run(
                 chainId,
-                event.contract.toLowerCase(),
+                collectionId,
+                contract,
                 event.from.toLowerCase(),
                 event.to.toLowerCase(),
                 event.tokenId,
@@ -271,18 +303,28 @@ export class SqliteStorage implements StoragePort {
     ): void {
         for (const fill of data.fillEvents) {
             if (!fill.contract || !fill.tokenId) continue;
+            const contract = fill.contract.toLowerCase();
+            const collectionId = this.resolveCollectionId(
+                chainId,
+                contract,
+                fill.tokenId,
+            );
+            if (collectionId === null) {
+                continue;
+            }
             const blockTimestamp = resolveBlockTimestamp(
                 blockMeta,
                 fill.blockNumber,
             );
             this.insertFill.run(
                 chainId,
+                collectionId,
                 fill.kind ?? "unknown",
                 fill.orderId ?? null,
                 fill.orderSide ?? null,
                 fill.maker?.toLowerCase() ?? null,
                 fill.taker?.toLowerCase() ?? null,
-                fill.contract.toLowerCase(),
+                contract,
                 fill.tokenId,
                 fill.amount ?? null,
                 fill.price ?? null,
@@ -313,10 +355,19 @@ export class SqliteStorage implements StoragePort {
             const contract = event.contract.toLowerCase();
             const from = event.from.toLowerCase();
             const to = event.to.toLowerCase();
+            const collectionId = this.resolveCollectionId(
+                chainId,
+                contract,
+                event.tokenId,
+            );
+            if (collectionId === null) {
+                continue;
+            }
 
             if (event.kind === "erc721") {
                 this.applyErc721Transfer(
                     chainId,
+                    collectionId,
                     contract,
                     event.tokenId,
                     from,
@@ -329,6 +380,7 @@ export class SqliteStorage implements StoragePort {
             const amount = BigInt(event.amount);
             this.applyErc1155Transfer(
                 chainId,
+                collectionId,
                 contract,
                 event.tokenId,
                 from,
@@ -354,6 +406,7 @@ export class SqliteStorage implements StoragePort {
         if (event.kind === "erc721") {
             this.applyErc721Transfer(
                 chainId,
+                event.collection_id,
                 contract,
                 event.token_id,
                 to,
@@ -366,6 +419,7 @@ export class SqliteStorage implements StoragePort {
         const amount = BigInt(event.amount);
         this.applyErc1155Transfer(
             chainId,
+            event.collection_id,
             contract,
             event.token_id,
             to,
@@ -383,6 +437,7 @@ export class SqliteStorage implements StoragePort {
         this.resetOrderFillability.run(
             ORDER_STATUS.Fillable,
             chainId,
+            event.collection_id,
             maker,
             contract,
             tokenId,
@@ -392,6 +447,7 @@ export class SqliteStorage implements StoragePort {
 
     private applyErc721Transfer(
         chainId: number,
+        collectionId: number,
         contract: string,
         tokenId: string,
         from: string,
@@ -399,11 +455,12 @@ export class SqliteStorage implements StoragePort {
         context: BalanceContext,
     ): void {
         if (from !== ZERO_ADDRESS) {
-            this.deleteBalance.run(chainId, contract, tokenId, from);
+            this.deleteBalance.run(chainId, collectionId, tokenId, from);
         }
         if (to !== ZERO_ADDRESS) {
             this.upsertBalance.run(
                 chainId,
+                collectionId,
                 contract,
                 tokenId,
                 to,
@@ -419,6 +476,7 @@ export class SqliteStorage implements StoragePort {
 
     private applyErc1155Transfer(
         chainId: number,
+        collectionId: number,
         contract: string,
         tokenId: string,
         from: string,
@@ -429,6 +487,7 @@ export class SqliteStorage implements StoragePort {
         if (from !== ZERO_ADDRESS) {
             this.applyBalanceDelta(
                 chainId,
+                collectionId,
                 contract,
                 tokenId,
                 from,
@@ -439,6 +498,7 @@ export class SqliteStorage implements StoragePort {
         if (to !== ZERO_ADDRESS) {
             this.applyBalanceDelta(
                 chainId,
+                collectionId,
                 contract,
                 tokenId,
                 to,
@@ -450,6 +510,7 @@ export class SqliteStorage implements StoragePort {
 
     private applyBalanceDelta(
         chainId: number,
+        collectionId: number,
         contract: string,
         tokenId: string,
         owner: string,
@@ -458,7 +519,7 @@ export class SqliteStorage implements StoragePort {
     ): void {
         const current = this.selectBalance.get(
             chainId,
-            contract,
+            collectionId,
             tokenId,
             owner,
         ) as BalanceRow | undefined;
@@ -466,12 +527,13 @@ export class SqliteStorage implements StoragePort {
         const nextAmount = currentAmount + delta;
 
         if (nextAmount === 0n) {
-            this.deleteBalance.run(chainId, contract, tokenId, owner);
+            this.deleteBalance.run(chainId, collectionId, tokenId, owner);
             return;
         }
 
         this.upsertBalance.run(
             chainId,
+            collectionId,
             contract,
             tokenId,
             owner,
@@ -482,6 +544,46 @@ export class SqliteStorage implements StoragePort {
             context.txHash,
             context.logIndex,
         );
+    }
+
+    private resolveCollectionId(
+        chainId: number,
+        contract: string,
+        tokenId: string,
+    ): number | null {
+        const tokenRow = this.selectTokenCollectionId.get(
+            chainId,
+            contract,
+            tokenId,
+        ) as { collection_id: number } | undefined;
+        if (tokenRow) {
+            return tokenRow.collection_id;
+        }
+
+        const scopes = this.selectCollectionScopesByAddress.all(
+            chainId,
+            contract,
+        ) as CollectionScopeRow[];
+        if (scopes.length === 0) {
+            return null;
+        }
+
+        const matches = scopes.filter((scope) =>
+            collectionScopeMatchesToken(
+                scope,
+                tokenId,
+                (collectionId, token) =>
+                    this.selectScopeTokenMatch.get(
+                        chainId,
+                        collectionId,
+                        token,
+                    ) !== undefined,
+            ),
+        );
+        if (matches.length !== 1) {
+            return null;
+        }
+        return matches[0]!.collection_id;
     }
 
     private persistTransactions(
@@ -541,4 +643,18 @@ function buildBalanceContext(
         txHash,
         logIndex,
     };
+}
+
+function collectionScopeMatchesToken(
+    scope: CollectionScopeRow,
+    tokenId: string,
+    hasExplicitToken: (collectionId: number, tokenId: string) => boolean,
+): boolean {
+    return CollectionTokenScope.fromPersistence({
+        tokenScopeKind: scope.token_scope_kind,
+        scopeStartTokenId: scope.scope_start_token_id,
+        scopeTotalSupply: scope.scope_total_supply,
+    }).containsToken(tokenId, (candidateTokenId) =>
+        hasExplicitToken(scope.collection_id, candidateTokenId),
+    );
 }

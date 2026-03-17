@@ -1,5 +1,5 @@
 import { db } from "@artgod/shared/database";
-import type {
+import {
     CollectionRecord,
     CollectionUpsertInput,
     OpenSeaCollectionStatus,
@@ -12,9 +12,13 @@ import type {
 type CollectionRow = {
     chain_id: number;
     collection_id: number;
+    slug: string;
     address: string;
     standard: string;
     status: string;
+    token_scope_kind: string;
+    scope_start_token_id: string | null;
+    scope_total_supply: number | null;
     deployment_block: number | null;
     bootstrap_anchor_block: number | null;
     bootstrap_started_at: string | null;
@@ -33,7 +37,7 @@ type CollectionRow = {
 };
 
 const SELECT_COLLECTIONS_FIELDS =
-    "SELECT chain_id, collection_id, address, standard, status, deployment_block, " +
+    "SELECT chain_id, collection_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, " +
     "bootstrap_anchor_block, bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block, " +
     "opensea_slug, opensea_status, opensea_ready_at, opensea_snapshot_started_at, " +
     "opensea_snapshot_completed_at, opensea_reconcile_started_at, opensea_reconcile_completed_at, " +
@@ -73,9 +77,13 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
     );
     private upsert = db.prepare<{
         chainId: number;
+        slug: string;
         address: string;
         standard: string;
         status: string;
+        tokenScopeKind: string;
+        scopeStartTokenId: string | null;
+        scopeTotalSupply: number | null;
         deploymentBlock: number | null;
         bootstrapAnchorBlock: number | null;
         bootstrapStartedAt: string | null;
@@ -83,12 +91,15 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
         bootstrapLastSyncedBlock: number | null;
     }>(
         "INSERT INTO collections " +
-            "(chain_id, address, standard, status, deployment_block, bootstrap_anchor_block, " +
+            "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, bootstrap_anchor_block, " +
             "bootstrap_started_at, bootstrap_finished_at, bootstrap_last_synced_block) " +
-            "VALUES (@chainId, @address, @standard, @status, @deploymentBlock, @bootstrapAnchorBlock, " +
+            "VALUES (@chainId, @slug, @address, @standard, @status, @tokenScopeKind, @scopeStartTokenId, @scopeTotalSupply, @deploymentBlock, @bootstrapAnchorBlock, " +
             "@bootstrapStartedAt, @bootstrapFinishedAt, @bootstrapLastSyncedBlock) " +
-            "ON CONFLICT(chain_id, address) DO UPDATE SET " +
-            "standard = excluded.standard, status = excluded.status, " +
+            "ON CONFLICT(chain_id, slug) DO UPDATE SET " +
+            "address = excluded.address, standard = excluded.standard, status = excluded.status, " +
+            "token_scope_kind = excluded.token_scope_kind, " +
+            "scope_start_token_id = excluded.scope_start_token_id, " +
+            "scope_total_supply = excluded.scope_total_supply, " +
             "deployment_block = excluded.deployment_block, bootstrap_anchor_block = excluded.bootstrap_anchor_block, " +
             "bootstrap_started_at = excluded.bootstrap_started_at, " +
             "bootstrap_finished_at = excluded.bootstrap_finished_at, " +
@@ -239,6 +250,23 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId",
     );
+    private selectExplicitScopeToken = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+    }>(
+        "SELECT 1 FROM collection_scope_tokens " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_id = @tokenId " +
+            "LIMIT 1",
+    );
+    private selectExplicitScopeTokenIds = db.prepare<{
+        chainId: number;
+        collectionId: number;
+    }>(
+        "SELECT token_id FROM collection_scope_tokens " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "ORDER BY token_id",
+    );
 
     getCollection(
         chainId: number,
@@ -281,16 +309,21 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
     }
 
     upsertCollection(input: CollectionUpsertInput): void {
+        const persisted = input.toPersistence();
         this.upsert.run({
-            chainId: input.chainId,
-            address: input.address,
-            standard: input.standard,
-            status: input.status,
-            deploymentBlock: input.deploymentBlock,
-            bootstrapAnchorBlock: input.bootstrapAnchorBlock,
-            bootstrapStartedAt: input.bootstrapStartedAt,
-            bootstrapFinishedAt: input.bootstrapFinishedAt,
-            bootstrapLastSyncedBlock: input.bootstrapLastSyncedBlock,
+            chainId: persisted.chainId,
+            slug: persisted.slug,
+            address: persisted.address,
+            standard: persisted.standard,
+            status: persisted.status,
+            tokenScopeKind: persisted.tokenScopeKind,
+            scopeStartTokenId: persisted.scopeStartTokenId,
+            scopeTotalSupply: persisted.scopeTotalSupply,
+            deploymentBlock: persisted.deploymentBlock,
+            bootstrapAnchorBlock: persisted.bootstrapAnchorBlock,
+            bootstrapStartedAt: persisted.bootstrapStartedAt,
+            bootstrapFinishedAt: persisted.bootstrapFinishedAt,
+            bootstrapLastSyncedBlock: persisted.bootstrapLastSyncedBlock,
         });
     }
 
@@ -452,15 +485,41 @@ export class SqliteCollectionRegistry implements CollectionRegistryPort {
             }).changes > 0
         );
     }
+
+    hasExplicitScopeToken(
+        chainId: number,
+        collectionId: number,
+        tokenId: string,
+    ): boolean {
+        return Boolean(
+            this.selectExplicitScopeToken.get({
+                chainId,
+                collectionId,
+                tokenId,
+            }),
+        );
+    }
+
+    listExplicitScopeTokenIds(chainId: number, collectionId: number): string[] {
+        const rows = this.selectExplicitScopeTokenIds.all({
+            chainId,
+            collectionId,
+        }) as Array<{ token_id: string }>;
+        return rows.map((row) => row.token_id);
+    }
 }
 
 function mapRow(row: CollectionRow): CollectionRecord {
-    return {
+    return CollectionRecord.fromPersistence({
         chainId: row.chain_id,
         id: row.collection_id,
+        slug: row.slug,
         address: row.address,
-        standard: row.standard as CollectionRecord["standard"],
-        status: row.status as CollectionRecord["status"],
+        standard: row.standard as "erc721" | "erc1155",
+        status: row.status as "bootstrapping" | "live" | "paused" | "disabled",
+        tokenScopeKind: row.token_scope_kind,
+        scopeStartTokenId: row.scope_start_token_id,
+        scopeTotalSupply: row.scope_total_supply,
         deploymentBlock: row.deployment_block,
         bootstrapAnchorBlock: row.bootstrap_anchor_block,
         bootstrapStartedAt: row.bootstrap_started_at,
@@ -476,5 +535,5 @@ function mapRow(row: CollectionRow): CollectionRecord {
         openseaLastStreamEventAt: row.opensea_last_stream_event_at,
         openseaLastStreamHealthyAt: row.opensea_last_stream_healthy_at,
         openseaLastError: row.opensea_last_error,
-    };
+    });
 }

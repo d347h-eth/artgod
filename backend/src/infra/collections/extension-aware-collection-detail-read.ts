@@ -16,13 +16,13 @@ import type {
 import { resolveBackendCollectionExtension } from "../../application/collection-extensions/index.js";
 
 type CollectionExtensionRecordsPort = {
-    getInstallByContract(
+    getInstallByCollectionId(
         chainId: number,
-        contractAddress: string,
+        collectionId: number,
     ): CollectionExtensionInstall | null;
     getArtifact(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         extensionKey: CollectionExtensionInstall["extensionKey"];
         artifactRef: string;
@@ -36,7 +36,7 @@ type CollectionDetailReadPort = {
     ): CollectionListItem;
     listCollectionTokens(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenStatus: TokenBrowserStatus;
         limit: number;
         cursor?: string;
@@ -44,17 +44,17 @@ type CollectionDetailReadPort = {
     }): TokenCursorPage;
     listCollectionTraitFacets(
         chainId: number,
-        contractAddress: string,
+        collectionId: number,
     ): TraitFacet[];
     listCollectionHolders(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         limit: number;
         cursor?: string;
     }): CollectionHolderPage;
     getCollectionTokenDetail(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
     }): TokenDetail;
 };
@@ -74,16 +74,16 @@ export class ExtensionAwareCollectionDetailRead {
 
     listCollectionTokens(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenStatus: TokenBrowserStatus;
         limit: number;
         cursor?: string;
         traitFilters?: TraitFilter[];
     }): TokenCursorPage {
         const page = this.baseReadPort.listCollectionTokens(params);
-        const install = this.extensionRecords.getInstallByContract(
+        const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
-            params.contractAddress,
+            params.collectionId,
         );
         if (!install?.enabled) {
             return page;
@@ -103,7 +103,7 @@ export class ExtensionAwareCollectionDetailRead {
                     this.resolvePresentationArtifact(
                         install,
                         params.chainId,
-                        params.contractAddress,
+                        params.collectionId,
                         token.tokenId,
                     ),
                 ),
@@ -113,17 +113,14 @@ export class ExtensionAwareCollectionDetailRead {
 
     listCollectionTraitFacets(
         chainId: number,
-        contractAddress: string,
+        collectionId: number,
     ): TraitFacet[] {
-        return this.baseReadPort.listCollectionTraitFacets(
-            chainId,
-            contractAddress,
-        );
+        return this.baseReadPort.listCollectionTraitFacets(chainId, collectionId);
     }
 
     listCollectionHolders(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         limit: number;
         cursor?: string;
     }): CollectionHolderPage {
@@ -132,13 +129,13 @@ export class ExtensionAwareCollectionDetailRead {
 
     getCollectionTokenDetail(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
     }): TokenDetail {
         const token = this.baseReadPort.getCollectionTokenDetail(params);
-        const install = this.extensionRecords.getInstallByContract(
+        const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
-            params.contractAddress,
+            params.collectionId,
         );
         if (!install?.enabled) {
             return token;
@@ -155,7 +152,7 @@ export class ExtensionAwareCollectionDetailRead {
             this.resolvePresentationArtifact(
                 install,
                 params.chainId,
-                params.contractAddress,
+                params.collectionId,
                 params.tokenId,
             ),
         );
@@ -164,13 +161,13 @@ export class ExtensionAwareCollectionDetailRead {
     private resolvePresentationArtifact(
         install: CollectionExtensionInstall,
         chainId: number,
-        contractAddress: string,
+        collectionId: number,
         tokenId: string,
     ) {
         if (install.extensionKey === COLLECTION_EXTENSION_KEYS.Terraforms) {
             return this.extensionRecords.getArtifact({
                 chainId,
-                contractAddress,
+                collectionId,
                 tokenId,
                 extensionKey: install.extensionKey,
                 artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,

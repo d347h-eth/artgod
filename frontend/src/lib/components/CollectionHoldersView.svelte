@@ -144,7 +144,7 @@
 		<a href={collectionsHref()}>collections</a>
 		{#if collection}
 			<span class="breadcrumbs-separator">/</span>
-			<a href={tokensHref()}>{collection.slug ?? collection.address}</a>
+			<a href={tokensHref()}>{collection.slug}</a>
 			<span class="breadcrumbs-separator">/</span>
 			<span class="breadcrumbs-current">holders</span>
 		{/if}

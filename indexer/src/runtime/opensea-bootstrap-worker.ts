@@ -149,18 +149,11 @@ async function handleBootstrapJob(
             collection.id,
         );
 
-        let slug = collection.openseaSlug;
+        const slug = collection.openseaSlug;
         if (!slug) {
-            const resolved = await api.resolveCollectionByContract(
-                collection.address,
+            throw new Error(
+                `Collection ${collection.id} missing explicit OpenSea slug`,
             );
-            if (!resolved?.slug) {
-                throw new Error(
-                    `OpenSea slug lookup returned no collection for ${collection.address}`,
-                );
-            }
-            slug = resolved.slug;
-            collections.setOpenSeaSlug(collection.chainId, collection.id, slug);
         }
 
         collections.setOpenSeaStatus(
@@ -173,14 +166,7 @@ async function handleBootstrapJob(
             collection.id,
         );
 
-        await sync.syncCollection(
-            {
-                ...collection,
-                openseaSlug: slug,
-            },
-            "snapshot",
-            runId,
-        );
+        await sync.syncCollection(collection, "snapshot", runId);
 
         collections.markOpenSeaSnapshotCompleted(
             collection.chainId,

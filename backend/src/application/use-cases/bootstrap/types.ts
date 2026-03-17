@@ -22,6 +22,7 @@ export type CreateBootstrapRunInput = {
     chainRef: string;
     slug: string;
     address: string;
+    openseaSlug?: string;
     standard: "erc721";
     metadataMode: BootstrapMetadataMode;
     supportsEnumerable: boolean;
@@ -41,6 +42,7 @@ export type BootstrapRunRow = {
     chainId: number;
     collectionId: number;
     requestSlug: string;
+    requestOpenseaSlug: string | null;
     requestAddress: string;
     requestStandard: "erc721" | "erc1155";
     metadataMode: BootstrapMetadataMode;
@@ -139,7 +141,7 @@ export type BootstrapRunFlow = {
 export type BootstrapRunCollectionSummary = {
     chainId: number;
     collectionId: number;
-    slug: string | null;
+    slug: string;
     address: string;
     status: "bootstrapping" | "live" | "paused" | "disabled";
 };
@@ -176,7 +178,7 @@ export type BootstrapStatusOutput = {
     collection: {
         chainId: number;
         collectionId: number;
-        slug: string | null;
+        slug: string;
         address: string;
         standard: "erc721" | "erc1155";
         status: "bootstrapping" | "live" | "paused" | "disabled";

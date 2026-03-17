@@ -2,10 +2,10 @@ import { db } from "@artgod/shared/database";
 import { ORDER_SOURCE_STATUS } from "../../domain/orders.js";
 
 export class SqliteOrderSourceStateStore {
-    private deactivateAllByContract = db.prepare<{
+    private deactivateAllByCollection = db.prepare<{
         chainId: number;
+        collectionId: number;
         source: string;
-        contract: string;
         inactiveStatus: string;
         activeStatus: string;
     }>(
@@ -13,23 +13,23 @@ export class SqliteOrderSourceStateStore {
             "source_status = @inactiveStatus, " +
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId " +
+            "AND collection_id = @collectionId " +
             "AND source = @source " +
-            "AND contract_address = @contract " +
             "AND source_status = @activeStatus",
     );
 
     markMissingOrdersInactive(
         chainId: number,
+        collectionId: number,
         source: string,
-        contract: string,
         activeOrderIds: Iterable<string>,
     ): number {
         const uniqueIds = Array.from(new Set(activeOrderIds));
         if (uniqueIds.length === 0) {
-            const result = this.deactivateAllByContract.run({
+            const result = this.deactivateAllByCollection.run({
                 chainId,
+                collectionId,
                 source,
-                contract,
                 inactiveStatus: ORDER_SOURCE_STATUS.Inactive,
                 activeStatus: ORDER_SOURCE_STATUS.Active,
             });
@@ -38,8 +38,8 @@ export class SqliteOrderSourceStateStore {
 
         const values: Record<string, string | number> = {
             chainId,
+            collectionId,
             source,
-            contract,
             inactiveStatus: ORDER_SOURCE_STATUS.Inactive,
             activeStatus: ORDER_SOURCE_STATUS.Active,
         };
@@ -53,8 +53,8 @@ export class SqliteOrderSourceStateStore {
             "source_status = @inactiveStatus, " +
             "updated_at = CURRENT_TIMESTAMP " +
             "WHERE chain_id = @chainId " +
+            "AND collection_id = @collectionId " +
             "AND source = @source " +
-            "AND contract_address = @contract " +
             "AND source_status = @activeStatus " +
             `AND id NOT IN (${placeholders.join(", ")})`;
         return db.prepare(sql).run(values).changes;

@@ -37,7 +37,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			chain: response.chain,
 			collection: response.collection,
 			holders: response.holders,
-			basePath: `/${response.chain.slug}/${response.collection.slug ?? response.collection.address}`,
+			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			requestCursor: query.get('cursor') ?? null
 		};
 	} catch (cause) {

@@ -312,10 +312,7 @@ describe("backend api routes", () => {
     });
 
     it("returns Terraforms media overrides from extension artifacts", async () => {
-        const result = await resolve(
-            "GET",
-            `/api/ethereum/${TERRAFORMS_ADDRESS}/7710`,
-        );
+        const result = await resolve("GET", "/api/ethereum/terraforms/7710");
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.address).toBe(TERRAFORMS_ADDRESS);
         expect(result.payload.token.tokenId).toBe("7710");
@@ -330,7 +327,7 @@ describe("backend api routes", () => {
     it("returns Terraforms collection tokens with overridden images", async () => {
         const result = await resolve(
             "GET",
-            `/api/ethereum/${TERRAFORMS_ADDRESS}?token_status=all&limit=10`,
+            "/api/ethereum/terraforms?token_status=all&limit=10",
         );
         expect(result.statusCode).toBe(200);
         expect(result.payload.tokens.items).toHaveLength(1);
@@ -430,10 +427,7 @@ describe("backend api routes", () => {
             "1",
         );
 
-        const first = await resolve(
-            "GET",
-            `/api/ethereum/${TERRAFORMS_ADDRESS}/holders`,
-        );
+        const first = await resolve("GET", "/api/ethereum/terraforms/holders");
 
         expect(first.statusCode).toBe(200);
         expect(first.payload.holders.items).toHaveLength(3);
@@ -506,13 +500,12 @@ describe("backend api routes", () => {
         ).toEqual(["1", "2", "10"]);
     });
 
-    it("resolves collection by address", async () => {
+    it("rejects collection address refs", async () => {
         const result = await resolve(
             "GET",
             `/api/ethereum/${MILADY_ADDRESS}?token_status=all&limit=10`,
         );
-        expect(result.statusCode).toBe(200);
-        expect(result.payload.collection.slug).toBe("milady");
+        expect(result.statusCode).toBe(404);
     });
 
     it("rejects invalid token browser status values", async () => {
@@ -858,6 +851,7 @@ function seedData(): void {
             "DELETE FROM orders;",
             "DELETE FROM token_extension_artifacts;",
             "DELETE FROM collection_extension_installs;",
+            "DELETE FROM collection_scope_tokens;",
             "DELETE FROM collection_trait_stats;",
             "DELETE FROM token_attributes;",
             "DELETE FROM attributes;",
@@ -871,26 +865,28 @@ function seedData(): void {
 
     const insertCollection = db.prepare(
         "INSERT INTO collections " +
-            "(chain_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, 'contract_all_tokens', NULL, NULL, ?, ?, ?, ?)",
     );
 
-    insertCollection.run(
-        1,
-        "milady",
-        MILADY_ADDRESS,
-        "erc721",
-        "live",
-        1,
-        null,
-        "2026-01-01T00:00:00Z",
-        "2026-01-01T00:00:00Z",
+    const miladyCollectionId = Number(
+        insertCollection.run(
+            1,
+            "milady",
+            MILADY_ADDRESS,
+            "erc721",
+            "live",
+            1,
+            null,
+            "2026-01-01T00:00:00Z",
+            "2026-01-01T00:00:00Z",
+        ).lastInsertRowid,
     );
 
     const terraformsCollectionId = Number(
         insertCollection.run(
             1,
-            null,
+            "terraforms",
             TERRAFORMS_ADDRESS,
             "erc721",
             "bootstrapping",
@@ -902,21 +898,22 @@ function seedData(): void {
     );
 
     const insertToken = db.prepare(
-        "INSERT INTO tokens (chain_id, contract_address, token_id, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id, created_at, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
     );
-    insertToken.run(1, MILADY_ADDRESS, "1");
-    insertToken.run(1, MILADY_ADDRESS, "2");
-    insertToken.run(1, MILADY_ADDRESS, "10");
-    insertToken.run(1, TERRAFORMS_ADDRESS, "7710");
+    insertToken.run(1, miladyCollectionId, MILADY_ADDRESS, "1");
+    insertToken.run(1, miladyCollectionId, MILADY_ADDRESS, "2");
+    insertToken.run(1, miladyCollectionId, MILADY_ADDRESS, "10");
+    insertToken.run(1, terraformsCollectionId, TERRAFORMS_ADDRESS, "7710");
 
     const insertMetadata = db.prepare(
         "INSERT INTO token_metadata " +
-            "(chain_id, contract_address, token_id, uri, name, image, animation_url, attributes_json, raw_json, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(chain_id, collection_id, contract_address, token_id, uri, name, image, animation_url, attributes_json, raw_json, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
 
     insertMetadata.run(
         1,
+        miladyCollectionId,
         MILADY_ADDRESS,
         "1",
         "ipfs://1",
@@ -932,6 +929,7 @@ function seedData(): void {
     );
     insertMetadata.run(
         1,
+        terraformsCollectionId,
         TERRAFORMS_ADDRESS,
         "7710",
         "ipfs://terraforms/7710",
@@ -964,10 +962,11 @@ function seedData(): void {
     );
     db.prepare(
         "INSERT INTO token_extension_artifacts " +
-            "(chain_id, contract_address, token_id, extension_key, artifact_ref, image, animation_url, html_content) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(chain_id, collection_id, contract_address, token_id, extension_key, artifact_ref, image, animation_url, html_content) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
         1,
+        terraformsCollectionId,
         TERRAFORMS_ADDRESS.toLowerCase(),
         "7710",
         COLLECTION_EXTENSION_KEYS.Terraforms,
@@ -978,6 +977,7 @@ function seedData(): void {
     );
     insertMetadata.run(
         1,
+        miladyCollectionId,
         MILADY_ADDRESS,
         "2",
         "ipfs://2",
@@ -993,6 +993,7 @@ function seedData(): void {
     );
     insertMetadata.run(
         1,
+        miladyCollectionId,
         MILADY_ADDRESS,
         "10",
         "ipfs://10",
@@ -1016,24 +1017,88 @@ function seedData(): void {
     const angryId = insertAttribute(moodKeyId, "Angry");
 
     const insertTokenAttribute = db.prepare(
-        "INSERT INTO token_attributes (chain_id, contract_address, token_id, attribute_id) VALUES (?, ?, ?, ?)",
+        "INSERT INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) VALUES (?, ?, ?, ?, ?)",
     );
 
-    insertTokenAttribute.run(1, MILADY_ADDRESS, "1", beanieId);
-    insertTokenAttribute.run(1, MILADY_ADDRESS, "1", calmId);
-    insertTokenAttribute.run(1, MILADY_ADDRESS, "2", beanieId);
-    insertTokenAttribute.run(1, MILADY_ADDRESS, "2", angryId);
-    insertTokenAttribute.run(1, MILADY_ADDRESS, "10", capId);
-    insertTokenAttribute.run(1, MILADY_ADDRESS, "10", calmId);
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        "1",
+        beanieId,
+    );
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        "1",
+        calmId,
+    );
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        "2",
+        beanieId,
+    );
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        "2",
+        angryId,
+    );
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        "10",
+        capId,
+    );
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        "10",
+        calmId,
+    );
 
     const insertTraitStats = db.prepare(
-        "INSERT INTO collection_trait_stats (chain_id, contract_address, attribute_key_id, attribute_id, token_count) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO collection_trait_stats (chain_id, collection_id, contract_address, attribute_key_id, attribute_id, token_count) VALUES (?, ?, ?, ?, ?, ?)",
     );
 
-    insertTraitStats.run(1, MILADY_ADDRESS, hatKeyId, beanieId, 2);
-    insertTraitStats.run(1, MILADY_ADDRESS, hatKeyId, capId, 1);
-    insertTraitStats.run(1, MILADY_ADDRESS, moodKeyId, calmId, 2);
-    insertTraitStats.run(1, MILADY_ADDRESS, moodKeyId, angryId, 1);
+    insertTraitStats.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        hatKeyId,
+        beanieId,
+        2,
+    );
+    insertTraitStats.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        hatKeyId,
+        capId,
+        1,
+    );
+    insertTraitStats.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        moodKeyId,
+        calmId,
+        2,
+    );
+    insertTraitStats.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        moodKeyId,
+        angryId,
+        1,
+    );
 
     insertOrderFixture({
         id: "listed-milady-1-cheapest",
@@ -1168,12 +1233,14 @@ function insertOrderFixture(input: {
     validFrom: number;
     validUntil: number;
 }): void {
+    const collection = getCollectionFixtureByAddress(input.contract);
     db.prepare(
         "INSERT INTO orders " +
-            "(id, chain_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, price, currency, valid_from, valid_until, fillability_status, source_status, created_at, updated_at) " +
-            "VALUES (?, 1, 'seaport', ?, 'opensea', '0x9999999999999999999999999999999999999999', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            "(id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, price, currency, valid_from, valid_until, fillability_status, source_status, created_at, updated_at) " +
+            "VALUES (?, 1, ?, 'seaport', ?, 'opensea', '0x9999999999999999999999999999999999999999', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
     ).run(
         input.id,
+        collection.collection_id,
         input.side,
         input.contract.toLowerCase(),
         input.tokenId,
@@ -1203,16 +1270,10 @@ function insertBootstrapRun(input: {
     anchorBlockHash: string | null;
     anchorBlockTimestamp: number | null;
 }): number {
-    const collection = db
-        .prepare<
-            [number, string]
-        >("SELECT collection_id, slug, address FROM collections WHERE chain_id = ? AND lower(address) = ? LIMIT 1")
-        .get(input.chainId, input.collectionAddress.toLowerCase()) as
-        | { collection_id: number; slug: string | null; address: string }
-        | undefined;
-    if (!collection) {
-        throw new Error("Missing collection for bootstrap run fixture");
-    }
+    const collection = getCollectionFixtureByAddress(
+        input.collectionAddress,
+        input.chainId,
+    );
 
     db.prepare(
         "INSERT INTO bootstrap_runs " +
@@ -1221,7 +1282,7 @@ function insertBootstrapRun(input: {
     ).run(
         input.chainId,
         collection.collection_id,
-        collection.slug ?? "fixture",
+        collection.slug,
         collection.address.toLowerCase(),
         input.metadataMode,
         input.status,
@@ -1254,12 +1315,14 @@ function insertNftBalance(
     owner: string,
     amount: string,
 ): void {
+    const collection = getCollectionFixtureByAddress(contractAddress);
     db.prepare(
         "INSERT OR REPLACE INTO nft_balances " +
-            "(chain_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            "(chain_id, collection_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, last_block_timestamp, last_tx_hash, last_log_index, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
     ).run(
         1,
+        collection.collection_id,
         contractAddress.toLowerCase(),
         tokenId,
         owner.toLowerCase(),
@@ -1274,8 +1337,8 @@ function insertNftBalance(
 
 function clearNftBalances(contractAddress: string): void {
     db.prepare(
-        "DELETE FROM nft_balances WHERE chain_id = ? AND contract_address = ?",
-    ).run(1, contractAddress.toLowerCase());
+        "DELETE FROM nft_balances WHERE chain_id = ? AND collection_id = ?",
+    ).run(1, getCollectionFixtureByAddress(contractAddress).collection_id);
 }
 
 function insertBootstrapMetadataTask(
@@ -1411,31 +1474,50 @@ function updateCollectionLifecycle(
 }
 
 function insertAttributeKey(key: string): number {
+    const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
     db.prepare(
-        "INSERT INTO attribute_keys (chain_id, contract_address, key) VALUES (?, ?, ?)",
-    ).run(1, MILADY_ADDRESS, key);
+        "INSERT INTO attribute_keys (chain_id, collection_id, contract_address, key) VALUES (?, ?, ?, ?)",
+    ).run(1, collection.collection_id, MILADY_ADDRESS, key);
 
     const row = db
         .prepare<
-            [number, string, string]
-        >("SELECT id FROM attribute_keys WHERE chain_id = ? AND contract_address = ? AND key = ?")
-        .get(1, MILADY_ADDRESS, key) as { id: number } | undefined;
+            [number, number, string]
+        >("SELECT id FROM attribute_keys WHERE chain_id = ? AND collection_id = ? AND key = ?")
+        .get(1, collection.collection_id, key) as { id: number } | undefined;
     if (!row) throw new Error(`Missing attribute key: ${key}`);
     return row.id;
 }
 
 function insertAttribute(attributeKeyId: number, value: string): number {
+    const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
     db.prepare(
-        "INSERT INTO attributes (chain_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?)",
-    ).run(1, MILADY_ADDRESS, attributeKeyId, value);
+        "INSERT INTO attributes (chain_id, collection_id, contract_address, attribute_key_id, value) VALUES (?, ?, ?, ?, ?)",
+    ).run(1, collection.collection_id, MILADY_ADDRESS, attributeKeyId, value);
 
     const row = db
         .prepare<
-            [number, string, number, string]
-        >("SELECT id FROM attributes WHERE chain_id = ? AND contract_address = ? AND attribute_key_id = ? AND value = ?")
-        .get(1, MILADY_ADDRESS, attributeKeyId, value) as
+            [number, number, number, string]
+        >("SELECT id FROM attributes WHERE chain_id = ? AND collection_id = ? AND attribute_key_id = ? AND value = ?")
+        .get(1, collection.collection_id, attributeKeyId, value) as
         | { id: number }
         | undefined;
     if (!row) throw new Error(`Missing attribute: ${value}`);
     return row.id;
+}
+
+function getCollectionFixtureByAddress(
+    address: string,
+    chainId: number = 1,
+): { collection_id: number; slug: string; address: string } {
+    const row = db
+        .prepare<
+            [number, string]
+        >("SELECT collection_id, slug, address FROM collections WHERE chain_id = ? AND lower(address) = ? LIMIT 1")
+        .get(chainId, address.toLowerCase()) as
+        | { collection_id: number; slug: string; address: string }
+        | undefined;
+    if (!row) {
+        throw new Error(`Missing collection fixture for ${address}`);
+    }
+    return row;
 }

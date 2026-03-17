@@ -38,6 +38,21 @@ For implementation details, use:
 - Prefer cursor/streamed iteration for large datasets instead of large in-memory preallocation.
 - Any large in-memory allocation must be explicitly justified by business need or performance evidence.
 
+## Domain Modeling
+
+- Treat business rules as domain behavior, not stringly-typed application logic spread across consumers.
+- Keep raw persistence/serialization literals private to the relevant domain module whenever possible.
+  Callers should not branch on hard-coded strings, status values, kind values, or internal flags that belong to one domain model.
+- Expose explicit domain contracts for business decisions.
+  Prefer methods and named helpers such as `isX()`, `canY()`, `matchesZ()`, `resolveScope()`, or other intention-revealing APIs instead of leaking internal rule details into callers.
+- Distinguish clearly between serialized/storage shapes and domain/business objects.
+  Serialized shapes exist for adapter boundaries; domain objects exist to protect invariants and expose behavior.
+- When a domain concept has declared state and downstream/materialized state, model both explicitly instead of implicitly collapsing them into one table or one flag.
+- If multiple consumers need the same rule, move that rule into the domain type instead of duplicating conditionals across workers, use cases, adapters, or tests.
+- Keep validation and invariant enforcement close to the domain constructor/factory so invalid raw data is normalized or rejected before wider use.
+- Use collection token scope as the reference example for this rule:
+  raw values like `contract_all_tokens` should stay internal to the collection domain module, while callers should use explicit APIs such as scope predicates, token membership checks, and range intersection helpers.
+
 ## Backend Hexagonal Guide
 
 These rules are mandatory for backend planning and code generation.

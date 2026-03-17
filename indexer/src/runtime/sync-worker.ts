@@ -180,11 +180,13 @@ async function main() {
                 );
                 await publishDomainJobs(
                     queue,
+                    collectionRegistry,
                     config.chainId,
                     range,
                     job,
                     "realtime",
                     data,
+                    collections,
                 );
                 logger.info("Sync block processed", {
                     component: "IndexerSyncWorker",
@@ -243,11 +245,13 @@ async function main() {
                 );
                 await publishDomainJobs(
                     queue,
+                    collectionRegistry,
                     config.chainId,
                     range,
                     job,
                     "backfill",
                     data,
+                    collections,
                 );
                 logger.info("Backfill range processed", {
                     component: "IndexerSyncWorker",
@@ -337,11 +341,13 @@ async function fetchBlocks(
 
 async function publishDomainJobs<TPayload>(
     queue: QueuePort,
+    collectionRegistry: SqliteCollectionRegistry,
     chainId: number,
     range: SyncRange,
     job: JobEnvelope<TPayload>,
     mode: DomainSyncMode,
     data: OnChainData,
+    collections: CollectionRecord[],
 ): Promise<void> {
     const payload: DomainSyncPayload = {
         fromBlock: range.fromBlock,
@@ -384,7 +390,13 @@ async function publishDomainJobs<TPayload>(
     await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
 
     await publishOrderUpdateJobs(queue, chainId, data);
-    await publishMetadataRefreshJobs(queue, chainId, data);
+    await publishMetadataRefreshJobs(
+        queue,
+        collectionRegistry,
+        chainId,
+        data,
+        collections,
+    );
 }
 
 // Gap check: if a processed block's predecessor is missing, enqueue a backfill job.
@@ -532,23 +544,36 @@ function resolveCollectionExtensionWatchSpecs(
 // Metadata refresh jobs are triggered by on-chain refresh events (e.g. ERC-4906).
 async function publishMetadataRefreshJobs(
     queue: QueuePort,
+    collectionRegistry: SqliteCollectionRegistry,
     chainId: number,
     data: OnChainData,
+    collections: CollectionRecord[],
 ): Promise<void> {
     const seen = new Set<string>();
     for (const refresh of data.metadataRefreshEvents) {
         const contract = refresh.contract.toLowerCase();
         const tokenId = refresh.tokenId;
-        const key = `${contract}:${tokenId}`;
+        const collectionId = resolveRefreshCollectionId(
+            collectionRegistry,
+            chainId,
+            collections,
+            contract,
+            tokenId,
+        );
+        if (collectionId === null) {
+            continue;
+        }
+        const key = `${collectionId}:${tokenId}`;
         if (seen.has(key)) continue;
         seen.add(key);
 
         const job: JobEnvelope<MetadataRefreshPayload> = {
-            jobId: `metadata:refresh:${chainId}:${contract}:${tokenId}:${refresh.blockNumber}:${refresh.logIndex}`,
+            jobId: `metadata:refresh:${chainId}:${collectionId}:${tokenId}:${refresh.blockNumber}:${refresh.logIndex}`,
             kind: DOMAIN_JOB_KIND.MetadataRefresh,
             queue: QUEUE_NAMES.MetadataRefresh,
             payload: {
                 chainId,
+                collectionId,
                 contract,
                 tokenId,
                 metadataUrl: null,
@@ -565,29 +590,142 @@ async function publishMetadataRefreshJobs(
     const seenRanges = new Set<string>();
     for (const refresh of data.metadataRefreshRangeEvents) {
         const contract = refresh.contract.toLowerCase();
-        const key = `${contract}:${refresh.fromTokenId}:${refresh.toTokenId}`;
-        if (seenRanges.has(key)) continue;
-        seenRanges.add(key);
-
-        const rangeJob: JobEnvelope<MetadataRefreshRangePayload> = {
-            jobId: `metadata:refresh-range:${chainId}:${contract}:${refresh.fromTokenId}:${refresh.toTokenId}:${refresh.blockNumber}:${refresh.logIndex}`,
-            kind: DOMAIN_JOB_KIND.MetadataRefreshRange,
-            queue: QUEUE_NAMES.MetadataRefresh,
-            payload: {
-                chainId,
-                contract,
-                fromTokenId: refresh.fromTokenId,
-                toTokenId: refresh.toTokenId,
-                cursorTokenId: refresh.fromTokenId,
-                reason: refresh.trigger,
-                source: "onchain",
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
+        for (const jobSpec of resolveRefreshRangeJobs(
+            collectionRegistry,
             chainId,
-        };
-        await queue.publish(QUEUE_NAMES.MetadataRefresh, rangeJob);
+            collections,
+            contract,
+            refresh.fromTokenId,
+            refresh.toTokenId,
+        )) {
+            const key = `${jobSpec.collectionId}:${jobSpec.fromTokenId}:${jobSpec.toTokenId}`;
+            if (seenRanges.has(key)) {
+                continue;
+            }
+            seenRanges.add(key);
+
+            const rangeJob: JobEnvelope<MetadataRefreshRangePayload> = {
+                jobId: `metadata:refresh-range:${chainId}:${jobSpec.collectionId}:${jobSpec.fromTokenId}:${jobSpec.toTokenId}:${refresh.blockNumber}:${refresh.logIndex}`,
+                kind: DOMAIN_JOB_KIND.MetadataRefreshRange,
+                queue: QUEUE_NAMES.MetadataRefresh,
+                payload: {
+                    chainId,
+                    collectionId: jobSpec.collectionId,
+                    contract,
+                    fromTokenId: jobSpec.fromTokenId,
+                    toTokenId: jobSpec.toTokenId,
+                    cursorTokenId: jobSpec.fromTokenId,
+                    reason: refresh.trigger,
+                    source: "onchain",
+                },
+                attempt: 0,
+                scheduledAt: Date.now(),
+                chainId,
+                collectionId: jobSpec.collectionId,
+            };
+            await queue.publish(QUEUE_NAMES.MetadataRefresh, rangeJob);
+        }
     }
+}
+
+function resolveRefreshCollectionId(
+    collectionRegistry: SqliteCollectionRegistry,
+    chainId: number,
+    collections: CollectionRecord[],
+    contract: string,
+    tokenId: string,
+): number | null {
+    for (const collection of collections) {
+        if (collection.address.toLowerCase() !== contract) {
+            continue;
+        }
+        if (
+            collectionScopeContainsToken(
+                collectionRegistry,
+                chainId,
+                collection,
+                tokenId,
+            )
+        ) {
+            return collection.id;
+        }
+    }
+    return null;
+}
+
+function resolveRefreshRangeJobs(
+    collectionRegistry: SqliteCollectionRegistry,
+    chainId: number,
+    collections: CollectionRecord[],
+    contract: string,
+    fromTokenId: string,
+    toTokenId: string,
+): Array<{
+    collectionId: number;
+    fromTokenId: string;
+    toTokenId: string;
+}> {
+    const jobs: Array<{
+        collectionId: number;
+        fromTokenId: string;
+        toTokenId: string;
+    }> = [];
+    const rangeStart = BigInt(fromTokenId);
+    const rangeEnd = BigInt(toTokenId);
+
+    for (const collection of collections) {
+        if (collection.address.toLowerCase() !== contract) {
+            continue;
+        }
+
+        const continuousRange = collection.intersectContinuousTokenRange(
+            fromTokenId,
+            toTokenId,
+        );
+        if (continuousRange) {
+            jobs.push({
+                collectionId: collection.id,
+                fromTokenId: continuousRange.fromTokenId,
+                toTokenId: continuousRange.toTokenId,
+            });
+            continue;
+        }
+
+        if (!collection.isExplicitTokenIdsScope()) {
+            continue;
+        }
+
+        const tokenIds = collectionRegistry
+            .listExplicitScopeTokenIds(chainId, collection.id)
+            .filter((tokenId) => {
+                const value = BigInt(tokenId);
+                return value >= rangeStart && value <= rangeEnd;
+            });
+        for (const tokenId of tokenIds) {
+            jobs.push({
+                collectionId: collection.id,
+                fromTokenId: tokenId,
+                toTokenId: tokenId,
+            });
+        }
+    }
+
+    return jobs;
+}
+
+function collectionScopeContainsToken(
+    collectionRegistry: SqliteCollectionRegistry,
+    chainId: number,
+    collection: CollectionRecord,
+    tokenId: string,
+): boolean {
+    return collection.containsTokenInScope(tokenId, (candidateTokenId) =>
+        collectionRegistry.hasExplicitScopeToken(
+            chainId,
+            collection.id,
+            candidateTokenId,
+        ),
+    );
 }
 
 async function appendWethMakerInfos(

@@ -204,11 +204,22 @@ async function main() {
                 const result = await metadataDomain.handleDomainSync(
                     toDomainContext(job),
                 );
-                for (const contract of result.contracts) {
+                const statsTargets = new Map<number, string>();
+                for (const updated of result.updatedTokens) {
+                    if (statsTargets.has(updated.collectionId)) {
+                        continue;
+                    }
+                    statsTargets.set(
+                        updated.collectionId,
+                        updated.contract.toLowerCase(),
+                    );
+                }
+                for (const [collectionId, contract] of statsTargets) {
                     await publishMetadataStatsRecompute(
                         queue,
                         {
                             chainId: job.chainId,
+                            collectionId,
                             contract,
                             reason: deriveMetadataStatsReason(
                                 job.payload.sourceJobId,
@@ -224,8 +235,8 @@ async function main() {
                     job.chainId,
                     result.updatedTokens,
                     "metadata-sync",
-                    "onchain",
                     job.traceId ?? job.jobId,
+                    "onchain",
                 );
             },
             {
@@ -257,6 +268,7 @@ async function main() {
                             queue,
                             {
                                 chainId: job.chainId,
+                                collectionId: updated.collectionId,
                                 contract: (
                                     job.payload as MetadataRefreshPayload
                                 ).contract,
@@ -271,8 +283,8 @@ async function main() {
                             job.chainId,
                             [updated],
                             (job.payload as MetadataRefreshPayload).reason,
-                            (job.payload as MetadataRefreshPayload).source,
                             job.traceId ?? job.jobId,
+                            (job.payload as MetadataRefreshPayload).source,
                         );
                     }
                     return;
@@ -401,6 +413,7 @@ async function handleMetadataRefreshRangeJob(
     for (const tokenId of tokenIds) {
         const updated = await metadataDomain.handleMetadataRefresh({
             chainId: payload.chainId,
+            collectionId: payload.collectionId,
             contract,
             tokenId,
             metadataUrl: null,
@@ -412,24 +425,37 @@ async function handleMetadataRefreshRangeJob(
         }
     }
     if (updatedTokens.length > 0) {
-        await publishMetadataStatsRecompute(
-            queue,
-            {
-                chainId: payload.chainId,
-                contract,
-                reason: "metadata-refresh",
-                sourceJobId,
-            },
-            traceId,
-        );
+        const statsTargets = new Map<number, string>();
+        for (const updated of updatedTokens) {
+            if (statsTargets.has(updated.collectionId)) {
+                continue;
+            }
+            statsTargets.set(
+                updated.collectionId,
+                updated.contract.toLowerCase(),
+            );
+        }
+        for (const [collectionId, statsContract] of statsTargets) {
+            await publishMetadataStatsRecompute(
+                queue,
+                {
+                    chainId: payload.chainId,
+                    collectionId,
+                    contract: statsContract,
+                    reason: "metadata-refresh",
+                    sourceJobId,
+                },
+                traceId,
+            );
+        }
         await publishCollectionExtensionArtifactJobs(
             queue,
             collectionExtensions,
             payload.chainId,
             updatedTokens,
             payload.reason,
-            payload.source,
             traceId,
+            payload.source,
         );
     }
 
@@ -537,24 +563,24 @@ async function publishCollectionExtensionArtifactJobs(
     chainId: number,
     updatedTokens: MetadataUpdatedToken[],
     reason: string,
-    source?: string | null,
     traceId: string,
+    source?: string | null,
 ): Promise<void> {
-    const installsByContract = new Map<string, number | null>();
+    const enabledByCollectionId = new Map<number, boolean>();
 
     for (const updated of updatedTokens) {
         const contract = updated.contract.toLowerCase();
-        let collectionId = installsByContract.get(contract);
-        if (collectionId === undefined) {
-            const install = collectionExtensions.getInstallByContract(
+        let enabled = enabledByCollectionId.get(updated.collectionId);
+        if (enabled === undefined) {
+            const install = collectionExtensions.getInstall(
                 chainId,
-                contract,
+                updated.collectionId,
             );
-            collectionId = install?.enabled ? install.collectionId : null;
-            installsByContract.set(contract, collectionId);
+            enabled = Boolean(install?.enabled);
+            enabledByCollectionId.set(updated.collectionId, enabled);
         }
 
-        if (collectionId === null) {
+        if (!enabled) {
             continue;
         }
 
@@ -562,7 +588,7 @@ async function publishCollectionExtensionArtifactJobs(
             queue,
             {
                 chainId,
-                collectionId,
+                collectionId: updated.collectionId,
                 contract,
                 tokenId: updated.tokenId,
                 reason,

@@ -42,7 +42,7 @@ export class GetCollectionDetailUseCase {
             ): CollectionListItem;
             listCollectionTokens(params: {
                 chainId: number;
-                contractAddress: string;
+                collectionId: number;
                 tokenStatus: TokenBrowserStatus;
                 limit: number;
                 cursor?: string;
@@ -50,7 +50,7 @@ export class GetCollectionDetailUseCase {
             }): TokenCursorPage;
             listCollectionTraitFacets(
                 chainId: number,
-                contractAddress: string,
+                collectionId: number,
             ): TraitFacet[];
         },
     ) {}
@@ -70,7 +70,7 @@ export class GetCollectionDetailUseCase {
 
         const tokens = this.collectionDetailReadPort.listCollectionTokens({
             chainId: chain.publicChainId,
-            contractAddress: collection.address,
+            collectionId: collection.collectionId,
             tokenStatus: input.tokenStatus,
             limit: input.limit,
             cursor: input.cursor,
@@ -79,7 +79,7 @@ export class GetCollectionDetailUseCase {
 
         const facets = this.collectionDetailReadPort.listCollectionTraitFacets(
             chain.publicChainId,
-            collection.address,
+            collection.collectionId,
         );
 
         return {

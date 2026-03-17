@@ -50,20 +50,22 @@ describe("offchain dispatch", () => {
                 "DELETE FROM attribute_keys;",
                 "DELETE FROM tokens;",
                 "DELETE FROM nft_balances;",
+                "DELETE FROM collections;",
             ].join("\n"),
         );
     });
 
     it("persists REST collection offers even when source criteria root is zero", async () => {
-        seedBalance(1, CONTRACT, "10");
-        seedBalance(1, CONTRACT, "11");
+        const collectionId = ensureCollection(1, CONTRACT);
+        seedBalance(1, collectionId, CONTRACT, "10");
+        seedBalance(1, collectionId, CONTRACT, "11");
 
         const queue = new QueueCapture();
         const tokenSets = new SqliteTokenSetRegistry();
         const payload: OffchainOrderRawPayload = {
             source: "opensea",
             chainId: 1,
-            collectionId: 1,
+            collectionId,
             receivedAt: Date.now(),
             channel: "snapshot",
             dedupeKey: "snapshot:test:collection-offer",
@@ -97,16 +99,17 @@ describe("offchain dispatch", () => {
     });
 
     it("persists trait offers with local token-set mismatch instead of dropping them", async () => {
-        seedAttribute(1, CONTRACT, "Zone", "Mori");
-        linkToken(1, CONTRACT, "1", [["Zone", "Mori"]]);
-        linkToken(1, CONTRACT, "2", [["Zone", "Mori"]]);
+        const collectionId = ensureCollection(1, CONTRACT);
+        seedAttribute(1, collectionId, CONTRACT, "Zone", "Mori");
+        linkToken(1, collectionId, CONTRACT, "1", [["Zone", "Mori"]]);
+        linkToken(1, collectionId, CONTRACT, "2", [["Zone", "Mori"]]);
 
         const queue = new QueueCapture();
         const tokenSets = new SqliteTokenSetRegistry();
         const payload: OffchainOrderRawPayload = {
             source: "opensea",
             chainId: 1,
-            collectionId: 1,
+            collectionId,
             receivedAt: Date.now(),
             channel: "stream",
             dedupeKey: "stream:test:trait-offer-mismatch",
@@ -294,75 +297,90 @@ function buildStreamTraitOfferEnvelope(
 
 function seedAttribute(
     chainId: number,
+    collectionId: number,
     contractAddress: string,
     key: string,
     value: string,
 ): void {
-    db.prepare<{ chainId: number; contractAddress: string; key: string }>(
-        "INSERT OR IGNORE INTO attribute_keys (chain_id, contract_address, key) VALUES (@chainId, @contractAddress, @key)",
-    ).run({ chainId, contractAddress, key });
+    db.prepare<{
+        chainId: number;
+        collectionId: number;
+        contractAddress: string;
+        key: string;
+    }>(
+        "INSERT OR IGNORE INTO attribute_keys (chain_id, collection_id, contract_address, key) VALUES (@chainId, @collectionId, @contractAddress, @key)",
+    ).run({ chainId, collectionId, contractAddress, key });
 
     const keyRow = db
         .prepare<{
             chainId: number;
-            contractAddress: string;
+            collectionId: number;
             key: string;
         }>(
-            "SELECT id FROM attribute_keys WHERE chain_id = @chainId AND contract_address = @contractAddress AND key = @key",
+            "SELECT id FROM attribute_keys WHERE chain_id = @chainId AND collection_id = @collectionId AND key = @key",
         )
-        .get({ chainId, contractAddress, key }) as { id: number };
+        .get({ chainId, collectionId, key }) as { id: number };
 
     db.prepare<{
         chainId: number;
+        collectionId: number;
         contractAddress: string;
         attributeKeyId: number;
         value: string;
     }>(
-        "INSERT OR IGNORE INTO attributes (chain_id, contract_address, attribute_key_id, value) VALUES (@chainId, @contractAddress, @attributeKeyId, @value)",
-    ).run({ chainId, contractAddress, attributeKeyId: keyRow.id, value });
+        "INSERT OR IGNORE INTO attributes (chain_id, collection_id, contract_address, attribute_key_id, value) VALUES (@chainId, @collectionId, @contractAddress, @attributeKeyId, @value)",
+    ).run({
+        chainId,
+        collectionId,
+        contractAddress,
+        attributeKeyId: keyRow.id,
+        value,
+    });
 }
 
 function linkToken(
     chainId: number,
+    collectionId: number,
     contractAddress: string,
     tokenId: string,
     pairs: Array<[string, string]>,
 ): void {
     db.prepare(
-        "INSERT OR IGNORE INTO tokens (chain_id, contract_address, token_id) VALUES (@chainId, @contractAddress, @tokenId)",
-    ).run({ chainId, contractAddress, tokenId });
+        "INSERT OR IGNORE INTO tokens (chain_id, collection_id, contract_address, token_id) VALUES (@chainId, @collectionId, @contractAddress, @tokenId)",
+    ).run({ chainId, collectionId, contractAddress, tokenId });
 
     for (const [key, value] of pairs) {
         const keyRow = db
             .prepare<{
                 chainId: number;
-                contractAddress: string;
+                collectionId: number;
                 key: string;
             }>(
-                "SELECT id FROM attribute_keys WHERE chain_id = @chainId AND contract_address = @contractAddress AND key = @key",
+                "SELECT id FROM attribute_keys WHERE chain_id = @chainId AND collection_id = @collectionId AND key = @key",
             )
-            .get({ chainId, contractAddress, key }) as { id: number };
+            .get({ chainId, collectionId, key }) as { id: number };
 
         const attrRow = db
             .prepare<{
                 chainId: number;
-                contractAddress: string;
+                collectionId: number;
                 attributeKeyId: number;
                 value: string;
             }>(
-                "SELECT id FROM attributes WHERE chain_id = @chainId AND contract_address = @contractAddress AND attribute_key_id = @attributeKeyId AND value = @value",
+                "SELECT id FROM attributes WHERE chain_id = @chainId AND collection_id = @collectionId AND attribute_key_id = @attributeKeyId AND value = @value",
             )
             .get({
                 chainId,
-                contractAddress,
+                collectionId,
                 attributeKeyId: keyRow.id,
                 value,
             }) as { id: number };
 
         db.prepare(
-            "INSERT OR IGNORE INTO token_attributes (chain_id, contract_address, token_id, attribute_id) VALUES (@chainId, @contractAddress, @tokenId, @attributeId)",
+            "INSERT OR IGNORE INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) VALUES (@chainId, @collectionId, @contractAddress, @tokenId, @attributeId)",
         ).run({
             chainId,
+            collectionId,
             contractAddress,
             tokenId,
             attributeId: attrRow.id,
@@ -370,14 +388,20 @@ function linkToken(
     }
 }
 
-function seedBalance(chainId: number, contract: string, tokenId: string): void {
+function seedBalance(
+    chainId: number,
+    collectionId: number,
+    contract: string,
+    tokenId: string,
+): void {
     db.prepare(
         "INSERT OR REPLACE INTO nft_balances " +
-            "(chain_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, " +
+            "(chain_id, collection_id, contract_address, token_id, owner, amount, last_block_number, last_block_hash, " +
             "last_block_timestamp, last_tx_hash, last_log_index) " +
-            "VALUES (@chainId, @contract, @tokenId, @owner, @amount, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex)",
+            "VALUES (@chainId, @collectionId, @contract, @tokenId, @owner, @amount, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex)",
     ).run({
         chainId,
+        collectionId,
         contract,
         tokenId,
         owner: MAKER,
@@ -388,4 +412,28 @@ function seedBalance(chainId: number, contract: string, tokenId: string): void {
         txHash: "0xtx",
         logIndex: 0,
     });
+}
+
+function ensureCollection(chainId: number, contractAddress: string): number {
+    const existing = db
+        .prepare<
+            [number, string]
+        >("SELECT collection_id FROM collections WHERE chain_id = ? AND lower(address) = ? LIMIT 1")
+        .get(chainId, contractAddress.toLowerCase()) as
+        | { collection_id: number }
+        | undefined;
+    if (existing) {
+        return existing.collection_id;
+    }
+
+    const inserted = db
+        .prepare<
+            [number, string, string]
+        >("INSERT INTO collections " + "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply) " + "VALUES (?, ?, ?, 'erc721', 'live', 'contract_all_tokens', NULL, NULL)")
+        .run(
+            chainId,
+            `fixture-${contractAddress.slice(2, 10).toLowerCase()}`,
+            contractAddress.toLowerCase(),
+        );
+    return Number(inserted.lastInsertRowid);
 }

@@ -21,6 +21,7 @@ type TokenIdRow = { token_id: string };
 export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
     private insertTokenSet = db.prepare<{
         chainId: number;
+        collectionId: number;
         tokenSetId: string;
         schemaHash: string;
         schemaJson: string;
@@ -29,9 +30,9 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         merkleRoot: string | null;
     }>(
         "INSERT INTO token_sets " +
-            "(chain_id, id, schema_hash, schema_json, contract_address, attribute_id, merkle_root) " +
-            "VALUES (@chainId, @tokenSetId, @schemaHash, @schemaJson, @contractAddress, @attributeId, @merkleRoot) " +
-            "ON CONFLICT(chain_id, id, schema_hash) DO UPDATE SET " +
+            "(chain_id, collection_id, id, schema_hash, schema_json, contract_address, attribute_id, merkle_root) " +
+            "VALUES (@chainId, @collectionId, @tokenSetId, @schemaHash, @schemaJson, @contractAddress, @attributeId, @merkleRoot) " +
+            "ON CONFLICT(chain_id, collection_id, id, schema_hash) DO UPDATE SET " +
             "schema_json = excluded.schema_json, " +
             "contract_address = excluded.contract_address, " +
             "attribute_id = excluded.attribute_id, " +
@@ -40,35 +41,37 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
     );
     private insertTokenSetToken = db.prepare<{
         chainId: number;
+        collectionId: number;
         tokenSetId: string;
+        tokenSetSchemaHash: string;
         contractAddress: string;
         tokenId: string;
     }>(
         "INSERT OR IGNORE INTO token_sets_tokens " +
-            "(chain_id, token_set_id, contract_address, token_id) " +
-            "VALUES (@chainId, @tokenSetId, @contractAddress, @tokenId)",
+            "(chain_id, collection_id, token_set_id, token_set_schema_hash, contract_address, token_id) " +
+            "VALUES (@chainId, @collectionId, @tokenSetId, @tokenSetSchemaHash, @contractAddress, @tokenId)",
     );
     private selectAttributeKeyId = db.prepare<{
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         key: string;
     }>(
-        "SELECT id FROM attribute_keys WHERE chain_id = @chainId AND contract_address = @contractAddress AND key = @key",
+        "SELECT id FROM attribute_keys WHERE chain_id = @chainId AND collection_id = @collectionId AND key = @key",
     );
     private selectAttributeId = db.prepare<{
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         attributeKeyId: number;
         value: string;
     }>(
-        "SELECT id FROM attributes WHERE chain_id = @chainId AND contract_address = @contractAddress AND attribute_key_id = @attributeKeyId AND value = @value",
+        "SELECT id FROM attributes WHERE chain_id = @chainId AND collection_id = @collectionId AND attribute_key_id = @attributeKeyId AND value = @value",
     );
     private selectCollectionTokenIds = db.prepare<{
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
     }>(
         "SELECT DISTINCT token_id FROM nft_balances " +
-            "WHERE chain_id = @chainId AND contract_address = @contractAddress " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
             "ORDER BY token_id",
     );
 
@@ -80,12 +83,13 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
             schema.kind === "attribute"
                 ? this.resolveTokensByAttributes(
                       request.chainId,
+                      request.collectionId,
                       contractAddress,
                       schema,
                   )
                 : this.resolveTokensByCollection(
                       request.chainId,
-                      contractAddress,
+                      request.collectionId,
                   );
 
         let merkleRoot: string | null = null;
@@ -109,6 +113,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
             schema.kind === "attribute" && schema.data.attributes.length === 1
                 ? this.resolveSingleAttributeId(
                       request.chainId,
+                      request.collectionId,
                       contractAddress,
                       schema,
                   )
@@ -116,6 +121,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
 
         this.insertTokenSet.run({
             chainId: request.chainId,
+            collectionId: request.collectionId,
             tokenSetId,
             schemaHash,
             schemaJson: JSON.stringify(schema),
@@ -129,7 +135,9 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
                 for (const tokenId of tokenIds) {
                     this.insertTokenSetToken.run({
                         chainId: request.chainId,
+                        collectionId: request.collectionId,
                         tokenSetId,
+                        tokenSetSchemaHash: schemaHash,
                         contractAddress,
                         tokenId,
                     });
@@ -148,17 +156,18 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
 
     private resolveTokensByCollection(
         chainId: number,
-        contractAddress: string,
+        collectionId: number,
     ): string[] {
         const rows = this.selectCollectionTokenIds.all({
             chainId,
-            contractAddress,
+            collectionId,
         }) as TokenIdRow[];
         return rows.map((row) => row.token_id);
     }
 
     private resolveTokensByAttributes(
         chainId: number,
+        collectionId: number,
         contractAddress: string,
         schema: TokenSetSchema & { kind: "attribute" },
     ): string[] {
@@ -168,6 +177,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         // AND semantics: all attribute pairs must be present for the same token_id.
         const values: Record<string, string | number> = {
             chainId,
+            collectionId,
             contractAddress,
             attributesCount: attributes.length,
         };
@@ -185,11 +195,11 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
             "JOIN attributes ON token_attributes.attribute_id = attributes.id " +
             "JOIN attribute_keys ON attributes.attribute_key_id = attribute_keys.id " +
             "WHERE token_attributes.chain_id = @chainId " +
-            "AND token_attributes.contract_address = @contractAddress " +
+            "AND token_attributes.collection_id = @collectionId " +
             "AND attributes.chain_id = @chainId " +
-            "AND attributes.contract_address = @contractAddress " +
+            "AND attributes.collection_id = @collectionId " +
             "AND attribute_keys.chain_id = @chainId " +
-            "AND attribute_keys.contract_address = @contractAddress " +
+            "AND attribute_keys.collection_id = @collectionId " +
             `AND (${clauses.join(" OR ")}) ` +
             "GROUP BY token_attributes.token_id " +
             "HAVING COUNT(DISTINCT (attribute_keys.key || ':' || attributes.value)) = @attributesCount " +
@@ -201,6 +211,7 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
 
     private resolveSingleAttributeId(
         chainId: number,
+        collectionId: number,
         contractAddress: string,
         schema: TokenSetSchema & { kind: "attribute" },
     ): number | null {
@@ -208,13 +219,13 @@ export class SqliteTokenSetRegistry implements TokenSetRegistryPort {
         if (!attribute) return null;
         const keyRow = this.selectAttributeKeyId.get({
             chainId,
-            contractAddress,
+            collectionId,
             key: attribute.key,
         }) as AttributeIdRow | undefined;
         if (!keyRow) return null;
         const attributeRow = this.selectAttributeId.get({
             chainId,
-            contractAddress,
+            collectionId,
             attributeKeyId: keyRow.id,
             value: attribute.value,
         }) as AttributeIdRow | undefined;

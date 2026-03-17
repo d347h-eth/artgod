@@ -113,6 +113,7 @@ function buildOrderUpsert(
 ): OrderUpsertPayload {
     return {
         chainId: 1,
+        collectionId: 1,
         orderId:
             "0xca2f030878888d975a62f94f5abcceda4b7b075e836eb112d1b9008ac0d22eaa",
         kind: "seaport",

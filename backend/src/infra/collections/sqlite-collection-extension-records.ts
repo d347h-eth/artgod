@@ -3,7 +3,6 @@ import type {
     CollectionExtensionInstall,
     CollectionExtensionKey,
 } from "@artgod/shared/extensions";
-import { normalizeAddressRef } from "@artgod/shared/utils/ref-resolver";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 
 type InstallRow = {
@@ -25,38 +24,37 @@ type ArtifactRow = {
 };
 
 export class SqliteCollectionExtensionRecords {
-    private selectInstallByContract = db.prepare<{
+    private selectInstallByCollectionId = db.prepare<{
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
     }>(
         "SELECT cei.chain_id, cei.collection_id, cei.extension_key, cei.enabled, cei.config_json, cei.created_at, cei.updated_at " +
             "FROM collection_extension_installs cei " +
-            "JOIN collections c ON c.collection_id = cei.collection_id " +
-            "WHERE cei.chain_id = @chainId AND lower(c.address) = @contractAddress " +
+            "WHERE cei.chain_id = @chainId AND cei.collection_id = @collectionId " +
             "LIMIT 1",
     );
 
     private selectArtifact = db.prepare<{
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
         artifactRef: string;
     }>(
         "SELECT extension_key, artifact_ref, image, animation_url, html_content " +
             "FROM token_extension_artifacts " +
-            "WHERE chain_id = @chainId AND contract_address = @contractAddress AND token_id = @tokenId " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_id = @tokenId " +
             "AND extension_key = @extensionKey AND artifact_ref = @artifactRef " +
             "LIMIT 1",
     );
 
-    getInstallByContract(
+    getInstallByCollectionId(
         chainId: number,
-        contractAddress: string,
+        collectionId: number,
     ): CollectionExtensionInstall | null {
-        const row = this.selectInstallByContract.get({
+        const row = this.selectInstallByCollectionId.get({
             chainId,
-            contractAddress: normalizeAddressRef(contractAddress),
+            collectionId,
         }) as InstallRow | undefined;
         if (!row) {
             return null;
@@ -75,14 +73,14 @@ export class SqliteCollectionExtensionRecords {
 
     getArtifact(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
         artifactRef: string;
     }): BackendCollectionExtensionArtifactRecord | null {
         const row = this.selectArtifact.get({
             chainId: params.chainId,
-            contractAddress: normalizeAddressRef(params.contractAddress),
+            collectionId: params.collectionId,
             tokenId: params.tokenId,
             extensionKey: params.extensionKey,
             artifactRef: params.artifactRef,

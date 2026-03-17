@@ -85,7 +85,7 @@ export class GetBootstrapRunDetailUseCase {
 function mapCollectionSummary(collection: CollectionBootstrapState): {
     chainId: number;
     collectionId: number;
-    slug: string | null;
+    slug: string;
     address: string;
     status: "bootstrapping" | "live" | "paused" | "disabled";
 } {

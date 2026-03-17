@@ -1,14 +1,3 @@
-ALTER TABLE collections ADD COLUMN opensea_slug TEXT;
-ALTER TABLE collections ADD COLUMN opensea_status TEXT;
-ALTER TABLE collections ADD COLUMN opensea_ready_at TEXT;
-ALTER TABLE collections ADD COLUMN opensea_snapshot_started_at TEXT;
-ALTER TABLE collections ADD COLUMN opensea_snapshot_completed_at TEXT;
-ALTER TABLE collections ADD COLUMN opensea_reconcile_started_at TEXT;
-ALTER TABLE collections ADD COLUMN opensea_reconcile_completed_at TEXT;
-ALTER TABLE collections ADD COLUMN opensea_last_stream_event_at TEXT;
-ALTER TABLE collections ADD COLUMN opensea_last_stream_healthy_at TEXT;
-ALTER TABLE collections ADD COLUMN opensea_last_error TEXT;
-
 CREATE INDEX IF NOT EXISTS collections_opensea_status_idx
   ON collections (chain_id, opensea_status, status);
 
@@ -20,8 +9,8 @@ ALTER TABLE orders ADD COLUMN source_status TEXT NOT NULL DEFAULT 'active';
 CREATE INDEX IF NOT EXISTS orders_source_status_idx
   ON orders (chain_id, source_status);
 
-CREATE INDEX IF NOT EXISTS orders_source_contract_status_idx
-  ON orders (chain_id, source, contract_address, source_status);
+CREATE INDEX IF NOT EXISTS orders_source_collection_status_idx
+  ON orders (chain_id, source, collection_id, source_status);
 
 CREATE TABLE IF NOT EXISTS offchain_order_observations (
   observation_id INTEGER PRIMARY KEY AUTOINCREMENT,

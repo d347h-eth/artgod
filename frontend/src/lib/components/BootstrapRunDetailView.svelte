@@ -41,7 +41,7 @@
 
 	function collectionHref(): string {
 		if (!chainRef || !detail) return '#';
-		return `/${chainRef}/${detail.collection.slug ?? detail.collection.address}`;
+		return `/${chainRef}/${detail.collection.slug}`;
 	}
 
 	async function refreshRunDetail(): Promise<void> {
@@ -116,7 +116,7 @@
 				<div>
 					<div class="muted">collection</div>
 					<div>
-						<a href={collectionHref()}>{detail.collection.slug ?? detail.collection.address}</a>
+						<a href={collectionHref()}>{detail.collection.slug}</a>
 					</div>
 				</div>
 				<div>

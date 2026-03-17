@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "node-terminal",
+            "name": "Run Script: dev:domain-worker (indexer)",
+            "request": "launch",
+            "command": "yarn run dev:domain-worker",
+            "cwd": "${workspaceFolder}/indexer",
+            "envFile": "${workspaceFolder}/../.env"
+        },
+        {
+            "type": "node-terminal",
+            "name": "Run Test: smoke (indexer)",
+            "request": "launch",
+            "command": "yarn test tests/smoke.test.ts --testTimeout=0",
+            "cwd": "${workspaceFolder}/indexer",
+            "envFile": "${workspaceFolder}/../.env.test"
+        }
+    ]
+}

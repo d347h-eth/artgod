@@ -21,7 +21,7 @@ export function buildMetadataStatsRecomputeJob(
     const scheduledAt = bucketStart + METADATA_STATS_DEDUPE_BUCKET_MS;
 
     return {
-        jobId: `metadata:stats:${payload.chainId}:${contract}:${payload.reason}:${bucketStart}`,
+        jobId: `metadata:stats:${payload.chainId}:${payload.collectionId}:${payload.reason}:${bucketStart}`,
         kind: DOMAIN_JOB_KIND.MetadataStatsRecompute,
         queue: QUEUE_NAMES.MetadataStats,
         payload: {
@@ -31,6 +31,7 @@ export function buildMetadataStatsRecomputeJob(
         attempt: 0,
         scheduledAt,
         chainId: payload.chainId,
+        collectionId: payload.collectionId,
         traceId,
     };
 }

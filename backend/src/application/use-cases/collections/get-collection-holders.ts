@@ -33,7 +33,7 @@ export class GetCollectionHoldersUseCase {
             ): CollectionListItem;
             listCollectionHolders(params: {
                 chainId: number;
-                contractAddress: string;
+                collectionId: number;
                 limit: number;
                 cursor?: string;
             }): CollectionHolderPage;
@@ -53,7 +53,7 @@ export class GetCollectionHoldersUseCase {
         );
         const holders = this.collectionDetailReadPort.listCollectionHolders({
             chainId: chain.publicChainId,
-            contractAddress: collection.address,
+            collectionId: collection.collectionId,
             limit: input.limit,
             cursor: input.cursor,
         });

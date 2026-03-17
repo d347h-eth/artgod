@@ -46,6 +46,7 @@ export async function dispatchOffchainPayload(
         if (normalized.sourceSchema) {
             const resolved = tokenSets.ensureTokenSet({
                 chainId: normalized.chainId,
+                collectionId: payload.collectionId,
                 schema: normalized.sourceSchema,
             });
             if (!resolved) {
@@ -91,6 +92,7 @@ export async function dispatchOffchainPayload(
             queue: QUEUE_NAMES.OrdersUpsert,
             payload: {
                 chainId: normalized.chainId,
+                collectionId: payload.collectionId,
                 orderId: normalized.orderId,
                 kind: normalized.kind,
                 side: normalized.side,
@@ -178,6 +180,7 @@ export async function dispatchOffchainPayload(
             queue: QUEUE_NAMES.MetadataRefresh,
             payload: {
                 chainId: metadataRefresh.chainId,
+                collectionId: payload.collectionId,
                 contract: metadataRefresh.contract,
                 tokenId: metadataRefresh.tokenId,
                 metadataUrl: metadataRefresh.metadataUrl,

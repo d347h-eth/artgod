@@ -5,6 +5,7 @@ import type {
 
 export type TokenSetRequest = {
     chainId: number;
+    collectionId: number;
     schema: TokenSetSchema;
 };
 

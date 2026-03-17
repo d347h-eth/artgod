@@ -126,6 +126,7 @@ export async function createBootstrapRun(
 	body: {
 		slug: string;
 		address: string;
+		openseaSlug?: string;
 		standard: 'erc721';
 		metadataMode: 'strict' | 'best_effort';
 		supportsEnumerable: boolean;

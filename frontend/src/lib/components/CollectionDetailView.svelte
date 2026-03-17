@@ -609,7 +609,7 @@
 
 	function activeCollectionRef(): string | null {
 		if (!collection) return null;
-		return collection.slug ?? collection.address;
+		return collection.slug;
 	}
 
 	function latestRunHref(): string | null {
@@ -638,7 +638,8 @@
 
 	async function onOpenTokenPreview(token: ApiTokenCard): Promise<void> {
 		if (!chain || !collection) return;
-		const collectionRef = activeCollectionRef() ?? collection.address;
+		const collectionRef = activeCollectionRef();
+		if (!collectionRef) return;
 		const requestId = ++tokenPreviewRequestId;
 		tokenPreviewOpen = true;
 		tokenPreviewMediaKind = null;
@@ -674,7 +675,9 @@
 		bootstrapLoading = true;
 		bootstrapError = null;
 		try {
-			const response = await getBootstrapStatus(fetch, chain.slug, activeCollectionRef() ?? collection.address);
+			const collectionRef = activeCollectionRef();
+			if (!collectionRef) return;
+			const response = await getBootstrapStatus(fetch, chain.slug, collectionRef);
 			bootstrapStatus = response;
 		} catch (error) {
 			bootstrapError = error instanceof Error ? error.message : 'bootstrap status request failed';
@@ -692,7 +695,7 @@
 		<a href={collectionsHref()}>collections</a>
 		{#if collection}
 			<span class="breadcrumbs-separator">/</span>
-			<span class="breadcrumbs-current">{collection.slug ?? collection.address}</span>
+			<span class="breadcrumbs-current">{collection.slug}</span>
 		{/if}
 	</nav>
 

@@ -47,6 +47,7 @@ export type OrderUpdateByIdPayload = {
 
 export type OrderUpsertPayload = {
     chainId: number;
+    collectionId: number;
     orderId: string;
     kind: string;
     side: "buy" | "sell";

@@ -3,7 +3,6 @@ import type {
     CollectionExtensionInstall,
     CollectionExtensionKey,
 } from "@artgod/shared/extensions";
-import { normalizeAddressRef } from "@artgod/shared/utils/ref-resolver";
 import type {
     CollectionExtensionArtifactPort,
     CollectionExtensionArtifactRecord,
@@ -23,6 +22,7 @@ type InstallRow = {
 
 type ArtifactRow = {
     chain_id: number;
+    collection_id: number;
     contract_address: string;
     token_id: string;
     extension_key: CollectionExtensionKey;
@@ -60,17 +60,6 @@ export class SqliteCollectionExtensions
             "WHERE chain_id = @chainId AND enabled = 1",
     );
 
-    private selectInstallByContract = db.prepare<{
-        chainId: number;
-        contractAddress: string;
-    }>(
-        "SELECT cei.chain_id, cei.collection_id, cei.extension_key, cei.enabled, cei.config_json, cei.created_at, cei.updated_at " +
-            "FROM collection_extension_installs cei " +
-            "JOIN collections c ON c.collection_id = cei.collection_id " +
-            "WHERE cei.chain_id = @chainId AND lower(c.address) = @contractAddress " +
-            "LIMIT 1",
-    );
-
     private upsertInstallStmt = db.prepare<{
         chainId: number;
         collectionId: number;
@@ -90,6 +79,7 @@ export class SqliteCollectionExtensions
 
     private upsertArtifactStmt = db.prepare<{
         chainId: number;
+        collectionId: number;
         contractAddress: string;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
@@ -102,9 +92,9 @@ export class SqliteCollectionExtensions
         htmlContent: string | null;
     }>(
         "INSERT INTO token_extension_artifacts " +
-            "(chain_id, contract_address, token_id, extension_key, artifact_ref, uri, raw_json, attributes_json, image, animation_url, html_content) " +
-            "VALUES (@chainId, @contractAddress, @tokenId, @extensionKey, @artifactRef, @uri, @rawJson, @attributesJson, @image, @animationUrl, @htmlContent) " +
-            "ON CONFLICT(chain_id, contract_address, token_id, extension_key, artifact_ref) DO UPDATE SET " +
+            "(chain_id, collection_id, contract_address, token_id, extension_key, artifact_ref, uri, raw_json, attributes_json, image, animation_url, html_content) " +
+            "VALUES (@chainId, @collectionId, @contractAddress, @tokenId, @extensionKey, @artifactRef, @uri, @rawJson, @attributesJson, @image, @animationUrl, @htmlContent) " +
+            "ON CONFLICT(chain_id, collection_id, token_id, extension_key, artifact_ref) DO UPDATE SET " +
             "uri = excluded.uri, raw_json = excluded.raw_json, attributes_json = excluded.attributes_json, " +
             "image = excluded.image, animation_url = excluded.animation_url, html_content = excluded.html_content, " +
             "updated_at = CURRENT_TIMESTAMP",
@@ -112,21 +102,21 @@ export class SqliteCollectionExtensions
 
     private selectArtifactStmt = db.prepare<{
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
         artifactRef: string;
     }>(
-        "SELECT chain_id, contract_address, token_id, extension_key, artifact_ref, uri, raw_json, attributes_json, image, animation_url, html_content, created_at, updated_at " +
+        "SELECT chain_id, collection_id, contract_address, token_id, extension_key, artifact_ref, uri, raw_json, attributes_json, image, animation_url, html_content, created_at, updated_at " +
             "FROM token_extension_artifacts " +
-            "WHERE chain_id = @chainId AND contract_address = @contractAddress AND token_id = @tokenId " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId AND token_id = @tokenId " +
             "AND extension_key = @extensionKey AND artifact_ref = @artifactRef " +
             "LIMIT 1",
     );
 
     private selectTokenAttributeValueStmt = db.prepare<{
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         key: string;
     }>(
@@ -134,12 +124,12 @@ export class SqliteCollectionExtensions
             "FROM token_attributes ta " +
             "JOIN attributes a ON a.id = ta.attribute_id " +
             "AND a.chain_id = ta.chain_id " +
-            "AND a.contract_address = ta.contract_address " +
+            "AND a.collection_id = ta.collection_id " +
             "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
             "AND ak.chain_id = a.chain_id " +
-            "AND ak.contract_address = a.contract_address " +
+            "AND ak.collection_id = a.collection_id " +
             "WHERE ta.chain_id = @chainId " +
-            "AND ta.contract_address = @contractAddress " +
+            "AND ta.collection_id = @collectionId " +
             "AND ta.token_id = @tokenId " +
             "AND ak.key = @key " +
             "LIMIT 1",
@@ -152,17 +142,6 @@ export class SqliteCollectionExtensions
         const row = this.selectInstall.get({
             chainId,
             collectionId,
-        }) as InstallRow | undefined;
-        return row ? mapInstallRow(row) : null;
-    }
-
-    getInstallByContract(
-        chainId: number,
-        contractAddress: string,
-    ): CollectionExtensionInstall | null {
-        const row = this.selectInstallByContract.get({
-            chainId,
-            contractAddress: normalizeAddressRef(contractAddress),
         }) as InstallRow | undefined;
         return row ? mapInstallRow(row) : null;
     }
@@ -193,7 +172,8 @@ export class SqliteCollectionExtensions
     upsertArtifact(input: CollectionExtensionArtifactUpsertInput): void {
         this.upsertArtifactStmt.run({
             chainId: input.chainId,
-            contractAddress: normalizeAddressRef(input.contractAddress),
+            collectionId: input.collectionId,
+            contractAddress: input.contractAddress.toLowerCase(),
             tokenId: input.tokenId,
             extensionKey: input.extensionKey,
             artifactRef: input.artifactRef,
@@ -208,14 +188,14 @@ export class SqliteCollectionExtensions
 
     getArtifact(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         extensionKey: CollectionExtensionKey;
         artifactRef: string;
     }): CollectionExtensionArtifactRecord | null {
         const row = this.selectArtifactStmt.get({
             chainId: params.chainId,
-            contractAddress: normalizeAddressRef(params.contractAddress),
+            collectionId: params.collectionId,
             tokenId: params.tokenId,
             extensionKey: params.extensionKey,
             artifactRef: params.artifactRef,
@@ -225,13 +205,13 @@ export class SqliteCollectionExtensions
 
     getTokenAttributeValue(params: {
         chainId: number;
-        contractAddress: string;
+        collectionId: number;
         tokenId: string;
         key: string;
     }): string | null {
         const row = this.selectTokenAttributeValueStmt.get({
             chainId: params.chainId,
-            contractAddress: normalizeAddressRef(params.contractAddress),
+            collectionId: params.collectionId,
             tokenId: params.tokenId,
             key: params.key,
         }) as AttributeValueRow | undefined;
@@ -254,6 +234,7 @@ function mapInstallRow(row: InstallRow): CollectionExtensionInstall {
 function mapArtifactRow(row: ArtifactRow): CollectionExtensionArtifactRecord {
     return {
         chainId: row.chain_id,
+        collectionId: row.collection_id,
         contractAddress: row.contract_address,
         tokenId: row.token_id,
         extensionKey: row.extension_key,

@@ -32,7 +32,7 @@ export class GetTokenDetailUseCase {
             ): CollectionListItem;
             getCollectionTokenDetail(params: {
                 chainId: number;
-                contractAddress: string;
+                collectionId: number;
                 tokenId: string;
             }): TokenDetail;
         },
@@ -51,7 +51,7 @@ export class GetTokenDetailUseCase {
 
         const token = this.collectionDetailReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
-            contractAddress: collection.address,
+            collectionId: collection.collectionId,
             tokenId: input.tokenRef,
         });
 

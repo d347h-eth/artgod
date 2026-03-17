@@ -73,17 +73,12 @@ async function main() {
                     return;
                 }
 
-                const install =
-                    (job.payload.collectionId
-                        ? collectionExtensions.getInstall(
-                              job.payload.chainId,
-                              job.payload.collectionId,
-                          )
-                        : null) ??
-                    collectionExtensions.getInstallByContract(
-                        job.payload.chainId,
-                        job.payload.contract,
-                    );
+                const install = job.payload.collectionId
+                    ? collectionExtensions.getInstall(
+                          job.payload.chainId,
+                          job.payload.collectionId,
+                      )
+                    : null;
 
                 if (!install?.enabled) {
                     logger.debug(

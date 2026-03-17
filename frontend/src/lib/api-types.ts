@@ -9,7 +9,7 @@ export type ApiChain = {
 export type ApiCollection = {
 	chainId: number;
 	collectionId: number;
-	slug: string | null;
+	slug: string;
 	address: string;
 	standard: 'erc721' | 'erc1155';
 	status: 'bootstrapping' | 'live' | 'paused' | 'disabled';
@@ -133,6 +133,7 @@ export type ApiBootstrapRun = {
 	chainId: number;
 	collectionId: number;
 	requestSlug: string;
+	requestOpenseaSlug: string | null;
 	requestAddress: string;
 	requestStandard: 'erc721' | 'erc1155';
 	metadataMode: 'strict' | 'best_effort';
@@ -171,7 +172,7 @@ export type BootstrapStatusApiResponse = {
 export type ApiBootstrapRunCollectionSummary = {
 	chainId: number;
 	collectionId: number;
-	slug: string | null;
+	slug: string;
 	address: string;
 	status: 'bootstrapping' | 'live' | 'paused' | 'disabled';
 };
