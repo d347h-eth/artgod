@@ -40,7 +40,7 @@ export async function startBackendServer(
     const app = createBackendApp(config);
     await app.listen({
         port: config.port,
-        host: "127.0.0.1",
+        host: config.host,
     });
     return app;
 }
@@ -132,6 +132,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         getTokenDetailUseCase,
         runtimeHealthUseCase,
         config.userlandUiDistDir,
+        config.security,
     );
 }
 

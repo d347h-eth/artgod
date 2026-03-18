@@ -42,11 +42,15 @@ import type {
     GetRuntimeHealthRoute,
 } from "./http/handlers/health/get-runtime-health.js";
 import type { CommonHttpHandlers } from "./http/common/handlers.js";
-import { issueCsrfToken } from "./http/common/security.js";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 export function registerApiRoutes(
     app: FastifyInstance,
     commonHandlers: CommonHttpHandlers,
+    issueCsrfTokenHandler: (
+        request: FastifyRequest,
+        reply: FastifyReply,
+    ) => Promise<{ token: string }>,
     createBootstrapRunAdapter: CreateBootstrapRunHttpAdapter,
     listBootstrapRunsAdapter: ListBootstrapRunsHttpAdapter,
     getBootstrapRunDetailAdapter: GetBootstrapRunDetailHttpAdapter,
@@ -65,7 +69,7 @@ export function registerApiRoutes(
         getRuntimeHealthAdapter.handle,
     );
     app.options("/api/*", commonHandlers.optionsApi);
-    app.get("/api/security/csrf", issueCsrfToken);
+    app.get("/api/security/csrf", issueCsrfTokenHandler);
     app.get<GetDefaultChainRoute>(
         "/api/chains/default",
         getDefaultChainAdapter.handle,

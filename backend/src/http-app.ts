@@ -24,9 +24,13 @@ import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
 import { registerApiErrorHandlers } from "./http/common/error-handlers.js";
 import { registerApiResponseHeaders } from "./http/common/response-headers.js";
-import { registerApiSecurityHooks } from "./http/common/security.js";
+import {
+    createIssueCsrfTokenHandler,
+    registerApiSecurityHooks,
+} from "./http/common/security.js";
 import { registerUserlandStaticRoutes } from "./http/common/userland-static.js";
 import { registerApiRoutes } from "./http-routes.js";
+import type { BackendSecurityConfig } from "./config.js";
 
 export function createApiApp(
     createBootstrapRunUseCase: CreateBootstrapRunUseCase,
@@ -41,6 +45,7 @@ export function createApiApp(
     getTokenDetailUseCase: GetTokenDetailUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
     userlandUiDistDir: string | null,
+    securityConfig: BackendSecurityConfig,
 ): FastifyInstance {
     const app = Fastify({
         logger: false,
@@ -81,12 +86,14 @@ export function createApiApp(
     const getRuntimeHealthAdapter = new GetRuntimeHealthHttpAdapter(
         getRuntimeHealthUseCase,
     );
+    const issueCsrfTokenHandler = createIssueCsrfTokenHandler(securityConfig);
 
-    registerApiResponseHeaders(app);
-    registerApiSecurityHooks(app);
+    registerApiResponseHeaders(app, securityConfig);
+    registerApiSecurityHooks(app, securityConfig);
     registerApiRoutes(
         app,
         commonHandlers,
+        issueCsrfTokenHandler,
         createBootstrapRunAdapter,
         listBootstrapRunsAdapter,
         getBootstrapRunDetailAdapter,

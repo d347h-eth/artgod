@@ -5,11 +5,22 @@ import type {
     FastifyRequest,
     HookHandlerDoneFunction,
 } from "fastify";
+import type { BackendSecurityConfig } from "../../config.js";
+import {
+    createApiOriginPolicy,
+    isAllowedRequestHost,
+    isAllowedRequestOrigin,
+} from "./origin-policy.js";
 
 const CSRF_COOKIE_NAME = "artgod_csrf";
 const CSRF_HEADER_NAME = "x-artgod-csrf";
 
-export function registerApiSecurityHooks(app: FastifyInstance): void {
+export function registerApiSecurityHooks(
+    app: FastifyInstance,
+    config: BackendSecurityConfig,
+): void {
+    const policy = createApiOriginPolicy(config);
+
     app.addHook("onRequest", (request, reply, done) => {
         if (!isMutatingApiRequest(request)) {
             done();
@@ -17,13 +28,13 @@ export function registerApiSecurityHooks(app: FastifyInstance): void {
         }
 
         const host = request.headers.host;
-        if (!host || !isAllowedLoopbackHost(host)) {
+        if (!isAllowedRequestHost(host, policy)) {
             rejectForbidden(reply, done, "Invalid host");
             return;
         }
 
         const origin = request.headers.origin;
-        if (!origin || !isAllowedOrigin(origin, host)) {
+        if (!isAllowedRequestOrigin(origin, policy)) {
             rejectForbidden(reply, done, "Invalid origin");
             return;
         }
@@ -46,34 +57,19 @@ export function registerApiSecurityHooks(app: FastifyInstance): void {
     });
 }
 
-export async function issueCsrfToken(
-    _request: FastifyRequest,
-    reply: FastifyReply,
-): Promise<{ token: string }> {
-    const token = randomUUID().replace(/-/g, "");
-    reply.header(
-        "Set-Cookie",
-        `${CSRF_COOKIE_NAME}=${token}; Path=/; Max-Age=86400; SameSite=Strict; HttpOnly`,
-    );
-    return { token };
-}
-
-export function isAllowedOrigin(origin: string, host: string): boolean {
-    let parsed: URL;
-    try {
-        parsed = new URL(origin);
-    } catch {
-        return false;
-    }
-    if (!(parsed.protocol === "http:" || parsed.protocol === "https:")) {
-        return false;
-    }
-    const originHostName = extractHostName(parsed.host.toLowerCase());
-    const requestHostName = extractHostName(host.toLowerCase());
-    return (
-        isAllowedLoopbackName(originHostName) &&
-        isAllowedLoopbackName(requestHostName)
-    );
+export function createIssueCsrfTokenHandler(config: BackendSecurityConfig) {
+    return async function issueCsrfToken(
+        _request: FastifyRequest,
+        reply: FastifyReply,
+    ): Promise<{ token: string }> {
+        const token = randomUUID().replace(/-/g, "");
+        const secureCookieSuffix = config.csrfCookieSecure ? "; Secure" : "";
+        reply.header(
+            "Set-Cookie",
+            `${CSRF_COOKIE_NAME}=${token}; Path=/; Max-Age=86400; SameSite=Strict; HttpOnly${secureCookieSuffix}`,
+        );
+        return { token };
+    };
 }
 
 function isMutatingApiRequest(request: FastifyRequest): boolean {
@@ -88,17 +84,6 @@ function isMutatingApiRequest(request: FastifyRequest): boolean {
     }
     const path = request.raw.url ?? "";
     return path.startsWith("/api/");
-}
-
-function isAllowedLoopbackHost(host: string): boolean {
-    const value = host.trim().toLowerCase();
-    const withoutPort = extractHostName(value);
-    return (
-        withoutPort === "127.0.0.1" ||
-        withoutPort === "localhost" ||
-        withoutPort === "::1" ||
-        withoutPort === "[::1]"
-    );
 }
 
 function parseCookieToken(
@@ -126,22 +111,4 @@ function rejectForbidden(
         message,
     });
     done();
-}
-
-function extractHostName(host: string): string {
-    if (host.startsWith("[")) {
-        const end = host.indexOf("]");
-        if (end > 0) {
-            return host.slice(1, end);
-        }
-    }
-    const idx = host.indexOf(":");
-    if (idx >= 0) {
-        return host.slice(0, idx);
-    }
-    return host;
-}
-
-function isAllowedLoopbackName(host: string): boolean {
-    return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }

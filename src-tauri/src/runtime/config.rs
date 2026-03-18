@@ -424,6 +424,7 @@ fn build_default_env_template() -> String {
         "# DESKTOP_NATS_BINARY_PATH=nats/nats-server(.exe)\n",
         "\n",
         "# Backend\n",
+        "BACKEND_HOST=127.0.0.1\n",
         "BACKEND_PORT=3000\n\n",
         "# Indexer core runtime\n",
         "# ARTGOD_DB_PATH is resolved relative to app-data dir unless absolute\n",
@@ -445,6 +446,9 @@ fn build_default_env_template() -> String {
         "NATS_URL=nats://127.0.0.1:4222\n",
         "WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\n",
         "SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63\n",
+        "BACKEND_ALLOWED_HOSTS=127.0.0.1,localhost,::1\n",
+        "BACKEND_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000\n",
+        "BACKEND_CSRF_COOKIE_SECURE=false\n",
         "PUBLIC_BACKEND_ORIGIN=http://127.0.0.1:3000\n",
         "NATS_STREAM_PREFIX=artgod\n",
         "OPENSEA_API_KEY=\n",
@@ -481,6 +485,7 @@ fn apply_runtime_env_defaults(values: &mut HashMap<String, String>) {
     // Keep desktop-managed runtime behavior aligned with repository .env.example
     // when keys are missing in an existing app-data config file.
     for (key, value) in [
+        ("BACKEND_HOST", "127.0.0.1"),
         ("RPC_RETRY_MAX_ATTEMPTS", "5"),
         ("RPC_RETRY_BASE_DELAY_MS", "100"),
         ("RPC_RETRY_MAX_DELAY_MS", "3000"),
@@ -495,6 +500,12 @@ fn apply_runtime_env_defaults(values: &mut HashMap<String, String>) {
         ("BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS", "100"),
         ("BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS", "3000"),
         ("NATS_URL", "nats://127.0.0.1:4222"),
+        ("BACKEND_ALLOWED_HOSTS", "127.0.0.1,localhost,::1"),
+        (
+            "BACKEND_ALLOWED_ORIGINS",
+            "http://127.0.0.1:3000,http://localhost:3000",
+        ),
+        ("BACKEND_CSRF_COOKIE_SECURE", "false"),
         ("PUBLIC_BACKEND_ORIGIN", "http://127.0.0.1:3000"),
     ] {
         values

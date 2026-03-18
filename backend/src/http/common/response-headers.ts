@@ -1,12 +1,23 @@
 import type { FastifyInstance } from "fastify";
+import type { BackendSecurityConfig } from "../../config.js";
+import {
+    createApiOriginPolicy,
+    normalizeOrigin,
+} from "./origin-policy.js";
 
-export function registerApiResponseHeaders(app: FastifyInstance): void {
+export function registerApiResponseHeaders(
+    app: FastifyInstance,
+    config: BackendSecurityConfig,
+): void {
+    const policy = createApiOriginPolicy(config);
+
     app.addHook("onSend", async (request, reply, payload) => {
-        const origin =
+        const origin = normalizeOrigin(
             typeof request.headers.origin === "string"
-                ? request.headers.origin.trim()
-                : "";
-        if (isLoopbackOrigin(origin)) {
+                ? request.headers.origin
+                : undefined,
+        );
+        if (origin && policy.allowedOrigins.has(origin)) {
             reply.header("Access-Control-Allow-Origin", origin);
             reply.header("Access-Control-Allow-Credentials", "true");
             reply.header("Vary", "Origin");
@@ -21,19 +32,4 @@ export function registerApiResponseHeaders(app: FastifyInstance): void {
         );
         return payload;
     });
-}
-
-function isLoopbackOrigin(origin: string): boolean {
-    if (!origin) return false;
-    try {
-        const parsed = new URL(origin);
-        return (
-            parsed.hostname === "127.0.0.1" ||
-            parsed.hostname === "localhost" ||
-            parsed.hostname === "::1" ||
-            parsed.hostname === "[::1]"
-        );
-    } catch {
-        return false;
-    }
 }

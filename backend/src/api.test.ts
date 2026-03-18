@@ -16,6 +16,17 @@ const EMBEDDED_TERRAFORMS_MAIN_ADDRESS =
     "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const API_SECURITY_CONFIG = {
+    allowedHosts: ["127.0.0.1", "localhost", "::1", "artgod.network"],
+    allowedOrigins: [
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "https://artgod.network",
+    ],
+    csrfCookieSecure: false,
+} as const;
 
 let dbPath = "";
 let app: FastifyInstance | null = null;
@@ -166,6 +177,7 @@ beforeAll(async () => {
         getTokenDetailUseCase,
         runtimeHealthUseCase,
         null,
+        API_SECURITY_CONFIG,
     );
     await app.ready();
 });
@@ -721,6 +733,36 @@ describe("backend api routes", () => {
         expect(status.payload.latestRun.runId).toBe(create.payload.runId);
     });
 
+    it("accepts configured public origin and host for secured endpoints", async () => {
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "artgod.network",
+            origin: "https://artgod.network",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        const create = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            {
+                slug: "public-origin-bootstrap",
+                address: "0x4444444444444444444444444444444444444444",
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+            },
+            {
+                host: "artgod.network",
+                origin: "https://artgod.network",
+                cookie,
+                "x-artgod-csrf": token,
+                "content-type": "application/json",
+            },
+        );
+
+        expect(create.statusCode).toBe(200);
+    });
+
     it("persists embedded extension key when bootstrap scope matches", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
             host: "127.0.0.1:3000",
@@ -1012,6 +1054,64 @@ describe("backend api routes", () => {
         );
         expect(response.statusCode).toBe(403);
         expect(response.payload.error).toBe("forbidden");
+    });
+
+    it("rejects bootstrap write requests for hosts outside the allowlist", async () => {
+        const response = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            {
+                slug: "forbidden-host",
+                address: "0x5555555555555555555555555555555555555555",
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+            },
+            {
+                host: "evil.example",
+                origin: "https://artgod.network",
+                "content-type": "application/json",
+            },
+        );
+
+        expect(response.statusCode).toBe(403);
+        expect(response.payload).toEqual({
+            error: "forbidden",
+            message: "Invalid host",
+        });
+    });
+
+    it("adds Secure to the CSRF cookie when configured", async () => {
+        const { createIssueCsrfTokenHandler } = await import(
+            "./http/common/security.js"
+        );
+        const { default: Fastify } = await import("fastify");
+
+        const secureApp = Fastify({ logger: false });
+        secureApp.get(
+            "/api/security/csrf",
+            createIssueCsrfTokenHandler({
+                allowedHosts: API_SECURITY_CONFIG.allowedHosts as string[],
+                allowedOrigins: API_SECURITY_CONFIG.allowedOrigins as string[],
+                csrfCookieSecure: true,
+            }),
+        );
+        await secureApp.ready();
+
+        try {
+            const response = await secureApp.inject({
+                method: "GET",
+                url: "/api/security/csrf",
+                headers: {
+                    host: "artgod.network",
+                    origin: "https://artgod.network",
+                },
+            });
+            expect(response.statusCode).toBe(200);
+            expect(response.headers["set-cookie"]).toContain("Secure");
+        } finally {
+            await secureApp.close();
+        }
     });
 });
 

@@ -1,13 +1,30 @@
 import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
 import {
+    parseBoolean,
     parsePositiveInteger,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
 
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
+const DEFAULT_BACKEND_HOST = "127.0.0.1";
+const DEFAULT_ALLOWED_HOSTS = ["127.0.0.1", "localhost", "::1"];
+const DEFAULT_ALLOWED_ORIGINS = [
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+];
+
+export type BackendSecurityConfig = {
+    allowedHosts: string[];
+    allowedOrigins: string[];
+    csrfCookieSecure: boolean;
+};
+
 export type BackendConfig = {
+    host: string;
     port: number;
     defaultChainId: number;
     dbPath: string;
@@ -15,6 +32,7 @@ export type BackendConfig = {
     natsUrl: string;
     natsStreamPrefix: string;
     userlandUiDistDir: string | null;
+    security: BackendSecurityConfig;
 };
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -30,6 +48,7 @@ function parseAddress(value: string | undefined, name: string): string {
 export function loadBackendConfig(
     env: Record<string, string | undefined> = process.env,
 ): BackendConfig {
+    const host = parseHost(env.BACKEND_HOST);
     const port = parsePositiveInteger(env.BACKEND_PORT, "BACKEND_PORT", 3000);
     const defaultChainId = parsePositiveInteger(env.CHAIN_ID, "CHAIN_ID", 1);
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
@@ -40,8 +59,18 @@ export function loadBackendConfig(
         "NATS_STREAM_PREFIX",
     );
     const userlandUiDistDir = env.USERLAND_UI_DIST_DIR?.trim() || null;
+    const security: BackendSecurityConfig = {
+        allowedHosts: parseAllowedHosts(env.BACKEND_ALLOWED_HOSTS),
+        allowedOrigins: parseAllowedOrigins(env.BACKEND_ALLOWED_ORIGINS),
+        csrfCookieSecure: parseBoolean(
+            env.BACKEND_CSRF_COOKIE_SECURE,
+            "BACKEND_CSRF_COOKIE_SECURE",
+            false,
+        ),
+    };
 
     return {
+        host,
         port,
         defaultChainId,
         dbPath,
@@ -49,5 +78,93 @@ export function loadBackendConfig(
         natsUrl,
         natsStreamPrefix,
         userlandUiDistDir,
+        security,
     };
+}
+
+function parseHost(value: string | undefined): string {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return DEFAULT_BACKEND_HOST;
+    }
+    return normalized;
+}
+
+function parseAllowedHosts(value: string | undefined): string[] {
+    const entries = splitCsv(value, DEFAULT_ALLOWED_HOSTS);
+    return entries.map((entry) => normalizeAllowedHostEntry(entry));
+}
+
+function parseAllowedOrigins(value: string | undefined): string[] {
+    const entries = splitCsv(value, DEFAULT_ALLOWED_ORIGINS);
+    return entries.map((entry) => normalizeAllowedOriginEntry(entry));
+}
+
+function splitCsv(value: string | undefined, defaultValues: string[]): string[] {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return [...defaultValues];
+    }
+    const entries = normalized
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+    if (entries.length === 0) {
+        return [...defaultValues];
+    }
+    return entries;
+}
+
+function normalizeAllowedHostEntry(entry: string): string {
+    const normalized = entry.trim().toLowerCase();
+    if (!normalized) {
+        throw new Error("Invalid BACKEND_ALLOWED_HOSTS entry: empty value");
+    }
+
+    if (normalized.includes("://")) {
+        let parsed: URL;
+        try {
+            parsed = new URL(normalized);
+        } catch {
+            throw new Error(
+                `Invalid BACKEND_ALLOWED_HOSTS entry: ${entry}`,
+            );
+        }
+        return parsed.hostname.toLowerCase();
+    }
+
+    if (normalized.startsWith("[")) {
+        const end = normalized.indexOf("]");
+        if (end > 0) {
+            return normalized.slice(1, end);
+        }
+    }
+
+    if (normalized.indexOf(":") !== normalized.lastIndexOf(":")) {
+        return normalized;
+    }
+
+    const colonIndex = normalized.indexOf(":");
+    if (colonIndex >= 0) {
+        return normalized.slice(0, colonIndex);
+    }
+
+    return normalized;
+}
+
+function normalizeAllowedOriginEntry(entry: string): string {
+    let parsed: URL;
+    try {
+        parsed = new URL(entry);
+    } catch {
+        throw new Error(`Invalid BACKEND_ALLOWED_ORIGINS entry: ${entry}`);
+    }
+
+    if (!(parsed.protocol === "http:" || parsed.protocol === "https:")) {
+        throw new Error(
+            `Invalid BACKEND_ALLOWED_ORIGINS entry: ${entry}`,
+        );
+    }
+
+    return parsed.origin.toLowerCase();
 }
