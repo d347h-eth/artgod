@@ -53,6 +53,17 @@ yarn check:runtime-registry
 yarn clean:build
 ```
 
+Ad-hoc web-hosted deploy:
+
+```sh
+cp .env.deploy.example .env.deploy
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml up --build -d
+```
+
+Hosted deployment is currently documented as a public read-only instance behind your own reverse proxy/TLS setup. For the exact env contract, routing shape, and manual admin model, see:
+
+- `docs/deploy/01-web-hosted-read-only.md`
+
 Desktop runtime env file is generated on first launch at:
 
 - Linux: `~/.local/share/network.artgod.desktop/config/.env`
@@ -121,6 +132,10 @@ Desktop release artifacts are built publicly in GitHub Actions.
 For all desktop release details (signing/notarization setup, required secrets, verification commands, and CI flow), see:
 
 - `docs/desktop/01-tauri-build-and-runtime.md`
+
+For the current hosted Docker deployment shape (public reads, local-only writes, external reverse proxy), see:
+
+- `docs/deploy/01-web-hosted-read-only.md`
 
 Build helper commands:
 
@@ -305,6 +320,7 @@ Use these as primary references for design and implementation details:
 - `docs/indexer/00-overview.md` through `docs/indexer/14-collection-bootstrap.md`
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
+- `docs/deploy/01-web-hosted-read-only.md`
 - `docs/diagrams/architecture.md`
 - `docs/progress/indexer/15-unified-backlog.md`
 - `docs/ui/01-interaction-guidelines.md`

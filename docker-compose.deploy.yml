@@ -1,0 +1,159 @@
+x-artgod-image: &artgod-image
+    image: artgod-deploy:local
+    build:
+        context: .
+        dockerfile: Dockerfile.deploy
+        args:
+            PUBLIC_BACKEND_ORIGIN: ${PUBLIC_BACKEND_ORIGIN}
+            PUBLIC_APP_VERSION: ${PUBLIC_APP_VERSION:-}
+
+x-artgod-service: &artgod-service
+    <<: *artgod-image
+    init: true
+    restart: unless-stopped
+    env_file:
+        - .env.deploy
+    environment:
+        ARTGOD_WORKSPACE_ROOT: /app
+    volumes:
+        - artgod-data:/data
+
+services:
+    nats:
+        image: nats:2.10
+        init: true
+        restart: unless-stopped
+        command: ["-js", "-sd", "/data", "-m", "8222"]
+        volumes:
+            - nats-data:/data
+
+    frontend-web:
+        <<: *artgod-service
+        depends_on:
+            - backend
+        command: ["node", "frontend/build-web/index.js"]
+        environment:
+            ARTGOD_WORKSPACE_ROOT: /app
+            HOST: 0.0.0.0
+            PORT: 4173
+        ports:
+            - "127.0.0.1:4173:4173"
+
+    backend:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            ["./scripts/deploy/run-node-runtime.sh", "backend/dist-desktop/server.mjs"]
+        environment:
+            ARTGOD_WORKSPACE_ROOT: /app
+            BACKEND_HOST: 0.0.0.0
+        ports:
+            - "127.0.0.1:3000:3000"
+
+    indexer-scheduler-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/scheduler-worker.mjs"]
+
+    indexer-sync-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/sync-worker.mjs"]
+
+    indexer-reorg-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/reorg-worker.mjs"]
+
+    indexer-domain-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/domain-worker.mjs"]
+
+    indexer-bootstrap-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/bootstrap-worker.mjs"]
+
+    indexer-collection-extension-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/collection-extension-worker.mjs",
+            ]
+
+    indexer-offchain-ingest-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/offchain-ingest-worker.mjs",
+            ]
+
+    indexer-opensea-stream-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/opensea-stream-worker.mjs",
+            ]
+
+    indexer-opensea-bootstrap-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/opensea-bootstrap-worker.mjs",
+            ]
+
+    indexer-opensea-reconcile-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/opensea-reconcile-worker.mjs",
+            ]
+
+    indexer-opensea-reconcile-scheduler-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/opensea-reconcile-scheduler-worker.mjs",
+            ]
+
+    indexer-dead-letter-worker:
+        <<: *artgod-service
+        depends_on:
+            - nats
+        command:
+            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/dead-letter-worker.mjs"]
+
+volumes:
+    artgod-data:
+    nats-data:
+

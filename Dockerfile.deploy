@@ -1,0 +1,37 @@
+FROM node:24.3.0-bookworm AS build
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git python3 make g++ ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable
+
+COPY . .
+
+ARG PUBLIC_BACKEND_ORIGIN
+ARG PUBLIC_APP_VERSION=
+
+ENV PUBLIC_BACKEND_ORIGIN=${PUBLIC_BACKEND_ORIGIN}
+ENV PUBLIC_APP_VERSION=${PUBLIC_APP_VERSION}
+
+RUN test -n "$PUBLIC_BACKEND_ORIGIN"
+RUN yarn install --immutable
+RUN yarn check:runtime-registry
+RUN yarn build:web
+RUN yarn build:runtime
+
+FROM node:24.3.0-bookworm-slim AS runtime
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /app /app
+
+ENV NODE_ENV=production
+ENV ARTGOD_WORKSPACE_ROOT=/app
+
