@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    SqliteActivitiesReadModel,
     SqliteChainsReadModel,
     SqliteCollectionsReadModel,
 } from "@artgod/shared/read-models";
@@ -13,6 +14,8 @@ import { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list
 import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
+import { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
+import { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
 import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
@@ -51,6 +54,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         ZERO_ADDRESS,
         config.wethAddress,
     ]);
+    const activitiesReadModel = new SqliteActivitiesReadModel();
     const extensionAwareCollectionsReadModel =
         new ExtensionAwareCollectionDetailRead(
             collectionsReadModel,
@@ -103,6 +107,12 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         chainsReadModel,
         extensionAwareCollectionsReadModel,
     );
+    const getCollectionActivityUseCase = new GetCollectionActivityUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        activitiesReadModel,
+    );
     const getCollectionHoldersUseCase = new GetCollectionHoldersUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -112,6 +122,12 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
+    );
+    const getTokenActivityUseCase = new GetTokenActivityUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        activitiesReadModel,
     );
     const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
         new SqliteRuntimeHealthAdapter(),
@@ -127,6 +143,8 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
+        getCollectionActivityUseCase,
+        getTokenActivityUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,

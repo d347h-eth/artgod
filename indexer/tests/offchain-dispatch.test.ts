@@ -1,7 +1,12 @@
+import fs from "node:fs/promises";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { dispatchOffchainPayload } from "../src/application/offchain/dispatch.js";
+import {
+    ACTIVITY_JOB_KIND,
+    type ActivityUpsertPayload,
+} from "../src/domain/activity-jobs.js";
 import type { OffchainOrderRawPayload } from "../src/domain/offchain-jobs.js";
 import {
     ORDER_JOB_KIND,
@@ -17,6 +22,7 @@ import type {
 } from "../src/ports/queue.js";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
+import { resolveFixturePath } from "./helpers/fixture-paths.js";
 
 const CONTRACT = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const MAKER = "0x255dcfa35b70fc60bfac74ffdfb4782b441a1963";
@@ -77,7 +83,12 @@ describe("offchain dispatch", () => {
             payload: buildRestCollectionOfferRecord(),
         };
 
-        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
+        const result = await dispatchOffchainPayload(
+            queue,
+            tokenSets,
+            new OrderActivityLookupStub(),
+            payload,
+        );
 
         expect(result).toEqual({
             handled: true,
@@ -121,7 +132,12 @@ describe("offchain dispatch", () => {
             payload: buildStreamTraitOfferEnvelope(MISMATCH_ROOT),
         };
 
-        const result = await dispatchOffchainPayload(queue, tokenSets, payload);
+        const result = await dispatchOffchainPayload(
+            queue,
+            tokenSets,
+            new OrderActivityLookupStub(),
+            payload,
+        );
 
         expect(result).toEqual({
             handled: true,
@@ -136,6 +152,102 @@ describe("offchain dispatch", () => {
         expect(upsert.payload.tokenSetId).toBeNull();
         expect(upsert.payload.tokenSetSchemaHash).toBeNull();
         expect(upsert.payload.rawSourceKind).toBe("stream");
+    });
+
+    it("publishes a listing activity upsert for stream item_listed", async () => {
+        const collectionId = ensureCollection(1, CONTRACT);
+        const queue = new QueueCapture();
+        const tokenSets = new SqliteTokenSetRegistry();
+        const fixture = await readFixture("item_listed.json");
+        const payload: OffchainOrderRawPayload = {
+            source: "opensea",
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: "stream",
+            dedupeKey: "stream:test:item-listed",
+            eventType: "item_listed",
+            orderId: null,
+            runId: null,
+            sourceEventAt: 1_772_748_246,
+            payload: fixture,
+        };
+
+        const result = await dispatchOffchainPayload(
+            queue,
+            tokenSets,
+            new OrderActivityLookupStub(),
+            payload,
+        );
+
+        expect(result).toEqual({
+            handled: true,
+            upsertedOrderId:
+                "0x27c086e5028d11931d7fa0bc47762dbf22d3cee845d2cc9191d7686f0a2bcc9b",
+        });
+
+        const activityJob = queue.published.find(
+            (job) => job.kind === ACTIVITY_JOB_KIND.Upsert,
+        ) as JobEnvelope<ActivityUpsertPayload> | undefined;
+        expect(activityJob).toBeDefined();
+        expect(activityJob?.queue).toBe(QUEUE_NAMES.ActivityUpsert);
+        expect(activityJob?.payload.kind).toBe("listing_created");
+        expect(activityJob?.payload.scopeKind).toBe("token");
+        expect(activityJob?.payload.tokenId).toBe("2522");
+        expect(activityJob?.payload.side).toBe("sell");
+    });
+
+    it("publishes a listing cancellation activity when existing order context is token-scoped", async () => {
+        const collectionId = ensureCollection(1, CONTRACT);
+        const queue = new QueueCapture();
+        const tokenSets = new SqliteTokenSetRegistry();
+        const fixture = await readFixture("item_cancelled.json");
+        const orderId =
+            "0xe7385bf786154848873d89e0b4e2e03406e396ee9d3cb4da47f801f719c0a792";
+        const payload: OffchainOrderRawPayload = {
+            source: "opensea",
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: "stream",
+            dedupeKey: "stream:test:item-cancelled",
+            eventType: "item_cancelled",
+            orderId,
+            runId: null,
+            sourceEventAt: 1_650_559_606,
+            payload: fixture,
+        };
+
+        const result = await dispatchOffchainPayload(
+            queue,
+            tokenSets,
+            new OrderActivityLookupStub({
+                [orderId]: {
+                    side: "sell",
+                    sourceScopeKind: "token",
+                    contract: CONTRACT,
+                    tokenId: "1",
+                    maker: MAKER,
+                    taker: null,
+                    price: "24840000000000000000",
+                    currency: ZERO_ADDRESS,
+                },
+            }),
+            payload,
+        );
+
+        expect(result).toEqual({
+            handled: true,
+            upsertedOrderId: null,
+        });
+
+        const activityJob = queue.published.find(
+            (job) => job.kind === ACTIVITY_JOB_KIND.Upsert,
+        ) as JobEnvelope<ActivityUpsertPayload> | undefined;
+        expect(activityJob).toBeDefined();
+        expect(activityJob?.payload.kind).toBe("listing_cancelled");
+        expect(activityJob?.payload.tokenId).toBe("1");
+        expect(activityJob?.payload.side).toBe("sell");
     });
 });
 
@@ -158,6 +270,28 @@ class QueueCapture implements QueuePort {
     }
 
     async close(): Promise<void> {}
+}
+
+class OrderActivityLookupStub {
+    constructor(
+        private readonly rows: Record<
+            string,
+            {
+                side: "buy" | "sell" | null;
+                sourceScopeKind: string | null;
+                contract: string;
+                tokenId: string | null;
+                maker: string;
+                taker: string | null;
+                price: string | null;
+                currency: string | null;
+            }
+        > = {},
+    ) {}
+
+    getByOrderId(params: { orderId: string }) {
+        return this.rows[params.orderId] ?? null;
+    }
 }
 
 function buildRestCollectionOfferRecord(): Record<string, unknown> {
@@ -218,6 +352,16 @@ function buildRestCollectionOfferRecord(): Record<string, unknown> {
             },
         },
     };
+}
+
+async function readFixture(file: string): Promise<Record<string, unknown>> {
+    const fixturePath = resolveFixturePath(
+        import.meta.url,
+        "opensea-event-payloads",
+        file,
+    );
+    const raw = await fs.readFile(fixturePath, "utf8");
+    return JSON.parse(raw) as Record<string, unknown>;
 }
 
 function buildStreamTraitOfferEnvelope(

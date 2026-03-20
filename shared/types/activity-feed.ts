@@ -1,0 +1,62 @@
+import type { CursorPage } from "./browse.js";
+
+export const ACTIVITY_SCOPE_KIND = {
+    Token: "token",
+    Collection: "collection",
+    Attribute: "attribute",
+} as const;
+
+export type ActivityScopeKind =
+    (typeof ACTIVITY_SCOPE_KIND)[keyof typeof ACTIVITY_SCOPE_KIND];
+
+export const ACTIVITY_KIND = {
+    Transfer: "transfer",
+    Sale: "sale",
+    ListingCreated: "listing_created",
+    ListingCancelled: "listing_cancelled",
+    BidCreated: "bid_created",
+    BidCancelled: "bid_cancelled",
+    Custom: "custom",
+} as const;
+
+export type ActivityKind = (typeof ACTIVITY_KIND)[keyof typeof ACTIVITY_KIND];
+
+export const ACTIVITY_SOURCE_KIND = {
+    Onchain: "onchain",
+    Offchain: "offchain",
+    Extension: "extension",
+} as const;
+
+export type ActivitySourceKind =
+    (typeof ACTIVITY_SOURCE_KIND)[keyof typeof ACTIVITY_SOURCE_KIND];
+
+export type ActivityFeedItem = {
+    id: number;
+    scopeKind: ActivityScopeKind;
+    kind: ActivityKind;
+    contract: string;
+    tokenId: string | null;
+    occurredAt: number;
+    sourceKind: ActivitySourceKind;
+    sourceName: string;
+    orderId: string | null;
+    blockNumber: number | null;
+    txHash: string | null;
+    logIndex: number | null;
+    from: string | null;
+    to: string | null;
+    maker: string | null;
+    taker: string | null;
+    side: "buy" | "sell" | null;
+    amount: string | null;
+    price: string | null;
+    currency: string | null;
+    payload: Record<string, unknown> | null;
+};
+
+export type ActivityFeedCursor = {
+    occurredAt: number;
+    id: number;
+};
+
+export type ActivityFeedPage = CursorPage<ActivityFeedItem>;

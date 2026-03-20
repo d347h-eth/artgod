@@ -1,10 +1,16 @@
 import { logger } from "@artgod/shared/utils";
 import {
+    type ExistingOrderActivityContext,
+    normalizeOffchainActivity,
     normalizeOffchainMetadataRefresh,
     normalizeOffchainOrder,
     normalizeOffchainOrderUpdateById,
     normalizeOffchainOrderUpdateByMaker,
 } from "./normalize.js";
+import {
+    ACTIVITY_JOB_KIND,
+    type ActivityUpsertPayload,
+} from "../../domain/activity-jobs.js";
 import { DOMAIN_JOB_KIND } from "../../domain/domain-jobs.js";
 import {
     MAKER_TRIGGER_SCOPE,
@@ -29,13 +35,44 @@ export type DispatchOffchainPayloadResult = {
     upsertedOrderId: string | null;
 };
 
+export type OrderActivityLookupPort = {
+    getByOrderId(params: {
+        chainId: number;
+        orderId: string;
+    }): ExistingOrderActivityContext | null;
+};
+
 export async function dispatchOffchainPayload(
     queue: QueuePort,
     tokenSets: TokenSetRegistryPort,
+    orderActivityLookup: OrderActivityLookupPort,
     payload: OffchainOrderRawPayload,
 ): Promise<DispatchOffchainPayloadResult> {
     let handled = false;
     let upsertedOrderId: string | null = null;
+    const orderActivityContext = payload.orderId
+        ? orderActivityLookup.getByOrderId({
+              chainId: payload.chainId,
+              orderId: payload.orderId,
+          })
+        : null;
+
+    const activity = normalizeOffchainActivity(payload, orderActivityContext);
+    if (activity) {
+        const activityJob: JobEnvelope<ActivityUpsertPayload> = {
+            jobId: `activities:upsert:${activity.chainId}:${activity.sourceName}:${payload.dedupeKey}`,
+            kind: ACTIVITY_JOB_KIND.Upsert,
+            queue: QUEUE_NAMES.ActivityUpsert,
+            payload: activity,
+            attempt: 0,
+            scheduledAt: Date.now(),
+            chainId: activity.chainId,
+            collectionId: activity.collectionId,
+            traceId: payload.source ?? payload.receivedAt.toString(),
+        };
+        await queue.publish(QUEUE_NAMES.ActivityUpsert, activityJob);
+        handled = true;
+    }
 
     const normalized = normalizeOffchainOrder(payload);
     if (normalized) {

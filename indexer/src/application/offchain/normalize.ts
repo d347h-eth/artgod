@@ -6,6 +6,12 @@ import type {
     OrderSourceScopeKind,
     OrderSourceStatus,
 } from "../../domain/orders.js";
+import {
+    ACTIVITY_KIND,
+    ACTIVITY_SCOPE_KIND,
+    type ActivityKind,
+} from "../../domain/activities.js";
+import type { ActivityUpsertPayload } from "../../domain/activity-jobs.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
 import {
     normalizeOpenSeaEvent,
@@ -74,6 +80,17 @@ export type NormalizedOffchainMetadataRefresh = {
     tokenId: string;
     metadataUrl: string | null;
     reason: "metadata_updated";
+};
+
+export type ExistingOrderActivityContext = {
+    side: "buy" | "sell" | null;
+    sourceScopeKind: string | null;
+    contract: string;
+    tokenId: string | null;
+    maker: string;
+    taker: string | null;
+    price: string | null;
+    currency: string | null;
 };
 
 export function normalizeOffchainOrder(
@@ -213,6 +230,109 @@ export function normalizeOffchainMetadataRefresh(
     };
 }
 
+export function normalizeOffchainActivity(
+    raw: OffchainOrderRawPayload,
+    existingOrder: ExistingOrderActivityContext | null,
+): ActivityUpsertPayload | null {
+    if (!raw.source) {
+        throw new Error("Missing offchain order source");
+    }
+    if (!Number.isFinite(raw.chainId)) {
+        throw new Error("Invalid offchain order chainId");
+    }
+    if (raw.source !== "opensea" || raw.channel !== "stream") return null;
+
+    const occurredAt = raw.sourceEventAt ?? raw.receivedAt;
+    if (!Number.isFinite(occurredAt)) return null;
+
+    if (
+        raw.eventType === "item_listed" ||
+        raw.eventType === "item_received_bid" ||
+        raw.eventType === "item_received_offer"
+    ) {
+        const order = normalizeOffchainOrder(raw);
+        if (
+            !order ||
+            order.sourceScopeKind !== ACTIVITY_SCOPE_KIND.Token ||
+            !order.tokenId
+        ) {
+            return null;
+        }
+        const kind: ActivityKind =
+            order.side === "sell"
+                ? ACTIVITY_KIND.ListingCreated
+                : ACTIVITY_KIND.BidCreated;
+
+        return {
+            chainId: raw.chainId,
+            collectionId: raw.collectionId,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind,
+            contract: order.contract,
+            tokenId: order.tokenId,
+            occurredAt,
+            sourceKind: "offchain",
+            sourceName: raw.source,
+            sourceEventKey: raw.dedupeKey,
+            orderId: order.orderId,
+            maker: order.maker,
+            taker: order.taker ?? null,
+            side: order.side,
+            amount: parseStreamQuantity(raw.payload),
+            price: order.price ?? null,
+            currency: order.currency ?? null,
+            payload: {
+                eventType: raw.eventType,
+                validFrom: order.validFrom ?? null,
+                validUntil: order.validUntil ?? null,
+            },
+        };
+    }
+
+    if (
+        raw.eventType === "item_cancelled" ||
+        raw.eventType === "order_invalidate" ||
+        raw.eventType === "order_invalidation"
+    ) {
+        if (
+            !existingOrder ||
+            existingOrder.sourceScopeKind !== ACTIVITY_SCOPE_KIND.Token ||
+            !existingOrder.tokenId ||
+            !existingOrder.side
+        ) {
+            return null;
+        }
+
+        return {
+            chainId: raw.chainId,
+            collectionId: raw.collectionId,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind:
+                existingOrder.side === "sell"
+                    ? ACTIVITY_KIND.ListingCancelled
+                    : ACTIVITY_KIND.BidCancelled,
+            contract: existingOrder.contract,
+            tokenId: existingOrder.tokenId,
+            occurredAt,
+            sourceKind: "offchain",
+            sourceName: raw.source,
+            sourceEventKey: raw.dedupeKey,
+            orderId: raw.orderId ?? null,
+            maker: existingOrder.maker,
+            taker: existingOrder.taker,
+            side: existingOrder.side,
+            amount: parseStreamQuantity(raw.payload),
+            price: existingOrder.price,
+            currency: existingOrder.currency,
+            payload: {
+                eventType: raw.eventType,
+            },
+        };
+    }
+
+    return null;
+}
+
 function normalizeOpenSeaOrderPayload(
     raw: OffchainOrderRawPayload,
 ): RawOrderPayload | null {
@@ -221,4 +341,16 @@ function normalizeOpenSeaOrderPayload(
     }
 
     return normalizeOpenSeaRestOrder(raw.eventType, raw.payload);
+}
+
+function parseStreamQuantity(rawPayload: unknown): string | null {
+    const envelope = asObject(rawPayload, "payload");
+    const payload = asObject(envelope.payload, "payload.payload");
+    const quantity = payload.quantity;
+    if (quantity === undefined || quantity === null) return null;
+    if (typeof quantity === "string" && quantity.trim() !== "") return quantity;
+    if (typeof quantity === "number" && Number.isFinite(quantity)) {
+        return String(quantity);
+    }
+    return null;
 }

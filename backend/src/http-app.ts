@@ -5,6 +5,8 @@ import type { GetBootstrapStatusUseCase } from "./application/use-cases/bootstra
 import type { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list-bootstrap-runs.js";
 import type { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import type { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
+import type { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
+import type { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
 import type { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
 import type { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
@@ -16,6 +18,8 @@ import { GetBootstrapStatusHttpAdapter } from "./http/handlers/bootstrap/get-boo
 import { ListBootstrapRunsHttpAdapter } from "./http/handlers/bootstrap/list-bootstrap-runs.js";
 import { RetryBootstrapRunFailedTasksHttpAdapter } from "./http/handlers/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
+import { GetCollectionActivityHttpAdapter } from "./http/handlers/activities/get-collection-activity.js";
+import { GetTokenActivityHttpAdapter } from "./http/handlers/activities/get-token-activity.js";
 import { GetCollectionDetailHttpAdapter } from "./http/handlers/collections/get-collection-detail.js";
 import { GetCollectionHoldersHttpAdapter } from "./http/handlers/collections/get-collection-holders.js";
 import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token-detail.js";
@@ -40,6 +44,8 @@ export function createApiApp(
     retryBootstrapRunFailedTasksUseCase: RetryBootstrapRunFailedTasksUseCase,
     getDefaultChainUseCase: GetDefaultChainUseCase,
     listCollectionsUseCase: ListCollectionsUseCase,
+    getCollectionActivityUseCase: GetCollectionActivityUseCase,
+    getTokenActivityUseCase: GetTokenActivityUseCase,
     getCollectionDetailUseCase: GetCollectionDetailUseCase,
     getCollectionHoldersUseCase: GetCollectionHoldersUseCase,
     getTokenDetailUseCase: GetTokenDetailUseCase,
@@ -74,6 +80,12 @@ export function createApiApp(
     const listCollectionsAdapter = new ListCollectionsHttpAdapter(
         listCollectionsUseCase,
     );
+    const getCollectionActivityAdapter = new GetCollectionActivityHttpAdapter(
+        getCollectionActivityUseCase,
+    );
+    const getTokenActivityAdapter = new GetTokenActivityHttpAdapter(
+        getTokenActivityUseCase,
+    );
     const getCollectionDetailAdapter = new GetCollectionDetailHttpAdapter(
         getCollectionDetailUseCase,
     );
@@ -101,6 +113,8 @@ export function createApiApp(
         retryBootstrapRunFailedTasksAdapter,
         getDefaultChainAdapter,
         listCollectionsAdapter,
+        getCollectionActivityAdapter,
+        getTokenActivityAdapter,
         getCollectionDetailAdapter,
         getCollectionHoldersAdapter,
         getTokenDetailAdapter,

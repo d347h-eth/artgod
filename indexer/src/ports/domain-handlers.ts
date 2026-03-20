@@ -1,3 +1,4 @@
+import type { ActivityUpsertPayload } from "../domain/activity-jobs.js";
 import type {
     DomainSyncMode,
     MetadataRefreshPayload,
@@ -44,4 +45,5 @@ export interface MetadataStatsDomainPort {
 
 export interface ActivityDomainPort {
     handleDomainSync(context: DomainSyncContext): Promise<void>;
+    handleActivityUpsert(payload: ActivityUpsertPayload): Promise<void>;
 }

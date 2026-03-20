@@ -22,6 +22,14 @@ import type {
 import type { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import type { GetDefaultChainRoute } from "./http/handlers/chains/get-default-chain.js";
 import type {
+    GetCollectionActivityHttpAdapter,
+    GetCollectionActivityRoute,
+} from "./http/handlers/activities/get-collection-activity.js";
+import type {
+    GetTokenActivityHttpAdapter,
+    GetTokenActivityRoute,
+} from "./http/handlers/activities/get-token-activity.js";
+import type {
     GetCollectionDetailHttpAdapter,
     GetCollectionDetailRoute,
 } from "./http/handlers/collections/get-collection-detail.js";
@@ -58,6 +66,8 @@ export function registerApiRoutes(
     retryBootstrapRunFailedTasksAdapter: RetryBootstrapRunFailedTasksHttpAdapter,
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
+    getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
+    getTokenActivityAdapter: GetTokenActivityHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
@@ -77,6 +87,10 @@ export function registerApiRoutes(
     app.get<ListCollectionsRoute>(
         "/api/:chain_ref/collections",
         listCollectionsAdapter.handle,
+    );
+    app.get<GetCollectionActivityRoute>(
+        "/api/:chain_ref/:collection_ref/activity",
+        getCollectionActivityAdapter.handle,
     );
     app.get<GetCollectionDetailRoute>(
         "/api/:chain_ref/:collection_ref",
@@ -101,6 +115,10 @@ export function registerApiRoutes(
     app.get<GetBootstrapStatusRoute>(
         "/api/:chain_ref/:collection_ref/bootstrap",
         getBootstrapStatusAdapter.handle,
+    );
+    app.get<GetTokenActivityRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/activity",
+        getTokenActivityAdapter.handle,
     );
     app.get<GetTokenDetailRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref",

@@ -9,6 +9,12 @@ import {
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
 } from "@artgod/shared/extensions";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import {
+    ACTIVITY_KIND,
+    ACTIVITY_SCOPE_KIND,
+    ACTIVITY_SOURCE_KIND,
+} from "@artgod/shared/types";
+import type { BackendSecurityConfig } from "./config.js";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
@@ -16,7 +22,7 @@ const EMBEDDED_TERRAFORMS_MAIN_ADDRESS =
     "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-const API_SECURITY_CONFIG = {
+const API_SECURITY_CONFIG: BackendSecurityConfig = {
     allowedHosts: ["127.0.0.1", "localhost", "::1", "artgod.network"],
     allowedOrigins: [
         "http://127.0.0.1:3000",
@@ -26,7 +32,7 @@ const API_SECURITY_CONFIG = {
         "https://artgod.network",
     ],
     csrfCookieSecure: false,
-} as const;
+};
 
 let dbPath = "";
 let app: FastifyInstance | null = null;
@@ -50,10 +56,14 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/list-collections.js");
     const collectionDetailUseCaseModule =
         await import("./application/use-cases/collections/get-collection-detail.js");
+    const collectionActivityUseCaseModule =
+        await import("./application/use-cases/activities/get-collection-activity.js");
     const collectionHoldersUseCaseModule =
         await import("./application/use-cases/collections/get-collection-holders.js");
     const tokenDetailUseCaseModule =
         await import("./application/use-cases/collections/get-token-detail.js");
+    const tokenActivityUseCaseModule =
+        await import("./application/use-cases/activities/get-token-activity.js");
     const runtimeHealthUseCaseModule =
         await import("./application/use-cases/health/get-runtime-health.js");
     const sqliteRuntimeHealthModule =
@@ -74,6 +84,7 @@ beforeAll(async () => {
             baseCollectionsReadModel,
             new collectionExtensionRecordsModule.SqliteCollectionExtensionRecords(),
         );
+    const activitiesReadModel = new readModels.SqliteActivitiesReadModel();
     const getDefaultChainUseCase =
         new chainsUseCaseModule.GetDefaultChainUseCase(1, chainsReadModel);
     const listCollectionsUseCase =
@@ -88,6 +99,13 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
         );
+    const getCollectionActivityUseCase =
+        new collectionActivityUseCaseModule.GetCollectionActivityUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            activitiesReadModel,
+        );
     const getCollectionHoldersUseCase =
         new collectionHoldersUseCaseModule.GetCollectionHoldersUseCase(
             1,
@@ -99,6 +117,13 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             collectionsReadModel,
+        );
+    const getTokenActivityUseCase =
+        new tokenActivityUseCaseModule.GetTokenActivityUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            activitiesReadModel,
         );
     const runtimeHealthUseCase =
         new runtimeHealthUseCaseModule.GetRuntimeHealthUseCase(
@@ -172,6 +197,8 @@ beforeAll(async () => {
         retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
+        getCollectionActivityUseCase,
+        getTokenActivityUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
@@ -323,6 +350,88 @@ describe("backend api routes", () => {
             66.6666,
             3,
         );
+    });
+
+    it("returns collection activity with stable cursor pagination", async () => {
+        const first = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?limit=2",
+        );
+
+        expect(first.statusCode).toBe(200);
+        expect(first.payload.collection.address).toBe(MILADY_ADDRESS);
+        expect(first.payload.activities.items).toHaveLength(2);
+        expect(
+            first.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([ACTIVITY_KIND.Sale, ACTIVITY_KIND.Transfer]);
+        expect(first.payload.activities.items[0]).toMatchObject({
+            tokenId: "1",
+            sourceKind: ACTIVITY_SOURCE_KIND.Onchain,
+            sourceName: "seaport",
+            price: "500000000000000000",
+            currency: ZERO_ADDRESS,
+            txHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        });
+        expect(first.payload.activities.items[1]).toMatchObject({
+            tokenId: "1",
+            sourceKind: ACTIVITY_SOURCE_KIND.Onchain,
+            sourceName: "onchain",
+            amount: "1",
+            from: "0x9999999999999999999999999999999999999999",
+            to: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        });
+        expect(first.payload.activities.nextCursor).toEqual(expect.any(String));
+
+        const second = await resolve(
+            "GET",
+            `/api/ethereum/milady/activity?limit=2&cursor=${encodeURIComponent(first.payload.activities.nextCursor)}`,
+        );
+
+        expect(second.statusCode).toBe(200);
+        expect(
+            second.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([ACTIVITY_KIND.ListingCreated, ACTIVITY_KIND.BidCreated]);
+        expect(second.payload.activities.nextCursor).toBeNull();
+    });
+
+    it("returns token activity filtered to a single token", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady/1/activity?limit=10",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.collection.slug).toBe("milady");
+        expect(result.payload.token.tokenId).toBe("1");
+        expect(
+            result.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([
+            ACTIVITY_KIND.Sale,
+            ACTIVITY_KIND.Transfer,
+            ACTIVITY_KIND.ListingCreated,
+        ]);
+        expect(
+            result.payload.activities.items.every(
+                (activity: { tokenId: string | null }) =>
+                    activity.tokenId === "1",
+            ),
+        ).toBe(true);
+        expect(result.payload.activities.items[2]).toMatchObject({
+            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+            sourceName: "opensea",
+            side: "sell",
+            price: "500000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: {
+                eventType: "item_listed",
+            },
+        });
     });
 
     it("returns owner-scoped collection detail with listed tokens first and owner-scoped facets", async () => {
@@ -1082,17 +1191,16 @@ describe("backend api routes", () => {
     });
 
     it("adds Secure to the CSRF cookie when configured", async () => {
-        const { createIssueCsrfTokenHandler } = await import(
-            "./http/common/security.js"
-        );
+        const { createIssueCsrfTokenHandler } =
+            await import("./http/common/security.js");
         const { default: Fastify } = await import("fastify");
 
         const secureApp = Fastify({ logger: false });
         secureApp.get(
             "/api/security/csrf",
             createIssueCsrfTokenHandler({
-                allowedHosts: API_SECURITY_CONFIG.allowedHosts as string[],
-                allowedOrigins: API_SECURITY_CONFIG.allowedOrigins as string[],
+                allowedHosts: [...API_SECURITY_CONFIG.allowedHosts],
+                allowedOrigins: [...API_SECURITY_CONFIG.allowedOrigins],
                 csrfCookieSecure: true,
             }),
         );
@@ -1147,6 +1255,8 @@ async function resolve(
 function seedData(): void {
     db.exec(
         [
+            "DELETE FROM activity_sources;",
+            "DELETE FROM activities;",
             "DELETE FROM orders;",
             "DELETE FROM token_extension_artifacts;",
             "DELETE FROM collection_extension_installs;",
@@ -1503,6 +1613,142 @@ function seedData(): void {
         validFrom: 1_600_000_000,
         validUntil: 1_600_000_100,
     });
+
+    insertActivityFixture({
+        collectionAddress: MILADY_ADDRESS,
+        scopeKind: ACTIVITY_SCOPE_KIND.Token,
+        kind: ACTIVITY_KIND.Sale,
+        tokenId: "1",
+        occurredAt: 1_726_000_400,
+        sourceKind: ACTIVITY_SOURCE_KIND.Onchain,
+        sourceName: "seaport",
+        orderId: "listed-milady-1-cheapest",
+        blockNumber: 22_000_100,
+        txHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        logIndex: 3,
+        from: "0x9999999999999999999999999999999999999999",
+        to: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        maker: "0x9999999999999999999999999999999999999999",
+        taker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        side: "sell",
+        amount: "1",
+        price: "500000000000000000",
+        currency: ZERO_ADDRESS,
+        dedupeKey:
+            "onchain:sale:1:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:3:1",
+    });
+    insertActivityFixture({
+        collectionAddress: MILADY_ADDRESS,
+        scopeKind: ACTIVITY_SCOPE_KIND.Token,
+        kind: ACTIVITY_KIND.Transfer,
+        tokenId: "1",
+        occurredAt: 1_726_000_300,
+        sourceKind: ACTIVITY_SOURCE_KIND.Onchain,
+        sourceName: "onchain",
+        blockNumber: 22_000_100,
+        txHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        logIndex: 2,
+        from: "0x9999999999999999999999999999999999999999",
+        to: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        amount: "1",
+        dedupeKey:
+            "onchain:transfer:1:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:2:1",
+    });
+    insertActivityFixture({
+        collectionAddress: MILADY_ADDRESS,
+        scopeKind: ACTIVITY_SCOPE_KIND.Token,
+        kind: ACTIVITY_KIND.ListingCreated,
+        tokenId: "1",
+        occurredAt: 1_726_000_200,
+        sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+        sourceName: "opensea",
+        orderId: "listed-milady-1-cheapest",
+        maker: "0x9999999999999999999999999999999999999999",
+        side: "sell",
+        price: "500000000000000000",
+        currency: ZERO_ADDRESS,
+        payload: {
+            eventType: "item_listed",
+        },
+        dedupeKey: "offchain:opensea:item_listed:listed-milady-1-cheapest:1",
+        isOpen: true,
+    });
+    insertActivityFixture({
+        collectionAddress: MILADY_ADDRESS,
+        scopeKind: ACTIVITY_SCOPE_KIND.Token,
+        kind: ACTIVITY_KIND.BidCreated,
+        tokenId: "2",
+        occurredAt: 1_726_000_100,
+        sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+        sourceName: "opensea",
+        orderId: "buy-order-token-2",
+        maker: "0x9999999999999999999999999999999999999999",
+        side: "buy",
+        price: "300000000000000000",
+        currency: WETH_ADDRESS,
+        payload: {
+            eventType: "item_received_bid",
+        },
+        dedupeKey: "offchain:opensea:item_received_bid:buy-order-token-2:2",
+        isOpen: true,
+    });
+}
+
+function insertActivityFixture(input: {
+    collectionAddress: string;
+    scopeKind: "token" | "collection" | "attribute";
+    kind: string;
+    tokenId: string | null;
+    occurredAt: number;
+    sourceKind: "onchain" | "offchain" | "extension";
+    sourceName: string;
+    orderId?: string | null;
+    blockNumber?: number | null;
+    txHash?: string | null;
+    logIndex?: number | null;
+    from?: string | null;
+    to?: string | null;
+    maker?: string | null;
+    taker?: string | null;
+    side?: "buy" | "sell" | null;
+    amount?: string | null;
+    price?: string | null;
+    currency?: string | null;
+    payload?: Record<string, unknown> | null;
+    dedupeKey: string;
+    isOpen?: boolean;
+}): void {
+    const collection = getCollectionFixtureByAddress(input.collectionAddress);
+    db.prepare(
+        "INSERT INTO activities " +
+            "(chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, dedupe_key, is_open, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ).run(
+        1,
+        collection.collection_id,
+        input.scopeKind,
+        input.kind,
+        input.collectionAddress.toLowerCase(),
+        input.tokenId,
+        input.occurredAt,
+        input.sourceKind,
+        input.sourceName,
+        input.orderId ?? null,
+        input.blockNumber ?? null,
+        input.txHash ?? null,
+        input.logIndex ?? null,
+        input.from?.toLowerCase() ?? null,
+        input.to?.toLowerCase() ?? null,
+        input.maker?.toLowerCase() ?? null,
+        input.taker?.toLowerCase() ?? null,
+        input.side ?? null,
+        input.amount ?? null,
+        input.price ?? null,
+        input.currency?.toLowerCase() ?? null,
+        input.payload ? JSON.stringify(input.payload) : null,
+        input.dedupeKey,
+        input.isOpen ? 1 : 0,
+    );
 }
 
 function insertOrderFixture(input: {

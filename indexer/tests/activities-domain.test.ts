@@ -5,7 +5,9 @@ import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteActivityDomain } from "../src/infra/domain/activities.js";
 
-describe("activity domain sync", () => {
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+describe("activity domain", () => {
     loadTestEnv();
 
     beforeAll(async () => {
@@ -18,6 +20,7 @@ describe("activity domain sync", () => {
     beforeEach(() => {
         db.exec(
             [
+                "DELETE FROM activity_sources;",
                 "DELETE FROM activities;",
                 "DELETE FROM fills;",
                 "DELETE FROM nft_transfer_events;",
@@ -26,48 +29,42 @@ describe("activity domain sync", () => {
         );
     });
 
-    it("persists activities with collection scope for transfers and fills", async () => {
+    it("projects transfer and sale feed rows from onchain source tables", async () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
-        const firstCollectionId = insertCollection(
-            chainId,
-            "alpha",
-            contract,
-            "1",
-            10,
-        );
-        const secondCollectionId = insertCollection(
-            chainId,
-            "beta",
-            contract,
-            "11",
-            10,
-        );
+        const collectionId = insertCollection(chainId, "alpha", contract);
 
         insertTransfer({
             chainId,
-            collectionId: firstCollectionId,
+            collectionId,
             contract,
             tokenId: "1",
             from: "0x1000000000000000000000000000000000000000",
             to: "0x2000000000000000000000000000000000000000",
             amount: "1",
             blockNumber: 100,
+            blockTimestamp: 1_700_000_100,
             txHash: "0xtx-transfer",
             logIndex: 1,
+            standard: "erc721",
         });
         insertFill({
             chainId,
-            collectionId: secondCollectionId,
+            collectionId,
             contract,
-            tokenId: "11",
+            tokenId: "1",
+            orderId: "order-2",
             side: "sell",
             maker: "0x3000000000000000000000000000000000000000",
             taker: "0x4000000000000000000000000000000000000000",
             amount: "1",
+            price: "1000000000000000000",
+            currency: ZERO_ADDRESS,
             blockNumber: 101,
-            txHash: "0xtx-fill",
+            blockTimestamp: 1_700_000_101,
+            txHash: "0xtx-sale",
             logIndex: 2,
+            kind: "seaport",
         });
 
         const domain = new SqliteActivityDomain();
@@ -83,32 +80,332 @@ describe("activity domain sync", () => {
         const rows = db
             .prepare<
                 [number]
-            >("SELECT collection_id, kind, contract_address, token_id, from_address, to_address " + "FROM activities WHERE chain_id = ? ORDER BY block_number ASC, log_index ASC")
+            >("SELECT kind, occurred_at, source_kind, source_name, price, currency, from_address, to_address, payload_json " + "FROM activities WHERE chain_id = ? ORDER BY occurred_at ASC, id ASC")
             .all(chainId) as Array<{
-            collection_id: number;
             kind: string;
-            contract_address: string;
-            token_id: string;
+            occurred_at: number;
+            source_kind: string;
+            source_name: string;
+            price: string | null;
+            currency: string | null;
             from_address: string | null;
             to_address: string | null;
+            payload_json: string | null;
         }>;
 
         expect(rows).toEqual([
             {
-                collection_id: firstCollectionId,
                 kind: "transfer",
-                contract_address: contract,
-                token_id: "1",
+                occurred_at: 1_700_000_100,
+                source_kind: "onchain",
+                source_name: "onchain",
+                price: null,
+                currency: null,
                 from_address: "0x1000000000000000000000000000000000000000",
                 to_address: "0x2000000000000000000000000000000000000000",
+                payload_json: JSON.stringify({ standard: "erc721" }),
             },
             {
-                collection_id: secondCollectionId,
-                kind: "fill",
-                contract_address: contract,
-                token_id: "11",
+                kind: "sale",
+                occurred_at: 1_700_000_101,
+                source_kind: "onchain",
+                source_name: "seaport",
+                price: "1000000000000000000",
+                currency: ZERO_ADDRESS,
                 from_address: "0x3000000000000000000000000000000000000000",
                 to_address: "0x4000000000000000000000000000000000000000",
+                payload_json: JSON.stringify({ orderKind: "seaport" }),
+            },
+        ]);
+    });
+
+    it("coalesces repeated listing creates below the price threshold and stays idempotent per source event", async () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection(chainId, "alpha", contract);
+        const domain = new SqliteActivityDomain();
+
+        await domain.handleActivityUpsert({
+            chainId,
+            collectionId,
+            scopeKind: "token",
+            kind: "listing_created",
+            contract,
+            tokenId: "1",
+            occurredAt: 1_700_000_200,
+            sourceKind: "offchain",
+            sourceName: "opensea",
+            sourceEventKey: "stream:event:1",
+            orderId: "order-1",
+            maker: "0x3000000000000000000000000000000000000000",
+            side: "sell",
+            amount: "1",
+            price: "1000000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+        });
+        await domain.handleActivityUpsert({
+            chainId,
+            collectionId,
+            scopeKind: "token",
+            kind: "listing_created",
+            contract,
+            tokenId: "1",
+            occurredAt: 1_700_000_260,
+            sourceKind: "offchain",
+            sourceName: "opensea",
+            sourceEventKey: "stream:event:2",
+            orderId: "order-2",
+            maker: "0x3000000000000000000000000000000000000000",
+            side: "sell",
+            amount: "1",
+            price: "999500000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+        });
+        await domain.handleActivityUpsert({
+            chainId,
+            collectionId,
+            scopeKind: "token",
+            kind: "listing_created",
+            contract,
+            tokenId: "1",
+            occurredAt: 1_700_000_200,
+            sourceKind: "offchain",
+            sourceName: "opensea",
+            sourceEventKey: "stream:event:1",
+            orderId: "order-1",
+            maker: "0x3000000000000000000000000000000000000000",
+            side: "sell",
+            amount: "1",
+            price: "1000000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+        });
+
+        const activities = db
+            .prepare<
+                [number]
+            >("SELECT id, order_id, price, occurred_at, is_open FROM activities WHERE chain_id = ? ORDER BY id ASC")
+            .all(chainId) as Array<{
+            id: number;
+            order_id: string | null;
+            price: string | null;
+            occurred_at: number;
+            is_open: number;
+        }>;
+        const sourceCount = db
+            .prepare<
+                [number]
+            >("SELECT COUNT(*) AS count FROM activity_sources WHERE chain_id = ?")
+            .get(chainId) as { count: number };
+
+        expect(activities).toEqual([
+            {
+                id: activities[0]!.id,
+                order_id: "order-2",
+                price: "999500000000000000",
+                occurred_at: 1_700_000_260,
+                is_open: 1,
+            },
+        ]);
+        expect(sourceCount.count).toBe(2);
+    });
+
+    it("creates a new listing row once the price delta crosses the threshold", async () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection(chainId, "alpha", contract);
+        const domain = new SqliteActivityDomain();
+
+        await domain.handleActivityUpsert({
+            chainId,
+            collectionId,
+            scopeKind: "token",
+            kind: "listing_created",
+            contract,
+            tokenId: "1",
+            occurredAt: 1_700_000_200,
+            sourceKind: "offchain",
+            sourceName: "opensea",
+            sourceEventKey: "stream:event:1",
+            orderId: "order-1",
+            maker: "0x3000000000000000000000000000000000000000",
+            side: "sell",
+            amount: "1",
+            price: "1000000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+        });
+        await domain.handleActivityUpsert({
+            chainId,
+            collectionId,
+            scopeKind: "token",
+            kind: "listing_created",
+            contract,
+            tokenId: "1",
+            occurredAt: 1_700_000_300,
+            sourceKind: "offchain",
+            sourceName: "opensea",
+            sourceEventKey: "stream:event:2",
+            orderId: "order-2",
+            maker: "0x3000000000000000000000000000000000000000",
+            side: "sell",
+            amount: "1",
+            price: "998000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+        });
+
+        const rows = db
+            .prepare<
+                [number]
+            >("SELECT order_id, price, occurred_at, is_open FROM activities WHERE chain_id = ? ORDER BY occurred_at ASC, id ASC")
+            .all(chainId) as Array<{
+            order_id: string | null;
+            price: string | null;
+            occurred_at: number;
+            is_open: number;
+        }>;
+
+        expect(rows).toEqual([
+            {
+                order_id: "order-1",
+                price: "1000000000000000000",
+                occurred_at: 1_700_000_200,
+                is_open: 0,
+            },
+            {
+                order_id: "order-2",
+                price: "998000000000000000",
+                occurred_at: 1_700_000_300,
+                is_open: 1,
+            },
+        ]);
+    });
+
+    it("closes open listing rows on offchain cancellation and on onchain sale", async () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection(chainId, "alpha", contract);
+        const domain = new SqliteActivityDomain();
+
+        await domain.handleActivityUpsert({
+            chainId,
+            collectionId,
+            scopeKind: "token",
+            kind: "listing_created",
+            contract,
+            tokenId: "1",
+            occurredAt: 1_700_000_200,
+            sourceKind: "offchain",
+            sourceName: "opensea",
+            sourceEventKey: "stream:event:1",
+            orderId: "order-1",
+            maker: "0x3000000000000000000000000000000000000000",
+            side: "sell",
+            amount: "1",
+            price: "1000000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+        });
+        await domain.handleActivityUpsert({
+            chainId,
+            collectionId,
+            scopeKind: "token",
+            kind: "listing_cancelled",
+            contract,
+            tokenId: "1",
+            occurredAt: 1_700_000_250,
+            sourceKind: "offchain",
+            sourceName: "opensea",
+            sourceEventKey: "stream:event:2",
+            orderId: "order-1",
+            maker: "0x3000000000000000000000000000000000000000",
+            side: "sell",
+            amount: "1",
+            price: "1000000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_cancelled" },
+        });
+
+        await domain.handleActivityUpsert({
+            chainId,
+            collectionId,
+            scopeKind: "token",
+            kind: "listing_created",
+            contract,
+            tokenId: "1",
+            occurredAt: 1_700_000_260,
+            sourceKind: "offchain",
+            sourceName: "opensea",
+            sourceEventKey: "stream:event:3",
+            orderId: "order-2",
+            maker: "0x3000000000000000000000000000000000000000",
+            side: "sell",
+            amount: "1",
+            price: "998000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+        });
+        insertFill({
+            chainId,
+            collectionId,
+            contract,
+            tokenId: "1",
+            orderId: "order-2",
+            side: "sell",
+            maker: "0x3000000000000000000000000000000000000000",
+            taker: "0x4000000000000000000000000000000000000000",
+            amount: "1",
+            price: "998000000000000000",
+            currency: ZERO_ADDRESS,
+            blockNumber: 101,
+            blockTimestamp: 1_700_000_400,
+            txHash: "0xtx-sale",
+            logIndex: 2,
+            kind: "seaport",
+        });
+
+        await domain.handleDomainSync({
+            chainId,
+            fromBlock: 101,
+            toBlock: 101,
+            mode: "backfill",
+            sourceJobId: "test-job",
+            sourceKind: "test",
+        });
+
+        const rows = db
+            .prepare<
+                [number]
+            >("SELECT kind, order_id, is_open FROM activities WHERE chain_id = ? ORDER BY occurred_at ASC, id ASC")
+            .all(chainId) as Array<{
+            kind: string;
+            order_id: string | null;
+            is_open: number;
+        }>;
+
+        expect(rows).toEqual([
+            {
+                kind: "listing_created",
+                order_id: "order-1",
+                is_open: 0,
+            },
+            {
+                kind: "listing_cancelled",
+                order_id: "order-1",
+                is_open: 0,
+            },
+            {
+                kind: "listing_created",
+                order_id: "order-2",
+                is_open: 0,
+            },
+            {
+                kind: "sale",
+                order_id: "order-2",
+                is_open: 0,
             },
         ]);
     });
@@ -118,20 +415,12 @@ function insertCollection(
     chainId: number,
     slug: string,
     address: string,
-    scopeStartTokenId: string,
-    scopeTotalSupply: number,
 ): number {
     const result = db
         .prepare<
-            [number, string, string, string, number]
-        >("INSERT INTO collections " + "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply) " + "VALUES (?, ?, ?, 'erc721', 'live', 'token_range', ?, ?)")
-        .run(
-            chainId,
-            slug,
-            address.toLowerCase(),
-            scopeStartTokenId,
-            scopeTotalSupply,
-        );
+            [number, string, string]
+        >("INSERT INTO collections " + "(chain_id, slug, address, standard, status, token_scope_kind, created_at, updated_at) " + "VALUES (?, ?, ?, 'erc721', 'live', 'contract_all_tokens', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)")
+        .run(chainId, slug, address.toLowerCase());
 
     return Number(result.lastInsertRowid);
 }
@@ -145,8 +434,10 @@ function insertTransfer(input: {
     to: string;
     amount: string;
     blockNumber: number;
+    blockTimestamp: number;
     txHash: string;
     logIndex: number;
+    standard: "erc721" | "erc1155";
 }): void {
     db.prepare<
         [
@@ -162,11 +453,12 @@ function insertTransfer(input: {
             number,
             string,
             number,
+            string,
         ]
     >(
         "INSERT INTO nft_transfer_events " +
             "(chain_id, collection_id, contract_address, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'transfer')",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
         input.chainId,
         input.collectionId,
@@ -177,9 +469,10 @@ function insertTransfer(input: {
         input.amount,
         input.blockNumber,
         `0xblock-${input.blockNumber}`,
-        1_700_000_000 + input.blockNumber,
+        input.blockTimestamp,
         input.txHash,
         input.logIndex,
+        input.standard,
     );
 }
 
@@ -188,18 +481,26 @@ function insertFill(input: {
     collectionId: number;
     contract: string;
     tokenId: string;
+    orderId?: string;
     side: string;
     maker: string;
     taker: string;
     amount: string;
+    price: string;
+    currency: string;
     blockNumber: number;
+    blockTimestamp: number;
     txHash: string;
     logIndex: number;
+    kind: string;
 }): void {
     db.prepare<
         [
             number,
             number,
+            string,
+            string,
+            string,
             string,
             string,
             string,
@@ -216,20 +517,23 @@ function insertFill(input: {
     >(
         "INSERT INTO fills " +
             "(chain_id, collection_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
-            "VALUES (?, ?, 'fill', ?, ?, ?, ?, ?, ?, ?, '100', '0x0000000000000000000000000000000000000000', ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
         input.chainId,
         input.collectionId,
-        `order-${input.txHash}`,
+        input.kind,
+        input.orderId ?? `order-${input.txHash}`,
         input.side,
         input.maker.toLowerCase(),
         input.taker.toLowerCase(),
         input.contract.toLowerCase(),
         input.tokenId,
         input.amount,
+        input.price,
+        input.currency.toLowerCase(),
         input.blockNumber,
         `0xblock-${input.blockNumber}`,
-        1_700_000_000 + input.blockNumber,
+        input.blockTimestamp,
         input.txHash,
         input.logIndex,
     );

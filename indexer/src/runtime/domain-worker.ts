@@ -9,6 +9,10 @@ import { publishMetadataStatsRecompute } from "../application/metadata/stats-rec
 import type { JobEnvelope } from "../domain/jobs.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import {
+    ACTIVITY_JOB_KIND,
+    type ActivityUpsertPayload,
+} from "../domain/activity-jobs.js";
+import {
     DOMAIN_JOB_KIND,
     type DomainSyncPayload,
     type MetadataRefreshPayload,
@@ -334,6 +338,24 @@ async function main() {
                 spanName: "worker.activityDomain.consume",
             },
         );
+        const stopActivityUpsert = await runWorker(
+            queue,
+            {
+                queue: QUEUE_NAMES.ActivityUpsert,
+                consumerName: `activity-upsert-${config.chainId}`,
+                maxInFlight: 1,
+                maxAttempts: 5,
+                deadLetterQueue: QUEUE_NAMES.DeadLetter,
+            },
+            async (job: JobEnvelope<ActivityUpsertPayload>) => {
+                if (job.kind !== ACTIVITY_JOB_KIND.Upsert) return;
+                await activityDomain.handleActivityUpsert(job.payload);
+            },
+            {
+                apm: runtimeApm.apm,
+                spanName: "worker.activityUpsert.consume",
+            },
+        );
 
         logger.info("Domain worker ready", {
             component: "IndexerDomainWorker",
@@ -353,6 +375,7 @@ async function main() {
             await stopMetadataRefresh();
             await stopMetadataStats();
             await stopActivity();
+            await stopActivityUpsert();
             await runtimeApm.stop();
             await runtimeMetrics.stop();
             await queue.close();

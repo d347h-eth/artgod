@@ -15,6 +15,7 @@ tags:
     - name: Security
     - name: Chains
     - name: Collections
+    - name: Activities
     - name: Bootstrap
 
 paths:
@@ -125,6 +126,30 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/activity:
+        get:
+            tags: [Activities]
+            summary: Get collection activity feed
+            operationId: getCollectionActivity
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/Limit"
+                - $ref: "#/components/parameters/Cursor"
+            responses:
+                "200":
+                    description: Collection activity feed ordered newest first
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetCollectionActivityResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}:
         get:
             tags: [Collections]
@@ -200,6 +225,31 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/GetCollectionHoldersResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/{token_ref}/activity:
+        get:
+            tags: [Activities]
+            summary: Get token activity feed
+            operationId: getTokenActivity
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+                - $ref: "#/components/parameters/Limit"
+                - $ref: "#/components/parameters/Cursor"
+            responses:
+                "200":
+                    description: Token activity feed ordered newest first
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetTokenActivityResponse"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "404":
@@ -871,6 +921,142 @@ components:
                 holders:
                     $ref: "#/components/schemas/CollectionHolderPage"
 
+        ActivityScopeKind:
+            type: string
+            enum: [token, collection, attribute]
+
+        ActivityKind:
+            type: string
+            enum:
+                [
+                    transfer,
+                    sale,
+                    listing_created,
+                    listing_cancelled,
+                    bid_created,
+                    bid_cancelled,
+                    custom,
+                ]
+
+        ActivitySourceKind:
+            type: string
+            enum: [onchain, offchain, extension]
+
+        ActivityFeedItem:
+            type: object
+            required:
+                [
+                    id,
+                    scopeKind,
+                    kind,
+                    contract,
+                    tokenId,
+                    occurredAt,
+                    sourceKind,
+                    sourceName,
+                    orderId,
+                    blockNumber,
+                    txHash,
+                    logIndex,
+                    from,
+                    to,
+                    maker,
+                    taker,
+                    side,
+                    amount,
+                    price,
+                    currency,
+                    payload,
+                ]
+            additionalProperties: false
+            properties:
+                id:
+                    type: integer
+                scopeKind:
+                    $ref: "#/components/schemas/ActivityScopeKind"
+                kind:
+                    $ref: "#/components/schemas/ActivityKind"
+                contract:
+                    type: string
+                tokenId:
+                    type: string
+                    nullable: true
+                occurredAt:
+                    type: integer
+                    description: Unix timestamp in seconds
+                sourceKind:
+                    $ref: "#/components/schemas/ActivitySourceKind"
+                sourceName:
+                    type: string
+                orderId:
+                    type: string
+                    nullable: true
+                blockNumber:
+                    type: integer
+                    nullable: true
+                txHash:
+                    type: string
+                    nullable: true
+                logIndex:
+                    type: integer
+                    nullable: true
+                from:
+                    type: string
+                    nullable: true
+                to:
+                    type: string
+                    nullable: true
+                maker:
+                    type: string
+                    nullable: true
+                taker:
+                    type: string
+                    nullable: true
+                side:
+                    type: string
+                    enum: [buy, sell]
+                    nullable: true
+                amount:
+                    type: string
+                    nullable: true
+                price:
+                    type: string
+                    nullable: true
+                currency:
+                    type: string
+                    nullable: true
+                payload:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+
+        ActivityCursorPage:
+            type: object
+            required: [items, nextCursor, limit]
+            additionalProperties: false
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/ActivityFeedItem"
+                nextCursor:
+                    type: string
+                    nullable: true
+                limit:
+                    type: integer
+
+        GetCollectionActivityResponse:
+            type: object
+            required: [chain, collection, activities]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                activities:
+                    $ref: "#/components/schemas/ActivityCursorPage"
+
         GetTokenDetailResponse:
             type: object
             required: [chain, collection, token]
@@ -882,6 +1068,20 @@ components:
                     $ref: "#/components/schemas/CollectionListItem"
                 token:
                     $ref: "#/components/schemas/TokenDetail"
+
+        GetTokenActivityResponse:
+            type: object
+            required: [chain, collection, token, activities]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                token:
+                    $ref: "#/components/schemas/TokenDetail"
+                activities:
+                    $ref: "#/components/schemas/ActivityCursorPage"
 
         GetDefaultChainResponse:
             type: object
