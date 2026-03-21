@@ -556,6 +556,174 @@ describe("backend api routes", () => {
         ).toEqual([ACTIVITY_KIND.ListingCreated]);
     });
 
+    it("collapses collection listings by token, maker, currency, and UTC day while leaving token listings raw", async () => {
+        const makerA = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const makerB = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+        insertActivityFixture({
+            collectionAddress: MILADY_ADDRESS,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind: ACTIVITY_KIND.ListingCreated,
+            tokenId: "2",
+            occurredAt: 1_726_000_900,
+            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+            sourceName: "opensea",
+            orderId: "listed-milady-2-maker-a-early",
+            maker: makerA,
+            side: "sell",
+            price: "400000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+            dedupeKey:
+                "offchain:opensea:item_listed:listed-milady-2-maker-a-early:2",
+            isOpen: true,
+        });
+        insertActivityFixture({
+            collectionAddress: MILADY_ADDRESS,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind: ACTIVITY_KIND.ListingCreated,
+            tokenId: "2",
+            occurredAt: 1_726_001_200,
+            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+            sourceName: "opensea",
+            orderId: "listed-milady-2-maker-a-late",
+            maker: makerA,
+            side: "sell",
+            price: "420000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+            dedupeKey:
+                "offchain:opensea:item_listed:listed-milady-2-maker-a-late:2",
+            isOpen: true,
+        });
+        insertActivityFixture({
+            collectionAddress: MILADY_ADDRESS,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind: ACTIVITY_KIND.ListingCreated,
+            tokenId: "2",
+            occurredAt: 1_726_001_100,
+            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+            sourceName: "opensea",
+            orderId: "listed-milady-2-maker-b",
+            maker: makerB,
+            side: "sell",
+            price: "410000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+            dedupeKey:
+                "offchain:opensea:item_listed:listed-milady-2-maker-b:2",
+            isOpen: true,
+        });
+        insertActivityFixture({
+            collectionAddress: MILADY_ADDRESS,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind: ACTIVITY_KIND.ListingCreated,
+            tokenId: "2",
+            occurredAt: 1_726_001_000,
+            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+            sourceName: "opensea",
+            orderId: "listed-milady-2-maker-a-weth",
+            maker: makerA,
+            side: "sell",
+            price: "405000000000000000",
+            currency: WETH_ADDRESS,
+            payload: { eventType: "item_listed" },
+            dedupeKey:
+                "offchain:opensea:item_listed:listed-milady-2-maker-a-weth:2",
+            isOpen: true,
+        });
+        insertActivityFixture({
+            collectionAddress: MILADY_ADDRESS,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind: ACTIVITY_KIND.ListingCreated,
+            tokenId: "2",
+            occurredAt: 1_726_088_000,
+            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+            sourceName: "opensea",
+            orderId: "listed-milady-2-maker-a-next-day",
+            maker: makerA,
+            side: "sell",
+            price: "430000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: { eventType: "item_listed" },
+            dedupeKey:
+                "offchain:opensea:item_listed:listed-milady-2-maker-a-next-day:2",
+            isOpen: true,
+        });
+
+        const collectionListings = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?limit=10&kind=listings",
+        );
+
+        expect(collectionListings.statusCode).toBe(200);
+        expect(collectionListings.payload.activities.totalItems).toBe(5);
+        expect(collectionListings.payload.activities.items).toHaveLength(5);
+        expect(
+            collectionListings.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([
+            ACTIVITY_KIND.ListingCreated,
+            ACTIVITY_KIND.ListingCreated,
+            ACTIVITY_KIND.ListingCreated,
+            ACTIVITY_KIND.ListingCreated,
+            ACTIVITY_KIND.ListingCreated,
+        ]);
+
+        const collapsedSameDay = collectionListings.payload.activities.items.find(
+            (activity: {
+                tokenId: string | null;
+                maker: string | null;
+                currency: string | null;
+                occurredAt: number;
+            }) =>
+                activity.tokenId === "2" &&
+                activity.maker === makerA &&
+                activity.currency === ZERO_ADDRESS.toLowerCase() &&
+                activity.occurredAt === 1_726_001_200,
+        );
+        expect(collapsedSameDay).toMatchObject({
+            tokenId: "2",
+            maker: makerA,
+            currency: ZERO_ADDRESS.toLowerCase(),
+            price: "420000000000000000",
+            isCollapsed: true,
+            collapsedEventCount: 2,
+        });
+        expect(
+            (collapsedSameDay as {
+                collapsedWindowStartUtc: number | null;
+                collapsedWindowEndUtc: number | null;
+            }).collapsedWindowEndUtc! -
+                (collapsedSameDay as {
+                    collapsedWindowStartUtc: number | null;
+                    collapsedWindowEndUtc: number | null;
+                }).collapsedWindowStartUtc!,
+        ).toBe(86_399);
+
+        const tokenListings = await resolve(
+            "GET",
+            "/api/ethereum/milady/2/activity?limit=10&kind=listings",
+        );
+
+        expect(tokenListings.statusCode).toBe(200);
+        expect(tokenListings.payload.activities.totalItems).toBe(5);
+        expect(tokenListings.payload.activities.items).toHaveLength(5);
+        expect(
+            tokenListings.payload.activities.items.every(
+                (activity: {
+                    kind: string;
+                    isCollapsed: boolean;
+                    collapsedEventCount: number | null;
+                }) =>
+                    activity.kind === ACTIVITY_KIND.ListingCreated &&
+                    activity.isCollapsed === false &&
+                    activity.collapsedEventCount === null,
+            ),
+        ).toBe(true);
+    });
+
     it("returns owner-scoped collection detail with listed tokens first and owner-scoped facets", async () => {
         clearNftBalances(MILADY_ADDRESS);
         insertNftBalance(

@@ -34,11 +34,35 @@ type ActivityRow = {
     price: string | null;
     currency: string | null;
     payload_json: string | null;
+    is_collapsed: number | null;
+    collapsed_event_count: number | null;
+    collapsed_window_start_utc: number | null;
+    collapsed_window_end_utc: number | null;
 };
 
 type ActivityCursorKey = {
     occurredAt: number;
     id: number;
+};
+
+type ActivityQuerySource = {
+    cteSql: string;
+    relationSql: string;
+    selectColumnsSql: string;
+};
+
+const RAW_ACTIVITY_SELECT_COLUMNS =
+    "id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
+    "0 AS is_collapsed, NULL AS collapsed_event_count, NULL AS collapsed_window_start_utc, NULL AS collapsed_window_end_utc";
+
+const COLLAPSED_ACTIVITY_SELECT_COLUMNS =
+    "id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
+    "is_collapsed, collapsed_event_count, collapsed_window_start_utc, collapsed_window_end_utc";
+
+const RAW_ACTIVITY_SOURCE: ActivityQuerySource = {
+    cteSql: "",
+    relationSql: "FROM activities",
+    selectColumnsSql: RAW_ACTIVITY_SELECT_COLUMNS,
 };
 
 export class SqliteActivitiesReadModel {
@@ -95,6 +119,17 @@ export class SqliteActivitiesReadModel {
             params.cursor !== undefined
                 ? decodeActivityCursor(params.cursor, filterKind)
                 : null;
+        if (shouldCollapseCollectionListings(params.tokenId, filterKind)) {
+            return listActivitiesFromSource({
+                source: buildCollapsedCollectionListingsSource(),
+                baseWhereClauses: [],
+                baseValues: [params.chainId, params.collectionId],
+                limit,
+                cursor,
+                filterKind,
+            });
+        }
+
         const { whereClauses: baseWhereClauses, values: baseValues } =
             buildActivityWhereClauses({
                 chainId: params.chainId,
@@ -102,67 +137,15 @@ export class SqliteActivitiesReadModel {
                 tokenId: params.tokenId,
                 kind: filterKind,
             });
-        const whereClauses = [...baseWhereClauses];
-        const values: unknown[] = [...baseValues];
 
-        if (cursor) {
-            whereClauses.push(buildActivityAfterCursorWhereClause());
-            values.push(cursor.occurredAt, cursor.occurredAt, cursor.id);
-        }
-
-        const rows = db.raw
-            .prepare(
-                "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json " +
-                    "FROM activities " +
-                    `WHERE ${whereClauses.join(" AND ")} ` +
-                    "ORDER BY occurred_at DESC, id DESC LIMIT ?",
-            )
-            .all(...values, limit + 1) as ActivityRow[];
-        const hasNext = rows.length > limit;
-        const pageRows = hasNext ? rows.slice(0, limit) : rows;
-        const items = pageRows.map(mapActivityRow);
-        const prevCursor = deriveActivityPrevCursor({
+        return listActivitiesFromSource({
+            source: RAW_ACTIVITY_SOURCE,
             baseWhereClauses,
             baseValues,
-            cursor,
-            pageRows,
             limit,
+            cursor,
             filterKind,
         });
-        const totalItems = countMatchingActivities(baseWhereClauses, baseValues);
-        const beforeItems = cursor
-            ? countMatchingActivities(
-                  [
-                      ...baseWhereClauses,
-                      buildActivityBeforeOrAtCursorWhereClause(),
-                  ],
-                  [...baseValues, cursor.occurredAt, cursor.occurredAt, cursor.id],
-              )
-            : 0;
-        const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
-        const rangeEnd = beforeItems + items.length;
-        const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
-        const currentPage =
-            totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
-        const nextCursor = hasNext
-            ? encodeActivityCursor({
-                  filterKind,
-                  occurredAt: pageRows[pageRows.length - 1]!.occurred_at,
-                  id: pageRows[pageRows.length - 1]!.id,
-              })
-            : null;
-
-        return {
-            items,
-            prevCursor,
-            nextCursor,
-            limit,
-            totalItems,
-            rangeStart,
-            rangeEnd,
-            currentPage,
-            totalPages,
-        };
     }
 }
 
@@ -216,14 +199,123 @@ function buildActivityBeforeOrAtCursorWhereClause(): string {
     return "(occurred_at > ? OR (occurred_at = ? AND id >= ?))";
 }
 
+function shouldCollapseCollectionListings(
+    tokenId: string | undefined,
+    filterKind: ActivityFeedFilterKind | null,
+): boolean {
+    return !tokenId && filterKind === "listings";
+}
+
+function buildCollapsedCollectionListingsSource(): ActivityQuerySource {
+    return {
+        cteSql:
+            "WITH filtered_listing_activities AS (" +
+            "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
+            "CAST(occurred_at / 86400 AS INTEGER) AS collapsed_day_bucket " +
+            "FROM activities " +
+            "WHERE chain_id = ? AND collection_id = ? AND kind = 'listing_created'" +
+            "), ranked_listing_activities AS (" +
+            "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
+            "COUNT(*) OVER (PARTITION BY token_id, COALESCE(maker, ''), COALESCE(currency, ''), collapsed_day_bucket) AS collapsed_event_count, " +
+            "(collapsed_day_bucket * 86400) AS collapsed_window_start_utc, " +
+            "(((collapsed_day_bucket + 1) * 86400) - 1) AS collapsed_window_end_utc, " +
+            "ROW_NUMBER() OVER (PARTITION BY token_id, COALESCE(maker, ''), COALESCE(currency, ''), collapsed_day_bucket ORDER BY occurred_at DESC, id DESC) AS collapse_rank " +
+            "FROM filtered_listing_activities" +
+            "), collapsed_listing_activities AS (" +
+            "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
+            "1 AS is_collapsed, collapsed_event_count, collapsed_window_start_utc, collapsed_window_end_utc " +
+            "FROM ranked_listing_activities WHERE collapse_rank = 1" +
+            ") ",
+        relationSql: "FROM collapsed_listing_activities",
+        selectColumnsSql: COLLAPSED_ACTIVITY_SELECT_COLUMNS,
+    };
+}
+
+function listActivitiesFromSource(params: {
+    source: ActivityQuerySource;
+    baseWhereClauses: string[];
+    baseValues: unknown[];
+    limit: number;
+    cursor: ActivityFeedCursor | null;
+    filterKind: ActivityFeedFilterKind | null;
+}): ActivityFeedPage {
+    const { source, baseWhereClauses, baseValues, limit, cursor, filterKind } =
+        params;
+    const whereClauses = [...baseWhereClauses];
+    const values: unknown[] = [...baseValues];
+
+    if (cursor) {
+        whereClauses.push(buildActivityAfterCursorWhereClause());
+        values.push(cursor.occurredAt, cursor.occurredAt, cursor.id);
+    }
+
+    const rows = queryActivityRows(source, whereClauses, values, limit + 1);
+    const hasNext = rows.length > limit;
+    const pageRows = hasNext ? rows.slice(0, limit) : rows;
+    const items = pageRows.map(mapActivityRow);
+    const prevCursor = deriveActivityPrevCursor({
+        source,
+        baseWhereClauses,
+        baseValues,
+        cursor,
+        pageRows,
+        limit,
+        filterKind,
+    });
+    const totalItems = countMatchingActivities(source, baseWhereClauses, baseValues);
+    const beforeItems = cursor
+        ? countMatchingActivities(
+              source,
+              [...baseWhereClauses, buildActivityBeforeOrAtCursorWhereClause()],
+              [...baseValues, cursor.occurredAt, cursor.occurredAt, cursor.id],
+          )
+        : 0;
+    const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
+    const rangeEnd = beforeItems + items.length;
+    const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
+    const currentPage = totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
+    const nextCursor = hasNext
+        ? encodeActivityCursor({
+              filterKind,
+              occurredAt: pageRows[pageRows.length - 1]!.occurred_at,
+              id: pageRows[pageRows.length - 1]!.id,
+          })
+        : null;
+
+    return {
+        items,
+        prevCursor,
+        nextCursor,
+        limit,
+        totalItems,
+        rangeStart,
+        rangeEnd,
+        currentPage,
+        totalPages,
+    };
+}
+
+function queryActivityRows(
+    source: ActivityQuerySource,
+    whereClauses: string[],
+    values: unknown[],
+    limit: number,
+): ActivityRow[] {
+    return db.raw
+        .prepare(
+            `${source.cteSql}SELECT ${source.selectColumnsSql} ${source.relationSql}${buildWhereSql(whereClauses)} ORDER BY occurred_at DESC, id DESC LIMIT ?`,
+        )
+        .all(...values, limit) as ActivityRow[];
+}
+
 function countMatchingActivities(
+    source: ActivityQuerySource,
     whereClauses: string[],
     values: unknown[],
 ): number {
     const row = db.raw
         .prepare(
-            "SELECT COUNT(*) AS count FROM activities " +
-                `WHERE ${whereClauses.join(" AND ")}`,
+            `${source.cteSql}SELECT COUNT(*) AS count ${source.relationSql}${buildWhereSql(whereClauses)}`,
         )
         .get(...values) as { count: number | bigint } | undefined;
     if (!row) return 0;
@@ -231,6 +323,7 @@ function countMatchingActivities(
 }
 
 function deriveActivityPrevCursor(params: {
+    source: ActivityQuerySource;
     baseWhereClauses: string[];
     baseValues: unknown[];
     cursor: ActivityFeedCursor | null;
@@ -238,16 +331,24 @@ function deriveActivityPrevCursor(params: {
     limit: number;
     filterKind: ActivityFeedFilterKind | null;
 }): string | null {
-    const { baseWhereClauses, baseValues, cursor, pageRows, limit, filterKind } =
-        params;
+    const {
+        source,
+        baseWhereClauses,
+        baseValues,
+        cursor,
+        pageRows,
+        limit,
+        filterKind,
+    } = params;
     const anchor = toAnchorCursorKey(pageRows, cursor);
     if (!anchor) return null;
 
     const previousRows = db.raw
         .prepare(
-            "SELECT id, occurred_at FROM activities " +
-                `WHERE ${baseWhereClauses.join(" AND ")} AND ${buildActivityBeforeCursorWhereClause()} ` +
-                "ORDER BY occurred_at ASC, id ASC LIMIT ?",
+            `${source.cteSql}SELECT id, occurred_at ${source.relationSql}${buildWhereSql([
+                ...baseWhereClauses,
+                buildActivityBeforeCursorWhereClause(),
+            ])} ORDER BY occurred_at ASC, id ASC LIMIT ?`,
         )
         .all(
             ...baseValues,
@@ -266,6 +367,10 @@ function deriveActivityPrevCursor(params: {
         occurredAt: previousRows[limit]!.occurred_at,
         id: previousRows[limit]!.id,
     });
+}
+
+function buildWhereSql(whereClauses: string[]): string {
+    return whereClauses.length === 0 ? " " : ` WHERE ${whereClauses.join(" AND ")} `;
 }
 
 function toAnchorCursorKey(
@@ -353,6 +458,10 @@ function mapActivityRow(row: ActivityRow): ActivityFeedItem {
         price: row.price,
         currency: row.currency?.toLowerCase() ?? null,
         payload: parsePayloadJson(row.payload_json),
+        isCollapsed: row.is_collapsed === 1,
+        collapsedEventCount: row.collapsed_event_count ?? null,
+        collapsedWindowStartUtc: row.collapsed_window_start_utc ?? null,
+        collapsedWindowEndUtc: row.collapsed_window_end_utc ?? null,
     };
 }
 

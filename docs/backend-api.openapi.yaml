@@ -139,7 +139,7 @@ paths:
                 - $ref: "#/components/parameters/Cursor"
             responses:
                 "200":
-                    description: Collection activity feed ordered newest first with bidirectional cursor pagination
+                    description: Collection activity feed ordered newest first with bidirectional cursor pagination; `kind=listings` returns collapsed listing rows
                     content:
                         application/json:
                             schema:
@@ -507,6 +507,7 @@ components:
                 Grouped activity-kind filter.
                 `sales` returns only `sale`.
                 `listings` returns only `listing_created`.
+                On the collection activity endpoint, `listings` is collapsed by `tokenId + maker + currency + UTC day` and surfaces the latest raw listing in each group.
                 `transfers` returns only `transfer`.
 
     responses:
@@ -1005,6 +1006,10 @@ components:
                     price,
                     currency,
                     payload,
+                    isCollapsed,
+                    collapsedEventCount,
+                    collapsedWindowStartUtc,
+                    collapsedWindowEndUtc,
                 ]
             additionalProperties: false
             properties:
@@ -1067,6 +1072,21 @@ components:
                     type: object
                     nullable: true
                     additionalProperties: true
+                isCollapsed:
+                    type: boolean
+                    description: True when the item represents a collapsed collection-listings row rather than a single raw activity row
+                collapsedEventCount:
+                    type: integer
+                    nullable: true
+                    description: Number of raw listing events represented by a collapsed listings row
+                collapsedWindowStartUtc:
+                    type: integer
+                    nullable: true
+                    description: Inclusive UTC-day window start in Unix seconds for a collapsed listings row
+                collapsedWindowEndUtc:
+                    type: integer
+                    nullable: true
+                    description: Inclusive UTC-day window end in Unix seconds for a collapsed listings row
 
         ActivityCursorPage:
             type: object

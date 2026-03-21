@@ -226,6 +226,24 @@
 		return `${years}y ago`;
 	}
 
+	function activityUtcDayStart(activity: ApiActivityFeedItem): number {
+		if (activity.collapsedWindowStartUtc !== null) {
+			return activity.collapsedWindowStartUtc;
+		}
+		return Math.floor(activity.occurredAt / 86_400) * 86_400;
+	}
+
+	function shouldRenderUtcDayBreak(index: number): boolean {
+		if (index <= 0) return false;
+		return (
+			activityUtcDayStart(activities.items[index]!) !== activityUtcDayStart(activities.items[index - 1]!)
+		);
+	}
+
+	function formatUtcDayLabel(activity: ApiActivityFeedItem): string {
+		return `${new Date(activityUtcDayStart(activity) * 1000).toISOString().slice(0, 10)} UTC`;
+	}
+
 	function formatUtcTimestamp(occurredAt: number): string {
 		return new Date(occurredAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
 	}
@@ -306,7 +324,14 @@
 						<td colspan={visibleColumns.length} class="empty-cell">no activities found</td>
 					</tr>
 				{:else}
-					{#each activities.items as activity (activity.id)}
+					{#each activities.items as activity, index (activity.id)}
+						{#if shouldRenderUtcDayBreak(index)}
+							<tr class="activities-day-break-row">
+								<td colspan={visibleColumns.length}>
+									<span class="activities-day-break-label">{formatUtcDayLabel(activity)}</span>
+								</td>
+							</tr>
+						{/if}
 						<tr>
 							{#each visibleColumns as column}
 								<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'time' ? ' mono' : ''}`}>

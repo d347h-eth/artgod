@@ -57,6 +57,10 @@ export type ApiActivityFeedItem = {
 	price: string | null;
 	currency: string | null;
 	payload: Record<string, unknown> | null;
+	isCollapsed: boolean;
+	collapsedEventCount: number | null;
+	collapsedWindowStartUtc: number | null;
+	collapsedWindowEndUtc: number | null;
 };
 
 export type ApiTokenPresentationSummary = {

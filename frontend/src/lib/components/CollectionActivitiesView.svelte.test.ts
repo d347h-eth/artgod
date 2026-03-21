@@ -48,7 +48,38 @@ describe('CollectionActivitiesView', () => {
 							amount: '1',
 							price: '500000000000000000',
 							currency: '0x0000000000000000000000000000000000000000',
-							payload: null
+							payload: null,
+							isCollapsed: false,
+							collapsedEventCount: null,
+							collapsedWindowStartUtc: null,
+							collapsedWindowEndUtc: null
+						},
+						{
+							id: 11,
+							scopeKind: 'token',
+							kind: 'sale',
+							contract: '0x1111111111111111111111111111111111111111',
+							tokenId: '1',
+							occurredAt: 1725920000,
+							sourceKind: 'onchain',
+							sourceName: 'seaport',
+							orderId: 'order-0',
+							blockNumber: 22000000,
+							txHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+							logIndex: 1,
+							from: '0x8888888888888888888888888888888888888888',
+							to: '0x7777777777777777777777777777777777777777',
+							maker: '0x8888888888888888888888888888888888888888',
+							taker: '0x7777777777777777777777777777777777777777',
+							side: 'sell',
+							amount: '1',
+							price: '400000000000000000',
+							currency: '0x0000000000000000000000000000000000000000',
+							payload: null,
+							isCollapsed: false,
+							collapsedEventCount: null,
+							collapsedWindowStartUtc: null,
+							collapsedWindowEndUtc: null
 						}
 					],
 					prevCursor: null,
@@ -111,11 +142,12 @@ describe('CollectionActivitiesView', () => {
 			'https://etherscan.io/tx/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 		);
 		expect(body).toContain('older');
+		expect(body).toContain('class="activities-day-break-label">2024-09-09 UTC</span>');
 		expect(body).not.toContain('details');
 		expect(body).not.toContain('token</th>');
 	});
 
-	it('uses a reduced listings column set without the to column', () => {
+	it('uses a reduced listings column set without the to column and marks UTC day breaks', () => {
 		const { body } = render(CollectionActivitiesView, {
 			props: {
 				chain: {
@@ -140,6 +172,33 @@ describe('CollectionActivitiesView', () => {
 				activities: {
 					items: [
 						{
+							id: 3,
+							scopeKind: 'token',
+							kind: 'listing_created',
+							contract: '0x1111111111111111111111111111111111111111',
+							tokenId: '1',
+							occurredAt: 1726090000,
+							sourceKind: 'offchain',
+							sourceName: 'opensea',
+							orderId: 'order-2',
+							blockNumber: null,
+							txHash: null,
+							logIndex: null,
+							from: null,
+							to: null,
+							maker: '0x9999999999999999999999999999999999999999',
+							taker: null,
+							side: 'sell',
+							amount: null,
+							price: '510000000000000000',
+							currency: '0x0000000000000000000000000000000000000000',
+							payload: null,
+							isCollapsed: true,
+							collapsedEventCount: 2,
+							collapsedWindowStartUtc: 1726012800,
+							collapsedWindowEndUtc: 1726099199
+						},
+						{
 							id: 2,
 							scopeKind: 'token',
 							kind: 'listing_created',
@@ -160,7 +219,11 @@ describe('CollectionActivitiesView', () => {
 							amount: null,
 							price: '500000000000000000',
 							currency: '0x0000000000000000000000000000000000000000',
-							payload: null
+							payload: null,
+							isCollapsed: true,
+							collapsedEventCount: 3,
+							collapsedWindowStartUtc: 1725926400,
+							collapsedWindowEndUtc: 1726012799
 						}
 					],
 					prevCursor: null,
@@ -192,5 +255,6 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('time');
 		expect(body).not.toContain('>to<');
 		expect(body).toContain('0x9999...9999');
+		expect(body).toContain('class="activities-day-break-label">2024-09-10 UTC</span>');
 	});
 });

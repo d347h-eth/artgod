@@ -999,6 +999,21 @@ th {
 	white-space: nowrap;
 }
 
+.activities-day-break-row td {
+	padding: 0.45rem 0 0.35rem;
+	border-top: 1px solid var(--c-blue);
+	border-left: 0;
+	border-right: 0;
+	background: transparent;
+}
+
+.activities-day-break-label {
+	color: var(--c-sand);
+	font-size: 0.72rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
 .activities-time-mode-button {
 	margin-left: 0.45rem;
 	border: 0;
