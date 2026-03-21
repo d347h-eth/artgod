@@ -9,6 +9,7 @@
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
+	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
 	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
@@ -79,7 +80,6 @@
 	let nextDisplayMode = $derived<'grid' | 'table'>(isGridMode ? 'table' : 'grid');
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
-	let tokenGridAspectRatioById = $state<Record<string, number>>({});
 
 	$effect(() => {
 		activeTraits = selectedTraits;
@@ -171,12 +171,6 @@
 		return query.toString();
 	}
 
-	function tokenPreviewGridStyle(tokenId: string): string | undefined {
-		const ratio = tokenGridAspectRatioById[tokenId];
-		if (!Number.isFinite(ratio) || ratio <= 0) return undefined;
-		return `--token-grid-media-ar:${ratio};`;
-	}
-
 	function tokenTraitsLabel(token: ApiTokenCard): string {
 		if (token.attributes.length === 0) return 'no traits';
 		return token.attributes.map((item) => `${item.key}:${item.value}`).join(' | ');
@@ -230,21 +224,6 @@
 			collectionAddress: collection?.address ?? null,
 			tokenId: token.tokenId
 		});
-	}
-
-	function onTokenGridImageLoad(tokenId: string, event: Event): void {
-		const target = event.currentTarget;
-		if (!(target instanceof HTMLImageElement)) return;
-		if (target.naturalWidth <= 0 || target.naturalHeight <= 0) return;
-
-		const ratio = target.naturalWidth / target.naturalHeight;
-		if (!Number.isFinite(ratio) || ratio <= 0) return;
-		if (tokenGridAspectRatioById[tokenId] === ratio) return;
-
-		tokenGridAspectRatioById = {
-			...tokenGridAspectRatioById,
-			[tokenId]: ratio
-		};
 	}
 
 	function onTraitSearchInput(key: string, event: Event): void {
@@ -603,14 +582,6 @@
 		return tag === 'input' || tag === 'textarea' || tag === 'select';
 	}
 
-	async function onOpenTokenPreview(token: ApiTokenCard): Promise<void> {
-		if (!chain || !collection) return;
-		await tokenPreview.openTokenPreview({
-			chainRef: chain.slug,
-			collectionRef: collection.slug,
-			tokenId: token.tokenId
-		});
-	}
 </script>
 
 <svelte:window onkeydown={onGlobalKeydown} />
@@ -728,34 +699,22 @@
 				{#if visibleTokens.length === 0}
 					<div class="empty-cell">{emptyMessage}</div>
 				{:else}
-					<div class="token-grid">
-						{#each visibleTokens as token}
-							<article class="token-grid-card">
-								<div class="token-grid-media">
-									{#if token.image}
-										<button
-											type="button"
-											class="token-preview-trigger token-preview-trigger-grid"
-											style={tokenPreviewGridStyle(token.tokenId)}
-											aria-label={tokenPreview.tokenPreviewAriaLabel(token.tokenId)}
-											onclick={() => void onOpenTokenPreview(token)}
-										>
-											<img
-												class="token-grid-thumb"
-												src={token.image}
-												alt={`token ${token.tokenId}`}
-												loading="lazy"
-												decoding="async"
-												referrerpolicy="no-referrer"
-												onload={(event) => onTokenGridImageLoad(token.tokenId, event)}
-											/>
-										</button>
-									{:else}
-										<div class="token-grid-thumb token-grid-thumb-empty token-thumb-empty">-</div>
-									{/if}
-								</div>
-								<div class="token-grid-meta">
-									<a class="mono token-grid-id" href={tokenDetailHref(token.tokenId)}>{token.tokenId}</a>
+						<div class="token-grid">
+							{#each visibleTokens as token}
+								<article class="token-grid-card">
+									<TokenMediaPreviewTrigger
+										chainRef={chain?.slug ?? null}
+										collectionRef={collection?.slug ?? null}
+										tokenId={token.tokenId}
+										image={token.image}
+										{tokenPreview}
+										mode="grid"
+										containerClass="token-grid-media"
+										imageClass="token-grid-thumb"
+										emptyClass="token-grid-thumb token-grid-thumb-empty token-thumb-empty"
+									/>
+									<div class="token-grid-meta">
+										<a class="mono token-grid-id" href={tokenDetailHref(token.tokenId)}>{token.tokenId}</a>
 									{#if tokenListingLabel(token)}
 										<div class="mono token-grid-price">
 											{#if openseaItemHref(token)}
@@ -814,25 +773,16 @@
 										>
 									</td>
 									<td class="token-image-cell">
-										{#if token.image}
-											<button
-												type="button"
-												class="token-preview-trigger token-preview-trigger-inline"
-												aria-label={tokenPreview.tokenPreviewAriaLabel(token.tokenId)}
-												onclick={() => void onOpenTokenPreview(token)}
-											>
-												<img
-													class="token-thumb"
-													src={token.image}
-													alt={`token ${token.tokenId}`}
-													loading="lazy"
-													decoding="async"
-													referrerpolicy="no-referrer"
-												/>
-											</button>
-										{:else}
-											<div class="token-thumb token-thumb-empty">-</div>
-										{/if}
+										<TokenMediaPreviewTrigger
+											chainRef={chain?.slug ?? null}
+											collectionRef={collection?.slug ?? null}
+											tokenId={token.tokenId}
+											image={token.image}
+											{tokenPreview}
+											mode="inline"
+											imageClass="token-thumb"
+											emptyClass="token-thumb token-thumb-empty"
+										/>
 									</td>
 									<td class="mono token-price-cell">
 										{#if tokenListingLabel(token)}
