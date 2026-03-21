@@ -24,6 +24,9 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				currentPage: 0,
 				totalPages: 0
 			},
+			included: {
+				tokensById: {}
+			},
 			basePath: '/',
 			filterKind: 'sales' as const
 		};
@@ -43,6 +46,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			chain: response.chain,
 			collection: response.collection,
 			activities: response.activities,
+			included: response.included,
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			filterKind
 		};

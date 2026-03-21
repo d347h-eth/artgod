@@ -1,4 +1,4 @@
-import type { ForwardCursorPage } from "./browse.js";
+import type { ForwardCursorPage, TokenPresentationSummary } from "./browse.js";
 
 export const ACTIVITY_FEED_FILTER_KIND = {
     Sales: "sales",
@@ -71,4 +71,8 @@ export type ActivityFeedCursor = {
 
 export type ActivityFeedPage = ForwardCursorPage<ActivityFeedItem> & {
     prevCursor: string | null;
+};
+
+export type ActivityFeedIncludes = {
+    tokensById: Record<string, TokenPresentationSummary>;
 };

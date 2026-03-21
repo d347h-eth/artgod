@@ -923,6 +923,7 @@ th {
 
 .activities-table {
 	table-layout: fixed;
+	--activity-col-narrow: 7.5rem;
 }
 
 .holders-table th,
@@ -937,14 +938,10 @@ th {
 	border-top: 0;
 	border-left: 0;
 	border-right: 0;
-	vertical-align: top;
+	vertical-align: middle;
 }
 
 .holders-table tbody tr:hover td {
-	background: color-mix(in srgb, var(--c-blue) 14%, var(--c-bg));
-}
-
-.activities-table tbody tr:hover td {
 	background: color-mix(in srgb, var(--c-blue) 14%, var(--c-bg));
 }
 
@@ -969,29 +966,78 @@ th {
 	word-break: break-all;
 }
 
-.activities-time-col,
+.activities-id-col {
+	width: var(--activity-col-narrow);
+}
+
+.activities-price-col {
+	width: var(--activity-col-narrow);
+}
+
+.activities-image-col {
+	width: 13rem;
+}
+
+.activities-name-col {
+	width: calc(var(--activity-col-narrow) * 2);
+}
+
+.activities-from-col,
+.activities-to-col {
+	width: var(--activity-col-narrow);
+}
+
+.activities-time-col {
+	width: var(--activity-col-narrow);
+}
+
+.activities-id-cell,
+.activities-price-cell,
+.activities-from-cell,
+.activities-to-cell,
 .activities-time-cell {
-	width: 22%;
+	white-space: nowrap;
 }
 
-.activities-token-col,
-.activities-token-cell {
-	width: 13%;
+.activities-time-mode-button {
+	margin-left: 0.45rem;
+	border: 0;
+	background: transparent;
+	color: var(--c-cyan);
+	cursor: pointer;
+	font: inherit;
+	text-transform: uppercase;
 }
 
-.activities-kind-col,
-.activities-kind-cell {
-	width: 17%;
+.activities-time-mode-button:hover {
+	color: var(--c-yellow);
 }
 
-.activities-details-col,
-.activities-details-cell {
-	width: 48%;
+.activity-token-cell {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
 }
 
-.activities-details-cell,
-.activities-time-cell {
-	word-break: break-word;
+.activity-token-media {
+	--token-grid-media-height: 200px;
+	width: min(100%, var(--token-grid-media-height));
+	flex: 0 0 auto;
+}
+
+.activities-image-cell {
+	text-align: left;
+}
+
+.activities-name-cell {
+	overflow: hidden;
+}
+
+.activities-name-text {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .pagination-summary {
@@ -1388,6 +1434,11 @@ th {
 	.holders-table-wrap,
 	.holders-summary {
 		width: min(50vw, 100%);
+	}
+
+	.activities-table-wrap,
+	.activities-summary {
+		width: min(70vw, 100%);
 	}
 }
 

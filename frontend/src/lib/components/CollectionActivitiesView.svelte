@@ -1,29 +1,66 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import type {
 		ApiActivitiesPage,
 		ApiActivityFeedFilterKind,
 		ApiActivityFeedItem,
 		ApiChain,
-		ApiCollection
+		ApiCollection,
+		ApiTokenPresentationSummary
 	} from '$lib/api-types';
+	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
+	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
+	import {
+		etherscanTransactionHref as buildEtherscanTransactionHref,
+		openseaItemHref as buildOpenseaItemHref
+	} from '$lib/marketplace-links';
 
 	let {
 		chain,
 		collection,
 		activities,
+		included,
 		basePath,
 		filterKind
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		activities: ApiActivitiesPage;
+		included: {
+			tokensById: Record<string, ApiTokenPresentationSummary>;
+		};
 		basePath: string;
 		filterKind: ApiActivityFeedFilterKind;
 	} = $props();
 
 	const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 	const WEI_BASE = 10n ** 18n;
+	const tokenPreview = createTokenPreviewController(fetch);
+	const tokenPreviewState = tokenPreview.state;
+	const RELATIVE_TIME_REFRESH_MS = 60_000;
+
+	type TimeDisplayMode = 'relative' | 'system' | 'utc';
+	type ActivityColumnId = 'id' | 'price' | 'image' | 'name' | 'from' | 'to' | 'time';
+
+	const ACTIVITY_COLUMNS_BY_FILTER: Record<ApiActivityFeedFilterKind, ActivityColumnId[]> = {
+		sales: ['id', 'price', 'image', 'name', 'from', 'to', 'time'],
+		listings: ['id', 'price', 'image', 'name', 'from', 'time'],
+		transfers: ['id', 'image', 'name', 'from', 'to', 'time']
+	};
+
+	let timeDisplayMode = $state<TimeDisplayMode>('relative');
+	let relativeNowMs = $state(Date.now());
+	let visibleColumns = $derived(ACTIVITY_COLUMNS_BY_FILTER[filterKind]);
+
+	$effect(() => {
+		if (!browser || timeDisplayMode !== 'relative') return;
+		const intervalId = window.setInterval(() => {
+			relativeNowMs = Date.now();
+		}, RELATIVE_TIME_REFRESH_MS);
+		return () => window.clearInterval(intervalId);
+	});
 
 	function collectionsHref(): string {
 		if (!chain) return '/';
@@ -44,52 +81,34 @@
 		return `${basePath}/activity?${query.toString()}`;
 	}
 
-	function tokenHref(tokenId: string): string {
-		return `${basePath}/${encodeURIComponent(tokenId)}`;
-	}
-
 	function paginationHref(cursor: string | null): string {
 		return filterHref(filterKind, cursor);
 	}
 
-	function resultsSummary(): string {
-		const count = activities.totalItems;
-		if (filterKind === 'sales') {
-			return `${count} sale${count === 1 ? '' : 's'}`;
-		}
-		if (filterKind === 'listings') {
-			return `${count} listing event${count === 1 ? '' : 's'}`;
-		}
-		return `${count} transfer${count === 1 ? '' : 's'}`;
+	function holderHref(address: string): string {
+		return `${basePath}/holders/${encodeURIComponent(address)}`;
 	}
 
-	function activityTypeLabel(activity: ApiActivityFeedItem): string {
-		switch (activity.kind) {
-			case 'sale':
-				return 'sale';
-			case 'transfer':
-				return 'transfer';
-			case 'listing_created':
-				return 'listing created';
-			case 'listing_cancelled':
-				return 'listing cancelled';
-			default:
-				return activity.kind.replace(/_/g, ' ');
-		}
-	}
-
-	function tokenLabel(activity: ApiActivityFeedItem): string {
-		return activity.tokenId ?? 'collection';
+	function tokenDetailHref(tokenId: string): string {
+		return `${basePath}/${encodeURIComponent(tokenId)}`;
 	}
 
 	function occurredAtLabel(occurredAt: number): string {
-		return new Date(occurredAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+		if (timeDisplayMode === 'system') {
+			return new Date(occurredAt * 1000).toLocaleString(undefined, {
+				dateStyle: 'medium',
+				timeStyle: 'medium'
+			});
+		}
+		if (timeDisplayMode === 'utc') {
+			return formatUtcTimestamp(occurredAt);
+		}
+		return formatRelativeTime(occurredAt, relativeNowMs);
 	}
 
-	function shortAddress(value: string | null): string | null {
-		if (!value) return null;
-		if (value.length <= 12) return value;
-		return `${value.slice(0, 6)}...${value.slice(-4)}`;
+	function occurredAtTitle(occurredAt: number): string | undefined {
+		if (timeDisplayMode !== 'relative') return undefined;
+		return formatUtcTimestamp(occurredAt);
 	}
 
 	function currencyLabel(currency: string | null): string | null {
@@ -107,30 +126,112 @@
 		return `${amount} ${currencyLabel(currency)}`;
 	}
 
-	function detailsLabel(activity: ApiActivityFeedItem): string {
-		const formattedPrice = formatPrice(activity.price, activity.currency);
-		switch (activity.kind) {
-			case 'sale': {
-				const from = shortAddress(activity.from);
-				const to = shortAddress(activity.to);
-				const transfer =
-					from && to ? `${from} -> ${to}` : from ?? to ?? 'participants unavailable';
-				return formattedPrice ? `${formattedPrice} | ${transfer}` : transfer;
-			}
-			case 'transfer': {
-				const from = shortAddress(activity.from);
-				const to = shortAddress(activity.to);
-				return from && to ? `${from} -> ${to}` : from ?? to ?? '-';
-			}
-			case 'listing_created':
-				return formattedPrice ? `listed at ${formattedPrice}` : 'listed';
-			case 'listing_cancelled':
-				return formattedPrice ? `cancelled at ${formattedPrice}` : 'cancelled';
-			default:
-				return formattedPrice ?? '-';
+	function tokenSummary(activity: ApiActivityFeedItem): ApiTokenPresentationSummary | null {
+		if (!activity.tokenId) return null;
+		return included.tokensById[activity.tokenId] ?? null;
+	}
+
+	function tokenName(activity: ApiActivityFeedItem): string | null {
+		return tokenSummary(activity)?.name?.trim() || null;
+	}
+
+	function marketplaceItemHref(activity: ApiActivityFeedItem): string | null {
+		return buildOpenseaItemHref({
+			chainSlug: chain?.slug ?? null,
+			collectionAddress: collection?.address ?? null,
+			tokenId: activity.tokenId
+		});
+	}
+
+	function transactionHref(activity: ApiActivityFeedItem): string | null {
+		return buildEtherscanTransactionHref(activity.txHash);
+	}
+
+	function activityPriceLabel(activity: ApiActivityFeedItem): string | null {
+		return formatPrice(activity.price, activity.currency);
+	}
+
+	function activityFromAddress(activity: ApiActivityFeedItem): string | null {
+		if (filterKind === 'listings') {
+			return activity.maker;
+		}
+		return activity.from;
+	}
+
+	function columnLabel(column: ActivityColumnId): string {
+		switch (column) {
+			case 'id':
+				return 'id';
+			case 'price':
+				return 'price';
+			case 'image':
+				return 'image';
+			case 'name':
+				return 'name';
+			case 'from':
+				return 'from';
+			case 'to':
+				return 'to';
+			case 'time':
+				return 'time';
 		}
 	}
+
+	function maskAddress(address: string | null): string | null {
+		if (!address) return null;
+		if (address.length <= 10) return address;
+		return `${address.slice(0, 6)}...${address.slice(-4)}`;
+	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		tokenPreview.onWindowKeydown(event);
+	}
+
+	function cycleTimeDisplayMode(): void {
+		timeDisplayMode =
+			timeDisplayMode === 'relative'
+				? 'system'
+				: timeDisplayMode === 'system'
+					? 'utc'
+					: 'relative';
+		if (timeDisplayMode === 'relative') {
+			relativeNowMs = Date.now();
+		}
+	}
+
+	function timeDisplayModeLabel(): string {
+		switch (timeDisplayMode) {
+			case 'system':
+				return 'system';
+			case 'utc':
+				return 'utc';
+			default:
+				return 'relative';
+		}
+	}
+
+	function formatRelativeTime(occurredAt: number, nowMs: number): string {
+		const deltaSeconds = Math.max(0, Math.floor(nowMs / 1000) - occurredAt);
+		if (deltaSeconds < 5) return 'just now';
+		if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
+		const minutes = Math.floor(deltaSeconds / 60);
+		if (minutes < 60) return `${minutes}m ago`;
+		const hours = Math.floor(minutes / 60);
+		if (hours < 24) return `${hours}h ago`;
+		const days = Math.floor(hours / 24);
+		if (days < 30) return `${days}d ago`;
+		const months = Math.floor(days / 30);
+		if (months < 12) return `${months}mo ago`;
+		const years = Math.floor(days / 365);
+		return `${years}y ago`;
+	}
+
+	function formatUtcTimestamp(occurredAt: number): string {
+		return new Date(occurredAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+	}
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <section class="panel">
 	<nav class="breadcrumbs" aria-label="Breadcrumb">
@@ -169,37 +270,121 @@
 				<a href={filterHref('transfers')}>transfers</a>
 			{/if}
 		</div>
-		<span class="mono token-results-summary">{resultsSummary()}</span>
 	</div>
 
 	<div class="table-wrap activities-table-wrap">
 		<table class="activities-table">
+			<colgroup>
+				{#each visibleColumns as column}
+					<col class={`activities-${column}-col`} />
+				{/each}
+			</colgroup>
 			<thead>
 				<tr>
-					<th class="activities-time-col">time</th>
-					<th class="activities-token-col">token</th>
-					<th class="activities-kind-col">activity</th>
-					<th class="activities-details-col">details</th>
+					{#each visibleColumns as column}
+						<th class={`activities-${column}-col`}>
+							{#if column === 'time'}
+								<span>{columnLabel(column)}</span>
+								<button
+									type="button"
+									class="activities-time-mode-button"
+									aria-label="cycle time display mode"
+									onclick={cycleTimeDisplayMode}
+								>
+									{timeDisplayModeLabel()}
+								</button>
+							{:else}
+								{columnLabel(column)}
+							{/if}
+						</th>
+					{/each}
 				</tr>
 			</thead>
 			<tbody>
 				{#if activities.items.length === 0}
 					<tr>
-						<td colspan="4" class="empty-cell">no activities found</td>
+						<td colspan={visibleColumns.length} class="empty-cell">no activities found</td>
 					</tr>
 				{:else}
 					{#each activities.items as activity (activity.id)}
 						<tr>
-							<td class="mono activities-time-cell">{occurredAtLabel(activity.occurredAt)}</td>
-							<td class="mono activities-token-cell">
-								{#if activity.tokenId}
-									<a href={tokenHref(activity.tokenId)}>#{tokenLabel(activity)}</a>
-								{:else}
-									{tokenLabel(activity)}
-								{/if}
-							</td>
-							<td class="activities-kind-cell">{activityTypeLabel(activity)}</td>
-							<td class="mono activities-details-cell">{detailsLabel(activity)}</td>
+							{#each visibleColumns as column}
+								<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'time' ? ' mono' : ''}`}>
+									{#if column === 'id'}
+										{#if activity.tokenId}
+											<a href={tokenDetailHref(activity.tokenId)}>{activity.tokenId}</a>
+										{:else}
+											<span class="muted">-</span>
+										{/if}
+									{:else if column === 'price'}
+										{#if activityPriceLabel(activity)}
+											{#if marketplaceItemHref(activity)}
+												<a
+													href={marketplaceItemHref(activity) ?? '#'}
+													target="_blank"
+													rel="noreferrer noopener"
+												>
+													{activityPriceLabel(activity)}
+												</a>
+											{:else}
+												{activityPriceLabel(activity)}
+											{/if}
+										{:else}
+											<span class="muted">-</span>
+										{/if}
+									{:else if column === 'image'}
+										<ActivityTokenCell
+											chainRef={chain?.slug ?? null}
+											collectionRef={collection?.slug ?? null}
+											tokenId={activity.tokenId}
+											token={tokenSummary(activity)}
+											tokenPreview={tokenPreview}
+										/>
+									{:else if column === 'name'}
+										{#if tokenName(activity)}
+											<span class="activities-name-text" title={tokenName(activity) ?? undefined}>
+												{tokenName(activity)}
+											</span>
+										{:else}
+											<span class="muted">-</span>
+										{/if}
+									{:else if column === 'from'}
+										{#if activityFromAddress(activity)}
+											<a
+												href={holderHref(activityFromAddress(activity) ?? '')}
+												title={activityFromAddress(activity) ?? undefined}
+											>
+												{maskAddress(activityFromAddress(activity))}
+											</a>
+										{:else}
+											<span class="muted">-</span>
+										{/if}
+									{:else if column === 'to'}
+										{#if activity.to}
+											<a href={holderHref(activity.to)} title={activity.to}>
+												{maskAddress(activity.to)}
+											</a>
+										{:else}
+											<span class="muted">-</span>
+										{/if}
+									{:else if column === 'time'}
+										{#if transactionHref(activity)}
+											<a
+												href={transactionHref(activity) ?? '#'}
+												target="_blank"
+												rel="noreferrer noopener"
+												title={occurredAtTitle(activity.occurredAt)}
+											>
+												{occurredAtLabel(activity.occurredAt)}
+											</a>
+										{:else}
+											<span title={occurredAtTitle(activity.occurredAt)}>
+												{occurredAtLabel(activity.occurredAt)}
+											</span>
+										{/if}
+									{/if}
+								</td>
+							{/each}
 						</tr>
 					{/each}
 				{/if}
@@ -226,3 +411,8 @@
 		</div>
 	</footer>
 </section>
+
+<TokenPreviewOverlay
+	state={$tokenPreviewState}
+	closeTokenPreview={tokenPreview.closeTokenPreview}
+/>

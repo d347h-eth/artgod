@@ -56,15 +56,18 @@ export type TokenAttribute = {
     value: string;
 };
 
-export type TokenCard = {
+export type TokenPresentationSummary = {
     tokenId: string;
     name: string | null;
     image: string | null;
+    hasMetadata: boolean;
+    metadataUpdatedAt: string | null;
+};
+
+export type TokenCard = TokenPresentationSummary & {
     listingPrice: string | null;
     listingCurrency: string | null;
     attributes: TokenAttribute[];
-    hasMetadata: boolean;
-    metadataUpdatedAt: string | null;
 };
 
 export type TokenDetailTrait = {

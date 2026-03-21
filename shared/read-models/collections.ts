@@ -178,6 +178,12 @@ export type GetCollectionTokenDetailParams = {
     tokenId: string;
 };
 
+export type ListCollectionTokenCardsByIdsParams = {
+    chainId: number;
+    collectionId: number;
+    tokenIds: string[];
+};
+
 export type ListCollectionHoldersParams = {
     chainId: number;
     collectionId: number;
@@ -835,6 +841,41 @@ export class SqliteCollectionsReadModel {
         };
     }
 
+    listCollectionTokenCardsByIds(
+        params: ListCollectionTokenCardsByIdsParams,
+    ): TokenCard[] {
+        const tokenIds = normalizeTokenIds(params.tokenIds);
+        if (tokenIds.length === 0) {
+            return [];
+        }
+
+        const placeholders = tokenIds.map(() => "?").join(", ");
+        const rows = db.raw
+            .prepare(
+                "SELECT t.token_id, m.name, m.image, NULL AS listing_price, NULL AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+                    "FROM tokens t " +
+                    "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
+                    "AND m.collection_id = t.collection_id " +
+                    "AND m.token_id = t.token_id " +
+                    "WHERE t.chain_id = ? AND t.collection_id = ? " +
+                    `AND t.token_id IN (${placeholders})`,
+            )
+            .all(
+                params.chainId,
+                params.collectionId,
+                ...tokenIds,
+            ) as TokenRow[];
+
+        const byId = new Map(
+            rows.map((row) => [row.token_id, mapTokenRow(row)]),
+        );
+
+        return tokenIds.flatMap((tokenId) => {
+            const token = byId.get(tokenId);
+            return token ? [token] : [];
+        });
+    }
+
     listCollectionHolders(
         params: ListCollectionHoldersParams,
     ): CollectionHolderPage {
@@ -1421,6 +1462,22 @@ function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {
     }
 
     return deduped;
+}
+
+function normalizeTokenIds(tokenIds: string[]): string[] {
+    const normalized: string[] = [];
+    const seen = new Set<string>();
+
+    for (const rawTokenId of tokenIds) {
+        const tokenId = rawTokenId.trim();
+        if (!tokenId || seen.has(tokenId)) {
+            continue;
+        }
+        seen.add(tokenId);
+        normalized.push(tokenId);
+    }
+
+    return normalized;
 }
 
 type TraitFilterGroup = {

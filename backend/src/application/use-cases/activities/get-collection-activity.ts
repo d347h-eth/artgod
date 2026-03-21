@@ -1,9 +1,15 @@
 import type {
+    ActivityFeedIncludes,
     ActivityFeedPage,
     ActivityFeedFilterKind,
     ChainRecord,
     CollectionListItem,
+    TokenCard,
 } from "@artgod/shared/types";
+import {
+    buildActivityFeedIncludes,
+    collectActivityTokenIds,
+} from "./token-presentation-summary.js";
 
 export type GetCollectionActivityInput = {
     chainRef: string;
@@ -17,6 +23,7 @@ export type GetCollectionActivityOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
     activities: ActivityFeedPage;
+    included: ActivityFeedIncludes;
 };
 
 export class GetCollectionActivityUseCase {
@@ -43,6 +50,13 @@ export class GetCollectionActivityUseCase {
                 kind?: ActivityFeedFilterKind;
             }): ActivityFeedPage;
         },
+        readonly tokenPresentationReadPort: {
+            listCollectionTokenCardsByIds(params: {
+                chainId: number;
+                collectionId: number;
+                tokenIds: string[];
+            }): TokenCard[];
+        },
     ) {}
 
     getCollectionActivity(
@@ -63,11 +77,19 @@ export class GetCollectionActivityUseCase {
             cursor: input.cursor,
             kind: input.kind,
         });
+        const included = buildActivityFeedIncludes(
+            this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                tokenIds: collectActivityTokenIds(activities.items),
+            }),
+        );
 
         return {
             chain,
             collection,
             activities,
+            included,
         };
     }
 }

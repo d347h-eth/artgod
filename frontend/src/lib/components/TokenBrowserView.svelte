@@ -9,7 +9,9 @@
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
-	import { getTokenDetail } from '$lib/backend-api';
+	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
+	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
+	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
 		readTokenWindow,
 		type TokenWindowState,
@@ -47,13 +49,10 @@
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
 	const TRAITS_COLLAPSED_STORAGE_KEY = 'artgod.tokenBrowser.traitsCollapsed';
 	const TRAITS_COLLAPSED_ROOT_CLASS = 'token-browser-traits-collapsed';
-	const TOKEN_PREVIEW_HEIGHT_STORAGE_KEY = 'artgod.tokenBrowser.previewHeightPercent';
-	const DEFAULT_TOKEN_PREVIEW_HEIGHT_PERCENT = 90;
-	const MIN_TOKEN_PREVIEW_HEIGHT_PERCENT = 5;
-	const MAX_TOKEN_PREVIEW_HEIGHT_PERCENT = 100;
-	const TOKEN_PREVIEW_HEIGHT_STEP_PERCENT = 5;
 	const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 	const WEI_BASE = 10n ** 18n;
+	const tokenPreview = createTokenPreviewController(fetch);
+	const tokenPreviewState = tokenPreview.state;
 
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let traitValueSearch = $state<Record<string, string>>({});
@@ -80,12 +79,6 @@
 	let nextDisplayMode = $derived<'grid' | 'table'>(isGridMode ? 'table' : 'grid');
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
-	let tokenPreviewOpen = $state(false);
-	let tokenPreviewMediaKind = $state<'iframe' | 'image' | null>(null);
-	let tokenPreviewMediaUrl = $state<string | null>(null);
-	let tokenPreviewTokenId = $state<string | null>(null);
-	let tokenPreviewRequestId = 0;
-	let tokenPreviewHeightPercent = $state(readInitialTokenPreviewHeightPercent());
 	let tokenGridAspectRatioById = $state<Record<string, number>>({});
 
 	$effect(() => {
@@ -126,18 +119,6 @@
 		document.documentElement.classList.toggle(TRAITS_COLLAPSED_ROOT_CLASS, traitsCollapsed);
 	});
 
-	$effect(() => {
-		if (!browser) return;
-		try {
-			window.localStorage.setItem(
-				TOKEN_PREVIEW_HEIGHT_STORAGE_KEY,
-				String(tokenPreviewHeightPercent)
-			);
-		} catch {
-			// Ignore storage failures and keep the in-memory state.
-		}
-	});
-
 	function readInitialTraitsCollapsed(): boolean {
 		if (!browser) return false;
 		try {
@@ -148,36 +129,6 @@
 		} catch {
 			return false;
 		}
-	}
-
-	function readInitialTokenPreviewHeightPercent(): number {
-		if (!browser) return DEFAULT_TOKEN_PREVIEW_HEIGHT_PERCENT;
-		try {
-			const raw = window.localStorage.getItem(TOKEN_PREVIEW_HEIGHT_STORAGE_KEY);
-			if (!raw) return DEFAULT_TOKEN_PREVIEW_HEIGHT_PERCENT;
-			const parsed = Number(raw);
-			if (!Number.isInteger(parsed)) return DEFAULT_TOKEN_PREVIEW_HEIGHT_PERCENT;
-			return clampTokenPreviewHeightPercent(parsed);
-		} catch {
-			return DEFAULT_TOKEN_PREVIEW_HEIGHT_PERCENT;
-		}
-	}
-
-	function clampTokenPreviewHeightPercent(value: number): number {
-		return Math.min(
-			MAX_TOKEN_PREVIEW_HEIGHT_PERCENT,
-			Math.max(MIN_TOKEN_PREVIEW_HEIGHT_PERCENT, value)
-		);
-	}
-
-	function adjustTokenPreviewHeight(deltaPercent: number): void {
-		tokenPreviewHeightPercent = clampTokenPreviewHeightPercent(
-			tokenPreviewHeightPercent + deltaPercent
-		);
-	}
-
-	function tokenPreviewStyle(): string {
-		return `--token-preview-height-vh:${tokenPreviewHeightPercent}vh;`;
 	}
 
 	function traitId(key: string, value: string): string {
@@ -218,10 +169,6 @@
 			query.append('traits', `${trait.key}:${trait.value}`);
 		}
 		return query.toString();
-	}
-
-	function tokenPreviewAriaLabel(tokenId: string): string {
-		return `preview token ${tokenId}`;
 	}
 
 	function tokenPreviewGridStyle(tokenId: string): string | undefined {
@@ -278,8 +225,11 @@
 	}
 
 	function openseaItemHref(token: ApiTokenCard): string | null {
-		if (!chain || !collection) return null;
-		return `https://opensea.io/item/${chain.slug}/${collection.address}/${encodeURIComponent(token.tokenId)}`;
+		return buildOpenseaItemHref({
+			chainSlug: chain?.slug ?? null,
+			collectionAddress: collection?.address ?? null,
+			tokenId: token.tokenId
+		});
 	}
 
 	function onTokenGridImageLoad(tokenId: string, event: Event): void {
@@ -632,34 +582,9 @@
 	}
 
 	function onGlobalKeydown(event: KeyboardEvent): void {
-		if (tokenPreviewOpen) {
-			if (event.defaultPrevented) return;
-			if (event.metaKey || event.ctrlKey || event.altKey) return;
-
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				closeTokenPreview();
-				return;
-			}
-
-			if (event.key === '+' || event.key === '=' || event.key === 'NumpadAdd') {
-				event.preventDefault();
-				adjustTokenPreviewHeight(TOKEN_PREVIEW_HEIGHT_STEP_PERCENT);
-				return;
-			}
-
-			if (event.key === '-' || event.key === '_' || event.key === 'NumpadSubtract') {
-				event.preventDefault();
-				adjustTokenPreviewHeight(-TOKEN_PREVIEW_HEIGHT_STEP_PERCENT);
-				return;
-			}
-
-			if (event.key === '0' || event.key === 'Numpad0') {
-				event.preventDefault();
-				tokenPreviewHeightPercent = DEFAULT_TOKEN_PREVIEW_HEIGHT_PERCENT;
-				return;
-			}
-
+		const previewWasOpen = $tokenPreviewState.open;
+		tokenPreview.onWindowKeydown(event);
+		if (previewWasOpen) {
 			return;
 		}
 
@@ -678,60 +603,13 @@
 		return tag === 'input' || tag === 'textarea' || tag === 'select';
 	}
 
-	function activeCollectionRef(): string | null {
-		if (!collection) return null;
-		return collection.slug;
-	}
-
-	function closeTokenPreview(): void {
-		tokenPreviewRequestId += 1;
-		tokenPreviewOpen = false;
-		tokenPreviewMediaKind = null;
-		tokenPreviewMediaUrl = null;
-		tokenPreviewTokenId = null;
-	}
-
-	function onTokenPreviewBackdropClick(event: MouseEvent): void {
-		if (event.target !== event.currentTarget) return;
-		closeTokenPreview();
-	}
-
-	function onTokenPreviewBackdropKeydown(event: KeyboardEvent): void {
-		if (event.key !== 'Escape') return;
-		event.preventDefault();
-		closeTokenPreview();
-	}
-
 	async function onOpenTokenPreview(token: ApiTokenCard): Promise<void> {
 		if (!chain || !collection) return;
-		const collectionRef = activeCollectionRef();
-		if (!collectionRef) return;
-		const requestId = ++tokenPreviewRequestId;
-		tokenPreviewOpen = true;
-		tokenPreviewMediaKind = null;
-		tokenPreviewMediaUrl = null;
-		tokenPreviewTokenId = token.tokenId;
-
-		try {
-			const response = await getTokenDetail(fetch, chain.slug, collectionRef, token.tokenId);
-			if (requestId !== tokenPreviewRequestId) return;
-
-			tokenPreviewTokenId = response.token.tokenId;
-			if (response.token.animationUrl) {
-				tokenPreviewMediaKind = 'iframe';
-				tokenPreviewMediaUrl = response.token.animationUrl;
-				return;
-			}
-			if (response.token.image) {
-				tokenPreviewMediaKind = 'image';
-				tokenPreviewMediaUrl = response.token.image;
-				return;
-			}
-			closeTokenPreview();
-		} catch {
-			if (requestId !== tokenPreviewRequestId) return;
-			closeTokenPreview();
-		}
+		await tokenPreview.openTokenPreview({
+			chainRef: chain.slug,
+			collectionRef: collection.slug,
+			tokenId: token.tokenId
+		});
 	}
 </script>
 
@@ -859,7 +737,7 @@
 											type="button"
 											class="token-preview-trigger token-preview-trigger-grid"
 											style={tokenPreviewGridStyle(token.tokenId)}
-											aria-label={tokenPreviewAriaLabel(token.tokenId)}
+											aria-label={tokenPreview.tokenPreviewAriaLabel(token.tokenId)}
 											onclick={() => void onOpenTokenPreview(token)}
 										>
 											<img
@@ -940,7 +818,7 @@
 											<button
 												type="button"
 												class="token-preview-trigger token-preview-trigger-inline"
-												aria-label={tokenPreviewAriaLabel(token.tokenId)}
+												aria-label={tokenPreview.tokenPreviewAriaLabel(token.tokenId)}
 												onclick={() => void onOpenTokenPreview(token)}
 											>
 												<img
@@ -1033,34 +911,7 @@
 	</div>
 </div>
 
-{#if tokenPreviewOpen}
-	<div
-		class="token-preview-overlay"
-		style={tokenPreviewStyle()}
-		role="dialog"
-		aria-modal="true"
-		aria-label="Token Preview"
-		tabindex="-1"
-		onclick={onTokenPreviewBackdropClick}
-		onkeydown={onTokenPreviewBackdropKeydown}
-	>
-		{#if tokenPreviewMediaKind === 'iframe' && tokenPreviewMediaUrl}
-			<iframe
-				class="token-preview-frame"
-				src={tokenPreviewMediaUrl}
-				title={tokenPreviewTokenId ? `token ${tokenPreviewTokenId}` : 'token preview'}
-				sandbox="allow-scripts"
-				referrerpolicy="no-referrer"
-			></iframe>
-		{:else if tokenPreviewMediaKind === 'image' && tokenPreviewMediaUrl}
-			<img
-				class="token-preview-image"
-				src={tokenPreviewMediaUrl}
-				alt={tokenPreviewTokenId ? `token ${tokenPreviewTokenId}` : 'token preview'}
-				loading="eager"
-				decoding="async"
-				referrerpolicy="no-referrer"
-			/>
-		{/if}
-	</div>
-{/if}
+<TokenPreviewOverlay
+	state={$tokenPreviewState}
+	closeTokenPreview={tokenPreview.closeTokenPreview}
+/>

@@ -5,13 +5,17 @@
 		ApiActivitiesPage,
 		ApiActivityFeedFilterKind,
 		ApiChain,
-		ApiCollection
+		ApiCollection,
+		ApiTokenPresentationSummary
 	} from '$lib/api-types';
 
 	type PageData = {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		activities: ApiActivitiesPage;
+		included: {
+			tokensById: Record<string, ApiTokenPresentationSummary>;
+		};
 		basePath: string;
 		filterKind: ApiActivityFeedFilterKind;
 	};
@@ -35,6 +39,7 @@
 	chain={data?.chain ?? null}
 	collection={data?.collection ?? null}
 	activities={data?.activities ?? fallbackActivities}
+	included={data?.included ?? { tokensById: {} }}
 	basePath={data?.basePath ?? '/'}
 	filterKind={data?.filterKind ?? 'sales'}
 />

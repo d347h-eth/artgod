@@ -112,6 +112,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         chainsReadModel,
         extensionAwareCollectionsReadModel,
         activitiesReadModel,
+        extensionAwareCollectionsReadModel,
     );
     const getCollectionHoldersUseCase = new GetCollectionHoldersUseCase(
         config.defaultChainId,
@@ -128,6 +129,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         chainsReadModel,
         extensionAwareCollectionsReadModel,
         activitiesReadModel,
+        extensionAwareCollectionsReadModel,
     );
     const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
         new SqliteRuntimeHealthAdapter(),

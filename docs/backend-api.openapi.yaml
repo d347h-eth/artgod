@@ -506,7 +506,7 @@ components:
             description: |
                 Grouped activity-kind filter.
                 `sales` returns only `sale`.
-                `listings` returns `listing_created` and `listing_cancelled`.
+                `listings` returns only `listing_created`.
                 `transfers` returns only `transfer`.
 
     responses:
@@ -959,6 +959,27 @@ components:
             type: string
             enum: [onchain, offchain, extension]
 
+        TokenPresentationSummary:
+            type: object
+            required:
+                [tokenId, name, image, hasMetadata, metadataUpdatedAt]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                name:
+                    type: string
+                    nullable: true
+                image:
+                    type: string
+                    nullable: true
+                hasMetadata:
+                    type: boolean
+                metadataUpdatedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+
         ActivityFeedItem:
             type: object
             required:
@@ -1084,9 +1105,19 @@ components:
                 totalPages:
                     type: integer
 
+        ActivityFeedIncludes:
+            type: object
+            required: [tokensById]
+            additionalProperties: false
+            properties:
+                tokensById:
+                    type: object
+                    additionalProperties:
+                        $ref: "#/components/schemas/TokenPresentationSummary"
+
         GetCollectionActivityResponse:
             type: object
-            required: [chain, collection, activities]
+            required: [chain, collection, activities, included]
             additionalProperties: false
             properties:
                 chain:
@@ -1095,6 +1126,8 @@ components:
                     $ref: "#/components/schemas/CollectionListItem"
                 activities:
                     $ref: "#/components/schemas/ActivityCursorPage"
+                included:
+                    $ref: "#/components/schemas/ActivityFeedIncludes"
 
         GetTokenDetailResponse:
             type: object
@@ -1110,7 +1143,7 @@ components:
 
         GetTokenActivityResponse:
             type: object
-            required: [chain, collection, token, activities]
+            required: [chain, collection, token, activities, included]
             additionalProperties: false
             properties:
                 chain:
@@ -1121,6 +1154,8 @@ components:
                     $ref: "#/components/schemas/TokenDetail"
                 activities:
                     $ref: "#/components/schemas/ActivityCursorPage"
+                included:
+                    $ref: "#/components/schemas/ActivityFeedIncludes"
 
         GetDefaultChainResponse:
             type: object

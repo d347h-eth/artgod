@@ -7,6 +7,7 @@ import type { BackendCollectionExtensionArtifactRecord } from "../../application
 import type {
     CollectionHolderPage,
     CollectionListItem,
+    TokenCard,
     TokenBrowserStatus,
     TokenCursorPage,
     TokenDetail,
@@ -59,6 +60,11 @@ type CollectionDetailReadPort = {
         collectionId: number;
         tokenId: string;
     }): TokenDetail;
+    listCollectionTokenCardsByIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+    }): TokenCard[];
 };
 
 export class ExtensionAwareCollectionDetailRead {
@@ -162,6 +168,39 @@ export class ExtensionAwareCollectionDetailRead {
                 params.chainId,
                 params.collectionId,
                 params.tokenId,
+            ),
+        );
+    }
+
+    listCollectionTokenCardsByIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+    }): TokenCard[] {
+        const tokens = this.baseReadPort.listCollectionTokenCardsByIds(params);
+        const install = this.extensionRecords.getInstallByCollectionId(
+            params.chainId,
+            params.collectionId,
+        );
+        if (!install?.enabled) {
+            return tokens;
+        }
+
+        const extension = resolveBackendCollectionExtension(install);
+        if (!extension) {
+            return tokens;
+        }
+
+        return tokens.map((token) =>
+            extension.resolveTokenCard(
+                install,
+                token,
+                this.resolvePresentationArtifact(
+                    install,
+                    params.chainId,
+                    params.collectionId,
+                    token.tokenId,
+                ),
             ),
         );
     }

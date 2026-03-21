@@ -59,6 +59,14 @@ export type ApiActivityFeedItem = {
 	payload: Record<string, unknown> | null;
 };
 
+export type ApiTokenPresentationSummary = {
+	tokenId: string;
+	name: string | null;
+	image: string | null;
+	hasMetadata: boolean;
+	metadataUpdatedAt: string | null;
+};
+
 export type ApiActivitiesPage = {
 	items: ApiActivityFeedItem[];
 	prevCursor: string | null;
@@ -170,12 +178,25 @@ export type CollectionActivitiesApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
 	activities: ApiActivitiesPage;
+	included: {
+		tokensById: Record<string, ApiTokenPresentationSummary>;
+	};
 };
 
 export type TokenDetailApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
 	token: ApiTokenDetail;
+};
+
+export type TokenActivitiesApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	token: ApiTokenDetail;
+	activities: ApiActivitiesPage;
+	included: {
+		tokensById: Record<string, ApiTokenPresentationSummary>;
+	};
 };
 
 export type DefaultChainResponse = {

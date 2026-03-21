@@ -105,6 +105,7 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             activitiesReadModel,
+            collectionsReadModel,
         );
     const getCollectionHoldersUseCase =
         new collectionHoldersUseCaseModule.GetCollectionHoldersUseCase(
@@ -124,6 +125,7 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             activitiesReadModel,
+            collectionsReadModel,
         );
     const runtimeHealthUseCase =
         new runtimeHealthUseCaseModule.GetRuntimeHealthUseCase(
@@ -367,6 +369,15 @@ describe("backend api routes", () => {
         expect(first.payload.activities.rangeEnd).toBe(2);
         expect(first.payload.activities.currentPage).toBe(1);
         expect(first.payload.activities.totalPages).toBe(3);
+        expect(first.payload.included.tokensById).toEqual({
+            "1": {
+                tokenId: "1",
+                name: "Milady #1",
+                image: "https://example.com/1.png",
+                hasMetadata: true,
+                metadataUpdatedAt: "2026-01-01T00:00:00Z",
+            },
+        });
         expect(
             first.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
@@ -463,11 +474,8 @@ describe("backend api routes", () => {
             listings.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
             ),
-        ).toEqual([
-            ACTIVITY_KIND.ListingCancelled,
-            ACTIVITY_KIND.ListingCreated,
-        ]);
-        expect(listings.payload.activities.totalItems).toBe(2);
+        ).toEqual([ACTIVITY_KIND.ListingCreated]);
+        expect(listings.payload.activities.totalItems).toBe(1);
 
         const transfers = await resolve(
             "GET",
@@ -491,6 +499,15 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.slug).toBe("milady");
         expect(result.payload.token.tokenId).toBe("1");
+        expect(result.payload.included.tokensById).toEqual({
+            "1": {
+                tokenId: "1",
+                name: "Milady #1",
+                image: "https://example.com/1.png",
+                hasMetadata: true,
+                metadataUpdatedAt: "2026-01-01T00:00:00Z",
+            },
+        });
         expect(
             result.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
@@ -536,10 +553,7 @@ describe("backend api routes", () => {
             listingsOnly.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
             ),
-        ).toEqual([
-            ACTIVITY_KIND.ListingCancelled,
-            ACTIVITY_KIND.ListingCreated,
-        ]);
+        ).toEqual([ACTIVITY_KIND.ListingCreated]);
     });
 
     it("returns owner-scoped collection detail with listed tokens first and owner-scoped facets", async () => {

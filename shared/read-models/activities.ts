@@ -191,9 +191,7 @@ function buildActivityWhereClauses(params: {
             whereClauses.push("kind = 'sale'");
             break;
         case "listings":
-            whereClauses.push(
-                "(kind = 'listing_created' OR kind = 'listing_cancelled')",
-            );
+            whereClauses.push("kind = 'listing_created'");
             break;
         case "transfers":
             whereClauses.push("kind = 'transfer'");
