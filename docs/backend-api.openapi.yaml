@@ -134,11 +134,12 @@ paths:
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/ActivityKindFilter"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
             responses:
                 "200":
-                    description: Collection activity feed ordered newest first
+                    description: Collection activity feed ordered newest first with bidirectional cursor pagination
                     content:
                         application/json:
                             schema:
@@ -241,11 +242,12 @@ paths:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
+                - $ref: "#/components/parameters/ActivityKindFilter"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
             responses:
                 "200":
-                    description: Token activity feed ordered newest first
+                    description: Token activity feed ordered newest first with bidirectional cursor pagination
                     content:
                         application/json:
                             schema:
@@ -495,6 +497,17 @@ components:
             schema:
                 type: string
             description: Opaque page cursor
+        ActivityKindFilter:
+            name: kind
+            in: query
+            required: false
+            schema:
+                $ref: "#/components/schemas/ActivityFeedFilterKind"
+            description: |
+                Grouped activity-kind filter.
+                `sales` returns only `sale`.
+                `listings` returns `listing_created` and `listing_cancelled`.
+                `transfers` returns only `transfer`.
 
     responses:
         BadRequest:
@@ -938,6 +951,10 @@ components:
                     custom,
                 ]
 
+        ActivityFeedFilterKind:
+            type: string
+            enum: [sales, listings, transfers]
+
         ActivitySourceKind:
             type: string
             enum: [onchain, offchain, extension]
@@ -1032,7 +1049,16 @@ components:
 
         ActivityCursorPage:
             type: object
-            required: [items, nextCursor, limit]
+            required:
+                - items
+                - nextCursor
+                - limit
+                - prevCursor
+                - totalItems
+                - rangeStart
+                - rangeEnd
+                - currentPage
+                - totalPages
             additionalProperties: false
             properties:
                 items:
@@ -1043,6 +1069,19 @@ components:
                     type: string
                     nullable: true
                 limit:
+                    type: integer
+                prevCursor:
+                    type: string
+                    nullable: true
+                totalItems:
+                    type: integer
+                rangeStart:
+                    type: integer
+                rangeEnd:
+                    type: integer
+                currentPage:
+                    type: integer
+                totalPages:
                     type: integer
 
         GetCollectionActivityResponse:

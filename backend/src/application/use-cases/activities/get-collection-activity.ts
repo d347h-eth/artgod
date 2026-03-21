@@ -1,5 +1,6 @@
 import type {
     ActivityFeedPage,
+    ActivityFeedFilterKind,
     ChainRecord,
     CollectionListItem,
 } from "@artgod/shared/types";
@@ -9,6 +10,7 @@ export type GetCollectionActivityInput = {
     collectionRef: string;
     limit: number;
     cursor?: string;
+    kind?: ActivityFeedFilterKind;
 };
 
 export type GetCollectionActivityOutput = {
@@ -38,6 +40,7 @@ export class GetCollectionActivityUseCase {
                 collectionId: number;
                 limit: number;
                 cursor?: string;
+                kind?: ActivityFeedFilterKind;
             }): ActivityFeedPage;
         },
     ) {}
@@ -58,6 +61,7 @@ export class GetCollectionActivityUseCase {
             collectionId: collection.collectionId,
             limit: input.limit,
             cursor: input.cursor,
+            kind: input.kind,
         });
 
         return {

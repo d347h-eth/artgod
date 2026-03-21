@@ -5,6 +5,7 @@ import {
     isAddressRef,
     normalizeAddressRef,
 } from "@artgod/shared/utils/ref-resolver";
+import type { ActivityFeedFilterKind } from "@artgod/shared/types";
 import type {
     CollectionStatus,
     TokenBrowserStatus,
@@ -45,6 +46,12 @@ const ALLOWED_BOOTSTRAP_RUN_STATUSES = new Set<BootstrapRunStatus>([
     "failed",
 ]);
 
+const ALLOWED_ACTIVITY_FILTER_KINDS = new Set<ActivityFeedFilterKind>([
+    "sales",
+    "listings",
+    "transfers",
+]);
+
 export function getSearchParams(request: FastifyRequest): URLSearchParams {
     return new URL(request.raw.url ?? "/", "http://localhost").searchParams;
 }
@@ -69,6 +76,16 @@ export function parseLimit(raw: string | null): number {
 export function parseCursor(raw: string | null): string | null {
     if (!raw || !raw.trim()) return null;
     return raw.trim();
+}
+
+export function parseActivityFilterKind(
+    raw: string | null,
+): ActivityFeedFilterKind | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    if (!ALLOWED_ACTIVITY_FILTER_KINDS.has(raw as ActivityFeedFilterKind)) {
+        throw new ReadModelBadRequestError("Invalid kind");
+    }
+    return raw as ActivityFeedFilterKind;
 }
 
 export function parseOwner(raw: string | null): string | undefined {

@@ -56,6 +56,7 @@ describe('CollectionHoldersView', () => {
 		expect(body).toContain('4 holders');
 		expect(body).toContain('showing 1-2 of 4');
 		expect(body).toContain('load next');
+		expect(body).toContain('/ethereum/milady/activity?kind=sales');
 		expect(body).toContain('/ethereum/milady/holders');
 		expect(body).toContain('/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 	});

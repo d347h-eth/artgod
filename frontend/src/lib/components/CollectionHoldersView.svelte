@@ -13,6 +13,7 @@
 		resolveForwardWindowState,
 		writeForwardWindow
 	} from '$lib/components/forward-window-cache';
+	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
 
 	let {
 		chain,
@@ -156,11 +157,7 @@
 
 	<header class="panel-header">
 		{#if collection}
-			<div class="runtime-tabs" aria-label="Collection sections">
-				<a href={tokensHref()}>tokens</a>
-				<button type="button" disabled>offers</button>
-				<a href={holdersHref()} class="runtime-tab-active" aria-current="page">holders</a>
-			</div>
+			<CollectionSectionTabs basePath={basePath} active="holders" />
 		{:else}
 			<span class="muted">collection not found</span>
 		{/if}

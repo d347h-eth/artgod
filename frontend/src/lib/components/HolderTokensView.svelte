@@ -6,6 +6,7 @@
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
+	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 
 	let {
@@ -55,11 +56,7 @@
 
 	<header class="panel-header">
 		{#if collection}
-			<div class="runtime-tabs" aria-label="Collection sections">
-				<a href={collectionBasePath}>tokens</a>
-				<button type="button" disabled>offers</button>
-				<a href={holdersBasePath} class="runtime-tab-active" aria-current="page">holders</a>
-			</div>
+			<CollectionSectionTabs basePath={collectionBasePath} active="holders" />
 		{:else}
 			<span class="muted">collection not found</span>
 		{/if}

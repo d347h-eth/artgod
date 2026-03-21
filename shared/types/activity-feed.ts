@@ -1,4 +1,13 @@
-import type { CursorPage } from "./browse.js";
+import type { ForwardCursorPage } from "./browse.js";
+
+export const ACTIVITY_FEED_FILTER_KIND = {
+    Sales: "sales",
+    Listings: "listings",
+    Transfers: "transfers",
+} as const;
+
+export type ActivityFeedFilterKind =
+    (typeof ACTIVITY_FEED_FILTER_KIND)[keyof typeof ACTIVITY_FEED_FILTER_KIND];
 
 export const ACTIVITY_SCOPE_KIND = {
     Token: "token",
@@ -55,8 +64,11 @@ export type ActivityFeedItem = {
 };
 
 export type ActivityFeedCursor = {
+    filterKind: ActivityFeedFilterKind | null;
     occurredAt: number;
     id: number;
 };
 
-export type ActivityFeedPage = CursorPage<ActivityFeedItem>;
+export type ActivityFeedPage = ForwardCursorPage<ActivityFeedItem> & {
+    prevCursor: string | null;
+};

@@ -4,6 +4,7 @@ import type {
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BootstrapStatusApiResponse,
+	CollectionActivitiesApiResponse,
 	CollectionDetailApiResponse,
 	CollectionHoldersApiResponse,
 	CollectionsApiResponse,
@@ -70,6 +71,20 @@ export async function getCollectionHolders(
 	return requestJson<CollectionHoldersApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/holders${suffix}`
+	);
+}
+
+export async function getCollectionActivities(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	params: URLSearchParams
+): Promise<CollectionActivitiesApiResponse> {
+	const query = params.toString();
+	const suffix = query ? `?${query}` : '';
+	return requestJson<CollectionActivitiesApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/activity${suffix}`
 	);
 }
 

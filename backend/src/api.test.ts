@@ -352,7 +352,7 @@ describe("backend api routes", () => {
         );
     });
 
-    it("returns collection activity with stable cursor pagination", async () => {
+    it("returns collection activity with bidirectional pagination metadata", async () => {
         const first = await resolve(
             "GET",
             "/api/ethereum/milady/activity?limit=2",
@@ -361,6 +361,12 @@ describe("backend api routes", () => {
         expect(first.statusCode).toBe(200);
         expect(first.payload.collection.address).toBe(MILADY_ADDRESS);
         expect(first.payload.activities.items).toHaveLength(2);
+        expect(first.payload.activities.prevCursor).toBeNull();
+        expect(first.payload.activities.totalItems).toBe(5);
+        expect(first.payload.activities.rangeStart).toBe(1);
+        expect(first.payload.activities.rangeEnd).toBe(2);
+        expect(first.payload.activities.currentPage).toBe(1);
+        expect(first.payload.activities.totalPages).toBe(3);
         expect(
             first.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
@@ -394,8 +400,86 @@ describe("backend api routes", () => {
             second.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
             ),
-        ).toEqual([ACTIVITY_KIND.ListingCreated, ACTIVITY_KIND.BidCreated]);
-        expect(second.payload.activities.nextCursor).toBeNull();
+        ).toEqual([
+            ACTIVITY_KIND.ListingCancelled,
+            ACTIVITY_KIND.ListingCreated,
+        ]);
+        expect(second.payload.activities.prevCursor).toBeNull();
+        expect(second.payload.activities.nextCursor).toEqual(expect.any(String));
+        expect(second.payload.activities.rangeStart).toBe(3);
+        expect(second.payload.activities.rangeEnd).toBe(4);
+        expect(second.payload.activities.currentPage).toBe(2);
+
+        const third = await resolve(
+            "GET",
+            `/api/ethereum/milady/activity?limit=2&cursor=${encodeURIComponent(second.payload.activities.nextCursor)}`,
+        );
+
+        expect(third.statusCode).toBe(200);
+        expect(
+            third.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([ACTIVITY_KIND.BidCreated]);
+        expect(third.payload.activities.prevCursor).toEqual(expect.any(String));
+        expect(third.payload.activities.nextCursor).toBeNull();
+        expect(third.payload.activities.rangeStart).toBe(5);
+        expect(third.payload.activities.rangeEnd).toBe(5);
+        expect(third.payload.activities.currentPage).toBe(3);
+
+        const previousOfThird = await resolve(
+            "GET",
+            `/api/ethereum/milady/activity?limit=2&cursor=${encodeURIComponent(third.payload.activities.prevCursor)}`,
+        );
+        expect(
+            previousOfThird.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([
+            ACTIVITY_KIND.ListingCancelled,
+            ACTIVITY_KIND.ListingCreated,
+        ]);
+    });
+
+    it("filters collection activity by grouped kind", async () => {
+        const sales = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?limit=10&kind=sales",
+        );
+        expect(sales.statusCode).toBe(200);
+        expect(
+            sales.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([ACTIVITY_KIND.Sale]);
+        expect(sales.payload.activities.totalItems).toBe(1);
+
+        const listings = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?limit=10&kind=listings",
+        );
+        expect(listings.statusCode).toBe(200);
+        expect(
+            listings.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([
+            ACTIVITY_KIND.ListingCancelled,
+            ACTIVITY_KIND.ListingCreated,
+        ]);
+        expect(listings.payload.activities.totalItems).toBe(2);
+
+        const transfers = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?limit=10&kind=transfers",
+        );
+        expect(transfers.statusCode).toBe(200);
+        expect(
+            transfers.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([ACTIVITY_KIND.Transfer]);
+        expect(transfers.payload.activities.totalItems).toBe(1);
     });
 
     it("returns token activity filtered to a single token", async () => {
@@ -414,6 +498,7 @@ describe("backend api routes", () => {
         ).toEqual([
             ACTIVITY_KIND.Sale,
             ACTIVITY_KIND.Transfer,
+            ACTIVITY_KIND.ListingCancelled,
             ACTIVITY_KIND.ListingCreated,
         ]);
         expect(
@@ -429,9 +514,32 @@ describe("backend api routes", () => {
             price: "500000000000000000",
             currency: ZERO_ADDRESS,
             payload: {
+                eventType: "item_cancelled",
+            },
+        });
+        expect(result.payload.activities.items[3]).toMatchObject({
+            sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+            sourceName: "opensea",
+            side: "sell",
+            price: "500000000000000000",
+            currency: ZERO_ADDRESS,
+            payload: {
                 eventType: "item_listed",
             },
         });
+
+        const listingsOnly = await resolve(
+            "GET",
+            "/api/ethereum/milady/1/activity?limit=10&kind=listings",
+        );
+        expect(
+            listingsOnly.payload.activities.items.map(
+                (activity: { kind: string }) => activity.kind,
+            ),
+        ).toEqual([
+            ACTIVITY_KIND.ListingCancelled,
+            ACTIVITY_KIND.ListingCreated,
+        ]);
     });
 
     it("returns owner-scoped collection detail with listed tokens first and owner-scoped facets", async () => {
@@ -1653,6 +1761,24 @@ function seedData(): void {
         amount: "1",
         dedupeKey:
             "onchain:transfer:1:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:2:1",
+    });
+    insertActivityFixture({
+        collectionAddress: MILADY_ADDRESS,
+        scopeKind: ACTIVITY_SCOPE_KIND.Token,
+        kind: ACTIVITY_KIND.ListingCancelled,
+        tokenId: "1",
+        occurredAt: 1_726_000_250,
+        sourceKind: ACTIVITY_SOURCE_KIND.Offchain,
+        sourceName: "opensea",
+        orderId: "listed-milady-1-cheapest",
+        maker: "0x9999999999999999999999999999999999999999",
+        side: "sell",
+        price: "500000000000000000",
+        currency: ZERO_ADDRESS,
+        payload: {
+            eventType: "item_cancelled",
+        },
+        dedupeKey: "offchain:opensea:item_cancelled:listed-milady-1-cheapest:1",
     });
     insertActivityFixture({
         collectionAddress: MILADY_ADDRESS,

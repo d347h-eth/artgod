@@ -24,6 +24,53 @@ export type ApiCollectionHolder = {
 	tokenCount: string;
 };
 
+export type ApiActivityFeedFilterKind = 'sales' | 'listings' | 'transfers';
+
+export type ApiActivityKind =
+	| 'transfer'
+	| 'sale'
+	| 'listing_created'
+	| 'listing_cancelled'
+	| 'bid_created'
+	| 'bid_cancelled'
+	| 'custom';
+
+export type ApiActivityFeedItem = {
+	id: number;
+	scopeKind: 'token' | 'collection' | 'attribute';
+	kind: ApiActivityKind;
+	contract: string;
+	tokenId: string | null;
+	occurredAt: number;
+	sourceKind: 'onchain' | 'offchain' | 'extension';
+	sourceName: string;
+	orderId: string | null;
+	blockNumber: number | null;
+	txHash: string | null;
+	logIndex: number | null;
+	from: string | null;
+	to: string | null;
+	maker: string | null;
+	taker: string | null;
+	side: 'buy' | 'sell' | null;
+	amount: string | null;
+	price: string | null;
+	currency: string | null;
+	payload: Record<string, unknown> | null;
+};
+
+export type ApiActivitiesPage = {
+	items: ApiActivityFeedItem[];
+	prevCursor: string | null;
+	nextCursor: string | null;
+	limit: number;
+	totalItems: number;
+	rangeStart: number;
+	rangeEnd: number;
+	currentPage: number;
+	totalPages: number;
+};
+
 export type ApiCollectionHoldersPage = {
 	items: ApiCollectionHolder[];
 	nextCursor: string | null;
@@ -117,6 +164,12 @@ export type CollectionHoldersApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
 	holders: ApiCollectionHoldersPage;
+};
+
+export type CollectionActivitiesApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	activities: ApiActivitiesPage;
 };
 
 export type TokenDetailApiResponse = {

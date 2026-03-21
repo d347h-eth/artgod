@@ -4,6 +4,7 @@ import type {
     GetCollectionActivityOutput,
 } from "../../../application/use-cases/activities/get-collection-activity.js";
 import {
+    parseActivityFilterKind,
     getSearchParams,
     parseCursor,
     parseLimit,
@@ -42,12 +43,14 @@ export class GetCollectionActivityHttpAdapter {
         const searchParams = getSearchParams(request);
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
+        const kind = parseActivityFilterKind(searchParams.get("kind"));
 
         return {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             limit,
             cursor: cursor ?? undefined,
+            kind,
         };
     }
 

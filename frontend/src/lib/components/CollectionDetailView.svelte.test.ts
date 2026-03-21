@@ -57,6 +57,7 @@ describe('CollectionDetailView', () => {
 		});
 
 		expect(body).toContain('tokens');
+		expect(body).toContain('/ethereum/milady/activity?kind=sales');
 		expect(body).toContain('switch to table mode');
 		expect(body).toContain('1 listed');
 		expect(body).toContain('token 1');

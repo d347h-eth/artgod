@@ -9,6 +9,7 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
+	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 
 	let {
@@ -103,11 +104,7 @@
 
 	<header class="panel-header">
 		{#if collection}
-			<div class="runtime-tabs" aria-label="Collection sections">
-				<a href={basePath} class="runtime-tab-active" aria-current="page">tokens</a>
-				<button type="button" disabled>offers</button>
-				<a href={holdersHref()}>holders</a>
-			</div>
+			<CollectionSectionTabs basePath={basePath} active="tokens" />
 		{:else}
 			<span class="muted">collection not found</span>
 		{/if}

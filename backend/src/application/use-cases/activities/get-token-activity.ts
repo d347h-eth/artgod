@@ -1,5 +1,6 @@
 import type {
     ActivityFeedPage,
+    ActivityFeedFilterKind,
     ChainRecord,
     CollectionListItem,
     TokenDetail,
@@ -11,6 +12,7 @@ export type GetTokenActivityInput = {
     tokenRef: string;
     limit: number;
     cursor?: string;
+    kind?: ActivityFeedFilterKind;
 };
 
 export type GetTokenActivityOutput = {
@@ -47,6 +49,7 @@ export class GetTokenActivityUseCase {
                 tokenId: string;
                 limit: number;
                 cursor?: string;
+                kind?: ActivityFeedFilterKind;
             }): ActivityFeedPage;
         },
     ) {}
@@ -71,6 +74,7 @@ export class GetTokenActivityUseCase {
             tokenId: token.tokenId,
             limit: input.limit,
             cursor: input.cursor,
+            kind: input.kind,
         });
 
         return {

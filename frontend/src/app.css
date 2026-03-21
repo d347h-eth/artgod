@@ -911,7 +911,17 @@ th {
 	margin-inline: auto;
 }
 
+.activities-table-wrap,
+.activities-summary {
+	width: 100%;
+	margin-inline: auto;
+}
+
 .holders-table {
+	table-layout: fixed;
+}
+
+.activities-table {
 	table-layout: fixed;
 }
 
@@ -922,7 +932,19 @@ th {
 	border-right: 0;
 }
 
+.activities-table th,
+.activities-table td {
+	border-top: 0;
+	border-left: 0;
+	border-right: 0;
+	vertical-align: top;
+}
+
 .holders-table tbody tr:hover td {
+	background: color-mix(in srgb, var(--c-blue) 14%, var(--c-bg));
+}
+
+.activities-table tbody tr:hover td {
 	background: color-mix(in srgb, var(--c-blue) 14%, var(--c-bg));
 }
 
@@ -945,6 +967,31 @@ th {
 
 .holder-owner-cell {
 	word-break: break-all;
+}
+
+.activities-time-col,
+.activities-time-cell {
+	width: 22%;
+}
+
+.activities-token-col,
+.activities-token-cell {
+	width: 13%;
+}
+
+.activities-kind-col,
+.activities-kind-cell {
+	width: 17%;
+}
+
+.activities-details-col,
+.activities-details-cell {
+	width: 48%;
+}
+
+.activities-details-cell,
+.activities-time-cell {
+	word-break: break-word;
 }
 
 .pagination-summary {
@@ -1213,7 +1260,8 @@ th {
 }
 
 .runtime-tabs button,
-.runtime-tabs a {
+.runtime-tabs a,
+.runtime-tabs span {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -1228,7 +1276,8 @@ th {
 }
 
 .runtime-tabs button.runtime-tab-active,
-.runtime-tabs a.runtime-tab-active {
+.runtime-tabs a.runtime-tab-active,
+.runtime-tabs span.runtime-tab-active {
 	border-color: var(--c-yellow);
 	color: var(--c-yellow);
 }

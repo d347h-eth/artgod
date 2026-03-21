@@ -4,6 +4,7 @@ import type {
     GetTokenActivityOutput,
 } from "../../../application/use-cases/activities/get-token-activity.js";
 import {
+    parseActivityFilterKind,
     getSearchParams,
     parseCursor,
     parseLimit,
@@ -42,6 +43,7 @@ export class GetTokenActivityHttpAdapter {
         const searchParams = getSearchParams(request);
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
+        const kind = parseActivityFilterKind(searchParams.get("kind"));
 
         return {
             chainRef: request.params.chain_ref,
@@ -49,6 +51,7 @@ export class GetTokenActivityHttpAdapter {
             tokenRef: request.params.token_ref,
             limit,
             cursor: cursor ?? undefined,
+            kind,
         };
     }
 
