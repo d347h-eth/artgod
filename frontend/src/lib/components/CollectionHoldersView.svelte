@@ -126,6 +126,19 @@
 		return `${holders.totalItems} holder${holders.totalItems === 1 ? '' : 's'}`;
 	}
 
+	function formatHeldPercent(value: number | null): string {
+		if (value === null || Number.isNaN(value)) {
+			return 'n/a';
+		}
+		if (value > 0 && value < 0.001) {
+			return '<0.001%';
+		}
+		if (value > 0 && value < 0.01) {
+			return `${value.toFixed(3)}%`;
+		}
+		return `${value.toFixed(2)}%`;
+	}
+
 	function holderRowRank(index: number): number {
 		if (visibleRangeStart <= 0) return index + 1;
 		return visibleRangeStart + index;
@@ -176,13 +189,14 @@
 				<tr>
 					<th class="holder-position-col">position</th>
 					<th class="holder-owner-col">holder</th>
-					<th class="holder-count-col">tokens</th>
+					<th class="holder-count-col">held</th>
+					<th class="holder-percent-col">% held</th>
 				</tr>
 			</thead>
 			<tbody>
 				{#if visibleHolders.length === 0}
 					<tr>
-						<td colspan="3" class="empty-cell">no holders found</td>
+						<td colspan="4" class="empty-cell">no holders found</td>
 					</tr>
 				{:else}
 					{#each visibleHolders as holder, index (holder.owner)}
@@ -192,6 +206,7 @@
 								<a href={holderHref(holder.owner)}>{holder.owner}</a>
 							</td>
 							<td class="mono holder-count-cell">{holder.tokenCount}</td>
+							<td class="mono holder-percent-cell">{formatHeldPercent(holder.heldPercent)}</td>
 						</tr>
 					{/each}
 				{/if}

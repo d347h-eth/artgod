@@ -986,10 +986,12 @@ describe("backend api routes", () => {
             {
                 owner: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 tokenCount: "2",
+                heldPercent: 50,
             },
             {
                 owner: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 tokenCount: "1",
+                heldPercent: 25,
             },
         ]);
         expect(first.payload.holders.totalItems).toBe(3);
@@ -1009,6 +1011,7 @@ describe("backend api routes", () => {
             {
                 owner: "0xcccccccccccccccccccccccccccccccccccccccc",
                 tokenCount: "1",
+                heldPercent: 25,
             },
         ]);
         expect(second.payload.holders.nextCursor).toBeNull();

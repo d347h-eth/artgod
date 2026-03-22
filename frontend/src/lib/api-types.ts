@@ -22,6 +22,7 @@ export type ApiCollection = {
 export type ApiCollectionHolder = {
 	owner: string;
 	tokenCount: string;
+	heldPercent: number | null;
 };
 
 export type ApiActivityFeedFilterKind = 'sales' | 'listings' | 'transfers';

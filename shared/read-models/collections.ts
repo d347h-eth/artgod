@@ -81,8 +81,11 @@ type TraitFacetRow = {
 };
 
 type HolderRow = {
-    owner: string;
-    token_count: string;
+    owner: string | null;
+    token_count: string | null;
+    held_percent: number | null;
+    row_num: number | null;
+    total_count: number;
 };
 
 type TokenDetailTraitRow = {
@@ -890,11 +893,9 @@ export class SqliteCollectionsReadModel {
             params.cursor !== undefined
                 ? decodeHolderCursor(params.cursor)
                 : null;
-        const whereClauses: string[] = [];
         const values: unknown[] = [params.chainId, params.collectionId];
 
         if (cursor) {
-            whereClauses.push(buildHolderAfterCursorWhereClause());
             values.push(
                 cursor.count.length,
                 cursor.count.length,
@@ -905,38 +906,28 @@ export class SqliteCollectionsReadModel {
             );
         }
 
-        const sql =
-            `SELECT h.owner, h.token_count FROM (${buildCollectionHoldersSql()}) h ` +
-            `${whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")} ` : ""}` +
-            "ORDER BY h.count_sort_length DESC, h.count_sort_value DESC, h.owner ASC " +
-            "LIMIT ?";
-
         const rows = db.raw
-            .prepare(sql)
+            .prepare(buildCollectionHoldersPageSql(cursor !== null))
             .all(...values, limit + 1) as HolderRow[];
-        const hasNext = rows.length > limit;
-        const pageRows = hasNext ? rows.slice(0, limit) : rows;
-        const items = pageRows.map(mapHolderRow);
-        const totalItems = countCollectionHolders(
-            params.chainId,
-            params.collectionId,
+        const rowsWithData = rows.filter(
+            (row) =>
+                row.owner !== null &&
+                row.token_count !== null &&
+                row.row_num !== null,
         );
-        const beforeItems = cursor
-            ? countCollectionHoldersBeforeOrAtCursor(
-                  params.chainId,
-                  params.collectionId,
-                  cursor,
-              )
-            : 0;
-        const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
-        const rangeEnd = beforeItems + items.length;
+        const hasNext = rowsWithData.length > limit;
+        const pageRows = hasNext ? rowsWithData.slice(0, limit) : rowsWithData;
+        const items = pageRows.map(mapHolderRow);
+        const totalItems = rows[0]?.total_count ?? 0;
+        const rangeStart = pageRows[0]?.row_num ?? 0;
+        const rangeEnd = pageRows[pageRows.length - 1]?.row_num ?? 0;
         const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
         const currentPage =
-            totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
+            rangeStart === 0 ? 0 : Math.floor((rangeStart - 1) / limit) + 1;
         const nextCursor = hasNext
             ? encodeOpaqueCursor({
-                  tokenCount: pageRows[pageRows.length - 1]!.token_count,
-                  owner: pageRows[pageRows.length - 1]!.owner,
+                  tokenCount: pageRows[pageRows.length - 1]!.token_count!,
+                  owner: pageRows[pageRows.length - 1]!.owner!,
               })
             : null;
 
@@ -1009,38 +1000,6 @@ function countCollectionTokens(chainId: number, collectionId: number): number {
             "SELECT COUNT(*) AS count FROM tokens WHERE chain_id = ? AND collection_id = ?",
         )
         .get(chainId, collectionId) as { count: number };
-    return row.count;
-}
-
-function countCollectionHolders(chainId: number, collectionId: number): number {
-    const row = db.raw
-        .prepare(
-            `SELECT COUNT(*) AS count FROM (${buildCollectionHoldersSql()}) h`,
-        )
-        .get(chainId, collectionId) as { count: number };
-    return row.count;
-}
-
-function countCollectionHoldersBeforeOrAtCursor(
-    chainId: number,
-    collectionId: number,
-    cursor: HolderCursorKey,
-): number {
-    const row = db.raw
-        .prepare(
-            `SELECT COUNT(*) AS count FROM (${buildCollectionHoldersSql()}) h ` +
-                `WHERE ${buildHolderBeforeOrAtCursorWhereClause()}`,
-        )
-        .get(
-            chainId,
-            collectionId,
-            cursor.count.length,
-            cursor.count.length,
-            cursor.count.value,
-            cursor.count.length,
-            cursor.count.value,
-            cursor.owner,
-        ) as { count: number };
     return row.count;
 }
 
@@ -1321,7 +1280,7 @@ function buildCollectionHoldersSql(): string {
         WITH holder_totals AS (
             SELECT
                 lower(owner) AS owner,
-                CAST(SUM(CAST(amount AS INTEGER)) AS TEXT) AS token_count
+                SUM(CAST(amount AS INTEGER)) AS token_count_int
             FROM nft_balances
             WHERE chain_id = ? AND collection_id = ?
             GROUP BY lower(owner)
@@ -1330,19 +1289,74 @@ function buildCollectionHoldersSql(): string {
         holder_sort_keys AS (
             SELECT
                 owner,
-                token_count,
+                CAST(token_count_int AS TEXT) AS token_count,
                 CASE
-                    WHEN LTRIM(token_count, '0') = '' THEN '0'
-                    ELSE LTRIM(token_count, '0')
+                    WHEN SUM(token_count_int) OVER () <= 0 THEN NULL
+                    ELSE (CAST(token_count_int AS REAL) * 100.0) /
+                        SUM(token_count_int) OVER ()
+                END AS held_percent,
+                CASE
+                    WHEN LTRIM(CAST(token_count_int AS TEXT), '0') = '' THEN '0'
+                    ELSE LTRIM(CAST(token_count_int AS TEXT), '0')
                 END AS count_sort_value
             FROM holder_totals
         )
         SELECT
             owner,
             token_count,
+            held_percent,
             LENGTH(count_sort_value) AS count_sort_length,
             count_sort_value
         FROM holder_sort_keys
+    `.trim();
+}
+
+function buildCollectionHoldersPageSql(hasCursor: boolean): string {
+    const rangeStartSql = hasCursor
+        ? `(SELECT MIN(h.row_num) FROM holder_ranked h WHERE ${buildHolderAfterCursorWhereClause()})`
+        : "(SELECT MIN(h.row_num) FROM holder_ranked h)";
+
+    return `
+        WITH holder_ranked AS (
+            SELECT
+                h.owner,
+                h.token_count,
+                h.held_percent,
+                h.count_sort_length,
+                h.count_sort_value,
+                ROW_NUMBER() OVER (
+                    ORDER BY h.count_sort_length DESC, h.count_sort_value DESC, h.owner ASC
+                ) AS row_num,
+                COUNT(*) OVER () AS total_count
+            FROM (${buildCollectionHoldersSql()}) h
+        ),
+        page_meta AS (
+            SELECT
+                COALESCE((SELECT MAX(total_count) FROM holder_ranked), 0) AS total_count,
+                ${rangeStartSql} AS range_start
+        ),
+        page_rows AS (
+            SELECT
+                h.owner,
+                h.token_count,
+                h.held_percent,
+                h.row_num
+            FROM holder_ranked h
+            CROSS JOIN page_meta pm
+            WHERE pm.range_start IS NOT NULL
+              AND h.row_num >= pm.range_start
+            ORDER BY h.row_num ASC
+            LIMIT ?
+        )
+        SELECT
+            pr.owner,
+            pr.token_count,
+            pr.held_percent,
+            pr.row_num,
+            pm.total_count
+        FROM page_meta pm
+        LEFT JOIN page_rows pr ON 1 = 1
+        ORDER BY pr.row_num ASC
     `.trim();
 }
 
@@ -1354,18 +1368,11 @@ function buildHolderAfterCursorWhereClause(): string {
     );
 }
 
-function buildHolderBeforeOrAtCursorWhereClause(): string {
-    return (
-        "(h.count_sort_length > ? " +
-        "OR (h.count_sort_length = ? AND h.count_sort_value > ?) " +
-        "OR (h.count_sort_length = ? AND h.count_sort_value = ? AND h.owner <= ?))"
-    );
-}
-
 function mapHolderRow(row: HolderRow): CollectionHolder {
     return {
-        owner: row.owner.toLowerCase(),
-        tokenCount: row.token_count,
+        owner: row.owner!.toLowerCase(),
+        tokenCount: row.token_count!,
+        heldPercent: row.held_percent,
     };
 }
 

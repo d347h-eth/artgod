@@ -101,6 +101,7 @@ export type TraitFacet = {
 export type CollectionHolder = {
     owner: string;
     tokenCount: string;
+    heldPercent: number | null;
 };
 
 export type CursorPage<TItem> = {

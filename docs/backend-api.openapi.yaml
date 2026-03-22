@@ -877,13 +877,16 @@ components:
 
         CollectionHolder:
             type: object
-            required: [owner, tokenCount]
+            required: [owner, tokenCount, heldPercent]
             additionalProperties: false
             properties:
                 owner:
                     type: string
                 tokenCount:
                     type: string
+                heldPercent:
+                    type: number
+                    nullable: true
 
         CollectionHolderPage:
             type: object

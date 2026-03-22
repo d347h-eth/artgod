@@ -924,6 +924,7 @@ th {
 	--holder-position-col-width: 10ch;
 	--holder-owner-col-width: 42ch;
 	--holder-count-col-width: 8ch;
+	--holder-percent-col-width: 10ch;
 	width: auto;
 	table-layout: fixed;
 }
@@ -968,6 +969,14 @@ th {
 .holder-count-cell {
 	width: var(--holder-count-col-width);
 	max-width: var(--holder-count-col-width);
+	text-align: right;
+	white-space: nowrap;
+}
+
+.holder-percent-col,
+.holder-percent-cell {
+	width: var(--holder-percent-col-width);
+	max-width: var(--holder-percent-col-width);
 	text-align: right;
 	white-space: nowrap;
 }
