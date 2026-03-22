@@ -11,7 +11,8 @@
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
-	import { buildTokenBrowserHref } from '$lib/token-browser-query';
+	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { buildOwnerTokensHref, buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -48,12 +49,30 @@
 	}
 
 	function resetTraitsHref(): string {
-		return buildTokenBrowserHref({
+		return buildOwnerTokensHref({
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode,
-			tokenStatus: 'listed_then_unlisted',
 			selectedTraits: []
+		});
+	}
+
+	function collectionTokensHref(): string {
+		return buildTokenBrowserHref({
+			basePath: collectionBasePath,
+			limit: tokens.limit,
+			displayMode,
+			tokenStatus: 'listed',
+			selectedTraits
+		});
+	}
+
+	function collectionActivitiesHref(): string {
+		return buildCollectionActivityHref({
+			basePath: collectionBasePath,
+			limit: tokens.limit,
+			kind: 'sales',
+			selectedTraits
 		});
 	}
 
@@ -67,8 +86,8 @@
 </script>
 
 <CollectionPageLayout
-	tokensHref={collectionBasePath}
-	activitiesHref={`${collectionBasePath}/activity?kind=sales`}
+	tokensHref={collectionTokensHref()}
+	activitiesHref={collectionActivitiesHref()}
 	holdersHref={holdersBasePath}
 	activeSection="holders"
 	collectionAvailable={collection !== null}
@@ -77,7 +96,7 @@
 		<a href={collectionsHref()}>collections</a>
 		{#if collection}
 			<span class="breadcrumbs-separator">/</span>
-			<a href={collectionBasePath}>{collection.slug}</a>
+			<a href={collectionTokensHref()}>{collection.slug}</a>
 			<span class="breadcrumbs-separator">/</span>
 			<a href={holdersBasePath}>holders</a>
 			<span class="breadcrumbs-separator">/</span>

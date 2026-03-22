@@ -48,7 +48,7 @@ describe('HolderTokensView', () => {
 					totalPages: 2
 				},
 				facets: [{ key: 'Hat', values: [{ value: 'Beanie', tokenCount: 1 }] }],
-				selectedTraits: [],
+				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				collectionBasePath: '/ethereum/milady',
 				holdersBasePath: '/ethereum/milady/holders',
 				browserBasePath: '/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -60,9 +60,11 @@ describe('HolderTokensView', () => {
 
 		expect(body).toContain('tokens currently held by');
 		expect(body).toContain('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-		expect(body).toContain('/ethereum/milady/activity?kind=sales');
+		expect(body).toContain('/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;traits=Hat%3ABeanie');
+		expect(body).toContain('/ethereum/milady/activity?limit=25&amp;kind=sales&amp;traits=Hat%3ABeanie');
 		expect(body).toContain('/ethereum/milady/holders');
 		expect(body).toContain('>traits<');
+		expect(body).toContain('>reset<');
 		expect(body).toContain('2 held');
 		expect(body).not.toContain('only listed');
 	});

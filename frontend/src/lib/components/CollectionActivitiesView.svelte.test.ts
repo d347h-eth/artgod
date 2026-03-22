@@ -144,6 +144,9 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 		);
+		expect(body).not.toContain(
+			'/ethereum/milady/holders/0x9999999999999999999999999999999999999999?limit=25&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;traits=Hat%3ABeanie'
+		);
 		expect(body).toContain('title="2024-09-10 20:33:20 UTC"');
 		expect(body).toContain(
 			'https://etherscan.io/tx/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'

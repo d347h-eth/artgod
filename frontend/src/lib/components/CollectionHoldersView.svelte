@@ -14,6 +14,7 @@
 		writeForwardWindow
 	} from '$lib/components/forward-window-cache';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -103,7 +104,10 @@
 	}
 
 	function holderHref(owner: string): string {
-		return `${holdersHref()}/${encodeURIComponent(owner)}`;
+		return buildOwnerTokensHref({
+			basePath: `${holdersHref()}/${encodeURIComponent(owner)}`,
+			selectedTraits: []
+		});
 	}
 
 	function holdersSignature(limit: number): string {

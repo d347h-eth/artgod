@@ -24,7 +24,7 @@
 		openseaItemHref as buildOpenseaItemHref
 	} from '$lib/marketplace-links';
 	import { nextSelectedTraits } from '$lib/trait-filters';
-	import { buildTokenBrowserHref } from '$lib/token-browser-query';
+	import { buildOwnerTokensHref, buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -130,7 +130,10 @@
 	}
 
 	function holderHref(address: string): string {
-		return `${basePath}/holders/${encodeURIComponent(address)}`;
+		return buildOwnerTokensHref({
+			basePath: `${basePath}/holders/${encodeURIComponent(address)}`,
+			selectedTraits: []
+		});
 	}
 
 	function tokenDetailHref(tokenId: string): string {

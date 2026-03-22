@@ -42,6 +42,36 @@ export function buildTokenBrowserHref(params: {
 	return `${params.basePath}?${query.toString()}`;
 }
 
+export function buildOwnerTokensHref(params: {
+	basePath: string;
+	selectedTraits: ApiTokenAttribute[];
+	limit?: number;
+	displayMode?: 'grid' | 'table';
+	cursor?: string | null;
+}): string {
+	const limit = params.limit ?? DEFAULT_PAGE_LIMIT;
+	const displayMode = params.displayMode ?? 'grid';
+	const cursor = params.cursor ?? null;
+
+	if (
+		limit === DEFAULT_PAGE_LIMIT &&
+		displayMode === 'grid' &&
+		!cursor?.trim() &&
+		params.selectedTraits.length === 0
+	) {
+		return params.basePath;
+	}
+
+	return buildTokenBrowserHref({
+		basePath: params.basePath,
+		limit,
+		displayMode,
+		tokenStatus: 'listed_then_unlisted',
+		selectedTraits: params.selectedTraits,
+		cursor
+	});
+}
+
 export function parseDisplayMode(raw: string | null): 'grid' | 'table' {
 	if (raw?.trim().toLowerCase() === 'table') return 'table';
 	return 'grid';
