@@ -7,8 +7,11 @@
 		<script>
 			(() => {
 				try {
-					if (window.localStorage.getItem('artgod.tokenBrowser.traitsCollapsed') === '1') {
-						document.documentElement.classList.add('token-browser-traits-collapsed');
+					const isCollapsed =
+						window.localStorage.getItem('artgod.traitFacetPanel.collapsed') === '1' ||
+						window.localStorage.getItem('artgod.tokenBrowser.traitsCollapsed') === '1';
+					if (isCollapsed) {
+						document.documentElement.classList.add('trait-facet-panel-collapsed');
 					}
 				} catch {}
 			})();

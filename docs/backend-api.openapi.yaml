@@ -137,6 +137,26 @@ paths:
                 - $ref: "#/components/parameters/ActivityKindFilter"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
+                - name: traits
+                  in: query
+                  required: false
+                  description: Repeated `key:value` trait filter (preferred)
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+                - name: trait
+                  in: query
+                  required: false
+                  description: Repeated `key:value` trait filter (legacy alias)
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
             responses:
                 "200":
                     description: Collection activity feed ordered newest first with bidirectional cursor pagination; `kind=listings` returns collapsed listing rows
@@ -1137,13 +1157,26 @@ components:
 
         GetCollectionActivityResponse:
             type: object
-            required: [chain, collection, activities, included]
+            required: [chain, collection, traits, activities, included]
             additionalProperties: false
             properties:
                 chain:
                     $ref: "#/components/schemas/ChainRecord"
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
+                traits:
+                    type: object
+                    required: [selected, facets]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFilter"
+                        facets:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFacet"
                 activities:
                     $ref: "#/components/schemas/ActivityCursorPage"
                 included:

@@ -24,6 +24,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				currentPage: 0,
 				totalPages: 0
 			},
+			facets: [],
+			selectedTraits: [],
 			included: {
 				tokensById: {}
 			},
@@ -46,6 +48,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			chain: response.chain,
 			collection: response.collection,
 			activities: response.activities,
+			facets: response.traits.facets,
+			selectedTraits: response.traits.selected,
 			included: response.included,
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			filterKind

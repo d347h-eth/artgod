@@ -362,6 +362,13 @@ describe("backend api routes", () => {
 
         expect(first.statusCode).toBe(200);
         expect(first.payload.collection.address).toBe(MILADY_ADDRESS);
+        expect(first.payload.traits.selected).toEqual([]);
+        expect(first.payload.traits.facets).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ key: "Hat" }),
+                expect.objectContaining({ key: "Mood" }),
+            ]),
+        );
         expect(first.payload.activities.items).toHaveLength(2);
         expect(first.payload.activities.prevCursor).toBeNull();
         expect(first.payload.activities.totalItems).toBe(5);
@@ -488,6 +495,37 @@ describe("backend api routes", () => {
             ),
         ).toEqual([ACTIVITY_KIND.Transfer]);
         expect(transfers.payload.activities.totalItems).toBe(1);
+    });
+
+    it("filters collection activity by token traits while returning collection-wide facets", async () => {
+        const matching = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?limit=10&kind=sales&traits=Hat:Beanie,Mood:Calm",
+        );
+        expect(matching.statusCode).toBe(200);
+        expect(matching.payload.traits.selected).toEqual([
+            { key: "Hat", value: "Beanie" },
+            { key: "Mood", value: "Calm" },
+        ]);
+        expect(matching.payload.traits.facets).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ key: "Hat" }),
+                expect.objectContaining({ key: "Mood" }),
+            ]),
+        );
+        expect(
+            matching.payload.activities.items.map(
+                (activity: { tokenId: string | null }) => activity.tokenId,
+            ),
+        ).toEqual(["1"]);
+
+        const empty = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?limit=10&kind=sales&traits=Hat:Cap",
+        );
+        expect(empty.statusCode).toBe(200);
+        expect(empty.payload.activities.items).toHaveLength(0);
+        expect(empty.payload.activities.totalItems).toBe(0);
     });
 
     it("returns token activity filtered to a single token", async () => {
@@ -701,6 +739,18 @@ describe("backend api routes", () => {
                     collapsedWindowEndUtc: number | null;
                 }).collapsedWindowStartUtc!,
         ).toBe(86_399);
+
+        const filteredCollapsedListings = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?limit=10&kind=listings&traits=Mood:Angry",
+        );
+        expect(filteredCollapsedListings.statusCode).toBe(200);
+        expect(filteredCollapsedListings.payload.activities.totalItems).toBe(4);
+        expect(
+            filteredCollapsedListings.payload.activities.items.every(
+                (activity: { tokenId: string | null }) => activity.tokenId === "2",
+            ),
+        ).toBe(true);
 
         const tokenListings = await resolve(
             "GET",

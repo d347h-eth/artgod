@@ -9,8 +9,15 @@ import type {
     ActivityFeedItem,
     ActivityFeedPage,
 } from "../types/activity-feed.js";
+import type { TraitFilter } from "../types/browse.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
 import { ReadModelBadRequestError } from "./errors.js";
+import {
+    buildTokenTraitFilterWhereClauses,
+    groupTraitFilters,
+    normalizeTraitFilters,
+    type TraitFilterGroup,
+} from "./trait-filters.js";
 
 type ActivityRow = {
     id: number;
@@ -61,7 +68,7 @@ const COLLAPSED_ACTIVITY_SELECT_COLUMNS =
 
 const RAW_ACTIVITY_SOURCE: ActivityQuerySource = {
     cteSql: "",
-    relationSql: "FROM activities",
+    relationSql: "FROM activities a",
     selectColumnsSql: RAW_ACTIVITY_SELECT_COLUMNS,
 };
 
@@ -72,6 +79,7 @@ export class SqliteActivitiesReadModel {
         limit: number;
         cursor?: string;
         kind?: ActivityFeedFilterKind;
+        traitFilters?: TraitFilter[];
     }): ActivityFeedPage {
         return this.listActivities({
             chainId: params.chainId,
@@ -79,6 +87,7 @@ export class SqliteActivitiesReadModel {
             limit: params.limit,
             cursor: params.cursor,
             kind: params.kind,
+            traitFilters: params.traitFilters,
         });
     }
 
@@ -112,18 +121,31 @@ export class SqliteActivitiesReadModel {
         limit: number;
         cursor?: string;
         kind?: ActivityFeedFilterKind;
+        traitFilters?: TraitFilter[];
     }): ActivityFeedPage {
         const limit = normalizeLimit(params.limit);
         const filterKind = params.kind ?? null;
+        const traitFilterGroups = groupTraitFilters(
+            normalizeTraitFilters(params.traitFilters ?? []),
+        );
         const cursor =
             params.cursor !== undefined
                 ? decodeActivityCursor(params.cursor, filterKind)
                 : null;
         if (shouldCollapseCollectionListings(params.tokenId, filterKind)) {
+            const {
+                whereClauses: traitWhereClauses,
+                values: traitValues,
+            } = buildTokenTraitFilterWhereClauses({
+                traitFilterGroups,
+                chainColumnSql: "a.chain_id",
+                collectionColumnSql: "a.collection_id",
+                tokenColumnSql: "a.token_id",
+            });
             return listActivitiesFromSource({
-                source: buildCollapsedCollectionListingsSource(),
+                source: buildCollapsedCollectionListingsSource(traitWhereClauses),
                 baseWhereClauses: [],
-                baseValues: [params.chainId, params.collectionId],
+                baseValues: [params.chainId, params.collectionId, ...traitValues],
                 limit,
                 cursor,
                 filterKind,
@@ -136,6 +158,7 @@ export class SqliteActivitiesReadModel {
                 collectionId: params.collectionId,
                 tokenId: params.tokenId,
                 kind: filterKind,
+                traitFilterGroups,
             });
 
         return listActivitiesFromSource({
@@ -154,6 +177,7 @@ function buildActivityWhereClauses(params: {
     collectionId: number;
     tokenId?: string;
     kind: ActivityFeedFilterKind | null;
+    traitFilterGroups: TraitFilterGroup[];
 }): {
     whereClauses: string[];
     values: unknown[];
@@ -168,6 +192,18 @@ function buildActivityWhereClauses(params: {
         params.collectionId,
         ...(params.tokenId ? [params.tokenId] : []),
     ];
+
+    const {
+        whereClauses: traitWhereClauses,
+        values: traitValues,
+    } = buildTokenTraitFilterWhereClauses({
+        traitFilterGroups: params.traitFilterGroups,
+        chainColumnSql: "a.chain_id",
+        collectionColumnSql: "a.collection_id",
+        tokenColumnSql: "a.token_id",
+    });
+    whereClauses.push(...traitWhereClauses);
+    values.push(...traitValues);
 
     switch (params.kind) {
         case "sales":
@@ -206,14 +242,21 @@ function shouldCollapseCollectionListings(
     return !tokenId && filterKind === "listings";
 }
 
-function buildCollapsedCollectionListingsSource(): ActivityQuerySource {
+function buildCollapsedCollectionListingsSource(
+    traitWhereClauses: string[],
+): ActivityQuerySource {
+    const traitWhereSql =
+        traitWhereClauses.length === 0
+            ? ""
+            : ` AND ${traitWhereClauses.join(" AND ")}`;
     return {
         cteSql:
             "WITH filtered_listing_activities AS (" +
             "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
             "CAST(occurred_at / 86400 AS INTEGER) AS collapsed_day_bucket " +
-            "FROM activities " +
-            "WHERE chain_id = ? AND collection_id = ? AND kind = 'listing_created'" +
+            "FROM activities a " +
+            "WHERE a.chain_id = ? AND a.collection_id = ? AND a.kind = 'listing_created'" +
+            traitWhereSql +
             "), ranked_listing_activities AS (" +
             "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
             "COUNT(*) OVER (PARTITION BY token_id, COALESCE(maker, ''), COALESCE(currency, ''), collapsed_day_bucket) AS collapsed_event_count, " +

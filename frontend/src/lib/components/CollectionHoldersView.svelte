@@ -157,7 +157,12 @@
 
 	<header class="panel-header">
 		{#if collection}
-			<CollectionSectionTabs basePath={basePath} active="holders" />
+			<CollectionSectionTabs
+				tokensHref={basePath}
+				activitiesHref={`${basePath}/activity?kind=sales`}
+				holdersHref={`${basePath}/holders`}
+				active="holders"
+			/>
 		{:else}
 			<span class="muted">collection not found</span>
 		{/if}

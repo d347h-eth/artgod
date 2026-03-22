@@ -62,6 +62,7 @@ describe('HolderTokensView', () => {
 		expect(body).toContain('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 		expect(body).toContain('/ethereum/milady/activity?kind=sales');
 		expect(body).toContain('/ethereum/milady/holders');
+		expect(body).toContain('>traits<');
 		expect(body).toContain('2 held');
 		expect(body).not.toContain('only listed');
 	});

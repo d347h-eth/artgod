@@ -8,6 +8,7 @@ import {
     getSearchParams,
     parseCursor,
     parseLimit,
+    parseTraits,
 } from "../../common/request-query.js";
 
 export type GetCollectionActivityRoute = {
@@ -44,6 +45,7 @@ export class GetCollectionActivityHttpAdapter {
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
         const kind = parseActivityFilterKind(searchParams.get("kind"));
+        const traits = parseTraits(searchParams);
 
         return {
             chainRef: request.params.chain_ref,
@@ -51,6 +53,7 @@ export class GetCollectionActivityHttpAdapter {
             limit,
             cursor: cursor ?? undefined,
             kind,
+            traits,
         };
     }
 

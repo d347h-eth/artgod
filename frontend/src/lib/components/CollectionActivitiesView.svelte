@@ -1,26 +1,37 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import type {
 		ApiActivitiesPage,
 		ApiActivityFeedFilterKind,
 		ApiActivityFeedItem,
 		ApiChain,
 		ApiCollection,
-		ApiTokenPresentationSummary
+		ApiTokenAttribute,
+		ApiTokenPresentationSummary,
+		ApiTraitFacet
 	} from '$lib/api-types';
+	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
+	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
 	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
+	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import {
 		etherscanTransactionHref as buildEtherscanTransactionHref,
 		openseaItemHref as buildOpenseaItemHref
 	} from '$lib/marketplace-links';
+	import { nextSelectedTraits } from '$lib/trait-filters';
+	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
 		collection,
 		activities,
+		facets,
+		selectedTraits,
 		included,
 		basePath,
 		filterKind
@@ -28,6 +39,8 @@
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		activities: ApiActivitiesPage;
+		facets: ApiTraitFacet[];
+		selectedTraits: ApiTokenAttribute[];
 		included: {
 			tokensById: Record<string, ApiTokenPresentationSummary>;
 		};
@@ -39,6 +52,8 @@
 	const WEI_BASE = 10n ** 18n;
 	const tokenPreview = createTokenPreviewController(fetch);
 	const tokenPreviewState = tokenPreview.state;
+	const traitFacetPanel = createTraitFacetPanelController();
+	const traitFacetPanelState = traitFacetPanel.state;
 	const RELATIVE_TIME_REFRESH_MS = 60_000;
 
 	type TimeDisplayMode = 'relative' | 'system' | 'utc';
@@ -52,6 +67,8 @@
 
 	let timeDisplayMode = $state<TimeDisplayMode>('relative');
 	let relativeNowMs = $state(Date.now());
+	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
+	let hasActiveFilters = $derived(activeTraits.length > 0);
 	let visibleColumns = $derived(ACTIVITY_COLUMNS_BY_FILTER[filterKind]);
 
 	$effect(() => {
@@ -62,23 +79,50 @@
 		return () => window.clearInterval(intervalId);
 	});
 
+	$effect(() => {
+		activeTraits = selectedTraits;
+	});
+
 	function collectionsHref(): string {
 		if (!chain) return '/';
 		return `/${chain.slug}`;
 	}
 
 	function tokensHref(): string {
-		return collection ? basePath : '#';
+		return buildTokenBrowserHref({
+			basePath,
+			limit: activities.limit,
+			displayMode: 'grid',
+			tokenStatus: 'listed',
+			selectedTraits: activeTraits
+		});
 	}
 
-	function filterHref(nextKind: ApiActivityFeedFilterKind, cursor: string | null = null): string {
-		const query = new URLSearchParams();
-		query.set('limit', String(activities.limit));
-		query.set('kind', nextKind);
-		if (cursor) {
-			query.set('cursor', cursor);
-		}
-		return `${basePath}/activity?${query.toString()}`;
+	function activitiesHref(): string {
+		return buildCollectionActivityHref({
+			basePath,
+			limit: activities.limit,
+			kind: filterKind,
+			selectedTraits: activeTraits
+		});
+	}
+
+	function holdersHref(): string {
+		return `${basePath}/holders`;
+	}
+
+	function filterHref(
+		nextKind: ApiActivityFeedFilterKind,
+		cursor: string | null = null,
+		traits: ApiTokenAttribute[] = activeTraits
+	): string {
+		return buildCollectionActivityHref({
+			basePath,
+			limit: activities.limit,
+			kind: nextKind,
+			selectedTraits: traits,
+			cursor
+		});
 	}
 
 	function paginationHref(cursor: string | null): string {
@@ -184,7 +228,13 @@
 	}
 
 	function onWindowKeydown(event: KeyboardEvent): void {
+		const previewWasOpen = $tokenPreviewState.open;
 		tokenPreview.onWindowKeydown(event);
+		if (previewWasOpen) {
+			return;
+		}
+
+		traitFacetPanel.onWindowKeydown(event);
 	}
 
 	function cycleTimeDisplayMode(): void {
@@ -247,6 +297,30 @@
 	function formatUtcTimestamp(occurredAt: number): string {
 		return new Date(occurredAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
 	}
+
+	async function onTraitToggleWithMode(
+		key: string,
+		value: string,
+		checked: boolean,
+		unionMode: boolean
+	): Promise<void> {
+		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, unionMode);
+		activeTraits = nextTraits;
+		await goto(filterHref(filterKind, null, nextTraits), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onResetFilters(): Promise<void> {
+		activeTraits = [];
+		await goto(filterHref(filterKind, null, []), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -264,177 +338,203 @@
 
 	<header class="panel-header">
 		{#if collection}
-			<CollectionSectionTabs basePath={basePath} active="activities" />
+			<CollectionSectionTabs
+				tokensHref={tokensHref()}
+				activitiesHref={activitiesHref()}
+				holdersHref={holdersHref()}
+				active="activities"
+			/>
 		{:else}
 			<span class="muted">collection not found</span>
 		{/if}
 	</header>
 
-	<div class="panel-top-actions">
-		<div class="runtime-tabs" aria-label="Activity type filters">
-			{#if filterKind === 'sales'}
-				<span class="runtime-tab-active">sales</span>
-			{:else}
-				<a href={filterHref('sales')}>sales</a>
-			{/if}
-			{#if filterKind === 'listings'}
-				<span class="runtime-tab-active">listings</span>
-			{:else}
-				<a href={filterHref('listings')}>listings</a>
-			{/if}
-			{#if filterKind === 'transfers'}
-				<span class="runtime-tab-active">transfers</span>
-			{:else}
-				<a href={filterHref('transfers')}>transfers</a>
-			{/if}
+	<div class="panel-top-actions panel-top-actions-stack">
+		<div class="panel-top-actions-row">
+			<div class="secondary-tabs" aria-label="Activity type filters">
+				{#if filterKind === 'sales'}
+					<span class="secondary-tab-active">sales</span>
+				{:else}
+					<a href={filterHref('sales')}>sales</a>
+				{/if}
+				{#if filterKind === 'listings'}
+					<span class="secondary-tab-active">listings</span>
+				{:else}
+					<a href={filterHref('listings')}>listings</a>
+				{/if}
+				{#if filterKind === 'transfers'}
+					<span class="secondary-tab-active">transfers</span>
+				{:else}
+					<a href={filterHref('transfers')}>transfers</a>
+				{/if}
+			</div>
+		</div>
+		<div class="panel-top-actions-row">
+			<TraitFacetPanelControls
+				hasActiveFilters={hasActiveFilters}
+				collapsed={$traitFacetPanelState.collapsed}
+				onToggleCollapsed={traitFacetPanel.toggle}
+				onReset={onResetFilters}
+			/>
 		</div>
 	</div>
 
-	<div class="table-wrap activities-table-wrap">
-		<table class="activities-table">
-			<colgroup>
-				{#each visibleColumns as column}
-					<col class={`activities-${column}-col`} />
-				{/each}
-			</colgroup>
-			<thead>
-				<tr>
-					{#each visibleColumns as column}
-						<th class={`activities-${column}-col`}>
-							{#if column === 'time'}
-								<span>{columnLabel(column)}</span>
-								<button
-									type="button"
-									class="activities-time-mode-button"
-									aria-label="cycle time display mode"
-									onclick={cycleTimeDisplayMode}
-								>
-									{timeDisplayModeLabel()}
-								</button>
-							{:else}
-								{columnLabel(column)}
-							{/if}
-						</th>
-					{/each}
-				</tr>
-			</thead>
-			<tbody>
-				{#if activities.items.length === 0}
-					<tr>
-						<td colspan={visibleColumns.length} class="empty-cell">no activities found</td>
-					</tr>
-				{:else}
-					{#each activities.items as activity, index (activity.id)}
-						{#if shouldRenderUtcDayBreak(index)}
-							<tr class="activities-day-break-row">
-								<td colspan={visibleColumns.length}>
-									<span class="activities-day-break-label">{formatUtcDayLabel(activity)}</span>
-								</td>
-							</tr>
-						{/if}
+	<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
+		<TraitFacetPanel
+			{facets}
+			selectedTraits={activeTraits}
+			collapsed={$traitFacetPanelState.collapsed}
+			onToggleTrait={onTraitToggleWithMode}
+		/>
+
+		<div class="activity-panel">
+			<div class="table-wrap activities-table-wrap">
+				<table class="activities-table">
+					<colgroup>
+						{#each visibleColumns as column}
+							<col class={`activities-${column}-col`} />
+						{/each}
+					</colgroup>
+					<thead>
 						<tr>
 							{#each visibleColumns as column}
-								<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'time' ? ' mono' : ''}`}>
-									{#if column === 'id'}
-										{#if activity.tokenId}
-											<a href={tokenDetailHref(activity.tokenId)}>{activity.tokenId}</a>
-										{:else}
-											<span class="muted">-</span>
-										{/if}
-									{:else if column === 'price'}
-										{#if activityPriceLabel(activity)}
-											{#if marketplaceItemHref(activity)}
-												<a
-													href={marketplaceItemHref(activity) ?? '#'}
-													target="_blank"
-													rel="noreferrer noopener"
-												>
-													{activityPriceLabel(activity)}
-												</a>
-											{:else}
-												{activityPriceLabel(activity)}
-											{/if}
-										{:else}
-											<span class="muted">-</span>
-										{/if}
-									{:else if column === 'image'}
-										<ActivityTokenCell
-											chainRef={chain?.slug ?? null}
-											collectionRef={collection?.slug ?? null}
-											tokenId={activity.tokenId}
-											token={tokenSummary(activity)}
-											tokenPreview={tokenPreview}
-										/>
-									{:else if column === 'name'}
-										{#if tokenName(activity)}
-											<span class="activities-name-text" title={tokenName(activity) ?? undefined}>
-												{tokenName(activity)}
-											</span>
-										{:else}
-											<span class="muted">-</span>
-										{/if}
-									{:else if column === 'from'}
-										{#if activityFromAddress(activity)}
-											<a
-												href={holderHref(activityFromAddress(activity) ?? '')}
-												title={activityFromAddress(activity) ?? undefined}
-											>
-												{maskAddress(activityFromAddress(activity))}
-											</a>
-										{:else}
-											<span class="muted">-</span>
-										{/if}
-									{:else if column === 'to'}
-										{#if activity.to}
-											<a href={holderHref(activity.to)} title={activity.to}>
-												{maskAddress(activity.to)}
-											</a>
-										{:else}
-											<span class="muted">-</span>
-										{/if}
-									{:else if column === 'time'}
-										{#if transactionHref(activity)}
-											<a
-												href={transactionHref(activity) ?? '#'}
-												target="_blank"
-												rel="noreferrer noopener"
-												title={occurredAtTitle(activity.occurredAt)}
-											>
-												{occurredAtLabel(activity.occurredAt)}
-											</a>
-										{:else}
-											<span title={occurredAtTitle(activity.occurredAt)}>
-												{occurredAtLabel(activity.occurredAt)}
-											</span>
-										{/if}
+								<th class={`activities-${column}-col`}>
+									{#if column === 'time'}
+										<span>{columnLabel(column)}</span>
+										<button
+											type="button"
+											class="activities-time-mode-button"
+											aria-label="cycle time display mode"
+											onclick={cycleTimeDisplayMode}
+										>
+											{timeDisplayModeLabel()}
+										</button>
+									{:else}
+										{columnLabel(column)}
 									{/if}
-								</td>
+								</th>
 							{/each}
 						</tr>
-					{/each}
-				{/if}
-			</tbody>
-		</table>
-	</div>
+					</thead>
+					<tbody>
+						{#if activities.items.length === 0}
+							<tr>
+								<td colspan={visibleColumns.length} class="empty-cell">no activities found</td>
+							</tr>
+						{:else}
+							{#each activities.items as activity, index (activity.id)}
+								{#if shouldRenderUtcDayBreak(index)}
+									<tr class="activities-day-break-row">
+										<td colspan={visibleColumns.length}>
+											<span class="activities-day-break-label">{formatUtcDayLabel(activity)}</span>
+										</td>
+									</tr>
+								{/if}
+								<tr>
+									{#each visibleColumns as column}
+										<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'time' ? ' mono' : ''}`}>
+											{#if column === 'id'}
+												{#if activity.tokenId}
+													<a href={tokenDetailHref(activity.tokenId)}>{activity.tokenId}</a>
+												{:else}
+													<span class="muted">-</span>
+												{/if}
+											{:else if column === 'price'}
+												{#if activityPriceLabel(activity)}
+													{#if marketplaceItemHref(activity)}
+														<a
+															href={marketplaceItemHref(activity) ?? '#'}
+															target="_blank"
+															rel="noreferrer noopener"
+														>
+															{activityPriceLabel(activity)}
+														</a>
+													{:else}
+														{activityPriceLabel(activity)}
+													{/if}
+												{:else}
+													<span class="muted">-</span>
+												{/if}
+											{:else if column === 'image'}
+												<ActivityTokenCell
+													chainRef={chain?.slug ?? null}
+													collectionRef={collection?.slug ?? null}
+													tokenId={activity.tokenId}
+													token={tokenSummary(activity)}
+													tokenPreview={tokenPreview}
+												/>
+											{:else if column === 'name'}
+												{#if tokenName(activity)}
+													<span class="activities-name-text" title={tokenName(activity) ?? undefined}>
+														{tokenName(activity)}
+													</span>
+												{:else}
+													<span class="muted">-</span>
+												{/if}
+											{:else if column === 'from'}
+												{#if activityFromAddress(activity)}
+													<a
+														href={holderHref(activityFromAddress(activity) ?? '')}
+														title={activityFromAddress(activity) ?? undefined}
+													>
+														{maskAddress(activityFromAddress(activity))}
+													</a>
+												{:else}
+													<span class="muted">-</span>
+												{/if}
+											{:else if column === 'to'}
+												{#if activity.to}
+													<a href={holderHref(activity.to)} title={activity.to}>
+														{maskAddress(activity.to)}
+													</a>
+												{:else}
+													<span class="muted">-</span>
+												{/if}
+											{:else if column === 'time'}
+												{#if transactionHref(activity)}
+													<a
+														href={transactionHref(activity) ?? '#'}
+														target="_blank"
+														rel="noreferrer noopener"
+														title={occurredAtTitle(activity.occurredAt)}
+													>
+														{occurredAtLabel(activity.occurredAt)}
+													</a>
+												{:else}
+													<span title={occurredAtTitle(activity.occurredAt)}>
+														{occurredAtLabel(activity.occurredAt)}
+													</span>
+												{/if}
+											{/if}
+										</td>
+									{/each}
+								</tr>
+							{/each}
+						{/if}
+					</tbody>
+				</table>
+			</div>
 
-	<footer class="panel-footer activities-summary">
-		<div class="pagination-summary">
-			{#if activities.totalItems === 0}
-				<span class="muted">showing 0 of 0</span>
-			{:else}
-				<span class="mono">showing {activities.rangeStart}-{activities.rangeEnd} of {activities.totalItems}</span>
-				<span class="muted">page {activities.currentPage} / {activities.totalPages}</span>
-			{/if}
+			<footer class="panel-footer activities-summary">
+				<div class="pagination-summary">
+					{#if activities.totalItems === 0}
+						<span class="muted">showing 0 of 0</span>
+					{:else}
+						<span class="mono">showing {activities.rangeStart}-{activities.rangeEnd} of {activities.totalItems}</span>
+						<span class="muted">page {activities.currentPage} / {activities.totalPages}</span>
+					{/if}
+				</div>
+				<div class="pagination-summary">
+					{#if activities.prevCursor}
+						<a class="button-link" href={paginationHref(activities.prevCursor)}>newer</a>
+					{/if}
+					{#if activities.nextCursor}
+						<a class="button-link" href={paginationHref(activities.nextCursor)}>older</a>
+					{/if}
+				</div>
+			</footer>
 		</div>
-		<div class="pagination-summary">
-			{#if activities.prevCursor}
-				<a class="button-link" href={paginationHref(activities.prevCursor)}>newer</a>
-			{/if}
-			{#if activities.nextCursor}
-				<a class="button-link" href={paginationHref(activities.nextCursor)}>older</a>
-			{/if}
-		</div>
-	</footer>
+	</div>
 </section>
 
 <TokenPreviewOverlay

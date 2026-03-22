@@ -181,6 +181,10 @@ export type CollectionHoldersApiResponse = {
 export type CollectionActivitiesApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
+	traits: {
+		selected: ApiTokenAttribute[];
+		facets: ApiTraitFacet[];
+	};
 	activities: ApiActivitiesPage;
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;

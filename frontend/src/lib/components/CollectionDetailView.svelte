@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -9,9 +10,13 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
+	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
+	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -36,6 +41,8 @@
 	} = $props();
 
 	const BOOTSTRAP_POLL_INTERVAL_MS = 5_000;
+	const traitFacetPanel = createTraitFacetPanelController();
+	const traitFacetPanelState = traitFacetPanel.state;
 
 	let bootstrapStatus = $state<BootstrapStatusApiResponse | null>(null);
 	let bootstrapLoading = $state(false);
@@ -65,6 +72,39 @@
 		return collection.slug;
 	}
 
+	function tokensSectionHref(): string {
+		return buildTokenBrowserHref({
+			basePath,
+			limit: tokens.limit,
+			displayMode,
+			tokenStatus,
+			selectedTraits
+		});
+	}
+
+	function activitiesSectionHref(): string {
+		return buildCollectionActivityHref({
+			basePath,
+			limit: tokens.limit,
+			kind: 'sales',
+			selectedTraits
+		});
+	}
+
+	function holdersSectionHref(): string {
+		return `${basePath}/holders`;
+	}
+
+	function resetTraitsHref(): string {
+		return buildTokenBrowserHref({
+			basePath,
+			limit: tokens.limit,
+			displayMode,
+			tokenStatus,
+			selectedTraits: []
+		});
+	}
+
 	function latestRunHref(): string | null {
 		if (!chain || !bootstrapStatus?.latestRun) return null;
 		return `/${chain.slug}/bootstrap-runs/${bootstrapStatus.latestRun.runId}`;
@@ -88,6 +128,14 @@
 			bootstrapRequestInFlight = false;
 		}
 	}
+
+	async function onResetTraits(): Promise<void> {
+		await goto(resetTraitsHref(), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
 </script>
 
 <section class="panel">
@@ -101,21 +149,36 @@
 
 	<header class="panel-header">
 		{#if collection}
-			<CollectionSectionTabs basePath={basePath} active="tokens" />
+			<CollectionSectionTabs
+				tokensHref={tokensSectionHref()}
+				activitiesHref={activitiesSectionHref()}
+				holdersHref={holdersSectionHref()}
+				active="tokens"
+			/>
 		{:else}
 			<span class="muted">collection not found</span>
 		{/if}
 	</header>
 
 	{#if collection}
-		<div class="panel-top-actions">
-			<TokenStatusTabs
-				basePath={basePath}
-				limit={tokens.limit}
-				{displayMode}
-				{tokenStatus}
-				{selectedTraits}
-			/>
+		<div class="panel-top-actions panel-top-actions-stack">
+			<div class="panel-top-actions-row">
+				<TokenStatusTabs
+					basePath={basePath}
+					limit={tokens.limit}
+					{displayMode}
+					{tokenStatus}
+					{selectedTraits}
+				/>
+			</div>
+			<div class="panel-top-actions-row">
+				<TraitFacetPanelControls
+					hasActiveFilters={selectedTraits.length > 0}
+					collapsed={$traitFacetPanelState.collapsed}
+					onToggleCollapsed={traitFacetPanel.toggle}
+					onReset={onResetTraits}
+				/>
+			</div>
 		</div>
 	{/if}
 
@@ -143,6 +206,7 @@
 		collectionBasePath={basePath}
 		browserBasePath={basePath}
 		requestCursor={requestCursor}
+		{traitFacetPanel}
 		tokenStatus={tokenStatus}
 		displayMode={displayMode}
 	/>

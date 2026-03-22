@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -7,7 +8,10 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
+	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -35,9 +39,30 @@
 		displayMode: 'grid' | 'table';
 	} = $props();
 
+	const traitFacetPanel = createTraitFacetPanelController();
+	const traitFacetPanelState = traitFacetPanel.state;
+
 	function collectionsHref(): string {
 		if (!chain) return '/';
 		return `/${chain.slug}`;
+	}
+
+	function resetTraitsHref(): string {
+		return buildTokenBrowserHref({
+			basePath: browserBasePath,
+			limit: tokens.limit,
+			displayMode,
+			tokenStatus: 'listed_then_unlisted',
+			selectedTraits: []
+		});
+	}
+
+	async function onResetTraits(): Promise<void> {
+		await goto(resetTraitsHref(), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
 	}
 </script>
 
@@ -56,15 +81,32 @@
 
 	<header class="panel-header">
 		{#if collection}
-			<CollectionSectionTabs basePath={collectionBasePath} active="holders" />
+			<CollectionSectionTabs
+				tokensHref={collectionBasePath}
+				activitiesHref={`${collectionBasePath}/activity?kind=sales`}
+				holdersHref={holdersBasePath}
+				active="holders"
+			/>
 		{:else}
 			<span class="muted">collection not found</span>
 		{/if}
 	</header>
 
-	<section class="panel-header">
-		<p class="muted">tokens currently held by <span class="mono">{owner}</span></p>
-	</section>
+	{#if collection}
+		<div class="panel-top-actions panel-top-actions-stack">
+			<div class="panel-top-actions-row">
+				<p class="muted">tokens currently held by <span class="mono">{owner}</span></p>
+			</div>
+			<div class="panel-top-actions-row">
+				<TraitFacetPanelControls
+					hasActiveFilters={selectedTraits.length > 0}
+					collapsed={$traitFacetPanelState.collapsed}
+					onToggleCollapsed={traitFacetPanel.toggle}
+					onReset={onResetTraits}
+				/>
+			</div>
+		</div>
+	{/if}
 
 	<TokenBrowserView
 		chain={chain}
@@ -75,6 +117,7 @@
 		collectionBasePath={collectionBasePath}
 		browserBasePath={browserBasePath}
 		requestCursor={requestCursor}
+		{traitFacetPanel}
 		tokenStatus="listed_then_unlisted"
 		displayMode={displayMode}
 	/>

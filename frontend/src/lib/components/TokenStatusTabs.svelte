@@ -27,14 +27,14 @@
 	}
 </script>
 
-<div class="runtime-tabs" aria-label="Token status filters">
+<div class="secondary-tabs" aria-label="Token status filters">
 	{#if tokenStatus === 'listed'}
-		<span class="runtime-tab-active">only listed</span>
+		<span class="secondary-tab-active">only listed</span>
 	{:else}
 		<a href={tokenStatusHref('listed')}>only listed</a>
 	{/if}
 	{#if tokenStatus === 'all'}
-		<span class="runtime-tab-active">show all</span>
+		<span class="secondary-tab-active">show all</span>
 	{:else}
 		<a href={tokenStatusHref('all')}>show all</a>
 	{/if}

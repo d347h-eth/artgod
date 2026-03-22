@@ -5,6 +5,8 @@ import type {
     ChainRecord,
     CollectionListItem,
     TokenCard,
+    TraitFacet,
+    TraitFilter,
 } from "@artgod/shared/types";
 import {
     buildActivityFeedIncludes,
@@ -17,11 +19,16 @@ export type GetCollectionActivityInput = {
     limit: number;
     cursor?: string;
     kind?: ActivityFeedFilterKind;
+    traits: TraitFilter[];
 };
 
 export type GetCollectionActivityOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
+    traits: {
+        selected: TraitFilter[];
+        facets: TraitFacet[];
+    };
     activities: ActivityFeedPage;
     included: ActivityFeedIncludes;
 };
@@ -40,6 +47,10 @@ export class GetCollectionActivityUseCase {
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
+            listCollectionTraitFacets(
+                chainId: number,
+                collectionId: number,
+            ): TraitFacet[];
         },
         readonly activityReadPort: {
             listCollectionActivities(params: {
@@ -48,6 +59,7 @@ export class GetCollectionActivityUseCase {
                 limit: number;
                 cursor?: string;
                 kind?: ActivityFeedFilterKind;
+                traitFilters?: TraitFilter[];
             }): ActivityFeedPage;
         },
         readonly tokenPresentationReadPort: {
@@ -76,7 +88,12 @@ export class GetCollectionActivityUseCase {
             limit: input.limit,
             cursor: input.cursor,
             kind: input.kind,
+            traitFilters: input.traits,
         });
+        const facets = this.collectionReadPort.listCollectionTraitFacets(
+            chain.publicChainId,
+            collection.collectionId,
+        );
         const included = buildActivityFeedIncludes(
             this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
                 chainId: chain.publicChainId,
@@ -88,6 +105,10 @@ export class GetCollectionActivityUseCase {
         return {
             chain,
             collection,
+            traits: {
+                selected: input.traits,
+                facets,
+            },
             activities,
             included,
         };

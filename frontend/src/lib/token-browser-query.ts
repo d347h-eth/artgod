@@ -1,6 +1,7 @@
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { TokenBrowserStatus } from '@artgod/shared/types/browse';
 import type { ApiTokenAttribute } from '$lib/api-types';
+import { appendNormalizedTraitParams, appendTraitParams } from '$lib/trait-filters';
 
 export function normalizeTokenBrowserParams(
 	raw: URLSearchParams,
@@ -17,9 +18,7 @@ export function normalizeTokenBrowserParams(
 	}
 
 	params.set('token_status', tokenStatus);
-
-	const traitValues = [...raw.getAll('traits'), ...raw.getAll('trait')];
-	appendTokenBrowserTraitParams(params, traitValues);
+	appendNormalizedTraitParams(params, raw);
 
 	return params;
 }
@@ -39,24 +38,8 @@ export function buildTokenBrowserHref(params: {
 	if (params.cursor?.trim()) {
 		query.set('cursor', params.cursor.trim());
 	}
-	appendTokenBrowserTraitParams(
-		query,
-		params.selectedTraits.map((trait) => `${trait.key}:${trait.value}`)
-	);
+	appendTraitParams(query, params.selectedTraits);
 	return `${params.basePath}?${query.toString()}`;
-}
-
-function appendTokenBrowserTraitParams(
-	params: URLSearchParams,
-	values: string[]
-): void {
-	for (const value of values) {
-		for (const segment of value.split(',')) {
-			const trimmed = segment.trim();
-			if (!trimmed) continue;
-			params.append('traits', trimmed);
-		}
-	}
 }
 
 export function parseDisplayMode(raw: string | null): 'grid' | 'table' {

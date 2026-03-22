@@ -91,6 +91,8 @@ describe('CollectionActivitiesView', () => {
 					currentPage: 1,
 					totalPages: 1
 				},
+				facets: [{ key: 'Hat', values: [{ value: 'Beanie', tokenCount: 1 }] }],
+				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				included: {
 					tokensById: {
 						'1': {
@@ -118,9 +120,14 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('sales');
 		expect(body).toContain('listings');
 		expect(body).toContain('transfers');
+		expect(body).toContain('traits');
+		expect(body).toContain('Beanie');
+		expect(body).toContain('>traits<');
+		expect(body).toContain('>reset<');
 		expect(body).toContain('relative');
-		expect(body).toContain('/ethereum/milady/activity?kind=sales');
-		expect(body).toContain('/ethereum/milady/activity?limit=25&amp;kind=listings');
+		expect(body).toContain('<span class="secondary-tab-active">sales</span>');
+		expect(body).toContain('/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;traits=Hat%3ABeanie');
+		expect(body).toContain('/ethereum/milady/activity?limit=25&amp;kind=listings&amp;traits=Hat%3ABeanie');
 		expect(body).toContain('/ethereum/milady/1');
 		expect(body).toContain('Milady #1');
 		expect(body).toContain('https://example.com/1.png');
@@ -143,7 +150,7 @@ describe('CollectionActivitiesView', () => {
 		);
 		expect(body).toContain('older');
 		expect(body).toContain('class="activities-day-break-label">2024-09-09 UTC</span>');
-		expect(body).not.toContain('details');
+		expect(body).not.toContain('>details<');
 		expect(body).not.toContain('token</th>');
 	});
 
@@ -235,6 +242,8 @@ describe('CollectionActivitiesView', () => {
 					currentPage: 1,
 					totalPages: 1
 				},
+				facets: [{ key: 'Hat', values: [{ value: 'Beanie', tokenCount: 1 }] }],
+				selectedTraits: [],
 				included: {
 					tokensById: {
 						'1': {

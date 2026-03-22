@@ -9,11 +9,14 @@
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
-import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
-import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
-import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
-import { buildTokenBrowserHref } from '$lib/token-browser-query';
-import { createTokenPreviewController } from '$lib/components/token-preview-controller';
+	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
+	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
+	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
+	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
+	import { buildTokenBrowserHref } from '$lib/token-browser-query';
+	import { appendTraitParams, nextSelectedTraits } from '$lib/trait-filters';
+	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
 		readTokenWindow,
 		type TokenWindowState,
@@ -29,6 +32,7 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 		collectionBasePath,
 		browserBasePath,
 		requestCursor,
+		traitFacetPanel,
 		tokenStatus,
 		displayMode,
 		emptyMessage = 'no tokens match current filters'
@@ -41,31 +45,27 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 		collectionBasePath: string;
 		browserBasePath: string;
 		requestCursor: string | null;
+		traitFacetPanel: TraitFacetPanelController;
 		tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 		displayMode: 'grid' | 'table';
 		emptyMessage?: string;
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
-	const TRAITS_COLLAPSED_STORAGE_KEY = 'artgod.tokenBrowser.traitsCollapsed';
-	const TRAITS_COLLAPSED_ROOT_CLASS = 'token-browser-traits-collapsed';
 	const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 	const WEI_BASE = 10n ** 18n;
 	const tokenPreview = createTokenPreviewController(fetch);
 	const tokenPreviewState = tokenPreview.state;
+	const traitFacetPanelState = traitFacetPanel.state;
 
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
-	let traitValueSearch = $state<Record<string, string>>({});
 	let visibleTokens = $state<ApiTokenCard[]>(tokens.items);
 	let visibleRangeStart = $state(tokens.rangeStart);
 	let visibleRangeEnd = $state(tokens.rangeEnd);
 	let pagesLoaded = $state(tokens.items.length === 0 ? 0 : 1);
 	let pagingPending = $state(false);
-	let traitsCollapsed = $state(readInitialTraitsCollapsed());
 	let headPrevCursor = $state<string | null>(tokens.prevCursor);
 	let tailNextCursor = $state<string | null>(tokens.nextCursor);
-	let activeTraitSet = $derived(new Set(activeTraits.map((item) => `${item.key}:${item.value}`)));
-	let hasActiveFilters = $derived(activeTraits.length > 0);
 	let remainingItems = $derived(Math.max(tokens.totalItems - visibleRangeEnd, 0));
 	let hasPreviousPage = $derived(visibleRangeStart > 1);
 	let hasNextPage = $derived(tailNextCursor !== null);
@@ -76,7 +76,6 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 		visibleRangeEnd === 0 ? 0 : Math.floor((visibleRangeEnd - 1) / tokens.limit) + 1
 	);
 	let isGridMode = $derived(displayMode === 'grid');
-	let nextDisplayMode = $derived<'grid' | 'table'>(isGridMode ? 'table' : 'grid');
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
 
@@ -108,36 +107,6 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 		pagingPending = false;
 	});
 
-	$effect(() => {
-		if (!browser) return;
-		try {
-			window.localStorage.setItem(TRAITS_COLLAPSED_STORAGE_KEY, traitsCollapsed ? '1' : '0');
-		} catch {
-			// Ignore storage failures and keep the in-memory state.
-		}
-		document.documentElement.classList.toggle(TRAITS_COLLAPSED_ROOT_CLASS, traitsCollapsed);
-	});
-
-	function readInitialTraitsCollapsed(): boolean {
-		if (!browser) return false;
-		try {
-			if (document.documentElement.classList.contains(TRAITS_COLLAPSED_ROOT_CLASS)) {
-				return true;
-			}
-			return window.localStorage.getItem(TRAITS_COLLAPSED_STORAGE_KEY) === '1';
-		} catch {
-			return false;
-		}
-	}
-
-	function traitId(key: string, value: string): string {
-		return `${key}-${value}`.replace(/\s+/g, '-').toLowerCase();
-	}
-
-	function traitChecked(key: string, value: string): boolean {
-		return activeTraitSet.has(`${key}:${value}`);
-	}
-
 	function loadPreviousHref(): string {
 		if (!hasPreviousPage) return '#';
 		return buildFiltersHref(activeTraits, headPrevCursor);
@@ -164,9 +133,7 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 		if (requestCursor) {
 			query.set('cursor', requestCursor);
 		}
-		for (const trait of activeTraits) {
-			query.append('traits', `${trait.key}:${trait.value}`);
-		}
+		appendTraitParams(query, activeTraits);
 		return query.toString();
 	}
 
@@ -223,37 +190,6 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 			collectionAddress: collection?.address ?? null,
 			tokenId: token.tokenId
 		});
-	}
-
-	function onTraitSearchInput(key: string, event: Event): void {
-		const target = event.target;
-		if (!(target instanceof HTMLInputElement)) return;
-
-		traitValueSearch = {
-			...traitValueSearch,
-			[key]: target.value
-		};
-	}
-
-	function traitSearchValue(key: string): string {
-		return traitValueSearch[key] ?? '';
-	}
-
-	function traitValueMatches(key: string, value: string): boolean {
-		const pattern = traitSearchValue(key).trim().toLowerCase();
-		if (!pattern) return true;
-
-		const haystack = value.toLowerCase();
-		if (!pattern.includes('*')) {
-			return haystack.includes(pattern);
-		}
-
-		const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-		return new RegExp(`^${escaped}$`).test(haystack);
-	}
-
-	function visibleFacetValues(facet: ApiTraitFacet): Array<{ value: string; tokenCount: number }> {
-		return facet.values.filter((item) => traitValueMatches(facet.key, item.value));
 	}
 
 	function buildFiltersHref(
@@ -425,50 +361,6 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 		return buildFiltersHref(activeTraits, requestCursor, mode);
 	}
 
-	function nextSelectedTraits(
-		sourceTraits: ApiTokenAttribute[],
-		key: string,
-		value: string,
-		checked: boolean,
-		unionMode: boolean
-	): ApiTokenAttribute[] {
-		const grouped = new Map<string, Set<string>>();
-		for (const trait of sourceTraits) {
-			const set = grouped.get(trait.key) ?? new Set<string>();
-			set.add(trait.value);
-			grouped.set(trait.key, set);
-		}
-
-		const current = grouped.get(key) ?? new Set<string>();
-		if (unionMode) {
-			if (checked) {
-				current.add(value);
-			} else {
-				current.delete(value);
-			}
-			if (current.size === 0) {
-				grouped.delete(key);
-			} else {
-				grouped.set(key, current);
-			}
-		} else {
-			if (checked) {
-				grouped.set(key, new Set([value]));
-			} else {
-				grouped.delete(key);
-			}
-		}
-
-		const next: ApiTokenAttribute[] = [];
-		for (const [groupKey, values] of grouped.entries()) {
-			const sortedValues = [...values].sort((a, b) => a.localeCompare(b));
-			for (const traitValue of sortedValues) {
-				next.push({ key: groupKey, value: traitValue });
-			}
-		}
-		return next;
-	}
-
 	async function onTraitToggleWithMode(
 		key: string,
 		value: string,
@@ -478,29 +370,6 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, unionMode);
 		activeTraits = nextTraits;
 		await goto(buildFiltersHref(nextTraits), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
-	}
-
-	function onTraitCheckboxClick(key: string, value: string, event: MouseEvent): void {
-		const target = event.target;
-		if (!(target instanceof HTMLInputElement)) return;
-		void onTraitToggleWithMode(key, value, target.checked, event.ctrlKey);
-	}
-
-	function traitGroupActive(key: string): boolean {
-		return activeTraits.some((item) => item.key === key);
-	}
-
-	function resetHref(): string {
-		return buildFiltersHref([], null, displayMode);
-	}
-
-	async function onResetFilters(): Promise<void> {
-		activeTraits = [];
-		await goto(resetHref(), {
 			invalidateAll: true,
 			keepFocus: true,
 			noScroll: true
@@ -531,18 +400,6 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 		});
 	}
 
-	async function onToggleDisplayMode(): Promise<void> {
-		await goto(modeHref(nextDisplayMode), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
-	}
-
-	function onToggleTraitsSidebar(): void {
-		traitsCollapsed = !traitsCollapsed;
-	}
-
 	function onGlobalKeydown(event: KeyboardEvent): void {
 		const previewWasOpen = $tokenPreviewState.open;
 		tokenPreview.onWindowKeydown(event);
@@ -550,110 +407,45 @@ import { createTokenPreviewController } from '$lib/components/token-preview-cont
 			return;
 		}
 
-		if (event.defaultPrevented) return;
-		if (event.metaKey || event.ctrlKey || event.altKey) return;
-		if (event.key.toLowerCase() !== 't') return;
-		if (isTypingTarget(event.target)) return;
-		event.preventDefault();
-		onToggleTraitsSidebar();
-	}
-
-	function isTypingTarget(target: EventTarget | null): boolean {
-		if (!(target instanceof HTMLElement)) return false;
-		if (target.isContentEditable) return true;
-		const tag = target.tagName.toLowerCase();
-		return tag === 'input' || tag === 'textarea' || tag === 'select';
+		traitFacetPanel.onWindowKeydown(event);
 	}
 
 </script>
 
 <svelte:window onkeydown={onGlobalKeydown} />
 
-<div class="detail-layout" class:sidebar-collapsed={traitsCollapsed}>
-	<div class="facet-column" class:facet-column-sticky={!traitsCollapsed}>
-		<button
-			class="facet-collapse-button"
-			type="button"
-			aria-expanded={!traitsCollapsed}
-			aria-label={traitsCollapsed ? 'expand traits sidebar' : 'collapse traits sidebar'}
-			onclick={onToggleTraitsSidebar}
-		>
-			{traitsCollapsed ? '>' : 'T'}
-		</button>
-
-		{#if !traitsCollapsed}
-			<aside class="facet-panel">
-				<div class="facet-header">
-					<h2>traits</h2>
-					{#if hasActiveFilters}
-						<button class="facet-reset-button" type="button" onclick={onResetFilters}>reset</button>
-					{/if}
-				</div>
-
-				{#if facets.length === 0}
-					<p class="muted">no trait facets yet</p>
-				{:else}
-					{#each facets as facet}
-						<details class="trait-group">
-							<summary>
-								<span class:trait-group-active={traitGroupActive(facet.key)}>{facet.key}</span>
-								<span class="muted">{facet.values.length}</span>
-							</summary>
-
-							<div class="trait-group-body">
-								<input
-									class="trait-search-input"
-									type="search"
-									placeholder="search"
-									value={traitSearchValue(facet.key)}
-									oninput={(event) => onTraitSearchInput(facet.key, event)}
-								/>
-
-								<div class="trait-values">
-									{#if visibleFacetValues(facet).length === 0}
-										<p class="muted">no matches</p>
-									{:else}
-										{#each visibleFacetValues(facet) as value}
-											<label for={traitId(facet.key, value.value)}>
-												<input
-													id={traitId(facet.key, value.value)}
-													type="checkbox"
-													checked={traitChecked(facet.key, value.value)}
-													onclick={(event) =>
-														onTraitCheckboxClick(facet.key, value.value, event)}
-												/>
-												<span class="trait-value-text">{value.value}</span>
-												<span class="trait-value-count mono">{value.tokenCount}</span>
-											</label>
-										{/each}
-									{/if}
-								</div>
-							</div>
-						</details>
-					{/each}
-				{/if}
-			</aside>
-		{/if}
-	</div>
+<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
+	<TraitFacetPanel
+		{facets}
+		selectedTraits={activeTraits}
+		collapsed={$traitFacetPanelState.collapsed}
+		onToggleTrait={onTraitToggleWithMode}
+	/>
 
 	<div class="token-panel">
 		<div class="panel-top-actions">
 			<span class="mono token-results-summary">{browserResultsSummary()}</span>
-			{#if hasPreviousPage}
-				<a
-					class="button-link"
-					href={loadPreviousHref()}
-					aria-busy={pagingPending}
-					onclick={onLoadPrevious}>load previous</a
-				>
-			{/if}
-			<div class="mode-toggle">
-				<button
-					type="button"
-					class="mode-toggle-button"
-					aria-label={`switch to ${nextDisplayMode} mode`}
-					onclick={onToggleDisplayMode}>{nextDisplayMode}</button
-				>
+			<div class="panel-top-actions-row-actions">
+				{#if hasPreviousPage}
+					<a
+						class="button-link"
+						href={loadPreviousHref()}
+						aria-busy={pagingPending}
+						onclick={onLoadPrevious}>load previous</a
+					>
+				{/if}
+				<div class="secondary-tabs" aria-label="Token display mode">
+					{#if isGridMode}
+						<span class="secondary-tab-active">grid</span>
+					{:else}
+						<a href={modeHref('grid')}>grid</a>
+					{/if}
+					{#if !isGridMode}
+						<span class="secondary-tab-active">table</span>
+					{:else}
+						<a href={modeHref('table')}>table</a>
+					{/if}
+				</div>
 			</div>
 		</div>
 

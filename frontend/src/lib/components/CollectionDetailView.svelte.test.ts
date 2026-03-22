@@ -57,11 +57,15 @@ describe('CollectionDetailView', () => {
 		});
 
 		expect(body).toContain('tokens');
-		expect(body).toContain('/ethereum/milady/activity?kind=sales');
+		expect(body).toContain('/ethereum/milady/activity?limit=25&amp;kind=sales&amp;traits=Hat%3ABeanie');
 		expect(body).toContain('only listed');
 		expect(body).toContain('show all');
 		expect(body).toContain('/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=all&amp;traits=Hat%3ABeanie');
-		expect(body).toContain('switch to table mode');
+		expect(body).toContain('<span class="runtime-tab-active">tokens</span>');
+		expect(body).toContain('<span class="secondary-tab-active">grid</span>');
+		expect(body).toContain('/ethereum/milady?limit=25&amp;mode=table&amp;token_status=listed&amp;traits=Hat%3ABeanie');
+		expect(body).toContain('>traits<');
+		expect(body).toContain('>reset<');
 		expect(body).toContain('1 listed');
 		expect(body).toContain('token 1');
 		expect(body).toContain('0.5 ETH');

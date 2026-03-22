@@ -1,31 +1,31 @@
 <script lang="ts">
 	let {
-		basePath,
+		tokensHref,
+		activitiesHref,
+		holdersHref,
 		active
 	}: {
-		basePath: string;
+		tokensHref: string;
+		activitiesHref: string;
+		holdersHref: string;
 		active: 'tokens' | 'activities' | 'holders';
 	} = $props();
-
-	function activitiesHref(): string {
-		return `${basePath}/activity?kind=sales`;
-	}
-
-	function holdersHref(): string {
-		return `${basePath}/holders`;
-	}
 </script>
 
 <div class="runtime-tabs" aria-label="Collection sections">
-	<a href={basePath} class:runtime-tab-active={active === 'tokens'} aria-current={active === 'tokens' ? 'page' : undefined}>tokens</a>
-	<a
-		href={activitiesHref()}
-		class:runtime-tab-active={active === 'activities'}
-		aria-current={active === 'activities' ? 'page' : undefined}>activities</a
-	>
-	<a
-		href={holdersHref()}
-		class:runtime-tab-active={active === 'holders'}
-		aria-current={active === 'holders' ? 'page' : undefined}>holders</a
-	>
+	{#if active === 'tokens'}
+		<span class="runtime-tab-active">tokens</span>
+	{:else}
+		<a href={tokensHref}>tokens</a>
+	{/if}
+	{#if active === 'activities'}
+		<span class="runtime-tab-active">activities</span>
+	{:else}
+		<a href={activitiesHref}>activities</a>
+	{/if}
+	{#if active === 'holders'}
+		<span class="runtime-tab-active">holders</span>
+	{:else}
+		<a href={holdersHref}>holders</a>
+	{/if}
 </div>
