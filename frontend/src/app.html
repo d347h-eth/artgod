@@ -7,9 +7,7 @@
 		<script>
 			(() => {
 				try {
-					const isCollapsed =
-						window.localStorage.getItem('artgod.traitFacetPanel.collapsed') === '1' ||
-						window.localStorage.getItem('artgod.tokenBrowser.traitsCollapsed') === '1';
+					const isCollapsed = window.localStorage.getItem('artgod.traitFacetPanel.collapsed') === '1';
 					if (isCollapsed) {
 						document.documentElement.classList.add('trait-facet-panel-collapsed');
 					}

@@ -11,7 +11,7 @@
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
-	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
@@ -138,50 +138,41 @@
 	}
 </script>
 
-<section class="panel">
-	<nav class="breadcrumbs" aria-label="Breadcrumb">
+<CollectionPageLayout
+	tokensHref={tokensSectionHref()}
+	activitiesHref={activitiesSectionHref()}
+	holdersHref={holdersSectionHref()}
+	activeSection="tokens"
+	collectionAvailable={collection !== null}
+>
+	{#snippet breadcrumbs()}
 		<a href={collectionsHref()}>collections</a>
 		{#if collection}
 			<span class="breadcrumbs-separator">/</span>
 			<span class="breadcrumbs-current">{collection.slug}</span>
 		{/if}
-	</nav>
-
-	<header class="panel-header">
-		{#if collection}
-			<CollectionSectionTabs
-				tokensHref={tokensSectionHref()}
-				activitiesHref={activitiesSectionHref()}
-				holdersHref={holdersSectionHref()}
-				active="tokens"
-			/>
-		{:else}
-			<span class="muted">collection not found</span>
-		{/if}
-	</header>
-
+	{/snippet}
+	{#snippet topActions()}
 	{#if collection}
-		<div class="panel-top-actions panel-top-actions-stack">
-			<div class="panel-top-actions-row">
-				<TokenStatusTabs
-					basePath={basePath}
-					limit={tokens.limit}
-					{displayMode}
-					{tokenStatus}
-					{selectedTraits}
-				/>
-			</div>
-			<div class="panel-top-actions-row">
-				<TraitFacetPanelControls
-					hasActiveFilters={selectedTraits.length > 0}
-					collapsed={$traitFacetPanelState.collapsed}
-					onToggleCollapsed={traitFacetPanel.toggle}
-					onReset={onResetTraits}
-				/>
-			</div>
+		<div class="panel-top-actions-row">
+			<TokenStatusTabs
+				basePath={basePath}
+				limit={tokens.limit}
+				{displayMode}
+				{tokenStatus}
+				{selectedTraits}
+			/>
+		</div>
+		<div class="panel-top-actions-row">
+			<TraitFacetPanelControls
+				hasActiveFilters={selectedTraits.length > 0}
+				collapsed={$traitFacetPanelState.collapsed}
+				onToggleCollapsed={traitFacetPanel.toggle}
+				onReset={onResetTraits}
+			/>
 		</div>
 	{/if}
-
+	{/snippet}
 	{#if collection && collection.status !== 'live'}
 		<section class="panel-header">
 			<span class="muted">collection status is {collection.status}</span>
@@ -206,8 +197,9 @@
 		collectionBasePath={basePath}
 		browserBasePath={basePath}
 		requestCursor={requestCursor}
+		onResetTraits={onResetTraits}
 		{traitFacetPanel}
 		tokenStatus={tokenStatus}
 		displayMode={displayMode}
 	/>
-</section>
+</CollectionPageLayout>

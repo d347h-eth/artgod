@@ -13,7 +13,7 @@
 	} from '$lib/api-types';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
-	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
@@ -234,7 +234,9 @@
 			return;
 		}
 
-		traitFacetPanel.onWindowKeydown(event);
+		traitFacetPanel.onWindowKeydown(event, {
+			onReset: onResetFilters
+		});
 	}
 
 	function cycleTimeDisplayMode(): void {
@@ -325,8 +327,14 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<section class="panel">
-	<nav class="breadcrumbs" aria-label="Breadcrumb">
+<CollectionPageLayout
+	tokensHref={tokensHref()}
+	activitiesHref={activitiesHref()}
+	holdersHref={holdersHref()}
+	activeSection="activities"
+	collectionAvailable={collection !== null}
+>
+	{#snippet breadcrumbs()}
 		<a href={collectionsHref()}>collections</a>
 		{#if collection}
 			<span class="breadcrumbs-separator">/</span>
@@ -334,22 +342,8 @@
 			<span class="breadcrumbs-separator">/</span>
 			<span class="breadcrumbs-current">activities</span>
 		{/if}
-	</nav>
-
-	<header class="panel-header">
-		{#if collection}
-			<CollectionSectionTabs
-				tokensHref={tokensHref()}
-				activitiesHref={activitiesHref()}
-				holdersHref={holdersHref()}
-				active="activities"
-			/>
-		{:else}
-			<span class="muted">collection not found</span>
-		{/if}
-	</header>
-
-	<div class="panel-top-actions panel-top-actions-stack">
+	{/snippet}
+	{#snippet topActions()}
 		<div class="panel-top-actions-row">
 			<div class="secondary-tabs" aria-label="Activity type filters">
 				{#if filterKind === 'sales'}
@@ -377,7 +371,7 @@
 				onReset={onResetFilters}
 			/>
 		</div>
-	</div>
+	{/snippet}
 
 	<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
 		<TraitFacetPanel
@@ -535,7 +529,7 @@
 			</footer>
 		</div>
 	</div>
-</section>
+</CollectionPageLayout>
 
 <TokenPreviewOverlay
 	state={$tokenPreviewState}

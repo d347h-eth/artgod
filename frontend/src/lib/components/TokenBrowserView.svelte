@@ -23,6 +23,8 @@
 		writeTokenWindow
 	} from '$lib/components/token-window-cache';
 
+	type MaybePromise<T> = T | Promise<T>;
+
 	let {
 		chain,
 		collection,
@@ -32,6 +34,7 @@
 		collectionBasePath,
 		browserBasePath,
 		requestCursor,
+		onResetTraits,
 		traitFacetPanel,
 		tokenStatus,
 		displayMode,
@@ -45,6 +48,7 @@
 		collectionBasePath: string;
 		browserBasePath: string;
 		requestCursor: string | null;
+		onResetTraits: () => MaybePromise<void>;
 		traitFacetPanel: TraitFacetPanelController;
 		tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 		displayMode: 'grid' | 'table';
@@ -407,7 +411,9 @@
 			return;
 		}
 
-		traitFacetPanel.onWindowKeydown(event);
+		traitFacetPanel.onWindowKeydown(event, {
+			onReset: onResetTraits
+		});
 	}
 
 </script>
@@ -423,9 +429,9 @@
 	/>
 
 	<div class="token-panel">
-		<div class="panel-top-actions">
+		<div class="results-toolbar">
 			<span class="mono token-results-summary">{browserResultsSummary()}</span>
-			<div class="panel-top-actions-row-actions">
+			<div class="results-toolbar-actions">
 				{#if hasPreviousPage}
 					<a
 						class="button-link"

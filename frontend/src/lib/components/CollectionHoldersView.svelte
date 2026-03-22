@@ -13,7 +13,7 @@
 		resolveForwardWindowState,
 		writeForwardWindow
 	} from '$lib/components/forward-window-cache';
-	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 
 	let {
 		chain,
@@ -144,8 +144,14 @@
 	}
 </script>
 
-<section class="panel">
-	<nav class="breadcrumbs" aria-label="Breadcrumb">
+<CollectionPageLayout
+	tokensHref={basePath}
+	activitiesHref={`${basePath}/activity?kind=sales`}
+	holdersHref={`${basePath}/holders`}
+	activeSection="holders"
+	collectionAvailable={collection !== null}
+>
+	{#snippet breadcrumbs()}
 		<a href={collectionsHref()}>collections</a>
 		{#if collection}
 			<span class="breadcrumbs-separator">/</span>
@@ -153,24 +159,12 @@
 			<span class="breadcrumbs-separator">/</span>
 			<span class="breadcrumbs-current">holders</span>
 		{/if}
-	</nav>
-
-	<header class="panel-header">
-		{#if collection}
-			<CollectionSectionTabs
-				tokensHref={basePath}
-				activitiesHref={`${basePath}/activity?kind=sales`}
-				holdersHref={`${basePath}/holders`}
-				active="holders"
-			/>
-		{:else}
-			<span class="muted">collection not found</span>
-		{/if}
-	</header>
-
-	<div class="panel-top-actions">
-		<span class="mono token-results-summary">{holdersResultsSummary()}</span>
-	</div>
+	{/snippet}
+	{#snippet topActions()}
+		<div class="panel-top-actions-row">
+			<span class="mono token-results-summary">{holdersResultsSummary()}</span>
+		</div>
+	{/snippet}
 
 	<div class="table-wrap holders-table-wrap">
 		<table class="holders-table">
@@ -238,4 +232,4 @@
 			<span class="muted">end of holder results</span>
 		{/if}
 	</footer>
-</section>
+</CollectionPageLayout>
