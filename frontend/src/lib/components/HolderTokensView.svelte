@@ -77,6 +77,5 @@
 		requestCursor={requestCursor}
 		tokenStatus="listed_then_unlisted"
 		displayMode={displayMode}
-		showTokenStatusControls={false}
 	/>
 </section>

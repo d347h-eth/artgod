@@ -9,10 +9,11 @@
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
-	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
-	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
-	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
-	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
+import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
+import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
+import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
+import { buildTokenBrowserHref } from '$lib/token-browser-query';
+import { createTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
 		readTokenWindow,
 		type TokenWindowState,
@@ -30,7 +31,6 @@
 		requestCursor,
 		tokenStatus,
 		displayMode,
-		showTokenStatusControls = true,
 		emptyMessage = 'no tokens match current filters'
 	}: {
 		chain: ApiChain | null;
@@ -43,7 +43,6 @@
 		requestCursor: string | null;
 		tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 		displayMode: 'grid' | 'table';
-		showTokenStatusControls?: boolean;
 		emptyMessage?: string;
 	} = $props();
 
@@ -263,17 +262,14 @@
 		mode: 'grid' | 'table' = displayMode,
 		nextTokenStatus: 'listed' | 'all' | 'listed_then_unlisted' = tokenStatus
 	): string {
-		const query = new URLSearchParams();
-		query.set('limit', String(tokens.limit));
-		query.set('mode', mode);
-		query.set('token_status', nextTokenStatus);
-		if (cursor) {
-			query.set('cursor', cursor);
-		}
-		for (const trait of traits) {
-			query.append('traits', `${trait.key}:${trait.value}`);
-		}
-		return `${browserBasePath}?${query.toString()}`;
+		return buildTokenBrowserHref({
+			basePath: browserBasePath,
+			limit: tokens.limit,
+			displayMode: mode,
+			tokenStatus: nextTokenStatus,
+			selectedTraits: traits,
+			cursor
+		});
 	}
 
 	function filtersSignature(
@@ -429,10 +425,6 @@
 		return buildFiltersHref(activeTraits, requestCursor, mode);
 	}
 
-	function tokenStatusHref(nextTokenStatus: 'listed' | 'all'): string {
-		return buildFiltersHref(activeTraits, null, displayMode, nextTokenStatus);
-	}
-
 	function nextSelectedTraits(
 		sourceTraits: ApiTokenAttribute[],
 		key: string,
@@ -547,15 +539,6 @@
 		});
 	}
 
-	async function onTokenStatusChange(nextTokenStatus: 'listed' | 'all'): Promise<void> {
-		if (nextTokenStatus === tokenStatus) return;
-		await goto(tokenStatusHref(nextTokenStatus), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
-	}
-
 	function onToggleTraitsSidebar(): void {
 		traitsCollapsed = !traitsCollapsed;
 	}
@@ -600,26 +583,6 @@
 
 		{#if !traitsCollapsed}
 			<aside class="facet-panel">
-				{#if showTokenStatusControls}
-					<div class="facet-header">
-						<h2>status</h2>
-					</div>
-					<div class="facet-status-options">
-						<button
-							type="button"
-							class="facet-status-option"
-							class:facet-status-option-active={tokenStatus === 'listed'}
-							onclick={() => void onTokenStatusChange('listed')}>only listed</button
-						>
-						<button
-							type="button"
-							class="facet-status-option"
-							class:facet-status-option-active={tokenStatus === 'all'}
-							onclick={() => void onTokenStatusChange('all')}>show all</button
-						>
-					</div>
-				{/if}
-
 				<div class="facet-header">
 					<h2>traits</h2>
 					{#if hasActiveFilters}

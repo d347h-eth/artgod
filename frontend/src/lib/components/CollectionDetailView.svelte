@@ -10,6 +10,7 @@
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 
 	let {
@@ -59,10 +60,6 @@
 		return `/${chain.slug}`;
 	}
 
-	function holdersHref(): string {
-		return collection ? `${basePath}/holders` : '#';
-	}
-
 	function activeCollectionRef(): string | null {
 		if (!collection) return null;
 		return collection.slug;
@@ -109,6 +106,18 @@
 			<span class="muted">collection not found</span>
 		{/if}
 	</header>
+
+	{#if collection}
+		<div class="panel-top-actions">
+			<TokenStatusTabs
+				basePath={basePath}
+				limit={tokens.limit}
+				{displayMode}
+				{tokenStatus}
+				{selectedTraits}
+			/>
+		</div>
+	{/if}
 
 	{#if collection && collection.status !== 'live'}
 		<section class="panel-header">
