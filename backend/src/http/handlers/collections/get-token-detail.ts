@@ -3,6 +3,10 @@ import type {
     GetTokenDetailInput,
     GetTokenDetailOutput,
 } from "../../../application/use-cases/collections/get-token-detail.js";
+import {
+    getSearchParams,
+    parseMediaMode,
+} from "../../common/request-query.js";
 
 export type GetTokenDetailRoute = {
     Params: {
@@ -32,10 +36,12 @@ export class GetTokenDetailHttpAdapter {
     private mapRequestToInput(
         request: FastifyRequest<GetTokenDetailRoute>,
     ): GetTokenDetailInput {
+        const searchParams = getSearchParams(request);
         return {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,
+            mediaMode: parseMediaMode(searchParams.get("media_mode")),
         };
     }
 

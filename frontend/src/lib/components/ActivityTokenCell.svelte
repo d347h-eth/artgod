@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ApiTokenPresentationSummary } from '$lib/api-types';
+	import type { ApiCollectionMediaMode, ApiTokenPresentationSummary } from '$lib/api-types';
 	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
 	import type { TokenPreviewController } from '$lib/components/token-preview-controller';
 
@@ -8,12 +8,16 @@
 		collectionRef,
 		tokenId,
 		token,
+		selectedMediaMode,
+		availableMediaModes,
 		tokenPreview
 	}: {
 		chainRef: string | null;
 		collectionRef: string | null;
 		tokenId: string | null;
 		token: ApiTokenPresentationSummary | null;
+		selectedMediaMode: string;
+		availableMediaModes: ApiCollectionMediaMode[];
 		tokenPreview: TokenPreviewController;
 	} = $props();
 </script>
@@ -24,6 +28,8 @@
 		{collectionRef}
 		{tokenId}
 		image={token?.image ?? null}
+		{selectedMediaMode}
+		{availableMediaModes}
 		{tokenPreview}
 		mode="grid"
 		containerClass="token-grid-media activity-token-media"

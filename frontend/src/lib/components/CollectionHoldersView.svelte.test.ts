@@ -47,6 +47,7 @@ describe('CollectionHoldersView', () => {
 					totalPages: 2
 				},
 				basePath: '/ethereum/milady',
+				selectedMediaMode: 'artifact',
 				requestCursor: null
 			}
 		});
@@ -60,9 +61,12 @@ describe('CollectionHoldersView', () => {
 		expect(body).toContain('4 holders');
 		expect(body).toContain('showing 1-2 of 4');
 		expect(body).toContain('load next');
-		expect(body).toContain('/ethereum/milady/activity?kind=sales');
-		expect(body).toContain('/ethereum/milady/holders');
-		expect(body).toContain('/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+		expect(body).toContain('/ethereum/milady?media_mode=artifact');
+		expect(body).toContain('/ethereum/milady/activity?limit=2&amp;kind=sales&amp;media_mode=artifact');
+		expect(body).toContain('<span class="runtime-tab-active">holders</span>');
+		expect(body).toContain(
+			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
+		);
 	});
 
 	it('formats tiny held percentages with the tighter threshold rules', () => {
@@ -109,6 +113,7 @@ describe('CollectionHoldersView', () => {
 					totalPages: 1
 				},
 				basePath: '/ethereum/milady',
+				selectedMediaMode: 'artifact',
 				requestCursor: null
 			}
 		});

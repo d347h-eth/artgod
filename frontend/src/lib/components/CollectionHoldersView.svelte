@@ -14,6 +14,8 @@
 		writeForwardWindow
 	} from '$lib/components/forward-window-cache';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import { appendMediaModeParam } from '$lib/media-mode';
+	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	let {
@@ -21,12 +23,14 @@
 		collection,
 		holders,
 		basePath,
+		selectedMediaMode,
 		requestCursor
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		holders: ApiCollectionHoldersPage;
 		basePath: string;
+		selectedMediaMode: string | null;
 		requestCursor: string | null;
 	} = $props();
 
@@ -96,17 +100,31 @@
 	}
 
 	function tokensHref(): string {
-		return collection ? basePath : '#';
+		if (!collection) return '#';
+		const query = new URLSearchParams();
+		appendMediaModeParam(query, selectedMediaMode);
+		const suffix = query.toString();
+		return suffix ? `${basePath}?${suffix}` : basePath;
+	}
+
+	function holdersPath(): string {
+		return `${basePath}/holders`;
 	}
 
 	function holdersHref(): string {
-		return collection ? `${basePath}/holders` : '#';
+		if (!collection) return '#';
+		const query = new URLSearchParams();
+		appendMediaModeParam(query, selectedMediaMode);
+		const suffix = query.toString();
+		const path = holdersPath();
+		return suffix ? `${path}?${suffix}` : path;
 	}
 
 	function holderHref(owner: string): string {
 		return buildOwnerTokensHref({
-			basePath: `${holdersHref()}/${encodeURIComponent(owner)}`,
-			selectedTraits: []
+			basePath: `${holdersPath()}/${encodeURIComponent(owner)}`,
+			selectedTraits: [],
+			mediaMode: selectedMediaMode
 		});
 	}
 
@@ -119,7 +137,8 @@
 		const query = new URLSearchParams();
 		query.set('limit', String(holders.limit));
 		query.set('cursor', tailNextCursor);
-		return `${holdersHref()}?${query.toString()}`;
+		appendMediaModeParam(query, selectedMediaMode);
+		return `${holdersPath()}?${query.toString()}`;
 	}
 
 	function holdersResultsSummary(): string {
@@ -162,9 +181,15 @@
 </script>
 
 <CollectionPageLayout
-	tokensHref={basePath}
-	activitiesHref={`${basePath}/activity?kind=sales`}
-	holdersHref={`${basePath}/holders`}
+	tokensHref={tokensHref()}
+	activitiesHref={buildCollectionActivityHref({
+		basePath,
+		limit: holders.limit,
+		kind: 'sales',
+		selectedTraits: [],
+		mediaMode: selectedMediaMode
+	})}
+	holdersHref={holdersHref()}
 	activeSection="holders"
 	collectionAvailable={collection !== null}
 >

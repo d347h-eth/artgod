@@ -135,6 +135,7 @@ paths:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/ActivityKindFilter"
+                - $ref: "#/components/parameters/MediaMode"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
                 - name: traits
@@ -181,6 +182,7 @@ paths:
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
+                - $ref: "#/components/parameters/MediaMode"
                 - name: token_status
                   in: query
                   required: false
@@ -263,6 +265,7 @@ paths:
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
                 - $ref: "#/components/parameters/ActivityKindFilter"
+                - $ref: "#/components/parameters/MediaMode"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
             responses:
@@ -291,6 +294,7 @@ paths:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/TokenRef"
+                - $ref: "#/components/parameters/MediaMode"
             responses:
                 "200":
                     description: Token detail with animation_url and trait rarity stats
@@ -529,6 +533,17 @@ components:
                 `listings` returns only `listing_created`.
                 On the collection activity endpoint, `listings` is collapsed by `tokenId + maker + currency + UTC day` and surfaces the latest raw listing in each group.
                 `transfers` returns only `transfer`.
+        MediaMode:
+            name: media_mode
+            in: query
+            required: false
+            schema:
+                type: string
+            description: |
+                Extension-driven media mode.
+                `truth` requests canonical token media.
+                `artifact` requests extension-provided media when available.
+                Unsupported or missing artifact media falls back to canonical token media.
 
     responses:
         BadRequest:
@@ -921,15 +936,41 @@ components:
                 totalPages:
                     type: integer
 
+        CollectionMediaMode:
+            type: object
+            required: [key, label]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+                label:
+                    type: string
+
+        CollectionMediaState:
+            type: object
+            required: [selectedMode, defaultMode, availableModes]
+            additionalProperties: false
+            properties:
+                selectedMode:
+                    type: string
+                defaultMode:
+                    type: string
+                availableModes:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/CollectionMediaMode"
+
         GetCollectionDetailResponse:
             type: object
-            required: [chain, collection, traits, tokens]
+            required: [chain, collection, media, traits, tokens]
             additionalProperties: false
             properties:
                 chain:
                     $ref: "#/components/schemas/ChainRecord"
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
                 traits:
                     type: object
                     required: [selected, facets]
@@ -1160,13 +1201,15 @@ components:
 
         GetCollectionActivityResponse:
             type: object
-            required: [chain, collection, traits, activities, included]
+            required: [chain, collection, media, traits, activities, included]
             additionalProperties: false
             properties:
                 chain:
                     $ref: "#/components/schemas/ChainRecord"
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
                 traits:
                     type: object
                     required: [selected, facets]
@@ -1187,25 +1230,29 @@ components:
 
         GetTokenDetailResponse:
             type: object
-            required: [chain, collection, token]
+            required: [chain, collection, media, token]
             additionalProperties: false
             properties:
                 chain:
                     $ref: "#/components/schemas/ChainRecord"
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
                 token:
                     $ref: "#/components/schemas/TokenDetail"
 
         GetTokenActivityResponse:
             type: object
-            required: [chain, collection, token, activities, included]
+            required: [chain, collection, media, token, activities, included]
             additionalProperties: false
             properties:
                 chain:
                     $ref: "#/components/schemas/ChainRecord"
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
                 token:
                     $ref: "#/components/schemas/TokenDetail"
                 activities:

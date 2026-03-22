@@ -1,31 +1,53 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import type {
 		ApiChain,
 		ApiCollection,
+		ApiCollectionMediaState,
 		ApiTokenDetail,
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
+	import { getTokenDetail } from '$lib/backend-api';
+	import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
+	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	type PageData = {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
+		media: ApiCollectionMediaState;
 		token: ApiTokenDetail | null;
 		backPath: string | null;
 		backQuery: string | null;
 	};
 
 	let { data }: { data?: PageData } = $props();
+	let displayedToken = $state<ApiTokenDetail | null>(data?.token ?? null);
+	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
+	let tokenDetailRequestId = 0;
+
+	$effect(() => {
+		displayedToken = data?.token ?? null;
+		displayedMedia = resolveInitialMediaState(data?.media);
+		tokenDetailRequestId += 1;
+	});
 
 	function collectionHref(): string {
 		if (!data?.chain || !data.collection) return '/';
 		const base = data.backPath ?? `/${data.chain.slug}/${data.collection.slug}`;
-		if (!data.backQuery) return base;
-		return `${base}?${data.backQuery}`;
+		if (data.backQuery) return `${base}?${data.backQuery}`;
+		const query = new URLSearchParams();
+		appendMediaModeParam(query, data.media?.selectedMode ?? null);
+		const suffix = query.toString();
+		return suffix ? `${base}?${suffix}` : base;
 	}
 
 	function holderHref(): string | null {
-		if (!data?.chain || !data.collection || !data.token?.currentHolder) return null;
-		return `/${data.chain.slug}/${data.collection.slug}/holders/${encodeURIComponent(data.token.currentHolder)}`;
+		if (!data?.chain || !data.collection || !displayedToken?.currentHolder) return null;
+		return buildOwnerTokensHref({
+			basePath: `/${data.chain.slug}/${data.collection.slug}/holders/${encodeURIComponent(displayedToken.currentHolder)}`,
+			selectedTraits: [],
+			mediaMode: data.media?.selectedMode ?? null
+		});
 	}
 
 	function backLabel(): string {
@@ -35,7 +57,7 @@
 	}
 
 	function sortedTraits(): ApiTokenDetailTrait[] {
-		const input = data?.token?.attributes ?? [];
+		const input = displayedToken?.attributes ?? [];
 		return [...input].sort((a, b) => {
 			const byKey = a.key.localeCompare(b.key);
 			if (byKey !== 0) return byKey;
@@ -67,28 +89,106 @@
 		if (value === null) return '-';
 		return `${value.toFixed(2)}%`;
 	}
+
+	function mediaModeButtonLabel(): string | null {
+		if (displayedMedia.availableModes.length <= 1) {
+			return null;
+		}
+		return mediaModeLabel(displayedMedia.availableModes, displayedMedia.selectedMode);
+	}
+
+	async function cycleTokenDetailMediaMode(): Promise<void> {
+		if (!browser || !data?.chain || !data.collection || !displayedToken) {
+			return;
+		}
+		if (displayedMedia.availableModes.length <= 1) {
+			return;
+		}
+
+		const nextMode = nextMediaMode(displayedMedia.availableModes, displayedMedia.selectedMode);
+		const activeRequestId = ++tokenDetailRequestId;
+
+		try {
+			const response = await getTokenDetail(
+				fetch,
+				data.chain.slug,
+				data.collection.slug,
+				displayedToken.tokenId,
+				buildMediaModeQuery(nextMode)
+			);
+			if (activeRequestId !== tokenDetailRequestId) return;
+
+			displayedToken = response.token;
+			displayedMedia = response.media;
+		} catch {
+			if (activeRequestId !== tokenDetailRequestId) return;
+		}
+	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		if (event.defaultPrevented) return;
+		if (event.metaKey || event.ctrlKey || event.altKey) return;
+		if (isTypingTarget(event.target)) return;
+		if (event.key !== 'v' && event.key !== 'V') return;
+		if (displayedMedia.availableModes.length <= 1) return;
+		event.preventDefault();
+		void cycleTokenDetailMediaMode();
+	}
+
+	function buildMediaModeQuery(mediaMode: string | null): URLSearchParams {
+		const query = new URLSearchParams();
+		appendMediaModeParam(query, mediaMode);
+		return query;
+	}
+
+	function resolveInitialMediaState(input: ApiCollectionMediaState | null | undefined): ApiCollectionMediaState {
+		if (input) return input;
+		return {
+			selectedMode: 'truth',
+			defaultMode: 'truth',
+			availableModes: [{ key: 'truth', label: 'truth' }]
+		};
+	}
+
+	function isTypingTarget(target: EventTarget | null): boolean {
+		if (!(target instanceof HTMLElement)) return false;
+		if (target.isContentEditable) return true;
+		const tag = target.tagName.toLowerCase();
+		return tag === 'input' || tag === 'textarea' || tag === 'select';
+	}
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <section class="panel token-detail-panel">
 	<header class="panel-header">
 		<a class="button-link" href={collectionHref()}>{backLabel()}</a>
 	</header>
 
-	{#if data?.token}
+	{#if displayedToken}
 		<div class="token-detail-media-wrap">
-			{#if mediaKind(data.token) === 'iframe'}
+			{#if mediaModeButtonLabel()}
+				<button
+					type="button"
+					class="token-preview-media-mode-button"
+					onclick={() => void cycleTokenDetailMediaMode()}
+				>
+					{mediaModeButtonLabel()}
+				</button>
+			{/if}
+			{#if mediaKind(displayedToken) === 'iframe'}
 				<iframe
 					class="token-detail-media-frame"
-					src={data.token.animationUrl ?? ''}
-					title={`token ${data.token.tokenId}`}
+					src={displayedToken.animationUrl ?? ''}
+					title={`token ${displayedToken.tokenId}`}
 					sandbox="allow-scripts"
 					referrerpolicy="no-referrer"
 				></iframe>
-			{:else if mediaKind(data.token) === 'image'}
+			{:else if mediaKind(displayedToken) === 'image'}
 				<img
 					class="token-detail-media-image"
-					src={data.token.image ?? ''}
-					alt={`token ${data.token.tokenId}`}
+					src={displayedToken.image ?? ''}
+					alt={`token ${displayedToken.tokenId}`}
 					loading="eager"
 					decoding="async"
 					referrerpolicy="no-referrer"
@@ -98,16 +198,16 @@
 			{/if}
 		</div>
 
-		<h1 class="token-detail-title">{resolveTokenTitle(data.token, data.collection ?? null)}</h1>
+		<h1 class="token-detail-title">{resolveTokenTitle(displayedToken, data.collection ?? null)}</h1>
 
 		<section class="panel-header">
 			{#if holderHref()}
 				<p class="muted">
 					current holder
-					<a class="mono" href={holderHref() ?? '#'}>{data.token.currentHolder}</a>
+					<a class="mono" href={holderHref() ?? '#'}>{displayedToken.currentHolder}</a>
 				</p>
 			{:else}
-				<p class="muted">current holder <span class="mono">{data.token.currentHolder ?? '-'}</span></p>
+				<p class="muted">current holder <span class="mono">{displayedToken.currentHolder ?? '-'}</span></p>
 			{/if}
 		</section>
 

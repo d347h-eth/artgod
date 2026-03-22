@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionHolders } from '$lib/backend-api';
+import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import type { PageLoad } from './$types';
 
@@ -20,6 +21,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				totalPages: 0
 			},
 			basePath: '/',
+			selectedMediaMode: 'truth',
 			requestCursor: null
 		};
 	}
@@ -38,6 +40,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: response.collection,
 			holders: response.holders,
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
+			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')) ?? 'truth',
 			requestCursor: query.get('cursor') ?? null
 		};
 	} catch (cause) {
@@ -55,6 +58,8 @@ function normalizeCollectionHoldersParams(raw: URLSearchParams): URLSearchParams
 	if (cursor && cursor.trim()) {
 		params.set('cursor', cursor.trim());
 	}
+
+	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
 
 	return params;
 }

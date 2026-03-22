@@ -1,6 +1,8 @@
 import { browser } from '$app/environment';
 import { get, writable, type Readable } from 'svelte/store';
+import type { ApiCollectionMediaMode } from '$lib/api-types';
 import { getTokenDetail } from '$lib/backend-api';
+import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
 
 const TOKEN_PREVIEW_HEIGHT_STORAGE_KEY = 'artgod.tokenBrowser.previewHeightPercent';
 const DEFAULT_TOKEN_PREVIEW_HEIGHT_PERCENT = 90;
@@ -13,6 +15,10 @@ export type TokenPreviewState = {
 	mediaKind: 'iframe' | 'image' | null;
 	mediaUrl: string | null;
 	tokenId: string | null;
+	chainRef: string | null;
+	collectionRef: string | null;
+	selectedMediaMode: string;
+	availableMediaModes: ApiCollectionMediaMode[];
 	heightPercent: number;
 };
 
@@ -22,10 +28,14 @@ export type TokenPreviewController = {
 		chainRef: string;
 		collectionRef: string;
 		tokenId: string;
+		selectedMediaMode: string;
+		availableMediaModes: ApiCollectionMediaMode[];
 	}): Promise<void>;
+	cycleTokenPreviewMediaMode(): Promise<void>;
 	closeTokenPreview(): void;
 	onWindowKeydown(event: KeyboardEvent): void;
 	tokenPreviewAriaLabel(tokenId: string): string;
+	tokenPreviewMediaModeLabel(state: TokenPreviewState): string | null;
 };
 
 export function createTokenPreviewController(
@@ -36,6 +46,10 @@ export function createTokenPreviewController(
 		mediaKind: null,
 		mediaUrl: null,
 		tokenId: null,
+		chainRef: null,
+		collectionRef: null,
+		selectedMediaMode: 'truth',
+		availableMediaModes: [],
 		heightPercent: readInitialTokenPreviewHeightPercent()
 	});
 	let requestId = 0;
@@ -44,6 +58,8 @@ export function createTokenPreviewController(
 		chainRef: string;
 		collectionRef: string;
 		tokenId: string;
+		selectedMediaMode: string;
+		availableMediaModes: ApiCollectionMediaMode[];
 	}): Promise<void> {
 		const chainRef = params.chainRef.trim();
 		const collectionRef = params.collectionRef.trim();
@@ -56,12 +72,28 @@ export function createTokenPreviewController(
 			open: true,
 			mediaKind: null,
 			mediaUrl: null,
-			tokenId
+			tokenId,
+			chainRef,
+			collectionRef,
+			selectedMediaMode: params.selectedMediaMode,
+			availableMediaModes: params.availableMediaModes
 		}));
 
 		try {
-			const response = await getTokenDetail(fetchFn, chainRef, collectionRef, tokenId);
+			const response = await getTokenDetail(
+				fetchFn,
+				chainRef,
+				collectionRef,
+				tokenId,
+				buildMediaModeQuery(params.selectedMediaMode)
+			);
 			if (activeRequestId !== requestId) return;
+
+			state.update((current) => ({
+				...current,
+				selectedMediaMode: response.media.selectedMode,
+				availableMediaModes: response.media.availableModes
+			}));
 
 			if (response.token.animationUrl) {
 				state.update((current) => ({
@@ -90,6 +122,24 @@ export function createTokenPreviewController(
 		}
 	}
 
+	async function cycleTokenPreviewMediaMode(): Promise<void> {
+		const current = get(state);
+		if (!current.open || !current.chainRef || !current.collectionRef || !current.tokenId) {
+			return;
+		}
+		if (current.availableMediaModes.length <= 1) {
+			return;
+		}
+		const nextMode = nextMediaMode(current.availableMediaModes, current.selectedMediaMode);
+		await openTokenPreview({
+			chainRef: current.chainRef,
+			collectionRef: current.collectionRef,
+			tokenId: current.tokenId,
+			selectedMediaMode: nextMode,
+			availableMediaModes: current.availableMediaModes
+		});
+	}
+
 	function closeTokenPreview(): void {
 		requestId += 1;
 		state.update((current) => ({
@@ -97,7 +147,11 @@ export function createTokenPreviewController(
 			open: false,
 			mediaKind: null,
 			mediaUrl: null,
-			tokenId: null
+			tokenId: null,
+			chainRef: null,
+			collectionRef: null,
+			selectedMediaMode: 'truth',
+			availableMediaModes: []
 		}));
 	}
 
@@ -110,6 +164,12 @@ export function createTokenPreviewController(
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			closeTokenPreview();
+			return;
+		}
+
+		if (event.key === 'v' || event.key === 'V') {
+			event.preventDefault();
+			void cycleTokenPreviewMediaMode();
 			return;
 		}
 
@@ -135,6 +195,13 @@ export function createTokenPreviewController(
 		return `preview token ${tokenId}`;
 	}
 
+	function tokenPreviewMediaModeLabel(state: TokenPreviewState): string | null {
+		if (state.availableMediaModes.length <= 1) {
+			return null;
+		}
+		return mediaModeLabel(state.availableMediaModes, state.selectedMediaMode);
+	}
+
 	function updateHeightPercent(delta: number): void {
 		const next = clampTokenPreviewHeightPercent(get(state).heightPercent + delta);
 		setHeightPercent(next);
@@ -152,9 +219,11 @@ export function createTokenPreviewController(
 	return {
 		state: { subscribe: state.subscribe },
 		openTokenPreview,
+		cycleTokenPreviewMediaMode,
 		closeTokenPreview,
 		onWindowKeydown,
-		tokenPreviewAriaLabel
+		tokenPreviewAriaLabel,
+		tokenPreviewMediaModeLabel
 	};
 }
 
@@ -186,4 +255,10 @@ function persistHeightPercent(value: number): void {
 	} catch {
 		// Ignore storage failures and keep the in-memory state.
 	}
+}
+
+function buildMediaModeQuery(mediaMode: string): URLSearchParams {
+	const params = new URLSearchParams();
+	appendMediaModeParam(params, mediaMode);
+	return params;
 }

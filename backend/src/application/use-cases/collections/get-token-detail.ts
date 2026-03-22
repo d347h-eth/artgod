@@ -1,5 +1,6 @@
 import type {
     ChainRecord,
+    CollectionMediaState,
     CollectionListItem,
     TokenDetail,
 } from "@artgod/shared/types/browse";
@@ -8,11 +9,13 @@ export type GetTokenDetailInput = {
     chainRef: string;
     collectionRef: string;
     tokenRef: string;
+    mediaMode?: string;
 };
 
 export type GetTokenDetailOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
+    media: CollectionMediaState;
     token: TokenDetail;
 };
 
@@ -34,7 +37,13 @@ export class GetTokenDetailUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
+                mediaMode?: string;
             }): TokenDetail;
+            getCollectionMediaState(params: {
+                chainId: number;
+                collectionId: number;
+                mediaMode?: string;
+            }): CollectionMediaState;
         },
     ) {}
 
@@ -49,15 +58,23 @@ export class GetTokenDetailUseCase {
             input.collectionRef,
         );
 
+        const media = this.collectionDetailReadPort.getCollectionMediaState({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            mediaMode: input.mediaMode,
+        });
+
         const token = this.collectionDetailReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,
+            mediaMode: media.selectedMode,
         });
 
         return {
             chain,
             collection,
+            media,
             token,
         };
     }

@@ -6,6 +6,7 @@
 		ApiActivityFeedFilterKind,
 		ApiChain,
 		ApiCollection,
+		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTokenPresentationSummary
 	} from '$lib/api-types';
@@ -14,6 +15,7 @@
 	type PageData = {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
+		media: ApiCollectionMediaState;
 		activities: ApiActivitiesPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
@@ -42,6 +44,13 @@
 <CollectionActivitiesView
 	chain={data?.chain ?? null}
 	collection={data?.collection ?? null}
+	media={
+		data?.media ?? {
+			selectedMode: 'truth',
+			defaultMode: 'truth',
+			availableModes: [{ key: 'truth', label: 'truth' }]
+		}
+	}
 	activities={data?.activities ?? fallbackActivities}
 	facets={data?.facets ?? []}
 	selectedTraits={data?.selectedTraits ?? []}

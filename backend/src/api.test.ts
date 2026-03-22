@@ -927,6 +927,12 @@ describe("backend api routes", () => {
         const result = await resolve("GET", "/api/ethereum/terraforms/7710");
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.address).toBe(TERRAFORMS_ADDRESS);
+        expect(result.payload.media.selectedMode).toBe("artifact");
+        expect(result.payload.media.defaultMode).toBe("artifact");
+        expect(result.payload.media.availableModes).toEqual([
+            { key: "artifact", label: "artifact" },
+            { key: "truth", label: "truth" },
+        ]);
         expect(result.payload.token.tokenId).toBe("7710");
         expect(result.payload.token.image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
@@ -936,16 +942,90 @@ describe("backend api routes", () => {
         );
     });
 
+    it("returns Terraforms canonical media when truth mode is requested", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/7710?media_mode=truth",
+        );
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.media.selectedMode).toBe("truth");
+        expect(result.payload.token.image).toBe(
+            "https://example.com/terraforms-default.png",
+        );
+        expect(result.payload.token.animationUrl).toBe(
+            "https://example.com/terraforms-default.html",
+        );
+    });
+
     it("returns Terraforms collection tokens with overridden images", async () => {
         const result = await resolve(
             "GET",
             "/api/ethereum/terraforms?token_status=all&limit=10",
         );
         expect(result.statusCode).toBe(200);
+        expect(result.payload.media.selectedMode).toBe("artifact");
         expect(result.payload.tokens.items).toHaveLength(1);
         expect(result.payload.tokens.items[0].tokenId).toBe("7710");
         expect(result.payload.tokens.items[0].image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
+        );
+    });
+
+    it("returns Terraforms collection tokens with canonical images in truth mode", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/terraforms?token_status=all&limit=10&media_mode=truth",
+        );
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.media.selectedMode).toBe("truth");
+        expect(result.payload.tokens.items[0].image).toBe(
+            "https://example.com/terraforms-default.png",
+        );
+    });
+
+    it("returns Terraforms activity token includes using the selected media mode", async () => {
+        insertActivityFixture({
+            collectionAddress: TERRAFORMS_ADDRESS,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind: ACTIVITY_KIND.Sale,
+            tokenId: "7710",
+            occurredAt: 1_726_100_000,
+            sourceKind: ACTIVITY_SOURCE_KIND.Onchain,
+            sourceName: "seaport",
+            orderId: "terraforms-sale-7710",
+            blockNumber: 22_010_000,
+            txHash: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            logIndex: 1,
+            from: "0x9999999999999999999999999999999999999999",
+            to: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            maker: "0x9999999999999999999999999999999999999999",
+            taker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            side: "sell",
+            amount: "1",
+            price: "1000000000000000000",
+            currency: ZERO_ADDRESS,
+            dedupeKey:
+                "onchain:sale:7710:0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc:1:7710",
+        });
+
+        const artifact = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/activity?limit=10&kind=sales",
+        );
+        expect(artifact.statusCode).toBe(200);
+        expect(artifact.payload.media.selectedMode).toBe("artifact");
+        expect(artifact.payload.included.tokensById["7710"].image).toBe(
+            "data:image/svg+xml;base64,terraforms-v2-image",
+        );
+
+        const truth = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/activity?limit=10&kind=sales&media_mode=truth",
+        );
+        expect(truth.statusCode).toBe(200);
+        expect(truth.payload.media.selectedMode).toBe("truth");
+        expect(truth.payload.included.tokensById["7710"].image).toBe(
+            "https://example.com/terraforms-default.png",
         );
     });
 

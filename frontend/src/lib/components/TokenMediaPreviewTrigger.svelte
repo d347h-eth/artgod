@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ApiCollectionMediaMode } from '$lib/api-types';
 	import type { TokenPreviewController } from '$lib/components/token-preview-controller';
 
 	let {
@@ -6,6 +7,8 @@
 		collectionRef,
 		tokenId,
 		image,
+		selectedMediaMode,
+		availableMediaModes,
 		tokenPreview,
 		mode = 'grid',
 		containerClass,
@@ -16,6 +19,8 @@
 		collectionRef: string | null;
 		tokenId: string | null;
 		image: string | null;
+		selectedMediaMode: string;
+		availableMediaModes: ApiCollectionMediaMode[];
 		tokenPreview: TokenPreviewController;
 		mode?: 'grid' | 'inline';
 		containerClass?: string;
@@ -30,7 +35,9 @@
 		await tokenPreview.openTokenPreview({
 			chainRef,
 			collectionRef,
-			tokenId
+			tokenId,
+			selectedMediaMode,
+			availableMediaModes
 		});
 	}
 

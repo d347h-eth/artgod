@@ -1,3 +1,5 @@
+import type { CollectionMediaPresentation } from "../extensions/index.js";
+
 export type CollectionStandard = "erc721" | "erc1155";
 
 export type CollectionStatus = "bootstrapping" | "live" | "paused" | "disabled";
@@ -123,3 +125,5 @@ export type TokenCursorPage = ForwardCursorPage<TokenCard> & {
 };
 
 export type CollectionHolderPage = ForwardCursorPage<CollectionHolder>;
+
+export type CollectionMediaState = CollectionMediaPresentation;

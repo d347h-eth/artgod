@@ -1,10 +1,12 @@
 import {
-    COLLECTION_EXTENSION_KEYS,
-    TERRAFORMS_EXTENSION_ARTIFACT_REFS,
+    COLLECTION_MEDIA_MODES,
     type CollectionExtensionInstall,
+    type CollectionMediaMode,
+    type CollectionMediaPresentation,
 } from "@artgod/shared/extensions";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 import type {
+    CollectionMediaState,
     CollectionHolderPage,
     CollectionListItem,
     TokenCard,
@@ -43,6 +45,7 @@ type CollectionDetailReadPort = {
         cursor?: string;
         traitFilters?: TraitFilter[];
         owner?: string;
+        mediaMode?: CollectionMediaMode;
     }): TokenCursorPage;
     listCollectionTraitFacets(
         chainId: number,
@@ -59,11 +62,13 @@ type CollectionDetailReadPort = {
         chainId: number;
         collectionId: number;
         tokenId: string;
+        mediaMode?: CollectionMediaMode;
     }): TokenDetail;
     listCollectionTokenCardsByIds(params: {
         chainId: number;
         collectionId: number;
         tokenIds: string[];
+        mediaMode?: CollectionMediaMode;
     }): TokenCard[];
 };
 
@@ -80,6 +85,14 @@ export class ExtensionAwareCollectionDetailRead {
         return this.baseReadPort.resolveCollectionRef(chainId, collectionRef);
     }
 
+    getCollectionMediaState(params: {
+        chainId: number;
+        collectionId: number;
+        mediaMode?: CollectionMediaMode;
+    }): CollectionMediaState {
+        return this.resolveCollectionMediaState(params);
+    }
+
     listCollectionTokens(params: {
         chainId: number;
         collectionId: number;
@@ -88,8 +101,14 @@ export class ExtensionAwareCollectionDetailRead {
         cursor?: string;
         traitFilters?: TraitFilter[];
         owner?: string;
+        mediaMode?: CollectionMediaMode;
     }): TokenCursorPage {
         const page = this.baseReadPort.listCollectionTokens(params);
+        const mediaState = this.resolveCollectionMediaState(params);
+        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Truth) {
+            return page;
+        }
+
         const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
             params.collectionId,
@@ -109,11 +128,13 @@ export class ExtensionAwareCollectionDetailRead {
                 extension.resolveTokenCard(
                     install,
                     token,
-                    this.resolvePresentationArtifact(
+                    this.resolveMediaContext(
                         install,
+                        extension,
                         params.chainId,
                         params.collectionId,
                         token.tokenId,
+                        mediaState.selectedMode,
                     ),
                 ),
             ),
@@ -145,8 +166,14 @@ export class ExtensionAwareCollectionDetailRead {
         chainId: number;
         collectionId: number;
         tokenId: string;
+        mediaMode?: CollectionMediaMode;
     }): TokenDetail {
         const token = this.baseReadPort.getCollectionTokenDetail(params);
+        const mediaState = this.resolveCollectionMediaState(params);
+        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Truth) {
+            return token;
+        }
+
         const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
             params.collectionId,
@@ -163,11 +190,13 @@ export class ExtensionAwareCollectionDetailRead {
         return extension.resolveTokenDetail(
             install,
             token,
-            this.resolvePresentationArtifact(
+            this.resolveMediaContext(
                 install,
+                extension,
                 params.chainId,
                 params.collectionId,
                 params.tokenId,
+                mediaState.selectedMode,
             ),
         );
     }
@@ -176,8 +205,14 @@ export class ExtensionAwareCollectionDetailRead {
         chainId: number;
         collectionId: number;
         tokenIds: string[];
+        mediaMode?: CollectionMediaMode;
     }): TokenCard[] {
         const tokens = this.baseReadPort.listCollectionTokenCardsByIds(params);
+        const mediaState = this.resolveCollectionMediaState(params);
+        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Truth) {
+            return tokens;
+        }
+
         const install = this.extensionRecords.getInstallByCollectionId(
             params.chainId,
             params.collectionId,
@@ -195,32 +230,93 @@ export class ExtensionAwareCollectionDetailRead {
             extension.resolveTokenCard(
                 install,
                 token,
-                this.resolvePresentationArtifact(
+                this.resolveMediaContext(
                     install,
+                    extension,
                     params.chainId,
                     params.collectionId,
                     token.tokenId,
+                    mediaState.selectedMode,
                 ),
             ),
         );
     }
 
-    private resolvePresentationArtifact(
+    private resolveCollectionMediaState(params: {
+        chainId: number;
+        collectionId: number;
+        mediaMode?: CollectionMediaMode;
+    }): CollectionMediaPresentation {
+        const install = this.extensionRecords.getInstallByCollectionId(
+            params.chainId,
+            params.collectionId,
+        );
+        if (!install?.enabled) {
+            return {
+                selectedMode: COLLECTION_MEDIA_MODES.Truth,
+                defaultMode: COLLECTION_MEDIA_MODES.Truth,
+                availableModes: [
+                    {
+                        key: COLLECTION_MEDIA_MODES.Truth,
+                        label: "truth",
+                    },
+                ],
+            };
+        }
+
+        const extension = resolveBackendCollectionExtension(install);
+        if (!extension) {
+            return {
+                selectedMode: COLLECTION_MEDIA_MODES.Truth,
+                defaultMode: COLLECTION_MEDIA_MODES.Truth,
+                availableModes: [
+                    {
+                        key: COLLECTION_MEDIA_MODES.Truth,
+                        label: "truth",
+                    },
+                ],
+            };
+        }
+
+        const availableModes = extension.listMediaModes(install);
+        const defaultMode = extension.defaultMediaMode(install);
+        const selectedMode =
+            params.mediaMode &&
+            availableModes.some((mode) => mode.key === params.mediaMode)
+                ? params.mediaMode
+                : defaultMode;
+
+        return {
+            selectedMode,
+            defaultMode,
+            availableModes,
+        };
+    }
+
+    private resolveMediaContext(
         install: CollectionExtensionInstall,
+        extension: NonNullable<
+            ReturnType<typeof resolveBackendCollectionExtension>
+        >,
         chainId: number,
         collectionId: number,
         tokenId: string,
+        mediaMode: CollectionMediaMode,
     ) {
-        if (install.extensionKey === COLLECTION_EXTENSION_KEYS.Terraforms) {
-            return this.extensionRecords.getArtifact({
+        const artifactRef = extension.resolveArtifactRef(install, mediaMode);
+        const artifact = artifactRef
+            ? this.extensionRecords.getArtifact({
                 chainId,
                 collectionId,
                 tokenId,
                 extensionKey: install.extensionKey,
-                artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
-            });
-        }
+                artifactRef,
+            })
+            : null;
 
-        return null;
+        return {
+            mediaMode,
+            artifact,
+        };
     }
 }

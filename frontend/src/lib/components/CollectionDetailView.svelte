@@ -4,6 +4,7 @@
 	import type {
 		ApiChain,
 		ApiCollection,
+		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		BootstrapStatusApiResponse,
 		ApiTokensPage,
@@ -24,6 +25,7 @@
 		tokens,
 		facets,
 		selectedTraits,
+		media,
 		basePath,
 		requestCursor,
 		tokenStatus,
@@ -34,6 +36,7 @@
 		tokens: ApiTokensPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		media: ApiCollectionMediaState;
 		basePath: string;
 		requestCursor: string | null;
 		tokenStatus: 'listed' | 'all';
@@ -78,7 +81,8 @@
 			limit: tokens.limit,
 			displayMode,
 			tokenStatus,
-			selectedTraits
+			selectedTraits,
+			mediaMode: media.selectedMode
 		});
 	}
 
@@ -87,12 +91,15 @@
 			basePath,
 			limit: tokens.limit,
 			kind: 'sales',
-			selectedTraits
+			selectedTraits,
+			mediaMode: media.selectedMode
 		});
 	}
 
 	function holdersSectionHref(): string {
-		return `${basePath}/holders`;
+		const query = new URLSearchParams();
+		query.set('media_mode', media.selectedMode);
+		return `${basePath}/holders?${query.toString()}`;
 	}
 
 	function resetTraitsHref(): string {
@@ -101,7 +108,8 @@
 			limit: tokens.limit,
 			displayMode,
 			tokenStatus,
-			selectedTraits: []
+			selectedTraits: [],
+			mediaMode: media.selectedMode
 		});
 	}
 
@@ -161,6 +169,7 @@
 				{displayMode}
 				{tokenStatus}
 				{selectedTraits}
+				mediaMode={media.selectedMode}
 			/>
 		</div>
 		<div class="panel-top-actions-row">
@@ -194,6 +203,7 @@
 		tokens={tokens}
 		facets={facets}
 		selectedTraits={selectedTraits}
+		{media}
 		collectionBasePath={basePath}
 		browserBasePath={basePath}
 		requestCursor={requestCursor}

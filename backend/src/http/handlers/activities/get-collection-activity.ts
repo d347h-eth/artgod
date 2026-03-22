@@ -8,6 +8,7 @@ import {
     getSearchParams,
     parseCursor,
     parseLimit,
+    parseMediaMode,
     parseTraits,
 } from "../../common/request-query.js";
 
@@ -46,6 +47,7 @@ export class GetCollectionActivityHttpAdapter {
         const cursor = parseCursor(searchParams.get("cursor"));
         const kind = parseActivityFilterKind(searchParams.get("kind"));
         const traits = parseTraits(searchParams);
+        const mediaMode = parseMediaMode(searchParams.get("media_mode"));
 
         return {
             chainRef: request.params.chain_ref,
@@ -54,6 +56,7 @@ export class GetCollectionActivityHttpAdapter {
             cursor: cursor ?? undefined,
             kind,
             traits,
+            mediaMode,
         };
     }
 

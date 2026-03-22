@@ -7,6 +7,7 @@
 		ApiActivityFeedItem,
 		ApiChain,
 		ApiCollection,
+		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTokenPresentationSummary,
 		ApiTraitFacet
@@ -32,6 +33,7 @@
 		activities,
 		facets,
 		selectedTraits,
+		media,
 		included,
 		basePath,
 		filterKind
@@ -41,6 +43,7 @@
 		activities: ApiActivitiesPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		media: ApiCollectionMediaState;
 		included: {
 			tokensById: Record<string, ApiTokenPresentationSummary>;
 		};
@@ -94,7 +97,8 @@
 			limit: activities.limit,
 			displayMode: 'grid',
 			tokenStatus: 'listed',
-			selectedTraits: activeTraits
+			selectedTraits: activeTraits,
+			mediaMode: media.selectedMode
 		});
 	}
 
@@ -103,12 +107,15 @@
 			basePath,
 			limit: activities.limit,
 			kind: filterKind,
-			selectedTraits: activeTraits
+			selectedTraits: activeTraits,
+			mediaMode: media.selectedMode
 		});
 	}
 
 	function holdersHref(): string {
-		return `${basePath}/holders`;
+		const query = new URLSearchParams();
+		query.set('media_mode', media.selectedMode);
+		return `${basePath}/holders?${query.toString()}`;
 	}
 
 	function filterHref(
@@ -121,6 +128,7 @@
 			limit: activities.limit,
 			kind: nextKind,
 			selectedTraits: traits,
+			mediaMode: media.selectedMode,
 			cursor
 		});
 	}
@@ -132,12 +140,15 @@
 	function holderHref(address: string): string {
 		return buildOwnerTokensHref({
 			basePath: `${basePath}/holders/${encodeURIComponent(address)}`,
-			selectedTraits: []
+			selectedTraits: [],
+			mediaMode: media.selectedMode
 		});
 	}
 
 	function tokenDetailHref(tokenId: string): string {
-		return `${basePath}/${encodeURIComponent(tokenId)}`;
+		const query = new URLSearchParams();
+		query.set('media_mode', media.selectedMode);
+		return `${basePath}/${encodeURIComponent(tokenId)}?${query.toString()}`;
 	}
 
 	function occurredAtLabel(occurredAt: number): string {
@@ -458,6 +469,8 @@
 													collectionRef={collection?.slug ?? null}
 													tokenId={activity.tokenId}
 													token={tokenSummary(activity)}
+													selectedMediaMode={media.selectedMode}
+													availableMediaModes={media.availableModes}
 													tokenPreview={tokenPreview}
 												/>
 											{:else if column === 'name'}
@@ -537,4 +550,5 @@
 <TokenPreviewOverlay
 	state={$tokenPreviewState}
 	closeTokenPreview={tokenPreview.closeTokenPreview}
+	tokenPreview={tokenPreview}
 />

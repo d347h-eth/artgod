@@ -1,13 +1,18 @@
 <script lang="ts">
-	import type { TokenPreviewState } from '$lib/components/token-preview-controller';
+	import type {
+		TokenPreviewController,
+		TokenPreviewState
+	} from '$lib/components/token-preview-controller';
 	import { tokenPreviewStyle } from '$lib/components/token-preview-controller';
 
 	let {
 		state,
-		closeTokenPreview
+		closeTokenPreview,
+		tokenPreview
 	}: {
 		state: TokenPreviewState;
 		closeTokenPreview: () => void;
+		tokenPreview: TokenPreviewController;
 	} = $props();
 
 	function onBackdropClick(event: MouseEvent): void {
@@ -33,6 +38,15 @@
 		onclick={onBackdropClick}
 		onkeydown={onBackdropKeydown}
 	>
+		{#if tokenPreview.tokenPreviewMediaModeLabel(state)}
+			<button
+				type="button"
+				class="token-preview-media-mode-button"
+				onclick={() => void tokenPreview.cycleTokenPreviewMediaMode()}
+			>
+				{tokenPreview.tokenPreviewMediaModeLabel(state)}
+			</button>
+		{/if}
 		{#if state.mediaKind === 'iframe' && state.mediaUrl}
 			<iframe
 				class="token-preview-frame"

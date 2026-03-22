@@ -25,6 +25,11 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				currentPage: 0,
 				totalPages: 0
 			},
+			media: {
+				selectedMode: 'truth',
+				defaultMode: 'truth',
+				availableModes: [{ key: 'truth', label: 'truth' }]
+			},
 			facets: [],
 			selectedTraits: [],
 			basePath: '/',
@@ -47,6 +52,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		return {
 			chain: response.chain,
 			collection: response.collection,
+			media: response.media,
 			tokens: response.tokens,
 			facets: response.traits.facets,
 			selectedTraits: response.traits.selected,

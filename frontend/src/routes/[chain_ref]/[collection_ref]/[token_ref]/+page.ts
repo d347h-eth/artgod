@@ -1,15 +1,22 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BackendApiError, getTokenDetail } from '$lib/backend-api';
+import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
 	const { backPath, backQuery } = normalizeReturnState(url.searchParams);
+	const mediaMode = normalizeMediaMode(url.searchParams.get('media_mode'));
 
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
 			chain: null,
 			collection: null,
+			media: {
+				selectedMode: 'truth',
+				defaultMode: 'truth',
+				availableModes: [{ key: 'truth', label: 'truth' }]
+			},
 			token: null,
 			backPath,
 			backQuery
@@ -21,11 +28,13 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			fetch,
 			params.chain_ref,
 			params.collection_ref,
-			params.token_ref
+			params.token_ref,
+			buildMediaModeQuery(mediaMode)
 		);
 		return {
 			chain: response.chain,
 			collection: response.collection,
+			media: response.media,
 			token: response.token,
 			backPath,
 			backQuery
@@ -64,6 +73,12 @@ function normalizeReturnState(searchParams: URLSearchParams): {
 		backPath,
 		backQuery: query.toString()
 	};
+}
+
+function buildMediaModeQuery(mediaMode: string | null): URLSearchParams {
+	const query = new URLSearchParams();
+	appendMediaModeParam(query, mediaMode);
+	return query;
 }
 
 function toKitError(cause: unknown): never {

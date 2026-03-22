@@ -19,6 +19,17 @@ export type ApiCollection = {
 	updatedAt: string;
 };
 
+export type ApiCollectionMediaMode = {
+	key: string;
+	label: string;
+};
+
+export type ApiCollectionMediaState = {
+	selectedMode: string;
+	defaultMode: string;
+	availableModes: ApiCollectionMediaMode[];
+};
+
 export type ApiCollectionHolder = {
 	owner: string;
 	tokenCount: string;
@@ -166,6 +177,7 @@ export type CollectionsApiResponse = {
 export type CollectionDetailApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
+	media: ApiCollectionMediaState;
 	traits: {
 		selected: ApiTokenAttribute[];
 		facets: ApiTraitFacet[];
@@ -182,6 +194,7 @@ export type CollectionHoldersApiResponse = {
 export type CollectionActivitiesApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
+	media: ApiCollectionMediaState;
 	traits: {
 		selected: ApiTokenAttribute[];
 		facets: ApiTraitFacet[];
@@ -195,12 +208,14 @@ export type CollectionActivitiesApiResponse = {
 export type TokenDetailApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
+	media: ApiCollectionMediaState;
 	token: ApiTokenDetail;
 };
 
 export type TokenActivitiesApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
+	media: ApiCollectionMediaState;
 	token: ApiTokenDetail;
 	activities: ApiActivitiesPage;
 	included: {

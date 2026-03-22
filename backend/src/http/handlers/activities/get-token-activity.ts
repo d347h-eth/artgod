@@ -8,6 +8,7 @@ import {
     getSearchParams,
     parseCursor,
     parseLimit,
+    parseMediaMode,
 } from "../../common/request-query.js";
 
 export type GetTokenActivityRoute = {
@@ -44,6 +45,7 @@ export class GetTokenActivityHttpAdapter {
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
         const kind = parseActivityFilterKind(searchParams.get("kind"));
+        const mediaMode = parseMediaMode(searchParams.get("media_mode"));
 
         return {
             chainRef: request.params.chain_ref,
@@ -52,6 +54,7 @@ export class GetTokenActivityHttpAdapter {
             limit,
             cursor: cursor ?? undefined,
             kind,
+            mediaMode,
         };
     }
 

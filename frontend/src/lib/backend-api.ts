@@ -92,11 +92,14 @@ export async function getTokenDetail(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	collectionRef: string,
-	tokenRef: string
+	tokenRef: string,
+	params?: URLSearchParams
 ): Promise<TokenDetailApiResponse> {
+	const query = params?.toString() ?? '';
+	const suffix = query ? `?${query}` : '';
 	return requestJson<TokenDetailApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}`
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}${suffix}`
 	);
 }
 

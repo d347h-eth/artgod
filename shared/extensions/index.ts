@@ -4,12 +4,33 @@ export const COLLECTION_EXTENSION_KEYS = {
     Terraforms: "terraforms",
 } as const;
 
+export const COLLECTION_MEDIA_MODES = {
+    Truth: "truth",
+    Artifact: "artifact",
+} as const;
+
 export const TERRAFORMS_EXTENSION_ARTIFACT_REFS = {
     V2Media: "terraforms-v2-media",
 } as const;
 
 export type CollectionExtensionKey =
     (typeof COLLECTION_EXTENSION_KEYS)[keyof typeof COLLECTION_EXTENSION_KEYS];
+
+export type CoreCollectionMediaMode =
+    (typeof COLLECTION_MEDIA_MODES)[keyof typeof COLLECTION_MEDIA_MODES];
+
+export type CollectionMediaMode = CoreCollectionMediaMode | (string & {});
+
+export type CollectionMediaModeOption = {
+    key: CollectionMediaMode;
+    label: string;
+};
+
+export type CollectionMediaPresentation = {
+    selectedMode: CollectionMediaMode;
+    defaultMode: CollectionMediaMode;
+    availableModes: CollectionMediaModeOption[];
+};
 
 export type TerraformsExtensionConfig = {
     mainContractAddress: string;

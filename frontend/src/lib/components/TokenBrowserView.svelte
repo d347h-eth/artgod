@@ -4,6 +4,7 @@
 	import type {
 		ApiChain,
 		ApiCollection,
+		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTokenCard,
 		ApiTokensPage,
@@ -22,6 +23,7 @@
 		type TokenWindowState,
 		writeTokenWindow
 	} from '$lib/components/token-window-cache';
+	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
 
 	type MaybePromise<T> = T | Promise<T>;
 
@@ -31,6 +33,7 @@
 		tokens,
 		facets,
 		selectedTraits,
+		media,
 		collectionBasePath,
 		browserBasePath,
 		requestCursor,
@@ -45,6 +48,7 @@
 		tokens: ApiTokensPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		media: ApiCollectionMediaState;
 		collectionBasePath: string;
 		browserBasePath: string;
 		requestCursor: string | null;
@@ -80,6 +84,7 @@
 		visibleRangeEnd === 0 ? 0 : Math.floor((visibleRangeEnd - 1) / tokens.limit) + 1
 	);
 	let isGridMode = $derived(displayMode === 'grid');
+	let hasMediaModeChoices = $derived(media.availableModes.length > 1);
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
 
@@ -88,7 +93,13 @@
 	});
 
 	$effect(() => {
-		const signature = filtersSignature(selectedTraits, tokens.limit, displayMode, tokenStatus);
+		const signature = filtersSignature(
+			selectedTraits,
+			tokens.limit,
+			displayMode,
+			tokenStatus,
+			media.selectedMode
+		);
 		const incoming = incomingWindowState(tokens);
 		const cached = browser ? readTokenWindow(signature) : null;
 		const resolved = resolveWindowState({
@@ -123,6 +134,7 @@
 
 	function tokenDetailHref(tokenId: string): string {
 		const query = new URLSearchParams();
+		appendMediaModeParam(query, media.selectedMode);
 		query.set('returnPath', browserBasePath);
 		query.set('returnQuery', buildReturnQuery());
 		const suffix = query.toString();
@@ -134,6 +146,7 @@
 		query.set('limit', String(tokens.limit));
 		query.set('mode', displayMode);
 		query.set('token_status', tokenStatus);
+		query.set('media_mode', media.selectedMode);
 		if (requestCursor) {
 			query.set('cursor', requestCursor);
 		}
@@ -208,6 +221,7 @@
 			displayMode: mode,
 			tokenStatus: nextTokenStatus,
 			selectedTraits: traits,
+			mediaMode: media.selectedMode,
 			cursor
 		});
 	}
@@ -216,12 +230,13 @@
 		traits: ApiTokenAttribute[],
 		limit: number,
 		mode: 'grid' | 'table',
-		activeTokenStatus: 'listed' | 'all' | 'listed_then_unlisted'
+		activeTokenStatus: 'listed' | 'all' | 'listed_then_unlisted',
+		activeMediaMode: string
 	): string {
 		const normalized = traits
 			.map((item) => `${item.key}:${item.value}`)
 			.sort((a, b) => a.localeCompare(b));
-		return `${browserBasePath}|${limit}|${mode}|${activeTokenStatus}|${normalized.join(',')}`;
+		return `${browserBasePath}|${limit}|${mode}|${activeTokenStatus}|${activeMediaMode}|${normalized.join(',')}`;
 	}
 
 	function appendUniqueTokens(source: ApiTokenCard[], incoming: ApiTokenCard[]): ApiTokenCard[] {
@@ -365,6 +380,25 @@
 		return buildFiltersHref(activeTraits, requestCursor, mode);
 	}
 
+	function mediaModeHref(nextMediaMode: string): string {
+		return buildTokenBrowserHref({
+			basePath: browserBasePath,
+			limit: tokens.limit,
+			displayMode,
+			tokenStatus,
+			selectedTraits: activeTraits,
+			mediaMode: nextMediaMode,
+			cursor: requestCursor
+		});
+	}
+
+	function nextPageMediaMode(): string | null {
+		if (media.availableModes.length <= 1) {
+			return null;
+		}
+		return nextMediaMode(media.availableModes, media.selectedMode);
+	}
+
 	async function onTraitToggleWithMode(
 		key: string,
 		value: string,
@@ -411,9 +445,38 @@
 			return;
 		}
 
+		if (
+			!event.defaultPrevented &&
+			!event.metaKey &&
+			!event.ctrlKey &&
+			!event.altKey &&
+			!isTypingTarget(event.target)
+		) {
+			const key = event.key.toLowerCase();
+			if (key === 'v') {
+				const nextMode = nextPageMediaMode();
+				if (nextMode) {
+					event.preventDefault();
+					void goto(mediaModeHref(nextMode), {
+						invalidateAll: true,
+						keepFocus: true,
+						noScroll: true
+					});
+					return;
+				}
+			}
+		}
+
 		traitFacetPanel.onWindowKeydown(event, {
 			onReset: onResetTraits
 		});
+	}
+
+	function isTypingTarget(target: EventTarget | null): boolean {
+		if (!(target instanceof HTMLElement)) return false;
+		if (target.isContentEditable) return true;
+		const tag = target.tagName.toLowerCase();
+		return tag === 'input' || tag === 'textarea' || tag === 'select';
 	}
 
 </script>
@@ -452,6 +515,17 @@
 						<a href={modeHref('table')}>table</a>
 					{/if}
 				</div>
+				{#if hasMediaModeChoices}
+					<div class="secondary-tabs" aria-label="Token media mode">
+						{#each media.availableModes as mode}
+							{#if mode.key === media.selectedMode}
+								<span class="secondary-tab-active">{mode.label}</span>
+							{:else}
+								<a href={mediaModeHref(mode.key)}>{mode.label}</a>
+							{/if}
+						{/each}
+					</div>
+				{/if}
 			</div>
 		</div>
 
@@ -468,6 +542,8 @@
 										collectionRef={collection?.slug ?? null}
 										tokenId={token.tokenId}
 										image={token.image}
+										selectedMediaMode={media.selectedMode}
+										availableMediaModes={media.availableModes}
 										{tokenPreview}
 										mode="grid"
 										containerClass="token-grid-media"
@@ -539,6 +615,8 @@
 											collectionRef={collection?.slug ?? null}
 											tokenId={token.tokenId}
 											image={token.image}
+											selectedMediaMode={media.selectedMode}
+											availableMediaModes={media.availableModes}
 											{tokenPreview}
 											mode="inline"
 											imageClass="token-thumb"
@@ -625,4 +703,5 @@
 <TokenPreviewOverlay
 	state={$tokenPreviewState}
 	closeTokenPreview={tokenPreview.closeTokenPreview}
+	tokenPreview={tokenPreview}
 />

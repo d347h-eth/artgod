@@ -7,13 +7,15 @@
 		limit,
 		displayMode,
 		tokenStatus,
-		selectedTraits
+		selectedTraits,
+		mediaMode
 	}: {
 		basePath: string;
 		limit: number;
 		displayMode: 'grid' | 'table';
 		tokenStatus: 'listed' | 'all';
 		selectedTraits: ApiTokenAttribute[];
+		mediaMode: string;
 	} = $props();
 
 	function tokenStatusHref(nextTokenStatus: 'listed' | 'all'): string {
@@ -22,7 +24,8 @@
 			limit,
 			displayMode,
 			tokenStatus: nextTokenStatus,
-			selectedTraits
+			selectedTraits,
+			mediaMode
 		});
 	}
 </script>

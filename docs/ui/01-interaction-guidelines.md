@@ -55,6 +55,7 @@ That toolbar is local content chrome, not page chrome. It is the correct place f
 - results summary
 - `load previous`
 - display mode tabs (`grid` / `table`)
+- media mode tabs (`artifact` / `truth` / future extension modes)
 
 Do not name these inner toolbars `panel-top-actions`; reserve that name for page-level action rows owned by `CollectionPageLayout`.
 
@@ -75,6 +76,7 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
 - Scope:
     - token status
     - token display mode
+    - token media mode
     - activity kind filters
 - Visual contract:
     - active/selected: orange
@@ -153,6 +155,29 @@ Navigation rules:
 - holder-token page -> collection `tokens` / `activities` preserves trait filters
 - collection `tokens` / `activities` -> holder-token page does not carry trait filters
 - collection `holders` leaderboard does not preserve trait filters
+
+## Media Mode State
+
+Collection media selection is URL-driven and extension-aware.
+
+Rules:
+
+- backend still returns a single effective media set per token response
+- collection pages receive `media.selectedMode`, `media.defaultMode`, and `media.availableModes`
+- token browser and holder-token browser expose the page-level media switch in the inner `results-toolbar`
+- token preview modal inherits the current page media mode on open and can cycle modes locally for that token only
+- token detail page honors `media_mode` from the URL on load, then exposes a local floating media switch for page-only inspection
+- `V` cycles to the next media mode in the ordered list
+- when token preview modal is open, `V` affects the modal only
+- on token detail page, `V` affects only the currently opened token detail media
+- otherwise `V` affects the page-level media mode in token-browser surfaces
+- collection page navigation preserves `media_mode` across:
+    - tokens
+    - activities
+    - holders
+    - holder-token pages
+    - token detail
+- pages that do not render token media may still carry `media_mode` forward as navigation state
 
 ## Pagination Patterns
 

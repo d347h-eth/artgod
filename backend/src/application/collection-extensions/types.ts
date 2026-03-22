@@ -1,6 +1,8 @@
 import type {
     CollectionExtensionKey,
     CollectionExtensionInstall,
+    CollectionMediaMode,
+    CollectionMediaModeOption,
 } from "@artgod/shared/extensions";
 import type { TokenCard, TokenDetail } from "@artgod/shared/types/browse";
 
@@ -12,16 +14,29 @@ export type BackendCollectionExtensionArtifactRecord = {
     htmlContent: string | null;
 };
 
+export type BackendCollectionExtensionMediaContext = {
+    mediaMode: CollectionMediaMode;
+    artifact: BackendCollectionExtensionArtifactRecord | null;
+};
+
 export interface BackendCollectionExtension {
     key: CollectionExtensionKey;
+    listMediaModes(
+        install: CollectionExtensionInstall,
+    ): CollectionMediaModeOption[];
+    defaultMediaMode(install: CollectionExtensionInstall): CollectionMediaMode;
+    resolveArtifactRef(
+        install: CollectionExtensionInstall,
+        mediaMode: CollectionMediaMode,
+    ): string | null;
     resolveTokenCard(
         install: CollectionExtensionInstall,
         token: TokenCard,
-        artifact: BackendCollectionExtensionArtifactRecord | null,
+        context: BackendCollectionExtensionMediaContext,
     ): TokenCard;
     resolveTokenDetail(
         install: CollectionExtensionInstall,
         token: TokenDetail,
-        artifact: BackendCollectionExtensionArtifactRecord | null,
+        context: BackendCollectionExtensionMediaContext,
     ): TokenDetail;
 }

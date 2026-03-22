@@ -25,6 +25,14 @@ describe('CollectionActivitiesView', () => {
 					createdAt: '2026-01-01T00:00:00Z',
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'truth', label: 'truth' }
+					]
+				},
 				activities: {
 					items: [
 						{
@@ -126,9 +134,13 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('>reset<');
 		expect(body).toContain('relative');
 		expect(body).toContain('<span class="secondary-tab-active">sales</span>');
-		expect(body).toContain('/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;traits=Hat%3ABeanie');
-		expect(body).toContain('/ethereum/milady/activity?limit=25&amp;kind=listings&amp;traits=Hat%3ABeanie');
-		expect(body).toContain('/ethereum/milady/1');
+		expect(body).toContain(
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
+		expect(body).toContain(
+			'/ethereum/milady/activity?limit=25&amp;kind=listings&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
+		expect(body).toContain('/ethereum/milady/1?media_mode=artifact');
 		expect(body).toContain('Milady #1');
 		expect(body).toContain('https://example.com/1.png');
 		expect(body).toContain('preview token 1');
@@ -139,13 +151,10 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('0x9999...9999');
 		expect(body).toContain('0xaaaa...aaaa');
 		expect(body).toContain(
-			'/ethereum/milady/holders/0x9999999999999999999999999999999999999999'
+			'/ethereum/milady/holders/0x9999999999999999999999999999999999999999?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-		);
-		expect(body).not.toContain(
-			'/ethereum/milady/holders/0x9999999999999999999999999999999999999999?limit=25&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
 		);
 		expect(body).toContain('title="2024-09-10 20:33:20 UTC"');
 		expect(body).toContain(
@@ -178,6 +187,14 @@ describe('CollectionActivitiesView', () => {
 					bootstrapAnchorBlock: null,
 					createdAt: '2026-01-01T00:00:00Z',
 					updatedAt: '2026-01-01T00:00:00Z'
+				},
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'truth', label: 'truth' }
+					]
 				},
 				activities: {
 					items: [

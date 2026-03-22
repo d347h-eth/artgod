@@ -723,6 +723,10 @@ th {
 	flex-wrap: wrap;
 }
 
+.results-toolbar-actions .secondary-tabs + .secondary-tabs {
+	margin-left: 0.6rem;
+}
+
 .token-results-summary {
 	color: var(--c-sand);
 	font-size: 0.8rem;
@@ -782,6 +786,27 @@ th {
 	padding: 1rem;
 }
 
+.token-preview-media-mode-button {
+	position: absolute;
+	right: 1.25rem;
+	bottom: 1.25rem;
+	min-width: 2.5rem;
+	min-height: 2.5rem;
+	padding: 0.4rem 0.55rem;
+	border: 1px solid color-mix(in srgb, var(--c-sand) 42%, transparent);
+	background: color-mix(in srgb, var(--c-bg) 48%, transparent);
+	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
+	text-transform: uppercase;
+	cursor: pointer;
+	z-index: 1;
+}
+
+.token-preview-media-mode-button:hover,
+.token-preview-media-mode-button:focus-visible {
+	color: var(--c-yellow);
+	border-color: var(--c-yellow);
+}
+
 .token-preview-frame {
 	width: auto;
 	height: var(--token-preview-height-vh);
@@ -807,16 +832,19 @@ th {
 }
 
 .token-detail-media-wrap {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	width: min(1200px, 96vw);
+	margin: 0 auto;
 	padding: 0.75rem;
 }
 
 .token-detail-media-frame,
 .token-detail-media-image {
 	width: 100%;
-	max-width: min(1200px, 96vw);
+	max-width: 100%;
 	height: 90vh;
 	max-height: 90vh;
 	border: 0;

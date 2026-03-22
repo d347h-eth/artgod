@@ -1,6 +1,7 @@
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { TokenBrowserStatus } from '@artgod/shared/types/browse';
 import type { ApiTokenAttribute } from '$lib/api-types';
+import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { appendNormalizedTraitParams, appendTraitParams } from '$lib/trait-filters';
 
 export function normalizeTokenBrowserParams(
@@ -18,6 +19,7 @@ export function normalizeTokenBrowserParams(
 	}
 
 	params.set('token_status', tokenStatus);
+	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
 	appendNormalizedTraitParams(params, raw);
 
 	return params;
@@ -29,12 +31,14 @@ export function buildTokenBrowserHref(params: {
 	displayMode: 'grid' | 'table';
 	tokenStatus: TokenBrowserStatus;
 	selectedTraits: ApiTokenAttribute[];
+	mediaMode?: string | null;
 	cursor?: string | null;
 }): string {
 	const query = new URLSearchParams();
 	query.set('limit', String(params.limit));
 	query.set('mode', params.displayMode);
 	query.set('token_status', params.tokenStatus);
+	appendMediaModeParam(query, params.mediaMode ?? null);
 	if (params.cursor?.trim()) {
 		query.set('cursor', params.cursor.trim());
 	}
@@ -45,6 +49,7 @@ export function buildTokenBrowserHref(params: {
 export function buildOwnerTokensHref(params: {
 	basePath: string;
 	selectedTraits: ApiTokenAttribute[];
+	mediaMode?: string | null;
 	limit?: number;
 	displayMode?: 'grid' | 'table';
 	cursor?: string | null;
@@ -57,7 +62,8 @@ export function buildOwnerTokensHref(params: {
 		limit === DEFAULT_PAGE_LIMIT &&
 		displayMode === 'grid' &&
 		!cursor?.trim() &&
-		params.selectedTraits.length === 0
+		params.selectedTraits.length === 0 &&
+		!(params.mediaMode ?? '').trim()
 	) {
 		return params.basePath;
 	}
@@ -68,6 +74,7 @@ export function buildOwnerTokensHref(params: {
 		displayMode,
 		tokenStatus: 'listed_then_unlisted',
 		selectedTraits: params.selectedTraits,
+		mediaMode: params.mediaMode ?? null,
 		cursor
 	});
 }

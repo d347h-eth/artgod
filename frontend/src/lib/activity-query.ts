@@ -1,6 +1,7 @@
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 import type { ApiTokenAttribute } from '$lib/api-types';
+import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { appendNormalizedTraitParams, appendTraitParams } from '$lib/trait-filters';
 
 export function normalizeCollectionActivityParams(
@@ -18,6 +19,7 @@ export function normalizeCollectionActivityParams(
 	}
 
 	params.set('kind', kind);
+	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
 	appendNormalizedTraitParams(params, raw);
 
 	return params;
@@ -28,11 +30,13 @@ export function buildCollectionActivityHref(params: {
 	limit: number;
 	kind: ActivityFeedFilterKind;
 	selectedTraits: ApiTokenAttribute[];
+	mediaMode?: string | null;
 	cursor?: string | null;
 }): string {
 	const query = new URLSearchParams();
 	query.set('limit', String(params.limit));
 	query.set('kind', params.kind);
+	appendMediaModeParam(query, params.mediaMode ?? null);
 	if (params.cursor?.trim()) {
 		query.set('cursor', params.cursor.trim());
 	}

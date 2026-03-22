@@ -4,6 +4,7 @@
 	import type {
 		ApiChain,
 		ApiCollection,
+		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTokensPage,
 		ApiTraitFacet
@@ -12,6 +13,7 @@
 	type PageData = {
 		chain: ApiChain;
 		collection: ApiCollection;
+		media: ApiCollectionMediaState;
 		tokens: ApiTokensPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
@@ -41,6 +43,13 @@
 <HolderTokensView
 	chain={data?.chain ?? null}
 	collection={data?.collection ?? null}
+	media={
+		data?.media ?? {
+			selectedMode: 'truth',
+			defaultMode: 'truth',
+			availableModes: [{ key: 'truth', label: 'truth' }]
+		}
+	}
 	tokens={data?.tokens ?? fallbackTokens}
 	facets={data?.facets ?? []}
 	selectedTraits={data?.selectedTraits ?? []}

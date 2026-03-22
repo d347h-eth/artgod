@@ -3,6 +3,7 @@ import type {
     ActivityFeedPage,
     ActivityFeedFilterKind,
     ChainRecord,
+    CollectionMediaState,
     CollectionListItem,
     TokenCard,
     TokenDetail,
@@ -19,11 +20,13 @@ export type GetTokenActivityInput = {
     limit: number;
     cursor?: string;
     kind?: ActivityFeedFilterKind;
+    mediaMode?: string;
 };
 
 export type GetTokenActivityOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
+    media: CollectionMediaState;
     token: TokenDetail;
     activities: ActivityFeedPage;
     included: ActivityFeedIncludes;
@@ -47,7 +50,13 @@ export class GetTokenActivityUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenId: string;
+                mediaMode?: string;
             }): TokenDetail;
+            getCollectionMediaState(params: {
+                chainId: number;
+                collectionId: number;
+                mediaMode?: string;
+            }): CollectionMediaState;
         },
         readonly activityReadPort: {
             listTokenActivities(params: {
@@ -64,6 +73,7 @@ export class GetTokenActivityUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenIds: string[];
+                mediaMode?: string;
             }): TokenCard[];
         },
     ) {}
@@ -77,10 +87,16 @@ export class GetTokenActivityUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const media = this.collectionReadPort.getCollectionMediaState({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            mediaMode: input.mediaMode,
+        });
         const token = this.collectionReadPort.getCollectionTokenDetail({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,
+            mediaMode: media.selectedMode,
         });
         const activities = this.activityReadPort.listTokenActivities({
             chainId: chain.publicChainId,
@@ -95,12 +111,14 @@ export class GetTokenActivityUseCase {
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
                 tokenIds: collectActivityTokenIds(activities.items),
+                mediaMode: media.selectedMode,
             }),
         );
 
         return {
             chain,
             collection,
+            media,
             token,
             activities,
             included,

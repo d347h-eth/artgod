@@ -1,5 +1,6 @@
 import type { FastifyRequest } from "fastify";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
+import type { CollectionMediaMode } from "@artgod/shared/extensions";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import {
     isAddressRef,
@@ -153,4 +154,17 @@ export function parseTraits(searchParams: URLSearchParams): TraitFilter[] {
         }
     }
     return parsed;
+}
+
+export function parseMediaMode(
+    raw: string | null,
+): CollectionMediaMode | undefined {
+    if (!raw || !raw.trim()) {
+        return undefined;
+    }
+    const normalized = raw.trim().toLowerCase();
+    if (!/^[a-z0-9_-]+$/.test(normalized)) {
+        throw new ReadModelBadRequestError("Invalid media_mode");
+    }
+    return normalized;
 }

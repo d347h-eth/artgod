@@ -7,6 +7,7 @@ import {
     getSearchParams,
     parseCursor,
     parseLimit,
+    parseMediaMode,
     parseOwner,
     parseTokenBrowserStatus,
     parseTraits,
@@ -50,6 +51,7 @@ export class GetCollectionDetailHttpAdapter {
         const cursor = parseCursor(searchParams.get("cursor"));
         const owner = parseOwner(searchParams.get("owner"));
         const traits = parseTraits(searchParams);
+        const mediaMode = parseMediaMode(searchParams.get("media_mode"));
 
         return {
             chainRef: request.params.chain_ref,
@@ -59,6 +61,7 @@ export class GetCollectionDetailHttpAdapter {
             cursor: cursor ?? undefined,
             traits,
             owner,
+            mediaMode,
         };
     }
 

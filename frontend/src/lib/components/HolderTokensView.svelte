@@ -3,6 +3,7 @@
 	import type {
 		ApiChain,
 		ApiCollection,
+		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTokensPage,
 		ApiTraitFacet
@@ -20,6 +21,7 @@
 		tokens,
 		facets,
 		selectedTraits,
+		media,
 		collectionBasePath,
 		holdersBasePath,
 		browserBasePath,
@@ -32,6 +34,7 @@
 		tokens: ApiTokensPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		media: ApiCollectionMediaState;
 		collectionBasePath: string;
 		holdersBasePath: string;
 		browserBasePath: string;
@@ -53,7 +56,8 @@
 			basePath: browserBasePath,
 			limit: tokens.limit,
 			displayMode,
-			selectedTraits: []
+			selectedTraits: [],
+			mediaMode: media.selectedMode
 		});
 	}
 
@@ -63,7 +67,8 @@
 			limit: tokens.limit,
 			displayMode,
 			tokenStatus: 'listed',
-			selectedTraits
+			selectedTraits,
+			mediaMode: media.selectedMode
 		});
 	}
 
@@ -72,7 +77,8 @@
 			basePath: collectionBasePath,
 			limit: tokens.limit,
 			kind: 'sales',
-			selectedTraits
+			selectedTraits,
+			mediaMode: media.selectedMode
 		});
 	}
 
@@ -125,6 +131,7 @@
 		tokens={tokens}
 		facets={facets}
 		selectedTraits={selectedTraits}
+		{media}
 		collectionBasePath={collectionBasePath}
 		browserBasePath={browserBasePath}
 		requestCursor={requestCursor}

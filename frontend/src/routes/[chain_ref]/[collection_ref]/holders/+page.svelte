@@ -12,6 +12,7 @@
 		collection: ApiCollection | null;
 		holders: ApiCollectionHoldersPage;
 		basePath: string;
+		selectedMediaMode: string;
 		requestCursor: string | null;
 	};
 
@@ -34,5 +35,6 @@
 	collection={data?.collection ?? null}
 	holders={data?.holders ?? fallbackHolders}
 	basePath={data?.basePath ?? '/'}
+	selectedMediaMode={data?.selectedMediaMode ?? 'truth'}
 	requestCursor={data?.requestCursor ?? null}
 />

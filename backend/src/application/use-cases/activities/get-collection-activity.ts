@@ -3,6 +3,7 @@ import type {
     ActivityFeedPage,
     ActivityFeedFilterKind,
     ChainRecord,
+    CollectionMediaState,
     CollectionListItem,
     TokenCard,
     TraitFacet,
@@ -20,6 +21,7 @@ export type GetCollectionActivityInput = {
     cursor?: string;
     kind?: ActivityFeedFilterKind;
     traits: TraitFilter[];
+    mediaMode?: string;
 };
 
 export type GetCollectionActivityOutput = {
@@ -29,6 +31,7 @@ export type GetCollectionActivityOutput = {
         selected: TraitFilter[];
         facets: TraitFacet[];
     };
+    media: CollectionMediaState;
     activities: ActivityFeedPage;
     included: ActivityFeedIncludes;
 };
@@ -51,6 +54,11 @@ export class GetCollectionActivityUseCase {
                 chainId: number,
                 collectionId: number,
             ): TraitFacet[];
+            getCollectionMediaState(params: {
+                chainId: number;
+                collectionId: number;
+                mediaMode?: string;
+            }): CollectionMediaState;
         },
         readonly activityReadPort: {
             listCollectionActivities(params: {
@@ -67,6 +75,7 @@ export class GetCollectionActivityUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenIds: string[];
+                mediaMode?: string;
             }): TokenCard[];
         },
     ) {}
@@ -82,6 +91,11 @@ export class GetCollectionActivityUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
+        const media = this.collectionReadPort.getCollectionMediaState({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            mediaMode: input.mediaMode,
+        });
         const activities = this.activityReadPort.listCollectionActivities({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
@@ -99,6 +113,7 @@ export class GetCollectionActivityUseCase {
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
                 tokenIds: collectActivityTokenIds(activities.items),
+                mediaMode: media.selectedMode,
             }),
         );
 
@@ -109,6 +124,7 @@ export class GetCollectionActivityUseCase {
                 selected: input.traits,
                 facets,
             },
+            media,
             activities,
             included,
         };

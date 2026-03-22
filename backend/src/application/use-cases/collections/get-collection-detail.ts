@@ -1,5 +1,6 @@
 import type {
     ChainRecord,
+    CollectionMediaState,
     CollectionListItem,
     TokenBrowserStatus,
     TokenCursorPage,
@@ -15,6 +16,7 @@ export type GetCollectionDetailInput = {
     cursor?: string;
     traits: TraitFilter[];
     owner?: string;
+    mediaMode?: string;
 };
 
 export type GetCollectionDetailOutput = {
@@ -24,6 +26,7 @@ export type GetCollectionDetailOutput = {
         selected: TraitFilter[];
         facets: TraitFacet[];
     };
+    media: CollectionMediaState;
     tokens: TokenCursorPage;
 };
 
@@ -49,12 +52,18 @@ export class GetCollectionDetailUseCase {
                 cursor?: string;
                 traitFilters?: TraitFilter[];
                 owner?: string;
+                mediaMode?: string;
             }): TokenCursorPage;
             listCollectionTraitFacets(
                 chainId: number,
                 collectionId: number,
                 owner?: string,
             ): TraitFacet[];
+            getCollectionMediaState(params: {
+                chainId: number;
+                collectionId: number;
+                mediaMode?: string;
+            }): CollectionMediaState;
         },
     ) {}
 
@@ -71,6 +80,12 @@ export class GetCollectionDetailUseCase {
             input.collectionRef,
         );
 
+        const media = this.collectionDetailReadPort.getCollectionMediaState({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            mediaMode: input.mediaMode,
+        });
+
         const tokens = this.collectionDetailReadPort.listCollectionTokens({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
@@ -79,6 +94,7 @@ export class GetCollectionDetailUseCase {
             cursor: input.cursor,
             traitFilters: input.traits,
             owner: input.owner,
+            mediaMode: media.selectedMode,
         });
 
         const facets = this.collectionDetailReadPort.listCollectionTraitFacets(
@@ -94,6 +110,7 @@ export class GetCollectionDetailUseCase {
                 selected: input.traits,
                 facets,
             },
+            media,
             tokens,
         };
     }

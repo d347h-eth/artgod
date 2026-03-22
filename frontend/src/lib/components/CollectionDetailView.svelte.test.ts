@@ -25,6 +25,14 @@ describe('CollectionDetailView', () => {
 					createdAt: '2026-01-01T00:00:00Z',
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'truth', label: 'truth' }
+					]
+				},
 				tokens: {
 					items: [
 						{
@@ -57,17 +65,30 @@ describe('CollectionDetailView', () => {
 		});
 
 		expect(body).toContain('tokens');
-		expect(body).toContain('/ethereum/milady/activity?limit=25&amp;kind=sales&amp;traits=Hat%3ABeanie');
+		expect(body).toContain(
+			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
 		expect(body).toContain('only listed');
 		expect(body).toContain('show all');
-		expect(body).toContain('/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=all&amp;traits=Hat%3ABeanie');
+		expect(body).toContain(
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=all&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
 		expect(body).toContain('<span class="runtime-tab-active">tokens</span>');
 		expect(body).toContain('<span class="secondary-tab-active">grid</span>');
-		expect(body).toContain('/ethereum/milady?limit=25&amp;mode=table&amp;token_status=listed&amp;traits=Hat%3ABeanie');
+		expect(body).toContain(
+			'/ethereum/milady?limit=25&amp;mode=table&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
+		expect(body).toContain('<span class="secondary-tab-active">artifact</span>');
+		expect(body).toContain(
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=truth&amp;traits=Hat%3ABeanie'
+		);
 		expect(body).toContain('>traits<');
 		expect(body).toContain('>reset<');
 		expect(body).toContain('1 listed');
 		expect(body).toContain('token 1');
+		expect(body).toContain(
+			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady&amp;returnQuery=limit%3D25%26mode%3Dgrid%26token_status%3Dlisted%26media_mode%3Dartifact%26traits%3DHat%253ABeanie'
+		);
 		expect(body).toContain('0.5 ETH');
 		expect(body).toContain(
 			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'

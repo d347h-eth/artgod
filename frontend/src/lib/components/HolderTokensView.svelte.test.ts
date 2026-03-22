@@ -25,6 +25,14 @@ describe('HolderTokensView', () => {
 					createdAt: '2026-01-01T00:00:00Z',
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'truth', label: 'truth' }
+					]
+				},
 				tokens: {
 					items: [
 						{
@@ -60,8 +68,12 @@ describe('HolderTokensView', () => {
 
 		expect(body).toContain('tokens currently held by');
 		expect(body).toContain('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-		expect(body).toContain('/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;traits=Hat%3ABeanie');
-		expect(body).toContain('/ethereum/milady/activity?limit=25&amp;kind=sales&amp;traits=Hat%3ABeanie');
+		expect(body).toContain(
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
+		expect(body).toContain(
+			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
 		expect(body).toContain('/ethereum/milady/holders');
 		expect(body).toContain('>traits<');
 		expect(body).toContain('>reset<');
