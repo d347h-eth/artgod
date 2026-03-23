@@ -30,7 +30,7 @@ describe('HolderTokensView', () => {
 					defaultMode: 'artifact',
 					availableModes: [
 						{ key: 'artifact', label: 'artifact' },
-						{ key: 'truth', label: 'truth' }
+						{ key: 'snapshot', label: 'snapshot' }
 					]
 				},
 				tokens: {
@@ -74,7 +74,8 @@ describe('HolderTokensView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('/ethereum/milady/holders');
+		expect(body).toContain('<a href="/ethereum/milady/holders">holders</a>');
+		expect(body).not.toContain('<span class="runtime-tab-active">holders</span>');
 		expect(body).toContain('>traits<');
 		expect(body).toContain('>reset<');
 		expect(body).toContain('2 held');

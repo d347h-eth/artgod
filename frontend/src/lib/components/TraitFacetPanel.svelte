@@ -18,7 +18,7 @@
 			key: string,
 			value: string,
 			checked: boolean,
-			unionMode: boolean
+			exclusiveMode: boolean
 		) => MaybePromise<void>;
 	} = $props();
 

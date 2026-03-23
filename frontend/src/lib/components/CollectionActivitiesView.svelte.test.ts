@@ -30,7 +30,7 @@ describe('CollectionActivitiesView', () => {
 					defaultMode: 'artifact',
 					availableModes: [
 						{ key: 'artifact', label: 'artifact' },
-						{ key: 'truth', label: 'truth' }
+						{ key: 'snapshot', label: 'snapshot' }
 					]
 				},
 				activities: {
@@ -193,7 +193,7 @@ describe('CollectionActivitiesView', () => {
 					defaultMode: 'artifact',
 					availableModes: [
 						{ key: 'artifact', label: 'artifact' },
-						{ key: 'truth', label: 'truth' }
+						{ key: 'snapshot', label: 'snapshot' }
 					]
 				},
 				activities: {

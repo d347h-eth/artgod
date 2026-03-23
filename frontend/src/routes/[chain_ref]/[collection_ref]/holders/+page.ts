@@ -21,7 +21,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				totalPages: 0
 			},
 			basePath: '/',
-			selectedMediaMode: 'truth',
+			selectedMediaMode: 'snapshot',
 			requestCursor: null
 		};
 	}
@@ -40,7 +40,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: response.collection,
 			holders: response.holders,
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
-			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')) ?? 'truth',
+			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')) ?? 'snapshot',
 			requestCursor: query.get('cursor') ?? null
 		};
 	} catch (cause) {

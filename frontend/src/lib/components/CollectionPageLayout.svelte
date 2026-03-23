@@ -9,15 +9,17 @@
 		activeSection,
 		collectionAvailable = true,
 		breadcrumbs,
+		headerActions,
 		topActions,
 		children
 	}: {
 		tokensHref: string;
 		activitiesHref: string;
 		holdersHref: string;
-		activeSection: 'tokens' | 'activities' | 'holders';
+		activeSection: 'tokens' | 'activities' | 'holders' | null;
 		collectionAvailable?: boolean;
 		breadcrumbs: Snippet;
+		headerActions?: Snippet;
 		topActions?: Snippet;
 		children: Snippet;
 	} = $props();
@@ -29,10 +31,17 @@
 	</nav>
 
 	<header class="panel-header">
-		{#if collectionAvailable}
-			<CollectionSectionTabs {tokensHref} {activitiesHref} {holdersHref} active={activeSection} />
-		{:else}
-			<span class="muted">collection not found</span>
+		<div class="panel-header-main">
+			{#if collectionAvailable}
+				<CollectionSectionTabs {tokensHref} {activitiesHref} {holdersHref} active={activeSection} />
+			{:else}
+				<span class="muted">collection not found</span>
+			{/if}
+		</div>
+		{#if headerActions}
+			<div class="panel-header-right">
+				{@render headerActions()}
+			</div>
 		{/if}
 	</header>
 

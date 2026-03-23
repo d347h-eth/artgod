@@ -32,11 +32,11 @@ export function resolveInitialMediaMode(params: {
 
 export function nextMediaMode(availableModes: ApiCollectionMediaMode[], currentMode: string): string {
 	if (availableModes.length === 0) {
-		return COLLECTION_MEDIA_MODES.Truth;
+		return COLLECTION_MEDIA_MODES.Snapshot;
 	}
 	const currentIndex = availableModes.findIndex((mode) => mode.key === currentMode);
 	if (currentIndex === -1) {
-		return availableModes[0]?.key ?? COLLECTION_MEDIA_MODES.Truth;
+		return availableModes[0]?.key ?? COLLECTION_MEDIA_MODES.Snapshot;
 	}
 	return availableModes[(currentIndex + 1) % availableModes.length]?.key ?? currentMode;
 }

@@ -32,7 +32,7 @@ export function nextSelectedTraits(
 	key: string,
 	value: string,
 	checked: boolean,
-	unionMode: boolean
+	exclusiveMode: boolean
 ): ApiTokenAttribute[] {
 	const grouped = new Map<string, Set<string>>();
 	for (const trait of sourceTraits) {
@@ -42,7 +42,9 @@ export function nextSelectedTraits(
 	}
 
 	const current = grouped.get(key) ?? new Set<string>();
-	if (unionMode) {
+	if (exclusiveMode) {
+		grouped.set(key, new Set([value]));
+	} else {
 		if (checked) {
 			current.add(value);
 		} else {
@@ -52,12 +54,6 @@ export function nextSelectedTraits(
 			grouped.delete(key);
 		} else {
 			grouped.set(key, current);
-		}
-	} else {
-		if (checked) {
-			grouped.set(key, new Set([value]));
-		} else {
-			grouped.delete(key);
 		}
 	}
 

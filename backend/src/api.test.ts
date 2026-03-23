@@ -931,7 +931,7 @@ describe("backend api routes", () => {
         expect(result.payload.media.defaultMode).toBe("artifact");
         expect(result.payload.media.availableModes).toEqual([
             { key: "artifact", label: "artifact" },
-            { key: "truth", label: "truth" },
+            { key: "snapshot", label: "snapshot" },
         ]);
         expect(result.payload.token.tokenId).toBe("7710");
         expect(result.payload.token.image).toBe(
@@ -942,13 +942,13 @@ describe("backend api routes", () => {
         );
     });
 
-    it("returns Terraforms canonical media when truth mode is requested", async () => {
+    it("returns Terraforms canonical media when snapshot mode is requested", async () => {
         const result = await resolve(
             "GET",
-            "/api/ethereum/terraforms/7710?media_mode=truth",
+            "/api/ethereum/terraforms/7710?media_mode=snapshot",
         );
         expect(result.statusCode).toBe(200);
-        expect(result.payload.media.selectedMode).toBe("truth");
+        expect(result.payload.media.selectedMode).toBe("snapshot");
         expect(result.payload.token.image).toBe(
             "https://example.com/terraforms-default.png",
         );
@@ -971,13 +971,13 @@ describe("backend api routes", () => {
         );
     });
 
-    it("returns Terraforms collection tokens with canonical images in truth mode", async () => {
+    it("returns Terraforms collection tokens with canonical images in snapshot mode", async () => {
         const result = await resolve(
             "GET",
-            "/api/ethereum/terraforms?token_status=all&limit=10&media_mode=truth",
+            "/api/ethereum/terraforms?token_status=all&limit=10&media_mode=snapshot",
         );
         expect(result.statusCode).toBe(200);
-        expect(result.payload.media.selectedMode).toBe("truth");
+        expect(result.payload.media.selectedMode).toBe("snapshot");
         expect(result.payload.tokens.items[0].image).toBe(
             "https://example.com/terraforms-default.png",
         );
@@ -1018,13 +1018,13 @@ describe("backend api routes", () => {
             "data:image/svg+xml;base64,terraforms-v2-image",
         );
 
-        const truth = await resolve(
+        const snapshot = await resolve(
             "GET",
-            "/api/ethereum/terraforms/activity?limit=10&kind=sales&media_mode=truth",
+            "/api/ethereum/terraforms/activity?limit=10&kind=sales&media_mode=snapshot",
         );
-        expect(truth.statusCode).toBe(200);
-        expect(truth.payload.media.selectedMode).toBe("truth");
-        expect(truth.payload.included.tokensById["7710"].image).toBe(
+        expect(snapshot.statusCode).toBe(200);
+        expect(snapshot.payload.media.selectedMode).toBe("snapshot");
+        expect(snapshot.payload.included.tokensById["7710"].image).toBe(
             "https://example.com/terraforms-default.png",
         );
     });

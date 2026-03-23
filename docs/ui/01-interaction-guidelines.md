@@ -55,7 +55,7 @@ That toolbar is local content chrome, not page chrome. It is the correct place f
 - results summary
 - `load previous`
 - display mode tabs (`grid` / `table`)
-- media mode tabs (`artifact` / `truth` / future extension modes)
+- media mode tabs (`artifact` / `snapshot` / future extension modes)
 
 Do not name these inner toolbars `panel-top-actions`; reserve that name for page-level action rows owned by `CollectionPageLayout`.
 
@@ -94,6 +94,20 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
 - Visual contract:
     - default: orange
     - hover/focus: yellow
+
+### Help modal
+
+- Components:
+    - `KeyboardShortcutsHelp.svelte`
+    - `keyboard-shortcuts-help-controller.ts`
+- Scope:
+    - collection page shell header
+- Visual contract:
+    - `?` trigger sits on the far right of the shared `panel-header`
+    - trigger uses the same button treatment as other normal action buttons
+    - modal is a centered floating overlay with a light backdrop
+    - `F1` opens/closes the modal
+    - `Esc`, backdrop click, and the `x` button close the modal
 
 ### Trait panel controls
 
@@ -137,6 +151,11 @@ The split of responsibilities is:
     - URL construction
     - reset navigation behavior
 
+Trait value selection rules:
+
+- plain click toggles trait values additively within the same trait key
+- `Ctrl` + click isolates the clicked value within that trait key and clears the others in that group
+
 ## Trait Filter State
 
 Trait selection is URL-driven, not hidden client-only state.
@@ -166,9 +185,11 @@ Rules:
 - collection pages receive `media.selectedMode`, `media.defaultMode`, and `media.availableModes`
 - token browser and holder-token browser expose the page-level media switch in the inner `results-toolbar`
 - token preview modal inherits the current page media mode on open and can cycle modes locally for that token only
+- in token-browser surfaces, token preview modal can step through the current visible token results
 - token detail page honors `media_mode` from the URL on load, then exposes a local floating media switch for page-only inspection
 - `V` cycles to the next media mode in the ordered list
 - when token preview modal is open, `V` affects the modal only
+- when token preview modal is open in token-browser surfaces, `A` / `ArrowLeft` opens the previous token and `D` / `ArrowRight` opens the next token
 - on token detail page, `V` affects only the currently opened token detail media
 - otherwise `V` affects the page-level media mode in token-browser surfaces
 - collection page navigation preserves `media_mode` across:

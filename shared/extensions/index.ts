@@ -5,7 +5,7 @@ export const COLLECTION_EXTENSION_KEYS = {
 } as const;
 
 export const COLLECTION_MEDIA_MODES = {
-    Truth: "truth",
+    Snapshot: "snapshot",
     Artifact: "artifact",
 } as const;
 

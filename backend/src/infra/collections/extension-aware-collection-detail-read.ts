@@ -105,7 +105,7 @@ export class ExtensionAwareCollectionDetailRead {
     }): TokenCursorPage {
         const page = this.baseReadPort.listCollectionTokens(params);
         const mediaState = this.resolveCollectionMediaState(params);
-        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Truth) {
+        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
             return page;
         }
 
@@ -170,7 +170,7 @@ export class ExtensionAwareCollectionDetailRead {
     }): TokenDetail {
         const token = this.baseReadPort.getCollectionTokenDetail(params);
         const mediaState = this.resolveCollectionMediaState(params);
-        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Truth) {
+        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
             return token;
         }
 
@@ -209,7 +209,7 @@ export class ExtensionAwareCollectionDetailRead {
     }): TokenCard[] {
         const tokens = this.baseReadPort.listCollectionTokenCardsByIds(params);
         const mediaState = this.resolveCollectionMediaState(params);
-        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Truth) {
+        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
             return tokens;
         }
 
@@ -253,12 +253,12 @@ export class ExtensionAwareCollectionDetailRead {
         );
         if (!install?.enabled) {
             return {
-                selectedMode: COLLECTION_MEDIA_MODES.Truth,
-                defaultMode: COLLECTION_MEDIA_MODES.Truth,
+                selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+                defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
                 availableModes: [
                     {
-                        key: COLLECTION_MEDIA_MODES.Truth,
-                        label: "truth",
+                        key: COLLECTION_MEDIA_MODES.Snapshot,
+                        label: "snapshot",
                     },
                 ],
             };
@@ -267,12 +267,12 @@ export class ExtensionAwareCollectionDetailRead {
         const extension = resolveBackendCollectionExtension(install);
         if (!extension) {
             return {
-                selectedMode: COLLECTION_MEDIA_MODES.Truth,
-                defaultMode: COLLECTION_MEDIA_MODES.Truth,
+                selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+                defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
                 availableModes: [
                     {
-                        key: COLLECTION_MEDIA_MODES.Truth,
-                        label: "truth",
+                        key: COLLECTION_MEDIA_MODES.Snapshot,
+                        label: "snapshot",
                     },
                 ],
             };

@@ -45,9 +45,9 @@
 	collection={data?.collection ?? null}
 	media={
 		data?.media ?? {
-			selectedMode: 'truth',
-			defaultMode: 'truth',
-			availableModes: [{ key: 'truth', label: 'truth' }]
+			selectedMode: 'snapshot',
+			defaultMode: 'snapshot',
+			availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 		}
 	}
 	tokens={data?.tokens ?? fallbackTokens}

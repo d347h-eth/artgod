@@ -48,7 +48,7 @@ export function createTokenPreviewController(
 		tokenId: null,
 		chainRef: null,
 		collectionRef: null,
-		selectedMediaMode: 'truth',
+		selectedMediaMode: 'snapshot',
 		availableMediaModes: [],
 		heightPercent: readInitialTokenPreviewHeightPercent()
 	});
@@ -150,7 +150,7 @@ export function createTokenPreviewController(
 			tokenId: null,
 			chainRef: null,
 			collectionRef: null,
-			selectedMediaMode: 'truth',
+			selectedMediaMode: 'snapshot',
 			availableMediaModes: []
 		}));
 	}

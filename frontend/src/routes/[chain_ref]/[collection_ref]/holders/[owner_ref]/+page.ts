@@ -28,9 +28,9 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				totalPages: 0
 			},
 			media: {
-				selectedMode: 'truth',
-				defaultMode: 'truth',
-				availableModes: [{ key: 'truth', label: 'truth' }]
+				selectedMode: 'snapshot',
+				defaultMode: 'snapshot',
+				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 			},
 			facets: [],
 			selectedTraits: [],

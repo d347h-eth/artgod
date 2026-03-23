@@ -144,9 +144,9 @@
 	function resolveInitialMediaState(input: ApiCollectionMediaState | null | undefined): ApiCollectionMediaState {
 		if (input) return input;
 		return {
-			selectedMode: 'truth',
-			defaultMode: 'truth',
-			availableModes: [{ key: 'truth', label: 'truth' }]
+			selectedMode: 'snapshot',
+			defaultMode: 'snapshot',
+			availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 		};
 	}
 

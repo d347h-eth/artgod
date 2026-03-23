@@ -13,9 +13,9 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			chain: null,
 			collection: null,
 			media: {
-				selectedMode: 'truth',
-				defaultMode: 'truth',
-				availableModes: [{ key: 'truth', label: 'truth' }]
+				selectedMode: 'snapshot',
+				defaultMode: 'snapshot',
+				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 			},
 			token: null,
 			backPath,

@@ -541,7 +541,7 @@ components:
                 type: string
             description: |
                 Extension-driven media mode.
-                `truth` requests canonical token media.
+                `snapshot` requests canonical token media.
                 `artifact` requests extension-provided media when available.
                 Unsupported or missing artifact media falls back to canonical token media.
 

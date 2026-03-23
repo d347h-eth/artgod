@@ -31,7 +31,7 @@ describe('token detail page', () => {
 						defaultMode: 'artifact',
 						availableModes: [
 							{ key: 'artifact', label: 'artifact' },
-							{ key: 'truth', label: 'truth' }
+							{ key: 'snapshot', label: 'snapshot' }
 						]
 					},
 					token: {
@@ -100,7 +100,7 @@ describe('token detail page', () => {
 						defaultMode: 'artifact',
 						availableModes: [
 							{ key: 'artifact', label: 'artifact' },
-							{ key: 'truth', label: 'truth' }
+							{ key: 'snapshot', label: 'snapshot' }
 						]
 					},
 					token: {

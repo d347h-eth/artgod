@@ -13,6 +13,7 @@
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
 	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
+	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
@@ -39,6 +40,7 @@
 		requestCursor,
 		onResetTraits,
 		traitFacetPanel,
+		keyboardShortcutsHelp,
 		tokenStatus,
 		displayMode,
 		emptyMessage = 'no tokens match current filters'
@@ -54,6 +56,7 @@
 		requestCursor: string | null;
 		onResetTraits: () => MaybePromise<void>;
 		traitFacetPanel: TraitFacetPanelController;
+		keyboardShortcutsHelp: KeyboardShortcutsHelpController;
 		tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 		displayMode: 'grid' | 'table';
 		emptyMessage?: string;
@@ -65,6 +68,7 @@
 	const tokenPreview = createTokenPreviewController(fetch);
 	const tokenPreviewState = tokenPreview.state;
 	const traitFacetPanelState = traitFacetPanel.state;
+	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let visibleTokens = $state<ApiTokenCard[]>(tokens.items);
@@ -403,9 +407,9 @@
 		key: string,
 		value: string,
 		checked: boolean,
-		unionMode: boolean
+		exclusiveMode: boolean
 	): Promise<void> {
-		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, unionMode);
+		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, exclusiveMode);
 		activeTraits = nextTraits;
 		await goto(buildFiltersHref(nextTraits), {
 			invalidateAll: true,
@@ -438,10 +442,63 @@
 		});
 	}
 
+	function previewNavigationStep(event: KeyboardEvent): -1 | 0 | 1 {
+		if (event.key === 'a' || event.key === 'A' || event.key === 'ArrowLeft') {
+			return -1;
+		}
+		if (event.key === 'd' || event.key === 'D' || event.key === 'ArrowRight') {
+			return 1;
+		}
+		return 0;
+	}
+
+	async function openAdjacentTokenPreview(step: -1 | 1): Promise<void> {
+		const current = $tokenPreviewState;
+		if (!current.open || !current.tokenId || !current.chainRef || !current.collectionRef) {
+			return;
+		}
+
+		const currentIndex = visibleTokens.findIndex((token) => token.tokenId === current.tokenId);
+		if (currentIndex === -1) {
+			return;
+		}
+
+		const nextToken = visibleTokens[currentIndex + step];
+		if (!nextToken) {
+			return;
+		}
+
+		await tokenPreview.openTokenPreview({
+			chainRef: current.chainRef,
+			collectionRef: current.collectionRef,
+			tokenId: nextToken.tokenId,
+			selectedMediaMode: current.selectedMediaMode,
+			availableMediaModes: current.availableMediaModes
+		});
+	}
+
 	function onGlobalKeydown(event: KeyboardEvent): void {
+		keyboardShortcutsHelp.onWindowKeydown(event);
+		if (event.defaultPrevented || $keyboardShortcutsHelpState.open) {
+			return;
+		}
+
 		const previewWasOpen = $tokenPreviewState.open;
 		tokenPreview.onWindowKeydown(event);
 		if (previewWasOpen) {
+			if (
+				!event.defaultPrevented &&
+				!event.metaKey &&
+				!event.ctrlKey &&
+				!event.altKey &&
+				!isTypingTarget(event.target)
+			) {
+				const step = previewNavigationStep(event);
+				if (step !== 0) {
+					event.preventDefault();
+					void openAdjacentTokenPreview(step);
+				}
+			}
 			return;
 		}
 

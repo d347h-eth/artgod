@@ -30,7 +30,7 @@ describe('CollectionDetailView', () => {
 					defaultMode: 'artifact',
 					availableModes: [
 						{ key: 'artifact', label: 'artifact' },
-						{ key: 'truth', label: 'truth' }
+						{ key: 'snapshot', label: 'snapshot' }
 					]
 				},
 				tokens: {
@@ -80,7 +80,7 @@ describe('CollectionDetailView', () => {
 		);
 		expect(body).toContain('<span class="secondary-tab-active">artifact</span>');
 		expect(body).toContain(
-			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=truth&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain('>traits<');
 		expect(body).toContain('>reset<');

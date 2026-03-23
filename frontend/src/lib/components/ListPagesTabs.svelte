@@ -13,15 +13,15 @@
 
 <nav class="panel-header" aria-label="Collections tabs">
 	<div class="runtime-tabs">
-		<a
-			href={collectionsHref}
-			class:runtime-tab-active={active === 'collections'}
-			aria-current={active === 'collections' ? 'page' : undefined}>collections</a
-		>
-		<a
-			href={bootstrappingHref}
-			class:runtime-tab-active={active === 'bootstrapping'}
-			aria-current={active === 'bootstrapping' ? 'page' : undefined}>bootstrapping</a
-		>
+		{#if active === 'collections'}
+			<span class="runtime-tab-active">collections</span>
+		{:else}
+			<a href={collectionsHref}>collections</a>
+		{/if}
+		{#if active === 'bootstrapping'}
+			<span class="runtime-tab-active">bootstrapping</span>
+		{:else}
+			<a href={bootstrappingHref}>bootstrapping</a>
+		{/if}
 	</div>
 </nav>

@@ -70,9 +70,17 @@ a:hover {
 	border-bottom: 1px solid var(--c-blue);
 }
 
+.panel-header-main {
+	min-width: 0;
+	display: flex;
+	align-items: center;
+}
+
 .panel-header-right {
+	display: inline-flex;
 	justify-content: flex-end;
 	align-items: center;
+	gap: 0.5rem;
 }
 
 .panel-title {
@@ -213,28 +221,131 @@ a:hover {
 }
 
 .bootstrap-form {
+	display: inline-grid;
+	gap: 0.85rem;
+	padding: 0.75rem;
+	border-bottom: 1px solid var(--c-blue);
+	align-items: start;
+	justify-items: start;
+	width: fit-content;
+	max-width: calc(100% - 1.5rem);
+}
+
+.bootstrap-form-section {
+	display: grid;
+	gap: 0.55rem;
+	width: fit-content;
+	max-width: 100%;
+}
+
+.bootstrap-form-section + .bootstrap-form-section {
+	padding-top: 0.75rem;
+	border-top: 1px solid var(--c-blue);
+}
+
+.bootstrap-form-feedback {
+	display: grid;
+	gap: 0.2rem;
+	width: fit-content;
+}
+
+.bootstrap-form-actions {
 	display: flex;
-	flex-wrap: wrap;
-	gap: 0.5rem;
+	justify-content: flex-start;
+}
+
+.bootstrap-form-row {
+	display: grid;
+	grid-template-columns: 10.5rem max-content;
 	align-items: center;
+	gap: 0.8rem;
+	width: fit-content;
+	max-width: 100%;
+}
+
+.bootstrap-form-row-textarea {
+	align-items: start;
+}
+
+.bootstrap-form-checkbox-row {
+	grid-template-columns: 10.5rem max-content;
 }
 
 .bootstrap-form label {
-	display: grid;
-	gap: 0.2rem;
 	font-size: 0.75rem;
 	text-transform: uppercase;
 	color: var(--c-sand);
 }
 
-.bootstrap-form textarea {
+.bootstrap-form label > span {
+	line-height: 1.15;
+}
+
+.bootstrap-control,
+.bootstrap-control-select,
+.bootstrap-control-textarea {
 	font-family: inherit;
 	font-size: 0.78rem;
 	background: var(--c-bg);
 	color: var(--c-ice);
 	border: 1px solid var(--c-blue);
 	padding: 0.25rem 0.45rem;
-	min-width: 15rem;
+	width: auto;
+	max-width: 100%;
+	box-sizing: border-box;
+	justify-self: start;
+}
+
+.bootstrap-input-slug {
+	width: 24ch;
+}
+
+.bootstrap-input-address {
+	width: 56ch;
+}
+
+.bootstrap-input-select-short {
+	width: 13rem;
+}
+
+.bootstrap-input-select-medium {
+	width: 18rem;
+}
+
+.bootstrap-input-token-ids {
+	width: min(34rem, calc(100vw - 4rem));
+}
+
+.bootstrap-input-token-id {
+	width: 18ch;
+}
+
+.bootstrap-input-total-supply {
+	width: 12ch;
+}
+
+.bootstrap-checkbox {
+	appearance: none;
+	width: 1rem;
+	height: 1rem;
+	margin: 0;
+	padding: 0;
+	border: 1px solid var(--c-blue);
+	background: var(--c-bg);
+	flex: 0 0 auto;
+	justify-self: start;
+	cursor: pointer;
+}
+
+.bootstrap-checkbox:checked {
+	border-color: var(--c-cyan);
+	background: var(--c-cyan);
+}
+
+.bootstrap-checkbox:focus,
+.bootstrap-checkbox:focus-visible {
+	outline: none;
+	box-shadow: none;
 }
 
 .bootstrap-failed-tasks {
@@ -408,6 +519,110 @@ th {
 	transition:
 		border-color 120ms ease,
 		color 120ms ease;
+}
+
+.panel-header-help-button {
+	width: 1.85rem;
+	height: 1.85rem;
+	padding: 0;
+	flex: 0 0 auto;
+	border-color: var(--c-cyan);
+	color: var(--c-cyan);
+}
+
+.shortcuts-help-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 140;
+	background: color-mix(in srgb, var(--c-bg) 78%, transparent);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1.5rem;
+}
+
+.shortcuts-help-modal {
+	width: min(48rem, 92vw);
+	min-height: min(48rem, 92vw);
+	max-height: 90vh;
+	overflow: auto;
+	border: 1px solid var(--c-blue);
+	background: var(--c-bg);
+	padding: 1rem;
+	display: grid;
+	gap: 1rem;
+}
+
+.shortcuts-help-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.shortcuts-help-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+	gap: 1rem 1.25rem;
+	align-items: start;
+}
+
+.shortcuts-help-section {
+	display: grid;
+	gap: 0.55rem;
+}
+
+.shortcuts-help-section h3 {
+	margin: 0;
+	color: var(--c-yellow);
+	font-size: 0.82rem;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.shortcuts-help-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 0.55rem;
+}
+
+.shortcuts-help-item {
+	display: grid;
+	gap: 0.22rem;
+}
+
+.shortcuts-help-item p {
+	margin: 0;
+}
+
+.shortcuts-help-keys {
+	display: flex;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+}
+
+.shortcuts-help-keys kbd {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 1.5rem;
+	padding: 0.1rem 0.45rem;
+	border: 1px solid var(--c-blue);
+	color: var(--c-cyan);
+	background: transparent;
+	font-family: inherit;
+	font-size: 0.72rem;
+	text-transform: uppercase;
+}
+
+.shortcuts-help-footer {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+	padding-top: 0.25rem;
+	border-top: 1px solid var(--c-blue);
 }
 
 .detail-layout {

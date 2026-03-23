@@ -8,7 +8,7 @@
 		tokensHref: string;
 		activitiesHref: string;
 		holdersHref: string;
-		active: 'tokens' | 'activities' | 'holders';
+		active: 'tokens' | 'activities' | 'holders' | null;
 	} = $props();
 </script>
 

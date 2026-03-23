@@ -9,6 +9,8 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
@@ -45,6 +47,7 @@
 
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
+	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 
 	function collectionsHref(): string {
 		if (!chain) return '/';
@@ -95,7 +98,7 @@
 	tokensHref={collectionTokensHref()}
 	activitiesHref={collectionActivitiesHref()}
 	holdersHref={holdersBasePath}
-	activeSection="holders"
+	activeSection={null}
 	collectionAvailable={collection !== null}
 >
 	{#snippet breadcrumbs()}
@@ -108,6 +111,9 @@
 			<span class="breadcrumbs-separator">/</span>
 			<span class="breadcrumbs-current">{owner}</span>
 		{/if}
+	{/snippet}
+	{#snippet headerActions()}
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 	{#snippet topActions()}
 	{#if collection}
@@ -137,6 +143,7 @@
 		requestCursor={requestCursor}
 		onResetTraits={onResetTraits}
 		{traitFacetPanel}
+		{keyboardShortcutsHelp}
 		tokenStatus="listed_then_unlisted"
 		displayMode={displayMode}
 	/>

@@ -1,0 +1,158 @@
+<script lang="ts">
+	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+
+	type ShortcutSection = {
+		title: string;
+		entries: Array<{
+			keys: string[];
+			description: string;
+		}>;
+	};
+
+	const SECTIONS: ShortcutSection[] = [
+		{
+			title: 'Help',
+			entries: [
+				{
+					keys: ['F1'],
+					description: 'open or close this shortcuts modal'
+				},
+				{
+					keys: ['Esc'],
+					description: 'close the shortcuts modal'
+				}
+			]
+		},
+		{
+			title: 'Traits Panel',
+			entries: [
+				{
+					keys: ['T'],
+					description: 'toggle the traits panel'
+				},
+				{
+					keys: ['R'],
+					description: 'reset current trait filters'
+				}
+			]
+		},
+		{
+			title: 'Token Browser',
+			entries: [
+				{
+					keys: ['V'],
+					description: 'switch to the next media mode for current token results'
+				}
+			]
+		},
+		{
+			title: 'Preview Modal',
+			entries: [
+				{
+					keys: ['Esc'],
+					description: 'close the token preview'
+				},
+				{
+					keys: ['V'],
+					description: 'switch to the next media mode for the opened token'
+				},
+				{
+					keys: ['+'],
+					description: 'increase preview height'
+				},
+				{
+					keys: ['-'],
+					description: 'decrease preview height'
+				},
+				{
+					keys: ['0'],
+					description: 'reset preview height'
+				}
+			]
+		},
+		{
+			title: 'Token Browser Preview Navigation',
+			entries: [
+				{
+					keys: ['A', '←'],
+					description: 'open the previous token in the current visible results'
+				},
+				{
+					keys: ['D', '→'],
+					description: 'open the next token in the current visible results'
+				}
+			]
+		}
+	];
+
+	let {
+		keyboardShortcutsHelp
+	}: {
+		keyboardShortcutsHelp: KeyboardShortcutsHelpController;
+	} = $props();
+
+	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
+
+	function onBackdropClick(event: MouseEvent): void {
+		if (event.target !== event.currentTarget) return;
+		keyboardShortcutsHelp.close();
+	}
+</script>
+
+<button
+	type="button"
+	class="button-link panel-header-help-button"
+	aria-label="keyboard shortcuts"
+	title="keyboard shortcuts (F1)"
+	onclick={() => keyboardShortcutsHelp.toggle()}
+>
+	?
+</button>
+
+{#if $keyboardShortcutsHelpState.open}
+	<div class="shortcuts-help-backdrop" role="presentation" onclick={onBackdropClick}>
+		<div
+			class="shortcuts-help-modal"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="shortcuts-help-title"
+		>
+			<header class="shortcuts-help-header">
+				<h2 id="shortcuts-help-title" class="panel-title">keyboard shortcuts</h2>
+				<button
+					type="button"
+					class="button-link panel-header-help-button"
+					aria-label="close keyboard shortcuts"
+					onclick={() => keyboardShortcutsHelp.close()}
+				>
+					x
+				</button>
+			</header>
+
+			<div class="shortcuts-help-grid">
+				{#each SECTIONS as section}
+					<section class="shortcuts-help-section">
+						<h3>{section.title}</h3>
+						<ul class="shortcuts-help-list">
+							{#each section.entries as entry}
+								<li class="shortcuts-help-item">
+									<div class="shortcuts-help-keys">
+										{#each entry.keys as key}
+											<kbd>{key}</kbd>
+										{/each}
+									</div>
+									<p class="muted">{entry.description}</p>
+								</li>
+							{/each}
+						</ul>
+					</section>
+				{/each}
+			</div>
+
+			<footer class="shortcuts-help-footer">
+				<a href="https://artgod.network/" target="_blank" rel="noreferrer">artgod.network</a>
+				<a href="https://x.com/artgod_eth" target="_blank" rel="noreferrer">x.com/artgod_eth</a>
+			</footer>
+		</div>
+	</div>
+{/if}

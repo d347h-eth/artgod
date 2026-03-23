@@ -15,6 +15,8 @@
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
@@ -57,6 +59,8 @@
 	const tokenPreviewState = tokenPreview.state;
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
+	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 	const RELATIVE_TIME_REFRESH_MS = 60_000;
 
 	type TimeDisplayMode = 'relative' | 'system' | 'utc';
@@ -242,6 +246,11 @@
 	}
 
 	function onWindowKeydown(event: KeyboardEvent): void {
+		keyboardShortcutsHelp.onWindowKeydown(event);
+		if (event.defaultPrevented || $keyboardShortcutsHelpState.open) {
+			return;
+		}
+
 		const previewWasOpen = $tokenPreviewState.open;
 		tokenPreview.onWindowKeydown(event);
 		if (previewWasOpen) {
@@ -318,9 +327,9 @@
 		key: string,
 		value: string,
 		checked: boolean,
-		unionMode: boolean
+		exclusiveMode: boolean
 	): Promise<void> {
-		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, unionMode);
+		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, exclusiveMode);
 		activeTraits = nextTraits;
 		await goto(filterHref(filterKind, null, nextTraits), {
 			invalidateAll: true,
@@ -356,6 +365,9 @@
 			<span class="breadcrumbs-separator">/</span>
 			<span class="breadcrumbs-current">activities</span>
 		{/if}
+	{/snippet}
+	{#snippet headerActions()}
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 	{#snippet topActions()}
 		<div class="panel-top-actions-row">

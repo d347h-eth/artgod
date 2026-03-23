@@ -19,8 +19,8 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                     label: "artifact",
                 },
                 {
-                    key: COLLECTION_MEDIA_MODES.Truth,
-                    label: "truth",
+                    key: COLLECTION_MEDIA_MODES.Snapshot,
+                    label: "snapshot",
                 },
             ];
         },

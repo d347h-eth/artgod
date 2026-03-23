@@ -35,6 +35,6 @@
 	collection={data?.collection ?? null}
 	holders={data?.holders ?? fallbackHolders}
 	basePath={data?.basePath ?? '/'}
-	selectedMediaMode={data?.selectedMediaMode ?? 'truth'}
+	selectedMediaMode={data?.selectedMediaMode ?? 'snapshot'}
 	requestCursor={data?.requestCursor ?? null}
 />

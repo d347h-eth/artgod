@@ -13,6 +13,8 @@
 	import { getBootstrapStatus } from '$lib/backend-api';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
@@ -46,6 +48,7 @@
 	const BOOTSTRAP_POLL_INTERVAL_MS = 5_000;
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
+	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 
 	let bootstrapStatus = $state<BootstrapStatusApiResponse | null>(null);
 	let bootstrapLoading = $state(false);
@@ -160,6 +163,9 @@
 			<span class="breadcrumbs-current">{collection.slug}</span>
 		{/if}
 	{/snippet}
+	{#snippet headerActions()}
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
+	{/snippet}
 	{#snippet topActions()}
 	{#if collection}
 		<div class="panel-top-actions-row">
@@ -209,6 +215,7 @@
 		requestCursor={requestCursor}
 		onResetTraits={onResetTraits}
 		{traitFacetPanel}
+		{keyboardShortcutsHelp}
 		tokenStatus={tokenStatus}
 		displayMode={displayMode}
 	/>

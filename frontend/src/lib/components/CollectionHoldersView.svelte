@@ -14,6 +14,8 @@
 		writeForwardWindow
 	} from '$lib/components/forward-window-cache';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
@@ -41,6 +43,7 @@
 	let pagingPending = $state(false);
 	let tailNextCursor = $state<string | null>(holders.nextCursor);
 	let loadMoreSentinel: HTMLDivElement | null = $state(null);
+	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 	let hasNextPage = $derived(tailNextCursor !== null);
 	let remainingItems = $derived(Math.max(holders.totalItems - visibleRangeEnd, 0));
 	let visibleStartPage = $derived(
@@ -178,7 +181,13 @@
 		event.preventDefault();
 		await loadNextPage();
 	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		keyboardShortcutsHelp.onWindowKeydown(event);
+	}
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <CollectionPageLayout
 	tokensHref={tokensHref()}
@@ -201,6 +210,9 @@
 			<span class="breadcrumbs-separator">/</span>
 			<span class="breadcrumbs-current">holders</span>
 		{/if}
+	{/snippet}
+	{#snippet headerActions()}
+		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 	{#snippet topActions()}
 		<div class="panel-top-actions-row">
