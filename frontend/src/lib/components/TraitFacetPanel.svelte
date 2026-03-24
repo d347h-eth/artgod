@@ -4,6 +4,10 @@
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
+	import {
+		sortTraitFacetValues,
+		type TraitFacetValueSortMode
+	} from '$lib/trait-facet-sorting';
 
 	type MaybePromise<T> = T | Promise<T>;
 	type TraitRangeDraft = {
@@ -39,6 +43,7 @@
 	} = $props();
 
 	let traitValueSearch = $state<Record<string, string>>({});
+	let traitValueSortMode = $state<Record<string, TraitFacetValueSortMode>>({});
 	let traitRangeDrafts = $state<Record<string, TraitRangeDraft>>({});
 	let activeTraitSet = $derived(new Set(selectedTraits.map((item) => `${item.key}:${item.value}`)));
 	let activeRangeMap = $derived(
@@ -78,6 +83,25 @@
 		return traitValueSearch[key] ?? '';
 	}
 
+	function traitSortMode(key: string): TraitFacetValueSortMode {
+		return traitValueSortMode[key] ?? 'rarity';
+	}
+
+	function traitSortModeLabel(key: string): 'R' | 'A' {
+		return traitSortMode(key) === 'alpha' ? 'A' : 'R';
+	}
+
+	function traitSortModeTitle(key: string): string {
+		return traitSortMode(key) === 'alpha' ? 'sort alpha-numeric' : 'sort by rarity';
+	}
+
+	function toggleTraitSortMode(key: string): void {
+		traitValueSortMode = {
+			...traitValueSortMode,
+			[key]: traitSortMode(key) === 'alpha' ? 'rarity' : 'alpha'
+		};
+	}
+
 	function traitValueMatches(key: string, value: string): boolean {
 		const pattern = traitSearchValue(key).trim().toLowerCase();
 		if (!pattern) return true;
@@ -92,7 +116,10 @@
 	}
 
 	function visibleFacetValues(facet: ApiTraitFacet): Array<{ value: string; tokenCount: number }> {
-		return facet.values.filter((item) => traitValueMatches(facet.key, item.value));
+		return sortTraitFacetValues(
+			facet.values.filter((item) => traitValueMatches(facet.key, item.value)),
+			traitSortMode(facet.key)
+		);
 	}
 
 	function traitGroupActive(key: string): boolean {
@@ -282,13 +309,24 @@
 									</div>
 								</div>
 							{:else}
-								<input
-									class="trait-search-input"
-									type="search"
-									placeholder="search"
-									value={traitSearchValue(facet.key)}
-									oninput={(event) => onTraitSearchInput(facet.key, event)}
-								/>
+								<div class="trait-search-row">
+									<input
+										class="trait-search-input"
+										type="search"
+										placeholder="search"
+										value={traitSearchValue(facet.key)}
+										oninput={(event) => onTraitSearchInput(facet.key, event)}
+									/>
+									<button
+										type="button"
+										class="facet-panel-action-button trait-sort-button"
+										title={traitSortModeTitle(facet.key)}
+										aria-label={traitSortModeTitle(facet.key)}
+										onclick={() => toggleTraitSortMode(facet.key)}
+									>
+										{traitSortModeLabel(facet.key)}
+									</button>
+								</div>
 
 								<div class="trait-values">
 									{#if visibleFacetValues(facet).length === 0}

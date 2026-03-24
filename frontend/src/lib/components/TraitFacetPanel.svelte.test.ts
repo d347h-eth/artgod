@@ -49,4 +49,30 @@ describe('TraitFacetPanel', () => {
 		expect(body).toContain('>2</button>');
 		expect(body).toContain('>7</button>');
 	});
+
+	it('renders a sort toggle for set facets', () => {
+		const { body } = render(TraitFacetPanel, {
+			props: {
+				facets: [
+					{
+						key: 'Hat',
+						displayKind: 'set',
+						minValue: null,
+						maxValue: null,
+						values: [
+							{ value: 'Beanie', tokenCount: 1 },
+							{ value: 'Cap', tokenCount: 3 }
+						]
+					}
+				],
+				selectedTraits: [],
+				selectedRanges: [],
+				onToggleTrait: () => {},
+				onApplyTraitRange: () => {}
+			}
+		});
+
+		expect(body).toContain('trait-sort-button');
+		expect(body).toContain('>R</button>');
+	});
 });

@@ -853,13 +853,30 @@ th {
 	gap: 0.45rem;
 }
 
+.trait-search-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 34px;
+	align-items: stretch;
+	gap: 0.35rem;
+}
+
 .trait-search-input {
+	width: 100%;
 	font-family: inherit;
 	font-size: 0.78rem;
 	background: var(--c-bg);
 	color: var(--c-ice);
 	border: 1px solid var(--c-blue);
 	padding: 0.25rem 0.45rem;
+}
+
+.trait-sort-button {
+	width: 34px;
+	height: 34px;
+	min-height: 34px;
+	padding: 0;
+	font-size: 0.72rem;
+	line-height: 1;
 }
 
 .trait-values {
