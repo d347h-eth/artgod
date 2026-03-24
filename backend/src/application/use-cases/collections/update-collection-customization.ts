@@ -5,6 +5,7 @@ import type {
     CollectionListItem,
     TraitFacet,
     TraitFilterPresentationConfig,
+    TraitSummaryTemplateConfig,
 } from "@artgod/shared/types";
 
 export type UpdateCollectionCustomizationInput = {
@@ -13,6 +14,14 @@ export type UpdateCollectionCustomizationInput = {
     traitFilterPresentation: {
         selectedSource: CollectionCustomizationSourceKind;
         userConfig: TraitFilterPresentationConfig;
+    };
+    tokenCardTraitSummaryTemplate: {
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfig: TraitSummaryTemplateConfig;
+    };
+    activityRowTraitSummaryTemplate: {
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfig: TraitSummaryTemplateConfig;
     };
 };
 
@@ -49,6 +58,18 @@ export class UpdateCollectionCustomizationUseCase {
                 userConfig: TraitFilterPresentationConfig;
                 availableTraitKeys?: string[];
             }): CollectionCustomization["traitFilterPresentation"];
+            updateTokenCardTraitSummaryTemplateState(params: {
+                chainId: number;
+                collectionId: number;
+                selectedSource: CollectionCustomizationSourceKind;
+                userConfig: TraitSummaryTemplateConfig;
+            }): CollectionCustomization["tokenCardTraitSummaryTemplate"];
+            updateActivityRowTraitSummaryTemplateState(params: {
+                chainId: number;
+                collectionId: number;
+                selectedSource: CollectionCustomizationSourceKind;
+                userConfig: TraitSummaryTemplateConfig;
+            }): CollectionCustomization["activityRowTraitSummaryTemplate"];
         },
     ) {}
 
@@ -74,12 +95,29 @@ export class UpdateCollectionCustomizationUseCase {
                 userConfig: input.traitFilterPresentation.userConfig,
                 availableTraitKeys: traitKeys,
             });
+        const tokenCardTraitSummaryTemplate =
+            this.customizationWritePort.updateTokenCardTraitSummaryTemplateState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                selectedSource: input.tokenCardTraitSummaryTemplate.selectedSource,
+                userConfig: input.tokenCardTraitSummaryTemplate.userConfig,
+            });
+        const activityRowTraitSummaryTemplate =
+            this.customizationWritePort.updateActivityRowTraitSummaryTemplateState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                selectedSource:
+                    input.activityRowTraitSummaryTemplate.selectedSource,
+                userConfig: input.activityRowTraitSummaryTemplate.userConfig,
+            });
 
         return {
             chain,
             collection,
             customization: {
                 traitFilterPresentation,
+                tokenCardTraitSummaryTemplate,
+                activityRowTraitSummaryTemplate,
             },
         };
     }

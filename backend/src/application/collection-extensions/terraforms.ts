@@ -15,6 +15,16 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                 rangeKeys: ["???"],
             };
         },
+        resolveTokenCardTraitSummaryTemplateConfig() {
+            return {
+                template: "L{Level}/B{Biome}/{Zone}",
+            };
+        },
+        resolveActivityRowTraitSummaryTemplateConfig() {
+            return {
+                template: "L{Level}/B{Biome}/{Zone}",
+            };
+        },
         listMediaModes() {
             return [
                 {

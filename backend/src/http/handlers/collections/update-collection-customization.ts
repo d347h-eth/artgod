@@ -2,6 +2,7 @@ import type { FastifyRequest } from "fastify";
 import {
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
     normalizeTraitFilterPresentationConfig,
+    normalizeTraitSummaryTemplateConfig,
     type CollectionCustomizationSourceKind,
 } from "@artgod/shared/types";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
@@ -20,6 +21,18 @@ export type UpdateCollectionCustomizationRoute = {
             selectedSource?: unknown;
             userConfig?: {
                 rangeKeys?: unknown;
+            };
+        };
+        tokenCardTraitSummaryTemplate?: {
+            selectedSource?: unknown;
+            userConfig?: {
+                template?: unknown;
+            };
+        };
+        activityRowTraitSummaryTemplate?: {
+            selectedSource?: unknown;
+            userConfig?: {
+                template?: unknown;
             };
         };
     };
@@ -54,6 +67,26 @@ export class UpdateCollectionCustomizationHttpAdapter {
                 "traitFilterPresentation is required",
             );
         }
+        const tokenCardTraitSummaryTemplate =
+            request.body?.tokenCardTraitSummaryTemplate;
+        if (
+            !tokenCardTraitSummaryTemplate ||
+            typeof tokenCardTraitSummaryTemplate !== "object"
+        ) {
+            throw new ReadModelBadRequestError(
+                "tokenCardTraitSummaryTemplate is required",
+            );
+        }
+        const activityRowTraitSummaryTemplate =
+            request.body?.activityRowTraitSummaryTemplate;
+        if (
+            !activityRowTraitSummaryTemplate ||
+            typeof activityRowTraitSummaryTemplate !== "object"
+        ) {
+            throw new ReadModelBadRequestError(
+                "activityRowTraitSummaryTemplate is required",
+            );
+        }
 
         const selectedSource = parseSelectedSource(
             traitFilterPresentation.selectedSource,
@@ -64,6 +97,24 @@ export class UpdateCollectionCustomizationHttpAdapter {
                 "traitFilterPresentation.userConfig.rangeKeys",
             ),
         });
+        const tokenCardSelectedSource = parseSelectedSource(
+            tokenCardTraitSummaryTemplate.selectedSource,
+        );
+        const tokenCardUserConfig = normalizeTraitSummaryTemplateConfig({
+            template: parseStringValue(
+                tokenCardTraitSummaryTemplate.userConfig?.template,
+                "tokenCardTraitSummaryTemplate.userConfig.template",
+            ),
+        });
+        const activitySelectedSource = parseSelectedSource(
+            activityRowTraitSummaryTemplate.selectedSource,
+        );
+        const activityUserConfig = normalizeTraitSummaryTemplateConfig({
+            template: parseStringValue(
+                activityRowTraitSummaryTemplate.userConfig?.template,
+                "activityRowTraitSummaryTemplate.userConfig.template",
+            ),
+        });
 
         return {
             chainRef: request.params.chain_ref,
@@ -71,6 +122,14 @@ export class UpdateCollectionCustomizationHttpAdapter {
             traitFilterPresentation: {
                 selectedSource,
                 userConfig,
+            },
+            tokenCardTraitSummaryTemplate: {
+                selectedSource: tokenCardSelectedSource,
+                userConfig: tokenCardUserConfig,
+            },
+            activityRowTraitSummaryTemplate: {
+                selectedSource: activitySelectedSource,
+                userConfig: activityUserConfig,
             },
         };
     }
@@ -104,4 +163,11 @@ function parseStringList(value: unknown, field: string): string[] {
         }
         return item;
     });
+}
+
+function parseStringValue(value: unknown, field: string): string {
+    if (typeof value !== "string") {
+        throw new ReadModelBadRequestError(`${field} must be a string`);
+    }
+    return value;
 }

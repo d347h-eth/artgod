@@ -39,6 +39,7 @@ describe('CollectionDetailView', () => {
 							tokenId: '1',
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
+							traitSummary: 'L7/BForest/Alpha',
 							listingPrice: '500000000000000000',
 							listingCurrency: '0x0000000000000000000000000000000000000000',
 							attributes: [{ key: 'Hat', value: 'Beanie' }],
@@ -84,10 +85,6 @@ describe('CollectionDetailView', () => {
 			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=all&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain('<span class="runtime-tab-active">tokens</span>');
-		expect(body).toContain('<span class="secondary-tab-active">grid</span>');
-		expect(body).toContain(
-			'/ethereum/milady?limit=25&amp;mode=table&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
-		);
 		expect(body).toContain('<span class="secondary-tab-active">artifact</span>');
 		expect(body).toContain(
 			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie'
@@ -103,6 +100,7 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain(
 			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
 		);
+		expect(body).toContain('L7/BForest/Alpha');
 		expect(body).toContain('Beanie');
 	});
 });

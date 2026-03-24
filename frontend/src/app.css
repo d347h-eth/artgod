@@ -970,7 +970,7 @@ th {
 
 .customization-panel {
 	display: grid;
-	gap: 1rem;
+	gap: 0;
 	justify-content: center;
 	justify-items: start;
 	padding: 0.75rem;
@@ -978,6 +978,24 @@ th {
 
 .customization-panel > * {
 	max-width: 100%;
+}
+
+.customization-feature-panel {
+	display: grid;
+	gap: 0.95rem;
+	width: fit-content;
+	max-width: 100%;
+}
+
+.customization-feature-panel > .panel-header {
+	border-bottom: 0;
+	padding-bottom: 0;
+}
+
+.customization-feature-panel + .customization-feature-panel {
+	margin-top: 2.5rem;
+	padding-top: 2rem;
+	border-top: 1px solid var(--c-blue);
 }
 
 .customization-title {
@@ -991,7 +1009,6 @@ th {
 	display: inline-grid;
 	gap: 0.6rem;
 	padding: 0.75rem 0;
-	border-bottom: 1px solid var(--c-blue);
 }
 
 .customization-section-title {
@@ -1042,6 +1059,20 @@ th {
 
 .customization-readonly-input {
 	color: var(--c-sand);
+}
+
+.customization-text-input {
+	width: 24ch;
+	font-family: inherit;
+	font-size: 0.78rem;
+	background: var(--c-bg);
+	color: var(--c-ice);
+	border: 1px solid var(--c-blue);
+	padding: 0.25rem 0.45rem;
+}
+
+.customization-template-input {
+	width: 26ch;
 }
 
 .customization-footer {
@@ -1414,6 +1445,10 @@ th {
 	width: calc(var(--activity-col-narrow) * 2);
 }
 
+.activities-traits-col {
+	width: calc(var(--activity-col-narrow) * 1.5);
+}
+
 .activities-from-col,
 .activities-to-col {
 	width: var(--activity-col-narrow);
@@ -1425,6 +1460,7 @@ th {
 
 .activities-id-cell,
 .activities-price-cell,
+.activities-traits-cell,
 .activities-from-cell,
 .activities-to-cell,
 .activities-time-cell {
@@ -1480,7 +1516,19 @@ th {
 	overflow: hidden;
 }
 
+.activities-traits-cell {
+	overflow: hidden;
+}
+
 .activities-name-text {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.activities-traits-cell span,
+.activities-traits-cell a {
 	display: block;
 	overflow: hidden;
 	text-overflow: ellipsis;

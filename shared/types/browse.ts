@@ -69,6 +69,7 @@ export type TokenPresentationSummary = {
     tokenId: string;
     name: string | null;
     image: string | null;
+    traitSummary: string | null;
     hasMetadata: boolean;
     metadataUpdatedAt: string | null;
 };

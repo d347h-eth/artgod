@@ -111,6 +111,18 @@ export async function updateCollectionCustomization(
 				rangeKeys: string[];
 			};
 		};
+		tokenCardTraitSummaryTemplate: {
+			selectedSource: 'user' | 'extension';
+			userConfig: {
+				template: string;
+			};
+		};
+		activityRowTraitSummaryTemplate: {
+			selectedSource: 'user' | 'extension';
+			userConfig: {
+				template: string;
+			};
+		};
 	}
 ): Promise<CollectionCustomizationApiResponse> {
 	await ensureCsrfToken(fetchFn);

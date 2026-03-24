@@ -151,6 +151,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         extensionAwareCollectionsReadModel,
         activitiesReadModel,
         extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
     );
     const updateCollectionCustomizationUseCase =
         new UpdateCollectionCustomizationUseCase(

@@ -41,6 +41,14 @@ export class GetCollectionCustomizationUseCase {
                 collectionId: number;
                 availableTraitKeys?: string[];
             }): CollectionCustomization["traitFilterPresentation"];
+            getTokenCardTraitSummaryTemplateState(params: {
+                chainId: number;
+                collectionId: number;
+            }): CollectionCustomization["tokenCardTraitSummaryTemplate"];
+            getActivityRowTraitSummaryTemplateState(params: {
+                chainId: number;
+                collectionId: number;
+            }): CollectionCustomization["activityRowTraitSummaryTemplate"];
         },
     ) {}
 
@@ -64,12 +72,24 @@ export class GetCollectionCustomizationUseCase {
                 collectionId: collection.collectionId,
                 availableTraitKeys: traitKeys,
             });
+        const tokenCardTraitSummaryTemplate =
+            this.customizationReadPort.getTokenCardTraitSummaryTemplateState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
+        const activityRowTraitSummaryTemplate =
+            this.customizationReadPort.getActivityRowTraitSummaryTemplateState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
 
         return {
             chain,
             collection,
             customization: {
                 traitFilterPresentation,
+                tokenCardTraitSummaryTemplate,
+                activityRowTraitSummaryTemplate,
             },
         };
     }

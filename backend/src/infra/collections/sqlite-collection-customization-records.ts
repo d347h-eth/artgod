@@ -1,6 +1,7 @@
 import { db } from "@artgod/shared/database";
 import {
     COLLECTION_CUSTOMIZATION_FEATURE_KEY,
+    type CollectionCustomizationFeatureKey,
     type CollectionCustomizationSourceKind,
 } from "@artgod/shared/types";
 
@@ -10,7 +11,7 @@ type CustomizationFeatureRow = {
 };
 
 export class SqliteCollectionCustomizationRecords {
-    private selectTraitFilterPresentationFeature = db.prepare<{
+    private selectFeatureStmt = db.prepare<{
         chainId: number;
         collectionId: number;
         featureKey: string;
@@ -21,7 +22,7 @@ export class SqliteCollectionCustomizationRecords {
             "LIMIT 1",
     );
 
-    private upsertTraitFilterPresentationFeatureStmt = db.prepare<{
+    private upsertFeatureStmt = db.prepare<{
         chainId: number;
         collectionId: number;
         featureKey: string;
@@ -37,18 +38,18 @@ export class SqliteCollectionCustomizationRecords {
             "updated_at = CURRENT_TIMESTAMP",
     );
 
-    getTraitFilterPresentationFeature(params: {
+    getFeature(params: {
         chainId: number;
         collectionId: number;
+        featureKey: CollectionCustomizationFeatureKey;
     }): {
         selectedSource: CollectionCustomizationSourceKind;
         userConfigJson: string;
     } | null {
-        const row = this.selectTraitFilterPresentationFeature.get({
+        const row = this.selectFeatureStmt.get({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            featureKey:
-                COLLECTION_CUSTOMIZATION_FEATURE_KEY.TraitFilterPresentation,
+            featureKey: params.featureKey,
         }) as CustomizationFeatureRow | undefined;
         if (!row) {
             return null;
@@ -59,13 +60,44 @@ export class SqliteCollectionCustomizationRecords {
         };
     }
 
+    upsertFeature(params: {
+        chainId: number;
+        collectionId: number;
+        featureKey: CollectionCustomizationFeatureKey;
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfigJson: string;
+    }): void {
+        this.upsertFeatureStmt.run({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey: params.featureKey,
+            selectedSource: params.selectedSource,
+            userConfigJson: params.userConfigJson,
+        });
+    }
+
+    getTraitFilterPresentationFeature(params: {
+        chainId: number;
+        collectionId: number;
+    }): {
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfigJson: string;
+    } | null {
+        return this.getFeature({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey:
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.TraitFilterPresentation,
+        });
+    }
+
     upsertTraitFilterPresentationFeature(params: {
         chainId: number;
         collectionId: number;
         selectedSource: CollectionCustomizationSourceKind;
         userConfigJson: string;
     }): void {
-        this.upsertTraitFilterPresentationFeatureStmt.run({
+        this.upsertFeature({
             chainId: params.chainId,
             collectionId: params.collectionId,
             featureKey:

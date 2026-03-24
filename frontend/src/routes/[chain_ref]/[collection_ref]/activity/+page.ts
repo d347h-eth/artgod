@@ -33,7 +33,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			included: {
-				tokensById: {}
+				tokensById: {},
+				hasTraitSummaryTemplate: false
 			},
 			basePath: '/',
 			filterKind: 'sales' as const

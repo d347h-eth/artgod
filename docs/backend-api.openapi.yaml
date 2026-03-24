@@ -305,7 +305,12 @@ paths:
                     application/json:
                         schema:
                             type: object
-                            required: [traitFilterPresentation]
+                            required:
+                                [
+                                    traitFilterPresentation,
+                                    tokenCardTraitSummaryTemplate,
+                                    activityRowTraitSummaryTemplate,
+                                ]
                             additionalProperties: false
                             properties:
                                 traitFilterPresentation:
@@ -317,6 +322,24 @@ paths:
                                             $ref: "#/components/schemas/CollectionCustomizationSource"
                                         userConfig:
                                             $ref: "#/components/schemas/TraitFilterPresentationConfig"
+                                tokenCardTraitSummaryTemplate:
+                                    type: object
+                                    required: [selectedSource, userConfig]
+                                    additionalProperties: false
+                                    properties:
+                                        selectedSource:
+                                            $ref: "#/components/schemas/CollectionCustomizationSource"
+                                        userConfig:
+                                            $ref: "#/components/schemas/TraitSummaryTemplateConfig"
+                                activityRowTraitSummaryTemplate:
+                                    type: object
+                                    required: [selectedSource, userConfig]
+                                    additionalProperties: false
+                                    properties:
+                                        selectedSource:
+                                            $ref: "#/components/schemas/CollectionCustomizationSource"
+                                        userConfig:
+                                            $ref: "#/components/schemas/TraitSummaryTemplateConfig"
             responses:
                 "200":
                     description: Updated effective collection customization state
@@ -829,6 +852,7 @@ components:
                     tokenId,
                     name,
                     image,
+                    traitSummary,
                     listingPrice,
                     listingCurrency,
                     attributes,
@@ -843,6 +867,9 @@ components:
                     type: string
                     nullable: true
                 image:
+                    type: string
+                    nullable: true
+                traitSummary:
                     type: string
                     nullable: true
                 listingPrice:
@@ -1059,13 +1086,47 @@ components:
                     items:
                         type: string
 
+        TraitSummaryTemplateConfig:
+            type: object
+            required: [template]
+            additionalProperties: false
+            properties:
+                template:
+                    type: string
+
+        TraitSummaryTemplateFeatureState:
+            type: object
+            required:
+                [selectedSource, userConfig, extensionConfig, effectiveConfig]
+            additionalProperties: false
+            properties:
+                selectedSource:
+                    $ref: "#/components/schemas/CollectionCustomizationSource"
+                userConfig:
+                    $ref: "#/components/schemas/TraitSummaryTemplateConfig"
+                extensionConfig:
+                    allOf:
+                        - $ref: "#/components/schemas/TraitSummaryTemplateConfig"
+                    nullable: true
+                effectiveConfig:
+                    $ref: "#/components/schemas/TraitSummaryTemplateConfig"
+
         CollectionCustomization:
             type: object
-            required: [traitFilterPresentation]
+            required:
+                [
+                    traitFilterPresentation,
+                    tokenCardTraitSummaryTemplate,
+                    activityRowTraitSummaryTemplate,
+                ]
             additionalProperties: false
             properties:
                 traitFilterPresentation:
                     $ref: "#/components/schemas/TraitFilterPresentationFeatureState"
+                tokenCardTraitSummaryTemplate:
+                    $ref: "#/components/schemas/TraitSummaryTemplateFeatureState"
+                activityRowTraitSummaryTemplate:
+                    $ref: "#/components/schemas/TraitSummaryTemplateFeatureState"
 
         CollectionHolder:
             type: object
@@ -1219,7 +1280,8 @@ components:
 
         TokenPresentationSummary:
             type: object
-            required: [tokenId, name, image, hasMetadata, metadataUpdatedAt]
+            required:
+                [tokenId, name, image, traitSummary, hasMetadata, metadataUpdatedAt]
             additionalProperties: false
             properties:
                 tokenId:
@@ -1228,6 +1290,9 @@ components:
                     type: string
                     nullable: true
                 image:
+                    type: string
+                    nullable: true
+                traitSummary:
                     type: string
                     nullable: true
                 hasMetadata:
@@ -1383,13 +1448,15 @@ components:
 
         ActivityFeedIncludes:
             type: object
-            required: [tokensById]
+            required: [tokensById, hasTraitSummaryTemplate]
             additionalProperties: false
             properties:
                 tokensById:
                     type: object
                     additionalProperties:
                         $ref: "#/components/schemas/TokenPresentationSummary"
+                hasTraitSummaryTemplate:
+                    type: boolean
 
         GetCollectionActivityResponse:
             type: object

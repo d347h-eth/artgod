@@ -23,6 +23,7 @@
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		included: {
 			tokensById: Record<string, ApiTokenPresentationSummary>;
+			hasTraitSummaryTemplate: boolean;
 		};
 		basePath: string;
 		filterKind: ApiActivityFeedFilterKind;
@@ -57,7 +58,7 @@
 	facets={data?.facets ?? []}
 	selectedTraits={data?.selectedTraits ?? []}
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}
-	included={data?.included ?? { tokensById: {} }}
+	included={data?.included ?? { tokensById: {}, hasTraitSummaryTemplate: false }}
 	basePath={data?.basePath ?? '/'}
 	filterKind={data?.filterKind ?? 'sales'}
 />

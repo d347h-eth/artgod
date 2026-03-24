@@ -4,7 +4,10 @@ import type {
     CollectionMediaMode,
     CollectionMediaModeOption,
 } from "@artgod/shared/extensions";
-import type { TraitFilterPresentationConfig } from "@artgod/shared/types";
+import type {
+    TraitFilterPresentationConfig,
+    TraitSummaryTemplateConfig,
+} from "@artgod/shared/types";
 import type { TokenCard, TokenDetail } from "@artgod/shared/types/browse";
 
 export type BackendCollectionExtensionArtifactRecord = {
@@ -25,6 +28,12 @@ export interface BackendCollectionExtension {
     resolveTraitFilterPresentationConfig(
         install: CollectionExtensionInstall,
     ): TraitFilterPresentationConfig | null;
+    resolveTokenCardTraitSummaryTemplateConfig(
+        install: CollectionExtensionInstall,
+    ): TraitSummaryTemplateConfig | null;
+    resolveActivityRowTraitSummaryTemplateConfig(
+        install: CollectionExtensionInstall,
+    ): TraitSummaryTemplateConfig | null;
     listMediaModes(
         install: CollectionExtensionInstall,
     ): CollectionMediaModeOption[];

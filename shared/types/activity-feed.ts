@@ -79,4 +79,5 @@ export type ActivityFeedPage = ForwardCursorPage<ActivityFeedItem> & {
 
 export type ActivityFeedIncludes = {
     tokensById: Record<string, TokenPresentationSummary>;
+    hasTraitSummaryTemplate: boolean;
 };

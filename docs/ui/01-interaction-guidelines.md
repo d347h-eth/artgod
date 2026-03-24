@@ -60,9 +60,12 @@ Collection pages should compose the shared shell like this:
 5. `CollectionCustomizationView.svelte`
     - no stacked top-action rows by default
     - body: collection-scoped customization panels
-    - first implemented section: trait filter presentation
-    - trait filter presentation uses a compact three-column grid:
-        - trait key
+    - implemented sections:
+        - trait filter presentation
+        - token card trait summary template
+        - activity row trait summary template
+    - each section uses a compact three-column grid:
+        - setting label / trait key
         - user-defined setting
         - extension-defined setting
 
@@ -188,6 +191,16 @@ Trait presentation rules:
 - owner-token pages use owner-scoped range hints
 - collection tokens and collection activities use collection-scoped range hints
 - non-numeric stored trait values are ignored for range bounds and range filtering
+
+Trait summary template rules:
+
+- token card compact summary is backend-rendered from the effective token-card template
+- activity-row trait summary is backend-rendered from the effective activity-row template
+- empty template means “render no summary”
+- token browser no longer falls back to dumping all trait values on split lines when the template is empty
+- activities page shows the `traits` column only when the activity-row template feature is enabled for the current collection
+- template syntax is placeholder substitution mixed with literal text, for example `L{Level}/B{Biome}/{Zone}`
+- missing placeholders render as empty strings
 
 ## Trait Filter State
 

@@ -1779,6 +1779,7 @@ function mapTokenRow(row: TokenRow): TokenCard {
         tokenId: row.token_id,
         name: row.name ?? null,
         image: row.image ?? null,
+        traitSummary: null,
         listingPrice: row.listing_price ?? null,
         listingCurrency: row.listing_currency ?? null,
         attributes: parseTokenAttributes(row.attributes_json),

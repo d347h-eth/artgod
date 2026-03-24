@@ -97,6 +97,7 @@
 		visibleRangeEnd === 0 ? 0 : Math.floor((visibleRangeEnd - 1) / tokens.limit) + 1
 	);
 	let isGridMode = $derived(displayMode === 'grid');
+	let showDisplayModeControls = false;
 	let hasMediaModeChoices = $derived(media.availableModes.length > 1);
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
@@ -176,19 +177,6 @@
 	function tokenTraitsLabel(token: ApiTokenCard): string {
 		if (token.attributes.length === 0) return 'no traits';
 		return token.attributes.map((item) => `${item.key}:${item.value}`).join(' | ');
-	}
-
-	function tokenTraitLines(token: ApiTokenCard): string[] {
-		const values = token.attributes
-			.map((item) => item.value.trim())
-			.filter((value) => value.length > 0);
-		if (values.length === 0) return ['no traits'];
-
-		const lines: string[] = [];
-		for (let index = 0; index < values.length; index += 3) {
-			lines.push(values.slice(index, index + 3).join(' / '));
-		}
-		return lines;
 	}
 
 	function listingCurrencyLabel(currency: string | null): string | null {
@@ -598,18 +586,20 @@
 						onclick={onLoadPrevious}>load previous</a
 					>
 				{/if}
-				<div class="secondary-tabs" aria-label="Token display mode">
-					{#if isGridMode}
-						<span class="secondary-tab-active">grid</span>
-					{:else}
-						<a href={modeHref('grid')}>grid</a>
-					{/if}
-					{#if !isGridMode}
-						<span class="secondary-tab-active">table</span>
-					{:else}
-						<a href={modeHref('table')}>table</a>
-					{/if}
-				</div>
+				{#if showDisplayModeControls}
+					<div class="secondary-tabs" aria-label="Token display mode">
+						{#if isGridMode}
+							<span class="secondary-tab-active">grid</span>
+						{:else}
+							<a href={modeHref('grid')}>grid</a>
+						{/if}
+						{#if !isGridMode}
+							<span class="secondary-tab-active">table</span>
+						{:else}
+							<a href={modeHref('table')}>table</a>
+						{/if}
+					</div>
+				{/if}
 				{#if hasMediaModeChoices}
 					<div class="secondary-tabs" aria-label="Token media mode">
 						{#each media.availableModes as mode}
@@ -647,6 +637,9 @@
 									/>
 									<div class="token-grid-meta">
 										<a class="mono token-grid-id" href={tokenDetailHref(token.tokenId)}>{token.tokenId}</a>
+									{#if token.traitSummary}
+										<div class="mono token-grid-traits">{token.traitSummary}</div>
+									{/if}
 									{#if tokenListingLabel(token)}
 										<div class="mono token-grid-price">
 											{#if openseaItemHref(token)}
@@ -663,9 +656,6 @@
 											{/if}
 										</div>
 									{/if}
-									{#each tokenTraitLines(token) as line}
-										<div class="mono token-grid-traits">{line}</div>
-									{/each}
 								</div>
 							</article>
 						{/each}

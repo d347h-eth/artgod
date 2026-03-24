@@ -152,6 +152,7 @@ beforeAll(async () => {
             collectionsReadModel,
             activitiesReadModel,
             collectionsReadModel,
+            customizationReadModel,
         );
     const updateCollectionCustomizationUseCase =
         new updateCollectionCustomizationUseCaseModule.UpdateCollectionCustomizationUseCase(
@@ -317,6 +318,7 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.items[0].listingCurrency).toBe(
             ZERO_ADDRESS,
         );
+        expect(result.payload.tokens.items[0].traitSummary).toBeNull();
         expect(result.payload.tokens.prevCursor).toBeNull();
         expect(result.payload.tokens.nextCursor).toEqual(expect.any(String));
         expect(result.payload.tokens.totalItems).toBe(2);
@@ -425,10 +427,12 @@ describe("backend api routes", () => {
                 tokenId: "1",
                 name: "Milady #1",
                 image: "https://example.com/1.png",
+                traitSummary: null,
                 hasMetadata: true,
                 metadataUpdatedAt: "2026-01-01T00:00:00Z",
             },
         });
+        expect(first.payload.included.hasTraitSummaryTemplate).toBe(false);
         expect(
             first.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
@@ -588,10 +592,12 @@ describe("backend api routes", () => {
                 tokenId: "1",
                 name: "Milady #1",
                 image: "https://example.com/1.png",
+                traitSummary: null,
                 hasMetadata: true,
                 metadataUpdatedAt: "2026-01-01T00:00:00Z",
             },
         });
+        expect(result.payload.included.hasTraitSummaryTemplate).toBe(false);
         expect(
             result.payload.activities.items.map(
                 (activity: { kind: string }) => activity.kind,
@@ -1038,6 +1044,7 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.items[0].image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
         );
+        expect(result.payload.tokens.items[0].traitSummary).toBe("L/B/");
     });
 
     it("returns Terraforms collection tokens with canonical images in snapshot mode", async () => {
@@ -1083,8 +1090,12 @@ describe("backend api routes", () => {
         );
         expect(artifact.statusCode).toBe(200);
         expect(artifact.payload.media.selectedMode).toBe("artifact");
+        expect(artifact.payload.included.hasTraitSummaryTemplate).toBe(true);
         expect(artifact.payload.included.tokensById["7710"].image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
+        );
+        expect(artifact.payload.included.tokensById["7710"].traitSummary).toBe(
+            "L/B/",
         );
 
         const snapshot = await resolve(
@@ -1093,6 +1104,7 @@ describe("backend api routes", () => {
         );
         expect(snapshot.statusCode).toBe(200);
         expect(snapshot.payload.media.selectedMode).toBe("snapshot");
+        expect(snapshot.payload.included.hasTraitSummaryTemplate).toBe(true);
         expect(snapshot.payload.included.tokensById["7710"].image).toBe(
             "https://example.com/terraforms-default.png",
         );
@@ -1281,6 +1293,22 @@ describe("backend api routes", () => {
             milady.payload.customization.traitFilterPresentation
                 .availableTraitKeys,
         ).toEqual(expect.arrayContaining(["Hat", "Mood", "Power"]));
+        expect(
+            milady.payload.customization.tokenCardTraitSummaryTemplate,
+        ).toMatchObject({
+            selectedSource: "user",
+            userConfig: { template: "" },
+            extensionConfig: null,
+            effectiveConfig: { template: "" },
+        });
+        expect(
+            milady.payload.customization.activityRowTraitSummaryTemplate,
+        ).toMatchObject({
+            selectedSource: "user",
+            userConfig: { template: "" },
+            extensionConfig: null,
+            effectiveConfig: { template: "" },
+        });
 
         const terraforms = await resolve(
             "GET",
@@ -1298,6 +1326,20 @@ describe("backend api routes", () => {
             terraforms.payload.customization.traitFilterPresentation
                 .availableTraitKeys,
         ).toEqual(expect.arrayContaining(["???"]));
+        expect(
+            terraforms.payload.customization.tokenCardTraitSummaryTemplate,
+        ).toMatchObject({
+            selectedSource: "extension",
+            extensionConfig: { template: "L{Level}/B{Biome}/{Zone}" },
+            effectiveConfig: { template: "L{Level}/B{Biome}/{Zone}" },
+        });
+        expect(
+            terraforms.payload.customization.activityRowTraitSummaryTemplate,
+        ).toMatchObject({
+            selectedSource: "extension",
+            extensionConfig: { template: "L{Level}/B{Biome}/{Zone}" },
+            effectiveConfig: { template: "L{Level}/B{Biome}/{Zone}" },
+        });
     });
 
     it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
@@ -1316,6 +1358,18 @@ describe("backend api routes", () => {
                     selectedSource: "user",
                     userConfig: {
                         rangeKeys: ["Power"],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
                     },
                 },
             },
@@ -1391,6 +1445,121 @@ describe("backend api routes", () => {
                     selectedSource: "user",
                     userConfig: {
                         rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+            },
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(revert.statusCode).toBe(200);
+    });
+
+    it("updates trait summary templates and applies them to token cards and activity includes", async () => {
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:3000",
+            origin: "http://127.0.0.1:5173",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        const update = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "P{Power}",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "P{Power}",
+                    },
+                },
+            },
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(update.statusCode).toBe(200);
+        expect(
+            update.payload.customization.tokenCardTraitSummaryTemplate,
+        ).toMatchObject({
+            selectedSource: "user",
+            effectiveConfig: { template: "P{Power}" },
+        });
+        expect(
+            update.payload.customization.activityRowTraitSummaryTemplate,
+        ).toMatchObject({
+            selectedSource: "user",
+            effectiveConfig: { template: "P{Power}" },
+        });
+
+        const detail = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=all&limit=10",
+        );
+        expect(detail.statusCode).toBe(200);
+        expect(detail.payload.tokens.items[0].traitSummary).toBe("P7");
+        expect(detail.payload.tokens.items[1].traitSummary).toBe("P2");
+
+        const activity = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?kind=sales&limit=10",
+        );
+        expect(activity.statusCode).toBe(200);
+        expect(activity.payload.included.hasTraitSummaryTemplate).toBe(true);
+        expect(activity.payload.included.tokensById["1"].traitSummary).toBe(
+            "P7",
+        );
+
+        const revert = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+                tokenCardTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
+                    },
+                },
+                activityRowTraitSummaryTemplate: {
+                    selectedSource: "user",
+                    userConfig: {
+                        template: "",
                     },
                 },
             },

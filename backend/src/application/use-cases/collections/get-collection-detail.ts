@@ -9,6 +9,7 @@ import type {
     TraitRangeFilter,
 } from "@artgod/shared/types/browse";
 import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
+import { renderTraitSummaryTemplate } from "@artgod/shared/types";
 
 export type GetCollectionDetailInput = {
     chainRef: string;
@@ -80,6 +81,14 @@ export class GetCollectionDetailUseCase {
                     rangeKeys: string[];
                 };
             };
+            getTokenCardTraitSummaryTemplateState(params: {
+                chainId: number;
+                collectionId: number;
+            }): {
+                effectiveConfig: {
+                    template: string;
+                };
+            };
         },
     ) {}
 
@@ -129,6 +138,15 @@ export class GetCollectionDetailUseCase {
             facets: rawFacets,
             config: traitFilterPresentation.effectiveConfig,
         });
+        const tokenCardTraitSummaryTemplate =
+            this.customizationReadPort.getTokenCardTraitSummaryTemplateState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
+        const tokensWithTraitSummary = applyTokenCardTraitSummaryTemplate(
+            tokens,
+            tokenCardTraitSummaryTemplate.effectiveConfig.template,
+        );
 
         return {
             chain,
@@ -139,7 +157,20 @@ export class GetCollectionDetailUseCase {
                 facets,
             },
             media,
-            tokens,
+            tokens: tokensWithTraitSummary,
         };
     }
+}
+
+function applyTokenCardTraitSummaryTemplate(
+    page: TokenCursorPage,
+    template: string,
+): TokenCursorPage {
+    return {
+        ...page,
+        items: page.items.map((token) => ({
+            ...token,
+            traitSummary: renderTraitSummaryTemplate(template, token.attributes),
+        })),
+    };
 }

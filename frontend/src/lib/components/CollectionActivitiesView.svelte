@@ -52,6 +52,7 @@
 		media: ApiCollectionMediaState;
 		included: {
 			tokensById: Record<string, ApiTokenPresentationSummary>;
+			hasTraitSummaryTemplate: boolean;
 		};
 		basePath: string;
 		filterKind: ApiActivityFeedFilterKind;
@@ -68,12 +69,12 @@
 	const RELATIVE_TIME_REFRESH_MS = 60_000;
 
 	type TimeDisplayMode = 'relative' | 'system' | 'utc';
-	type ActivityColumnId = 'id' | 'price' | 'image' | 'name' | 'from' | 'to' | 'time';
+	type ActivityColumnId = 'id' | 'price' | 'image' | 'name' | 'traits' | 'from' | 'to' | 'time';
 
 	const ACTIVITY_COLUMNS_BY_FILTER: Record<ApiActivityFeedFilterKind, ActivityColumnId[]> = {
-		sales: ['id', 'price', 'image', 'name', 'from', 'to', 'time'],
-		listings: ['id', 'price', 'image', 'name', 'from', 'time'],
-		transfers: ['id', 'image', 'name', 'from', 'to', 'time']
+		sales: ['id', 'price', 'image', 'name', 'traits', 'from', 'to', 'time'],
+		listings: ['id', 'price', 'image', 'name', 'traits', 'from', 'time'],
+		transfers: ['id', 'image', 'name', 'traits', 'from', 'to', 'time']
 	};
 
 	let timeDisplayMode = $state<TimeDisplayMode>('relative');
@@ -81,7 +82,12 @@
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
 	let hasActiveFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
-	let visibleColumns = $derived(ACTIVITY_COLUMNS_BY_FILTER[filterKind]);
+	let hasActivityTraitSummaryColumn = $derived(included.hasTraitSummaryTemplate);
+	let visibleColumns = $derived(
+		ACTIVITY_COLUMNS_BY_FILTER[filterKind].filter(
+			(column) => column !== 'traits' || hasActivityTraitSummaryColumn
+		)
+	);
 
 	$effect(() => {
 		if (!browser || timeDisplayMode !== 'relative') return;
@@ -220,6 +226,10 @@
 		return tokenSummary(activity)?.name?.trim() || null;
 	}
 
+	function activityTraitSummary(activity: ApiActivityFeedItem): string | null {
+		return tokenSummary(activity)?.traitSummary ?? null;
+	}
+
 	function marketplaceItemHref(activity: ApiActivityFeedItem): string | null {
 		return buildOpenseaItemHref({
 			chainSlug: chain?.slug ?? null,
@@ -253,6 +263,8 @@
 				return 'image';
 			case 'name':
 				return 'name';
+			case 'traits':
+				return 'traits';
 			case 'from':
 				return 'from';
 			case 'to':
@@ -493,7 +505,7 @@
 								{/if}
 								<tr>
 									{#each visibleColumns as column}
-										<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'time' ? ' mono' : ''}`}>
+										<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'time' || column === 'traits' ? ' mono' : ''}`}>
 											{#if column === 'id'}
 												{#if activity.tokenId}
 													<a href={tokenDetailHref(activity.tokenId)}>{activity.tokenId}</a>
@@ -530,6 +542,14 @@
 												{#if tokenName(activity)}
 													<span class="activities-name-text" title={tokenName(activity) ?? undefined}>
 														{tokenName(activity)}
+													</span>
+												{:else}
+													<span class="muted">-</span>
+												{/if}
+											{:else if column === 'traits'}
+												{#if activityTraitSummary(activity)}
+													<span title={activityTraitSummary(activity) ?? undefined}>
+														{activityTraitSummary(activity)}
 													</span>
 												{:else}
 													<span class="muted">-</span>

@@ -155,6 +155,8 @@ Backend extensions currently own:
 - artifact ref resolution for a requested mode
 - effective token card/detail projection
 - extension-defined trait filter presentation config
+- extension-defined token-card trait summary template
+- extension-defined activity-row trait summary template
 
 This split keeps each runtime on its own contract instead of sharing a single cross-runtime implementation object.
 
@@ -188,13 +190,23 @@ The backend can then resolve:
 
 ### Current Terraforms customization override
 
-Terraforms now also provides an example trait filter presentation override through the backend extension contract.
+Terraforms now also provides example collection customization overrides through the backend extension contract.
+
+Current Terraforms overrides:
+
+- trait filter presentation
+- token card trait summary template
+- activity row trait summary template
+
+Current template string for both summary features:
+
+- `L{Level}/B{Biome}/{Zone}`
 
 This is important because it demonstrates that extension-owned collection customization is not limited to media.
 
 ## Collection Trait Filter Presentation Override
 
-The first collection customization feature implemented on top of the extension system is:
+The first collection customization feature implemented on top of the extension system was:
 
 - trait filter presentation
 
@@ -250,11 +262,51 @@ Collection shell now includes:
 
 - `customization` tab
 
-The first customization page currently exposes only:
+The customization page currently exposes:
 
 - trait filter presentation config
+- token card trait summary template
+- activity row trait summary template
 
 Extension-defined values are read-only. User-defined values remain editable. If a user wants to start from the extension version and modify it, they must currently copy that configuration manually into the user-defined input.
+
+## Trait Summary Template Overrides
+
+Collection customization now also supports two template-driven presentation features:
+
+- token card trait summary template
+- activity row trait summary template
+
+### What they control
+
+Token cards can render one compact backend-provided summary string under the token id / price block.
+
+Activity rows can render one compact backend-provided summary string in a dedicated `traits` column.
+
+### Effective configuration model
+
+Each feature resolves:
+
+- user-defined template
+- optional extension-defined template
+- selected source (`user` or `extension`)
+- effective template
+
+Current default user-defined template for both features is:
+
+- empty string
+
+Empty string means no summary is rendered.
+
+### Template behavior
+
+The renderer is intentionally simple:
+
+- literal text is emitted as-is
+- `{TraitKey}` placeholders are replaced from token attributes
+- missing placeholders render as empty strings
+
+Rendering is backend-owned so token browser cards and activity includes consume the same resolved summary behavior.
 
 ## What Is Not Implemented Yet
 
@@ -274,24 +326,15 @@ Current sync hooks are limited to metadata refresh enrichment.
 
 Current system is build-bundled only.
 
-### 4. Trait summary templates
+### 4. Richer trait summary templating
 
-Upcoming work will extend collection customization in a similar pattern for trait summary rendering.
+Current trait summary templates support placeholder substitution only.
 
-Planned separate template-driven features:
+Possible future work includes:
 
-- compact trait summary on token cards / token browser rows
-- trait summary rendering on activity rows
-
-The intended model is the same as trait filter presentation:
-
-- user-defined config
-- optional extension-defined override
-- selected effective source per feature
-
-Template syntax is expected to stay intentionally simple:
-
-- placeholder substitution mixed with literal text
+- richer compact summary variants
+- templating helpers beyond direct placeholder replacement
+- activity-specific formatting behavior beyond a plain text summary column
 
 ## Recommended Reading
 

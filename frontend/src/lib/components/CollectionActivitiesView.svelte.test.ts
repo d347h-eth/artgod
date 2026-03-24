@@ -111,11 +111,13 @@ describe('CollectionActivitiesView', () => {
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				selectedTraitRanges: [],
 				included: {
+					hasTraitSummaryTemplate: true,
 					tokensById: {
 						'1': {
 							tokenId: '1',
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
+							traitSummary: 'L7/BForest/Alpha',
 							hasMetadata: true,
 							metadataUpdatedAt: '2026-01-01T00:00:00Z'
 						}
@@ -137,8 +139,8 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('sales');
 		expect(body).toContain('listings');
 		expect(body).toContain('transfers');
-		expect(body).toContain('traits');
 		expect(body).toContain('Beanie');
+		expect(body).toContain('class="activities-traits-col"');
 		expect(body).toContain('>traits<');
 		expect(body).toContain('>reset<');
 		expect(body).toContain('relative');
@@ -157,6 +159,7 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('https://example.com/1.png');
 		expect(body).toContain('preview token 1');
 		expect(body).toContain('0.5 ETH');
+		expect(body).toContain('L7/BForest/Alpha');
 		expect(body).toContain(
 			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
 		);
@@ -286,11 +289,13 @@ describe('CollectionActivitiesView', () => {
 				selectedTraits: [],
 				selectedTraitRanges: [],
 				included: {
+					hasTraitSummaryTemplate: false,
 					tokensById: {
 						'1': {
 							tokenId: '1',
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
+							traitSummary: null,
 							hasMetadata: true,
 							metadataUpdatedAt: '2026-01-01T00:00:00Z'
 						}
@@ -303,6 +308,7 @@ describe('CollectionActivitiesView', () => {
 
 		expect(body).toContain('from');
 		expect(body).toContain('time');
+		expect(body).not.toContain('activities-traits-col');
 		expect(body).not.toContain('>to<');
 		expect(body).toContain('0x9999...9999');
 		expect(body).toContain('class="activities-day-break-label">2024-09-10 UTC</span>');

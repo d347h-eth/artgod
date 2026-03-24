@@ -1,9 +1,14 @@
 import {
     COLLECTION_CUSTOMIZATION_SOURCE_KIND,
+    COLLECTION_CUSTOMIZATION_FEATURE_KEY,
     defaultTraitFilterPresentationConfig,
+    defaultTraitSummaryTemplateConfig,
     normalizeTraitFilterPresentationConfig,
     normalizeTraitKeyList,
+    normalizeTraitSummaryTemplateConfig,
     type CollectionCustomizationSourceKind,
+    type TraitSummaryTemplateConfig,
+    type TraitSummaryTemplateFeatureState,
     type TraitFilterPresentationConfig,
     type TraitFilterPresentationFeatureState,
 } from "@artgod/shared/types";
@@ -19,16 +24,18 @@ type CollectionExtensionRecordsPort = {
 };
 
 type CollectionCustomizationRecordsPort = {
-    getTraitFilterPresentationFeature(params: {
+    getFeature(params: {
         chainId: number;
         collectionId: number;
+        featureKey: string;
     }): {
         selectedSource: CollectionCustomizationSourceKind;
         userConfigJson: string;
     } | null;
-    upsertTraitFilterPresentationFeature(params: {
+    upsertFeature(params: {
         chainId: number;
         collectionId: number;
+        featureKey: string;
         selectedSource: CollectionCustomizationSourceKind;
         userConfigJson: string;
     }): void;
@@ -51,12 +58,12 @@ export class ExtensionAwareCollectionCustomization {
         );
         const extensionConfig =
             this.resolveExtensionTraitFilterPresentationConfig(install);
-        const record = this.customizationRecords.getTraitFilterPresentationFeature(
-            {
-                chainId: params.chainId,
-                collectionId: params.collectionId,
-            },
-        );
+        const record = this.customizationRecords.getFeature({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey:
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.TraitFilterPresentation,
+        });
         const userConfig = parseTraitFilterPresentationConfigJson(
             record?.userConfigJson ?? null,
         );
@@ -108,9 +115,11 @@ export class ExtensionAwareCollectionCustomization {
             );
         }
 
-        this.customizationRecords.upsertTraitFilterPresentationFeature({
+        this.customizationRecords.upsertFeature({
             chainId: params.chainId,
             collectionId: params.collectionId,
+            featureKey:
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.TraitFilterPresentation,
             selectedSource: params.selectedSource,
             userConfigJson: JSON.stringify(normalizedUserConfig),
         });
@@ -120,6 +129,94 @@ export class ExtensionAwareCollectionCustomization {
             collectionId: params.collectionId,
             availableTraitKeys: params.availableTraitKeys,
         });
+    }
+
+    getTokenCardTraitSummaryTemplateState(params: {
+        chainId: number;
+        collectionId: number;
+    }): TraitSummaryTemplateFeatureState {
+        return resolveTraitSummaryTemplateFeatureState({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey:
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.TokenCardTraitSummaryTemplate,
+            extensionRecords: this.extensionRecords,
+            customizationRecords: this.customizationRecords,
+            extensionConfigResolver: (extension, install) =>
+                extension.resolveTokenCardTraitSummaryTemplateConfig(install),
+        });
+    }
+
+    updateTokenCardTraitSummaryTemplateState(params: {
+        chainId: number;
+        collectionId: number;
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfig: TraitSummaryTemplateConfig;
+    }): TraitSummaryTemplateFeatureState {
+        const normalizedUserConfig = normalizeTraitSummaryTemplateConfig(
+            params.userConfig,
+        );
+        const currentState = this.getTokenCardTraitSummaryTemplateState(params);
+        assertExtensionConfigAvailable(
+            params.selectedSource,
+            currentState.extensionConfig,
+            "Extension token-card trait summary template unavailable",
+        );
+
+        this.customizationRecords.upsertFeature({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey:
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.TokenCardTraitSummaryTemplate,
+            selectedSource: params.selectedSource,
+            userConfigJson: JSON.stringify(normalizedUserConfig),
+        });
+
+        return this.getTokenCardTraitSummaryTemplateState(params);
+    }
+
+    getActivityRowTraitSummaryTemplateState(params: {
+        chainId: number;
+        collectionId: number;
+    }): TraitSummaryTemplateFeatureState {
+        return resolveTraitSummaryTemplateFeatureState({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey:
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.ActivityRowTraitSummaryTemplate,
+            extensionRecords: this.extensionRecords,
+            customizationRecords: this.customizationRecords,
+            extensionConfigResolver: (extension, install) =>
+                extension.resolveActivityRowTraitSummaryTemplateConfig(install),
+        });
+    }
+
+    updateActivityRowTraitSummaryTemplateState(params: {
+        chainId: number;
+        collectionId: number;
+        selectedSource: CollectionCustomizationSourceKind;
+        userConfig: TraitSummaryTemplateConfig;
+    }): TraitSummaryTemplateFeatureState {
+        const normalizedUserConfig = normalizeTraitSummaryTemplateConfig(
+            params.userConfig,
+        );
+        const currentState = this.getActivityRowTraitSummaryTemplateState(params);
+        assertExtensionConfigAvailable(
+            params.selectedSource,
+            currentState.extensionConfig,
+            "Extension activity-row trait summary template unavailable",
+        );
+
+        this.customizationRecords.upsertFeature({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            featureKey:
+                COLLECTION_CUSTOMIZATION_FEATURE_KEY.ActivityRowTraitSummaryTemplate,
+            selectedSource: params.selectedSource,
+            userConfigJson: JSON.stringify(normalizedUserConfig),
+        });
+
+        return this.getActivityRowTraitSummaryTemplateState(params);
     }
 
     private resolveExtensionTraitFilterPresentationConfig(
@@ -157,6 +254,109 @@ function parseTraitFilterPresentationConfigJson(
         );
     } catch {
         return defaultTraitFilterPresentationConfig();
+    }
+}
+
+function parseTraitSummaryTemplateConfigJson(
+    raw: string | null,
+): TraitSummaryTemplateConfig {
+    if (!raw) {
+        return defaultTraitSummaryTemplateConfig();
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== "object") {
+            return defaultTraitSummaryTemplateConfig();
+        }
+        return normalizeTraitSummaryTemplateConfig(
+            parsed as TraitSummaryTemplateConfig,
+        );
+    } catch {
+        return defaultTraitSummaryTemplateConfig();
+    }
+}
+
+function resolveTraitSummaryTemplateFeatureState(params: {
+    chainId: number;
+    collectionId: number;
+    featureKey: string;
+    extensionRecords: CollectionExtensionRecordsPort;
+    customizationRecords: CollectionCustomizationRecordsPort;
+    extensionConfigResolver: (
+        extension: NonNullable<
+            ReturnType<typeof resolveBackendCollectionExtension>
+        >,
+        install: CollectionExtensionInstall,
+    ) => TraitSummaryTemplateConfig | null;
+}): TraitSummaryTemplateFeatureState {
+    const install = params.extensionRecords.getInstallByCollectionId(
+        params.chainId,
+        params.collectionId,
+    );
+    const extensionConfig = resolveExtensionTraitSummaryTemplateConfig({
+        install,
+        extensionConfigResolver: params.extensionConfigResolver,
+    });
+    const record = params.customizationRecords.getFeature({
+        chainId: params.chainId,
+        collectionId: params.collectionId,
+        featureKey: params.featureKey,
+    });
+    const userConfig = parseTraitSummaryTemplateConfigJson(
+        record?.userConfigJson ?? null,
+    );
+    const selectedSource = resolveSelectedSource({
+        requestedSource: record?.selectedSource ?? null,
+        hasExtensionConfig: extensionConfig !== null,
+    });
+    const effectiveConfig =
+        selectedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension &&
+        extensionConfig
+            ? extensionConfig
+            : userConfig;
+
+    return {
+        selectedSource,
+        userConfig,
+        extensionConfig,
+        effectiveConfig,
+    };
+}
+
+function resolveExtensionTraitSummaryTemplateConfig(params: {
+    install: CollectionExtensionInstall | null;
+    extensionConfigResolver: (
+        extension: NonNullable<
+            ReturnType<typeof resolveBackendCollectionExtension>
+        >,
+        install: CollectionExtensionInstall,
+    ) => TraitSummaryTemplateConfig | null;
+}): TraitSummaryTemplateConfig | null {
+    if (!params.install?.enabled) {
+        return null;
+    }
+
+    const extension = resolveBackendCollectionExtension(params.install);
+    if (!extension) {
+        return null;
+    }
+
+    return normalizeTraitSummaryTemplateConfig(
+        params.extensionConfigResolver(extension, params.install),
+    );
+}
+
+function assertExtensionConfigAvailable(
+    selectedSource: CollectionCustomizationSourceKind,
+    extensionConfig: TraitSummaryTemplateConfig | null,
+    message: string,
+): void {
+    if (
+        selectedSource === COLLECTION_CUSTOMIZATION_SOURCE_KIND.Extension &&
+        extensionConfig === null
+    ) {
+        throw new ReadModelBadRequestError(message);
     }
 }
 

@@ -93,6 +93,14 @@ export class GetCollectionActivityUseCase {
                     rangeKeys: string[];
                 };
             };
+            getActivityRowTraitSummaryTemplateState(params: {
+                chainId: number;
+                collectionId: number;
+            }): {
+                effectiveConfig: {
+                    template: string;
+                };
+            };
         },
     ) {}
 
@@ -135,6 +143,11 @@ export class GetCollectionActivityUseCase {
             facets: rawFacets,
             config: traitFilterPresentation.effectiveConfig,
         });
+        const activityRowTraitSummaryTemplate =
+            this.customizationReadPort.getActivityRowTraitSummaryTemplateState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
         const included = buildActivityFeedIncludes(
             this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
                 chainId: chain.publicChainId,
@@ -142,6 +155,7 @@ export class GetCollectionActivityUseCase {
                 tokenIds: collectActivityTokenIds(activities.items),
                 mediaMode: media.selectedMode,
             }),
+            activityRowTraitSummaryTemplate.effectiveConfig.template,
         );
 
         return {

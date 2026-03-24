@@ -76,6 +76,16 @@ export class GetTokenActivityUseCase {
                 mediaMode?: string;
             }): TokenCard[];
         },
+        readonly customizationReadPort: {
+            getActivityRowTraitSummaryTemplateState(params: {
+                chainId: number;
+                collectionId: number;
+            }): {
+                effectiveConfig: {
+                    template: string;
+                };
+            };
+        },
     ) {}
 
     getTokenActivity(input: GetTokenActivityInput): GetTokenActivityOutput {
@@ -106,6 +116,11 @@ export class GetTokenActivityUseCase {
             cursor: input.cursor,
             kind: input.kind,
         });
+        const activityRowTraitSummaryTemplate =
+            this.customizationReadPort.getActivityRowTraitSummaryTemplateState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
         const included = buildActivityFeedIncludes(
             this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
                 chainId: chain.publicChainId,
@@ -113,6 +128,7 @@ export class GetTokenActivityUseCase {
                 tokenIds: collectActivityTokenIds(activities.items),
                 mediaMode: media.selectedMode,
             }),
+            activityRowTraitSummaryTemplate.effectiveConfig.template,
         );
 
         return {

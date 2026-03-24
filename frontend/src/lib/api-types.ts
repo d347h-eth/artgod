@@ -83,6 +83,7 @@ export type ApiTokenPresentationSummary = {
 	tokenId: string;
 	name: string | null;
 	image: string | null;
+	traitSummary: string | null;
 	hasMetadata: boolean;
 	metadataUpdatedAt: string | null;
 };
@@ -131,6 +132,7 @@ export type ApiTokenCard = {
 	tokenId: string;
 	name: string | null;
 	image: string | null;
+	traitSummary: string | null;
 	listingPrice: string | null;
 	listingCurrency: string | null;
 	attributes: ApiTokenAttribute[];
@@ -191,6 +193,17 @@ export type ApiTraitFilterPresentationFeatureState = {
 	availableTraitKeys: string[];
 };
 
+export type ApiTraitSummaryTemplateConfig = {
+	template: string;
+};
+
+export type ApiTraitSummaryTemplateFeatureState = {
+	selectedSource: ApiCollectionCustomizationSource;
+	userConfig: ApiTraitSummaryTemplateConfig;
+	extensionConfig: ApiTraitSummaryTemplateConfig | null;
+	effectiveConfig: ApiTraitSummaryTemplateConfig;
+};
+
 export type CollectionsApiResponse = {
 	chain: ApiChain;
 	filters: {
@@ -229,6 +242,7 @@ export type CollectionActivitiesApiResponse = {
 	activities: ApiActivitiesPage;
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+		hasTraitSummaryTemplate: boolean;
 	};
 };
 
@@ -237,6 +251,8 @@ export type CollectionCustomizationApiResponse = {
 	collection: ApiCollection;
 	customization: {
 		traitFilterPresentation: ApiTraitFilterPresentationFeatureState;
+		tokenCardTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
+		activityRowTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 	};
 };
 
@@ -255,6 +271,7 @@ export type TokenActivitiesApiResponse = {
 	activities: ApiActivitiesPage;
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+		hasTraitSummaryTemplate: boolean;
 	};
 };
 

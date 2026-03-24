@@ -39,6 +39,7 @@ describe('HolderTokensView', () => {
 							tokenId: '1',
 							name: 'Milady #1',
 							image: 'https://example.com/1.png',
+							traitSummary: 'L7/BForest/Alpha',
 							listingPrice: '500000000000000000',
 							listingCurrency: '0x0000000000000000000000000000000000000000',
 							attributes: [{ key: 'Hat', value: 'Beanie' }],
@@ -91,6 +92,7 @@ describe('HolderTokensView', () => {
 		expect(body).toContain('>traits<');
 		expect(body).toContain('>reset<');
 		expect(body).toContain('2 held');
+		expect(body).toContain('L7/BForest/Alpha');
 		expect(body).not.toContain('only listed');
 	});
 });
