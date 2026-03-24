@@ -139,6 +139,64 @@ export function buildTokenTraitFilterWhereClauses(params: {
     };
 }
 
+export function buildTokenTraitRangeJoinClauses(params: {
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
+    tokenColumnSql: string;
+    chainId: number;
+    collectionId: number;
+}): {
+    joinClauses: string[];
+    values: unknown[];
+} {
+    const joinClauses: string[] = [];
+    const values: unknown[] = [];
+
+    for (const [index, filterGroup] of params.traitRangeFilterGroups.entries()) {
+        const alias = `trait_range_tokens_${index}`;
+        const numericComparisons: string[] = [
+            "a.value <> ''",
+            "a.value NOT GLOB '*[^0-9]*'",
+        ];
+
+        if (filterGroup.fromValue !== null) {
+            numericComparisons.push("CAST(a.value AS INTEGER) >= CAST(? AS INTEGER)");
+        }
+        if (filterGroup.toValue !== null) {
+            numericComparisons.push("CAST(a.value AS INTEGER) <= CAST(? AS INTEGER)");
+        }
+
+        joinClauses.push(
+            "JOIN (" +
+                "SELECT DISTINCT ta.token_id " +
+                "FROM token_attributes ta " +
+                "JOIN attributes a ON a.id = ta.attribute_id " +
+                "AND a.chain_id = ta.chain_id " +
+                "AND a.collection_id = ta.collection_id " +
+                "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+                "AND ak.chain_id = a.chain_id " +
+                "AND ak.collection_id = a.collection_id " +
+                "WHERE ta.chain_id = ? " +
+                "AND ta.collection_id = ? " +
+                "AND ak.key = ? " +
+                `AND ${numericComparisons.join(" AND ")} ` +
+                `) ${alias} ON ${alias}.token_id = ${params.tokenColumnSql}`,
+        );
+
+        values.push(params.chainId, params.collectionId, filterGroup.key);
+        if (filterGroup.fromValue !== null) {
+            values.push(filterGroup.fromValue);
+        }
+        if (filterGroup.toValue !== null) {
+            values.push(filterGroup.toValue);
+        }
+    }
+
+    return {
+        joinClauses,
+        values,
+    };
+}
+
 export function buildTokenTraitRangeWhereClauses(params: {
     traitRangeFilterGroups: TraitRangeFilterGroup[];
     chainColumnSql: string;

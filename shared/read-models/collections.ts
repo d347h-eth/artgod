@@ -29,7 +29,7 @@ import {
 import { ReadModelBadRequestError, ReadModelNotFoundError } from "./errors.js";
 import {
     buildTokenTraitFilterWhereClauses,
-    buildTokenTraitRangeWhereClauses,
+    buildTokenTraitRangeJoinClauses,
     groupTraitFilters,
     groupTraitRangeFilters,
     normalizeTraitFilters,
@@ -462,7 +462,12 @@ export class SqliteCollectionsReadModel {
         traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
-        const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
+        const {
+            baseJoinClauses,
+            baseJoinValues,
+            baseWhereClauses,
+            baseWhereValues,
+        } = buildTokenQueryParts({
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
@@ -474,13 +479,14 @@ export class SqliteCollectionsReadModel {
             : null;
         const whereClauses = [...baseWhereClauses];
         const values = [
+            ...baseJoinValues,
             ...buildCheapestListingValues({
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 supportedCurrencies: this.supportedListingCurrencies,
                 nowSeconds: params.nowSeconds,
             }),
-            ...baseValues,
+            ...baseWhereValues,
         ];
 
         if (cursorSortKey) {
@@ -491,6 +497,7 @@ export class SqliteCollectionsReadModel {
         const sql =
             "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
+            `${baseJoinClauses.join(" ")} ` +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
             "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
@@ -509,22 +516,34 @@ export class SqliteCollectionsReadModel {
         const items = pageRows.map(mapTokenRow);
 
         const prevCursor = derivePrevCursor({
+            baseJoinClauses,
+            baseJoinValues,
             baseWhereClauses,
-            baseValues,
+            baseWhereValues,
             cursor: params.cursor,
             pageRows,
             limit: params.limit,
         });
 
-        const totalItems = countMatchingTokens(baseWhereClauses, baseValues);
+        const totalItems = countMatchingTokens({
+            joinClauses: baseJoinClauses,
+            joinValues: baseJoinValues,
+            whereClauses: baseWhereClauses,
+            whereValues: baseWhereValues,
+        });
         const beforeItems = cursorSortKey
-            ? countMatchingTokens(
-                  [
+            ? countMatchingTokens({
+                  joinClauses: baseJoinClauses,
+                  joinValues: baseJoinValues,
+                  whereClauses: [
                       ...baseWhereClauses,
                       `${TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?)`,
                   ],
-                  [...baseValues, ...tokenSortKeyParams(cursorSortKey)],
-              )
+                  whereValues: [
+                      ...baseWhereValues,
+                      ...tokenSortKeyParams(cursorSortKey),
+                  ],
+              })
             : 0;
         const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
         const rangeEnd = beforeItems + items.length;
@@ -563,7 +582,12 @@ export class SqliteCollectionsReadModel {
         traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
-        const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
+        const {
+            baseJoinClauses,
+            baseJoinValues,
+            baseWhereClauses,
+            baseWhereValues,
+        } = buildTokenQueryParts({
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
@@ -583,7 +607,11 @@ export class SqliteCollectionsReadModel {
               )
             : null;
         const whereClauses = [...baseWhereClauses];
-        const values: unknown[] = [...listingValues, ...baseValues];
+        const values: unknown[] = [
+            ...baseJoinValues,
+            ...listingValues,
+            ...baseWhereValues,
+        ];
 
         if (cursorKey) {
             whereClauses.push(
@@ -595,6 +623,7 @@ export class SqliteCollectionsReadModel {
         const sql =
             "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
+            `${baseJoinClauses.join(" ")} ` +
             `JOIN (${buildCheapestListingSql(this.supportedListingCurrencies.length)}) l ` +
             "ON l.collection_id = t.collection_id " +
             "AND l.token_id = t.token_id " +
@@ -616,24 +645,30 @@ export class SqliteCollectionsReadModel {
             listingSql: buildCheapestListingSql(
                 this.supportedListingCurrencies.length,
             ),
+            baseJoinClauses,
+            baseJoinValues,
             listingValues,
             baseWhereClauses,
-            baseValues,
+            baseWhereValues,
             cursor: params.cursor,
             pageRows,
             limit: params.limit,
         });
 
         const totalItems = countMatchingListedTokens({
+            joinClauses: baseJoinClauses,
+            joinValues: baseJoinValues,
             listingSql: buildCheapestListingSql(
                 this.supportedListingCurrencies.length,
             ),
             listingValues,
             whereClauses: baseWhereClauses,
-            values: baseValues,
+            whereValues: baseWhereValues,
         });
         const beforeItems = cursorKey
             ? countMatchingListedTokens({
+                  joinClauses: baseJoinClauses,
+                  joinValues: baseJoinValues,
                   listingSql: buildCheapestListingSql(
                       this.supportedListingCurrencies.length,
                   ),
@@ -642,7 +677,10 @@ export class SqliteCollectionsReadModel {
                       ...baseWhereClauses,
                       `${LISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?)`,
                   ],
-                  values: [...baseValues, ...listingCursorKeyParams(cursorKey)],
+                  whereValues: [
+                      ...baseWhereValues,
+                      ...listingCursorKeyParams(cursorKey),
+                  ],
               })
             : 0;
         const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
@@ -683,7 +721,12 @@ export class SqliteCollectionsReadModel {
         traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
-        const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
+        const {
+            baseJoinClauses,
+            baseJoinValues,
+            baseWhereClauses,
+            baseWhereValues,
+        } = buildTokenQueryParts({
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
@@ -706,7 +749,11 @@ export class SqliteCollectionsReadModel {
               )
             : null;
         const whereClauses = [...baseWhereClauses];
-        const values: unknown[] = [...listingValues, ...baseValues];
+        const values: unknown[] = [
+            ...baseJoinValues,
+            ...listingValues,
+            ...baseWhereValues,
+        ];
 
         if (cursorKey) {
             whereClauses.push(
@@ -718,6 +765,7 @@ export class SqliteCollectionsReadModel {
         const sql =
             "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
+            `${baseJoinClauses.join(" ")} ` +
             `LEFT JOIN (${listingSql}) l ` +
             "ON l.collection_id = t.collection_id " +
             "AND l.token_id = t.token_id " +
@@ -738,24 +786,33 @@ export class SqliteCollectionsReadModel {
         const prevCursor = deriveListedThenUnlistedPrevCursor({
             listingSql,
             listingValues,
+            baseJoinClauses,
+            baseJoinValues,
             baseWhereClauses,
-            baseValues,
+            baseWhereValues,
             cursor: params.cursor,
             pageRows,
             limit: params.limit,
         });
 
-        const totalItems = countMatchingTokens(baseWhereClauses, baseValues);
+        const totalItems = countMatchingTokens({
+            joinClauses: baseJoinClauses,
+            joinValues: baseJoinValues,
+            whereClauses: baseWhereClauses,
+            whereValues: baseWhereValues,
+        });
         const beforeItems = cursorKey
             ? countMatchingMixedTokens({
+                  joinClauses: baseJoinClauses,
+                  joinValues: baseJoinValues,
                   listingSql,
                   listingValues,
                   whereClauses: [
                       ...baseWhereClauses,
                       `${LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?, ?)`,
                   ],
-                  values: [
-                      ...baseValues,
+                  whereValues: [
+                      ...baseWhereValues,
                       ...listedThenUnlistedCursorKeyParams(cursorKey),
                   ],
               })
@@ -972,53 +1029,72 @@ export class SqliteCollectionsReadModel {
     }
 }
 
-function countMatchingTokens(
-    whereClauses: string[],
-    values: unknown[],
-): number {
-    const sql =
-        "SELECT COUNT(*) AS count " +
-        "FROM tokens t " +
-        `WHERE ${whereClauses.join(" AND ")}`;
-    const row = db.raw.prepare(sql).get(...values) as { count: number };
-    return row.count;
-}
-
-function countMatchingListedTokens(params: {
-    listingSql: string;
-    listingValues: unknown[];
+function countMatchingTokens(params: {
+    joinClauses: string[];
+    joinValues: unknown[];
     whereClauses: string[];
-    values: unknown[];
+    whereValues: unknown[];
 }): number {
     const sql =
         "SELECT COUNT(*) AS count " +
         "FROM tokens t " +
+        `${params.joinClauses.join(" ")} ` +
+        `WHERE ${params.whereClauses.join(" AND ")}`;
+    const row = db.raw
+        .prepare(sql)
+        .get(...params.joinValues, ...params.whereValues) as { count: number };
+    return row.count;
+}
+
+function countMatchingListedTokens(params: {
+    joinClauses: string[];
+    joinValues: unknown[];
+    listingSql: string;
+    listingValues: unknown[];
+    whereClauses: string[];
+    whereValues: unknown[];
+}): number {
+    const sql =
+        "SELECT COUNT(*) AS count " +
+        "FROM tokens t " +
+        `${params.joinClauses.join(" ")} ` +
         `JOIN (${params.listingSql}) l ` +
         "ON l.collection_id = t.collection_id " +
         "AND l.token_id = t.token_id " +
         `WHERE ${params.whereClauses.join(" AND ")}`;
     const row = db.raw
         .prepare(sql)
-        .get(...params.listingValues, ...params.values) as { count: number };
+        .get(
+            ...params.joinValues,
+            ...params.listingValues,
+            ...params.whereValues,
+        ) as { count: number };
     return row.count;
 }
 
 function countMatchingMixedTokens(params: {
+    joinClauses: string[];
+    joinValues: unknown[];
     listingSql: string;
     listingValues: unknown[];
     whereClauses: string[];
-    values: unknown[];
+    whereValues: unknown[];
 }): number {
     const sql =
         "SELECT COUNT(*) AS count " +
         "FROM tokens t " +
+        `${params.joinClauses.join(" ")} ` +
         `LEFT JOIN (${params.listingSql}) l ` +
         "ON l.collection_id = t.collection_id " +
         "AND l.token_id = t.token_id " +
         `WHERE ${params.whereClauses.join(" AND ")}`;
     const row = db.raw
         .prepare(sql)
-        .get(...params.listingValues, ...params.values) as { count: number };
+        .get(
+            ...params.joinValues,
+            ...params.listingValues,
+            ...params.whereValues,
+        ) as { count: number };
     return row.count;
 }
 
@@ -1032,13 +1108,23 @@ function countCollectionTokens(chainId: number, collectionId: number): number {
 }
 
 function derivePrevCursor(params: {
+    baseJoinClauses: string[];
+    baseJoinValues: unknown[];
     baseWhereClauses: string[];
-    baseValues: unknown[];
+    baseWhereValues: unknown[];
     cursor: Extract<TokenCursor, { kind: "all" }> | null;
     pageRows: TokenRow[];
     limit: number;
 }): string | null {
-    const { baseWhereClauses, baseValues, cursor, pageRows, limit } = params;
+    const {
+        baseJoinClauses,
+        baseJoinValues,
+        baseWhereClauses,
+        baseWhereValues,
+        cursor,
+        pageRows,
+        limit,
+    } = params;
 
     const anchorTokenId = pageRows[0]?.token_id ?? cursor?.tokenId ?? null;
     if (!anchorTokenId) {
@@ -1050,12 +1136,14 @@ function derivePrevCursor(params: {
         .prepare(
             "SELECT t.token_id " +
                 "FROM tokens t " +
+                `${baseJoinClauses.join(" ")} ` +
                 `WHERE ${baseWhereClauses.join(" AND ")} AND ${TOKEN_SORT_KEY_SQL} < (?, ?, ?, ?) ` +
                 `ORDER BY ${TOKEN_ORDER_BY_DESC_SQL} ` +
                 "LIMIT ?",
         )
         .all(
-            ...baseValues,
+            ...baseJoinValues,
+            ...baseWhereValues,
             ...tokenSortKeyParams(anchorSortKey),
             limit + 1,
         ) as TokenIdRow[];
@@ -1073,8 +1161,10 @@ function derivePrevCursor(params: {
 function deriveListedPrevCursor(params: {
     listingSql: string;
     listingValues: unknown[];
+    baseJoinClauses: string[];
+    baseJoinValues: unknown[];
     baseWhereClauses: string[];
-    baseValues: unknown[];
+    baseWhereValues: unknown[];
     cursor: Extract<TokenCursor, { kind: "listed" }> | null;
     pageRows: TokenRow[];
     limit: number;
@@ -1082,8 +1172,10 @@ function deriveListedPrevCursor(params: {
     const {
         listingSql,
         listingValues,
+        baseJoinClauses,
+        baseJoinValues,
         baseWhereClauses,
-        baseValues,
+        baseWhereValues,
         cursor,
         pageRows,
         limit,
@@ -1101,6 +1193,7 @@ function deriveListedPrevCursor(params: {
         .prepare(
             "SELECT t.token_id, l.price AS listing_price " +
                 "FROM tokens t " +
+                `${baseJoinClauses.join(" ")} ` +
                 `JOIN (${listingSql}) l ` +
                 "ON l.collection_id = t.collection_id " +
                 "AND l.token_id = t.token_id " +
@@ -1109,8 +1202,9 @@ function deriveListedPrevCursor(params: {
                 "LIMIT ?",
         )
         .all(
+            ...baseJoinValues,
             ...listingValues,
-            ...baseValues,
+            ...baseWhereValues,
             ...listingCursorKeyParams(anchorKey),
             limit + 1,
         ) as Array<{
@@ -1132,8 +1226,10 @@ function deriveListedPrevCursor(params: {
 function deriveListedThenUnlistedPrevCursor(params: {
     listingSql: string;
     listingValues: unknown[];
+    baseJoinClauses: string[];
+    baseJoinValues: unknown[];
     baseWhereClauses: string[];
-    baseValues: unknown[];
+    baseWhereValues: unknown[];
     cursor: Extract<TokenCursor, { kind: "listed_then_unlisted" }> | null;
     pageRows: TokenRow[];
     limit: number;
@@ -1141,8 +1237,10 @@ function deriveListedThenUnlistedPrevCursor(params: {
     const {
         listingSql,
         listingValues,
+        baseJoinClauses,
+        baseJoinValues,
         baseWhereClauses,
-        baseValues,
+        baseWhereValues,
         cursor,
         pageRows,
         limit,
@@ -1167,6 +1265,7 @@ function deriveListedThenUnlistedPrevCursor(params: {
         .prepare(
             "SELECT t.token_id, l.price AS listing_price " +
                 "FROM tokens t " +
+                `${baseJoinClauses.join(" ")} ` +
                 `LEFT JOIN (${listingSql}) l ` +
                 "ON l.collection_id = t.collection_id " +
                 "AND l.token_id = t.token_id " +
@@ -1175,8 +1274,9 @@ function deriveListedThenUnlistedPrevCursor(params: {
                 "LIMIT ?",
         )
         .all(
+            ...baseJoinValues,
             ...listingValues,
-            ...baseValues,
+            ...baseWhereValues,
             ...listedThenUnlistedCursorKeyParams(anchorKey),
             limit + 1,
         ) as TokenListingRow[];
@@ -1502,21 +1602,25 @@ function normalizeTokenIds(tokenIds: string[]): string[] {
     return normalized;
 }
 
-function buildTokenWhereClauses(params: {
+function buildTokenQueryParts(params: {
     chainId: number;
     collectionId: number;
     traitFilterGroups: TraitFilterGroup[];
     traitRangeFilterGroups: TraitRangeFilterGroup[];
     owner?: string;
 }): {
+    baseJoinClauses: string[];
+    baseJoinValues: unknown[];
     baseWhereClauses: string[];
-    baseValues: unknown[];
+    baseWhereValues: unknown[];
 } {
+    const baseJoinClauses: string[] = [];
+    const baseJoinValues: unknown[] = [];
     const baseWhereClauses: string[] = [
         "t.chain_id = ?",
         "t.collection_id = ?",
     ];
-    const baseValues: unknown[] = [params.chainId, params.collectionId];
+    const baseWhereValues: unknown[] = [params.chainId, params.collectionId];
 
     if (params.owner) {
         baseWhereClauses.push(
@@ -1529,7 +1633,7 @@ function buildTokenWhereClauses(params: {
                 "AND CAST(b.amount AS INTEGER) > 0" +
                 ")",
         );
-        baseValues.push(params.owner);
+        baseWhereValues.push(params.owner);
     }
 
     const {
@@ -1542,23 +1646,25 @@ function buildTokenWhereClauses(params: {
         tokenColumnSql: "t.token_id",
     });
     baseWhereClauses.push(...traitWhereClauses);
-    baseValues.push(...traitValues);
+    baseWhereValues.push(...traitValues);
 
     const {
-        whereClauses: traitRangeWhereClauses,
+        joinClauses: traitRangeJoinClauses,
         values: traitRangeValues,
-    } = buildTokenTraitRangeWhereClauses({
+    } = buildTokenTraitRangeJoinClauses({
         traitRangeFilterGroups: params.traitRangeFilterGroups,
-        chainColumnSql: "t.chain_id",
-        collectionColumnSql: "t.collection_id",
         tokenColumnSql: "t.token_id",
+        chainId: params.chainId,
+        collectionId: params.collectionId,
     });
-    baseWhereClauses.push(...traitRangeWhereClauses);
-    baseValues.push(...traitRangeValues);
+    baseJoinClauses.push(...traitRangeJoinClauses);
+    baseJoinValues.push(...traitRangeValues);
 
     return {
+        baseJoinClauses,
+        baseJoinValues,
         baseWhereClauses,
-        baseValues,
+        baseWhereValues,
     };
 }
 

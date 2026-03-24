@@ -99,6 +99,8 @@ Priority legend:
       Sources: `docs/progress/indexer/16-trace-profile-linking-plan.md`
 - [ ] `BKL-041` Add operator-managed collection-extension install/uninstall flows and a late-install redrive path for already-indexed collections.
       Sources: `docs/indexer/00-overview.md`, `docs/indexer/14-collection-bootstrap.md`, user notes
+- [ ] `BKL-045` Add materialized numeric trait projection for configured range traits, including targeted rebuild for late `set -> range` flips on live collections.
+      Sources: `docs/progress/indexer/17-range-trait-performance-and-projection-plan.md`, user notes
 
 ## P3: Long-Term Architecture
 
