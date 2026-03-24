@@ -8,6 +8,7 @@
 		ApiCollection,
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
+		ApiTraitRangeFilter,
 		ApiTokenPresentationSummary
 	} from '$lib/api-types';
 	import type { ApiTraitFacet } from '$lib/api-types';
@@ -19,6 +20,7 @@
 		activities: ApiActivitiesPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		selectedTraitRanges: ApiTraitRangeFilter[];
 		included: {
 			tokensById: Record<string, ApiTokenPresentationSummary>;
 		};
@@ -54,6 +56,7 @@
 	activities={data?.activities ?? fallbackActivities}
 	facets={data?.facets ?? []}
 	selectedTraits={data?.selectedTraits ?? []}
+	selectedTraitRanges={data?.selectedTraitRanges ?? []}
 	included={data?.included ?? { tokensById: {} }}
 	basePath={data?.basePath ?? '/'}
 	filterKind={data?.filterKind ?? 'sales'}

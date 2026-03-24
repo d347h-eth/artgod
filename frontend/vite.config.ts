@@ -9,7 +9,7 @@ const frontendPackageJson = JSON.parse(
 ) as { version?: string };
 const packageVersion = frontendPackageJson.version?.trim();
 const appVersion = (process.env.PUBLIC_APP_VERSION?.trim() ||
-	(packageVersion ? `v${packageVersion}` : 'v0.0.1-alpha')) as string;
+	(packageVersion ? `v${packageVersion}` : 'v0.0.1-pre-alpha.1')) as string;
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],

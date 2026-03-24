@@ -6,7 +6,9 @@ import type {
     TokenCursorPage,
     TraitFacet,
     TraitFilter,
+    TraitRangeFilter,
 } from "@artgod/shared/types/browse";
+import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 
 export type GetCollectionDetailInput = {
     chainRef: string;
@@ -15,6 +17,7 @@ export type GetCollectionDetailInput = {
     limit: number;
     cursor?: string;
     traits: TraitFilter[];
+    traitRanges: TraitRangeFilter[];
     owner?: string;
     mediaMode?: string;
 };
@@ -24,6 +27,7 @@ export type GetCollectionDetailOutput = {
     collection: CollectionListItem;
     traits: {
         selected: TraitFilter[];
+        selectedRanges: TraitRangeFilter[];
         facets: TraitFacet[];
     };
     media: CollectionMediaState;
@@ -51,6 +55,7 @@ export class GetCollectionDetailUseCase {
                 limit: number;
                 cursor?: string;
                 traitFilters?: TraitFilter[];
+                traitRangeFilters?: TraitRangeFilter[];
                 owner?: string;
                 mediaMode?: string;
             }): TokenCursorPage;
@@ -64,6 +69,17 @@ export class GetCollectionDetailUseCase {
                 collectionId: number;
                 mediaMode?: string;
             }): CollectionMediaState;
+        },
+        readonly customizationReadPort: {
+            getTraitFilterPresentationState(params: {
+                chainId: number;
+                collectionId: number;
+                availableTraitKeys?: string[];
+            }): {
+                effectiveConfig: {
+                    rangeKeys: string[];
+                };
+            };
         },
     ) {}
 
@@ -93,21 +109,33 @@ export class GetCollectionDetailUseCase {
             limit: input.limit,
             cursor: input.cursor,
             traitFilters: input.traits,
+            traitRangeFilters: input.traitRanges,
             owner: input.owner,
             mediaMode: media.selectedMode,
         });
 
-        const facets = this.collectionDetailReadPort.listCollectionTraitFacets(
+        const rawFacets = this.collectionDetailReadPort.listCollectionTraitFacets(
             chain.publicChainId,
             collection.collectionId,
             input.owner,
         );
+        const traitFilterPresentation =
+            this.customizationReadPort.getTraitFilterPresentationState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                availableTraitKeys: rawFacets.map((facet) => facet.key),
+            });
+        const facets = applyTraitFilterPresentationToFacets({
+            facets: rawFacets,
+            config: traitFilterPresentation.effectiveConfig,
+        });
 
         return {
             chain,
             collection,
             traits: {
                 selected: input.traits,
+                selectedRanges: input.traitRanges,
                 facets,
             },
             media,

@@ -15,6 +15,7 @@ import type {
     TokenDetail,
     TraitFacet,
     TraitFilter,
+    TraitRangeFilter,
 } from "@artgod/shared/types/browse";
 import { resolveBackendCollectionExtension } from "../../application/collection-extensions/index.js";
 
@@ -44,6 +45,7 @@ type CollectionDetailReadPort = {
         limit: number;
         cursor?: string;
         traitFilters?: TraitFilter[];
+        traitRangeFilters?: TraitRangeFilter[];
         owner?: string;
         mediaMode?: CollectionMediaMode;
     }): TokenCursorPage;
@@ -100,6 +102,7 @@ export class ExtensionAwareCollectionDetailRead {
         limit: number;
         cursor?: string;
         traitFilters?: TraitFilter[];
+        traitRangeFilters?: TraitRangeFilter[];
         owner?: string;
         mediaMode?: CollectionMediaMode;
     }): TokenCursorPage {

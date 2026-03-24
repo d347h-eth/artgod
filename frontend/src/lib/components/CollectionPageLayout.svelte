@@ -6,6 +6,7 @@
 		tokensHref,
 		activitiesHref,
 		holdersHref,
+		customizationHref,
 		activeSection,
 		collectionAvailable = true,
 		breadcrumbs,
@@ -16,7 +17,8 @@
 		tokensHref: string;
 		activitiesHref: string;
 		holdersHref: string;
-		activeSection: 'tokens' | 'activities' | 'holders' | null;
+		customizationHref: string;
+		activeSection: 'tokens' | 'activities' | 'holders' | 'customization' | null;
 		collectionAvailable?: boolean;
 		breadcrumbs: Snippet;
 		headerActions?: Snippet;
@@ -33,7 +35,13 @@
 	<header class="panel-header">
 		<div class="panel-header-main">
 			{#if collectionAvailable}
-				<CollectionSectionTabs {tokensHref} {activitiesHref} {holdersHref} active={activeSection} />
+				<CollectionSectionTabs
+					{tokensHref}
+					{activitiesHref}
+					{holdersHref}
+					{customizationHref}
+					active={activeSection}
+				/>
 			{:else}
 				<span class="muted">collection not found</span>
 			{/if}

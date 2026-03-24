@@ -1,9 +1,15 @@
-import type { TraitFilter } from "../types/browse.js";
+import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { ReadModelBadRequestError } from "./errors.js";
 
 export type TraitFilterGroup = {
     key: string;
     values: string[];
+};
+
+export type TraitRangeFilterGroup = {
+    key: string;
+    fromValue: string | null;
+    toValue: string | null;
 };
 
 export function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {
@@ -25,6 +31,46 @@ export function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {
     return deduped;
 }
 
+export function normalizeTraitRangeFilters(
+    filters: TraitRangeFilter[],
+): TraitRangeFilter[] {
+    const normalized: TraitRangeFilter[] = [];
+    const seen = new Set<string>();
+
+    for (const filter of filters) {
+        const key = filter.key.trim();
+        const fromValue = filter.fromValue?.trim() || null;
+        const toValue = filter.toValue?.trim() || null;
+        if (!key || (fromValue === null && toValue === null)) {
+            throw new ReadModelBadRequestError("Invalid trait range filter");
+        }
+        if (fromValue !== null && !/^\d+$/.test(fromValue)) {
+            throw new ReadModelBadRequestError("Invalid trait range filter");
+        }
+        if (toValue !== null && !/^\d+$/.test(toValue)) {
+            throw new ReadModelBadRequestError("Invalid trait range filter");
+        }
+        if (
+            fromValue !== null &&
+            toValue !== null &&
+            BigInt(fromValue) > BigInt(toValue)
+        ) {
+            throw new ReadModelBadRequestError("Invalid trait range filter");
+        }
+        if (seen.has(key)) {
+            throw new ReadModelBadRequestError("Duplicate trait range filter");
+        }
+        seen.add(key);
+        normalized.push({
+            key,
+            fromValue,
+            toValue,
+        });
+    }
+
+    return normalized;
+}
+
 export function groupTraitFilters(filters: TraitFilter[]): TraitFilterGroup[] {
     const grouped = new Map<string, Set<string>>();
     for (const filter of filters) {
@@ -41,6 +87,16 @@ export function groupTraitFilters(filters: TraitFilter[]): TraitFilterGroup[] {
         });
     }
     return groups;
+}
+
+export function groupTraitRangeFilters(
+    filters: TraitRangeFilter[],
+): TraitRangeFilterGroup[] {
+    return filters.map((filter) => ({
+        key: filter.key,
+        fromValue: filter.fromValue,
+        toValue: filter.toValue,
+    }));
 }
 
 export function buildTokenTraitFilterWhereClauses(params: {
@@ -75,6 +131,64 @@ export function buildTokenTraitFilterWhereClauses(params: {
                 ")",
         );
         values.push(filterGroup.key, ...filterGroup.values);
+    }
+
+    return {
+        whereClauses,
+        values,
+    };
+}
+
+export function buildTokenTraitRangeWhereClauses(params: {
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
+    chainColumnSql: string;
+    collectionColumnSql: string;
+    tokenColumnSql: string;
+}): {
+    whereClauses: string[];
+    values: unknown[];
+} {
+    const whereClauses: string[] = [];
+    const values: unknown[] = [];
+
+    for (const filterGroup of params.traitRangeFilterGroups) {
+        const numericComparisons: string[] = [
+            "a.value <> ''",
+            "a.value NOT GLOB '*[^0-9]*'",
+        ];
+
+        if (filterGroup.fromValue !== null) {
+            numericComparisons.push("CAST(a.value AS INTEGER) >= CAST(? AS INTEGER)");
+        }
+        if (filterGroup.toValue !== null) {
+            numericComparisons.push("CAST(a.value AS INTEGER) <= CAST(? AS INTEGER)");
+        }
+
+        whereClauses.push(
+            "EXISTS (" +
+                "SELECT 1 " +
+                "FROM token_attributes ta " +
+                "JOIN attributes a ON a.id = ta.attribute_id " +
+                "AND a.chain_id = ta.chain_id " +
+                "AND a.collection_id = ta.collection_id " +
+                "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+                "AND ak.chain_id = a.chain_id " +
+                "AND ak.collection_id = a.collection_id " +
+                `WHERE ta.chain_id = ${params.chainColumnSql} ` +
+                `AND ta.collection_id = ${params.collectionColumnSql} ` +
+                `AND ta.token_id = ${params.tokenColumnSql} ` +
+                "AND ak.key = ? " +
+                `AND ${numericComparisons.join(" AND ")} ` +
+                ")",
+        );
+
+        values.push(filterGroup.key);
+        if (filterGroup.fromValue !== null) {
+            values.push(filterGroup.fromValue);
+        }
+        if (filterGroup.toValue !== null) {
+            values.push(filterGroup.toValue);
+        }
     }
 
     return {

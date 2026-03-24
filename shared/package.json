@@ -1,6 +1,6 @@
 {
     "name": "@artgod/shared",
-    "version": "0.0.1-alpha",
+    "version": "0.0.1-pre-alpha.1",
     "private": true,
     "type": "module",
     "main": "./types/index.ts",
@@ -9,6 +9,7 @@
         "./extensions": "./extensions/index.ts",
         "./types": "./types/index.ts",
         "./types/browse": "./types/browse.ts",
+        "./types/customization": "./types/customization.ts",
         "./utils": "./utils/index.ts",
         "./utils/cursor": "./utils/cursor.ts",
         "./utils/ref-resolver": "./utils/ref-resolver.ts",

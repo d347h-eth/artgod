@@ -6,6 +6,7 @@
 		ApiCollection,
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
+		ApiTraitRangeFilter,
 		BootstrapStatusApiResponse,
 		ApiTokensPage,
 		ApiTraitFacet
@@ -19,6 +20,7 @@
 	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
@@ -27,6 +29,7 @@
 		tokens,
 		facets,
 		selectedTraits,
+		selectedTraitRanges,
 		media,
 		basePath,
 		requestCursor,
@@ -38,6 +41,7 @@
 		tokens: ApiTokensPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		selectedTraitRanges: ApiTraitRangeFilter[];
 		media: ApiCollectionMediaState;
 		basePath: string;
 		requestCursor: string | null;
@@ -85,6 +89,7 @@
 			displayMode,
 			tokenStatus,
 			selectedTraits,
+			selectedTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -95,6 +100,7 @@
 			limit: tokens.limit,
 			kind: 'sales',
 			selectedTraits,
+			selectedTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -112,6 +118,16 @@
 			displayMode,
 			tokenStatus,
 			selectedTraits: [],
+			selectedTraitRanges: [],
+			mediaMode: media.selectedMode
+		});
+	}
+
+	function customizationSectionHref(): string {
+		return buildCollectionCustomizationHref({
+			basePath,
+			selectedTraits,
+			selectedTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -153,6 +169,7 @@
 	tokensHref={tokensSectionHref()}
 	activitiesHref={activitiesSectionHref()}
 	holdersHref={holdersSectionHref()}
+	customizationHref={customizationSectionHref()}
 	activeSection="tokens"
 	collectionAvailable={collection !== null}
 >
@@ -175,12 +192,13 @@
 				{displayMode}
 				{tokenStatus}
 				{selectedTraits}
+				{selectedTraitRanges}
 				mediaMode={media.selectedMode}
 			/>
 		</div>
 		<div class="panel-top-actions-row">
 			<TraitFacetPanelControls
-				hasActiveFilters={selectedTraits.length > 0}
+				hasActiveFilters={selectedTraits.length > 0 || selectedTraitRanges.length > 0}
 				collapsed={$traitFacetPanelState.collapsed}
 				onToggleCollapsed={traitFacetPanel.toggle}
 				onReset={onResetTraits}
@@ -209,6 +227,7 @@
 		tokens={tokens}
 		facets={facets}
 		selectedTraits={selectedTraits}
+		selectedTraitRanges={selectedTraitRanges}
 		{media}
 		collectionBasePath={basePath}
 		browserBasePath={basePath}

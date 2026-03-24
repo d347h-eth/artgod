@@ -6,13 +6,47 @@ describe('TraitFacetPanel', () => {
 	it('does not render the sidebar body when collapsed', () => {
 		const { body } = render(TraitFacetPanel, {
 			props: {
-				facets: [{ key: 'Hat', values: [{ value: 'Beanie', tokenCount: 1 }] }],
+				facets: [
+					{
+						key: 'Hat',
+						displayKind: 'set',
+						minValue: null,
+						maxValue: null,
+						values: [{ value: 'Beanie', tokenCount: 1 }]
+					}
+				],
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
+				selectedRanges: [],
 				collapsed: true,
-				onToggleTrait: () => {}
+				onToggleTrait: () => {},
+				onApplyTraitRange: () => {}
 			}
 		});
 
 		expect(body).not.toContain('class="facet-panel"');
+	});
+
+	it('renders clickable min/max hint buttons for range facets', () => {
+		const { body } = render(TraitFacetPanel, {
+			props: {
+				facets: [
+					{
+						key: 'Level',
+						displayKind: 'range',
+						minValue: '2',
+						maxValue: '7',
+						values: []
+					}
+				],
+				selectedTraits: [],
+				selectedRanges: [],
+				onToggleTrait: () => {},
+				onApplyTraitRange: () => {}
+			}
+		});
+
+		expect(body).toContain('trait-range-hint-button');
+		expect(body).toContain('>2</button>');
+		expect(body).toContain('>7</button>');
 	});
 });

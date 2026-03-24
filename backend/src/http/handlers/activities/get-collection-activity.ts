@@ -10,6 +10,7 @@ import {
     parseLimit,
     parseMediaMode,
     parseTraits,
+    parseTraitRanges,
 } from "../../common/request-query.js";
 
 export type GetCollectionActivityRoute = {
@@ -47,6 +48,7 @@ export class GetCollectionActivityHttpAdapter {
         const cursor = parseCursor(searchParams.get("cursor"));
         const kind = parseActivityFilterKind(searchParams.get("kind"));
         const traits = parseTraits(searchParams);
+        const traitRanges = parseTraitRanges(searchParams);
         const mediaMode = parseMediaMode(searchParams.get("media_mode"));
 
         return {
@@ -56,6 +58,7 @@ export class GetCollectionActivityHttpAdapter {
             cursor: cursor ?? undefined,
             kind,
             traits,
+            traitRanges,
             mediaMode,
         };
     }

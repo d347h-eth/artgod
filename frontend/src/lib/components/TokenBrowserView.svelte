@@ -7,6 +7,7 @@
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTokenCard,
+		ApiTraitRangeFilter,
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
@@ -17,7 +18,12 @@
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
-	import { appendTraitParams, nextSelectedTraits } from '$lib/trait-filters';
+	import {
+		appendTraitParams,
+		appendTraitRangeParams,
+		nextSelectedTraits,
+		setTraitRangeFilter
+	} from '$lib/trait-filters';
 	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
 		readTokenWindow,
@@ -34,6 +40,7 @@
 		tokens,
 		facets,
 		selectedTraits,
+		selectedTraitRanges,
 		media,
 		collectionBasePath,
 		browserBasePath,
@@ -50,6 +57,7 @@
 		tokens: ApiTokensPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		selectedTraitRanges: ApiTraitRangeFilter[];
 		media: ApiCollectionMediaState;
 		collectionBasePath: string;
 		browserBasePath: string;
@@ -71,6 +79,7 @@
 	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
+	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
 	let visibleTokens = $state<ApiTokenCard[]>(tokens.items);
 	let visibleRangeStart = $state(tokens.rangeStart);
 	let visibleRangeEnd = $state(tokens.rangeEnd);
@@ -97,8 +106,13 @@
 	});
 
 	$effect(() => {
+		activeTraitRanges = selectedTraitRanges;
+	});
+
+	$effect(() => {
 		const signature = filtersSignature(
 			selectedTraits,
+			selectedTraitRanges,
 			tokens.limit,
 			displayMode,
 			tokenStatus,
@@ -128,12 +142,12 @@
 
 	function loadPreviousHref(): string {
 		if (!hasPreviousPage) return '#';
-		return buildFiltersHref(activeTraits, headPrevCursor);
+		return buildFiltersHref(activeTraits, activeTraitRanges, headPrevCursor);
 	}
 
 	function loadNextHref(): string {
 		if (!tailNextCursor) return '#';
-		return buildFiltersHref(activeTraits, tailNextCursor);
+		return buildFiltersHref(activeTraits, activeTraitRanges, tailNextCursor);
 	}
 
 	function tokenDetailHref(tokenId: string): string {
@@ -155,6 +169,7 @@
 			query.set('cursor', requestCursor);
 		}
 		appendTraitParams(query, activeTraits);
+		appendTraitRangeParams(query, activeTraitRanges);
 		return query.toString();
 	}
 
@@ -215,6 +230,7 @@
 
 	function buildFiltersHref(
 		traits: ApiTokenAttribute[],
+		traitRanges: ApiTraitRangeFilter[] = activeTraitRanges,
 		cursor: string | null = null,
 		mode: 'grid' | 'table' = displayMode,
 		nextTokenStatus: 'listed' | 'all' | 'listed_then_unlisted' = tokenStatus
@@ -225,6 +241,7 @@
 			displayMode: mode,
 			tokenStatus: nextTokenStatus,
 			selectedTraits: traits,
+			selectedTraitRanges: traitRanges,
 			mediaMode: media.selectedMode,
 			cursor
 		});
@@ -232,6 +249,7 @@
 
 	function filtersSignature(
 		traits: ApiTokenAttribute[],
+		traitRanges: ApiTraitRangeFilter[],
 		limit: number,
 		mode: 'grid' | 'table',
 		activeTokenStatus: 'listed' | 'all' | 'listed_then_unlisted',
@@ -240,7 +258,10 @@
 		const normalized = traits
 			.map((item) => `${item.key}:${item.value}`)
 			.sort((a, b) => a.localeCompare(b));
-		return `${browserBasePath}|${limit}|${mode}|${activeTokenStatus}|${activeMediaMode}|${normalized.join(',')}`;
+		const normalizedRanges = traitRanges
+			.map((item) => `${item.key}:${item.fromValue ?? ''}..${item.toValue ?? ''}`)
+			.sort((a, b) => a.localeCompare(b));
+		return `${browserBasePath}|${limit}|${mode}|${activeTokenStatus}|${activeMediaMode}|${normalized.join(',')}|${normalizedRanges.join(',')}`;
 	}
 
 	function appendUniqueTokens(source: ApiTokenCard[], incoming: ApiTokenCard[]): ApiTokenCard[] {
@@ -381,7 +402,7 @@
 	}
 
 	function modeHref(mode: 'grid' | 'table'): string {
-		return buildFiltersHref(activeTraits, requestCursor, mode);
+		return buildFiltersHref(activeTraits, activeTraitRanges, requestCursor, mode);
 	}
 
 	function mediaModeHref(nextMediaMode: string): string {
@@ -391,6 +412,7 @@
 			displayMode,
 			tokenStatus,
 			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			mediaMode: nextMediaMode,
 			cursor: requestCursor
 		});
@@ -411,7 +433,21 @@
 	): Promise<void> {
 		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, exclusiveMode);
 		activeTraits = nextTraits;
-		await goto(buildFiltersHref(nextTraits), {
+		await goto(buildFiltersHref(nextTraits, activeTraitRanges), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onApplyTraitRange(
+		key: string,
+		fromValue: string | null,
+		toValue: string | null
+	): Promise<void> {
+		const nextRanges = setTraitRangeFilter(activeTraitRanges, key, fromValue, toValue);
+		activeTraitRanges = nextRanges;
+		await goto(buildFiltersHref(activeTraits, nextRanges), {
 			invalidateAll: true,
 			keepFocus: true,
 			noScroll: true
@@ -544,8 +580,10 @@
 	<TraitFacetPanel
 		{facets}
 		selectedTraits={activeTraits}
+		selectedRanges={activeTraitRanges}
 		collapsed={$traitFacetPanelState.collapsed}
 		onToggleTrait={onTraitToggleWithMode}
+		onApplyTraitRange={onApplyTraitRange}
 	/>
 
 	<div class="token-panel">

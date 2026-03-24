@@ -7,9 +7,11 @@ import type { RetryBootstrapRunFailedTasksUseCase } from "./application/use-case
 import type { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import type { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
 import type { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
+import type { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
 import type { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
 import type { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
+import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-bootstrap-run.js";
@@ -20,9 +22,11 @@ import { RetryBootstrapRunFailedTasksHttpAdapter } from "./http/handlers/bootstr
 import { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import { GetCollectionActivityHttpAdapter } from "./http/handlers/activities/get-collection-activity.js";
 import { GetTokenActivityHttpAdapter } from "./http/handlers/activities/get-token-activity.js";
+import { GetCollectionCustomizationHttpAdapter } from "./http/handlers/collections/get-collection-customization.js";
 import { GetCollectionDetailHttpAdapter } from "./http/handlers/collections/get-collection-detail.js";
 import { GetCollectionHoldersHttpAdapter } from "./http/handlers/collections/get-collection-holders.js";
 import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token-detail.js";
+import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
@@ -46,9 +50,11 @@ export function createApiApp(
     listCollectionsUseCase: ListCollectionsUseCase,
     getCollectionActivityUseCase: GetCollectionActivityUseCase,
     getTokenActivityUseCase: GetTokenActivityUseCase,
+    getCollectionCustomizationUseCase: GetCollectionCustomizationUseCase,
     getCollectionDetailUseCase: GetCollectionDetailUseCase,
     getCollectionHoldersUseCase: GetCollectionHoldersUseCase,
     getTokenDetailUseCase: GetTokenDetailUseCase,
+    updateCollectionCustomizationUseCase: UpdateCollectionCustomizationUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
     userlandUiDistDir: string | null,
     securityConfig: BackendSecurityConfig,
@@ -86,6 +92,10 @@ export function createApiApp(
     const getTokenActivityAdapter = new GetTokenActivityHttpAdapter(
         getTokenActivityUseCase,
     );
+    const getCollectionCustomizationAdapter =
+        new GetCollectionCustomizationHttpAdapter(
+            getCollectionCustomizationUseCase,
+        );
     const getCollectionDetailAdapter = new GetCollectionDetailHttpAdapter(
         getCollectionDetailUseCase,
     );
@@ -95,6 +105,10 @@ export function createApiApp(
     const getTokenDetailAdapter = new GetTokenDetailHttpAdapter(
         getTokenDetailUseCase,
     );
+    const updateCollectionCustomizationAdapter =
+        new UpdateCollectionCustomizationHttpAdapter(
+            updateCollectionCustomizationUseCase,
+        );
     const getRuntimeHealthAdapter = new GetRuntimeHealthHttpAdapter(
         getRuntimeHealthUseCase,
     );
@@ -115,9 +129,11 @@ export function createApiApp(
         listCollectionsAdapter,
         getCollectionActivityAdapter,
         getTokenActivityAdapter,
+        getCollectionCustomizationAdapter,
         getCollectionDetailAdapter,
         getCollectionHoldersAdapter,
         getTokenDetailAdapter,
+        updateCollectionCustomizationAdapter,
         getRuntimeHealthAdapter,
     );
     if (userlandUiDistDir) {

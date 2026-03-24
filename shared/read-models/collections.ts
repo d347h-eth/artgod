@@ -15,7 +15,12 @@ import type {
     TokenAttribute,
     TraitFacet,
     TraitFilter,
+    TraitRangeFilter,
 } from "../types/browse.js";
+import {
+    TRAIT_FILTER_DISPLAY_KIND,
+    type TraitFilterPresentationConfig,
+} from "../types/customization.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
 import {
     normalizeAddressRef,
@@ -24,9 +29,13 @@ import {
 import { ReadModelBadRequestError, ReadModelNotFoundError } from "./errors.js";
 import {
     buildTokenTraitFilterWhereClauses,
+    buildTokenTraitRangeWhereClauses,
     groupTraitFilters,
+    groupTraitRangeFilters,
     normalizeTraitFilters,
+    normalizeTraitRangeFilters,
     type TraitFilterGroup,
+    type TraitRangeFilterGroup,
 } from "./trait-filters.js";
 
 type CollectionRow = {
@@ -178,6 +187,7 @@ export type ListCollectionTokensParams = {
     limit: number;
     cursor?: string;
     traitFilters?: TraitFilter[];
+    traitRangeFilters?: TraitRangeFilter[];
     owner?: string;
 };
 
@@ -387,6 +397,9 @@ export class SqliteCollectionsReadModel {
         const traitFilterGroups = groupTraitFilters(
             normalizeTraitFilters(params.traitFilters ?? []),
         );
+        const traitRangeFilterGroups = groupTraitRangeFilters(
+            normalizeTraitRangeFilters(params.traitRangeFilters ?? []),
+        );
         const owner = params.owner
             ? normalizeAddressRef(params.owner)
             : undefined;
@@ -402,6 +415,7 @@ export class SqliteCollectionsReadModel {
                 nowSeconds,
                 cursor,
                 traitFilterGroups,
+                traitRangeFilterGroups,
                 owner,
             });
         }
@@ -417,6 +431,7 @@ export class SqliteCollectionsReadModel {
                 nowSeconds,
                 cursor,
                 traitFilterGroups,
+                traitRangeFilterGroups,
                 owner,
             });
         }
@@ -432,6 +447,7 @@ export class SqliteCollectionsReadModel {
             nowSeconds,
             cursor,
             traitFilterGroups,
+            traitRangeFilterGroups,
             owner,
         });
     }
@@ -443,12 +459,14 @@ export class SqliteCollectionsReadModel {
         nowSeconds: number;
         cursor: Extract<TokenCursor, { kind: "all" }> | null;
         traitFilterGroups: TraitFilterGroup[];
+        traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
         const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
             owner: params.owner,
         });
         const cursorSortKey = params.cursor
@@ -542,12 +560,14 @@ export class SqliteCollectionsReadModel {
         nowSeconds: number;
         cursor: Extract<TokenCursor, { kind: "listed" }> | null;
         traitFilterGroups: TraitFilterGroup[];
+        traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
         const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
             owner: params.owner,
         });
         const listingValues = buildCheapestListingValues({
@@ -660,12 +680,14 @@ export class SqliteCollectionsReadModel {
         nowSeconds: number;
         cursor: Extract<TokenCursor, { kind: "listed_then_unlisted" }> | null;
         traitFilterGroups: TraitFilterGroup[];
+        traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
         const { baseWhereClauses, baseValues } = buildTokenWhereClauses({
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
             owner: params.owner,
         });
         const listingSql = buildCheapestListingSql(
@@ -788,7 +810,13 @@ export class SqliteCollectionsReadModel {
         for (const row of rows) {
             let facet = byKey.get(row.key);
             if (!facet) {
-                facet = { key: row.key, values: [] };
+                facet = {
+                    key: row.key,
+                    displayKind: TRAIT_FILTER_DISPLAY_KIND.Set,
+                    minValue: null,
+                    maxValue: null,
+                    values: [],
+                };
                 byKey.set(row.key, facet);
                 facets.push(facet);
             }
@@ -1478,6 +1506,7 @@ function buildTokenWhereClauses(params: {
     chainId: number;
     collectionId: number;
     traitFilterGroups: TraitFilterGroup[];
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
     owner?: string;
 }): {
     baseWhereClauses: string[];
@@ -1515,9 +1544,66 @@ function buildTokenWhereClauses(params: {
     baseWhereClauses.push(...traitWhereClauses);
     baseValues.push(...traitValues);
 
+    const {
+        whereClauses: traitRangeWhereClauses,
+        values: traitRangeValues,
+    } = buildTokenTraitRangeWhereClauses({
+        traitRangeFilterGroups: params.traitRangeFilterGroups,
+        chainColumnSql: "t.chain_id",
+        collectionColumnSql: "t.collection_id",
+        tokenColumnSql: "t.token_id",
+    });
+    baseWhereClauses.push(...traitRangeWhereClauses);
+    baseValues.push(...traitRangeValues);
+
     return {
         baseWhereClauses,
         baseValues,
+    };
+}
+
+export function applyTraitFilterPresentationToFacets(params: {
+    facets: TraitFacet[];
+    config: TraitFilterPresentationConfig;
+}): TraitFacet[] {
+    const rangeKeys = new Set(params.config.rangeKeys);
+
+    return params.facets.map((facet) => {
+        const isRange = rangeKeys.has(facet.key);
+        const { minValue, maxValue } = isRange
+            ? resolveNumericTraitBounds(facet.values)
+            : { minValue: null, maxValue: null };
+
+        return {
+            ...facet,
+            displayKind: isRange
+                ? TRAIT_FILTER_DISPLAY_KIND.Range
+                : TRAIT_FILTER_DISPLAY_KIND.Set,
+            minValue,
+            maxValue,
+        };
+    });
+}
+
+function resolveNumericTraitBounds(values: TraitFacet["values"]): {
+    minValue: string | null;
+    maxValue: string | null;
+} {
+    let minValue: bigint | null = null;
+    let maxValue: bigint | null = null;
+
+    for (const value of values) {
+        if (!/^\d+$/.test(value.value)) {
+            continue;
+        }
+        const numeric = BigInt(value.value);
+        minValue = minValue === null || numeric < minValue ? numeric : minValue;
+        maxValue = maxValue === null || numeric > maxValue ? numeric : maxValue;
+    }
+
+    return {
+        minValue: minValue?.toString() ?? null,
+        maxValue: maxValue?.toString() ?? null,
     };
 }
 

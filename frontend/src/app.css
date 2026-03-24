@@ -897,6 +897,161 @@ th {
 	box-shadow: none;
 }
 
+.trait-range-group {
+	display: grid;
+	gap: 0.55rem;
+}
+
+.trait-range-hint {
+	font-size: 0.72rem;
+}
+
+.trait-range-hint-button {
+	appearance: none;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--c-cyan);
+	font: inherit;
+	cursor: pointer;
+}
+
+.trait-range-hint-button:hover,
+.trait-range-hint-button:focus-visible {
+	color: var(--c-yellow);
+}
+
+.trait-range-inputs {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.5rem;
+}
+
+.trait-range-field {
+	display: grid;
+	gap: 0.2rem;
+}
+
+.trait-range-field span {
+	font-size: 0.7rem;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.trait-range-input {
+	width: 100%;
+	font-family: inherit;
+	font-size: 0.78rem;
+	background: var(--c-bg);
+	color: var(--c-ice);
+	border: 1px solid var(--c-blue);
+	padding: 0.25rem 0.45rem;
+}
+
+.trait-range-input:disabled {
+	opacity: 0.6;
+}
+
+.trait-range-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+
+.trait-range-action-button {
+	height: 22px;
+	min-height: 22px;
+}
+
+.trait-range-action-button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.customization-panel {
+	display: grid;
+	gap: 1rem;
+	justify-content: center;
+	justify-items: start;
+	padding: 0.75rem;
+}
+
+.customization-panel > * {
+	max-width: 100%;
+}
+
+.customization-title {
+	margin: 0;
+	font-size: 0.9rem;
+	color: var(--c-pink);
+	text-transform: uppercase;
+}
+
+.customization-section {
+	display: inline-grid;
+	gap: 0.6rem;
+	padding: 0.75rem 0;
+	border-bottom: 1px solid var(--c-blue);
+}
+
+.customization-section-title {
+	margin: 0;
+	font-size: 0.8rem;
+	color: var(--c-yellow);
+	text-transform: uppercase;
+}
+
+.customization-grid-wrap {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+.customization-grid {
+	display: grid;
+	grid-template-columns: max-content max-content max-content;
+	align-items: center;
+	gap: 0.5rem 1rem;
+	width: fit-content;
+}
+
+.customization-grid-header {
+	font-size: 0.74rem;
+	color: var(--c-yellow);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.customization-trait-key {
+	color: var(--c-sand);
+	max-width: 28ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.customization-select,
+.customization-readonly-input {
+	width: 9rem;
+	font-family: inherit;
+	font-size: 0.78rem;
+	background: var(--c-bg);
+	color: var(--c-ice);
+	border: 1px solid var(--c-blue);
+	padding: 0.25rem 0.45rem;
+}
+
+.customization-readonly-input {
+	color: var(--c-sand);
+}
+
+.customization-footer {
+	display: inline-grid;
+	justify-items: start;
+	align-items: start;
+	gap: 0.35rem;
+	padding: 0.75rem 0 0;
+}
+
 .token-panel {
 	padding: 0;
 }
@@ -1652,6 +1807,12 @@ th {
 	color: var(--c-orange);
 }
 
+.secondary-tabs span.secondary-tab-disabled {
+	border-color: color-mix(in srgb, var(--c-blue) 65%, transparent);
+	color: color-mix(in srgb, var(--c-sand) 55%, transparent);
+	cursor: default;
+}
+
 .runtime-tabs button:disabled {
 	cursor: default;
 	opacity: 1;
@@ -1750,6 +1911,10 @@ th {
 	.facet-panel {
 		border-right: 0;
 		border-bottom: 1px solid var(--c-blue);
+	}
+
+	.trait-range-inputs {
+		grid-template-columns: 1fr;
 	}
 
 	.meta-box {

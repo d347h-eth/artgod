@@ -5,6 +5,7 @@ import type {
 	BootstrapRunsApiResponse,
 	BootstrapStatusApiResponse,
 	CollectionActivitiesApiResponse,
+	CollectionCustomizationApiResponse,
 	CollectionDetailApiResponse,
 	CollectionHoldersApiResponse,
 	CollectionsApiResponse,
@@ -85,6 +86,39 @@ export async function getCollectionActivities(
 	return requestJson<CollectionActivitiesApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/activity${suffix}`
+	);
+}
+
+export async function getCollectionCustomization(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<CollectionCustomizationApiResponse> {
+	return requestJson<CollectionCustomizationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`
+	);
+}
+
+export async function updateCollectionCustomization(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		traitFilterPresentation: {
+			selectedSource: 'user' | 'extension';
+			userConfig: {
+				rangeKeys: string[];
+			};
+		};
+	}
+): Promise<CollectionCustomizationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionCustomizationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`,
+		'PUT',
+		body
 	);
 }
 

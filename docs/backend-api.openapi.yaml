@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
     title: ArtGod Backend API
-    version: 0.0.1-alpha
+    version: 0.0.1-pre-alpha.1
     description: |
         OpenAPI schema for the current local backend HTTP API.
 
@@ -158,6 +158,26 @@ paths:
                           type: string
                   style: form
                   explode: true
+                - name: trait_ranges
+                  in: query
+                  required: false
+                  description: Repeated `key:from..to` inclusive unsigned-integer range filter
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+                - name: trait_range
+                  in: query
+                  required: false
+                  description: Repeated `key:from..to` inclusive unsigned-integer range filter (legacy alias)
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
             responses:
                 "200":
                     description: Collection activity feed ordered newest first with bidirectional cursor pagination; `kind=listings` returns collapsed listing rows
@@ -217,6 +237,26 @@ paths:
                           type: string
                   style: form
                   explode: true
+                - name: trait_ranges
+                  in: query
+                  required: false
+                  description: Repeated `key:from..to` inclusive unsigned-integer range filter
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+                - name: trait_range
+                  in: query
+                  required: false
+                  description: Repeated `key:from..to` inclusive unsigned-integer range filter (legacy alias)
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
             responses:
                 "200":
                     description: Collection detail and paged token results
@@ -226,6 +266,68 @@ paths:
                                 $ref: "#/components/schemas/GetCollectionDetailResponse"
                 "400":
                     $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/customization:
+        get:
+            tags: [Collections]
+            summary: Get collection customization
+            operationId: getCollectionCustomization
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            responses:
+                "200":
+                    description: Effective collection customization state
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetCollectionCustomizationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+        put:
+            tags: [Collections]
+            summary: Update collection customization
+            operationId: updateCollectionCustomization
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [traitFilterPresentation]
+                            additionalProperties: false
+                            properties:
+                                traitFilterPresentation:
+                                    type: object
+                                    required: [selectedSource, userConfig]
+                                    additionalProperties: false
+                                    properties:
+                                        selectedSource:
+                                            $ref: "#/components/schemas/CollectionCustomizationSource"
+                                        userConfig:
+                                            $ref: "#/components/schemas/TraitFilterPresentationConfig"
+            responses:
+                "200":
+                    description: Updated effective collection customization state
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetCollectionCustomizationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
                 "404":
                     $ref: "#/components/responses/NotFound"
                 "500":
@@ -868,6 +970,24 @@ components:
                 value:
                     type: string
 
+        TraitRangeFilter:
+            type: object
+            required: [key, fromValue, toValue]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+                fromValue:
+                    type: string
+                    nullable: true
+                toValue:
+                    type: string
+                    nullable: true
+
+        TraitFilterDisplayKind:
+            type: string
+            enum: [set, range]
+
         TraitFacetValue:
             type: object
             required: [value, tokenCount]
@@ -880,15 +1000,72 @@ components:
 
         TraitFacet:
             type: object
-            required: [key, values]
+            required: [key, displayKind, minValue, maxValue, values]
             additionalProperties: false
             properties:
                 key:
                     type: string
+                displayKind:
+                    $ref: "#/components/schemas/TraitFilterDisplayKind"
+                minValue:
+                    type: string
+                    nullable: true
+                maxValue:
+                    type: string
+                    nullable: true
                 values:
                     type: array
                     items:
                         $ref: "#/components/schemas/TraitFacetValue"
+
+        CollectionCustomizationSource:
+            type: string
+            enum: [user, extension]
+
+        TraitFilterPresentationConfig:
+            type: object
+            required: [rangeKeys]
+            additionalProperties: false
+            properties:
+                rangeKeys:
+                    type: array
+                    items:
+                        type: string
+
+        TraitFilterPresentationFeatureState:
+            type: object
+            required:
+                [
+                    selectedSource,
+                    userConfig,
+                    extensionConfig,
+                    effectiveConfig,
+                    availableTraitKeys,
+                ]
+            additionalProperties: false
+            properties:
+                selectedSource:
+                    $ref: "#/components/schemas/CollectionCustomizationSource"
+                userConfig:
+                    $ref: "#/components/schemas/TraitFilterPresentationConfig"
+                extensionConfig:
+                    allOf:
+                        - $ref: "#/components/schemas/TraitFilterPresentationConfig"
+                    nullable: true
+                effectiveConfig:
+                    $ref: "#/components/schemas/TraitFilterPresentationConfig"
+                availableTraitKeys:
+                    type: array
+                    items:
+                        type: string
+
+        CollectionCustomization:
+            type: object
+            required: [traitFilterPresentation]
+            additionalProperties: false
+            properties:
+                traitFilterPresentation:
+                    $ref: "#/components/schemas/TraitFilterPresentationFeatureState"
 
         CollectionHolder:
             type: object
@@ -973,19 +1150,35 @@ components:
                     $ref: "#/components/schemas/CollectionMediaState"
                 traits:
                     type: object
-                    required: [selected, facets]
+                    required: [selected, selectedRanges, facets]
                     additionalProperties: false
                     properties:
                         selected:
                             type: array
                             items:
                                 $ref: "#/components/schemas/TraitFilter"
+                        selectedRanges:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitRangeFilter"
                         facets:
                             type: array
                             items:
                                 $ref: "#/components/schemas/TraitFacet"
                 tokens:
                     $ref: "#/components/schemas/TokenCursorPage"
+
+        GetCollectionCustomizationResponse:
+            type: object
+            required: [chain, collection, customization]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                customization:
+                    $ref: "#/components/schemas/CollectionCustomization"
 
         GetCollectionHoldersResponse:
             type: object
@@ -1026,8 +1219,7 @@ components:
 
         TokenPresentationSummary:
             type: object
-            required:
-                [tokenId, name, image, hasMetadata, metadataUpdatedAt]
+            required: [tokenId, name, image, hasMetadata, metadataUpdatedAt]
             additionalProperties: false
             properties:
                 tokenId:
@@ -1212,13 +1404,17 @@ components:
                     $ref: "#/components/schemas/CollectionMediaState"
                 traits:
                     type: object
-                    required: [selected, facets]
+                    required: [selected, selectedRanges, facets]
                     additionalProperties: false
                     properties:
                         selected:
                             type: array
                             items:
                                 $ref: "#/components/schemas/TraitFilter"
+                        selectedRanges:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitRangeFilter"
                         facets:
                             type: array
                             items:

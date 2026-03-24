@@ -30,6 +30,10 @@ import type {
     GetTokenActivityRoute,
 } from "./http/handlers/activities/get-token-activity.js";
 import type {
+    GetCollectionCustomizationHttpAdapter,
+    GetCollectionCustomizationRoute,
+} from "./http/handlers/collections/get-collection-customization.js";
+import type {
     GetCollectionDetailHttpAdapter,
     GetCollectionDetailRoute,
 } from "./http/handlers/collections/get-collection-detail.js";
@@ -41,6 +45,10 @@ import type {
     GetTokenDetailHttpAdapter,
     GetTokenDetailRoute,
 } from "./http/handlers/collections/get-token-detail.js";
+import type {
+    UpdateCollectionCustomizationHttpAdapter,
+    UpdateCollectionCustomizationRoute,
+} from "./http/handlers/collections/update-collection-customization.js";
 import type {
     ListCollectionsHttpAdapter,
     ListCollectionsRoute,
@@ -68,9 +76,11 @@ export function registerApiRoutes(
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
     getTokenActivityAdapter: GetTokenActivityHttpAdapter,
+    getCollectionCustomizationAdapter: GetCollectionCustomizationHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
+    updateCollectionCustomizationAdapter: UpdateCollectionCustomizationHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
 ): void {
     app.get("/health", async () => ({ status: "ok" }));
@@ -95,6 +105,10 @@ export function registerApiRoutes(
     app.get<GetCollectionDetailRoute>(
         "/api/:chain_ref/:collection_ref",
         getCollectionDetailAdapter.handle,
+    );
+    app.get<GetCollectionCustomizationRoute>(
+        "/api/:chain_ref/:collection_ref/customization",
+        getCollectionCustomizationAdapter.handle,
     );
     app.get<GetCollectionHoldersRoute>(
         "/api/:chain_ref/:collection_ref/holders",
@@ -123,6 +137,10 @@ export function registerApiRoutes(
     app.get<GetTokenDetailRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref",
         getTokenDetailAdapter.handle,
+    );
+    app.put<UpdateCollectionCustomizationRoute>(
+        "/api/:chain_ref/:collection_ref/customization",
+        updateCollectionCustomizationAdapter.handle,
     );
     app.post<RetryBootstrapRunFailedTasksRoute>(
         "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",

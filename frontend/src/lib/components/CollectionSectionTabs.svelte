@@ -3,12 +3,14 @@
 		tokensHref,
 		activitiesHref,
 		holdersHref,
+		customizationHref,
 		active
 	}: {
 		tokensHref: string;
 		activitiesHref: string;
 		holdersHref: string;
-		active: 'tokens' | 'activities' | 'holders' | null;
+		customizationHref: string;
+		active: 'tokens' | 'activities' | 'holders' | 'customization' | null;
 	} = $props();
 </script>
 
@@ -27,5 +29,10 @@
 		<span class="runtime-tab-active">holders</span>
 	{:else}
 		<a href={holdersHref}>holders</a>
+	{/if}
+	{#if active === 'customization'}
+		<span class="runtime-tab-active">customization</span>
+	{:else}
+		<a href={customizationHref}>customization</a>
 	{/if}
 </div>

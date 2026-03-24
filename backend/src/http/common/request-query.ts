@@ -11,6 +11,7 @@ import type {
     CollectionStatus,
     TokenBrowserStatus,
     TraitFilter,
+    TraitRangeFilter,
 } from "@artgod/shared/types/browse";
 import type {
     BootstrapMetadataTaskStatus,
@@ -156,6 +157,67 @@ export function parseTraits(searchParams: URLSearchParams): TraitFilter[] {
     return parsed;
 }
 
+export function parseTraitRanges(
+    searchParams: URLSearchParams,
+): TraitRangeFilter[] {
+    const values = [
+        ...searchParams.getAll("trait_ranges"),
+        ...searchParams.getAll("trait_range"),
+    ];
+    if (values.length === 0) return [];
+
+    const parsed: TraitRangeFilter[] = [];
+    const seen = new Set<string>();
+
+    for (const value of values) {
+        for (const segment of value.split(",")) {
+            const trimmed = segment.trim();
+            if (!trimmed) continue;
+
+            const delimiter = trimmed.indexOf(":");
+            if (delimiter <= 0 || delimiter === trimmed.length - 1) {
+                throw new ReadModelBadRequestError("Invalid trait range filter");
+            }
+
+            const key = trimmed.slice(0, delimiter).trim();
+            const bounds = trimmed.slice(delimiter + 1).trim();
+            const rangeDelimiter = bounds.indexOf("..");
+            if (rangeDelimiter < 0) {
+                throw new ReadModelBadRequestError("Invalid trait range filter");
+            }
+
+            const rawFrom = bounds.slice(0, rangeDelimiter).trim();
+            const rawTo = bounds.slice(rangeDelimiter + 2).trim();
+            const fromValue = rawFrom ? parseUnsignedInteger(rawFrom) : null;
+            const toValue = rawTo ? parseUnsignedInteger(rawTo) : null;
+            if (fromValue === null && toValue === null) {
+                throw new ReadModelBadRequestError("Invalid trait range filter");
+            }
+            if (
+                fromValue !== null &&
+                toValue !== null &&
+                BigInt(fromValue) > BigInt(toValue)
+            ) {
+                throw new ReadModelBadRequestError("Invalid trait range filter");
+            }
+            if (!key) {
+                throw new ReadModelBadRequestError("Invalid trait range filter");
+            }
+            if (seen.has(key)) {
+                throw new ReadModelBadRequestError("Duplicate trait range filter");
+            }
+            seen.add(key);
+            parsed.push({
+                key,
+                fromValue,
+                toValue,
+            });
+        }
+    }
+
+    return parsed;
+}
+
 export function parseMediaMode(
     raw: string | null,
 ): CollectionMediaMode | undefined {
@@ -167,4 +229,11 @@ export function parseMediaMode(
         throw new ReadModelBadRequestError("Invalid media_mode");
     }
     return normalized;
+}
+
+function parseUnsignedInteger(value: string): string {
+    if (!/^\d+$/.test(value)) {
+        throw new ReadModelBadRequestError("Invalid trait range filter");
+    }
+    return value;
 }

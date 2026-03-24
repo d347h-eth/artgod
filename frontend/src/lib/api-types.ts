@@ -30,6 +30,10 @@ export type ApiCollectionMediaState = {
 	availableModes: ApiCollectionMediaMode[];
 };
 
+export type ApiCollectionCustomizationSource = 'user' | 'extension';
+
+export type ApiTraitFilterDisplayKind = 'set' | 'range';
+
 export type ApiCollectionHolder = {
 	owner: string;
 	tokenCount: string;
@@ -117,6 +121,12 @@ export type ApiTokenAttribute = {
 	value: string;
 };
 
+export type ApiTraitRangeFilter = {
+	key: string;
+	fromValue: string | null;
+	toValue: string | null;
+};
+
 export type ApiTokenCard = {
 	tokenId: string;
 	name: string | null;
@@ -160,10 +170,25 @@ export type ApiTokensPage = {
 
 export type ApiTraitFacet = {
 	key: string;
+	displayKind: ApiTraitFilterDisplayKind;
+	minValue: string | null;
+	maxValue: string | null;
 	values: Array<{
 		value: string;
 		tokenCount: number;
 	}>;
+};
+
+export type ApiTraitFilterPresentationConfig = {
+	rangeKeys: string[];
+};
+
+export type ApiTraitFilterPresentationFeatureState = {
+	selectedSource: ApiCollectionCustomizationSource;
+	userConfig: ApiTraitFilterPresentationConfig;
+	extensionConfig: ApiTraitFilterPresentationConfig | null;
+	effectiveConfig: ApiTraitFilterPresentationConfig;
+	availableTraitKeys: string[];
 };
 
 export type CollectionsApiResponse = {
@@ -180,6 +205,7 @@ export type CollectionDetailApiResponse = {
 	media: ApiCollectionMediaState;
 	traits: {
 		selected: ApiTokenAttribute[];
+		selectedRanges: ApiTraitRangeFilter[];
 		facets: ApiTraitFacet[];
 	};
 	tokens: ApiTokensPage;
@@ -197,11 +223,20 @@ export type CollectionActivitiesApiResponse = {
 	media: ApiCollectionMediaState;
 	traits: {
 		selected: ApiTokenAttribute[];
+		selectedRanges: ApiTraitRangeFilter[];
 		facets: ApiTraitFacet[];
 	};
 	activities: ApiActivitiesPage;
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+	};
+};
+
+export type CollectionCustomizationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	customization: {
+		traitFilterPresentation: ApiTraitFilterPresentationFeatureState;
 	};
 };
 

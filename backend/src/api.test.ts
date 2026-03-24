@@ -71,18 +71,35 @@ beforeAll(async () => {
     const readModels = await import("@artgod/shared/read-models");
     const collectionExtensionRecordsModule =
         await import("./infra/collections/sqlite-collection-extension-records.js");
+    const collectionCustomizationRecordsModule =
+        await import("./infra/collections/sqlite-collection-customization-records.js");
+    const extensionAwareCustomizationModule =
+        await import("./infra/collections/extension-aware-collection-customization.js");
     const extensionAwareReadModule =
         await import("./infra/collections/extension-aware-collection-detail-read.js");
+    const getCollectionCustomizationUseCaseModule =
+        await import("./application/use-cases/collections/get-collection-customization.js");
+    const updateCollectionCustomizationUseCaseModule =
+        await import("./application/use-cases/collections/update-collection-customization.js");
 
     const chainsReadModel = new readModels.SqliteChainsReadModel();
     const baseCollectionsReadModel = new readModels.SqliteCollectionsReadModel([
         ZERO_ADDRESS,
         WETH_ADDRESS,
     ]);
+    const collectionExtensionRecords =
+        new collectionExtensionRecordsModule.SqliteCollectionExtensionRecords();
+    const collectionCustomizationRecords =
+        new collectionCustomizationRecordsModule.SqliteCollectionCustomizationRecords();
     const collectionsReadModel =
         new extensionAwareReadModule.ExtensionAwareCollectionDetailRead(
             baseCollectionsReadModel,
-            new collectionExtensionRecordsModule.SqliteCollectionExtensionRecords(),
+            collectionExtensionRecords,
+        );
+    const customizationReadModel =
+        new extensionAwareCustomizationModule.ExtensionAwareCollectionCustomization(
+            collectionExtensionRecords,
+            collectionCustomizationRecords,
         );
     const activitiesReadModel = new readModels.SqliteActivitiesReadModel();
     const getDefaultChainUseCase =
@@ -98,6 +115,7 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             collectionsReadModel,
+            customizationReadModel,
         );
     const getCollectionActivityUseCase =
         new collectionActivityUseCaseModule.GetCollectionActivityUseCase(
@@ -106,6 +124,14 @@ beforeAll(async () => {
             collectionsReadModel,
             activitiesReadModel,
             collectionsReadModel,
+            customizationReadModel,
+        );
+    const getCollectionCustomizationUseCase =
+        new getCollectionCustomizationUseCaseModule.GetCollectionCustomizationUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            customizationReadModel,
         );
     const getCollectionHoldersUseCase =
         new collectionHoldersUseCaseModule.GetCollectionHoldersUseCase(
@@ -126,6 +152,13 @@ beforeAll(async () => {
             collectionsReadModel,
             activitiesReadModel,
             collectionsReadModel,
+        );
+    const updateCollectionCustomizationUseCase =
+        new updateCollectionCustomizationUseCaseModule.UpdateCollectionCustomizationUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            customizationReadModel,
         );
     const runtimeHealthUseCase =
         new runtimeHealthUseCaseModule.GetRuntimeHealthUseCase(
@@ -201,9 +234,11 @@ beforeAll(async () => {
         listCollectionsUseCase,
         getCollectionActivityUseCase,
         getTokenActivityUseCase,
+        getCollectionCustomizationUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
+        updateCollectionCustomizationUseCase,
         runtimeHealthUseCase,
         null,
         API_SECURITY_CONFIG,
@@ -333,7 +368,7 @@ describe("backend api routes", () => {
         expect(result.payload.token.animationUrl).toBe(
             "https://example.com/1.html",
         );
-        expect(result.payload.token.attributes).toHaveLength(2);
+        expect(result.payload.token.attributes).toHaveLength(3);
         expect(result.payload.token.attributes[0]).toMatchObject({
             key: "Hat",
             value: "Beanie",
@@ -344,12 +379,21 @@ describe("backend api routes", () => {
             value: "Calm",
             tokenCount: 2,
         });
+        expect(result.payload.token.attributes[2]).toMatchObject({
+            key: "Power",
+            value: "7",
+            tokenCount: 1,
+        });
         expect(result.payload.token.attributes[0].rarityPercent).toBeCloseTo(
             66.6666,
             3,
         );
         expect(result.payload.token.attributes[1].rarityPercent).toBeCloseTo(
             66.6666,
+            3,
+        );
+        expect(result.payload.token.attributes[2].rarityPercent).toBeCloseTo(
+            33.3333,
             3,
         );
     });
@@ -423,7 +467,9 @@ describe("backend api routes", () => {
             ACTIVITY_KIND.ListingCreated,
         ]);
         expect(second.payload.activities.prevCursor).toBeNull();
-        expect(second.payload.activities.nextCursor).toEqual(expect.any(String));
+        expect(second.payload.activities.nextCursor).toEqual(
+            expect.any(String),
+        );
         expect(second.payload.activities.rangeStart).toBe(3);
         expect(second.payload.activities.rangeEnd).toBe(4);
         expect(second.payload.activities.currentPage).toBe(2);
@@ -648,8 +694,7 @@ describe("backend api routes", () => {
             price: "410000000000000000",
             currency: ZERO_ADDRESS,
             payload: { eventType: "item_listed" },
-            dedupeKey:
-                "offchain:opensea:item_listed:listed-milady-2-maker-b:2",
+            dedupeKey: "offchain:opensea:item_listed:listed-milady-2-maker-b:2",
             isOpen: true,
         });
         insertActivityFixture({
@@ -709,18 +754,19 @@ describe("backend api routes", () => {
             ACTIVITY_KIND.ListingCreated,
         ]);
 
-        const collapsedSameDay = collectionListings.payload.activities.items.find(
-            (activity: {
-                tokenId: string | null;
-                maker: string | null;
-                currency: string | null;
-                occurredAt: number;
-            }) =>
-                activity.tokenId === "2" &&
-                activity.maker === makerA &&
-                activity.currency === ZERO_ADDRESS.toLowerCase() &&
-                activity.occurredAt === 1_726_001_200,
-        );
+        const collapsedSameDay =
+            collectionListings.payload.activities.items.find(
+                (activity: {
+                    tokenId: string | null;
+                    maker: string | null;
+                    currency: string | null;
+                    occurredAt: number;
+                }) =>
+                    activity.tokenId === "2" &&
+                    activity.maker === makerA &&
+                    activity.currency === ZERO_ADDRESS.toLowerCase() &&
+                    activity.occurredAt === 1_726_001_200,
+            );
         expect(collapsedSameDay).toMatchObject({
             tokenId: "2",
             maker: makerA,
@@ -730,14 +776,18 @@ describe("backend api routes", () => {
             collapsedEventCount: 2,
         });
         expect(
-            (collapsedSameDay as {
-                collapsedWindowStartUtc: number | null;
-                collapsedWindowEndUtc: number | null;
-            }).collapsedWindowEndUtc! -
-                (collapsedSameDay as {
+            (
+                collapsedSameDay as {
                     collapsedWindowStartUtc: number | null;
                     collapsedWindowEndUtc: number | null;
-                }).collapsedWindowStartUtc!,
+                }
+            ).collapsedWindowEndUtc! -
+                (
+                    collapsedSameDay as {
+                        collapsedWindowStartUtc: number | null;
+                        collapsedWindowEndUtc: number | null;
+                    }
+                ).collapsedWindowStartUtc!,
         ).toBe(86_399);
 
         const filteredCollapsedListings = await resolve(
@@ -748,7 +798,8 @@ describe("backend api routes", () => {
         expect(filteredCollapsedListings.payload.activities.totalItems).toBe(4);
         expect(
             filteredCollapsedListings.payload.activities.items.every(
-                (activity: { tokenId: string | null }) => activity.tokenId === "2",
+                (activity: { tokenId: string | null }) =>
+                    activity.tokenId === "2",
             ),
         ).toBe(true);
 
@@ -811,19 +862,37 @@ describe("backend api routes", () => {
         );
         expect(result.payload.tokens.items[1].listingPrice).toBeNull();
         expect(result.payload.tokens.totalItems).toBe(2);
-        expect(result.payload.traits.facets).toEqual([
-            {
-                key: "Hat",
-                values: [{ value: "Beanie", tokenCount: 2 }],
-            },
-            {
-                key: "Mood",
-                values: [
-                    { value: "Angry", tokenCount: 1 },
-                    { value: "Calm", tokenCount: 1 },
-                ],
-            },
-        ]);
+        expect(result.payload.traits.facets).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    key: "Hat",
+                    displayKind: "set",
+                    minValue: null,
+                    maxValue: null,
+                    values: [{ value: "Beanie", tokenCount: 2 }],
+                }),
+                expect.objectContaining({
+                    key: "Mood",
+                    displayKind: "set",
+                    minValue: null,
+                    maxValue: null,
+                    values: [
+                        { value: "Angry", tokenCount: 1 },
+                        { value: "Calm", tokenCount: 1 },
+                    ],
+                }),
+                expect.objectContaining({
+                    key: "Power",
+                    displayKind: "set",
+                    minValue: null,
+                    maxValue: null,
+                    values: [
+                        { value: "2", tokenCount: 1 },
+                        { value: "7", tokenCount: 1 },
+                    ],
+                }),
+            ]),
+        );
     });
 
     it("supports backward paging for owner-scoped listed-then-unlisted mode", async () => {
@@ -1193,6 +1262,146 @@ describe("backend api routes", () => {
                 (token: { tokenId: string }) => token.tokenId,
             ),
         ).toEqual(["1", "2", "10"]);
+    });
+
+    it("reads collection customization defaults and extension overrides", async () => {
+        const milady = await resolve(
+            "GET",
+            "/api/ethereum/milady/customization",
+        );
+        expect(milady.statusCode).toBe(200);
+        expect(
+            milady.payload.customization.traitFilterPresentation,
+        ).toMatchObject({
+            selectedSource: "user",
+            userConfig: { rangeKeys: [] },
+            extensionConfig: null,
+        });
+        expect(
+            milady.payload.customization.traitFilterPresentation
+                .availableTraitKeys,
+        ).toEqual(expect.arrayContaining(["Hat", "Mood", "Power"]));
+
+        const terraforms = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/customization",
+        );
+        expect(terraforms.statusCode).toBe(200);
+        expect(
+            terraforms.payload.customization.traitFilterPresentation,
+        ).toMatchObject({
+            selectedSource: "extension",
+            extensionConfig: { rangeKeys: ["???"] },
+            effectiveConfig: { rangeKeys: ["???"] },
+        });
+        expect(
+            terraforms.payload.customization.traitFilterPresentation
+                .availableTraitKeys,
+        ).toEqual(expect.arrayContaining(["???"]));
+    });
+
+    it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
+        const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:3000",
+            origin: "http://127.0.0.1:5173",
+        });
+        const token = csrf.payload.token as string;
+        const cookie = csrf.headers["set-cookie"] as string;
+
+        const update = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: ["Power"],
+                    },
+                },
+            },
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(update.statusCode).toBe(200);
+        expect(
+            update.payload.customization.traitFilterPresentation,
+        ).toMatchObject({
+            selectedSource: "user",
+            userConfig: { rangeKeys: ["Power"] },
+            effectiveConfig: { rangeKeys: ["Power"] },
+        });
+
+        const detail = await resolve(
+            "GET",
+            "/api/ethereum/milady?token_status=all&trait_ranges=Power:3..9&limit=10",
+        );
+        expect(detail.statusCode).toBe(200);
+        expect(detail.payload.traits.selectedRanges).toEqual([
+            { key: "Power", fromValue: "3", toValue: "9" },
+        ]);
+        expect(detail.payload.traits.facets).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    key: "Power",
+                    displayKind: "range",
+                    minValue: "2",
+                    maxValue: "7",
+                }),
+            ]),
+        );
+        expect(
+            detail.payload.tokens.items.map(
+                (item: { tokenId: string }) => item.tokenId,
+            ),
+        ).toEqual(["1"]);
+
+        const activity = await resolve(
+            "GET",
+            "/api/ethereum/milady/activity?kind=sales&trait_ranges=Power:3..9&limit=10",
+        );
+        expect(activity.statusCode).toBe(200);
+        expect(activity.payload.traits.selectedRanges).toEqual([
+            { key: "Power", fromValue: "3", toValue: "9" },
+        ]);
+        expect(activity.payload.traits.facets).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    key: "Power",
+                    displayKind: "range",
+                    minValue: "2",
+                    maxValue: "7",
+                }),
+            ]),
+        );
+        expect(
+            activity.payload.activities.items.map(
+                (item: { tokenId: string | null }) => item.tokenId,
+            ),
+        ).toEqual(["1"]);
+
+        const revert = await resolve(
+            "PUT",
+            "/api/ethereum/milady/customization",
+            {
+                traitFilterPresentation: {
+                    selectedSource: "user",
+                    userConfig: {
+                        rangeKeys: [],
+                    },
+                },
+            },
+            {
+                host: "127.0.0.1:3000",
+                origin: "http://127.0.0.1:5173",
+                cookie,
+                "x-artgod-csrf": token,
+            },
+        );
+        expect(revert.statusCode).toBe(200);
     });
 
     it("rejects collection address refs", async () => {
@@ -1755,6 +1964,7 @@ function seedData(): void {
         JSON.stringify([
             { traitType: "Hat", value: "Beanie" },
             { traitType: "Mood", value: "Calm" },
+            { traitType: "Power", value: "7" },
         ]),
         "{}",
         "2026-01-01T00:00:00Z",
@@ -1819,6 +2029,7 @@ function seedData(): void {
         JSON.stringify([
             { traitType: "Hat", value: "Beanie" },
             { traitType: "Mood", value: "Angry" },
+            { traitType: "Power", value: "2" },
         ]),
         "{}",
         "2026-01-01T00:00:00Z",
@@ -1835,6 +2046,7 @@ function seedData(): void {
         JSON.stringify([
             { traitType: "Hat", value: "Cap" },
             { traitType: "Mood", value: "Calm" },
+            { traitType: "Power", value: "??" },
         ]),
         "{}",
         "2026-01-01T00:00:00Z",
@@ -1842,11 +2054,15 @@ function seedData(): void {
 
     const hatKeyId = insertAttributeKey("Hat");
     const moodKeyId = insertAttributeKey("Mood");
+    const powerKeyId = insertAttributeKey("Power");
 
     const beanieId = insertAttribute(hatKeyId, "Beanie");
     const capId = insertAttribute(hatKeyId, "Cap");
     const calmId = insertAttribute(moodKeyId, "Calm");
     const angryId = insertAttribute(moodKeyId, "Angry");
+    const powerSevenId = insertAttribute(powerKeyId, "7");
+    const powerTwoId = insertAttribute(powerKeyId, "2");
+    const powerUnknownId = insertAttribute(powerKeyId, "??");
 
     const insertTokenAttribute = db.prepare(
         "INSERT INTO token_attributes (chain_id, collection_id, contract_address, token_id, attribute_id) VALUES (?, ?, ?, ?, ?)",
@@ -1870,6 +2086,13 @@ function seedData(): void {
         1,
         miladyCollectionId,
         MILADY_ADDRESS,
+        "1",
+        powerSevenId,
+    );
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
         "2",
         beanieId,
     );
@@ -1884,6 +2107,13 @@ function seedData(): void {
         1,
         miladyCollectionId,
         MILADY_ADDRESS,
+        "2",
+        powerTwoId,
+    );
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
         "10",
         capId,
     );
@@ -1893,6 +2123,13 @@ function seedData(): void {
         MILADY_ADDRESS,
         "10",
         calmId,
+    );
+    insertTokenAttribute.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        "10",
+        powerUnknownId,
     );
 
     const insertTraitStats = db.prepare(
@@ -1929,6 +2166,30 @@ function seedData(): void {
         MILADY_ADDRESS,
         moodKeyId,
         angryId,
+        1,
+    );
+    insertTraitStats.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        powerKeyId,
+        powerSevenId,
+        1,
+    );
+    insertTraitStats.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        powerKeyId,
+        powerTwoId,
+        1,
+    );
+    insertTraitStats.run(
+        1,
+        miladyCollectionId,
+        MILADY_ADDRESS,
+        powerKeyId,
+        powerUnknownId,
         1,
     );
 

@@ -1,8 +1,13 @@
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { ActivityFeedFilterKind } from '@artgod/shared/types';
-import type { ApiTokenAttribute } from '$lib/api-types';
+import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
-import { appendNormalizedTraitParams, appendTraitParams } from '$lib/trait-filters';
+import {
+	appendNormalizedTraitParams,
+	appendNormalizedTraitRangeParams,
+	appendTraitParams,
+	appendTraitRangeParams
+} from '$lib/trait-filters';
 
 export function normalizeCollectionActivityParams(
 	raw: URLSearchParams,
@@ -21,6 +26,7 @@ export function normalizeCollectionActivityParams(
 	params.set('kind', kind);
 	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
 	appendNormalizedTraitParams(params, raw);
+	appendNormalizedTraitRangeParams(params, raw);
 
 	return params;
 }
@@ -30,6 +36,7 @@ export function buildCollectionActivityHref(params: {
 	limit: number;
 	kind: ActivityFeedFilterKind;
 	selectedTraits: ApiTokenAttribute[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
 	cursor?: string | null;
 }): string {
@@ -41,6 +48,7 @@ export function buildCollectionActivityHref(params: {
 		query.set('cursor', params.cursor.trim());
 	}
 	appendTraitParams(query, params.selectedTraits);
+	appendTraitRangeParams(query, params.selectedTraitRanges);
 	return `${params.basePath}/activity?${query.toString()}`;
 }
 

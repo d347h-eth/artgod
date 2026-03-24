@@ -4,14 +4,17 @@ import {
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
     type CollectionExtensionInstall,
 } from "@artgod/shared/extensions";
+import type { BackendCollectionExtension } from "./types.js";
 import type { TokenCard, TokenDetail } from "@artgod/shared/types/browse";
-import type {
-    BackendCollectionExtension,
-} from "./types.js";
 
 export const terraformsBackendCollectionExtension: BackendCollectionExtension =
     {
         key: COLLECTION_EXTENSION_KEYS.Terraforms,
+        resolveTraitFilterPresentationConfig() {
+            return {
+                rangeKeys: ["???"],
+            };
+        },
         listMediaModes() {
             return [
                 {

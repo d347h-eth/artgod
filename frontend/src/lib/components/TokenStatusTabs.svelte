@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ApiTokenAttribute } from '$lib/api-types';
+	import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
@@ -8,6 +8,7 @@
 		displayMode,
 		tokenStatus,
 		selectedTraits,
+		selectedTraitRanges,
 		mediaMode
 	}: {
 		basePath: string;
@@ -15,6 +16,7 @@
 		displayMode: 'grid' | 'table';
 		tokenStatus: 'listed' | 'all';
 		selectedTraits: ApiTokenAttribute[];
+		selectedTraitRanges: ApiTraitRangeFilter[];
 		mediaMode: string;
 	} = $props();
 
@@ -25,6 +27,7 @@
 			displayMode,
 			tokenStatus: nextTokenStatus,
 			selectedTraits,
+			selectedTraitRanges,
 			mediaMode
 		});
 	}

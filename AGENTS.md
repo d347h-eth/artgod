@@ -37,6 +37,8 @@ For implementation details, use:
   Define once in shared config and import everywhere; no repeated magic numbers/strings.
 - Prefer cursor/streamed iteration for large datasets instead of large in-memory preallocation.
 - Any large in-memory allocation must be explicitly justified by business need or performance evidence.
+- For frontend layout, default forms, tables, and configuration surfaces to compact, fit-to-content widths and center them horizontally.
+  Do not stretch UI elements to `100%` width unless the user explicitly asks for a full-width layout.
 
 ## Domain Modeling
 

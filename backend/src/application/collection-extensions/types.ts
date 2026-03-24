@@ -4,6 +4,7 @@ import type {
     CollectionMediaMode,
     CollectionMediaModeOption,
 } from "@artgod/shared/extensions";
+import type { TraitFilterPresentationConfig } from "@artgod/shared/types";
 import type { TokenCard, TokenDetail } from "@artgod/shared/types/browse";
 
 export type BackendCollectionExtensionArtifactRecord = {
@@ -21,6 +22,9 @@ export type BackendCollectionExtensionMediaContext = {
 
 export interface BackendCollectionExtension {
     key: CollectionExtensionKey;
+    resolveTraitFilterPresentationConfig(
+        install: CollectionExtensionInstall,
+    ): TraitFilterPresentationConfig | null;
     listMediaModes(
         install: CollectionExtensionInstall,
     ): CollectionMediaModeOption[];

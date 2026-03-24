@@ -18,8 +18,21 @@ Primary section tabs are rendered by `CollectionSectionTabs.svelte` and currentl
 - `tokens`
 - `activities`
 - `holders`
+- `customization`
 
 The active primary tab must be rendered as non-clickable text, not as a live link.
+
+## Default Width Policy
+
+Do not stretch forms, tables, or configuration panels to full available page width by default.
+
+Default layout expectation:
+
+- compact
+- fit-to-content
+- centered horizontally within the available page area
+
+Use full-width stretching only when the user explicitly asks for it or when the content genuinely requires it.
 
 ## Page Composition Rules
 
@@ -43,6 +56,15 @@ Collection pages should compose the shared shell like this:
     - row 1: owner context text
     - row 2: trait panel controls
     - body: `TokenBrowserView.svelte`
+
+5. `CollectionCustomizationView.svelte`
+    - no stacked top-action rows by default
+    - body: collection-scoped customization panels
+    - first implemented section: trait filter presentation
+    - trait filter presentation uses a compact three-column grid:
+        - trait key
+        - user-defined setting
+        - extension-defined setting
 
 Do not reintroduce page-level action rows inside leaf views once the action belongs to the shared page shell.
 
@@ -144,7 +166,8 @@ The split of responsibilities is:
 - `TraitFacetPanel.svelte`
     - presentational sidebar
     - local trait-value search
-    - checkbox UI
+    - checkbox UI for discrete traits
+    - inclusive `from` / `to` range UI for scalar traits
 - `TraitFacetPanelControls.svelte`
     - presentational top-action controls
 - page wrappers
@@ -156,9 +179,21 @@ Trait value selection rules:
 - plain click toggles trait values additively within the same trait key
 - `Ctrl` + click isolates the clicked value within that trait key and clears the others in that group
 
+Trait presentation rules:
+
+- default facet rendering is `set`
+- collection customization can mark individual trait keys as `range`
+- range traits render `from` / `to` inputs with inclusive bounds
+- range traits show numeric `min` / `max` hints from the current page scope
+- owner-token pages use owner-scoped range hints
+- collection tokens and collection activities use collection-scoped range hints
+- non-numeric stored trait values are ignored for range bounds and range filtering
+
 ## Trait Filter State
 
 Trait selection is URL-driven, not hidden client-only state.
+
+Both discrete and range filters are URL-driven.
 
 Trait-aware pages:
 
@@ -174,6 +209,11 @@ Navigation rules:
 - holder-token page -> collection `tokens` / `activities` preserves trait filters
 - collection `tokens` / `activities` -> holder-token page does not carry trait filters
 - collection `holders` leaderboard does not preserve trait filters
+
+Trait filter query families:
+
+- discrete values: repeated `traits=key:value`
+- scalar ranges: repeated `trait_ranges=key:from..to`
 
 ## Media Mode State
 

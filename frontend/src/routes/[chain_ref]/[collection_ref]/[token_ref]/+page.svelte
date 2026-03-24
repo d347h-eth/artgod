@@ -46,6 +46,7 @@
 		return buildOwnerTokensHref({
 			basePath: `/${data.chain.slug}/${data.collection.slug}/holders/${encodeURIComponent(displayedToken.currentHolder)}`,
 			selectedTraits: [],
+			selectedTraitRanges: [],
 			mediaMode: data.media?.selectedMode ?? null
 		});
 	}

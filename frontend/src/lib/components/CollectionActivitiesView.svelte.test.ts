@@ -99,8 +99,17 @@ describe('CollectionActivitiesView', () => {
 					currentPage: 1,
 					totalPages: 1
 				},
-				facets: [{ key: 'Hat', values: [{ value: 'Beanie', tokenCount: 1 }] }],
+				facets: [
+					{
+						key: 'Hat',
+						displayKind: 'set',
+						minValue: null,
+						maxValue: null,
+						values: [{ value: 'Beanie', tokenCount: 1 }]
+					}
+				],
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
+				selectedTraitRanges: [],
 				included: {
 					tokensById: {
 						'1': {
@@ -139,6 +148,9 @@ describe('CollectionActivitiesView', () => {
 		);
 		expect(body).toContain(
 			'/ethereum/milady/activity?limit=25&amp;kind=listings&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
+		expect(body).toContain(
+			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain('/ethereum/milady/1?media_mode=artifact');
 		expect(body).toContain('Milady #1');
@@ -262,8 +274,17 @@ describe('CollectionActivitiesView', () => {
 					currentPage: 1,
 					totalPages: 1
 				},
-				facets: [{ key: 'Hat', values: [{ value: 'Beanie', tokenCount: 1 }] }],
+				facets: [
+					{
+						key: 'Hat',
+						displayKind: 'set',
+						minValue: null,
+						maxValue: null,
+						values: [{ value: 'Beanie', tokenCount: 1 }]
+					}
+				],
 				selectedTraits: [],
+				selectedTraitRanges: [],
 				included: {
 					tokensById: {
 						'1': {

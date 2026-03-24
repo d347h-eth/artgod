@@ -1,4 +1,5 @@
 import type { CollectionMediaPresentation } from "../extensions/index.js";
+import type { TraitFilterDisplayKind } from "./customization.js";
 
 export type CollectionStandard = "erc721" | "erc1155";
 
@@ -53,6 +54,12 @@ export type TraitFilter = {
     value: string;
 };
 
+export type TraitRangeFilter = {
+    key: string;
+    fromValue: string | null;
+    toValue: string | null;
+};
+
 export type TokenAttribute = {
     key: string;
     value: string;
@@ -97,6 +104,9 @@ export type TraitFacetValue = {
 
 export type TraitFacet = {
     key: string;
+    displayKind: TraitFilterDisplayKind;
+    minValue: string | null;
+    maxValue: string | null;
     values: TraitFacetValue[];
 };
 

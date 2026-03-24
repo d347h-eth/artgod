@@ -16,9 +16,11 @@ import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
 import { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
+import { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
 import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
+import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { BackendConfig } from "./config.js";
@@ -26,7 +28,9 @@ import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
 import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
+import { ExtensionAwareCollectionCustomization } from "./infra/collections/extension-aware-collection-customization.js";
 import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extension-aware-collection-detail-read.js";
+import { SqliteCollectionCustomizationRecords } from "./infra/collections/sqlite-collection-customization-records.js";
 import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
@@ -55,10 +59,18 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.wethAddress,
     ]);
     const activitiesReadModel = new SqliteActivitiesReadModel();
+    const collectionExtensionRecords = new SqliteCollectionExtensionRecords();
+    const collectionCustomizationRecords =
+        new SqliteCollectionCustomizationRecords();
     const extensionAwareCollectionsReadModel =
         new ExtensionAwareCollectionDetailRead(
             collectionsReadModel,
-            new SqliteCollectionExtensionRecords(),
+            collectionExtensionRecords,
+        );
+    const extensionAwareCollectionCustomization =
+        new ExtensionAwareCollectionCustomization(
+            collectionExtensionRecords,
+            collectionCustomizationRecords,
         );
     const bootstrapRunsRepository = new SqliteBootstrapRunsRepository();
     const bootstrapCommandQueue = new NatsBootstrapCommandQueue(
@@ -106,6 +118,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
     );
     const getCollectionActivityUseCase = new GetCollectionActivityUseCase(
         config.defaultChainId,
@@ -113,7 +126,15 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         extensionAwareCollectionsReadModel,
         activitiesReadModel,
         extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
     );
+    const getCollectionCustomizationUseCase =
+        new GetCollectionCustomizationUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            extensionAwareCollectionCustomization,
+        );
     const getCollectionHoldersUseCase = new GetCollectionHoldersUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -131,6 +152,13 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         activitiesReadModel,
         extensionAwareCollectionsReadModel,
     );
+    const updateCollectionCustomizationUseCase =
+        new UpdateCollectionCustomizationUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            extensionAwareCollectionCustomization,
+        );
     const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
         new SqliteRuntimeHealthAdapter(),
         new NatsRuntimeHealthAdapter(config.natsUrl),
@@ -147,9 +175,11 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         listCollectionsUseCase,
         getCollectionActivityUseCase,
         getTokenActivityUseCase,
+        getCollectionCustomizationUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
+        updateCollectionCustomizationUseCase,
         runtimeHealthUseCase,
         config.userlandUiDistDir,
         config.security,

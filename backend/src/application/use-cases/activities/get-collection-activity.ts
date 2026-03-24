@@ -8,7 +8,9 @@ import type {
     TokenCard,
     TraitFacet,
     TraitFilter,
+    TraitRangeFilter,
 } from "@artgod/shared/types";
+import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 import {
     buildActivityFeedIncludes,
     collectActivityTokenIds,
@@ -21,6 +23,7 @@ export type GetCollectionActivityInput = {
     cursor?: string;
     kind?: ActivityFeedFilterKind;
     traits: TraitFilter[];
+    traitRanges: TraitRangeFilter[];
     mediaMode?: string;
 };
 
@@ -29,6 +32,7 @@ export type GetCollectionActivityOutput = {
     collection: CollectionListItem;
     traits: {
         selected: TraitFilter[];
+        selectedRanges: TraitRangeFilter[];
         facets: TraitFacet[];
     };
     media: CollectionMediaState;
@@ -68,6 +72,7 @@ export class GetCollectionActivityUseCase {
                 cursor?: string;
                 kind?: ActivityFeedFilterKind;
                 traitFilters?: TraitFilter[];
+                traitRangeFilters?: TraitRangeFilter[];
             }): ActivityFeedPage;
         },
         readonly tokenPresentationReadPort: {
@@ -77,6 +82,17 @@ export class GetCollectionActivityUseCase {
                 tokenIds: string[];
                 mediaMode?: string;
             }): TokenCard[];
+        },
+        readonly customizationReadPort: {
+            getTraitFilterPresentationState(params: {
+                chainId: number;
+                collectionId: number;
+                availableTraitKeys?: string[];
+            }): {
+                effectiveConfig: {
+                    rangeKeys: string[];
+                };
+            };
         },
     ) {}
 
@@ -103,11 +119,22 @@ export class GetCollectionActivityUseCase {
             cursor: input.cursor,
             kind: input.kind,
             traitFilters: input.traits,
+            traitRangeFilters: input.traitRanges,
         });
-        const facets = this.collectionReadPort.listCollectionTraitFacets(
+        const rawFacets = this.collectionReadPort.listCollectionTraitFacets(
             chain.publicChainId,
             collection.collectionId,
         );
+        const traitFilterPresentation =
+            this.customizationReadPort.getTraitFilterPresentationState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                availableTraitKeys: rawFacets.map((facet) => facet.key),
+            });
+        const facets = applyTraitFilterPresentationToFacets({
+            facets: rawFacets,
+            config: traitFilterPresentation.effectiveConfig,
+        });
         const included = buildActivityFeedIncludes(
             this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
                 chainId: chain.publicChainId,
@@ -122,6 +149,7 @@ export class GetCollectionActivityUseCase {
             collection,
             traits: {
                 selected: input.traits,
+                selectedRanges: input.traitRanges,
                 facets,
             },
             media,

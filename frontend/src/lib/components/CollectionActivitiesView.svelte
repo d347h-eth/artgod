@@ -9,6 +9,7 @@
 		ApiCollection,
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
+		ApiTraitRangeFilter,
 		ApiTokenPresentationSummary,
 		ApiTraitFacet
 	} from '$lib/api-types';
@@ -22,11 +23,12 @@
 	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
 	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import {
 		etherscanTransactionHref as buildEtherscanTransactionHref,
 		openseaItemHref as buildOpenseaItemHref
 	} from '$lib/marketplace-links';
-	import { nextSelectedTraits } from '$lib/trait-filters';
+	import { nextSelectedTraits, setTraitRangeFilter } from '$lib/trait-filters';
 	import { buildOwnerTokensHref, buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
@@ -35,6 +37,7 @@
 		activities,
 		facets,
 		selectedTraits,
+		selectedTraitRanges,
 		media,
 		included,
 		basePath,
@@ -45,6 +48,7 @@
 		activities: ApiActivitiesPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		selectedTraitRanges: ApiTraitRangeFilter[];
 		media: ApiCollectionMediaState;
 		included: {
 			tokensById: Record<string, ApiTokenPresentationSummary>;
@@ -75,7 +79,8 @@
 	let timeDisplayMode = $state<TimeDisplayMode>('relative');
 	let relativeNowMs = $state(Date.now());
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
-	let hasActiveFilters = $derived(activeTraits.length > 0);
+	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
+	let hasActiveFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
 	let visibleColumns = $derived(ACTIVITY_COLUMNS_BY_FILTER[filterKind]);
 
 	$effect(() => {
@@ -90,6 +95,10 @@
 		activeTraits = selectedTraits;
 	});
 
+	$effect(() => {
+		activeTraitRanges = selectedTraitRanges;
+	});
+
 	function collectionsHref(): string {
 		if (!chain) return '/';
 		return `/${chain.slug}`;
@@ -102,6 +111,7 @@
 			displayMode: 'grid',
 			tokenStatus: 'listed',
 			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -112,6 +122,7 @@
 			limit: activities.limit,
 			kind: filterKind,
 			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -125,13 +136,15 @@
 	function filterHref(
 		nextKind: ApiActivityFeedFilterKind,
 		cursor: string | null = null,
-		traits: ApiTokenAttribute[] = activeTraits
+		traits: ApiTokenAttribute[] = activeTraits,
+		traitRanges: ApiTraitRangeFilter[] = activeTraitRanges
 	): string {
 		return buildCollectionActivityHref({
 			basePath,
 			limit: activities.limit,
 			kind: nextKind,
 			selectedTraits: traits,
+			selectedTraitRanges: traitRanges,
 			mediaMode: media.selectedMode,
 			cursor
 		});
@@ -145,6 +158,16 @@
 		return buildOwnerTokensHref({
 			basePath: `${basePath}/holders/${encodeURIComponent(address)}`,
 			selectedTraits: [],
+			selectedTraitRanges: [],
+			mediaMode: media.selectedMode
+		});
+	}
+
+	function customizationHref(): string {
+		return buildCollectionCustomizationHref({
+			basePath,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -331,7 +354,21 @@
 	): Promise<void> {
 		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, exclusiveMode);
 		activeTraits = nextTraits;
-		await goto(filterHref(filterKind, null, nextTraits), {
+		await goto(filterHref(filterKind, null, nextTraits, activeTraitRanges), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onApplyTraitRange(
+		key: string,
+		fromValue: string | null,
+		toValue: string | null
+	): Promise<void> {
+		const nextRanges = setTraitRangeFilter(activeTraitRanges, key, fromValue, toValue);
+		activeTraitRanges = nextRanges;
+		await goto(filterHref(filterKind, null, activeTraits, nextRanges), {
 			invalidateAll: true,
 			keepFocus: true,
 			noScroll: true
@@ -340,7 +377,8 @@
 
 	async function onResetFilters(): Promise<void> {
 		activeTraits = [];
-		await goto(filterHref(filterKind, null, []), {
+		activeTraitRanges = [];
+		await goto(filterHref(filterKind, null, [], []), {
 			invalidateAll: true,
 			keepFocus: true,
 			noScroll: true
@@ -354,6 +392,7 @@
 	tokensHref={tokensHref()}
 	activitiesHref={activitiesHref()}
 	holdersHref={holdersHref()}
+	customizationHref={customizationHref()}
 	activeSection="activities"
 	collectionAvailable={collection !== null}
 >
@@ -403,8 +442,10 @@
 		<TraitFacetPanel
 			{facets}
 			selectedTraits={activeTraits}
+			selectedRanges={activeTraitRanges}
 			collapsed={$traitFacetPanelState.collapsed}
 			onToggleTrait={onTraitToggleWithMode}
+			onApplyTraitRange={onApplyTraitRange}
 		/>
 
 		<div class="activity-panel">

@@ -9,14 +9,18 @@ import type {
     ActivityFeedItem,
     ActivityFeedPage,
 } from "../types/activity-feed.js";
-import type { TraitFilter } from "../types/browse.js";
+import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
 import { ReadModelBadRequestError } from "./errors.js";
 import {
     buildTokenTraitFilterWhereClauses,
+    buildTokenTraitRangeWhereClauses,
     groupTraitFilters,
+    groupTraitRangeFilters,
     normalizeTraitFilters,
+    normalizeTraitRangeFilters,
     type TraitFilterGroup,
+    type TraitRangeFilterGroup,
 } from "./trait-filters.js";
 
 type ActivityRow = {
@@ -80,6 +84,7 @@ export class SqliteActivitiesReadModel {
         cursor?: string;
         kind?: ActivityFeedFilterKind;
         traitFilters?: TraitFilter[];
+        traitRangeFilters?: TraitRangeFilter[];
     }): ActivityFeedPage {
         return this.listActivities({
             chainId: params.chainId,
@@ -88,6 +93,7 @@ export class SqliteActivitiesReadModel {
             cursor: params.cursor,
             kind: params.kind,
             traitFilters: params.traitFilters,
+            traitRangeFilters: params.traitRangeFilters,
         });
     }
 
@@ -122,11 +128,15 @@ export class SqliteActivitiesReadModel {
         cursor?: string;
         kind?: ActivityFeedFilterKind;
         traitFilters?: TraitFilter[];
+        traitRangeFilters?: TraitRangeFilter[];
     }): ActivityFeedPage {
         const limit = normalizeLimit(params.limit);
         const filterKind = params.kind ?? null;
         const traitFilterGroups = groupTraitFilters(
             normalizeTraitFilters(params.traitFilters ?? []),
+        );
+        const traitRangeFilterGroups = groupTraitRangeFilters(
+            normalizeTraitRangeFilters(params.traitRangeFilters ?? []),
         );
         const cursor =
             params.cursor !== undefined
@@ -142,10 +152,27 @@ export class SqliteActivitiesReadModel {
                 collectionColumnSql: "a.collection_id",
                 tokenColumnSql: "a.token_id",
             });
+            const {
+                whereClauses: traitRangeWhereClauses,
+                values: traitRangeValues,
+            } = buildTokenTraitRangeWhereClauses({
+                traitRangeFilterGroups,
+                chainColumnSql: "a.chain_id",
+                collectionColumnSql: "a.collection_id",
+                tokenColumnSql: "a.token_id",
+            });
             return listActivitiesFromSource({
-                source: buildCollapsedCollectionListingsSource(traitWhereClauses),
+                source: buildCollapsedCollectionListingsSource([
+                    ...traitWhereClauses,
+                    ...traitRangeWhereClauses,
+                ]),
                 baseWhereClauses: [],
-                baseValues: [params.chainId, params.collectionId, ...traitValues],
+                baseValues: [
+                    params.chainId,
+                    params.collectionId,
+                    ...traitValues,
+                    ...traitRangeValues,
+                ],
                 limit,
                 cursor,
                 filterKind,
@@ -159,6 +186,7 @@ export class SqliteActivitiesReadModel {
                 tokenId: params.tokenId,
                 kind: filterKind,
                 traitFilterGroups,
+                traitRangeFilterGroups,
             });
 
         return listActivitiesFromSource({
@@ -178,6 +206,7 @@ function buildActivityWhereClauses(params: {
     tokenId?: string;
     kind: ActivityFeedFilterKind | null;
     traitFilterGroups: TraitFilterGroup[];
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
 }): {
     whereClauses: string[];
     values: unknown[];
@@ -204,6 +233,18 @@ function buildActivityWhereClauses(params: {
     });
     whereClauses.push(...traitWhereClauses);
     values.push(...traitValues);
+
+    const {
+        whereClauses: traitRangeWhereClauses,
+        values: traitRangeValues,
+    } = buildTokenTraitRangeWhereClauses({
+        traitRangeFilterGroups: params.traitRangeFilterGroups,
+        chainColumnSql: "a.chain_id",
+        collectionColumnSql: "a.collection_id",
+        tokenColumnSql: "a.token_id",
+    });
+    whereClauses.push(...traitRangeWhereClauses);
+    values.push(...traitRangeValues);
 
     switch (params.kind) {
         case "sales":

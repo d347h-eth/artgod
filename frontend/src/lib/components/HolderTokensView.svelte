@@ -5,6 +5,7 @@
 		ApiCollection,
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
+		ApiTraitRangeFilter,
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
@@ -15,6 +16,7 @@
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { buildOwnerTokensHref, buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
@@ -23,6 +25,7 @@
 		tokens,
 		facets,
 		selectedTraits,
+		selectedTraitRanges,
 		media,
 		collectionBasePath,
 		holdersBasePath,
@@ -36,6 +39,7 @@
 		tokens: ApiTokensPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		selectedTraitRanges: ApiTraitRangeFilter[];
 		media: ApiCollectionMediaState;
 		collectionBasePath: string;
 		holdersBasePath: string;
@@ -60,6 +64,7 @@
 			limit: tokens.limit,
 			displayMode,
 			selectedTraits: [],
+			selectedTraitRanges: [],
 			mediaMode: media.selectedMode
 		});
 	}
@@ -71,6 +76,7 @@
 			displayMode,
 			tokenStatus: 'listed',
 			selectedTraits,
+			selectedTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -81,6 +87,16 @@
 			limit: tokens.limit,
 			kind: 'sales',
 			selectedTraits,
+			selectedTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
+	function customizationHref(): string {
+		return buildCollectionCustomizationHref({
+			basePath: collectionBasePath,
+			selectedTraits,
+			selectedTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -98,6 +114,7 @@
 	tokensHref={collectionTokensHref()}
 	activitiesHref={collectionActivitiesHref()}
 	holdersHref={holdersBasePath}
+	customizationHref={customizationHref()}
 	activeSection={null}
 	collectionAvailable={collection !== null}
 >
@@ -122,7 +139,7 @@
 		</div>
 		<div class="panel-top-actions-row">
 			<TraitFacetPanelControls
-				hasActiveFilters={selectedTraits.length > 0}
+				hasActiveFilters={selectedTraits.length > 0 || selectedTraitRanges.length > 0}
 				collapsed={$traitFacetPanelState.collapsed}
 				onToggleCollapsed={traitFacetPanel.toggle}
 				onReset={onResetTraits}
@@ -137,6 +154,7 @@
 		tokens={tokens}
 		facets={facets}
 		selectedTraits={selectedTraits}
+		selectedTraitRanges={selectedTraitRanges}
 		{media}
 		collectionBasePath={collectionBasePath}
 		browserBasePath={browserBasePath}

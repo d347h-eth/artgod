@@ -13,12 +13,13 @@
 		resolveForwardWindowState,
 		writeForwardWindow
 	} from '$lib/components/forward-window-cache';
-	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
-	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
-	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-	import { appendMediaModeParam } from '$lib/media-mode';
-	import { buildCollectionActivityHref } from '$lib/activity-query';
-	import { buildOwnerTokensHref } from '$lib/token-browser-query';
+import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+import { buildCollectionCustomizationHref } from '$lib/customization-query';
+import { appendMediaModeParam } from '$lib/media-mode';
+import { buildCollectionActivityHref } from '$lib/activity-query';
+import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -127,6 +128,16 @@
 		return buildOwnerTokensHref({
 			basePath: `${holdersPath()}/${encodeURIComponent(owner)}`,
 			selectedTraits: [],
+			selectedTraitRanges: [],
+			mediaMode: selectedMediaMode
+		});
+	}
+
+	function customizationHref(): string {
+		return buildCollectionCustomizationHref({
+			basePath,
+			selectedTraits: [],
+			selectedTraitRanges: [],
 			mediaMode: selectedMediaMode
 		});
 	}
@@ -196,9 +207,11 @@
 		limit: holders.limit,
 		kind: 'sales',
 		selectedTraits: [],
+		selectedTraitRanges: [],
 		mediaMode: selectedMediaMode
 	})}
 	holdersHref={holdersHref()}
+	customizationHref={customizationHref()}
 	activeSection="holders"
 	collectionAvailable={collection !== null}
 >

@@ -11,6 +11,7 @@ import {
     parseOwner,
     parseTokenBrowserStatus,
     parseTraits,
+    parseTraitRanges,
 } from "../../common/request-query.js";
 
 export type GetCollectionDetailRoute = {
@@ -51,6 +52,7 @@ export class GetCollectionDetailHttpAdapter {
         const cursor = parseCursor(searchParams.get("cursor"));
         const owner = parseOwner(searchParams.get("owner"));
         const traits = parseTraits(searchParams);
+        const traitRanges = parseTraitRanges(searchParams);
         const mediaMode = parseMediaMode(searchParams.get("media_mode"));
 
         return {
@@ -60,6 +62,7 @@ export class GetCollectionDetailHttpAdapter {
             limit,
             cursor: cursor ?? undefined,
             traits,
+            traitRanges,
             owner,
             mediaMode,
         };

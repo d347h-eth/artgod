@@ -6,6 +6,7 @@
 		ApiCollection,
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
+		ApiTraitRangeFilter,
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
@@ -17,6 +18,7 @@
 		tokens: ApiTokensPage;
 		facets: ApiTraitFacet[];
 		selectedTraits: ApiTokenAttribute[];
+		selectedTraitRanges: ApiTraitRangeFilter[];
 		basePath: string;
 		requestCursor: string | null;
 		tokenStatus: 'listed' | 'all';
@@ -51,6 +53,7 @@
 	tokens={data?.tokens ?? fallbackTokens}
 	facets={data?.facets ?? []}
 	selectedTraits={data?.selectedTraits ?? []}
+	selectedTraitRanges={data?.selectedTraitRanges ?? []}
 	basePath={data?.basePath ?? '/'}
 	requestCursor={data?.requestCursor ?? null}
 	tokenStatus={data?.tokenStatus ?? 'listed'}

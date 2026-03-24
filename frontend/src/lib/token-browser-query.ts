@@ -1,8 +1,13 @@
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { TokenBrowserStatus } from '@artgod/shared/types/browse';
-import type { ApiTokenAttribute } from '$lib/api-types';
+import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
-import { appendNormalizedTraitParams, appendTraitParams } from '$lib/trait-filters';
+import {
+	appendNormalizedTraitParams,
+	appendNormalizedTraitRangeParams,
+	appendTraitParams,
+	appendTraitRangeParams
+} from '$lib/trait-filters';
 
 export function normalizeTokenBrowserParams(
 	raw: URLSearchParams,
@@ -21,6 +26,7 @@ export function normalizeTokenBrowserParams(
 	params.set('token_status', tokenStatus);
 	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
 	appendNormalizedTraitParams(params, raw);
+	appendNormalizedTraitRangeParams(params, raw);
 
 	return params;
 }
@@ -31,6 +37,7 @@ export function buildTokenBrowserHref(params: {
 	displayMode: 'grid' | 'table';
 	tokenStatus: TokenBrowserStatus;
 	selectedTraits: ApiTokenAttribute[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
 	cursor?: string | null;
 }): string {
@@ -43,12 +50,14 @@ export function buildTokenBrowserHref(params: {
 		query.set('cursor', params.cursor.trim());
 	}
 	appendTraitParams(query, params.selectedTraits);
+	appendTraitRangeParams(query, params.selectedTraitRanges);
 	return `${params.basePath}?${query.toString()}`;
 }
 
 export function buildOwnerTokensHref(params: {
 	basePath: string;
 	selectedTraits: ApiTokenAttribute[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
 	limit?: number;
 	displayMode?: 'grid' | 'table';
@@ -63,6 +72,7 @@ export function buildOwnerTokensHref(params: {
 		displayMode === 'grid' &&
 		!cursor?.trim() &&
 		params.selectedTraits.length === 0 &&
+		params.selectedTraitRanges.length === 0 &&
 		!(params.mediaMode ?? '').trim()
 	) {
 		return params.basePath;
@@ -74,6 +84,7 @@ export function buildOwnerTokensHref(params: {
 		displayMode,
 		tokenStatus: 'listed_then_unlisted',
 		selectedTraits: params.selectedTraits,
+		selectedTraitRanges: params.selectedTraitRanges,
 		mediaMode: params.mediaMode ?? null,
 		cursor
 	});
