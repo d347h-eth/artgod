@@ -37,7 +37,6 @@ a:hover {
 
 .panel {
 	margin: 1rem;
-	border: 1px solid var(--c-blue);
 	background: var(--c-bg);
 }
 
@@ -46,7 +45,6 @@ a:hover {
 	gap: 0.4rem;
 	align-items: center;
 	padding: 0.55rem 0.75rem;
-	border-bottom: 1px solid var(--c-blue);
 	font-size: 0.72rem;
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
@@ -67,7 +65,6 @@ a:hover {
 	align-items: flex-start;
 	justify-content: space-between;
 	padding: 0.75rem;
-	border-bottom: 1px solid var(--c-blue);
 }
 
 .panel-header-main {
@@ -748,8 +745,6 @@ th {
 }
 
 .facet-panel {
-	border-right: 1px solid var(--c-blue);
-	border-bottom: 1px solid var(--c-blue);
 	padding: 0.75rem;
 }
 
@@ -1120,7 +1115,6 @@ th {
 	justify-content: space-between;
 	gap: 0.75rem;
 	padding: 0.75rem;
-	border-bottom: 1px solid var(--c-blue);
 }
 
 .panel-top-actions-stack {
