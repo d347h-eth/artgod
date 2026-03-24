@@ -11,6 +11,7 @@
 	} from '$lib/api-types';
 	import { updateCollectionCustomization } from '$lib/backend-api';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
@@ -356,6 +357,9 @@
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}
+		{#if collection}
+			<CollectionJumpForm basePath={basePath} mediaMode={mediaMode} />
+		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 

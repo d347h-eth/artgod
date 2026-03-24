@@ -13,13 +13,14 @@
 		resolveForwardWindowState,
 		writeForwardWindow
 	} from '$lib/components/forward-window-cache';
-import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
-import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
-import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-import { buildCollectionCustomizationHref } from '$lib/customization-query';
-import { appendMediaModeParam } from '$lib/media-mode';
-import { buildCollectionActivityHref } from '$lib/activity-query';
-import { buildOwnerTokensHref } from '$lib/token-browser-query';
+	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
+	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import { buildCollectionCustomizationHref } from '$lib/customization-query';
+	import { appendMediaModeParam } from '$lib/media-mode';
+	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -225,6 +226,9 @@ import { buildOwnerTokensHref } from '$lib/token-browser-query';
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}
+		{#if collection}
+			<CollectionJumpForm basePath={basePath} mediaMode={selectedMediaMode} />
+		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 	{#snippet topActions()}

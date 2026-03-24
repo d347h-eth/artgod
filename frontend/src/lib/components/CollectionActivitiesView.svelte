@@ -15,6 +15,7 @@
 	} from '$lib/api-types';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
+	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
@@ -29,7 +30,7 @@
 		openseaItemHref as buildOpenseaItemHref
 	} from '$lib/marketplace-links';
 	import { nextSelectedTraits, setTraitRangeFilter } from '$lib/trait-filters';
-	import { buildOwnerTokensHref, buildTokenBrowserHref } from '$lib/token-browser-query';
+	import { buildOwnerTokensHref, buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -179,9 +180,11 @@
 	}
 
 	function tokenDetailHref(tokenId: string): string {
-		const query = new URLSearchParams();
-		query.set('media_mode', media.selectedMode);
-		return `${basePath}/${encodeURIComponent(tokenId)}?${query.toString()}`;
+		return buildTokenDetailHref({
+			basePath,
+			tokenId,
+			mediaMode: media.selectedMode
+		});
 	}
 
 	function occurredAtLabel(occurredAt: number): string {
@@ -418,6 +421,9 @@
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}
+		{#if collection}
+			<CollectionJumpForm basePath={basePath} mediaMode={media.selectedMode} />
+		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 	{#snippet topActions()}

@@ -78,13 +78,16 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie');
+		expect(body).toContain(
+			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
 		expect(body).toContain('only listed');
 		expect(body).toContain('show all');
 		expect(body).toContain(
 			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=all&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain('<span class="runtime-tab-active">tokens</span>');
+		expect(body).toContain('placeholder="jump to token #/owner"');
 		expect(body).toContain('<span class="secondary-tab-active">artifact</span>');
 		expect(body).toContain(
 			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie'

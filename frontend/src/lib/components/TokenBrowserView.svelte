@@ -17,7 +17,7 @@
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
-	import { buildTokenBrowserHref } from '$lib/token-browser-query';
+	import { buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
 	import {
 		appendTraitParams,
 		appendTraitRangeParams,
@@ -152,12 +152,13 @@
 	}
 
 	function tokenDetailHref(tokenId: string): string {
-		const query = new URLSearchParams();
-		appendMediaModeParam(query, media.selectedMode);
-		query.set('returnPath', browserBasePath);
-		query.set('returnQuery', buildReturnQuery());
-		const suffix = query.toString();
-		return `${collectionBasePath}/${encodeURIComponent(tokenId)}${suffix ? `?${suffix}` : ''}`;
+		return buildTokenDetailHref({
+			basePath: collectionBasePath,
+			tokenId,
+			mediaMode: media.selectedMode,
+			returnPath: browserBasePath,
+			returnQuery: buildReturnQuery()
+		});
 	}
 
 	function buildReturnQuery(): string {

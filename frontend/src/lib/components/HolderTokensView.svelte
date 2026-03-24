@@ -9,6 +9,7 @@
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
+	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
@@ -130,6 +131,9 @@
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}
+		{#if collection}
+			<CollectionJumpForm basePath={collectionBasePath} mediaMode={media.selectedMode} />
+		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 	{#snippet topActions()}

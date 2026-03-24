@@ -530,6 +530,28 @@ th {
 	color: var(--c-cyan);
 }
 
+.collection-jump-form {
+	display: inline-flex;
+	align-items: center;
+	margin-right: 0.9rem;
+}
+
+.collection-jump-input {
+	width: min(46ch, 72vw);
+	min-height: 1.85rem;
+	padding: 0.25rem 0.55rem;
+	border: 1px solid var(--c-blue);
+	background: var(--c-bg);
+	color: var(--c-ice);
+	font-family: inherit;
+	font-size: 0.78rem;
+	line-height: 1.2;
+}
+
+.collection-jump-input::placeholder {
+	color: color-mix(in srgb, var(--c-sand) 82%, transparent);
+}
+
 .shortcuts-help-backdrop {
 	position: fixed;
 	inset: 0;

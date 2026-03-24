@@ -90,6 +90,25 @@ export function buildOwnerTokensHref(params: {
 	});
 }
 
+export function buildTokenDetailHref(params: {
+	basePath: string;
+	tokenId: string;
+	mediaMode?: string | null;
+	returnPath?: string | null;
+	returnQuery?: string | null;
+}): string {
+	const query = new URLSearchParams();
+	appendMediaModeParam(query, params.mediaMode ?? null);
+	if (params.returnPath?.trim()) {
+		query.set('returnPath', params.returnPath.trim());
+	}
+	if (params.returnQuery?.trim()) {
+		query.set('returnQuery', params.returnQuery.trim());
+	}
+	const suffix = query.toString();
+	return `${params.basePath}/${encodeURIComponent(params.tokenId)}${suffix ? `?${suffix}` : ''}`;
+}
+
 export function parseDisplayMode(raw: string | null): 'grid' | 'table' {
 	if (raw?.trim().toLowerCase() === 'table') return 'table';
 	return 'grid';
