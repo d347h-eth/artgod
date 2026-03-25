@@ -20,9 +20,12 @@ export default defineConfig(({ mode }) => {
 	const appVersion = (resolvedEnv.PUBLIC_APP_VERSION?.trim() ||
 		(packageVersion ? `v${packageVersion}` : 'v0.0.1-pre-alpha.1')) as string;
 	const publicBackendOrigin = resolvedEnv.PUBLIC_BACKEND_ORIGIN?.trim() || '';
+	const internalBackendOrigin = resolvedEnv.INTERNAL_BACKEND_ORIGIN?.trim() || '';
 	const publicDeploymentMode = resolvedEnv.PUBLIC_APP_DEPLOYMENT_MODE?.trim() || '';
 	const publicChainRef = resolvedEnv.PUBLIC_APP_CHAIN_REF?.trim() || '';
 	const publicCollectionRef = resolvedEnv.PUBLIC_APP_COLLECTION_REF?.trim() || '';
+	const devBackendOrigin =
+		internalBackendOrigin || publicBackendOrigin || 'http://127.0.0.1:3000';
 
 	return {
 		plugins: [tailwindcss(), sveltekit()],
@@ -37,6 +40,16 @@ export default defineConfig(({ mode }) => {
 		server: {
 			fs: {
 				allow: [workspaceRoot]
+			},
+			proxy: {
+				'/api': {
+					target: devBackendOrigin,
+					changeOrigin: true
+				},
+				'/health': {
+					target: devBackendOrigin,
+					changeOrigin: true
+				}
 			}
 		}
 	};

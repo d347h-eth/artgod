@@ -40,7 +40,8 @@ export async function resolveBackendOrigin(): Promise<string> {
 async function resolveDesktopOrDefault(): Promise<string> {
 	const tauriInternals = getTauriInternals();
 	if (!tauriInternals) {
-		return DEFAULT_BACKEND_ORIGIN;
+		// Browser web deployments should use same-origin relative requests.
+		return '';
 	}
 	try {
 		const endpoints = await tauriInternals.invoke<DesktopEndpoints>('runtime_get_endpoints');
