@@ -84,12 +84,9 @@ Its routing is:
 - `/api/*` and `/health/*` -> `backend:3000`
 - everything else -> `frontend-web:4173`
 
-The compose file still binds backend/frontend service ports only on loopback for local inspection/admin use:
+ArtGod `backend` and `frontend-web` are not published to host ports by default. They are reachable only on the Docker networks (`default` and the shared `public-edge` network), which avoids host-port conflicts with other stacks on the VPS.
 
-- backend: `127.0.0.1:3000`
-- frontend: `127.0.0.1:4173`
-
-`nats` is internal-only and not published to the host.
+`nats` is also internal-only and not published to the host.
 
 ## DNS And Firewall
 
@@ -131,6 +128,8 @@ If you want to use the bundled Caddy instead of an existing VPS proxy:
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml --profile bundled-caddy up --build -d
 ```
 
+If you need temporary direct host access to backend/frontend for debugging, use a one-off compose override or `docker exec`/`docker compose exec` inside the stack rather than permanent host port bindings.
+
 4. Inspect logs:
 
 ```sh
@@ -149,6 +148,7 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
+- The deploy image explicitly runs `yarn rebuild better-sqlite3` during the build, because this repo keeps Yarn install scripts disabled by default and the runtime needs the native SQLite binding present in `.yarn/unplugged`.
 - The deploy image reuses the same backend/indexer runtime artifacts and Yarn PnP Node launch shape as the desktop supervisor.
 - SQLite is persisted in the named Docker volume mounted at `/data`.
 - Bundled Caddy certificates and config state are persisted in the named Docker volumes `caddy-data` and `caddy-config`.

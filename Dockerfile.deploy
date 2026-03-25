@@ -24,6 +24,7 @@ ENV PUBLIC_APP_COLLECTION_REF=${PUBLIC_APP_COLLECTION_REF}
 
 RUN test -n "$PUBLIC_BACKEND_ORIGIN"
 RUN yarn install --immutable
+RUN yarn rebuild better-sqlite3
 RUN yarn check:runtime-registry
 RUN yarn build:web
 RUN yarn build:runtime

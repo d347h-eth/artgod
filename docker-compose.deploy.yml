@@ -54,6 +54,8 @@ services:
         <<: *artgod-service
         depends_on:
             - backend
+        expose:
+            - "4173"
         networks:
             default:
             public-edge:
@@ -64,13 +66,13 @@ services:
             ARTGOD_WORKSPACE_ROOT: /app
             HOST: 0.0.0.0
             PORT: 4173
-        ports:
-            - "127.0.0.1:4173:4173"
 
     backend:
         <<: *artgod-service
         depends_on:
             - nats
+        expose:
+            - "3000"
         networks:
             default:
             public-edge:
@@ -81,8 +83,6 @@ services:
         environment:
             ARTGOD_WORKSPACE_ROOT: /app
             BACKEND_HOST: 0.0.0.0
-        ports:
-            - "127.0.0.1:3000:3000"
 
     indexer-scheduler-worker:
         <<: *artgod-service
