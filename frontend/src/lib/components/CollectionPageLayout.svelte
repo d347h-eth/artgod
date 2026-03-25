@@ -9,6 +9,7 @@
 		customizationHref,
 		activeSection,
 		collectionAvailable = true,
+		showCustomization = true,
 		breadcrumbs,
 		headerActions,
 		topActions,
@@ -20,6 +21,7 @@
 		customizationHref: string;
 		activeSection: 'tokens' | 'activities' | 'holders' | 'customization' | null;
 		collectionAvailable?: boolean;
+		showCustomization?: boolean;
 		breadcrumbs: Snippet;
 		headerActions?: Snippet;
 		topActions?: Snippet;
@@ -41,6 +43,7 @@
 					{holdersHref}
 					{customizationHref}
 					active={activeSection}
+					{showCustomization}
 				/>
 			{:else}
 				<span class="muted">collection not found</span>

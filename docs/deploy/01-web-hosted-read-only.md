@@ -1,20 +1,30 @@
 # Web-Hosted Read-Only Instance
 
-This document describes the current first-pass hosted deployment for a public, read-only ArtGod instance.
+This document describes the current hosted deployment for a public, read-only ArtGod instance.
+
+Today that public mode is intended for a single fixed collection deployment:
+
+- `terraforms.artgod.network/` -> Terraforms tokens
+- `terraforms.artgod.network/activity` -> Terraforms activities
+- `terraforms.artgod.network/holders` -> Terraforms holders
+- `terraforms.artgod.network/holders/:owner_ref` -> Terraforms owner tokens
+- `terraforms.artgod.network/:token_ref` -> Terraforms token detail
 
 ## Shape
 
+- By default, the ArtGod deploy stack is prepared to sit behind an already-running VPS-wide Caddy or other reverse proxy.
+- The deploy compose also includes an optional bundled Caddy service behind the `bundled-caddy` compose profile.
 - The browser-facing UI is the SSR web frontend (`frontend/build-web`).
 - The backend API is a separate service.
 - NATS and all indexer workers run alongside them in Docker.
-- Reverse proxy / TLS termination is expected to be handled outside this file (for example by your own Caddy setup).
 
-The deploy compose intentionally keeps public writes disabled:
+The deploy compose intentionally keeps public writes/admin surfaces disabled by route registration:
 
-- `BACKEND_ALLOWED_HOSTS` stays loopback-only.
-- `BACKEND_ALLOWED_ORIGINS` stays loopback-only.
-- Public `GET` requests work through the reverse proxy.
-- Public mutating requests fail backend host/origin checks.
+- backend runs in `public_single_collection` mode
+- only Terraforms read routes are registered publicly
+- bootstrap and customization routes are not registered
+- collection-list routes are not registered
+- CSRF issuance route is not registered
 
 This is the intended mode for a public browse-only instance that you administer manually under the hood.
 
@@ -22,21 +32,73 @@ This is the intended mode for a public browse-only instance that you administer 
 
 - `docker-compose.deploy.yml`
 - `Dockerfile.deploy`
+- `Caddyfile.deploy`
 - `.env.deploy.example`
 
-## Reverse Proxy Routing
+## Shared Docker Edge Network
 
-Expose a single public origin and route:
+To let an existing Caddy container from another compose project reach ArtGod directly by container DNS name, create a shared external Docker network once on the VPS:
 
-- `/api/*` and `/health/*` -> backend at `127.0.0.1:3000`
-- everything else -> SSR frontend at `127.0.0.1:4173`
+```sh
+docker network create public-edge
+```
 
-The compose file binds those two ports only on loopback for proxying/admin use:
+ArtGod joins that network with stable aliases:
+
+- `artgod-backend`
+- `artgod-frontend`
+
+If you want a different network name, set `PUBLIC_EDGE_NETWORK` in `.env.deploy` and use the same name from the other compose project.
+
+## Public Routing
+
+### Reusing an Existing VPS Caddy
+
+If you already have a Caddy container running from another compose project, connect that Caddy service to the same external network and route:
+
+- `/api/*` and `/health/*` -> `artgod-backend:3000`
+- everything else -> `artgod-frontend:4173`
+
+Example Caddy site block:
+
+```caddy
+terraforms.artgod.network {
+  encode zstd gzip
+
+  @backend path /api/* /health/*
+  reverse_proxy @backend artgod-backend:3000
+
+  reverse_proxy artgod-frontend:4173
+}
+```
+
+### Optional Bundled Caddy
+
+The bundled Caddy service exposes:
+
+- `http://:80`
+- `https://:443`
+
+Its routing is:
+
+- `/api/*` and `/health/*` -> `backend:3000`
+- everything else -> `frontend-web:4173`
+
+The compose file still binds backend/frontend service ports only on loopback for local inspection/admin use:
 
 - backend: `127.0.0.1:3000`
 - frontend: `127.0.0.1:4173`
 
 `nats` is internal-only and not published to the host.
+
+## DNS And Firewall
+
+Before starting the stack:
+
+- point `PUBLIC_SITE_HOST` (for example `terraforms.artgod.network`) at the VPS with an `A` / `AAAA` record
+- open inbound `80/tcp`, `443/tcp`, and `443/udp`
+- make `PUBLIC_BACKEND_ORIGIN` match the same public site origin, e.g. `https://terraforms.artgod.network`
+- create the shared Docker edge network before starting the stack
 
 ## Build And Start
 
@@ -48,7 +110,12 @@ cp .env.deploy.example .env.deploy
 
 2. Fill the required values in `.env.deploy`:
 
+- `PUBLIC_SITE_HOST`
 - `PUBLIC_BACKEND_ORIGIN`
+- `PUBLIC_EDGE_NETWORK=public-edge`
+- `PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection`
+- `PUBLIC_APP_CHAIN_REF=ethereum`
+- `PUBLIC_APP_COLLECTION_REF=terraforms`
 - `RPC_URL`
 - `OPENSEA_API_KEY`
 
@@ -58,30 +125,30 @@ cp .env.deploy.example .env.deploy
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml up --build -d
 ```
 
+If you want to use the bundled Caddy instead of an existing VPS proxy:
+
+```sh
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml --profile bundled-caddy up --build -d
+```
+
 4. Inspect logs:
 
 ```sh
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml logs -f caddy
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml logs -f backend
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml logs -f indexer-sync-worker
 ```
 
 ## Manual Admin
 
-Because public write routes remain blocked, do manual admin from the VPS itself or through an SSH tunnel.
-
-Examples:
-
-- SSH into the VPS and call `http://127.0.0.1:3000`
-- or forward locally:
-
-```sh
-ssh -L 3000:127.0.0.1:3000 <host>
-```
-
-Then use the local loopback backend origin for CSRF-protected write calls.
+Because public write/admin routes are not exposed in this deployment mode, do manual admin from the VPS itself at the DB/process level for now.
 
 ## Notes
 
 - `PUBLIC_BACKEND_ORIGIN` is a build-time input for the SSR frontend image. If you change the public domain, rebuild the image.
+- `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
+- `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
+- `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
 - The deploy image reuses the same backend/indexer runtime artifacts and Yarn PnP Node launch shape as the desktop supervisor.
 - SQLite is persisted in the named Docker volume mounted at `/data`.
+- Bundled Caddy certificates and config state are persisted in the named Docker volumes `caddy-data` and `caddy-config`.

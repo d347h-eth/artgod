@@ -2,10 +2,15 @@ import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BackendApiError, getCollectionCustomization } from '$lib/backend-api';
 import { normalizeMediaMode } from '$lib/media-mode';
+import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import { parseSelectedTraitRanges, parseSelectedTraits } from '$lib/trait-filters';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
+	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+		throw error(404, 'Not found');
+	}
+
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
 			chain: null,

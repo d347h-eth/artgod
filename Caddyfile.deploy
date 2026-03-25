@@ -1,0 +1,8 @@
+terraforms.artgod.network {
+	encode zstd gzip
+
+	@backend path /api/* /health/*
+	reverse_proxy @backend backend:3000
+
+	reverse_proxy frontend-web:4173
+}

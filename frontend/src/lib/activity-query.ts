@@ -2,6 +2,7 @@ import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import { joinPath, withQuery } from '$lib/route-paths';
 import {
 	appendNormalizedTraitParams,
 	appendNormalizedTraitRangeParams,
@@ -49,7 +50,7 @@ export function buildCollectionActivityHref(params: {
 	}
 	appendTraitParams(query, params.selectedTraits);
 	appendTraitRangeParams(query, params.selectedTraitRanges);
-	return `${params.basePath}/activity?${query.toString()}`;
+	return withQuery(joinPath(params.basePath, 'activity'), query);
 }
 
 export function parseCollectionActivityKind(raw: string | null): ActivityFeedFilterKind {

@@ -13,6 +13,10 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import {
+		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+		publicCollectionTokensPath
+	} from '$lib/runtime/public-deployment';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
@@ -55,6 +59,7 @@
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 
 	function collectionsHref(): string {
+		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
 		if (!chain) return '/';
 		return `/${chain.slug}`;
 	}
@@ -118,16 +123,25 @@
 	customizationHref={customizationHref()}
 	activeSection={null}
 	collectionAvailable={collection !== null}
+	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
-		<a href={collectionsHref()}>collections</a>
 		{#if collection}
-			<span class="breadcrumbs-separator">/</span>
-			<a href={collectionTokensHref()}>{collection.slug}</a>
-			<span class="breadcrumbs-separator">/</span>
-			<a href={holdersBasePath}>holders</a>
-			<span class="breadcrumbs-separator">/</span>
-			<span class="breadcrumbs-current">{owner}</span>
+			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+				<a href={collectionTokensHref()}>{collection.slug}</a>
+				<span class="breadcrumbs-separator">/</span>
+				<a href={holdersBasePath}>holders</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">{owner}</span>
+			{:else}
+				<a href={collectionsHref()}>collections</a>
+				<span class="breadcrumbs-separator">/</span>
+				<a href={collectionTokensHref()}>{collection.slug}</a>
+				<span class="breadcrumbs-separator">/</span>
+				<a href={holdersBasePath}>holders</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">{owner}</span>
+			{/if}
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}

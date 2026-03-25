@@ -184,6 +184,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         runtimeHealthUseCase,
         config.userlandUiDistDir,
         config.security,
+        config.deployment,
     );
 }
 

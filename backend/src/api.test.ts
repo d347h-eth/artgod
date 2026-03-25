@@ -36,6 +36,7 @@ const API_SECURITY_CONFIG: BackendSecurityConfig = {
 
 let dbPath = "";
 let app: FastifyInstance | null = null;
+let publicApp: FastifyInstance | null = null;
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -243,13 +244,45 @@ beforeAll(async () => {
         runtimeHealthUseCase,
         null,
         API_SECURITY_CONFIG,
+        {
+            mode: "standard",
+            publicCollectionScope: null,
+        },
+    );
+    publicApp = appModule.createApiApp(
+        createBootstrapRunUseCase,
+        listBootstrapRunsUseCase,
+        getBootstrapRunDetailUseCase,
+        getBootstrapStatusUseCase,
+        retryBootstrapRunFailedTasksUseCase,
+        getDefaultChainUseCase,
+        listCollectionsUseCase,
+        getCollectionActivityUseCase,
+        getTokenActivityUseCase,
+        getCollectionCustomizationUseCase,
+        getCollectionDetailUseCase,
+        getCollectionHoldersUseCase,
+        getTokenDetailUseCase,
+        updateCollectionCustomizationUseCase,
+        runtimeHealthUseCase,
+        null,
+        API_SECURITY_CONFIG,
+        {
+            mode: "public_single_collection",
+            publicCollectionScope: {
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+            },
+        },
     );
     await app.ready();
+    await publicApp.ready();
 });
 
 afterAll(async () => {
     await Promise.all([
         app?.close(),
+        publicApp?.close(),
         fs.rm(dbPath, { force: true }),
         fs.rm(`${dbPath}-shm`, { force: true }),
         fs.rm(`${dbPath}-wal`, { force: true }),
@@ -262,6 +295,38 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.chain.publicChainId).toBe(1);
         expect(result.payload.chain.slug).toBe("ethereum");
+    });
+
+    it("limits public single-collection mode to Terraforms read routes", async () => {
+        const terraforms = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms?token_status=all&limit=1",
+        );
+        expect(terraforms.statusCode).toBe(200);
+        expect(terraforms.payload.collection.slug).toBe("terraforms");
+
+        const nonPublicCollection = await resolvePublic(
+            "GET",
+            "/api/ethereum/milady?token_status=all&limit=1",
+        );
+        expect(nonPublicCollection.statusCode).toBe(404);
+    });
+
+    it("does not register admin routes in public single-collection mode", async () => {
+        const collections = await resolvePublic(
+            "GET",
+            "/api/ethereum/collections?limit=10",
+        );
+        expect(collections.statusCode).toBe(404);
+
+        const customization = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms/customization",
+        );
+        expect(customization.statusCode).toBe(404);
+
+        const csrf = await resolvePublic("GET", "/api/security/csrf");
+        expect(csrf.statusCode).toBe(404);
     });
 
     it("reports runtime health with semantic checks", async () => {
@@ -2037,7 +2102,37 @@ async function resolve(
     if (!app) {
         throw new Error("Fastify app is not initialized");
     }
-    const response = await app.inject({
+    return resolveWith(app, method, pathWithQuery, payload, headers);
+}
+
+async function resolvePublic(
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS",
+    pathWithQuery: string,
+    payload?: unknown,
+    headers?: Record<string, string>,
+): Promise<{
+    statusCode: number;
+    payload: any;
+    headers: Record<string, string | string[] | undefined>;
+}> {
+    if (!publicApp) {
+        throw new Error("Public Fastify app is not initialized");
+    }
+    return resolveWith(publicApp, method, pathWithQuery, payload, headers);
+}
+
+async function resolveWith(
+    targetApp: FastifyInstance,
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS",
+    pathWithQuery: string,
+    payload?: unknown,
+    headers?: Record<string, string>,
+): Promise<{
+    statusCode: number;
+    payload: any;
+    headers: Record<string, string | string[] | undefined>;
+}> {
+    const response = await targetApp.inject({
         method,
         url: pathWithQuery,
         ...(payload === undefined ? {} : { payload: payload as any }),

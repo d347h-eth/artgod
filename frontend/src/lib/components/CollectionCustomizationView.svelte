@@ -17,6 +17,11 @@
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
+	import { joinPath, withQuery } from '$lib/route-paths';
+	import {
+		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+		publicCollectionTokensPath
+	} from '$lib/runtime/public-deployment';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	type TraitFilterPresentationState =
@@ -73,6 +78,7 @@
 	});
 
 	function collectionsHref(): string {
+		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
 		if (!chain) return '/';
 		return `/${chain.slug}`;
 	}
@@ -103,8 +109,7 @@
 	function holdersHref(): string {
 		const query = new URLSearchParams();
 		appendMediaModeParam(query, mediaMode);
-		const suffix = query.toString();
-		return `${basePath}/holders${suffix ? `?${suffix}` : ''}`;
+		return withQuery(joinPath(basePath, 'holders'), query);
 	}
 
 	function customizationHref(): string {
@@ -346,14 +351,21 @@
 	customizationHref={customizationHref()}
 	activeSection="customization"
 	collectionAvailable={collection !== null}
+	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
-		<a href={collectionsHref()}>collections</a>
 		{#if collection}
-			<span class="breadcrumbs-separator">/</span>
-			<a href={tokensHref()}>{collection.slug}</a>
-			<span class="breadcrumbs-separator">/</span>
-			<span class="breadcrumbs-current">customization</span>
+			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+				<a href={tokensHref()}>{collection.slug}</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">customization</span>
+			{:else}
+				<a href={collectionsHref()}>collections</a>
+				<span class="breadcrumbs-separator">/</span>
+				<a href={tokensHref()}>{collection.slug}</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">customization</span>
+			{/if}
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}

@@ -1,14 +1,31 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionActivities } from '$lib/backend-api';
 import {
 	normalizeCollectionActivityParams,
 	parseCollectionActivityKind
 } from '$lib/activity-query';
+import { withQuery } from '$lib/route-paths';
+import {
+	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+	PUBLIC_COLLECTION_SCOPE,
+	matchesPublicCollectionRoute,
+	publicCollectionActivityPath
+} from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
+	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+		if (!PUBLIC_COLLECTION_SCOPE) {
+			throw error(500, 'Public collection scope is not configured');
+		}
+		if (!matchesPublicCollectionRoute(params.chain_ref, params.collection_ref)) {
+			throw error(404, 'Not found');
+		}
+		throw redirect(307, withQuery(publicCollectionActivityPath(), url.searchParams));
+	}
+
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
 			chain: null,

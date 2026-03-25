@@ -20,6 +20,11 @@
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
+	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
+	import {
+		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+		publicCollectionTokensPath
+	} from '$lib/runtime/public-deployment';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
@@ -74,6 +79,7 @@
 	});
 
 	function collectionsHref(): string {
+		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
 		if (!chain) return '/';
 		return `/${chain.slug}`;
 	}
@@ -109,7 +115,7 @@
 	function holdersSectionHref(): string {
 		const query = new URLSearchParams();
 		query.set('media_mode', media.selectedMode);
-		return `${basePath}/holders?${query.toString()}`;
+		return withQuery(joinPath(basePath, 'holders'), query);
 	}
 
 	function resetTraitsHref(): string {
@@ -173,12 +179,17 @@
 	customizationHref={customizationSectionHref()}
 	activeSection="tokens"
 	collectionAvailable={collection !== null}
+	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
-		<a href={collectionsHref()}>collections</a>
 		{#if collection}
-			<span class="breadcrumbs-separator">/</span>
-			<span class="breadcrumbs-current">{collection.slug}</span>
+			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+				<span class="breadcrumbs-current">{collection.slug}</span>
+			{:else}
+				<a href={collectionsHref()}>collections</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">{collection.slug}</span>
+			{/if}
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}
@@ -226,15 +237,15 @@
 	{/if}
 
 	<TokenBrowserView
-		chain={chain}
-		collection={collection}
-		tokens={tokens}
+			chain={chain}
+			collection={collection}
+			tokens={tokens}
 		facets={facets}
 		selectedTraits={selectedTraits}
 		selectedTraitRanges={selectedTraitRanges}
 		{media}
-		collectionBasePath={basePath}
-		browserBasePath={basePath}
+		collectionBasePath={normalizeBasePath(basePath)}
+		browserBasePath={normalizeBasePath(basePath)}
 		requestCursor={requestCursor}
 		onResetTraits={onResetTraits}
 		{traitFacetPanel}

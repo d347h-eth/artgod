@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import { APP_VERSION } from '$lib/runtime/app-version';
 
 	type ShortcutSection = {
 		title: string;
@@ -23,6 +24,28 @@
 				}
 			]
 		},
+        {
+			title: 'Token Browser',
+			entries: [
+				{
+					keys: ['V'],
+					description: 'switch to the next media mode for current token results'
+				}
+			]
+		},
+        {
+			title: 'Token Browser Preview Navigation',
+			entries: [
+				{
+					keys: ['A', '←'],
+					description: 'open the previous token in the current visible results'
+				},
+				{
+					keys: ['D', '→'],
+					description: 'open the next token in the current visible results'
+				}
+			]
+		},
 		{
 			title: 'Traits Panel',
 			entries: [
@@ -33,15 +56,6 @@
 				{
 					keys: ['R'],
 					description: 'reset current trait filters'
-				}
-			]
-		},
-		{
-			title: 'Token Browser',
-			entries: [
-				{
-					keys: ['V'],
-					description: 'switch to the next media mode for current token results'
 				}
 			]
 		},
@@ -70,19 +84,6 @@
 				}
 			]
 		},
-		{
-			title: 'Token Browser Preview Navigation',
-			entries: [
-				{
-					keys: ['A', '←'],
-					description: 'open the previous token in the current visible results'
-				},
-				{
-					keys: ['D', '→'],
-					description: 'open the next token in the current visible results'
-				}
-			]
-		}
 	];
 
 	let {
@@ -150,8 +151,11 @@
 			</div>
 
 			<footer class="shortcuts-help-footer">
-				<a href="https://artgod.network/" target="_blank" rel="noreferrer">artgod.network</a>
-				<a href="https://x.com/artgod_eth" target="_blank" rel="noreferrer">x.com/artgod_eth</a>
+				<div class="shortcuts-help-links">
+					<a href="https://artgod.network/" target="_blank" rel="noreferrer">artgod.network</a>
+					<a href="https://x.com/artgod_eth" target="_blank" rel="noreferrer">x.com/artgod_eth</a>
+				</div>
+				<span class="muted">{APP_VERSION}</span>
 			</footer>
 		</div>
 	</div>

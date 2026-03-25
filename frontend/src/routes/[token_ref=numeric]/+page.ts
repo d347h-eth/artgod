@@ -1,50 +1,25 @@
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BackendApiError, getTokenDetail } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
-import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-	PUBLIC_COLLECTION_SCOPE,
-	matchesPublicCollectionRoute,
-	publicCollectionTokenDetailPath
+	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
-import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
-	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
-		if (!PUBLIC_COLLECTION_SCOPE) {
-			throw error(500, 'Public collection scope is not configured');
-		}
-		if (!matchesPublicCollectionRoute(params.chain_ref, params.collection_ref)) {
-			throw error(404, 'Not found');
-		}
-		throw redirect(307, withQuery(publicCollectionTokenDetailPath(params.token_ref), url.searchParams));
+	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
+		throw error(404, 'Not found');
 	}
 
 	const { backPath, backQuery } = normalizeReturnState(url.searchParams);
 	const mediaMode = normalizeMediaMode(url.searchParams.get('media_mode'));
 
-	if (IS_ADMIN_FRONTEND_TARGET) {
-		return {
-			chain: null,
-			collection: null,
-			media: {
-				selectedMode: 'snapshot',
-				defaultMode: 'snapshot',
-				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
-			},
-			token: null,
-			backPath,
-			backQuery
-		};
-	}
-
 	try {
 		const response = await getTokenDetail(
 			fetch,
-			params.chain_ref,
-			params.collection_ref,
+			PUBLIC_COLLECTION_SCOPE.chainRef,
+			PUBLIC_COLLECTION_SCOPE.collectionRef,
 			params.token_ref,
 			buildMediaModeQuery(mediaMode)
 		);

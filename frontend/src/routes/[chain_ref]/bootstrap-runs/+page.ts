@@ -2,9 +2,14 @@ import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, listBootstrapRuns } from '$lib/backend-api';
+import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
+	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+		throw error(404, 'Not found');
+	}
+
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
 			chain: null,

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import type {
     CreateBootstrapRunHttpAdapter,
     CreateBootstrapRunRoute,
@@ -60,6 +61,17 @@ import type {
 import type { CommonHttpHandlers } from "./http/common/handlers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+type PublicCollectionScope = {
+    chainRef: string;
+    collectionRef: string;
+} | null;
+
+type ApiRouteRegistrationOptions = {
+    publicCollectionScope: PublicCollectionScope;
+    includeAdminRoutes: boolean;
+    includeCsrfRoute: boolean;
+};
+
 export function registerApiRoutes(
     app: FastifyInstance,
     commonHandlers: CommonHttpHandlers,
@@ -82,37 +94,73 @@ export function registerApiRoutes(
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     updateCollectionCustomizationAdapter: UpdateCollectionCustomizationHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
+    options: ApiRouteRegistrationOptions,
 ): void {
+    const publicCollectionScopeGuard = createPublicCollectionScopeGuard(
+        options.publicCollectionScope,
+    );
+
     app.get("/health", async () => ({ status: "ok" }));
     app.get<GetRuntimeHealthRoute>(
         "/health/runtime",
         getRuntimeHealthAdapter.handle,
     );
     app.options("/api/*", commonHandlers.optionsApi);
-    app.get("/api/security/csrf", issueCsrfTokenHandler);
     app.get<GetDefaultChainRoute>(
         "/api/chains/default",
         getDefaultChainAdapter.handle,
     );
-    app.get<ListCollectionsRoute>(
-        "/api/:chain_ref/collections",
-        listCollectionsAdapter.handle,
-    );
     app.get<GetCollectionActivityRoute>(
         "/api/:chain_ref/:collection_ref/activity",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
         getCollectionActivityAdapter.handle,
     );
     app.get<GetCollectionDetailRoute>(
         "/api/:chain_ref/:collection_ref",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
         getCollectionDetailAdapter.handle,
+    );
+    app.get<GetCollectionHoldersRoute>(
+        "/api/:chain_ref/:collection_ref/holders",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
+        getCollectionHoldersAdapter.handle,
+    );
+    app.get<GetTokenActivityRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/activity",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
+        getTokenActivityAdapter.handle,
+    );
+    app.get<GetTokenDetailRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
+        getTokenDetailAdapter.handle,
+    );
+
+    if (options.includeCsrfRoute) {
+        app.get("/api/security/csrf", issueCsrfTokenHandler);
+    }
+
+    if (!options.includeAdminRoutes) {
+        return;
+    }
+
+    app.get<ListCollectionsRoute>(
+        "/api/:chain_ref/collections",
+        listCollectionsAdapter.handle,
     );
     app.get<GetCollectionCustomizationRoute>(
         "/api/:chain_ref/:collection_ref/customization",
         getCollectionCustomizationAdapter.handle,
-    );
-    app.get<GetCollectionHoldersRoute>(
-        "/api/:chain_ref/:collection_ref/holders",
-        getCollectionHoldersAdapter.handle,
     );
     app.post<CreateBootstrapRunRoute>(
         "/api/:chain_ref/collections/bootstrap",
@@ -130,14 +178,6 @@ export function registerApiRoutes(
         "/api/:chain_ref/:collection_ref/bootstrap",
         getBootstrapStatusAdapter.handle,
     );
-    app.get<GetTokenActivityRoute>(
-        "/api/:chain_ref/:collection_ref/:token_ref/activity",
-        getTokenActivityAdapter.handle,
-    );
-    app.get<GetTokenDetailRoute>(
-        "/api/:chain_ref/:collection_ref/:token_ref",
-        getTokenDetailAdapter.handle,
-    );
     app.put<UpdateCollectionCustomizationRoute>(
         "/api/:chain_ref/:collection_ref/customization",
         updateCollectionCustomizationAdapter.handle,
@@ -146,4 +186,29 @@ export function registerApiRoutes(
         "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",
         retryBootstrapRunFailedTasksAdapter.handle,
     );
+}
+
+function createPublicCollectionScopeGuard(scope: PublicCollectionScope) {
+    if (!scope) {
+        return undefined;
+    }
+
+    return async function publicCollectionScopeGuard(
+        request: FastifyRequest,
+        reply: FastifyReply,
+    ): Promise<void> {
+        const params = request.params as
+            | { chain_ref?: string; collection_ref?: string }
+            | undefined;
+        if (!params?.chain_ref || !params.collection_ref) {
+            return;
+        }
+
+        if (
+            normalizeSlugRef(params.chain_ref) !== scope.chainRef ||
+            normalizeSlugRef(params.collection_ref) !== scope.collectionRef
+        ) {
+            await reply.callNotFound();
+        }
+    };
 }

@@ -9,6 +9,11 @@
 	} from '$lib/api-types';
 	import { getTokenDetail } from '$lib/backend-api';
 	import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
+	import {
+		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+		publicCollectionOwnerTokensPath,
+		publicCollectionTokensPath
+	} from '$lib/runtime/public-deployment';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	type PageData = {
@@ -33,7 +38,11 @@
 
 	function collectionHref(): string {
 		if (!data?.chain || !data.collection) return '/';
-		const base = data.backPath ?? `/${data.chain.slug}/${data.collection.slug}`;
+		const base =
+			data.backPath ??
+			(IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+				? publicCollectionTokensPath()
+				: `/${data.chain.slug}/${data.collection.slug}`);
 		if (data.backQuery) return `${base}?${data.backQuery}`;
 		const query = new URLSearchParams();
 		appendMediaModeParam(query, data.media?.selectedMode ?? null);
@@ -43,6 +52,13 @@
 
 	function holderHref(): string | null {
 		if (!data?.chain || !data.collection || !displayedToken?.currentHolder) return null;
+		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+			const query = new URLSearchParams();
+			appendMediaModeParam(query, data.media?.selectedMode ?? null);
+			const suffix = query.toString();
+			const path = publicCollectionOwnerTokensPath(displayedToken.currentHolder);
+			return suffix ? `${path}?${suffix}` : path;
+		}
 		return buildOwnerTokensHref({
 			basePath: `/${data.chain.slug}/${data.collection.slug}/holders/${encodeURIComponent(displayedToken.currentHolder)}`,
 			selectedTraits: [],
@@ -54,6 +70,11 @@
 	function backLabel(): string {
 		if (!data?.chain || !data.collection) return 'back';
 		const collectionPath = `/${data.chain.slug}/${data.collection.slug}`;
+		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+			return data.backPath && data.backPath !== publicCollectionTokensPath()
+				? 'back to holder'
+				: 'back to collection';
+		}
 		return data.backPath && data.backPath !== collectionPath ? 'back to holder' : 'back to collection';
 	}
 
@@ -199,7 +220,7 @@
 			{/if}
 		</div>
 
-		<h1 class="token-detail-title">{resolveTokenTitle(displayedToken, data.collection ?? null)}</h1>
+		<h1 class="token-detail-title">{resolveTokenTitle(displayedToken, data?.collection ?? null)}</h1>
 
 		<section class="panel-header">
 			{#if holderHref()}

@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
+import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import {
     parseBoolean,
     parsePositiveInteger,
@@ -23,6 +24,18 @@ export type BackendSecurityConfig = {
     csrfCookieSecure: boolean;
 };
 
+export type BackendDeploymentMode = "standard" | "public_single_collection";
+
+export type BackendPublicCollectionScope = {
+    chainRef: string;
+    collectionRef: string;
+};
+
+export type BackendDeploymentConfig = {
+    mode: BackendDeploymentMode;
+    publicCollectionScope: BackendPublicCollectionScope | null;
+};
+
 export type BackendConfig = {
     host: string;
     port: number;
@@ -33,6 +46,7 @@ export type BackendConfig = {
     natsStreamPrefix: string;
     userlandUiDistDir: string | null;
     security: BackendSecurityConfig;
+    deployment: BackendDeploymentConfig;
 };
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -68,6 +82,7 @@ export function loadBackendConfig(
             false,
         ),
     };
+    const deployment = parseDeploymentConfig(env);
 
     return {
         host,
@@ -79,6 +94,41 @@ export function loadBackendConfig(
         natsStreamPrefix,
         userlandUiDistDir,
         security,
+        deployment,
+    };
+}
+
+function parseDeploymentConfig(
+    env: Record<string, string | undefined>,
+): BackendDeploymentConfig {
+    const rawMode = env.PUBLIC_APP_DEPLOYMENT_MODE?.trim() || "";
+    if (!rawMode || rawMode === "standard") {
+        return {
+            mode: "standard",
+            publicCollectionScope: null,
+        };
+    }
+    if (rawMode !== "public_single_collection") {
+        throw new Error(
+            `Invalid PUBLIC_APP_DEPLOYMENT_MODE: ${rawMode}`,
+        );
+    }
+
+    const rawChainRef = parseRequiredString(
+        env.PUBLIC_APP_CHAIN_REF,
+        "PUBLIC_APP_CHAIN_REF",
+    );
+    const rawCollectionRef = parseRequiredString(
+        env.PUBLIC_APP_COLLECTION_REF,
+        "PUBLIC_APP_COLLECTION_REF",
+    );
+
+    return {
+        mode: "public_single_collection",
+        publicCollectionScope: {
+            chainRef: normalizeSlugRef(rawChainRef),
+            collectionRef: normalizeSlugRef(rawCollectionRef),
+        },
     };
 }
 

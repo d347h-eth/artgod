@@ -20,6 +20,11 @@
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
+	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
+	import {
+		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+		publicCollectionTokensPath
+	} from '$lib/runtime/public-deployment';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	let {
@@ -100,6 +105,7 @@
 	});
 
 	function collectionsHref(): string {
+		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
 		if (!chain) return '/';
 		return `/${chain.slug}`;
 	}
@@ -108,21 +114,18 @@
 		if (!collection) return '#';
 		const query = new URLSearchParams();
 		appendMediaModeParam(query, selectedMediaMode);
-		const suffix = query.toString();
-		return suffix ? `${basePath}?${suffix}` : basePath;
+		return withQuery(normalizeBasePath(basePath), query);
 	}
 
 	function holdersPath(): string {
-		return `${basePath}/holders`;
+		return joinPath(basePath, 'holders');
 	}
 
 	function holdersHref(): string {
 		if (!collection) return '#';
 		const query = new URLSearchParams();
 		appendMediaModeParam(query, selectedMediaMode);
-		const suffix = query.toString();
-		const path = holdersPath();
-		return suffix ? `${path}?${suffix}` : path;
+		return withQuery(holdersPath(), query);
 	}
 
 	function holderHref(owner: string): string {
@@ -215,14 +218,21 @@
 	customizationHref={customizationHref()}
 	activeSection="holders"
 	collectionAvailable={collection !== null}
+	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
-		<a href={collectionsHref()}>collections</a>
 		{#if collection}
-			<span class="breadcrumbs-separator">/</span>
-			<a href={tokensHref()}>{collection.slug}</a>
-			<span class="breadcrumbs-separator">/</span>
-			<span class="breadcrumbs-current">holders</span>
+			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+				<a href={tokensHref()}>{collection.slug}</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">holders</span>
+			{:else}
+				<a href={collectionsHref()}>collections</a>
+				<span class="breadcrumbs-separator">/</span>
+				<a href={tokensHref()}>{collection.slug}</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">holders</span>
+			{/if}
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}

@@ -61,7 +61,7 @@ cp .env.deploy.example .env.deploy
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml up --build -d
 ```
 
-Hosted deployment is currently documented as a public read-only instance behind your own reverse proxy/TLS setup. For the exact env contract, routing shape, and manual admin model, see:
+Hosted deployment is currently documented as a public read-only instance that can sit behind an existing VPS reverse proxy, with an optional bundled Caddy profile in the deploy compose. For the exact env contract, routing shape, and manual admin model, see:
 
 - `docs/deploy/01-web-hosted-read-only.md`
 
@@ -134,7 +134,7 @@ For all desktop release details (signing/notarization setup, required secrets, v
 
 - `docs/desktop/01-tauri-build-and-runtime.md`
 
-For the current hosted Docker deployment shape (public reads, local-only writes, external reverse proxy), see:
+For the current hosted Docker deployment shape (public reads, local-only writes, external shared proxy or optional bundled Caddy), see:
 
 - `docs/deploy/01-web-hosted-read-only.md`
 

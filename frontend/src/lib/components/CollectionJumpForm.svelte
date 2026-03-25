@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
 
 	let {
@@ -27,7 +28,7 @@
 		}
 		if (/^0x[a-fA-F0-9]{40}$/.test(nextValue)) {
 			return buildOwnerTokensHref({
-				basePath: `${basePath}/holders/${encodeURIComponent(nextValue)}`,
+				basePath: joinPath(basePath, `holders/${encodeURIComponent(nextValue)}`),
 				selectedTraits: [],
 				selectedTraitRanges: [],
 				mediaMode

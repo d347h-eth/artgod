@@ -6,6 +6,9 @@ x-artgod-image: &artgod-image
         args:
             PUBLIC_BACKEND_ORIGIN: ${PUBLIC_BACKEND_ORIGIN}
             PUBLIC_APP_VERSION: ${PUBLIC_APP_VERSION:-}
+            PUBLIC_APP_DEPLOYMENT_MODE: ${PUBLIC_APP_DEPLOYMENT_MODE:-}
+            PUBLIC_APP_CHAIN_REF: ${PUBLIC_APP_CHAIN_REF:-}
+            PUBLIC_APP_COLLECTION_REF: ${PUBLIC_APP_COLLECTION_REF:-}
 
 x-artgod-service: &artgod-service
     <<: *artgod-image
@@ -19,6 +22,26 @@ x-artgod-service: &artgod-service
         - artgod-data:/data
 
 services:
+    caddy:
+        image: caddy:2.10
+        init: true
+        restart: unless-stopped
+        profiles:
+            - bundled-caddy
+        depends_on:
+            - frontend-web
+            - backend
+        env_file:
+            - .env.deploy
+        ports:
+            - "80:80"
+            - "443:443"
+            - "443:443/udp"
+        volumes:
+            - ./Caddyfile.deploy:/etc/caddy/Caddyfile:ro
+            - caddy-data:/data
+            - caddy-config:/config
+
     nats:
         image: nats:2.10
         init: true
@@ -31,6 +54,11 @@ services:
         <<: *artgod-service
         depends_on:
             - backend
+        networks:
+            default:
+            public-edge:
+                aliases:
+                    - artgod-frontend
         command: ["node", "frontend/build-web/index.js"]
         environment:
             ARTGOD_WORKSPACE_ROOT: /app
@@ -43,6 +71,11 @@ services:
         <<: *artgod-service
         depends_on:
             - nats
+        networks:
+            default:
+            public-edge:
+                aliases:
+                    - artgod-backend
         command:
             ["./scripts/deploy/run-node-runtime.sh", "backend/dist-desktop/server.mjs"]
         environment:
@@ -156,4 +189,10 @@ services:
 volumes:
     artgod-data:
     nats-data:
+    caddy-data:
+    caddy-config:
 
+networks:
+    public-edge:
+        name: ${PUBLIC_EDGE_NETWORK:-public-edge}
+        external: true

@@ -1,9 +1,14 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BackendApiError, getBootstrapRunDetail } from '$lib/backend-api';
+import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
 export const load: PageLoad = async ({ fetch, params }) => {
+	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+		throw error(404, 'Not found');
+	}
+
 	const runId = Number(params.run_id);
 	if (!Number.isInteger(runId) || runId <= 0) {
 		throw error(400, 'Invalid run_id');

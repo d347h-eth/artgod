@@ -28,6 +28,7 @@ describe('KeyboardShortcutsHelp', () => {
 
 		expect(body).toContain('keyboard shortcuts');
 		expect(body).toContain('Token Browser Preview Navigation');
+		expect(body).toContain('v0.0.1-pre-alpha.1');
 		expect(body).toContain('artgod.network');
 		expect(body).toContain('x.com/artgod_eth');
 		expect(body).toContain('>F1<');

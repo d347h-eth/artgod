@@ -38,7 +38,10 @@ import {
 } from "./http/common/security.js";
 import { registerUserlandStaticRoutes } from "./http/common/userland-static.js";
 import { registerApiRoutes } from "./http-routes.js";
-import type { BackendSecurityConfig } from "./config.js";
+import type {
+    BackendDeploymentConfig,
+    BackendSecurityConfig,
+} from "./config.js";
 
 export function createApiApp(
     createBootstrapRunUseCase: CreateBootstrapRunUseCase,
@@ -58,6 +61,7 @@ export function createApiApp(
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
     userlandUiDistDir: string | null,
     securityConfig: BackendSecurityConfig,
+    deploymentConfig: BackendDeploymentConfig,
 ): FastifyInstance {
     const app = Fastify({
         logger: false,
@@ -135,6 +139,13 @@ export function createApiApp(
         getTokenDetailAdapter,
         updateCollectionCustomizationAdapter,
         getRuntimeHealthAdapter,
+        {
+            publicCollectionScope: deploymentConfig.publicCollectionScope,
+            includeAdminRoutes:
+                deploymentConfig.mode !== "public_single_collection",
+            includeCsrfRoute:
+                deploymentConfig.mode !== "public_single_collection",
+        },
     );
     if (userlandUiDistDir) {
         registerUserlandStaticRoutes(app, userlandUiDistDir);

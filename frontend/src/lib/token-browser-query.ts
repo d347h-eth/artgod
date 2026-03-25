@@ -2,6 +2,7 @@ import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { TokenBrowserStatus } from '@artgod/shared/types/browse';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import { normalizeBasePath, withQuery } from '$lib/route-paths';
 import {
 	appendNormalizedTraitParams,
 	appendNormalizedTraitRangeParams,
@@ -51,7 +52,7 @@ export function buildTokenBrowserHref(params: {
 	}
 	appendTraitParams(query, params.selectedTraits);
 	appendTraitRangeParams(query, params.selectedTraitRanges);
-	return `${params.basePath}?${query.toString()}`;
+	return withQuery(normalizeBasePath(params.basePath), query);
 }
 
 export function buildOwnerTokensHref(params: {
@@ -106,7 +107,12 @@ export function buildTokenDetailHref(params: {
 		query.set('returnQuery', params.returnQuery.trim());
 	}
 	const suffix = query.toString();
-	return `${params.basePath}/${encodeURIComponent(params.tokenId)}${suffix ? `?${suffix}` : ''}`;
+	return withQuery(
+		normalizeBasePath(params.basePath) === '/'
+			? `/${encodeURIComponent(params.tokenId)}`
+			: `${normalizeBasePath(params.basePath)}/${encodeURIComponent(params.tokenId)}`,
+		suffix
+	);
 }
 
 export function parseDisplayMode(raw: string | null): 'grid' | 'table' {

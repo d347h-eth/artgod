@@ -1,46 +1,16 @@
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionHolders } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
-import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
-	PUBLIC_COLLECTION_SCOPE,
-	matchesPublicCollectionRoute,
-	publicCollectionHoldersPath
+	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
-import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import type { PageLoad } from './$types';
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
-	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
-		if (!PUBLIC_COLLECTION_SCOPE) {
-			throw error(500, 'Public collection scope is not configured');
-		}
-		if (!matchesPublicCollectionRoute(params.chain_ref, params.collection_ref)) {
-			throw error(404, 'Not found');
-		}
-		throw redirect(307, withQuery(publicCollectionHoldersPath(), url.searchParams));
-	}
-
-	if (IS_ADMIN_FRONTEND_TARGET) {
-		return {
-			chain: null,
-			collection: null,
-			holders: {
-				items: [],
-				nextCursor: null,
-				limit: DEFAULT_PAGE_LIMIT,
-				totalItems: 0,
-				rangeStart: 0,
-				rangeEnd: 0,
-				currentPage: 0,
-				totalPages: 0
-			},
-			basePath: '/',
-			selectedMediaMode: 'snapshot',
-			requestCursor: null
-		};
+export const load: PageLoad = async ({ fetch, url }) => {
+	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
+		throw error(404, 'Not found');
 	}
 
 	const query = normalizeCollectionHoldersParams(url.searchParams);
@@ -48,15 +18,15 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	try {
 		const response = await getCollectionHolders(
 			fetch,
-			params.chain_ref,
-			params.collection_ref,
+			PUBLIC_COLLECTION_SCOPE.chainRef,
+			PUBLIC_COLLECTION_SCOPE.collectionRef,
 			query
 		);
 		return {
 			chain: response.chain,
 			collection: response.collection,
 			holders: response.holders,
-			basePath: `/${response.chain.slug}/${response.collection.slug}`,
+			basePath: '/',
 			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')) ?? 'snapshot',
 			requestCursor: query.get('cursor') ?? null
 		};

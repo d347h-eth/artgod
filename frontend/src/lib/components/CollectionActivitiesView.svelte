@@ -29,6 +29,11 @@
 		etherscanTransactionHref as buildEtherscanTransactionHref,
 		openseaItemHref as buildOpenseaItemHref
 	} from '$lib/marketplace-links';
+	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
+	import {
+		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+		publicCollectionTokensPath
+	} from '$lib/runtime/public-deployment';
 	import { nextSelectedTraits, setTraitRangeFilter } from '$lib/trait-filters';
 	import { buildOwnerTokensHref, buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
 
@@ -107,6 +112,7 @@
 	});
 
 	function collectionsHref(): string {
+		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
 		if (!chain) return '/';
 		return `/${chain.slug}`;
 	}
@@ -137,7 +143,7 @@
 	function holdersHref(): string {
 		const query = new URLSearchParams();
 		query.set('media_mode', media.selectedMode);
-		return `${basePath}/holders?${query.toString()}`;
+		return withQuery(joinPath(basePath, 'holders'), query);
 	}
 
 	function filterHref(
@@ -163,7 +169,7 @@
 
 	function holderHref(address: string): string {
 		return buildOwnerTokensHref({
-			basePath: `${basePath}/holders/${encodeURIComponent(address)}`,
+			basePath: joinPath(basePath, `holders/${encodeURIComponent(address)}`),
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			mediaMode: media.selectedMode
@@ -181,7 +187,7 @@
 
 	function tokenDetailHref(tokenId: string): string {
 		return buildTokenDetailHref({
-			basePath,
+			basePath: normalizeBasePath(basePath),
 			tokenId,
 			mediaMode: media.selectedMode
 		});
@@ -410,14 +416,21 @@
 	customizationHref={customizationHref()}
 	activeSection="activities"
 	collectionAvailable={collection !== null}
+	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
-		<a href={collectionsHref()}>collections</a>
 		{#if collection}
-			<span class="breadcrumbs-separator">/</span>
-			<a href={tokensHref()}>{collection.slug}</a>
-			<span class="breadcrumbs-separator">/</span>
-			<span class="breadcrumbs-current">activities</span>
+			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+				<a href={tokensHref()}>{collection.slug}</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">activities</span>
+			{:else}
+				<a href={collectionsHref()}>collections</a>
+				<span class="breadcrumbs-separator">/</span>
+				<a href={tokensHref()}>{collection.slug}</a>
+				<span class="breadcrumbs-separator">/</span>
+				<span class="breadcrumbs-current">activities</span>
+			{/if}
 		{/if}
 	{/snippet}
 	{#snippet headerActions()}
