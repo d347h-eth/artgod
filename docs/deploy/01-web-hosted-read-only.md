@@ -148,7 +148,7 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
-- The deploy image explicitly runs `yarn rebuild better-sqlite3` during the build, because this repo keeps Yarn install scripts disabled by default and the runtime needs the native SQLite binding present in `.yarn/unplugged`.
+- The deploy image relies on the repo’s Yarn allowlist policy during `yarn install --immutable --inline-builds`: `enableScripts: false` stays in effect globally, while allowlisted packages such as `better-sqlite3` and `esbuild` are still built through `dependenciesMeta.built: true`. The image then hard-fails if the native SQLite binding is missing from `.yarn/unplugged`.
 - The deploy image reuses the same backend/indexer runtime artifacts and Yarn PnP Node launch shape as the desktop supervisor.
 - SQLite is persisted in the named Docker volume mounted at `/data`.
 - Bundled Caddy certificates and config state are persisted in the named Docker volumes `caddy-data` and `caddy-config`.

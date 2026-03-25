@@ -23,8 +23,8 @@ ENV PUBLIC_APP_CHAIN_REF=${PUBLIC_APP_CHAIN_REF}
 ENV PUBLIC_APP_COLLECTION_REF=${PUBLIC_APP_COLLECTION_REF}
 
 RUN test -n "$PUBLIC_BACKEND_ORIGIN"
-RUN yarn install --immutable
-RUN yarn rebuild better-sqlite3
+RUN yarn install --immutable --inline-builds
+RUN test -n "$(find /app/.yarn/unplugged -path '*better-sqlite3*/build/Release/better_sqlite3.node' -print -quit)"
 RUN yarn check:runtime-registry
 RUN yarn build:web
 RUN yarn build:runtime
