@@ -72,6 +72,8 @@ terraforms.artgod.network {
 }
 ```
 
+Note that the SSR frontend itself should not call the backend through the public site origin during server-side rendering. In deploy mode it uses a separate internal origin (`INTERNAL_BACKEND_ORIGIN`, default `http://backend:3000`) so SSR requests go straight to the backend container instead of being treated as same-origin internal frontend requests.
+
 ### Optional Bundled Caddy
 
 The bundled Caddy service exposes:
@@ -109,6 +111,7 @@ cp .env.deploy.example .env.deploy
 
 - `PUBLIC_SITE_HOST`
 - `PUBLIC_BACKEND_ORIGIN`
+- `INTERNAL_BACKEND_ORIGIN=http://backend:3000`
 - `PUBLIC_EDGE_NETWORK=public-edge`
 - `PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection`
 - `PUBLIC_APP_CHAIN_REF=ethereum`
@@ -144,7 +147,8 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 
 ## Notes
 
-- `PUBLIC_BACKEND_ORIGIN` is a build-time input for the SSR frontend image. If you change the public domain, rebuild the image.
+- `PUBLIC_BACKEND_ORIGIN` is the browser-facing backend origin baked into the SSR frontend build. If you change the public domain, rebuild the image.
+- `INTERNAL_BACKEND_ORIGIN` is the runtime-only backend origin used by the SSR frontend server process itself; in the default compose setup it should stay `http://backend:3000`.
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.

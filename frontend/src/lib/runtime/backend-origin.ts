@@ -25,7 +25,7 @@ let inflightOrigin: Promise<string> | null = null;
 
 export async function resolveBackendOrigin(): Promise<string> {
 	if (!browser) {
-		return DEFAULT_BACKEND_ORIGIN;
+		return resolveServerBackendOrigin();
 	}
 	if (cachedOrigin) {
 		return cachedOrigin;
@@ -59,6 +59,14 @@ async function resolveDesktopOrDefault(): Promise<string> {
 		}
 		throw new Error(`Desktop runtime unavailable: ${toErrorMessage(cause)}`);
 	}
+}
+
+function resolveServerBackendOrigin(): string {
+	if (!import.meta.env.SSR) {
+		return DEFAULT_BACKEND_ORIGIN;
+	}
+	const internalOrigin = process.env.INTERNAL_BACKEND_ORIGIN?.trim();
+	return internalOrigin || DEFAULT_BACKEND_ORIGIN;
 }
 
 function getTauriInternals(): TauriInternals | null {

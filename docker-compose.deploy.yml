@@ -66,6 +66,7 @@ services:
             ARTGOD_WORKSPACE_ROOT: /app
             HOST: 0.0.0.0
             PORT: 4173
+            INTERNAL_BACKEND_ORIGIN: ${INTERNAL_BACKEND_ORIGIN:-http://backend:3000}
 
     backend:
         <<: *artgod-service
