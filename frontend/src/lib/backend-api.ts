@@ -13,6 +13,7 @@ import type {
 	TokenDetailApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
+import { browser } from '$app/environment';
 
 // Max duration for transient backend retry loop during early runtime startup.
 const STARTUP_RETRY_WINDOW_MS = 12_000;
@@ -239,9 +240,10 @@ async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
 	}
 
 	const deadline = Date.now() + STARTUP_RETRY_WINDOW_MS;
+	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
 	for (;;) {
 		try {
-			return await requestJsonOnce<T>(fetchFn, `${backendOrigin}${path}`);
+			return await requestJsonOnce<T>(requestFetch, `${backendOrigin}${path}`);
 		} catch (cause) {
 			const mapped = toBackendApiError(cause);
 			if (!isRetryableStartupError(mapped) || Date.now() >= deadline) {
@@ -274,7 +276,8 @@ async function requestJsonWithBody<T>(
 ): Promise<T> {
 	const backendOrigin = await resolveBackendOrigin();
 	const url = `${backendOrigin}${path}`;
-	const response = await fetchFn(url, {
+	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
+	const response = await requestFetch(url, {
 		method,
 		credentials: 'include',
 		headers: {
@@ -296,7 +299,8 @@ async function requestJsonWithBody<T>(
 async function ensureCsrfToken(fetchFn: typeof fetch): Promise<void> {
 	if (csrfTokenCache) return;
 	const backendOrigin = await resolveBackendOrigin();
-	const response = await fetchFn(`${backendOrigin}/api/security/csrf`, {
+	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
+	const response = await requestFetch(`${backendOrigin}/api/security/csrf`, {
 		method: 'GET',
 		credentials: 'include'
 	});
@@ -332,4 +336,11 @@ function toErrorMessage(value: unknown): string {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function selectRequestFetch(fetchFn: typeof fetch, backendOrigin: string): typeof fetch {
+	if (!browser && backendOrigin) {
+		return globalThis.fetch;
+	}
+	return fetchFn;
 }
