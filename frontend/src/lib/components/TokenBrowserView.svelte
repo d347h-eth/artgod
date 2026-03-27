@@ -13,9 +13,9 @@
 	} from '$lib/api-types';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
-	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
 	import {
@@ -24,7 +24,7 @@
 		nextSelectedTraits,
 		setTraitRangeFilter
 	} from '$lib/trait-filters';
-	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
+	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
 		readTokenWindow,
 		type TokenWindowState,
@@ -71,9 +71,7 @@
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
-	const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-	const WEI_BASE = 10n ** 18n;
-	const tokenPreview = createTokenPreviewController(fetch);
+	const tokenPreview = getTokenPreviewController();
 	const tokenPreviewState = tokenPreview.state;
 	const traitFacetPanelState = traitFacetPanel.state;
 	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
@@ -178,21 +176,6 @@
 	function tokenTraitsLabel(token: ApiTokenCard): string {
 		if (token.attributes.length === 0) return 'no traits';
 		return token.attributes.map((item) => `${item.key}:${item.value}`).join(' | ');
-	}
-
-	function listingCurrencyLabel(currency: string | null): string | null {
-		if (!currency) return null;
-		return currency.toLowerCase() === ZERO_ADDRESS ? 'ETH' : 'WETH';
-	}
-
-	function formatListingPrice(rawPrice: string | null, currency: string | null): string | null {
-		if (!rawPrice || !currency || !/^\d+$/.test(rawPrice)) return null;
-		const value = BigInt(rawPrice);
-		const whole = value / WEI_BASE;
-		const fraction = value % WEI_BASE;
-		const fractionText = fraction.toString().padStart(18, '0').slice(0, 4).replace(/0+$/, '');
-		const amount = fractionText ? `${whole}.${fractionText}` : `${whole}`;
-		return `${amount} ${listingCurrencyLabel(currency)}`;
 	}
 
 	function browserResultsSummary(): string {
@@ -467,39 +450,12 @@
 		});
 	}
 
-	function previewNavigationStep(event: KeyboardEvent): -1 | 0 | 1 {
-		if (event.key === 'a' || event.key === 'A' || event.key === 'ArrowLeft') {
-			return -1;
-		}
-		if (event.key === 'd' || event.key === 'D' || event.key === 'ArrowRight') {
-			return 1;
-		}
-		return 0;
-	}
-
-	async function openAdjacentTokenPreview(step: -1 | 1): Promise<void> {
-		const current = $tokenPreviewState;
-		if (!current.open || !current.tokenId || !current.chainRef || !current.collectionRef) {
-			return;
-		}
-
-		const currentIndex = visibleTokens.findIndex((token) => token.tokenId === current.tokenId);
+	function resolveAdjacentPreviewTokenId(step: -1 | 1, currentTokenId: string): string | null {
+		const currentIndex = visibleTokens.findIndex((token) => token.tokenId === currentTokenId);
 		if (currentIndex === -1) {
-			return;
+			return null;
 		}
-
-		const nextToken = visibleTokens[currentIndex + step];
-		if (!nextToken) {
-			return;
-		}
-
-		await tokenPreview.openTokenPreview({
-			chainRef: current.chainRef,
-			collectionRef: current.collectionRef,
-			tokenId: nextToken.tokenId,
-			selectedMediaMode: current.selectedMediaMode,
-			availableMediaModes: current.availableMediaModes
-		});
+		return visibleTokens[currentIndex + step]?.tokenId ?? null;
 	}
 
 	function onGlobalKeydown(event: KeyboardEvent): void {
@@ -511,19 +467,6 @@
 		const previewWasOpen = $tokenPreviewState.open;
 		tokenPreview.onWindowKeydown(event);
 		if (previewWasOpen) {
-			if (
-				!event.defaultPrevented &&
-				!event.metaKey &&
-				!event.ctrlKey &&
-				!event.altKey &&
-				!isTypingTarget(event.target)
-			) {
-				const step = previewNavigationStep(event);
-				if (step !== 0) {
-					event.preventDefault();
-					void openAdjacentTokenPreview(step);
-				}
-			}
 			return;
 		}
 
@@ -631,6 +574,7 @@
 										selectedMediaMode={media.selectedMode}
 										availableMediaModes={media.availableModes}
 										{tokenPreview}
+										adjacentTokenResolver={resolveAdjacentPreviewTokenId}
 										mode="grid"
 										containerClass="token-grid-media"
 										imageClass="token-grid-thumb"
@@ -704,6 +648,7 @@
 											selectedMediaMode={media.selectedMode}
 											availableMediaModes={media.availableModes}
 											{tokenPreview}
+											adjacentTokenResolver={resolveAdjacentPreviewTokenId}
 											mode="inline"
 											imageClass="token-thumb"
 											emptyClass="token-thumb token-thumb-empty"
@@ -785,9 +730,3 @@
 		</footer>
 	</div>
 </div>
-
-<TokenPreviewOverlay
-	state={$tokenPreviewState}
-	closeTokenPreview={tokenPreview.closeTokenPreview}
-	tokenPreview={tokenPreview}
-/>

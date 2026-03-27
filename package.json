@@ -33,7 +33,11 @@
         "install:all": "yarn install && yarn workspaces foreach run install",
         "format": "prettier . --write",
         "format:check": "prettier . --check",
-        "test": "yarn workspace @artgod/backend test && yarn workspace @artgod/frontend test && yarn workspace @artgod/indexer test"
+        "test": "yarn workspace @artgod/backend test && yarn workspace @artgod/frontend test && yarn workspace @artgod/indexer test",
+        "test:preview:attached": "yarn workspace @artgod/frontend test:preview:attached",
+        "test:preview:attached:headed": "yarn workspace @artgod/frontend test:preview:attached:headed",
+        "test:preview:attached:artifacts": "yarn workspace @artgod/frontend test:preview:attached:artifacts",
+        "test:preview:attached:headed:artifacts": "yarn workspace @artgod/frontend test:preview:attached:headed:artifacts"
     },
     "dependencies": {
         "better-sqlite3": "^v12.2.0",

@@ -1,6 +1,9 @@
 <script lang="ts">
 	import type { ApiCollectionMediaMode } from '$lib/api-types';
-	import type { TokenPreviewController } from '$lib/components/token-preview-controller';
+	import type {
+		TokenPreviewAdjacentResolver,
+		TokenPreviewController
+	} from '$lib/components/token-preview-controller';
 
 	let {
 		chainRef,
@@ -10,6 +13,7 @@
 		selectedMediaMode,
 		availableMediaModes,
 		tokenPreview,
+		adjacentTokenResolver = null,
 		mode = 'grid',
 		containerClass,
 		imageClass,
@@ -22,6 +26,7 @@
 		selectedMediaMode: string;
 		availableMediaModes: ApiCollectionMediaMode[];
 		tokenPreview: TokenPreviewController;
+		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
 		mode?: 'grid' | 'inline';
 		containerClass?: string;
 		imageClass: string;
@@ -37,12 +42,13 @@
 			collectionRef,
 			tokenId,
 			selectedMediaMode,
-			availableMediaModes
+			availableMediaModes,
+			previewAspectRatio: tokenAspectRatio,
+			adjacentTokenResolver
 		});
 	}
 
 	function onTokenImageLoad(event: Event): void {
-		if (mode !== 'grid') return;
 		const target = event.currentTarget;
 		if (!(target instanceof HTMLImageElement)) return;
 		if (target.naturalWidth <= 0 || target.naturalHeight <= 0) return;

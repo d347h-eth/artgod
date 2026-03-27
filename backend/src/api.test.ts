@@ -435,6 +435,10 @@ describe("backend api routes", () => {
         expect(result.payload.token.animationUrl).toBe(
             "https://example.com/1.html",
         );
+        expect(result.payload.token.listingPrice).toBe("500000000000000000");
+        expect(result.payload.token.listingCurrency).toBe(
+            "0x0000000000000000000000000000000000000000",
+        );
         expect(result.payload.token.attributes).toHaveLength(3);
         expect(result.payload.token.attributes[0]).toMatchObject({
             key: "Hat",
@@ -1027,6 +1031,7 @@ describe("backend api routes", () => {
         expect(result.payload.token.currentHolder).toBe(
             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         );
+        expect(result.payload.token.listingPrice).toBe("500000000000000000");
     });
 
     it("matches owner-scoped token queries against mixed-case stored owners", async () => {

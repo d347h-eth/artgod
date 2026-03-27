@@ -65,14 +65,16 @@ export function createTraitFacetPanelController(): TraitFacetPanelController {
 }
 
 function readInitialCollapsed(): boolean {
-	if (!browser) return false;
+	if (!browser) return true;
 	try {
 		if (document.documentElement.classList.contains(TRAIT_PANEL_COLLAPSED_ROOT_CLASS)) {
 			return true;
 		}
-		return window.localStorage.getItem(TRAIT_PANEL_COLLAPSED_STORAGE_KEY) === '1';
+		const stored = window.localStorage.getItem(TRAIT_PANEL_COLLAPSED_STORAGE_KEY);
+		if (stored === null) return true;
+		return stored === '1';
 	} catch {
-		return false;
+		return true;
 	}
 }
 

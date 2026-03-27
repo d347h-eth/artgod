@@ -19,10 +19,10 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import { formatListingPrice } from '$lib/listing-price';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
-	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
-	import { createTokenPreviewController } from '$lib/components/token-preview-controller';
+	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import {
@@ -64,9 +64,7 @@
 		filterKind: ApiActivityFeedFilterKind;
 	} = $props();
 
-	const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-	const WEI_BASE = 10n ** 18n;
-	const tokenPreview = createTokenPreviewController(fetch);
+	const tokenPreview = getTokenPreviewController();
 	const tokenPreviewState = tokenPreview.state;
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
@@ -78,9 +76,9 @@
 	type ActivityColumnId = 'id' | 'price' | 'image' | 'name' | 'traits' | 'from' | 'to' | 'time';
 
 	const ACTIVITY_COLUMNS_BY_FILTER: Record<ApiActivityFeedFilterKind, ActivityColumnId[]> = {
-		sales: ['id', 'price', 'image', 'name', 'traits', 'from', 'to', 'time'],
-		listings: ['id', 'price', 'image', 'name', 'traits', 'from', 'time'],
-		transfers: ['id', 'image', 'name', 'traits', 'from', 'to', 'time']
+		sales: ['image', 'price', 'id', 'name', 'traits', 'from', 'to', 'time'],
+		listings: ['image', 'price', 'id', 'name', 'traits', 'from', 'time'],
+		transfers: ['image', 'id', 'name', 'traits', 'from', 'to', 'time']
 	};
 
 	let timeDisplayMode = $state<TimeDisplayMode>('relative');
@@ -211,21 +209,6 @@
 		return formatUtcTimestamp(occurredAt);
 	}
 
-	function currencyLabel(currency: string | null): string | null {
-		if (!currency) return null;
-		return currency.toLowerCase() === ZERO_ADDRESS ? 'ETH' : 'WETH';
-	}
-
-	function formatPrice(rawPrice: string | null, currency: string | null): string | null {
-		if (!rawPrice || !currency || !/^\d+$/.test(rawPrice)) return null;
-		const value = BigInt(rawPrice);
-		const whole = value / WEI_BASE;
-		const fraction = value % WEI_BASE;
-		const fractionText = fraction.toString().padStart(18, '0').slice(0, 4).replace(/0+$/, '');
-		const amount = fractionText ? `${whole}.${fractionText}` : `${whole}`;
-		return `${amount} ${currencyLabel(currency)}`;
-	}
-
 	function tokenSummary(activity: ApiActivityFeedItem): ApiTokenPresentationSummary | null {
 		if (!activity.tokenId) return null;
 		return included.tokensById[activity.tokenId] ?? null;
@@ -252,7 +235,7 @@
 	}
 
 	function activityPriceLabel(activity: ApiActivityFeedItem): string | null {
-		return formatPrice(activity.price, activity.currency);
+		return formatListingPrice(activity.price, activity.currency);
 	}
 
 	function activityFromAddress(activity: ApiActivityFeedItem): string | null {
@@ -638,9 +621,3 @@
 		</div>
 	</div>
 </CollectionPageLayout>
-
-<TokenPreviewOverlay
-	state={$tokenPreviewState}
-	closeTokenPreview={tokenPreview.closeTokenPreview}
-	tokenPreview={tokenPreview}
-/>

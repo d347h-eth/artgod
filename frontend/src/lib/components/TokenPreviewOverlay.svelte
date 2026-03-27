@@ -1,36 +1,56 @@
 <script lang="ts">
-	import type {
-		TokenPreviewController,
-		TokenPreviewState
+	import { browser } from '$app/environment';
+	import {
+		getTokenPreviewController,
+		tokenPreviewStyle
 	} from '$lib/components/token-preview-controller';
-	import { tokenPreviewStyle } from '$lib/components/token-preview-controller';
 
-	let {
-		state,
-		closeTokenPreview,
-		tokenPreview
-	}: {
-		state: TokenPreviewState;
-		closeTokenPreview: () => void;
-		tokenPreview: TokenPreviewController;
-	} = $props();
+	const tokenPreview = getTokenPreviewController();
+	const tokenPreviewState = tokenPreview.state;
+
+	let overlayElement = $state<HTMLDivElement | null>(null);
 
 	function onBackdropClick(event: MouseEvent): void {
 		if (event.target !== event.currentTarget) return;
-		closeTokenPreview();
+		tokenPreview.closeTokenPreview();
 	}
 
 	function onBackdropKeydown(event: KeyboardEvent): void {
 		if (event.key !== 'Escape') return;
 		event.preventDefault();
-		closeTokenPreview();
+		tokenPreview.closeTokenPreview();
 	}
+
+	$effect(() => {
+		if (!browser || !$tokenPreviewState.open) return;
+		queueMicrotask(() => overlayElement?.focus());
+	});
+
+	$effect(() => {
+		if (!browser || !$tokenPreviewState.open) return;
+
+		const root = document.documentElement;
+		const body = document.body;
+		const previousRootOverflow = root.style.overflow;
+		const previousBodyOverflow = body.style.overflow;
+
+		root.classList.add('token-preview-modal-open');
+		root.style.overflow = 'hidden';
+		body.style.overflow = 'hidden';
+
+		return () => {
+			root.classList.remove('token-preview-modal-open');
+			root.style.overflow = previousRootOverflow;
+			body.style.overflow = previousBodyOverflow;
+		};
+	});
 </script>
 
-{#if state.open}
+{#if $tokenPreviewState.open}
 	<div
+		bind:this={overlayElement}
 		class="token-preview-overlay"
-		style={tokenPreviewStyle(state)}
+		style={tokenPreviewStyle($tokenPreviewState)}
 		role="dialog"
 		aria-modal="true"
 		aria-label="Token Preview"
@@ -38,32 +58,37 @@
 		onclick={onBackdropClick}
 		onkeydown={onBackdropKeydown}
 	>
-		{#if tokenPreview.tokenPreviewMediaModeLabel(state)}
+		{#if tokenPreview.tokenPreviewMediaModeLabel($tokenPreviewState)}
 			<button
 				type="button"
 				class="token-preview-media-mode-button"
 				onclick={() => void tokenPreview.cycleTokenPreviewMediaMode()}
 			>
-				{tokenPreview.tokenPreviewMediaModeLabel(state)}
+				{tokenPreview.tokenPreviewMediaModeLabel($tokenPreviewState)}
 			</button>
 		{/if}
-		{#if state.mediaKind === 'iframe' && state.mediaUrl}
-			<iframe
-				class="token-preview-frame"
-				src={state.mediaUrl}
-				title={state.tokenId ? `token ${state.tokenId}` : 'token preview'}
-				sandbox="allow-scripts"
-				referrerpolicy="no-referrer"
-			></iframe>
-		{:else if state.mediaKind === 'image' && state.mediaUrl}
-			<img
-				class="token-preview-image"
-				src={state.mediaUrl}
-				alt={state.tokenId ? `token ${state.tokenId}` : 'token preview'}
-				loading="eager"
-				decoding="async"
-				referrerpolicy="no-referrer"
-			/>
-		{/if}
+
+		<div class="token-preview-box">
+			{#if $tokenPreviewState.status === 'ready' && $tokenPreviewState.iframeSource}
+				<iframe
+					class="token-preview-frame"
+					src={$tokenPreviewState.iframeSource.kind === 'src'
+						? $tokenPreviewState.iframeSource.value
+						: undefined}
+					srcdoc={$tokenPreviewState.iframeSource.kind === 'srcdoc'
+						? $tokenPreviewState.iframeSource.value
+						: undefined}
+					title={$tokenPreviewState.tokenId ? `token ${$tokenPreviewState.tokenId}` : 'token preview'}
+					sandbox="allow-scripts"
+					referrerpolicy="no-referrer"
+				></iframe>
+			{:else if $tokenPreviewState.status === 'error'}
+				<div class="token-preview-state token-preview-error">
+					{$tokenPreviewState.errorMessage ?? 'Unable to load preview'}
+				</div>
+			{:else}
+				<div class="token-preview-state token-preview-loading">loading preview</div>
+			{/if}
+		</div>
 	</div>
 {/if}

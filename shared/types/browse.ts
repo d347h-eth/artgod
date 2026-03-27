@@ -92,6 +92,8 @@ export type TokenDetail = {
     name: string | null;
     image: string | null;
     animationUrl: string | null;
+    listingPrice: string | null;
+    listingCurrency: string | null;
     currentHolder: string | null;
     attributes: TokenDetailTrait[];
     hasMetadata: boolean;

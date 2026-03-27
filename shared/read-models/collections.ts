@@ -66,6 +66,8 @@ type TokenDetailRow = {
     name: string | null;
     image: string | null;
     animation_url: string | null;
+    listing_price: string | null;
+    listing_currency: string | null;
     attributes_json: string | null;
     metadata_updated_at: string | null;
 };
@@ -275,16 +277,6 @@ export class SqliteCollectionsReadModel {
             ") " +
             "GROUP BY ak.key, a.value " +
             "ORDER BY ak.key ASC, token_count ASC, a.value ASC",
-    );
-
-    private selectTokenDetailRow = db.prepare<[number, number, string]>(
-        "SELECT t.token_id, m.name, m.image, m.animation_url, m.attributes_json, m.updated_at AS metadata_updated_at " +
-            "FROM tokens t " +
-            "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
-            "AND m.collection_id = t.collection_id " +
-            "AND m.token_id = t.token_id " +
-            "WHERE t.chain_id = ? AND t.collection_id = ? AND t.token_id = ? " +
-            "LIMIT 1",
     );
 
     private selectTokenCurrentHolderRow = db.prepare<[number, number, string]>(
@@ -893,11 +885,11 @@ export class SqliteCollectionsReadModel {
             throw new ReadModelBadRequestError("Invalid token_ref");
         }
 
-        const row = this.selectTokenDetailRow.get(
-            params.chainId,
-            params.collectionId,
+        const row = this.selectTokenDetailRow({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
             tokenId,
-        ) as TokenDetailRow | undefined;
+        });
         if (!row) {
             throw new ReadModelNotFoundError("Unknown token_ref");
         }
@@ -923,6 +915,8 @@ export class SqliteCollectionsReadModel {
             name: row.name ?? null,
             image: row.image ?? null,
             animationUrl: row.animation_url ?? null,
+            listingPrice: row.listing_price ?? null,
+            listingCurrency: row.listing_currency ?? null,
             currentHolder:
                 (this.selectTokenCurrentHolderRow.get(
                     params.chainId,
@@ -933,6 +927,42 @@ export class SqliteCollectionsReadModel {
             hasMetadata: row.metadata_updated_at !== null,
             metadataUpdatedAt: row.metadata_updated_at ?? null,
         };
+    }
+
+    private selectTokenDetailRow(params: {
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+    }): TokenDetailRow | undefined {
+        const listingSql = buildCheapestListingSql(
+            this.supportedListingCurrencies.length,
+        );
+        const listingValues = buildCheapestListingValues({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            supportedCurrencies: this.supportedListingCurrencies,
+            nowSeconds: Math.floor(Date.now() / 1000),
+        });
+
+        return db.raw
+            .prepare(
+                "SELECT t.token_id, m.name, m.image, m.animation_url, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+                    "FROM tokens t " +
+                    "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
+                    "AND m.collection_id = t.collection_id " +
+                    "AND m.token_id = t.token_id " +
+                    `LEFT JOIN (${listingSql}) l ` +
+                    "ON l.collection_id = t.collection_id " +
+                    "AND l.token_id = t.token_id " +
+                    "WHERE t.chain_id = ? AND t.collection_id = ? AND t.token_id = ? " +
+                    "LIMIT 1",
+            )
+            .get(
+                ...listingValues,
+                params.chainId,
+                params.collectionId,
+                params.tokenId,
+            ) as TokenDetailRow | undefined;
     }
 
     listCollectionTokenCardsByIds(

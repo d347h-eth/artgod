@@ -152,6 +152,8 @@ export type ApiTokenDetail = {
 	name: string | null;
 	image: string | null;
 	animationUrl: string | null;
+	listingPrice: string | null;
+	listingCurrency: string | null;
 	currentHolder: string | null;
 	attributes: ApiTokenDetailTrait[];
 	hasMetadata: boolean;

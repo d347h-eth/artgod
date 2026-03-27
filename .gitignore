@@ -27,6 +27,8 @@ dist-desktop/
 # vitest cache
 .vitest
 node_modules/.vite
+frontend/test-results/
+frontend/playwright-report/
 
 # Database files (keep migrations and scripts, ignore database data)
 database/sqlite/

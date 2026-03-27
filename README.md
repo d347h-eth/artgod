@@ -326,6 +326,7 @@ Use these as primary references for design and implementation details:
 - `docs/diagrams/architecture.md`
 - `docs/progress/indexer/15-unified-backlog.md`
 - `docs/ui/01-interaction-guidelines.md`
+- `docs/ui/02-preview-modal-system.md`
 
 Blueprint/reference material:
 

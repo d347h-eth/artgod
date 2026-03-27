@@ -39,6 +39,8 @@ describe('token detail page', () => {
 						name: '',
 						image: 'https://example.com/1.png',
 						animationUrl: 'https://example.com/1.html',
+						listingPrice: '500000000000000000',
+						listingCurrency: '0x0000000000000000000000000000000000000000',
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [
 							{
@@ -70,6 +72,10 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
 		);
+		expect(body).toContain(
+			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
+		);
+		expect(body).toContain('0.5 ETH');
 	});
 
 	it('uses holder return path when provided', () => {
@@ -108,6 +114,8 @@ describe('token detail page', () => {
 						name: 'Milady #1',
 						image: 'https://example.com/1.png',
 						animationUrl: null,
+						listingPrice: null,
+						listingCurrency: null,
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [],
 						hasMetadata: true,
@@ -124,5 +132,6 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?cursor=opaque-cursor-token&amp;token_status=listed_then_unlisted&amp;mode=grid&amp;media_mode=artifact'
 		);
+		expect(body).toContain('>[OS]<');
 	});
 });

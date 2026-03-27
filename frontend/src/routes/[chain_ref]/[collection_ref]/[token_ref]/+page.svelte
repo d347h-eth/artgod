@@ -8,6 +8,8 @@
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
 	import { getTokenDetail } from '$lib/backend-api';
+	import { formatListingPrice } from '$lib/listing-price';
+	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -65,6 +67,18 @@
 			selectedTraitRanges: [],
 			mediaMode: data.media?.selectedMode ?? null
 		});
+	}
+
+	function openseaItemHref(): string | null {
+		return buildOpenseaItemHref({
+			chainSlug: data?.chain?.slug ?? null,
+			collectionAddress: data?.collection?.address ?? null,
+			tokenId: displayedToken?.tokenId ?? null
+		});
+	}
+
+	function tokenListingLabel(): string | null {
+		return formatListingPrice(displayedToken?.listingPrice ?? null, displayedToken?.listingCurrency ?? null);
 	}
 
 	function backLabel(): string {
@@ -230,6 +244,19 @@
 				</p>
 			{:else}
 				<p class="muted">current holder <span class="mono">{displayedToken.currentHolder ?? '-'}</span></p>
+			{/if}
+			{#if openseaItemHref()}
+				<p class="muted">
+					OpenSea
+					<a
+						class="mono"
+						href={openseaItemHref() ?? '#'}
+						target="_blank"
+						rel="noreferrer noopener"
+					>
+						{tokenListingLabel() ?? '[OS]'}
+					</a>
+				</p>
 			{/if}
 		</section>
 

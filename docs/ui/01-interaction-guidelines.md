@@ -2,6 +2,8 @@
 
 Scope: `frontend/src/app.css` and userland Svelte UI components under `frontend/src/lib/components`.
 
+For first-principles preview overlay behavior, see `docs/ui/02-preview-modal-system.md`.
+
 ## Collection Page Shell
 
 `CollectionPageLayout.svelte` is the canonical outer shell for collection-centered userland pages.
