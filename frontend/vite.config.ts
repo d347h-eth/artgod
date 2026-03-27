@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
 		...process.env
 	};
 	const appVersion = (resolvedEnv.PUBLIC_APP_VERSION?.trim() ||
-		(packageVersion ? `v${packageVersion}` : 'v0.0.1-pre-alpha.1')) as string;
+		(packageVersion ? `v${packageVersion}` : 'v0.0.1-pre-alpha.2')) as string;
 	const publicBackendOrigin = resolvedEnv.PUBLIC_BACKEND_ORIGIN?.trim() || '';
 	const internalBackendOrigin = resolvedEnv.INTERNAL_BACKEND_ORIGIN?.trim() || '';
 	const publicDeploymentMode = resolvedEnv.PUBLIC_APP_DEPLOYMENT_MODE?.trim() || '';
