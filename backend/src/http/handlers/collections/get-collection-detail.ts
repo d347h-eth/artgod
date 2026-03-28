@@ -2,6 +2,7 @@ import type { FastifyRequest } from "fastify";
 import type {
     GetCollectionDetailInput,
     GetCollectionDetailOutput,
+    GetCollectionDetailPort,
 } from "../../../application/use-cases/collections/get-collection-detail.js";
 import {
     getSearchParams,
@@ -21,16 +22,8 @@ export type GetCollectionDetailRoute = {
     };
 };
 
-type MaybePromise<T> = T | Promise<T>;
-
 export class GetCollectionDetailHttpAdapter {
-    constructor(
-        readonly getCollectionDetailPort: {
-            getCollectionDetail(
-                input: GetCollectionDetailInput,
-            ): MaybePromise<GetCollectionDetailOutput>;
-        },
-    ) {}
+    constructor(readonly getCollectionDetailPort: GetCollectionDetailPort) {}
 
     readonly handle = async (
         request: FastifyRequest<GetCollectionDetailRoute>,

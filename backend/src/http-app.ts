@@ -8,7 +8,7 @@ import type { GetDefaultChainUseCase } from "./application/use-cases/chains/get-
 import type { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
 import type { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
 import type { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
-import type { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
+import type { GetCollectionDetailPort } from "./application/use-cases/collections/get-collection-detail.js";
 import type { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
@@ -54,7 +54,7 @@ export function createApiApp(
     getCollectionActivityUseCase: GetCollectionActivityUseCase,
     getTokenActivityUseCase: GetTokenActivityUseCase,
     getCollectionCustomizationUseCase: GetCollectionCustomizationUseCase,
-    getCollectionDetailUseCase: GetCollectionDetailUseCase,
+    getCollectionDetailUseCase: GetCollectionDetailPort,
     getCollectionHoldersUseCase: GetCollectionHoldersUseCase,
     getTokenDetailUseCase: GetTokenDetailUseCase,
     updateCollectionCustomizationUseCase: UpdateCollectionCustomizationUseCase,

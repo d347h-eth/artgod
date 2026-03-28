@@ -35,6 +35,12 @@ export type GetCollectionDetailOutput = {
     tokens: TokenCursorPage;
 };
 
+export type GetCollectionDetailPort = {
+    getCollectionDetail(
+        input: GetCollectionDetailInput,
+    ): GetCollectionDetailOutput | Promise<GetCollectionDetailOutput>;
+};
+
 export class GetCollectionDetailUseCase {
     constructor(
         readonly defaultChainId: number,

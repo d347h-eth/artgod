@@ -116,6 +116,7 @@ cp .env.deploy.example .env.deploy
 - `PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection`
 - `PUBLIC_APP_CHAIN_REF=ethereum`
 - `PUBLIC_APP_COLLECTION_REF=terraforms`
+- `BACKEND_QUERY_CACHE_PROVIDER=memory`
 - `RPC_URL`
 - `OPENSEA_API_KEY`
 
@@ -152,6 +153,8 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
+- `BACKEND_QUERY_CACHE_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.
+- `BACKEND_QUERY_CACHE_PROVIDER=memory` enables the first backend query cache policy, which targets the default public collection browser request (`listed`, first page, no filters) to reduce repeat SQL work on the VPS browse-only deployment.
 - The deploy image relies on the repo’s Yarn allowlist policy during `yarn install --immutable --inline-builds`: `enableScripts: false` stays in effect globally, while allowlisted packages such as `esbuild` are still built through `dependenciesMeta.built: true`. `better-sqlite3` is then built explicitly and narrowly by invoking its trusted package-local `install` script from inside the unplugged package directory, and the image hard-fails if the native SQLite binding is still missing from `.yarn/unplugged`.
 - The deploy image reuses the same backend/indexer runtime artifacts and Yarn PnP Node launch shape as the desktop supervisor.
 - SQLite is persisted in the named Docker volume mounted at `/data`.

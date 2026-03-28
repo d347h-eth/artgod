@@ -6,6 +6,10 @@ import {
     parsePositiveInteger,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
+import {
+    QUERY_CACHE_PROVIDERS,
+    type QueryCacheProvider,
+} from "./ports/query-cache.js";
 
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
@@ -17,6 +21,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:5173",
 ];
+const DEFAULT_BACKEND_QUERY_CACHE_MAX_ENTRIES = 500;
+const DEFAULT_BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS = 10000;
 
 export type BackendSecurityConfig = {
     allowedHosts: string[];
@@ -36,6 +42,12 @@ export type BackendDeploymentConfig = {
     publicCollectionScope: BackendPublicCollectionScope | null;
 };
 
+export type BackendQueryCacheConfig = {
+    provider: QueryCacheProvider;
+    maxEntries: number;
+    collectionDetailDefaultTtlMs: number;
+};
+
 export type BackendConfig = {
     host: string;
     port: number;
@@ -47,6 +59,7 @@ export type BackendConfig = {
     userlandUiDistDir: string | null;
     security: BackendSecurityConfig;
     deployment: BackendDeploymentConfig;
+    queryCache: BackendQueryCacheConfig;
 };
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -83,6 +96,7 @@ export function loadBackendConfig(
         ),
     };
     const deployment = parseDeploymentConfig(env);
+    const queryCache = parseQueryCacheConfig(env);
 
     return {
         host,
@@ -95,6 +109,27 @@ export function loadBackendConfig(
         userlandUiDistDir,
         security,
         deployment,
+        queryCache,
+    };
+}
+
+function parseQueryCacheConfig(
+    env: Record<string, string | undefined>,
+): BackendQueryCacheConfig {
+    const provider = parseQueryCacheProvider(env.BACKEND_QUERY_CACHE_PROVIDER);
+
+    return {
+        provider,
+        maxEntries: parsePositiveInteger(
+            env.BACKEND_QUERY_CACHE_MAX_ENTRIES,
+            "BACKEND_QUERY_CACHE_MAX_ENTRIES",
+            DEFAULT_BACKEND_QUERY_CACHE_MAX_ENTRIES,
+        ),
+        collectionDetailDefaultTtlMs: parsePositiveInteger(
+            env.BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS,
+            "BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS",
+            DEFAULT_BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS,
+        ),
     };
 }
 
@@ -109,9 +144,7 @@ function parseDeploymentConfig(
         };
     }
     if (rawMode !== "public_single_collection") {
-        throw new Error(
-            `Invalid PUBLIC_APP_DEPLOYMENT_MODE: ${rawMode}`,
-        );
+        throw new Error(`Invalid PUBLIC_APP_DEPLOYMENT_MODE: ${rawMode}`);
     }
 
     const rawChainRef = parseRequiredString(
@@ -132,6 +165,20 @@ function parseDeploymentConfig(
     };
 }
 
+function parseQueryCacheProvider(
+    value: string | undefined,
+): QueryCacheProvider {
+    const normalized =
+        value?.trim().toLowerCase() ?? QUERY_CACHE_PROVIDERS.Disabled;
+    if (normalized === QUERY_CACHE_PROVIDERS.Disabled) {
+        return QUERY_CACHE_PROVIDERS.Disabled;
+    }
+    if (normalized === QUERY_CACHE_PROVIDERS.Memory) {
+        return QUERY_CACHE_PROVIDERS.Memory;
+    }
+    throw new Error(`Invalid BACKEND_QUERY_CACHE_PROVIDER: ${value}`);
+}
+
 function parseHost(value: string | undefined): string {
     const normalized = value?.trim();
     if (!normalized) {
@@ -150,7 +197,10 @@ function parseAllowedOrigins(value: string | undefined): string[] {
     return entries.map((entry) => normalizeAllowedOriginEntry(entry));
 }
 
-function splitCsv(value: string | undefined, defaultValues: string[]): string[] {
+function splitCsv(
+    value: string | undefined,
+    defaultValues: string[],
+): string[] {
     const normalized = value?.trim();
     if (!normalized) {
         return [...defaultValues];
@@ -176,9 +226,7 @@ function normalizeAllowedHostEntry(entry: string): string {
         try {
             parsed = new URL(normalized);
         } catch {
-            throw new Error(
-                `Invalid BACKEND_ALLOWED_HOSTS entry: ${entry}`,
-            );
+            throw new Error(`Invalid BACKEND_ALLOWED_HOSTS entry: ${entry}`);
         }
         return parsed.hostname.toLowerCase();
     }
@@ -211,9 +259,7 @@ function normalizeAllowedOriginEntry(entry: string): string {
     }
 
     if (!(parsed.protocol === "http:" || parsed.protocol === "https:")) {
-        throw new Error(
-            `Invalid BACKEND_ALLOWED_ORIGINS entry: ${entry}`,
-        );
+        throw new Error(`Invalid BACKEND_ALLOWED_ORIGINS entry: ${entry}`);
     }
 
     return parsed.origin.toLowerCase();

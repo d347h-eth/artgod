@@ -15,6 +15,12 @@ import {
     ACTIVITY_SOURCE_KIND,
 } from "@artgod/shared/types";
 import type { BackendSecurityConfig } from "./config.js";
+import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
+import {
+    QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
+    QUERY_CACHE_DEBUG_HEADER_NAME,
+    QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
+} from "./utils/query-cache-debug.js";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
@@ -37,6 +43,7 @@ const API_SECURITY_CONFIG: BackendSecurityConfig = {
 let dbPath = "";
 let app: FastifyInstance | null = null;
 let publicApp: FastifyInstance | null = null;
+let cachedApp: FastifyInstance | null = null;
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -51,6 +58,7 @@ beforeAll(async () => {
     seedData();
 
     const appModule = await import("./http-app.js");
+    const backendAppModule = await import("./index.js");
     const chainsUseCaseModule =
         await import("./application/use-cases/chains/get-default-chain.js");
     const listCollectionsUseCaseModule =
@@ -275,14 +283,36 @@ beforeAll(async () => {
             },
         },
     );
+    cachedApp = backendAppModule.createBackendApp({
+        host: "127.0.0.1",
+        port: 3000,
+        defaultChainId: 1,
+        dbPath,
+        wethAddress: WETH_ADDRESS,
+        natsUrl: "nats://127.0.0.1:4222",
+        natsStreamPrefix: "artgod",
+        userlandUiDistDir: null,
+        security: API_SECURITY_CONFIG,
+        deployment: {
+            mode: "standard",
+            publicCollectionScope: null,
+        },
+        queryCache: {
+            provider: QUERY_CACHE_PROVIDERS.Memory,
+            maxEntries: 16,
+            collectionDetailDefaultTtlMs: 5000,
+        },
+    });
     await app.ready();
     await publicApp.ready();
+    await cachedApp.ready();
 });
 
 afterAll(async () => {
     await Promise.all([
         app?.close(),
         publicApp?.close(),
+        cachedApp?.close(),
         fs.rm(dbPath, { force: true }),
         fs.rm(`${dbPath}-shm`, { force: true }),
         fs.rm(`${dbPath}-wal`, { force: true }),
@@ -391,6 +421,57 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.rangeEnd).toBe(1);
         expect(result.payload.tokens.currentPage).toBe(1);
         expect(result.payload.tokens.totalPages).toBe(2);
+    });
+
+    it("marks cached collection detail responses with query cache headers", async () => {
+        const first = await resolveCached(
+            "GET",
+            "/api/ethereum/milady?limit=250",
+        );
+        expect(first.statusCode).toBe(200);
+        expect(first.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()]).toBe(
+            "miss",
+        );
+        expect(
+            first.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()],
+        ).toBe("0");
+        expect(
+            first.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("5000");
+
+        const second = await resolveCached(
+            "GET",
+            "/api/ethereum/milady?limit=250",
+        );
+        expect(second.statusCode).toBe(200);
+        expect(
+            second.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
+        expect(
+            second.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("5000");
+        expect(
+            Number(
+                second.headers[
+                    QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()
+                ],
+            ),
+        ).toBeGreaterThanOrEqual(0);
+
+        const bypass = await resolveCached(
+            "GET",
+            "/api/ethereum/milady?limit=1",
+        );
+        expect(bypass.statusCode).toBe(200);
+        expect(
+            bypass.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("bypass");
+        expect(
+            bypass.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()],
+        ).toBeUndefined();
+        expect(
+            bypass.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBeUndefined();
     });
 
     it("returns show-all collection detail with existing token-id ordering", async () => {
@@ -2124,6 +2205,22 @@ async function resolvePublic(
         throw new Error("Public Fastify app is not initialized");
     }
     return resolveWith(publicApp, method, pathWithQuery, payload, headers);
+}
+
+async function resolveCached(
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS",
+    pathWithQuery: string,
+    payload?: unknown,
+    headers?: Record<string, string>,
+): Promise<{
+    statusCode: number;
+    payload: any;
+    headers: Record<string, string | string[] | undefined>;
+}> {
+    if (!cachedApp) {
+        throw new Error("Cached Fastify app is not initialized");
+    }
+    return resolveWith(cachedApp, method, pathWithQuery, payload, headers);
 }
 
 async function resolveWith(

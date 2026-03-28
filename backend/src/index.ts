@@ -17,7 +17,11 @@ import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-defau
 import { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
 import { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
 import { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
-import { GetCollectionDetailUseCase } from "./application/use-cases/collections/get-collection-detail.js";
+import { CachedGetCollectionDetail } from "./application/use-cases/collections/cached-get-collection-detail.js";
+import {
+    GetCollectionDetailUseCase,
+    type GetCollectionDetailPort,
+} from "./application/use-cases/collections/get-collection-detail.js";
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
@@ -27,6 +31,7 @@ import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
 import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
+import { MemoryQueryCache } from "./infra/cache/memory.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
 import { ExtensionAwareCollectionCustomization } from "./infra/collections/extension-aware-collection-customization.js";
 import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extension-aware-collection-detail-read.js";
@@ -34,6 +39,10 @@ import { SqliteCollectionCustomizationRecords } from "./infra/collections/sqlite
 import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
+import {
+    QUERY_CACHE_PROVIDERS,
+    type QueryCachePort,
+} from "./ports/query-cache.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -120,6 +129,10 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         extensionAwareCollectionsReadModel,
         extensionAwareCollectionCustomization,
     );
+    const collectionDetailPort = maybeCreateCachedGetCollectionDetailPort(
+        config,
+        getCollectionDetailUseCase,
+    );
     const getCollectionActivityUseCase = new GetCollectionActivityUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -177,7 +190,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         getCollectionActivityUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
-        getCollectionDetailUseCase,
+        collectionDetailPort,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
         updateCollectionCustomizationUseCase,
@@ -185,6 +198,35 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.userlandUiDistDir,
         config.security,
         config.deployment,
+    );
+}
+
+function maybeCreateCachedGetCollectionDetailPort(
+    config: BackendConfig,
+    port: GetCollectionDetailPort,
+): GetCollectionDetailPort {
+    const cache = createQueryCache(config);
+    if (!cache) {
+        return port;
+    }
+    return new CachedGetCollectionDetail(
+        cache,
+        port,
+        config.queryCache.collectionDetailDefaultTtlMs,
+    );
+}
+
+function createQueryCache(config: BackendConfig): QueryCachePort | null {
+    if (config.queryCache.provider === QUERY_CACHE_PROVIDERS.Disabled) {
+        return null;
+    }
+    if (config.queryCache.provider === QUERY_CACHE_PROVIDERS.Memory) {
+        return new MemoryQueryCache({
+            maxEntries: config.queryCache.maxEntries,
+        });
+    }
+    throw new Error(
+        `Unsupported BACKEND_QUERY_CACHE_PROVIDER: ${config.queryCache.provider}`,
     );
 }
 
