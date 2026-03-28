@@ -51,7 +51,7 @@ Each runtime is an independent Node.js process. There is no shared memory across
 
 - Offchain ingest runtime (`indexer/src/runtime/offchain-ingest-worker.ts`)
     - Consumes raw offchain order payloads.
-    - Stores raw observations for audit/debug.
+    - Optionally stores raw observations for audit/debug.
     - Normalizes OpenSea stream and REST records into canonical order jobs.
 
 - OpenSea stream runtime (`indexer/src/runtime/opensea-stream-worker.ts`)

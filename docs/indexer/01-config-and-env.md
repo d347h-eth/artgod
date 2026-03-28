@@ -15,9 +15,10 @@ Config is loaded in `indexer/src/config/index.ts` (core indexer workers) and `in
     - `rpc`: `primaryUrl`, optional `backfillUrl`, optional `wsUrl`
     - `tokens`: `wethAddress`
     - `queue`: NATS URL and stream prefix
-    - `sync`: reorg depth, backfill batch size, log chunk size
-    - `cache`: max entries and TTL
-    - collections are stored in SQLite (`collections` table), not in env
+- `sync`: reorg depth, backfill batch size, log chunk size
+- `cache`: max entries and TTL
+- `offchain`: raw observation persistence toggle
+- collections are stored in SQLite (`collections` table), not in env
 
 ## Environment Variables (.env)
 
@@ -37,6 +38,9 @@ The indexer reads these variables from the root `.env`:
 - `LOG_CHUNK_SIZE` (default: 2000)
 - `CACHE_MAX_ENTRIES` (default: 5000)
 - `CACHE_TTL_MS` (default: 30000)
+- `OFFCHAIN_PERSIST_RAW_OBSERVATIONS` (default: `true`)
+    - Controls whether `offchain-ingest-worker` persists raw OpenSea payloads into `offchain_order_observations`.
+    - Set to `false` to reduce SQLite growth when raw audit payload history is not needed.
 - `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` (default: 200)
 - `SEAPORT_CONDUIT_CONTROLLER` (required)
 
@@ -74,6 +78,7 @@ BACKFILL_BATCH_SIZE=50
 LOG_CHUNK_SIZE=2000
 CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
+OFFCHAIN_PERSIST_RAW_OBSERVATIONS=true
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 OPENSEA_API_KEY=

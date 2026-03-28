@@ -63,6 +63,9 @@ export type IndexerConfig = {
     metadata: {
         refreshRangeChunkSize: number;
     };
+    offchain: {
+        persistRawObservations: boolean;
+    };
     seaport: {
         conduitController: string;
     };
@@ -249,6 +252,13 @@ export function loadConfig(
                 env.METADATA_REFRESH_RANGE_CHUNK_SIZE,
                 "METADATA_REFRESH_RANGE_CHUNK_SIZE",
                 200,
+            ),
+        },
+        offchain: {
+            persistRawObservations: parseBoolean(
+                env.OFFCHAIN_PERSIST_RAW_OBSERVATIONS,
+                "OFFCHAIN_PERSIST_RAW_OBSERVATIONS",
+                true,
             ),
         },
         seaport: {

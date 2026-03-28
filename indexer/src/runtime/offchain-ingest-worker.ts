@@ -59,19 +59,21 @@ async function main() {
             async (job: JobEnvelope<OffchainOrderRawPayload>) => {
                 if (job.kind !== OFFCHAIN_JOB_KIND.OrderRaw) return;
 
-                observations.recordObservation({
-                    chainId: job.payload.chainId,
-                    collectionId: job.payload.collectionId,
-                    source: job.payload.source,
-                    channel: job.payload.channel,
-                    dedupeKey: job.payload.dedupeKey,
-                    eventType: job.payload.eventType,
-                    orderId: job.payload.orderId ?? null,
-                    runId: job.payload.runId ?? null,
-                    receivedAt: job.payload.receivedAt,
-                    sourceEventAt: job.payload.sourceEventAt ?? null,
-                    payload: job.payload.payload,
-                });
+                if (config.offchain.persistRawObservations) {
+                    observations.recordObservation({
+                        chainId: job.payload.chainId,
+                        collectionId: job.payload.collectionId,
+                        source: job.payload.source,
+                        channel: job.payload.channel,
+                        dedupeKey: job.payload.dedupeKey,
+                        eventType: job.payload.eventType,
+                        orderId: job.payload.orderId ?? null,
+                        runId: job.payload.runId ?? null,
+                        receivedAt: job.payload.receivedAt,
+                        sourceEventAt: job.payload.sourceEventAt ?? null,
+                        payload: job.payload.payload,
+                    });
+                }
 
                 const result = await dispatchOffchainPayload(
                     queue,
@@ -99,6 +101,7 @@ async function main() {
         logger.info("Offchain ingest worker ready", {
             component: "OffchainIngestWorker",
             action: "main",
+            persistRawObservations: config.offchain.persistRawObservations,
         });
 
         const shutdown = async () => {

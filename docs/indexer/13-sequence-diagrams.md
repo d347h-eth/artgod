@@ -66,7 +66,7 @@ sequenceDiagram
     OSBoot->>DB: Complete orderbook run + mark OpenSea ready
 
     NATS-->>Offchain: offchain.order.raw
-    Offchain->>DB: Record raw observation
+    Offchain->>DB: Optionally record raw observation
     Offchain->>NATS: Publish orders.upsert / order updates / metadata refresh
 
     NATS-->>Domain: orders.upsert
@@ -137,5 +137,5 @@ sequenceDiagram
     Reconcile->>DB: Complete run + mark reconcile completed
 
     NATS-->>Offchain: offchain.order.raw
-    Offchain->>DB: Append raw observation
+    Offchain->>DB: Optionally append raw observation
 ```

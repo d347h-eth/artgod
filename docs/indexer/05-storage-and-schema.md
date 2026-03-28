@@ -267,6 +267,11 @@ Timestamp semantics:
 - `received_at` = local observation time when ArtGod saw the payload
 - `source_event_at` = source-derived timestamp if available, otherwise `NULL`
 
+Operational note:
+
+- raw observation persistence can be disabled with `OFFCHAIN_PERSIST_RAW_OBSERVATIONS=false`
+- when disabled, downstream normalization and canonical order updates still run; only the audit trail table stops growing
+
 ### `opensea_orderbook_runs`
 
 Defined in `015_opensea_offchain_schema.sql`.
