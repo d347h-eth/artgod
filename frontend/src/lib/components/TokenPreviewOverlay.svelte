@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import {
 		getTokenPreviewController,
 		tokenPreviewStyle
@@ -87,7 +88,9 @@
 					{$tokenPreviewState.errorMessage ?? 'Unable to load preview'}
 				</div>
 			{:else}
-				<div class="token-preview-state token-preview-loading">loading preview</div>
+				<div class="token-preview-state token-preview-loading">
+					<LoadingBladeBar ariaLabel="loading preview" />
+				</div>
 			{/if}
 		</div>
 	</div>
