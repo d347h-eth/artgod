@@ -19,13 +19,22 @@ import { GetTokenActivityUseCase } from "./application/use-cases/activities/get-
 import { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
 import { CachedGetCollectionDetail } from "./application/use-cases/collections/cached-get-collection-detail.js";
 import {
+    CachedGetTokenPreview,
+    type TokenPreviewWarmupPort,
+} from "./application/use-cases/collections/cached-get-token-preview.js";
+import {
     GetCollectionDetailUseCase,
     type GetCollectionDetailPort,
 } from "./application/use-cases/collections/get-collection-detail.js";
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
+import {
+    GetTokenPreviewUseCase,
+    type GetTokenPreviewPort,
+} from "./application/use-cases/collections/get-token-preview.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
+import { WarmingGetCollectionDetail } from "./application/use-cases/collections/warming-get-collection-detail.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
@@ -129,9 +138,19 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         extensionAwareCollectionsReadModel,
         extensionAwareCollectionCustomization,
     );
-    const collectionDetailPort = maybeCreateCachedGetCollectionDetailPort(
+    const getTokenPreviewUseCase = new GetTokenPreviewUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+    );
+    const tokenPreview = maybeCreateCachedGetTokenPreviewPort(
+        config,
+        getTokenPreviewUseCase,
+    );
+    const collectionDetailPort = maybeCreateCollectionDetailPort(
         config,
         getCollectionDetailUseCase,
+        tokenPreview.warmup,
     );
     const getCollectionActivityUseCase = new GetCollectionActivityUseCase(
         config.defaultChainId,
@@ -193,6 +212,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         collectionDetailPort,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
+        tokenPreview.port,
         updateCollectionCustomizationUseCase,
         runtimeHealthUseCase,
         config.userlandUiDistDir,
@@ -201,33 +221,71 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
     );
 }
 
-function maybeCreateCachedGetCollectionDetailPort(
+function maybeCreateCollectionDetailPort(
     config: BackendConfig,
     port: GetCollectionDetailPort,
+    tokenPreviewWarmupPort: TokenPreviewWarmupPort | null,
 ): GetCollectionDetailPort {
-    const cache = createQueryCache(config);
-    if (!cache) {
-        return port;
-    }
-    return new CachedGetCollectionDetail(
-        cache,
-        port,
-        config.queryCache.collectionDetailDefaultTtlMs,
+    const cache = createQueryCache(
+        config.queryCache.provider,
+        config.queryCache.maxEntries,
     );
+    const resolvedPort = cache
+        ? new CachedGetCollectionDetail(
+            cache,
+            port,
+            config.queryCache.collectionDetailDefaultTtlMs,
+        )
+        : port;
+    if (!tokenPreviewWarmupPort) {
+        return resolvedPort;
+    }
+    return new WarmingGetCollectionDetail(resolvedPort, tokenPreviewWarmupPort);
 }
 
-function createQueryCache(config: BackendConfig): QueryCachePort | null {
-    if (config.queryCache.provider === QUERY_CACHE_PROVIDERS.Disabled) {
+function maybeCreateCachedGetTokenPreviewPort(
+    config: BackendConfig,
+    port: GetTokenPreviewPort,
+): {
+    port: GetTokenPreviewPort;
+    warmup: TokenPreviewWarmupPort | null;
+} {
+    const cache = createQueryCache(
+        config.queryCache.provider,
+        config.queryCache.tokenPreview.maxEntries,
+    );
+    if (!cache) {
+        return {
+            port,
+            warmup: null,
+        };
+    }
+
+    const cachedPort = new CachedGetTokenPreview(cache, port, {
+        freshMs: config.queryCache.tokenPreview.freshMs,
+        staleMs: config.queryCache.tokenPreview.staleMs,
+        warmupConcurrency: config.queryCache.tokenPreview.warmupConcurrency,
+    });
+
+    return {
+        port: cachedPort,
+        warmup: cachedPort,
+    };
+}
+
+function createQueryCache(
+    provider: BackendConfig["queryCache"]["provider"],
+    maxEntries: number,
+): QueryCachePort | null {
+    if (provider === QUERY_CACHE_PROVIDERS.Disabled) {
         return null;
     }
-    if (config.queryCache.provider === QUERY_CACHE_PROVIDERS.Memory) {
+    if (provider === QUERY_CACHE_PROVIDERS.Memory) {
         return new MemoryQueryCache({
-            maxEntries: config.queryCache.maxEntries,
+            maxEntries,
         });
     }
-    throw new Error(
-        `Unsupported BACKEND_QUERY_CACHE_PROVIDER: ${config.queryCache.provider}`,
-    );
+    throw new Error(`Unsupported BACKEND_QUERY_CACHE_PROVIDER: ${provider}`);
 }
 
 async function main() {

@@ -434,6 +434,33 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/{token_ref}/preview:
+        get:
+            tags: [Collections]
+            summary: Get token preview payload for the modal
+            description: |
+                Lightweight token media payload used by the token preview modal.
+                Returns only media-mode state plus `tokenId`, `image`, and `animationUrl`.
+            operationId: getTokenPreview
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+                - $ref: "#/components/parameters/MediaMode"
+            responses:
+                "200":
+                    description: Token preview payload for the selected media mode
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetTokenPreviewResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/collections/bootstrap:
         post:
             tags: [Bootstrap]
@@ -944,6 +971,20 @@ components:
                 metadataUpdatedAt:
                     type: string
                     format: date-time
+                    nullable: true
+
+        TokenPreview:
+            type: object
+            required: [tokenId, image, animationUrl]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                image:
+                    type: string
+                    nullable: true
+                animationUrl:
+                    type: string
                     nullable: true
 
         TokenCursorPage:
@@ -1504,6 +1545,16 @@ components:
                     $ref: "#/components/schemas/CollectionMediaState"
                 token:
                     $ref: "#/components/schemas/TokenDetail"
+
+        GetTokenPreviewResponse:
+            type: object
+            required: [media, token]
+            additionalProperties: false
+            properties:
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
+                token:
+                    $ref: "#/components/schemas/TokenPreview"
 
         GetTokenActivityResponse:
             type: object

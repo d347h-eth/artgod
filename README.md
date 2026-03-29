@@ -200,7 +200,7 @@ SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 Useful optional env groups:
 
 - Backend HTTP/security (`BACKEND_HOST`, `BACKEND_ALLOWED_HOSTS`, `BACKEND_ALLOWED_ORIGINS`, `BACKEND_CSRF_COOKIE_SECURE`, `PUBLIC_BACKEND_ORIGIN`)
-- Backend query cache (`BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_QUERY_CACHE_MAX_ENTRIES`, `BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS`)
+- Backend query cache (`BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_QUERY_CACHE_MAX_ENTRIES`, `BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS`, `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*`)
 - RPC resilience (`RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
 - Metadata refresh/batch tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
@@ -209,7 +209,12 @@ Useful optional env groups:
 
 See `.env.example` and `docs/indexer/01-config-and-env.md` for full definitions.
 
-`BACKEND_QUERY_CACHE_PROVIDER=memory` enables a lightweight in-memory cache for expensive backend read queries. Today the first cached path is the default collection browser request for the public collection page (`listed`, first page, no filters). Leave it `disabled` for local/admin setups unless you explicitly want that behavior.
+`BACKEND_QUERY_CACHE_PROVIDER=memory` enables a lightweight in-memory cache for expensive backend read queries. The current cached paths are:
+
+- the default collection browser request for the public collection page (`listed`, first page, no filters)
+- the token preview modal endpoint, default media mode only, with stale-while-revalidate warmup from the default collection page
+
+Leave it `disabled` for local/admin setups unless you explicitly want that behavior.
 
 ## Architecture Overview
 

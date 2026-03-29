@@ -166,6 +166,12 @@ The preview system should behave as if it had these responsibilities:
 - center the preview box
 - render sandboxed iframe content inside that box
 
+Backend/read-contract notes:
+
+- preview modal should use a dedicated lightweight backend read contract, not the full token-detail endpoint
+- preview data contract should include only media-mode state plus `tokenId`, `image`, and `animationUrl`
+- preview-specific caching is allowed because the modal does not depend on ownership or market-state fields
+
 It should not take on responsibilities that belong to the iframe document, except for enforcing outer-box sizing and future explicit fixed-layout scaling.
 
 ## Recommended UX Behavior

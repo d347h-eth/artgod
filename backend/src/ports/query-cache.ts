@@ -8,6 +8,7 @@ export type QueryCacheProvider =
 
 export const QUERY_CACHE_NAMESPACES = {
     CollectionDetailDefault: "collection-detail-default",
+    TokenPreviewDefault: "token-preview-default",
 } as const;
 
 export type QueryCacheEntry<T> = {

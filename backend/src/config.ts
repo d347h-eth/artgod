@@ -23,6 +23,10 @@ const DEFAULT_ALLOWED_ORIGINS = [
 ];
 const DEFAULT_BACKEND_QUERY_CACHE_MAX_ENTRIES = 500;
 const DEFAULT_BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS = 10000;
+const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES = 250;
+const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS = 10 * 60 * 1000;
+const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS = 20 * 60 * 1000;
+const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY = 3;
 
 export type BackendSecurityConfig = {
     allowedHosts: string[];
@@ -46,6 +50,12 @@ export type BackendQueryCacheConfig = {
     provider: QueryCacheProvider;
     maxEntries: number;
     collectionDetailDefaultTtlMs: number;
+    tokenPreview: {
+        maxEntries: number;
+        freshMs: number;
+        staleMs: number;
+        warmupConcurrency: number;
+    };
 };
 
 export type BackendConfig = {
@@ -117,6 +127,21 @@ function parseQueryCacheConfig(
     env: Record<string, string | undefined>,
 ): BackendQueryCacheConfig {
     const provider = parseQueryCacheProvider(env.BACKEND_QUERY_CACHE_PROVIDER);
+    const tokenPreviewFreshMs = parsePositiveInteger(
+        env.BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS,
+        "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS",
+        DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS,
+    );
+    const tokenPreviewStaleMs = parsePositiveInteger(
+        env.BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS,
+        "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS",
+        DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS,
+    );
+    if (tokenPreviewStaleMs < tokenPreviewFreshMs) {
+        throw new Error(
+            "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS must be greater than or equal to BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS",
+        );
+    }
 
     return {
         provider,
@@ -130,6 +155,20 @@ function parseQueryCacheConfig(
             "BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS",
             DEFAULT_BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS,
         ),
+        tokenPreview: {
+            maxEntries: parsePositiveInteger(
+                env.BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES,
+                "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES",
+                DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES,
+            ),
+            freshMs: tokenPreviewFreshMs,
+            staleMs: tokenPreviewStaleMs,
+            warmupConcurrency: parsePositiveInteger(
+                env.BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY,
+                "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY",
+                DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY,
+            ),
+        },
     };
 }
 

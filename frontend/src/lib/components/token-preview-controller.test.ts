@@ -1,23 +1,23 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 
-const { getTokenDetailMock } = vi.hoisted(() => ({
-	getTokenDetailMock: vi.fn()
+const { getTokenPreviewMock } = vi.hoisted(() => ({
+	getTokenPreviewMock: vi.fn()
 }));
 
 vi.mock('$lib/backend-api', () => ({
-	getTokenDetail: getTokenDetailMock
+	getTokenPreview: getTokenPreviewMock
 }));
 
 import { createTokenPreviewController, tokenPreviewStyle } from './token-preview-controller';
 
 describe('token-preview-controller', () => {
 	beforeEach(() => {
-		getTokenDetailMock.mockReset();
+		getTokenPreviewMock.mockReset();
 	});
 
 	it('wraps image-only previews in a sandboxed iframe document source', async () => {
-		getTokenDetailMock.mockResolvedValueOnce({
+		getTokenPreviewMock.mockResolvedValueOnce({
 			token: {
 				tokenId: '1',
 				image: 'https://example.com/1.png',
@@ -25,6 +25,7 @@ describe('token-preview-controller', () => {
 			},
 			media: {
 				selectedMode: 'artifact',
+				defaultMode: 'artifact',
 				availableModes: [
 					{ key: 'artifact', label: 'artifact' },
 					{ key: 'snapshot', label: 'snapshot' }
@@ -53,7 +54,7 @@ describe('token-preview-controller', () => {
 	});
 
 	it('keeps the modal open with an error state when preview loading fails', async () => {
-		getTokenDetailMock.mockRejectedValueOnce(new Error('boom'));
+		getTokenPreviewMock.mockRejectedValueOnce(new Error('boom'));
 
 		const controller = createTokenPreviewController();
 
@@ -72,7 +73,7 @@ describe('token-preview-controller', () => {
 	});
 
 	it('supports adjacent token navigation and scale hotkeys while preview is open', async () => {
-		getTokenDetailMock
+		getTokenPreviewMock
 			.mockResolvedValueOnce({
 				token: {
 					tokenId: '1',
@@ -81,6 +82,7 @@ describe('token-preview-controller', () => {
 				},
 				media: {
 					selectedMode: 'artifact',
+					defaultMode: 'artifact',
 					availableModes: [{ key: 'artifact', label: 'artifact' }]
 				}
 			})
@@ -92,6 +94,7 @@ describe('token-preview-controller', () => {
 				},
 				media: {
 					selectedMode: 'artifact',
+					defaultMode: 'artifact',
 					availableModes: [{ key: 'artifact', label: 'artifact' }]
 				}
 			});
@@ -118,12 +121,12 @@ describe('token-preview-controller', () => {
 		await flush();
 
 		expect(nextEvent.preventDefault).toHaveBeenCalledOnce();
-		expect(getTokenDetailMock).toHaveBeenCalledTimes(2);
+		expect(getTokenPreviewMock).toHaveBeenCalledTimes(2);
 		expect(get(controller.state).tokenId).toBe('2');
 	});
 
 	it('uses the trigger image aspect ratio in the preview style contract', async () => {
-		getTokenDetailMock.mockResolvedValueOnce({
+		getTokenPreviewMock.mockResolvedValueOnce({
 			token: {
 				tokenId: '1',
 				image: null,
@@ -131,6 +134,7 @@ describe('token-preview-controller', () => {
 			},
 			media: {
 				selectedMode: 'artifact',
+				defaultMode: 'artifact',
 				availableModes: [{ key: 'artifact', label: 'artifact' }]
 			}
 		});

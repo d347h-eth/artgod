@@ -10,7 +10,8 @@ import type {
 	CollectionHoldersApiResponse,
 	CollectionsApiResponse,
 	DefaultChainResponse,
-	TokenDetailApiResponse
+	TokenDetailApiResponse,
+	TokenPreviewApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { browser } from '$app/environment';
@@ -147,6 +148,21 @@ export async function getTokenDetail(
 	return requestJson<TokenDetailApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}${suffix}`
+	);
+}
+
+export async function getTokenPreview(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tokenRef: string,
+	params?: URLSearchParams
+): Promise<TokenPreviewApiResponse> {
+	const query = params?.toString() ?? '';
+	const suffix = query ? `?${query}` : '';
+	return requestJson<TokenPreviewApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/preview${suffix}`
 	);
 }
 

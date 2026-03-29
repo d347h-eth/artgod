@@ -47,6 +47,10 @@ import type {
     GetTokenDetailRoute,
 } from "./http/handlers/collections/get-token-detail.js";
 import type {
+    GetTokenPreviewHttpAdapter,
+    GetTokenPreviewRoute,
+} from "./http/handlers/collections/get-token-preview.js";
+import type {
     UpdateCollectionCustomizationHttpAdapter,
     UpdateCollectionCustomizationRoute,
 } from "./http/handlers/collections/update-collection-customization.js";
@@ -92,6 +96,7 @@ export function registerApiRoutes(
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
+    getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
     updateCollectionCustomizationAdapter: UpdateCollectionCustomizationHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
     options: ApiRouteRegistrationOptions,
@@ -137,6 +142,13 @@ export function registerApiRoutes(
             preHandler: publicCollectionScopeGuard,
         },
         getTokenActivityAdapter.handle,
+    );
+    app.get<GetTokenPreviewRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/preview",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
+        getTokenPreviewAdapter.handle,
     );
     app.get<GetTokenDetailRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref",

@@ -11,6 +11,7 @@ import type { GetCollectionCustomizationUseCase } from "./application/use-cases/
 import type { GetCollectionDetailPort } from "./application/use-cases/collections/get-collection-detail.js";
 import type { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
+import type { GetTokenPreviewPort } from "./application/use-cases/collections/get-token-preview.js";
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
@@ -26,6 +27,7 @@ import { GetCollectionCustomizationHttpAdapter } from "./http/handlers/collectio
 import { GetCollectionDetailHttpAdapter } from "./http/handlers/collections/get-collection-detail.js";
 import { GetCollectionHoldersHttpAdapter } from "./http/handlers/collections/get-collection-holders.js";
 import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token-detail.js";
+import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-token-preview.js";
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
@@ -57,6 +59,7 @@ export function createApiApp(
     getCollectionDetailUseCase: GetCollectionDetailPort,
     getCollectionHoldersUseCase: GetCollectionHoldersUseCase,
     getTokenDetailUseCase: GetTokenDetailUseCase,
+    getTokenPreviewUseCase: GetTokenPreviewPort,
     updateCollectionCustomizationUseCase: UpdateCollectionCustomizationUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
     userlandUiDistDir: string | null,
@@ -109,6 +112,9 @@ export function createApiApp(
     const getTokenDetailAdapter = new GetTokenDetailHttpAdapter(
         getTokenDetailUseCase,
     );
+    const getTokenPreviewAdapter = new GetTokenPreviewHttpAdapter(
+        getTokenPreviewUseCase,
+    );
     const updateCollectionCustomizationAdapter =
         new UpdateCollectionCustomizationHttpAdapter(
             updateCollectionCustomizationUseCase,
@@ -137,6 +143,7 @@ export function createApiApp(
         getCollectionDetailAdapter,
         getCollectionHoldersAdapter,
         getTokenDetailAdapter,
+        getTokenPreviewAdapter,
         updateCollectionCustomizationAdapter,
         getRuntimeHealthAdapter,
         {

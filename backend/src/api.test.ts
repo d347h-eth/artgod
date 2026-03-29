@@ -71,6 +71,8 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/get-collection-holders.js");
     const tokenDetailUseCaseModule =
         await import("./application/use-cases/collections/get-token-detail.js");
+    const tokenPreviewUseCaseModule =
+        await import("./application/use-cases/collections/get-token-preview.js");
     const tokenActivityUseCaseModule =
         await import("./application/use-cases/activities/get-token-activity.js");
     const runtimeHealthUseCaseModule =
@@ -150,6 +152,12 @@ beforeAll(async () => {
         );
     const getTokenDetailUseCase =
         new tokenDetailUseCaseModule.GetTokenDetailUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+        );
+    const getTokenPreviewUseCase =
+        new tokenPreviewUseCaseModule.GetTokenPreviewUseCase(
             1,
             chainsReadModel,
             collectionsReadModel,
@@ -248,6 +256,7 @@ beforeAll(async () => {
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
+        getTokenPreviewUseCase,
         updateCollectionCustomizationUseCase,
         runtimeHealthUseCase,
         null,
@@ -271,6 +280,7 @@ beforeAll(async () => {
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
+        getTokenPreviewUseCase,
         updateCollectionCustomizationUseCase,
         runtimeHealthUseCase,
         null,
@@ -301,6 +311,12 @@ beforeAll(async () => {
             provider: QUERY_CACHE_PROVIDERS.Memory,
             maxEntries: 16,
             collectionDetailDefaultTtlMs: 5000,
+            tokenPreview: {
+                maxEntries: 16,
+                freshMs: 600_000,
+                staleMs: 1_200_000,
+                warmupConcurrency: 2,
+            },
         },
     });
     await app.ready();
@@ -548,6 +564,71 @@ describe("backend api routes", () => {
             33.3333,
             3,
         );
+    });
+
+    it("returns token preview with only media payload needed by the modal", async () => {
+        const result = await resolve("GET", "/api/ethereum/terraforms/7710/preview");
+
+        expect(result.statusCode).toBe(200);
+        expect(Object.keys(result.payload)).toEqual(["media", "token"]);
+        expect(result.payload.media.selectedMode).toBe("artifact");
+        expect(result.payload.media.defaultMode).toBe("artifact");
+        expect(result.payload.token).toEqual({
+            tokenId: "7710",
+            image: "data:image/svg+xml;base64,terraforms-v2-image",
+            animationUrl: `data:text/html;base64,${Buffer.from("<html><body>terraforms-v2</body></html>", "utf8").toString("base64")}`,
+        });
+    });
+
+    it("marks cached preview responses with query cache headers", async () => {
+        const first = await resolveCached(
+            "GET",
+            "/api/ethereum/terraforms/7710/preview?media_mode=artifact",
+        );
+        expect(first.statusCode).toBe(200);
+        expect(first.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()]).toBe(
+            "miss",
+        );
+        expect(
+            first.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()],
+        ).toBe("0");
+        expect(
+            first.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("1200000");
+
+        const second = await resolveCached(
+            "GET",
+            "/api/ethereum/terraforms/7710/preview?media_mode=artifact",
+        );
+        expect(second.statusCode).toBe(200);
+        expect(
+            second.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
+        expect(
+            second.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("1200000");
+        expect(
+            Number(
+                second.headers[
+                    QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()
+                ],
+            ),
+        ).toBeGreaterThanOrEqual(0);
+    });
+
+    it("warms preview cache from the default collection page", async () => {
+        const page = await resolveCached("GET", "/api/ethereum/milady?limit=250");
+        expect(page.statusCode).toBe(200);
+        await waitForAsyncTasks();
+
+        const preview = await resolveCached(
+            "GET",
+            "/api/ethereum/milady/1/preview?media_mode=snapshot",
+        );
+        expect(preview.statusCode).toBe(200);
+        expect(
+            preview.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
     });
 
     it("returns collection activity with bidirectional pagination metadata", async () => {
@@ -2248,6 +2329,11 @@ async function resolveWith(
             string | string[] | undefined
         >,
     };
+}
+
+async function waitForAsyncTasks(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function seedData(): void {

@@ -2,7 +2,7 @@ import { browser } from '$app/environment';
 import { getContext, setContext } from 'svelte';
 import { get, writable, type Readable } from 'svelte/store';
 import type { ApiCollectionMediaMode } from '$lib/api-types';
-import { getTokenDetail } from '$lib/backend-api';
+import { getTokenPreview } from '$lib/backend-api';
 import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
 
 const TOKEN_PREVIEW_SCALE_STORAGE_KEY = 'artgod.tokenBrowser.previewScalePercent';
@@ -111,7 +111,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		}));
 
 		try {
-			const response = await getTokenDetail(
+			const response = await getTokenPreview(
 				globalThis.fetch,
 				chainRef,
 				collectionRef,

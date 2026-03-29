@@ -160,6 +160,8 @@ export type ApiTokenDetail = {
 	metadataUpdatedAt: string | null;
 };
 
+export type ApiTokenPreview = Pick<ApiTokenDetail, 'tokenId' | 'image' | 'animationUrl'>;
+
 export type ApiTokensPage = {
 	items: ApiTokenCard[];
 	prevCursor: string | null;
@@ -263,6 +265,11 @@ export type TokenDetailApiResponse = {
 	collection: ApiCollection;
 	media: ApiCollectionMediaState;
 	token: ApiTokenDetail;
+};
+
+export type TokenPreviewApiResponse = {
+	media: ApiCollectionMediaState;
+	token: ApiTokenPreview;
 };
 
 export type TokenActivitiesApiResponse = {
