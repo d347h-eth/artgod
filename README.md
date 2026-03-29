@@ -82,6 +82,30 @@ VSCode (Yarn PnP):
 yarn dlx @yarnpkg/sdks vscode
 ```
 
+## Versioning
+
+The canonical project version lives in the root [`package.json`](package.json) `version` field.
+
+When you bump the version, update it there first, then run:
+
+```sh
+yarn sync:version
+```
+
+That propagates the root version into the places that require materialized version fields:
+
+- workspace `package.json` files
+- `src-tauri/tauri.conf.json`
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
+- `docs/backend-api.openapi.yaml`
+
+Notes:
+
+- The frontend build reads the app version directly from the root workspace version. There is no separate app-version deploy env override.
+- Desktop release tags should match the root version with a leading `v`, for example root `0.0.1-pre-alpha.3` -> tag `v0.0.1-pre-alpha.3`.
+- Run `yarn sync:version` before building release artifacts or pushing a release tag so Tauri, Cargo, workspace manifests, and OpenAPI stay aligned.
+
 ## Local Development
 
 Start local infra (NATS + JetStream):
@@ -129,6 +153,8 @@ Desktop release artifacts are built publicly in GitHub Actions.
 - Trigger: push tag `v*` (for example `v0.1.0`)
 - Targets: Linux x64, Windows x64, macOS universal
 - Outputs: signed release bundles, `SHA256SUMS.txt`, `SHA256SUMS.txt.asc`, Linux detached signatures, and GitHub build provenance attestation
+
+Keep the release tag aligned with the root `package.json` version as described in `Versioning` above.
 
 For all desktop release details (signing/notarization setup, required secrets, verification commands, and CI flow), see:
 

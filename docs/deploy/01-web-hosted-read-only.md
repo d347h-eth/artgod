@@ -150,6 +150,8 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 
 ## Notes
 
+- Project versioning is documented centrally in `README.md` under `Versioning`.
+- The deploy stack does not take a separate app-version env override; the frontend build reads the root workspace version directly.
 - `PUBLIC_BACKEND_ORIGIN` is the browser-facing backend origin baked into the SSR frontend build. If you change the public domain, rebuild the image.
 - `INTERNAL_BACKEND_ORIGIN` is the runtime-only backend origin used by the SSR frontend server process itself; in the default compose setup it should stay `http://backend:3000`.
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.

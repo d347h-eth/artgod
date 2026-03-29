@@ -5,7 +5,6 @@ x-artgod-image: &artgod-image
         dockerfile: Dockerfile.deploy
         args:
             PUBLIC_BACKEND_ORIGIN: ${PUBLIC_BACKEND_ORIGIN}
-            PUBLIC_APP_VERSION: ${PUBLIC_APP_VERSION:-}
             PUBLIC_APP_DEPLOYMENT_MODE: ${PUBLIC_APP_DEPLOYMENT_MODE:-}
             PUBLIC_APP_CHAIN_REF: ${PUBLIC_APP_CHAIN_REF:-}
             PUBLIC_APP_COLLECTION_REF: ${PUBLIC_APP_COLLECTION_REF:-}

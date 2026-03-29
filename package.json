@@ -1,6 +1,6 @@
 {
     "name": "artgod",
-    "version": "0.0.1-pre-alpha.2",
+    "version": "0.0.1-pre-alpha.3",
     "private": true,
     "type": "module",
     "author": "d347h.eth <wagdie.dev@gmail.com>",
@@ -28,6 +28,7 @@
         "build:runtime": "node ./scripts/build/build-runtime-artifacts.mjs",
         "build:desktop-runtime-resources": "node ./scripts/build/prepare-desktop-runtime-resources.mjs",
         "check:runtime-registry": "node ./scripts/build/check-runtime-registry.mjs",
+        "sync:version": "node ./scripts/build/sync-version.mjs",
         "clean:build": "node ./scripts/build/clean-build-artifacts.mjs",
         "build:frontend": "yarn build:web",
         "install:all": "yarn install && yarn workspaces foreach run install",

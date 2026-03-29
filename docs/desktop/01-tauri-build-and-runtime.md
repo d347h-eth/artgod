@@ -10,6 +10,9 @@ This document describes the current desktop pipeline end-to-end:
 
 It is the canonical technical reference for desktop composition in this repository.
 
+Project versioning is documented centrally in `README.md` under `Versioning`.
+For desktop releases, keep the release tag aligned with the root `package.json` version (`v<root-version>`) and run `yarn sync:version` before building or publishing release artifacts.
+
 For add/remove runtime registry maintenance, see:
 
 - `docs/desktop/02-runtime-registry-maintenance.md`

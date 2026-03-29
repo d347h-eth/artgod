@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { APP_VERSION } from '$lib/runtime/app-version';
 import KeyboardShortcutsHelp from './KeyboardShortcutsHelp.svelte';
 import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 
@@ -28,7 +29,7 @@ describe('KeyboardShortcutsHelp', () => {
 
 		expect(body).toContain('keyboard shortcuts');
 		expect(body).toContain('Token Browser Preview Navigation');
-		expect(body).toContain('v0.0.1-pre-alpha.2');
+		expect(body).toContain(APP_VERSION);
 		expect(body).toContain('artgod.network');
 		expect(body).toContain('x.com/artgod_eth');
 		expect(body).toContain('>F1<');
