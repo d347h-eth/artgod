@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { getContext, setContext } from 'svelte';
 import { get, writable, type Readable } from 'svelte/store';
-import type { ApiCollectionMediaMode } from '$lib/api-types';
+import type { ApiCollectionMediaMode, TokenPreviewApiResponse } from '$lib/api-types';
 import { getTokenPreview } from '$lib/backend-api';
 import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
 
@@ -12,6 +12,18 @@ const MAX_TOKEN_PREVIEW_SCALE_PERCENT = 100;
 const TOKEN_PREVIEW_SCALE_STEP_PERCENT = 5;
 const TOKEN_PREVIEW_CONTEXT_KEY = Symbol('token-preview-controller');
 let fallbackTokenPreviewController: TokenPreviewController | null = null;
+
+type TokenPreviewRequest = {
+	chainRef: string;
+	collectionRef: string;
+	tokenId: string;
+	mediaMode: string;
+};
+
+type CachedTokenPreview = {
+	response: TokenPreviewApiResponse;
+	iframeSource: TokenPreviewIframeSource;
+};
 
 export type TokenPreviewAdjacentResolver = (
 	step: -1 | 1,
@@ -76,6 +88,8 @@ export function createTokenPreviewController(): TokenPreviewController {
 	});
 	let requestId = 0;
 	let adjacentTokenResolver: TokenPreviewAdjacentResolver | null = null;
+	const previewCache = new Map<string, CachedTokenPreview>();
+	const previewRequestsInFlight = new Map<string, Promise<CachedTokenPreview | null>>();
 
 	async function openTokenPreview(params: {
 		chainRef: string;
@@ -93,39 +107,38 @@ export function createTokenPreviewController(): TokenPreviewController {
 
 		adjacentTokenResolver = params.adjacentTokenResolver ?? null;
 		const activeRequestId = ++requestId;
-		state.update((current) => ({
-			...current,
-			open: true,
-			status: 'loading',
-			iframeSource: null,
-			tokenId,
-			chainRef,
-			collectionRef,
-			selectedMediaMode: params.selectedMediaMode,
-			availableMediaModes: params.availableMediaModes,
-			aspectRatio: resolvePreviewAspectRatio(
-				params.previewAspectRatio ?? null,
-				current.aspectRatio
-			),
-			errorMessage: null
-		}));
+		state.update((current) => {
+			const keepDisplayedMedia = current.iframeSource !== null && current.status !== 'error';
+			return {
+				...current,
+				open: true,
+				status: 'loading',
+				tokenId: keepDisplayedMedia ? current.tokenId : tokenId,
+				chainRef,
+				collectionRef,
+				selectedMediaMode: keepDisplayedMedia
+					? current.selectedMediaMode
+					: params.selectedMediaMode,
+				availableMediaModes: keepDisplayedMedia
+					? current.availableMediaModes
+					: params.availableMediaModes,
+				aspectRatio: resolvePreviewAspectRatio(
+					params.previewAspectRatio ?? null,
+					current.aspectRatio
+				),
+				errorMessage: null
+			};
+		});
 
 		try {
-			const response = await getTokenPreview(
-				globalThis.fetch,
+			const preview = await loadTokenPreview({
 				chainRef,
 				collectionRef,
 				tokenId,
-				buildMediaModeQuery(params.selectedMediaMode)
-			);
+				mediaMode: params.selectedMediaMode
+			});
 			if (activeRequestId !== requestId) return;
-
-			const iframeSource = resolveTokenPreviewIframeSource(
-				response.token.animationUrl,
-				response.token.image,
-				tokenPreviewTitle(response.token.tokenId)
-			);
-			if (!iframeSource) {
+			if (!preview) {
 				setPreviewError('No preview media available');
 				return;
 			}
@@ -134,12 +147,18 @@ export function createTokenPreviewController(): TokenPreviewController {
 				...current,
 				open: true,
 				status: 'ready',
-				iframeSource,
-				tokenId: response.token.tokenId,
-				selectedMediaMode: response.media.selectedMode,
-				availableMediaModes: response.media.availableModes,
+				iframeSource: preview.iframeSource,
+				tokenId: preview.response.token.tokenId,
+				selectedMediaMode: preview.response.media.selectedMode,
+				availableMediaModes: preview.response.media.availableModes,
 				errorMessage: null
 			}));
+			prefetchAdjacentNeighbors({
+				chainRef,
+				collectionRef,
+				tokenId: preview.response.token.tokenId,
+				mediaMode: preview.response.media.selectedMode
+			});
 		} catch {
 			if (activeRequestId !== requestId) return;
 			setPreviewError('Unable to load preview');
@@ -293,6 +312,69 @@ export function createTokenPreviewController(): TokenPreviewController {
 		tokenPreviewAriaLabel,
 		tokenPreviewMediaModeLabel
 	};
+
+	async function loadTokenPreview(
+		request: TokenPreviewRequest
+	): Promise<CachedTokenPreview | null> {
+		const cacheKey = buildTokenPreviewCacheKey(request);
+		const cached = previewCache.get(cacheKey);
+		if (cached) {
+			return cached;
+		}
+
+		const inFlight = previewRequestsInFlight.get(cacheKey);
+		if (inFlight) {
+			return inFlight;
+		}
+
+		const promise = getTokenPreview(
+			globalThis.fetch,
+			request.chainRef,
+			request.collectionRef,
+			request.tokenId,
+			buildMediaModeQuery(request.mediaMode)
+		)
+			.then((response) => {
+				const iframeSource = resolveTokenPreviewIframeSource(
+					response.token.animationUrl,
+					response.token.image,
+					tokenPreviewTitle(response.token.tokenId)
+				);
+				if (!iframeSource) {
+					return null;
+				}
+				const preview = {
+					response,
+					iframeSource
+				};
+				previewCache.set(cacheKey, preview);
+				return preview;
+			})
+			.finally(() => {
+				previewRequestsInFlight.delete(cacheKey);
+			});
+
+		previewRequestsInFlight.set(cacheKey, promise);
+		return promise;
+	}
+
+	function prefetchAdjacentNeighbors(request: TokenPreviewRequest): void {
+		if (!adjacentTokenResolver) {
+			return;
+		}
+		for (const step of [-1, 1] as const) {
+			const adjacentTokenId = adjacentTokenResolver(step, request.tokenId);
+			if (!adjacentTokenId) {
+				continue;
+			}
+			void loadTokenPreview({
+				chainRef: request.chainRef,
+				collectionRef: request.collectionRef,
+				tokenId: adjacentTokenId,
+				mediaMode: request.mediaMode
+			}).catch(() => undefined);
+		}
+	}
 }
 
 export function setTokenPreviewControllerContext(
@@ -428,6 +510,15 @@ function buildMediaModeQuery(mediaMode: string): URLSearchParams {
 	const params = new URLSearchParams();
 	appendMediaModeParam(params, mediaMode);
 	return params;
+}
+
+function buildTokenPreviewCacheKey(request: TokenPreviewRequest): string {
+	return [
+		request.chainRef.trim().toLowerCase(),
+		request.collectionRef.trim().toLowerCase(),
+		request.tokenId.trim(),
+		request.mediaMode.trim().toLowerCase()
+	].join('|');
 }
 
 function tokenPreviewTitle(tokenId: string): string {

@@ -69,8 +69,14 @@
 			</button>
 		{/if}
 
-		<div class="token-preview-box">
-			{#if $tokenPreviewState.status === 'ready' && $tokenPreviewState.iframeSource}
+		{#if $tokenPreviewState.status === 'error'}
+			<div class="token-preview-box">
+				<div class="token-preview-state token-preview-error">
+					{$tokenPreviewState.errorMessage ?? 'Unable to load preview'}
+				</div>
+			</div>
+		{:else if $tokenPreviewState.iframeSource}
+			<div class="token-preview-box">
 				<iframe
 					class="token-preview-frame"
 					src={$tokenPreviewState.iframeSource.kind === 'src'
@@ -83,15 +89,13 @@
 					sandbox="allow-scripts"
 					referrerpolicy="no-referrer"
 				></iframe>
-			{:else if $tokenPreviewState.status === 'error'}
-				<div class="token-preview-state token-preview-error">
-					{$tokenPreviewState.errorMessage ?? 'Unable to load preview'}
-				</div>
-			{:else}
-				<div class="token-preview-state token-preview-loading">
-					<LoadingBladeBar ariaLabel="loading preview" />
-				</div>
-			{/if}
-		</div>
+			</div>
+		{/if}
+
+		{#if $tokenPreviewState.status === 'loading'}
+			<div class="token-preview-network-spinner">
+				<LoadingBladeBar ariaLabel="loading preview" barLength={1} />
+			</div>
+		{/if}
 	</div>
 {/if}

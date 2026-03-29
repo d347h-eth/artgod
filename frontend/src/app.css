@@ -1313,14 +1313,17 @@ th {
 	color: var(--c-sand);
 }
 
-.token-preview-loading {
-	border-color: color-mix(in srgb, var(--c-cyan) 45%, transparent);
-	color: var(--c-cyan);
-}
-
 .token-preview-error {
 	border-color: color-mix(in srgb, var(--c-yellow) 45%, transparent);
 	color: var(--c-yellow);
+}
+
+.token-preview-network-spinner {
+	position: absolute;
+	left: var(--token-preview-pad-left);
+	bottom: var(--token-preview-pad-bottom);
+	z-index: 2;
+	pointer-events: none;
 }
 
 .token-detail-panel {

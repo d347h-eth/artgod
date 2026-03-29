@@ -110,6 +110,7 @@ describe('token-preview-controller', () => {
 			adjacentTokenResolver: (step, currentTokenId) =>
 				step === 1 && currentTokenId === '1' ? '2' : null
 		});
+		await flush();
 
 		const growEvent = keyboardEvent('=');
 		controller.onWindowKeydown(growEvent);
@@ -123,6 +124,83 @@ describe('token-preview-controller', () => {
 		expect(nextEvent.preventDefault).toHaveBeenCalledOnce();
 		expect(getTokenPreviewMock).toHaveBeenCalledTimes(2);
 		expect(get(controller.state).tokenId).toBe('2');
+	});
+
+	it('keeps the current media visible while the next preview request is still loading', async () => {
+		const deferred = createDeferred<{
+			token: {
+				tokenId: string;
+				image: string | null;
+				animationUrl: string | null;
+			};
+			media: {
+				selectedMode: string;
+				defaultMode: string;
+				availableModes: { key: string; label: string }[];
+			};
+		}>();
+
+		getTokenPreviewMock
+			.mockResolvedValueOnce({
+				token: {
+					tokenId: '1',
+					image: null,
+					animationUrl: 'https://example.com/1.html'
+				},
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'snapshot', label: 'snapshot' }
+					]
+				}
+			})
+			.mockImplementationOnce(() => deferred.promise);
+
+		const controller = createTokenPreviewController();
+
+		await controller.openTokenPreview({
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			tokenId: '1',
+			selectedMediaMode: 'artifact',
+			availableMediaModes: [
+				{ key: 'artifact', label: 'artifact' },
+				{ key: 'snapshot', label: 'snapshot' }
+			]
+		});
+
+		const initialIframeSource = get(controller.state).iframeSource;
+		void controller.cycleTokenPreviewMediaMode();
+		await flush();
+		const loadingState = get(controller.state);
+		expect(loadingState.status).toBe('loading');
+		expect(loadingState.iframeSource).toEqual(initialIframeSource);
+
+		deferred.resolve({
+			token: {
+				tokenId: '1',
+				image: null,
+				animationUrl: 'https://example.com/1-snapshot.html'
+			},
+			media: {
+				selectedMode: 'snapshot',
+				defaultMode: 'artifact',
+				availableModes: [
+					{ key: 'artifact', label: 'artifact' },
+					{ key: 'snapshot', label: 'snapshot' }
+				]
+			}
+		});
+		await flush();
+		await flush();
+
+		const finalState = get(controller.state);
+		expect(finalState.status).toBe('ready');
+		expect(finalState.selectedMediaMode).toBe('snapshot');
+		expect(finalState.iframeSource?.kind).toBe('src');
+		expect(finalState.iframeSource?.value).toBe('https://example.com/1-snapshot.html');
 	});
 
 	it('uses the trigger image aspect ratio in the preview style contract', async () => {
@@ -170,4 +248,22 @@ function keyboardEvent(key: string): KeyboardEvent {
 async function flush(): Promise<void> {
 	await Promise.resolve();
 	await Promise.resolve();
+}
+
+function createDeferred<T>(): {
+	promise: Promise<T>;
+	resolve(value: T): void;
+	reject(error: unknown): void;
+} {
+	let resolve!: (value: T) => void;
+	let reject!: (error: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return {
+		promise,
+		resolve,
+		reject
+	};
 }

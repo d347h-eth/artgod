@@ -47,16 +47,22 @@
 	});
 </script>
 
-<div class="loading-blade-bar" role="img" aria-label={ariaLabel}>
+<div
+	class="loading-blade-bar"
+	style={`--loading-blade-bar-length:${Math.max(1, Math.floor(barLength))};`}
+	role="img"
+	aria-label={ariaLabel}
+>
 	<span class="loading-blade-bar-frame">{frame}</span>
 </div>
 
 <style>
 	.loading-blade-bar {
+		--loading-blade-bar-length: 10;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		min-width: 10ch;
+		min-width: calc(var(--loading-blade-bar-length) * 1ch);
 		color: var(--c-cyan);
 		text-transform: none;
 		letter-spacing: 0;
@@ -66,7 +72,7 @@
 
 	.loading-blade-bar-frame {
 		display: inline-block;
-		min-width: 10ch;
+		min-width: calc(var(--loading-blade-bar-length) * 1ch);
 		white-space: pre;
 		font-variant-ligatures: none;
 	}
