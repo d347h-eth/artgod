@@ -1196,7 +1196,7 @@ describe("backend api routes", () => {
         expect(result.payload.token.listingPrice).toBe("500000000000000000");
     });
 
-    it("matches owner-scoped token queries against mixed-case stored owners", async () => {
+    it("matches owner-scoped token queries against mixed-case owner refs", async () => {
         clearNftBalances(MILADY_ADDRESS);
         const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
         db.prepare(
@@ -1208,7 +1208,7 @@ describe("backend api routes", () => {
             collection.collection_id,
             MILADY_ADDRESS,
             "1",
-            "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa",
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "1",
             1,
             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -1219,7 +1219,7 @@ describe("backend api routes", () => {
 
         const result = await resolve(
             "GET",
-            "/api/ethereum/milady?owner=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&token_status=listed_then_unlisted&limit=10",
+            "/api/ethereum/milady?owner=0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa&token_status=listed_then_unlisted&limit=10",
         );
 
         expect(result.statusCode).toBe(200);

@@ -30,12 +30,18 @@ node_modules/.vite
 frontend/test-results/
 frontend/playwright-report/
 
+# Cloudflare worker mgmt cache
+**/.wrangler/cache
+
 # Database files (keep migrations and scripts, ignore database data)
 database/sqlite/
 
+# temporary storage
 tmp/
 
+# secrets
 .env*
 !.env*.example
 
-**/.wrangler/cache
+# user files
+.codex

@@ -1397,7 +1397,7 @@ async function snapshotOwners(
             collectionId,
             contract,
             tokenId,
-            owner,
+            owner: owner.toLowerCase(),
             anchorBlock,
         });
         if (batch.length >= Math.max(1, batchSize)) {

@@ -317,7 +317,7 @@ export class SqliteCollectionRegistry
         this.upsert.run({
             chainId: persisted.chainId,
             slug: persisted.slug,
-            address: persisted.address,
+            address: persisted.address.toLowerCase(),
             standard: persisted.standard,
             status: persisted.status,
             tokenScopeKind: persisted.tokenScopeKind,

@@ -9,6 +9,21 @@ const REQUIRED_ENV = {
 };
 
 describe("Indexer config", () => {
+    it("normalizes canonical address config to lowercase", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            SEAPORT_CONDUIT_CONTROLLER:
+                "0x00000000F9490004C11cef243F5400493C00AD63",
+        });
+
+        expect(config.tokens.wethAddress).toBe(
+            "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        );
+        expect(config.seaport.conduitController).toBe(
+            "0x00000000f9490004c11cef243f5400493c00ad63",
+        );
+    });
+
     it("persists raw offchain observations by default", () => {
         const config = loadConfig(REQUIRED_ENV);
 

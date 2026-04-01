@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS nft_balance_snapshots (
   collection_id INTEGER NOT NULL,
   contract_address TEXT NOT NULL,
   token_id TEXT NOT NULL,
-  owner TEXT NOT NULL,
+  owner TEXT NOT NULL CHECK (owner = lower(owner)),
   anchor_block INTEGER NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (run_id, collection_id, token_id, owner)

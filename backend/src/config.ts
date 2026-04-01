@@ -79,7 +79,7 @@ function parseAddress(value: string | undefined, name: string): string {
     if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
         throw new Error(`Invalid ${name}: ${value}`);
     }
-    return value;
+    return value.toLowerCase();
 }
 
 export function loadBackendConfig(

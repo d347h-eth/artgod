@@ -339,6 +339,10 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     }
 
     async handleOrderUpsert(payload: OrderUpsertPayload): Promise<void> {
+        const maker = payload.maker.toLowerCase();
+        const taker = payload.taker?.toLowerCase() ?? null;
+        const contract = payload.contract.toLowerCase();
+        const currency = payload.currency?.toLowerCase() ?? null;
         const sourceScopeKind =
             payload.sourceScopeKind ?? ORDER_SOURCE_SCOPE_KIND.Token;
         const rawSourceKind = payload.rawSourceKind ?? "stream";
@@ -376,9 +380,9 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             kind: payload.kind,
             side: payload.side,
             source: payload.source,
-            maker: payload.maker,
-            taker: payload.taker ?? null,
-            contract: payload.contract,
+            maker,
+            taker,
+            contract,
             tokenId: payload.tokenId ?? null,
             sourceScopeKind,
             sourceCriteriaRoot: payload.sourceCriteriaRoot ?? null,
@@ -389,7 +393,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             tokenSetId: payload.tokenSetId ?? null,
             tokenSetSchemaHash: payload.tokenSetSchemaHash ?? null,
             price: payload.price ?? null,
-            currency: payload.currency ?? null,
+            currency,
             validFrom: payload.validFrom ?? null,
             validUntil: payload.validUntil ?? null,
             fillabilityStatus: ORDER_STATUS.Fillable,

@@ -35,7 +35,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     private insertSnapshotStmt = db.prepare<BootstrapSnapshotRow>(
         "INSERT INTO nft_balance_snapshots " +
             "(run_id, chain_id, collection_id, contract_address, token_id, owner, anchor_block) " +
-            "VALUES (@runId, @chainId, @collectionId, @contract, @tokenId, @owner, @anchorBlock)",
+            "VALUES (@runId, @chainId, @collectionId, lower(@contract), @tokenId, lower(@owner), @anchorBlock)",
     );
     private deleteBalancesStmt = db.prepare<{
         chainId: number;
@@ -54,7 +54,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "(chain_id, collection_id, contract_address, token_id, owner, amount, " +
             "last_block_number, last_block_hash, last_block_timestamp, " +
             "last_tx_hash, last_log_index, updated_at) " +
-            "SELECT chain_id, collection_id, contract_address, token_id, owner, '1', " +
+            "SELECT chain_id, collection_id, lower(contract_address), token_id, lower(owner), '1', " +
             "@anchorBlock, @anchorHash, @anchorTimestamp, " +
             "@zeroHash, 0, CURRENT_TIMESTAMP " +
             "FROM nft_balance_snapshots " +
@@ -67,7 +67,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
     private insertMetadataTaskStmt = db.prepare<BootstrapMetadataTaskSeed>(
         "INSERT INTO bootstrap_metadata_snapshot_tasks " +
             "(run_id, chain_id, collection_id, contract_address, token_id, standard, anchor_block, anchor_block_hash, anchor_block_timestamp, status, attempts, next_attempt_at) " +
-            "VALUES (@runId, @chainId, @collectionId, @contract, @tokenId, @standard, @anchorBlock, @anchorHash, @anchorTimestamp, 'pending', 0, 0)",
+            "VALUES (@runId, @chainId, @collectionId, lower(@contract), @tokenId, @standard, @anchorBlock, @anchorHash, @anchorTimestamp, 'pending', 0, 0)",
     );
     private selectMetadataTasksDueStmt = db.prepare<{
         runId: number;

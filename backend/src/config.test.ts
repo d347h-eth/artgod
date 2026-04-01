@@ -3,6 +3,14 @@ import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
 
 describe("loadBackendConfig", () => {
+    it("normalizes canonical address config to lowercase", () => {
+        const config = loadBackendConfig(createBaseEnv());
+
+        expect(config.wethAddress).toBe(
+            "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        );
+    });
+
     it("defaults backend query cache to disabled", () => {
         const config = loadBackendConfig(createBaseEnv());
 
