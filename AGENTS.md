@@ -39,6 +39,8 @@ For implementation details, use:
 - Any large in-memory allocation must be explicitly justified by business need or performance evidence.
 - For frontend layout, default forms, tables, and configuration surfaces to compact, fit-to-content widths and center them horizontally.
   Do not stretch UI elements to `100%` width unless the user explicitly asks for a full-width layout.
+- For frontend controls, reuse existing visual/control families when the interaction already exists elsewhere in the app.
+  Do not introduce near-duplicate button/tab styles or alternate active-state behavior without explicit user approval.
 
 ## Domain Modeling
 

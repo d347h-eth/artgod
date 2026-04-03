@@ -71,7 +71,7 @@ The preview preference is a single scalar percent in the range `5..100`.
 
 Interpretation:
 
-- default = `90`
+- default = `100`
 - `5` = use 5% of the usable viewport box
 - `100` = use the full usable viewport box
 

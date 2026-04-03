@@ -60,22 +60,26 @@ describe('token detail page', () => {
 		});
 
 		expect(body).toContain('back to collection');
-		expect(body).toContain(
-			'?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid&amp;media_mode=artifact'
-		);
-		expect(body).toContain('milady #1');
-		expect(body).toContain('https://example.com/1.html');
-		expect(body).toContain('class="token-preview-media-mode-button"');
-		expect(body).toContain('>artifact<');
-		expect(body).toContain('Beanie');
-		expect(body).toContain('66.67%');
+			expect(body).toContain(
+				'?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid&amp;media_mode=artifact'
+			);
+			expect(body).toContain('milady #1');
+			expect(body).toContain('class="token-detail-media-frame"');
+			expect(body).toContain('https://example.com/1.html');
+			expect(body).toContain('aria-label="Token detail media mode"');
+			expect(body).toContain('class="secondary-tab-active"');
+			expect(body).toContain('>artifact<');
+			expect(body).toContain('>snapshot<');
+			expect(body).toContain('current holder:');
+			expect(body).toContain('Beanie');
+			expect(body).toContain('66.67%');
 		expect(body).toContain(
 			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
 		);
-		expect(body).toContain(
-			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
-		);
-		expect(body).toContain('0.5 ETH');
+			expect(body).toContain(
+				'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
+			);
+			expect(body).toContain('0.5 ETH [OS]');
 	});
 
 	it('uses holder return path when provided', () => {
@@ -128,10 +132,13 @@ describe('token detail page', () => {
 			}
 		});
 
-		expect(body).toContain('back to holder');
-		expect(body).toContain(
-			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?cursor=opaque-cursor-token&amp;token_status=listed_then_unlisted&amp;mode=grid&amp;media_mode=artifact'
-		);
-		expect(body).toContain('>[OS]<');
+			expect(body).toContain('back to holder');
+			expect(body).toContain(
+				'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?cursor=opaque-cursor-token&amp;token_status=listed_then_unlisted&amp;mode=grid&amp;media_mode=artifact'
+			);
+			expect(body).toContain('srcdoc=');
+			expect(body).not.toContain('token-detail-media-image');
+			expect(body).toContain('aria-label="Token detail media mode"');
+			expect(body).toContain('>[OS]<');
+		});
 	});
-});

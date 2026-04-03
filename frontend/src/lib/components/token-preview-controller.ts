@@ -4,9 +4,15 @@ import { get, writable, type Readable } from 'svelte/store';
 import type { ApiCollectionMediaMode, TokenPreviewApiResponse } from '$lib/api-types';
 import { getTokenPreview } from '$lib/backend-api';
 import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
+import {
+	resolveTokenMediaAspectRatio,
+	resolveTokenMediaIframeSource,
+	tokenMediaTitle,
+	type TokenMediaIframeSource
+} from '$lib/token-media';
 
 const TOKEN_PREVIEW_SCALE_STORAGE_KEY = 'artgod.tokenBrowser.previewScalePercent';
-const DEFAULT_TOKEN_PREVIEW_SCALE_PERCENT = 90;
+const DEFAULT_TOKEN_PREVIEW_SCALE_PERCENT = 100;
 const MIN_TOKEN_PREVIEW_SCALE_PERCENT = 5;
 const MAX_TOKEN_PREVIEW_SCALE_PERCENT = 100;
 const TOKEN_PREVIEW_SCALE_STEP_PERCENT = 5;
@@ -30,15 +36,7 @@ export type TokenPreviewAdjacentResolver = (
 	currentTokenId: string
 ) => string | null;
 
-export type TokenPreviewIframeSource =
-	| {
-			kind: 'src';
-			value: string;
-	  }
-	| {
-			kind: 'srcdoc';
-			value: string;
-	  };
+export type TokenPreviewIframeSource = TokenMediaIframeSource;
 
 export type TokenPreviewState = {
 	open: boolean;
@@ -122,10 +120,10 @@ export function createTokenPreviewController(): TokenPreviewController {
 				availableMediaModes: keepDisplayedMedia
 					? current.availableMediaModes
 					: params.availableMediaModes,
-				aspectRatio: resolvePreviewAspectRatio(
-					params.previewAspectRatio ?? null,
-					current.aspectRatio
-				),
+					aspectRatio: resolveTokenMediaAspectRatio(
+						params.previewAspectRatio ?? null,
+						current.aspectRatio
+					),
 				errorMessage: null
 			};
 		});
@@ -334,12 +332,12 @@ export function createTokenPreviewController(): TokenPreviewController {
 			request.tokenId,
 			buildMediaModeQuery(request.mediaMode)
 		)
-			.then((response) => {
-				const iframeSource = resolveTokenPreviewIframeSource(
-					response.token.animationUrl,
-					response.token.image,
-					tokenPreviewTitle(response.token.tokenId)
-				);
+				.then((response) => {
+					const iframeSource = resolveTokenMediaIframeSource(
+						response.token.animationUrl,
+						response.token.image,
+						tokenMediaTitle(response.token.tokenId)
+					);
 				if (!iframeSource) {
 					return null;
 				}
@@ -394,23 +392,10 @@ export function getTokenPreviewController(): TokenPreviewController {
 }
 
 export function tokenPreviewStyle(state: TokenPreviewState): string {
-	return `--token-preview-scale:${state.scalePercent / 100};--token-preview-ar:${resolvePreviewAspectRatio(
+	return `--token-preview-scale:${state.scalePercent / 100};--token-preview-ar:${resolveTokenMediaAspectRatio(
 		state.aspectRatio,
 		1
 	)};`;
-}
-
-function resolvePreviewAspectRatio(
-	value: number | null | undefined,
-	fallback: number | null
-): number | null {
-	if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-		return value;
-	}
-	if (typeof fallback === 'number' && Number.isFinite(fallback) && fallback > 0) {
-		return fallback;
-	}
-	return null;
 }
 
 function previewNavigationStep(event: KeyboardEvent): -1 | 0 | 1 {
@@ -421,63 +406,6 @@ function previewNavigationStep(event: KeyboardEvent): -1 | 0 | 1 {
 		return 1;
 	}
 	return 0;
-}
-
-function resolveTokenPreviewIframeSource(
-	animationUrl: string | null,
-	imageUrl: string | null,
-	title: string
-): TokenPreviewIframeSource | null {
-	if (animationUrl) {
-		return {
-			kind: 'src',
-			value: animationUrl
-		};
-	}
-	if (imageUrl) {
-		return {
-			kind: 'srcdoc',
-			value: buildImagePreviewDocument(imageUrl, title)
-		};
-	}
-	return null;
-}
-
-function buildImagePreviewDocument(imageUrl: string, title: string): string {
-	const escapedUrl = escapeHtml(imageUrl);
-	const escapedTitle = escapeHtml(title);
-	return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapedTitle}</title>
-<style>
-	html, body {
-		margin: 0;
-		width: 100%;
-		height: 100%;
-		background: #111;
-	}
-	body {
-		display: grid;
-		place-items: center;
-		overflow: hidden;
-	}
-	img {
-		display: block;
-		max-width: 100%;
-		max-height: 100%;
-		width: auto;
-		height: auto;
-		object-fit: contain;
-	}
-</style>
-</head>
-<body>
-<img src="${escapedUrl}" alt="${escapedTitle}" referrerpolicy="no-referrer" />
-</body>
-</html>`;
 }
 
 function readInitialTokenPreviewScalePercent(): number {
@@ -519,17 +447,4 @@ function buildTokenPreviewCacheKey(request: TokenPreviewRequest): string {
 		request.tokenId.trim(),
 		request.mediaMode.trim().toLowerCase()
 	].join('|');
-}
-
-function tokenPreviewTitle(tokenId: string): string {
-	return `token ${tokenId}`;
-}
-
-function escapeHtml(value: string): string {
-	return value
-		.replaceAll('&', '&amp;')
-		.replaceAll('<', '&lt;')
-		.replaceAll('>', '&gt;')
-		.replaceAll('"', '&quot;')
-		.replaceAll("'", '&#39;');
 }

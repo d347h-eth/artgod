@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
+	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import {
 		getTokenPreviewController,
 		tokenPreviewStyle
@@ -75,22 +76,15 @@
 					{$tokenPreviewState.errorMessage ?? 'Unable to load preview'}
 				</div>
 			</div>
-		{:else if $tokenPreviewState.iframeSource}
-			<div class="token-preview-box">
-				<iframe
-					class="token-preview-frame"
-					src={$tokenPreviewState.iframeSource.kind === 'src'
-						? $tokenPreviewState.iframeSource.value
-						: undefined}
-					srcdoc={$tokenPreviewState.iframeSource.kind === 'srcdoc'
-						? $tokenPreviewState.iframeSource.value
-						: undefined}
-					title={$tokenPreviewState.tokenId ? `token ${$tokenPreviewState.tokenId}` : 'token preview'}
-					sandbox="allow-scripts"
-					referrerpolicy="no-referrer"
-				></iframe>
-			</div>
-		{/if}
+			{:else if $tokenPreviewState.iframeSource}
+				<div class="token-preview-box">
+					<TokenMediaFrame
+						className="token-preview-frame"
+						iframeSource={$tokenPreviewState.iframeSource}
+						title={$tokenPreviewState.tokenId ? `token ${$tokenPreviewState.tokenId}` : 'token preview'}
+					/>
+				</div>
+			{/if}
 
 		{#if $tokenPreviewState.status === 'loading'}
 			<div class="token-preview-network-spinner">

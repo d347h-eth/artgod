@@ -60,6 +60,59 @@ test('opens preview modal within the viewport and closes on backdrop click', asy
 	}
 });
 
+test('renders token detail media within the viewport without horizontal overflow', async ({
+	page,
+	request
+}, testInfo) => {
+	const diagnostics = capturePageDiagnostics(page);
+
+	try {
+		await assertAttachedAppReachable(request);
+
+		await page.goto(TARGET_PATH, {
+			waitUntil: 'domcontentloaded'
+		});
+		await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+
+		const tokenCard = page.locator('.token-grid-card').first();
+		await expect(tokenCard).toBeVisible();
+
+		const expectedAspectRatio = await readImageNaturalAspectRatio(tokenCard.locator('.token-grid-thumb'));
+		await tokenCard.locator('a.token-grid-id').click();
+
+		await expect(page).toHaveURL(/\/ethereum\/terraforms\/\d+/);
+
+		const mediaBox = page.locator('.token-detail-media-wrap');
+		const mediaFrame = page.locator('.token-detail-media-frame');
+
+		await expect(mediaBox).toBeVisible();
+		await expect(mediaFrame).toBeVisible();
+
+		await expect
+			.poll(
+				async () => {
+					const metrics = await readTokenDetailMetrics(page);
+					return Math.abs(metrics.box.width / metrics.box.height - expectedAspectRatio);
+				},
+				{
+					message: `${testInfo.project.name} token detail media box did not settle to the expected aspect ratio`
+				}
+			)
+			.toBeLessThanOrEqual(0.02);
+
+		const metrics = await readTokenDetailMetrics(page);
+		assertTokenDetailMetrics(metrics, expectedAspectRatio, testInfo);
+
+		await testInfo.attach('token-detail-open.png', {
+			body: await page.screenshot({ fullPage: false }),
+			contentType: 'image/png'
+		});
+	} catch (error) {
+		await attachDiagnostics(testInfo, diagnostics);
+		throw error;
+	}
+});
+
 async function assertAttachedAppReachable(request: APIRequestContext): Promise<void> {
 	let pageResponse;
 	try {
@@ -134,7 +187,7 @@ async function attachDiagnostics(
 
 async function readPreviewMetrics(page: Page): Promise<PreviewMetrics> {
 	return page.evaluate(() => {
-		const readRect = (element: HTMLElement) => {
+		const readRectSnapshot = (element: HTMLElement) => {
 			const { left, top, right, bottom, width, height } = element.getBoundingClientRect();
 			return { left, top, right, bottom, width, height };
 		};
@@ -153,6 +206,37 @@ async function readPreviewMetrics(page: Page): Promise<PreviewMetrics> {
 			throw new Error('Preview frame was not found');
 		}
 
+			return {
+				viewport: {
+					width: window.innerWidth,
+					height: window.innerHeight
+				},
+				scrollWidth: document.documentElement.scrollWidth,
+				scrollHeight: document.documentElement.scrollHeight,
+				overlay: readRectSnapshot(overlay),
+				box: readRectSnapshot(box),
+				frame: readRectSnapshot(frame)
+			};
+		});
+}
+
+async function readTokenDetailMetrics(page: Page): Promise<TokenDetailMetrics> {
+	return page.evaluate(() => {
+		const readRectSnapshot = (element: HTMLElement) => {
+			const { left, top, right, bottom, width, height } = element.getBoundingClientRect();
+			return { left, top, right, bottom, width, height };
+		};
+
+		const box = document.querySelector('.token-detail-media-wrap');
+		const frame = document.querySelector('.token-detail-media-frame');
+
+		if (!(box instanceof HTMLElement)) {
+			throw new Error('Token detail media box was not found');
+		}
+		if (!(frame instanceof HTMLIFrameElement)) {
+			throw new Error('Token detail media frame was not found');
+		}
+
 		return {
 			viewport: {
 				width: window.innerWidth,
@@ -160,9 +244,8 @@ async function readPreviewMetrics(page: Page): Promise<PreviewMetrics> {
 			},
 			scrollWidth: document.documentElement.scrollWidth,
 			scrollHeight: document.documentElement.scrollHeight,
-			overlay: readRect(overlay),
-			box: readRect(box),
-			frame: readRect(frame)
+			box: readRectSnapshot(box),
+			frame: readRectSnapshot(frame)
 		};
 	});
 }
@@ -220,6 +303,35 @@ function resolveBackdropClickPoint(metrics: PreviewMetrics): { x: number; y: num
 	};
 }
 
+function assertTokenDetailMetrics(
+	metrics: TokenDetailMetrics,
+	expectedAspectRatio: number,
+	testInfo: TestInfo
+): void {
+	expect(metrics.box.left).toBeGreaterThanOrEqual(-GEOMETRY_TOLERANCE_PX);
+	expect(metrics.box.right).toBeLessThanOrEqual(metrics.viewport.width + GEOMETRY_TOLERANCE_PX);
+	expect(metrics.box.width).toBeLessThanOrEqual(metrics.viewport.width + GEOMETRY_TOLERANCE_PX);
+	expect(metrics.box.height).toBeLessThanOrEqual(metrics.viewport.height + GEOMETRY_TOLERANCE_PX);
+
+	const viewportCenterX = metrics.viewport.width / 2;
+	const boxCenterX = metrics.box.left + metrics.box.width / 2;
+	expect(
+		Math.abs(boxCenterX - viewportCenterX),
+		`${testInfo.project.name} token detail media box is not horizontally centered`
+	).toBeLessThanOrEqual(GEOMETRY_TOLERANCE_PX);
+
+	expect(metrics.frame.left).toBeGreaterThanOrEqual(metrics.box.left - GEOMETRY_TOLERANCE_PX);
+	expect(metrics.frame.top).toBeGreaterThanOrEqual(metrics.box.top - GEOMETRY_TOLERANCE_PX);
+	expect(metrics.frame.right).toBeLessThanOrEqual(metrics.box.right + GEOMETRY_TOLERANCE_PX);
+	expect(metrics.frame.bottom).toBeLessThanOrEqual(metrics.box.bottom + GEOMETRY_TOLERANCE_PX);
+
+	expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.viewport.width + GEOMETRY_TOLERANCE_PX);
+	expect(
+		Math.abs(metrics.box.width / metrics.box.height - expectedAspectRatio),
+		`${testInfo.project.name} token detail media box aspect ratio drifted from the token image aspect`
+	).toBeLessThanOrEqual(0.02);
+}
+
 function toErrorMessage(cause: unknown): string {
 	if (cause instanceof Error && cause.message.trim()) {
 		return cause.message;
@@ -230,16 +342,17 @@ function toErrorMessage(cause: unknown): string {
 	return 'Unknown error';
 }
 
-async function readPreviewTriggerAspectRatio(
-	previewTrigger: Locator
-): Promise<number> {
-	const image = previewTrigger.locator('img');
+async function readPreviewTriggerAspectRatio(previewTrigger: Locator): Promise<number> {
+	return readImageNaturalAspectRatio(previewTrigger.locator('img'));
+}
+
+async function readImageNaturalAspectRatio(image: Locator): Promise<number> {
 	const naturalAspectRatio = await image.evaluate((node) => {
 		if (!(node instanceof HTMLImageElement)) {
-			throw new Error('Preview trigger image was not found');
+			throw new Error('Token image was not found');
 		}
 		if (node.naturalWidth <= 0 || node.naturalHeight <= 0) {
-			throw new Error('Preview trigger image did not finish loading');
+			throw new Error('Token image did not finish loading');
 		}
 		return node.naturalWidth / node.naturalHeight;
 	});
@@ -268,6 +381,17 @@ type PreviewMetrics = {
 	scrollWidth: number;
 	scrollHeight: number;
 	overlay: RectSnapshot;
+	box: RectSnapshot;
+	frame: RectSnapshot;
+};
+
+type TokenDetailMetrics = {
+	viewport: {
+		width: number;
+		height: number;
+	};
+	scrollWidth: number;
+	scrollHeight: number;
 	box: RectSnapshot;
 	frame: RectSnapshot;
 };

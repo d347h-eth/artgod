@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -10,12 +11,18 @@
 	import { getTokenDetail } from '$lib/backend-api';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
-	import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
+	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionOwnerTokensPath,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
+	import {
+		resolveTokenMediaAspectRatio,
+		resolveTokenMediaIframeSource,
+		tokenMediaTitle,
+		type TokenMediaIframeSource
+	} from '$lib/token-media';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	type PageData = {
@@ -30,11 +37,13 @@
 	let { data }: { data?: PageData } = $props();
 	let displayedToken = $state<ApiTokenDetail | null>(data?.token ?? null);
 	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
+	let displayedMediaAspectRatio = $state<number | null>(null);
 	let tokenDetailRequestId = 0;
 
 	$effect(() => {
 		displayedToken = data?.token ?? null;
 		displayedMedia = resolveInitialMediaState(data?.media);
+		displayedMediaAspectRatio = null;
 		tokenDetailRequestId += 1;
 	});
 
@@ -81,6 +90,11 @@
 		return formatListingPrice(displayedToken?.listingPrice ?? null, displayedToken?.listingCurrency ?? null);
 	}
 
+	function openseaLinkLabel(): string {
+		const listingLabel = tokenListingLabel();
+		return listingLabel ? `${listingLabel} [OS]` : '[OS]';
+	}
+
 	function backLabel(): string {
 		if (!data?.chain || !data.collection) return 'back';
 		const collectionPath = `/${data.chain.slug}/${data.collection.slug}`;
@@ -110,10 +124,43 @@
 		return candidate;
 	}
 
-	function mediaKind(token: ApiTokenDetail): 'iframe' | 'image' | 'none' {
-		if (token.animationUrl) return 'iframe';
-		if (token.image) return 'image';
-		return 'none';
+	$effect(() => {
+		const imageUrl = displayedToken?.image?.trim() ?? '';
+		displayedMediaAspectRatio = null;
+		if (!browser || !imageUrl) return;
+
+		let cancelled = false;
+		const probe = new Image();
+		probe.referrerPolicy = 'no-referrer';
+		probe.onload = () => {
+			if (cancelled) return;
+			if (probe.naturalWidth > 0 && probe.naturalHeight > 0) {
+				displayedMediaAspectRatio = probe.naturalWidth / probe.naturalHeight;
+			}
+		};
+		probe.onerror = () => {
+			if (cancelled) return;
+			displayedMediaAspectRatio = null;
+		};
+		probe.src = imageUrl;
+
+		return () => {
+			cancelled = true;
+			probe.onload = null;
+			probe.onerror = null;
+		};
+	});
+
+	function tokenMediaSource(token: ApiTokenDetail): TokenMediaIframeSource | null {
+		return resolveTokenMediaIframeSource(
+			token.animationUrl,
+			token.image,
+			tokenMediaTitle(token.tokenId)
+		);
+	}
+
+	function tokenDetailMediaStyle(): string {
+		return `--token-detail-ar:${resolveTokenMediaAspectRatio(displayedMediaAspectRatio, 1)};`;
 	}
 
 	function formatTraitCount(value: number | null): string {
@@ -126,22 +173,21 @@
 		return `${value.toFixed(2)}%`;
 	}
 
-	function mediaModeButtonLabel(): string | null {
-		if (displayedMedia.availableModes.length <= 1) {
-			return null;
-		}
-		return mediaModeLabel(displayedMedia.availableModes, displayedMedia.selectedMode);
+	function hasMediaModeChoices(): boolean {
+		return displayedMedia.availableModes.length > 1;
 	}
 
-	async function cycleTokenDetailMediaMode(): Promise<void> {
+	async function setTokenDetailMediaMode(nextMode: string): Promise<void> {
 		if (!browser || !data?.chain || !data.collection || !displayedToken) {
 			return;
 		}
-		if (displayedMedia.availableModes.length <= 1) {
+		if (!hasMediaModeChoices()) {
+			return;
+		}
+		if (nextMode === displayedMedia.selectedMode) {
 			return;
 		}
 
-		const nextMode = nextMediaMode(displayedMedia.availableModes, displayedMedia.selectedMode);
 		const activeRequestId = ++tokenDetailRequestId;
 
 		try {
@@ -166,9 +212,11 @@
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
 		if (isTypingTarget(event.target)) return;
 		if (event.key !== 'v' && event.key !== 'V') return;
-		if (displayedMedia.availableModes.length <= 1) return;
+		if (!hasMediaModeChoices()) return;
 		event.preventDefault();
-		void cycleTokenDetailMediaMode();
+		void setTokenDetailMediaMode(
+			nextMediaMode(displayedMedia.availableModes, displayedMedia.selectedMode)
+		);
 	}
 
 	function buildMediaModeQuery(mediaMode: string | null): URLSearchParams {
@@ -197,66 +245,61 @@
 <svelte:window onkeydown={onWindowKeydown} />
 
 <section class="panel token-detail-panel">
-	<header class="panel-header">
-		<a class="button-link" href={collectionHref()}>{backLabel()}</a>
-	</header>
-
 	{#if displayedToken}
-		<div class="token-detail-media-wrap">
-			{#if mediaModeButtonLabel()}
-				<button
-					type="button"
-					class="token-preview-media-mode-button"
-					onclick={() => void cycleTokenDetailMediaMode()}
-				>
-					{mediaModeButtonLabel()}
-				</button>
-			{/if}
-			{#if mediaKind(displayedToken) === 'iframe'}
-				<iframe
-					class="token-detail-media-frame"
-					src={displayedToken.animationUrl ?? ''}
-					title={`token ${displayedToken.tokenId}`}
-					sandbox="allow-scripts"
-					referrerpolicy="no-referrer"
-				></iframe>
-			{:else if mediaKind(displayedToken) === 'image'}
-				<img
-					class="token-detail-media-image"
-					src={displayedToken.image ?? ''}
-					alt={`token ${displayedToken.tokenId}`}
-					loading="eager"
-					decoding="async"
-					referrerpolicy="no-referrer"
-				/>
-			{:else}
-				<div class="token-detail-empty muted">no media available</div>
+		{@const iframeSource = tokenMediaSource(displayedToken)}
+		<div class="token-detail-media-region">
+			<div class="token-detail-media-wrap" style={tokenDetailMediaStyle()}>
+				{#if iframeSource}
+					<TokenMediaFrame
+						className="token-detail-media-frame"
+						{iframeSource}
+						title={tokenMediaTitle(displayedToken.tokenId)}
+					/>
+				{:else}
+					<div class="token-detail-empty muted">no media available</div>
+				{/if}
+			</div>
+			{#if hasMediaModeChoices()}
+				<div class="token-detail-media-controls">
+					<div class="secondary-tabs" aria-label="Token detail media mode">
+						{#each displayedMedia.availableModes as mode}
+							{#if mode.key === displayedMedia.selectedMode}
+								<span class="secondary-tab-active">{mode.label}</span>
+							{:else}
+								<button type="button" onclick={() => void setTokenDetailMediaMode(mode.key)}>
+									{mode.label}
+								</button>
+							{/if}
+						{/each}
+					</div>
+				</div>
 			{/if}
 		</div>
 
 		<h1 class="token-detail-title">{resolveTokenTitle(displayedToken, data?.collection ?? null)}</h1>
 
-		<section class="panel-header">
-			{#if holderHref()}
-				<p class="muted">
-					current holder
-					<a class="mono" href={holderHref() ?? '#'}>{displayedToken.currentHolder}</a>
-				</p>
-			{:else}
-				<p class="muted">current holder <span class="mono">{displayedToken.currentHolder ?? '-'}</span></p>
-			{/if}
+		<section class="panel-header token-detail-meta">
+			<div class="token-detail-meta-block">
+				<p class="muted token-detail-meta-label">current holder:</p>
+				{#if holderHref()}
+					<a class="mono token-detail-meta-value" href={holderHref() ?? '#'}
+						>{displayedToken.currentHolder}</a
+					>
+				{:else}
+					<span class="mono token-detail-meta-value">{displayedToken.currentHolder ?? '-'}</span>
+				{/if}
+			</div>
 			{#if openseaItemHref()}
-				<p class="muted">
-					OpenSea
+				<div class="token-detail-meta-block token-grid-price">
 					<a
-						class="mono"
+						class="mono token-detail-meta-value token-price-link"
 						href={openseaItemHref() ?? '#'}
 						target="_blank"
 						rel="noreferrer noopener"
 					>
-						{tokenListingLabel() ?? '[OS]'}
+						{openseaLinkLabel()}
 					</a>
-				</p>
+				</div>
 			{/if}
 		</section>
 
@@ -291,4 +334,8 @@
 			<span class="muted">token not found</span>
 		</section>
 	{/if}
+
+	<header class="panel-header token-detail-header">
+		<a class="button-link" href={collectionHref()}>{backLabel()}</a>
+	</header>
 </section>

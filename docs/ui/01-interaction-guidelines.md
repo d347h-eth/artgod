@@ -36,6 +36,18 @@ Default layout expectation:
 
 Use full-width stretching only when the user explicitly asks for it or when the content genuinely requires it.
 
+## Pattern Reuse
+
+Do not invent a new visual/control pattern when an established one already exists in the userland UI.
+
+Default expectation:
+
+- reuse the existing component/class family for the same kind of interaction
+- preserve its current interaction contract
+- active/selected items stay non-clickable when that is already the established pattern
+
+If a new control pattern is genuinely needed, get explicit approval first instead of silently introducing a near-duplicate style or behavior.
+
 ## Page Composition Rules
 
 Collection pages should compose the shared shell like this:
@@ -109,6 +121,7 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
     - active/selected: orange
     - hover/focus: yellow
     - active item is not clickable
+    - do not replace active text with clickable active buttons in one-off pages
 
 ### Transient action links/buttons
 

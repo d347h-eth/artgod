@@ -115,7 +115,7 @@ describe('token-preview-controller', () => {
 		const growEvent = keyboardEvent('=');
 		controller.onWindowKeydown(growEvent);
 		expect(growEvent.preventDefault).toHaveBeenCalledOnce();
-		expect(get(controller.state).scalePercent).toBe(95);
+		expect(get(controller.state).scalePercent).toBe(100);
 
 		const nextEvent = keyboardEvent('d');
 		controller.onWindowKeydown(nextEvent);
