@@ -1,4 +1,5 @@
 import type { OnChainData } from "../domain/onchain.js";
+import type { CollectionRecord } from "../domain/collections.js";
 import type { RpcBlock } from "./rpc.js";
 
 export interface StoragePort {
@@ -6,6 +7,7 @@ export interface StoragePort {
         chainId: number,
         blocks: RpcBlock[],
         data: OnChainData,
+        collections: CollectionRecord[],
     ): void;
     getBlockHash(chainId: number, blockNumber: number): string | null;
     countBlocksInRange(

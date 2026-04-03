@@ -14,7 +14,17 @@ Schema:
 
 ## Inputs
 
-The metadata domain consumes `domain.metadata.sync` jobs with a block range. It scans the `nft_transfer_events` table to discover tokens that appear in that range.
+The metadata domain consumes `domain.metadata.sync` jobs with a block range plus an explicit projection contract.
+
+Current behavior:
+
+- `projection = current_state`
+    - scans `nft_transfer_events` to discover tokens in the requested range
+    - only considers transfer rows whose block is strictly after the owning collection's `bootstrap_anchor_block`
+- `projection = facts_only`
+    - no-op for canonical metadata writes
+
+This keeps historical backfill before the bootstrap anchor from rewriting current metadata/materialized token state.
 
 ## Metadata Refresh Jobs
 
@@ -52,6 +62,7 @@ For each block range:
 
 - Query `nft_transfer_events` grouped by `(collection_id, token_id, kind)`.
 - For each token, skip if metadata already exists in `token_metadata`.
+- Ignore rows that are not anchor-eligible current-state events for the target collection(s).
 
 ## URI Resolution
 

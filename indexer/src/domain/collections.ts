@@ -15,6 +15,7 @@ export type OpenSeaCollectionStatus =
     | "retrying"
     | "failed";
 
+// Keep raw scope literals private to this module.
 const TOKEN_SCOPE_KIND = {
     AllContractTokens: "contract_all_tokens",
     TokenRange: "token_range",
@@ -26,6 +27,12 @@ type TokenScopeKind = (typeof TOKEN_SCOPE_KIND)[keyof typeof TOKEN_SCOPE_KIND];
 type ContinuousTokenRange = {
     fromTokenId: string;
     toTokenId: string;
+};
+
+// This is the post-anchor part of a range that may update current state.
+export type CurrentStateProjectionWindow = {
+    fromBlock: number;
+    toBlock: number;
 };
 
 // Serialized scope shape used only at adapter boundaries. Raw persistence
@@ -104,6 +111,7 @@ export class CollectionTokenScope {
         );
     }
 
+    // This scope covers one continuous token range.
     static tokenRange(
         scopeStartTokenId: string | null,
         scopeTotalSupply: number | null,
@@ -131,6 +139,7 @@ export class CollectionTokenScope {
         );
     }
 
+    // Use these helpers instead of raw scope-kind checks.
     isAllContractTokensScope(): boolean {
         return this.kind === TOKEN_SCOPE_KIND.AllContractTokens;
     }
@@ -147,6 +156,7 @@ export class CollectionTokenScope {
         tokenId: string,
         hasExplicitToken: (tokenId: string) => boolean = () => false,
     ): boolean {
+        // Explicit-token membership comes from the caller.
         if (this.isAllContractTokensScope()) {
             return true;
         }
@@ -167,6 +177,7 @@ export class CollectionTokenScope {
         return value >= start && value <= end;
     }
 
+    // Intersect a decoded token range with this scope.
     intersectContinuousRange(
         fromTokenId: string,
         toTokenId: string,
@@ -288,6 +299,70 @@ export class CollectionRecord {
         return this.scope.isExplicitTokenIdsScope();
     }
 
+    // True when current-state projection is anchored.
+    static hasBootstrapAnchorValue(bootstrapAnchorBlock: number | null): boolean {
+        return bootstrapAnchorBlock !== null;
+    }
+
+    // Current state only moves forward after the anchor block.
+    static canProjectCurrentStateAtBlock(
+        bootstrapAnchorBlock: number | null,
+        blockNumber: number | null | undefined,
+    ): boolean {
+        if (blockNumber === null || blockNumber === undefined) {
+            return true;
+        }
+        if (bootstrapAnchorBlock === null) {
+            return false;
+        }
+
+        return blockNumber > bootstrapAnchorBlock;
+    }
+
+    // Return the post-anchor part of a sync range.
+    static intersectCurrentStateWindowForAnchor(
+        bootstrapAnchorBlock: number | null,
+        fromBlock: number,
+        toBlock: number,
+    ): CurrentStateProjectionWindow | null {
+        if (bootstrapAnchorBlock === null) {
+            return null;
+        }
+
+        const intersectFrom = Math.max(fromBlock, bootstrapAnchorBlock + 1);
+        if (intersectFrom > toBlock) {
+            return null;
+        }
+
+        return {
+            fromBlock: intersectFrom,
+            toBlock,
+        };
+    }
+
+    // Instance form of the anchor helpers.
+    hasBootstrapAnchor(): boolean {
+        return CollectionRecord.hasBootstrapAnchorValue(this.bootstrapAnchorBlock);
+    }
+
+    canProjectCurrentStateAt(blockNumber: number): boolean {
+        return CollectionRecord.canProjectCurrentStateAtBlock(
+            this.bootstrapAnchorBlock,
+            blockNumber,
+        );
+    }
+
+    intersectCurrentStateWindow(
+        fromBlock: number,
+        toBlock: number,
+    ): CurrentStateProjectionWindow | null {
+        return CollectionRecord.intersectCurrentStateWindowForAnchor(
+            this.bootstrapAnchorBlock,
+            fromBlock,
+            toBlock,
+        );
+    }
+
     containsTokenInScope(
         tokenId: string,
         hasExplicitToken: (tokenId: string) => boolean = () => false,
@@ -295,6 +370,7 @@ export class CollectionRecord {
         return this.scope.containsToken(tokenId, hasExplicitToken);
     }
 
+    // Intersect a decoded range with this collection scope.
     intersectContinuousTokenRange(
         fromTokenId: string,
         toTokenId: string,

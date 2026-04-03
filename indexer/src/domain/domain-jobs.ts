@@ -9,10 +9,21 @@ export const DOMAIN_JOB_KIND = {
 
 export type DomainSyncMode = "realtime" | "backfill";
 
+// This tells domains whether a sync may update current state.
+export const DOMAIN_SYNC_PROJECTION = {
+    FactsOnly: "facts_only",
+    CurrentState: "current_state",
+} as const;
+
+export type DomainSyncProjection =
+    (typeof DOMAIN_SYNC_PROJECTION)[keyof typeof DOMAIN_SYNC_PROJECTION];
+
 export type DomainSyncPayload = {
     fromBlock: number;
     toBlock: number;
     mode: DomainSyncMode;
+    // This says whether the range is facts-only or current-state.
+    projection: DomainSyncProjection;
     sourceJobId: string;
     sourceKind: string;
 };

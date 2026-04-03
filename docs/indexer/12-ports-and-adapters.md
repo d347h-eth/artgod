@@ -34,6 +34,11 @@ Provides a WebSocket head listener used by the scheduler-worker.
 
 Persists sync results, exposes block hash lookup, and supports rollback.
 
+The storage adapter is also the last-line ownership guard:
+
+- raw blocks/transfers/fills are always persisted for the requested range
+- `nft_balances` updates are applied only for transfer events that are strictly post-anchor for the affected collection
+
 ## Collection Registry Port
 
 - Interface: `indexer/src/ports/collections.ts`
@@ -64,6 +69,11 @@ Provides basic in-memory caching for RPC calls with metric hooks.
     - Activities: `indexer/src/infra/domain/activities.ts`
 
 These ports allow the sync pipeline to remain independent of domain-specific persistence logic.
+
+The shared `DomainSyncContext` also carries explicit projection intent:
+
+- `facts_only` for historical-safe feed projection
+- `current_state` for anchor-eligible materialized writes
 
 Orders domain also exposes update-by-maker and update-by-id handlers for fillability and explicit order events.
 

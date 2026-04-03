@@ -15,6 +15,7 @@ import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
     DOMAIN_JOB_KIND,
+    DOMAIN_SYNC_PROJECTION,
     type DomainSyncMode,
     type DomainSyncPayload,
     type MetadataRefreshPayload,
@@ -184,6 +185,7 @@ async function main() {
                 await publishDomainJobs(
                     queue,
                     config.chainId,
+                    collections,
                     range,
                     job,
                     "realtime",
@@ -252,6 +254,7 @@ async function main() {
                 await publishDomainJobs(
                     queue,
                     config.chainId,
+                    collections,
                     range,
                     job,
                     "backfill",
@@ -338,8 +341,15 @@ async function processRange(
         extensionWatchSpecs,
     );
     const blocks = await fetchBlocks(rpc, range);
-    storage.persistSyncResult(chainId, blocks, data);
-    await appendWethMakerInfos(rpc, range, wethAddress, bidderIndex, data);
+    storage.persistSyncResult(chainId, blocks, data, collections);
+    await appendWethMakerInfos(
+        rpc,
+        range,
+        wethAddress,
+        bidderIndex,
+        data,
+        collections,
+    );
     return { data, blocks };
 }
 
@@ -358,53 +368,82 @@ async function fetchBlocks(
 async function publishDomainJobs<TPayload>(
     queue: QueuePort,
     chainId: number,
+    collections: CollectionRecord[],
     range: SyncRange,
     job: JobEnvelope<TPayload>,
     mode: DomainSyncMode,
     data: OnChainData,
 ): Promise<void> {
-    const payload: DomainSyncPayload = {
+    // Build the current-state sync payload for this range.
+    const currentStatePayload: DomainSyncPayload = {
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
         mode,
+        projection: DOMAIN_SYNC_PROJECTION.CurrentState,
         sourceJobId: job.jobId,
         sourceKind: job.kind,
     };
+    // Build the facts-only sync payload for this range.
+    const factsOnlyPayload: DomainSyncPayload = {
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+        mode,
+        projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
+        sourceJobId: job.jobId,
+        sourceKind: job.kind,
+    };
+
+    const activityJob: JobEnvelope<DomainSyncPayload> = {
+        jobId: `domain:activity:${job.jobId}`,
+        kind: DOMAIN_JOB_KIND.ActivitySync,
+        queue: QUEUE_NAMES.ActivityDomain,
+        payload: factsOnlyPayload,
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId,
+        collectionId: job.collectionId,
+    };
+
+    await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
+
+    // Skip current-state fanout for fully pre-anchor ranges.
+    if (!hasAnyCurrentStateProjection(collections, range)) {
+        return;
+    }
 
     const ordersJob: JobEnvelope<DomainSyncPayload> = {
         jobId: `domain:orders:${job.jobId}`,
         kind: DOMAIN_JOB_KIND.OrdersSync,
         queue: QUEUE_NAMES.OrdersDomain,
-        payload,
+        payload: currentStatePayload,
         attempt: 0,
         scheduledAt: Date.now(),
         chainId,
+        collectionId: job.collectionId,
     };
     const metadataJob: JobEnvelope<DomainSyncPayload> = {
         jobId: `domain:metadata:${job.jobId}`,
         kind: DOMAIN_JOB_KIND.MetadataSync,
         queue: QUEUE_NAMES.MetadataDomain,
-        payload,
+        payload: currentStatePayload,
         attempt: 0,
         scheduledAt: Date.now(),
         chainId,
+        collectionId: job.collectionId,
     };
-    const activityJob: JobEnvelope<DomainSyncPayload> = {
-        jobId: `domain:activity:${job.jobId}`,
-        kind: DOMAIN_JOB_KIND.ActivitySync,
-        queue: QUEUE_NAMES.ActivityDomain,
-        payload,
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-    };
+    const currentStateData = filterCurrentStateOnChainData(collections, data);
 
     await queue.publish(QUEUE_NAMES.OrdersDomain, ordersJob);
     await queue.publish(QUEUE_NAMES.MetadataDomain, metadataJob);
-    await queue.publish(QUEUE_NAMES.ActivityDomain, activityJob);
 
-    await publishOrderUpdateJobs(queue, chainId, data);
-    await publishMetadataRefreshJobs(queue, chainId, data);
+    // Only post-anchor events may drive current-state side effects.
+    await publishOrderUpdateJobs(queue, chainId, collections, currentStateData);
+    await publishMetadataRefreshJobs(
+        queue,
+        chainId,
+        collections,
+        currentStateData,
+    );
 }
 
 // Gap check: if a processed block's predecessor is missing, enqueue a backfill job.
@@ -437,6 +476,7 @@ async function scheduleGapBackfill(
 async function publishOrderUpdateJobs(
     queue: QueuePort,
     chainId: number,
+    collections: CollectionRecord[],
     data: OnChainData,
 ): Promise<void> {
     for (const makerTrigger of data.collectionScoped.makerTriggers) {
@@ -467,6 +507,9 @@ async function publishOrderUpdateJobs(
     }
 
     for (const makerTrigger of data.global.makerTriggers) {
+        if (!canAnyCollectionProjectCurrentStateAt(collections, makerTrigger.blockNumber)) {
+            continue;
+        }
         const maker = makerTrigger.maker.toLowerCase();
         const job: JobEnvelope<OrderUpdateByMakerPayload> = {
             jobId: `orders:update:maker:${chainId}:${maker}:global:${makerTrigger.reason}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
@@ -502,6 +545,9 @@ async function publishOrderUpdateJobs(
 
     for (const cancel of data.global.cancelEvents) {
         if (!cancel.orderId) continue;
+        if (!canAnyCollectionProjectCurrentStateAt(collections, cancel.blockNumber)) {
+            continue;
+        }
         await publishOrderUpdateById(
             queue,
             chainId,
@@ -528,6 +574,7 @@ function resolveBackfillCollections(
     chainId: number,
     collectionId: number | null,
 ): CollectionRecord[] {
+    // Collection-scoped jobs stay pinned to one collection.
     if (!collectionId) {
         return collectionRegistry.listCollectionsForSync(chainId, "backfill");
     }
@@ -546,6 +593,7 @@ function resolveCollectionExtensionWatchSpecs(
     chainId: number,
     collections: CollectionRecord[],
 ): CollectionExtensionSyncWatchSpec[] {
+    // De-duplicate extension watches by install and source.
     const specs: CollectionExtensionSyncWatchSpec[] = [];
     const seen = new Set<string>();
 
@@ -577,10 +625,17 @@ function resolveCollectionExtensionWatchSpecs(
 async function publishMetadataRefreshJobs(
     queue: QueuePort,
     chainId: number,
+    collections: CollectionRecord[],
     data: OnChainData,
 ): Promise<void> {
     const seen = new Set<string>();
     for (const refresh of data.collectionScoped.metadataRefreshEvents) {
+        const collection = collections.find(
+            (candidate) => candidate.id === refresh.collectionId,
+        );
+        if (!collection?.canProjectCurrentStateAt(refresh.blockNumber)) {
+            continue;
+        }
         const tokenId = refresh.tokenId;
         const collectionId = refresh.collectionId;
         const key = `${collectionId}:${tokenId}`;
@@ -609,6 +664,12 @@ async function publishMetadataRefreshJobs(
 
     const seenRanges = new Set<string>();
     for (const refresh of data.collectionScoped.metadataRefreshRangeEvents) {
+        const collection = collections.find(
+            (candidate) => candidate.id === refresh.collectionId,
+        );
+        if (!collection?.canProjectCurrentStateAt(refresh.blockNumber)) {
+            continue;
+        }
         const key = `${refresh.collectionId}:${refresh.fromTokenId}:${refresh.toTokenId}`;
         if (seenRanges.has(key)) {
             continue;
@@ -643,9 +704,12 @@ async function appendWethMakerInfos(
     wethAddress: string,
     bidderIndex: BidderIndex,
     data: OnChainData,
+    collections: CollectionRecord[],
 ): Promise<void> {
+    // WETH triggers only matter when some collection can project current state.
     if (!bidderIndex.isActive()) return;
     if (range.fromBlock > range.toBlock) return;
+    if (!hasAnyCurrentStateProjection(collections, range)) return;
 
     const logs = await rpc.getLogs({
         fromBlock: range.fromBlock,
@@ -655,6 +719,102 @@ async function appendWethMakerInfos(
     });
     const makers = decodeWethMakerInfos(logs, bidderIndex);
     data.global.makerTriggers.push(...makers);
+}
+
+function hasAnyCurrentStateProjection(
+    collections: CollectionRecord[],
+    range: SyncRange,
+): boolean {
+    // Coarse gate for current-state fanout.
+    return collections.some(
+        (collection) =>
+            collection.intersectCurrentStateWindow(
+                range.fromBlock,
+                range.toBlock,
+            ) !== null,
+    );
+}
+
+function canAnyCollectionProjectCurrentStateAt(
+    collections: CollectionRecord[],
+    blockNumber: number,
+): boolean {
+    // Coarse gate for global triggers.
+    return collections.some((collection) =>
+        collection.canProjectCurrentStateAt(blockNumber),
+    );
+}
+
+function filterCurrentStateOnChainData(
+    collections: CollectionRecord[],
+    data: OnChainData,
+): OnChainData {
+    // Drop pre-anchor collection-scoped events.
+    const collectionsById = new Map(
+        collections.map((collection) => [collection.id, collection]),
+    );
+
+    return {
+        transactions: data.transactions,
+        collectionScoped: {
+            nftTransferEvents: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.nftTransferEvents,
+            ),
+            nftBalanceDeltas: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.nftBalanceDeltas,
+            ),
+            fillEvents: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.fillEvents,
+            ),
+            orderInfos: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.orderInfos,
+            ),
+            makerTriggers: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.makerTriggers,
+            ),
+            metadataRefreshEvents: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.metadataRefreshEvents,
+            ),
+            metadataRefreshRangeEvents: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.metadataRefreshRangeEvents,
+            ),
+        },
+        global: {
+            cancelEvents: data.global.cancelEvents.filter((event) =>
+                canAnyCollectionProjectCurrentStateAt(
+                    collections,
+                    event.blockNumber,
+                ),
+            ),
+            makerTriggers: data.global.makerTriggers.filter((event) =>
+                canAnyCollectionProjectCurrentStateAt(
+                    collections,
+                    event.blockNumber,
+                ),
+            ),
+        },
+    };
+}
+
+function filterCurrentStateCollectionScopedEvents<
+    TEvent extends { collectionId: number; blockNumber: number },
+>(
+    collectionsById: Map<number, CollectionRecord>,
+    events: TEvent[],
+): TEvent[] {
+    // Keep only post-anchor collection-scoped events.
+    return events.filter((event) =>
+        collectionsById
+            .get(event.collectionId)
+            ?.canProjectCurrentStateAt(event.blockNumber),
+    );
 }
 
 async function publishOrderUpdateById(

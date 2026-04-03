@@ -34,6 +34,7 @@ The activities domain consumes two inputs:
 1. `domain.activity.sync`
     - block-range sync input from the onchain pipeline
     - projects onchain activity from persisted raw facts
+    - currently always published with `projection = facts_only`
 
 2. `activities.upsert`
     - immutable normalized activity input from non-block-range producers
@@ -81,6 +82,7 @@ Important behavior:
 - sales and transfers remain separate feed items
 - sales keep price / currency / timestamp from fills
 - projection uses idempotent insert semantics via dedupe keys
+- historical backfill before the bootstrap anchor is still valid here because activities are a feed projection over append-only facts, not a current-state table
 
 ## Offchain Projection
 

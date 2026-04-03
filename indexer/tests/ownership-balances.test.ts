@@ -4,6 +4,7 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteBootstrapStorage } from "../src/infra/bootstrap/sqlite.js";
+import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
 import { SqliteStorage } from "../src/infra/storage/sqlite.js";
 
 describe("ownership balance persistence", () => {
@@ -40,6 +41,7 @@ describe("ownership balance persistence", () => {
             chainId,
             slug: "terraforms",
             address: contract,
+            anchorBlock: 100,
         });
 
         const bootstrapStorage = new SqliteBootstrapStorage();
@@ -79,6 +81,7 @@ describe("ownership balance persistence", () => {
         ]);
 
         const storage = new SqliteStorage();
+        const collection = loadCollection(chainId, collectionId);
         storage.persistSyncResult(
             chainId,
             [
@@ -119,11 +122,202 @@ describe("ownership balance persistence", () => {
                     makerTriggers: [],
                 },
             },
+            [collection],
         );
 
         expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
             { owner: buyer, amount: "1" },
         ]);
+    });
+
+    it("keeps bootstrap ownership unchanged for pre-anchor historical backfill", () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const priorOwner = "0xcccccccccccccccccccccccccccccccccccccccc";
+        const collectionId = insertCollection({
+            chainId,
+            slug: "terraforms",
+            address: contract,
+            anchorBlock: 100,
+        });
+
+        const bootstrapStorage = new SqliteBootstrapStorage();
+        bootstrapStorage.insertSnapshotRows([
+            {
+                runId: 2,
+                chainId,
+                collectionId,
+                contract,
+                tokenId: "5081",
+                owner: seller,
+                anchorBlock: 100,
+            },
+        ]);
+        bootstrapStorage.finalizeSnapshot({
+            runId: 2,
+            chainId,
+            collectionId,
+            contract,
+            anchorBlock: 100,
+            anchorHash: `0x${"11".repeat(32)}`,
+            anchorTimestamp: 1_726_000_000,
+        });
+
+        const storage = new SqliteStorage();
+        const collection = loadCollection(chainId, collectionId);
+        storage.persistSyncResult(
+            chainId,
+            [
+                {
+                    number: 99,
+                    hash: `0x${"44".repeat(32)}`,
+                    parentHash: `0x${"33".repeat(32)}`,
+                    timestamp: 1_726_000_099,
+                },
+            ],
+            {
+                transactions: [],
+                collectionScoped: {
+                    nftTransferEvents: [
+                        {
+                            collectionId,
+                            contract,
+                            from: priorOwner,
+                            to: seller,
+                            tokenId: "5081",
+                            amount: "1",
+                            blockNumber: 99,
+                            blockHash: `0x${"44".repeat(32)}`,
+                            txHash: `0x${"55".repeat(32)}`,
+                            logIndex: 3,
+                            kind: "erc721",
+                        },
+                    ],
+                    nftBalanceDeltas: [],
+                    fillEvents: [],
+                    orderInfos: [],
+                    makerTriggers: [],
+                    metadataRefreshEvents: [],
+                    metadataRefreshRangeEvents: [],
+                },
+                global: {
+                    cancelEvents: [],
+                    makerTriggers: [],
+                },
+            },
+            [collection],
+        );
+
+        expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
+            { owner: seller, amount: "1" },
+        ]);
+        expect(selectTransferCount(chainId, collectionId, "5081")).toBe(1);
+    });
+
+    it("applies only post-anchor transfers when a backfill range straddles the anchor", () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const seller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const priorOwner = "0xcccccccccccccccccccccccccccccccccccccccc";
+        const buyer = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const collectionId = insertCollection({
+            chainId,
+            slug: "terraforms",
+            address: contract,
+            anchorBlock: 100,
+        });
+
+        const bootstrapStorage = new SqliteBootstrapStorage();
+        bootstrapStorage.insertSnapshotRows([
+            {
+                runId: 3,
+                chainId,
+                collectionId,
+                contract,
+                tokenId: "5081",
+                owner: seller,
+                anchorBlock: 100,
+            },
+        ]);
+        bootstrapStorage.finalizeSnapshot({
+            runId: 3,
+            chainId,
+            collectionId,
+            contract,
+            anchorBlock: 100,
+            anchorHash: `0x${"11".repeat(32)}`,
+            anchorTimestamp: 1_726_000_000,
+        });
+
+        const storage = new SqliteStorage();
+        const collection = loadCollection(chainId, collectionId);
+        storage.persistSyncResult(
+            chainId,
+            [
+                {
+                    number: 99,
+                    hash: `0x${"44".repeat(32)}`,
+                    parentHash: `0x${"33".repeat(32)}`,
+                    timestamp: 1_726_000_099,
+                },
+                {
+                    number: 101,
+                    hash: `0x${"66".repeat(32)}`,
+                    parentHash: `0x${"44".repeat(32)}`,
+                    timestamp: 1_726_000_101,
+                },
+            ],
+            {
+                transactions: [],
+                collectionScoped: {
+                    nftTransferEvents: [
+                        {
+                            collectionId,
+                            contract,
+                            from: priorOwner,
+                            to: seller,
+                            tokenId: "5081",
+                            amount: "1",
+                            blockNumber: 99,
+                            blockHash: `0x${"44".repeat(32)}`,
+                            txHash: `0x${"55".repeat(32)}`,
+                            logIndex: 3,
+                            kind: "erc721",
+                        },
+                        {
+                            collectionId,
+                            contract,
+                            from: seller,
+                            to: buyer,
+                            tokenId: "5081",
+                            amount: "1",
+                            blockNumber: 101,
+                            blockHash: `0x${"66".repeat(32)}`,
+                            txHash: `0x${"77".repeat(32)}`,
+                            logIndex: 4,
+                            kind: "erc721",
+                        },
+                    ],
+                    nftBalanceDeltas: [],
+                    fillEvents: [],
+                    orderInfos: [],
+                    makerTriggers: [],
+                    metadataRefreshEvents: [],
+                    metadataRefreshRangeEvents: [],
+                },
+                global: {
+                    cancelEvents: [],
+                    makerTriggers: [],
+                },
+            },
+            [collection],
+        );
+
+        expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
+            { owner: buyer, amount: "1" },
+        ]);
+        expect(selectTransferCount(chainId, collectionId, "5081")).toBe(2);
     });
 });
 
@@ -131,16 +325,31 @@ function insertCollection(input: {
     chainId: number;
     slug: string;
     address: string;
+    anchorBlock: number;
 }): number {
     const result = db
-        .prepare<[number, string, string]>(
+        .prepare<[number, string, string, number]>(
             "INSERT INTO collections " +
-                "(chain_id, slug, address, standard, status, token_scope_kind) " +
-                "VALUES (?, ?, ?, 'erc721', 'live', 'contract_all_tokens')",
+                "(chain_id, slug, address, standard, status, token_scope_kind, bootstrap_anchor_block) " +
+                "VALUES (?, ?, ?, 'erc721', 'live', 'contract_all_tokens', ?)",
         )
-        .run(input.chainId, input.slug, input.address.toLowerCase());
+        .run(
+            input.chainId,
+            input.slug,
+            input.address.toLowerCase(),
+            input.anchorBlock,
+        );
 
     return Number(result.lastInsertRowid);
+}
+
+function loadCollection(chainId: number, collectionId: number) {
+    const registry = new SqliteCollectionRegistry();
+    const collection = registry.getCollection(chainId, collectionId);
+    if (!collection) {
+        throw new Error(`Missing collection ${collectionId}`);
+    }
+    return collection;
 }
 
 function selectBalanceOwners(
@@ -158,4 +367,20 @@ function selectBalanceOwners(
         owner: string;
         amount: string;
     }>;
+}
+
+function selectTransferCount(
+    chainId: number,
+    collectionId: number,
+    tokenId: string,
+): number {
+    return (
+        db.prepare<
+            [number, number, string],
+            { count: number }
+        >(
+            "SELECT COUNT(*) AS count FROM nft_transfer_events " +
+                "WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
+        ).get(chainId, collectionId, tokenId)?.count ?? 0
+    );
 }

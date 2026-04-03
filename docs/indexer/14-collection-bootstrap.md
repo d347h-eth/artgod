@@ -13,6 +13,11 @@ The goal is to reach a correct local ownership state quickly and then attach Ope
 
 Full backfill from genesis also works, but it is too expensive for the normal local-first path.
 
+Historical backfill before the anchor is still useful, but only as fact import:
+
+- it can enrich `nft_transfer_events`, `fills`, and downstream historical activity
+- it must not mutate `nft_balances` or other current-state/materialized tables
+
 ## Current Lifecycle
 
 Each collection starts outside the indexed set. When the user adds a collection, the bootstrap worker runs a deterministic pipeline.
@@ -80,6 +85,7 @@ The first embedded extension, Terraforms, uses this shadow path to cache version
 - enqueue short backfill from `anchor + 1` to current head
 - bootstrap later checks block coverage before finishing the onchain bootstrap run
 - the short backfill is collection-scoped
+- this range is intentionally post-anchor so it can safely advance current-state tables
 
 ### 7. Schedule OpenSea bootstrap
 
@@ -143,6 +149,8 @@ A collection should be considered ownership-correct once:
 - ownership snapshot completed
 - short backfill completed
 - `collections.status = live`
+
+Manual historical backfill before `bootstrap_anchor_block` does not improve or change current ownership correctness. It only enriches historical facts before the anchor.
 
 ### OpenSea guarantee
 

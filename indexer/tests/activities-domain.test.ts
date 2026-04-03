@@ -3,6 +3,7 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
+import { DOMAIN_SYNC_PROJECTION } from "../src/domain/domain-jobs.js";
 import { SqliteActivityDomain } from "../src/infra/domain/activities.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -70,9 +71,11 @@ describe("activity domain", () => {
         const domain = new SqliteActivityDomain();
         await domain.handleDomainSync({
             chainId,
+            collectionId: null,
             fromBlock: 100,
             toBlock: 101,
             mode: "backfill",
+            projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
             sourceJobId: "test-job",
             sourceKind: "test",
         });
@@ -369,9 +372,11 @@ describe("activity domain", () => {
 
         await domain.handleDomainSync({
             chainId,
+            collectionId: null,
             fromBlock: 101,
             toBlock: 101,
             mode: "backfill",
+            projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
             sourceJobId: "test-job",
             sourceKind: "test",
         });

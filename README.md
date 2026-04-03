@@ -316,6 +316,7 @@ Per-collection bootstrap flow:
 10. Mark OpenSea offchain `ready` once the first full snapshot succeeds; periodic reconcile maintains eventual consistency after that.
 
 `nft_balances` is canonical ownership state after bootstrap completion.
+Historical backfill for blocks at or before the bootstrap anchor is facts-only: it can enrich transfers/fills/activity history, but it must not mutate current-state tables such as `nft_balances`.
 
 ## Project Structure
 

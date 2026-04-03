@@ -91,9 +91,17 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         "SELECT collection_id, contract_address AS contract, token_id, from_address, to_address, amount, block_number, block_timestamp, tx_hash, log_index, kind AS transfer_standard " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
     );
+    private selectTransfersForCollection = db.prepare<[number, number, number, number]>(
+        "SELECT collection_id, contract_address AS contract, token_id, from_address, to_address, amount, block_number, block_timestamp, tx_hash, log_index, kind AS transfer_standard " +
+            "FROM nft_transfer_events WHERE chain_id = ? AND collection_id = ? AND block_number >= ? AND block_number <= ?",
+    );
     private selectFills = db.prepare<[number, number, number]>(
         "SELECT collection_id, kind AS fill_kind, order_id, order_side, maker, taker, contract_address AS contract, token_id, amount, price, currency, block_number, block_timestamp, tx_hash, log_index " +
             "FROM fills WHERE chain_id = ? AND block_number >= ? AND block_number <= ?",
+    );
+    private selectFillsForCollection = db.prepare<[number, number, number, number]>(
+        "SELECT collection_id, kind AS fill_kind, order_id, order_side, maker, taker, contract_address AS contract, token_id, amount, price, currency, block_number, block_timestamp, tx_hash, log_index " +
+            "FROM fills WHERE chain_id = ? AND collection_id = ? AND block_number >= ? AND block_number <= ?",
     );
     private insertActivity = db.prepare<{
         chainId: number;
@@ -196,16 +204,18 @@ export class SqliteActivityDomain implements ActivityDomainPort {
     );
 
     async handleDomainSync(context: DomainSyncContext): Promise<void> {
-        const { chainId, fromBlock, toBlock } = context;
+        const { chainId, collectionId, fromBlock, toBlock } = context;
         if (fromBlock > toBlock) return;
 
         const transferResult = this.persistTransferActivities(
             chainId,
+            collectionId,
             fromBlock,
             toBlock,
         );
         const saleResult = this.persistSaleActivities(
             chainId,
+            collectionId,
             fromBlock,
             toBlock,
         );
@@ -345,14 +355,23 @@ export class SqliteActivityDomain implements ActivityDomainPort {
 
     private persistTransferActivities(
         chainId: number,
+        collectionId: number | null,
         fromBlock: number,
         toBlock: number,
     ): { rows: number; inserted: number } {
-        const rows = this.selectTransfers.all(
-            chainId,
-            fromBlock,
-            toBlock,
-        ) as TransferRow[];
+        const rows =
+            collectionId === null
+                ? (this.selectTransfers.all(
+                      chainId,
+                      fromBlock,
+                      toBlock,
+                  ) as TransferRow[])
+                : (this.selectTransfersForCollection.all(
+                      chainId,
+                      collectionId,
+                      fromBlock,
+                      toBlock,
+                  ) as TransferRow[]);
         let inserted = 0;
 
         for (const row of rows) {
@@ -403,14 +422,23 @@ export class SqliteActivityDomain implements ActivityDomainPort {
 
     private persistSaleActivities(
         chainId: number,
+        collectionId: number | null,
         fromBlock: number,
         toBlock: number,
     ): { rows: number; inserted: number; closedOpenCreates: number } {
-        const rows = this.selectFills.all(
-            chainId,
-            fromBlock,
-            toBlock,
-        ) as FillRow[];
+        const rows =
+            collectionId === null
+                ? (this.selectFills.all(
+                      chainId,
+                      fromBlock,
+                      toBlock,
+                  ) as FillRow[])
+                : (this.selectFillsForCollection.all(
+                      chainId,
+                      collectionId,
+                      fromBlock,
+                      toBlock,
+                  ) as FillRow[]);
         let inserted = 0;
         let closedOpenCreates = 0;
 

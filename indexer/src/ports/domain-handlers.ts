@@ -1,5 +1,6 @@
 import type { ActivityUpsertPayload } from "../domain/activity-jobs.js";
 import type {
+    DomainSyncProjection,
     DomainSyncMode,
     MetadataRefreshPayload,
     MetadataStatsRecomputePayload,
@@ -16,9 +17,11 @@ import type {
 
 export type DomainSyncContext = {
     chainId: number;
+    collectionId: number | null;
     fromBlock: number;
     toBlock: number;
     mode: DomainSyncMode;
+    projection: DomainSyncProjection;
     sourceJobId: string;
     sourceKind: string;
 };

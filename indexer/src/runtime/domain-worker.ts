@@ -552,9 +552,11 @@ function toDomainContext(
 ): DomainSyncContext {
     return {
         chainId: job.chainId,
+        collectionId: job.collectionId ?? null,
         fromBlock: job.payload.fromBlock,
         toBlock: job.payload.toBlock,
         mode: job.payload.mode,
+        projection: job.payload.projection,
         sourceJobId: job.payload.sourceJobId,
         sourceKind: job.payload.sourceKind,
     };

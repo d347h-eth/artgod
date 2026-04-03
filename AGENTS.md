@@ -54,6 +54,8 @@ For implementation details, use:
 - Keep validation and invariant enforcement close to the domain constructor/factory so invalid raw data is normalized or rejected before wider use.
 - Use collection token scope as the reference example for this rule:
   raw values like `contract_all_tokens` should stay internal to the collection domain module, while callers should use explicit APIs such as scope predicates, token membership checks, and range intersection helpers.
+- Leave short one-line comments on important literals, exported/public functions, and domain boundary helpers, especially inside `indexer/src/domain/*` and other core runtime packages.
+- Keep comments simple and plain; explain the purpose, not the whole design.
 
 ## Backend Hexagonal Guide
 

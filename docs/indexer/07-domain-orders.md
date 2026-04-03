@@ -23,6 +23,12 @@ The orders domain consumes four relevant job streams:
 
 `domain.orders.sync` is currently a no-op placeholder. Order state changes flow through the dedicated order queues instead of hidden range-wide invalidation logic.
 
+Even so, the orders domain now enforces the bootstrap-anchor contract for onchain-driven maintenance:
+
+- pre-anchor historical ranges must not invalidate current order state
+- global maker triggers and explicit onchain update-by-id events are checked against the affected order row's `collection_id`
+- offchain source-status updates are not anchor-gated because they are not replayed from historical onchain sync
+
 ## Canonical Order Model
 
 `orders.upsert` carries the normalized ArtGod order DTO:
@@ -169,6 +175,12 @@ Current maker trigger scoping is split explicitly:
     - re-validate all Seaport orders for that maker
 
 These updates only change `fillability_status`.
+
+Anchor rule:
+
+- token-scoped and global onchain maker triggers may only mutate orders when the relevant collection can project current state at that block
+- the sync worker applies coarse anchor gating during fanout
+- the orders domain applies the final per-order/per-collection guard for broader triggers that are not collection-scoped at the sync boundary
 
 ## Bidder Index (Quiet Default)
 

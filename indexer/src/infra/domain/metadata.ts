@@ -1,5 +1,6 @@
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
+import { DOMAIN_SYNC_PROJECTION } from "../../domain/domain-jobs.js";
 import type {
     MetadataDomainSyncResult,
     MetadataRefreshResult,
@@ -48,9 +49,25 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
     // Select the first transfer per token in-range (used for metadata attribution).
     private selectFirstTransferPerToken = db.prepare<[number, number, number]>(
         "SELECT collection_id, contract_address AS contract, token_id, kind, block_number, block_hash, block_timestamp, tx_hash, log_index FROM (" +
-            "SELECT collection_id, contract_address, token_id, kind, block_number, block_hash, block_timestamp, tx_hash, log_index, " +
-            "ROW_NUMBER() OVER (PARTITION BY collection_id, token_id, kind ORDER BY block_number ASC, log_index ASC) AS rn " +
-            "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? AND block_number <= ? " +
+            "SELECT e.collection_id, e.contract_address, e.token_id, e.kind, e.block_number, e.block_hash, e.block_timestamp, e.tx_hash, e.log_index, " +
+            "ROW_NUMBER() OVER (PARTITION BY e.collection_id, e.token_id, e.kind ORDER BY e.block_number ASC, e.log_index ASC) AS rn " +
+            "FROM nft_transfer_events e " +
+            "JOIN collections c ON c.chain_id = e.chain_id AND c.collection_id = e.collection_id " +
+            "WHERE e.chain_id = ? AND e.block_number >= ? AND e.block_number <= ? " +
+            "AND c.bootstrap_anchor_block IS NOT NULL AND e.block_number > c.bootstrap_anchor_block " +
+            ") WHERE rn = 1",
+    );
+    private selectFirstTransferPerTokenForCollection = db.prepare<
+        [number, number, number, number]
+    >(
+        "SELECT collection_id, contract_address AS contract, token_id, kind, block_number, block_hash, block_timestamp, tx_hash, log_index FROM (" +
+            "SELECT e.collection_id, e.contract_address, e.token_id, e.kind, e.block_number, e.block_hash, e.block_timestamp, e.tx_hash, e.log_index, " +
+            "ROW_NUMBER() OVER (PARTITION BY e.collection_id, e.token_id, e.kind ORDER BY e.block_number ASC, e.log_index ASC) AS rn " +
+            "FROM nft_transfer_events e " +
+            "JOIN collections c ON c.chain_id = e.chain_id AND c.collection_id = e.collection_id " +
+            "WHERE e.chain_id = ? AND e.block_number >= ? AND e.block_number <= ? " +
+            "AND e.collection_id = ? " +
+            "AND c.bootstrap_anchor_block IS NOT NULL AND e.block_number > c.bootstrap_anchor_block " +
             ") WHERE rn = 1",
     );
     private selectMetadata = db.prepare<[number, number, string]>(
@@ -132,12 +149,35 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 updatedTokens: [],
             };
         }
+        if (context.projection === DOMAIN_SYNC_PROJECTION.FactsOnly) {
+            logger.debug("Metadata domain sync skipped for facts-only projection", {
+                component: "MetadataDomain",
+                action: "handleDomainSync",
+                chainId,
+                collectionId: context.collectionId,
+                fromBlock,
+                toBlock,
+                mode: context.mode,
+            });
+            return {
+                contracts: [],
+                updatedTokens: [],
+            };
+        }
 
-        const rows = this.selectFirstTransferPerToken.all(
-            chainId,
-            fromBlock,
-            toBlock,
-        ) as TokenRow[];
+        const rows =
+            context.collectionId === null
+                ? (this.selectFirstTransferPerToken.all(
+                      chainId,
+                      fromBlock,
+                      toBlock,
+                  ) as TokenRow[])
+                : (this.selectFirstTransferPerTokenForCollection.all(
+                      chainId,
+                      fromBlock,
+                      toBlock,
+                      context.collectionId,
+                  ) as TokenRow[]);
         const contracts = new Set<string>();
         const collectionIds = new Set<number>();
         const updatedTokens: MetadataDomainSyncResult["updatedTokens"] = [];

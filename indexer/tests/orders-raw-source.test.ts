@@ -26,7 +26,12 @@ describe("orders raw source selection", () => {
     });
 
     beforeEach(() => {
-        db.exec("DELETE FROM orders;");
+        db.exec(
+            [
+                "DELETE FROM orders;",
+                "DELETE FROM collections;",
+            ].join("\n"),
+        );
     });
 
     it("validates using canonical seaport data rather than audit payload fields", async () => {
@@ -41,6 +46,7 @@ describe("orders raw source selection", () => {
                 };
             },
         );
+        ensureCollection(1, 1, "0x5af0d9827e0c53e4799bb226655a1de152a425a5");
 
         await domain.handleOrderUpsert(
             buildOrderUpsert("rest", {
@@ -72,6 +78,7 @@ describe("orders raw source selection", () => {
                 };
             },
         );
+        ensureCollection(1, 1, "0x5af0d9827e0c53e4799bb226655a1de152a425a5");
 
         await domain.handleOrderUpsert(
             buildOrderUpsert(
@@ -102,6 +109,32 @@ describe("orders raw source selection", () => {
         );
         expect(validatedOrder.seaportDataSourceKind).toBe(
             ORDER_SEAPORT_DATA_SOURCE_KIND.Stream,
+        );
+    });
+
+    it("ignores onchain order updates before the collection bootstrap anchor", async () => {
+        const domain = new SqliteOrdersDomain(
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            async () => ({
+                status: ORDER_STATUS.Cancelled,
+                reason: "should-not-run-before-anchor",
+            }),
+        );
+        const payload = buildOrderUpsert("stream", {
+            source: "stream",
+        });
+        ensureCollection(payload.chainId, payload.collectionId, payload.contract);
+        setCollectionAnchor(payload.chainId, payload.collectionId, 100);
+
+        await domain.handleOrderUpsert(payload);
+        await domain.handleOrderUpdateById({
+            ...buildOrderUpdate(),
+            reason: "cancel",
+            blockNumber: 99,
+        });
+
+        expect(getFillabilityStatus(payload.orderId)).toBe(
+            ORDER_STATUS.Fillable,
         );
     });
 });
@@ -194,4 +227,40 @@ function buildOrderUpdate(): OrderUpdateByIdPayload {
         txHash: "0x2",
         logIndex: 0,
     };
+}
+
+function ensureCollection(
+    chainId: number,
+    collectionId: number,
+    contract: string,
+): void {
+    db.prepare<
+        [number, number, string, string]
+    >(
+        "INSERT OR REPLACE INTO collections " +
+            "(chain_id, collection_id, slug, address, standard, status, token_scope_kind, bootstrap_anchor_block) " +
+            "VALUES (?, ?, ?, ?, 'erc721', 'live', 'contract_all_tokens', 0)",
+    ).run(
+        chainId,
+        collectionId,
+        `collection-${collectionId}`,
+        contract.toLowerCase(),
+    );
+}
+
+function setCollectionAnchor(
+    chainId: number,
+    collectionId: number,
+    anchorBlock: number,
+): void {
+    db.prepare<[number, number, number]>(
+        "UPDATE collections SET bootstrap_anchor_block = ? WHERE chain_id = ? AND collection_id = ?",
+    ).run(anchorBlock, chainId, collectionId);
+}
+
+function getFillabilityStatus(orderId: string): string | null {
+    const row = db
+        .prepare<[string]>("SELECT fillability_status FROM orders WHERE id = ?")
+        .get(orderId) as { fillability_status: string } | undefined;
+    return row?.fillability_status ?? null;
 }

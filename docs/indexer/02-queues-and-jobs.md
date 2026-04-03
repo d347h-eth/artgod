@@ -109,9 +109,20 @@ DLQ payload:
     - `reorg.block-check`
 
 - Domain jobs (`indexer/src/domain/domain-jobs.ts`):
-    - `domain.orders.sync`
-    - `domain.metadata.sync`
-    - `domain.activity.sync`
+- `domain.orders.sync`
+- `domain.metadata.sync`
+- `domain.activity.sync`
+
+Domain sync payloads also carry an explicit projection contract:
+
+- `projection = facts_only`
+    - historical-safe projection only
+    - used today for `domain.activity.sync`
+- `projection = current_state`
+    - may mutate current-state/materialized tables
+    - used today for metadata and order-maintenance fanout
+
+This split matters for historical backfill. Pre-anchor ranges are still imported as raw facts, but only anchor-eligible post-anchor windows are allowed to publish current-state work.
 
 - Order update jobs (`indexer/src/domain/order-jobs.ts`):
     - `orders.upsert`

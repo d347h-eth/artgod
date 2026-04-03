@@ -81,6 +81,8 @@ nft_balances(chain_id, collection_id, contract_address, token_id, owner, amount,
 - Primary key: `(chain_id, collection_id, token_id, owner)`
 - Canonical current ownership table after bootstrap completion
 - Attribution columns capture the last onchain event that changed the balance
+- Mutated only by forward-processing for blocks strictly greater than `collections.bootstrap_anchor_block`
+- Historical backfill at or before the anchor must not rewrite this table
 
 ## Collection and Bootstrap Tables
 
@@ -169,6 +171,7 @@ Temporary ownership snapshot table used during collection bootstrap.
 
 - Primary key: `(chain_id, collection_id, token_id)`
 - Rows are finalized into `nft_balances` once the snapshot completes
+- Snapshot finalization establishes the base current-state ownership at `bootstrap_anchor_block`
 
 ## Orders Table
 
@@ -230,6 +233,22 @@ Important column groups:
 - `unknown`
 
 These do not auto-drive each other. A row can be source-active but onchain-unfillable, or source-inactive while still protocol-fillable.
+
+## Historical Facts vs Current-State Projections
+
+The storage/runtime contract is intentionally split:
+
+- append-only historical facts can be persisted for any block range
+    - `blocks`
+    - `transactions`
+    - `nft_transfer_events`
+    - `fills`
+- current-state/materialized tables are anchor-gated
+    - `nft_balances`
+    - metadata/materialized token state written downstream from sync
+    - order invalidation side-effects triggered from onchain sync
+
+In practice this means a manual backfill for `X-100 .. X-1` after a snapshot anchored at `X` enriches history, but it must not change current ownership.
 
 ### Raw payload invariant
 

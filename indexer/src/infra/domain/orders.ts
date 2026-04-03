@@ -1,5 +1,6 @@
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
+import { CollectionRecord } from "../../domain/collections.js";
 import {
     GLOBAL_MAKER_TRIGGER_REASON,
     MAKER_TRIGGER_SCOPE,
@@ -59,6 +60,10 @@ type OrderRow = {
     block_number: number | null;
     tx_hash: string | null;
     log_index: number | null;
+};
+
+type CollectionAnchorRow = {
+    bootstrap_anchor_block: number | null;
 };
 
 type SeaportOrderValidator = (
@@ -136,6 +141,9 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker " +
             "AND seaport_data_json IS NOT NULL",
     );
+    private selectCollectionAnchor = db.prepare<[number, number]>(
+        "SELECT bootstrap_anchor_block FROM collections WHERE chain_id = ? AND collection_id = ? LIMIT 1",
+    );
     private upsertOrder = db.prepare<{
         id: string;
         chainId: number;
@@ -210,7 +218,11 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
     async handleOrderUpdateByMaker(
         payload: OrderUpdateByMakerPayload,
     ): Promise<void> {
-        const rows = this.selectMakerUpdateCandidates(payload);
+        const rows = this.filterCurrentStateRows(
+            payload.chainId,
+            this.selectMakerUpdateCandidates(payload),
+            payload.blockNumber,
+        );
         if (rows.length === 0) {
             logger.debug("Orders update-by-maker matched no candidate orders", {
                 component: "OrdersDomain",
@@ -283,9 +295,12 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             return;
         }
 
-        let finalStatus: OrderStatus = status;
-        if (payload.reason === "order") {
-            const row = this.selectOrderById.get({
+        let row: OrderRow | undefined;
+        if (
+            payload.blockNumber !== null &&
+            payload.blockNumber !== undefined
+        ) {
+            row = this.selectOrderById.get({
                 chainId: payload.chainId,
                 orderId: payload.orderId,
             }) as OrderRow | undefined;
@@ -294,30 +309,66 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     component: "OrdersDomain",
                     action: "handleOrderUpdateById",
                     ...payload,
+                    });
+                return;
+            }
+            if (
+                !this.canMutateCurrentStateForCollection(
+                    row.chain_id,
+                    row.collection_id,
+                    payload.blockNumber,
+                )
+            ) {
+                logger.debug("Orders update-by-id skipped before bootstrap anchor", {
+                    component: "OrdersDomain",
+                    action: "handleOrderUpdateById",
+                    chainId: row.chain_id,
+                    collectionId: row.collection_id,
+                    orderId: row.id,
+                    reason: payload.reason,
+                    blockNumber: payload.blockNumber ?? null,
                 });
                 return;
             }
-            const order = mapOrderRow(row);
-            if (row.kind === "seaport" && hasSeaportData(order)) {
+        }
+
+        let finalStatus: OrderStatus = status;
+        if (payload.reason === "order") {
+            const orderRow =
+                row ??
+                (this.selectOrderById.get({
+                    chainId: payload.chainId,
+                    orderId: payload.orderId,
+                }) as OrderRow | undefined);
+            if (!orderRow) {
+                logger.warn("Orders update-by-id missing order", {
+                    component: "OrdersDomain",
+                    action: "handleOrderUpdateById",
+                    ...payload,
+                });
+                return;
+            }
+            const order = mapOrderRow(orderRow);
+            if (orderRow.kind === "seaport" && hasSeaportData(order)) {
                 const validation = await this.validateOrder(order);
                 finalStatus = validation.status;
                 logger.debug("Orders validation result", {
                     component: "OrdersDomain",
                     action: "handleOrderUpdateById",
-                    orderId: row.id,
-                    chainId: row.chain_id,
+                    orderId: orderRow.id,
+                    chainId: orderRow.chain_id,
                     status: validation.status,
                     reason: validation.reason,
                 });
-            } else if (row.kind === "seaport") {
+            } else if (orderRow.kind === "seaport") {
                 finalStatus = ORDER_STATUS.Invalid;
                 logger.warn(
                     "Orders update-by-id missing canonical seaport data",
                     {
                         component: "OrdersDomain",
                         action: "handleOrderUpdateById",
-                        chainId: row.chain_id,
-                        orderId: row.id,
+                        chainId: orderRow.chain_id,
+                        orderId: orderRow.id,
                     },
                 );
             }
@@ -442,6 +493,52 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     maker,
                 }) as OrderRow[];
         }
+    }
+
+    private filterCurrentStateRows(
+        chainId: number,
+        rows: OrderRow[],
+        blockNumber: number | null | undefined,
+    ): OrderRow[] {
+        const anchorByCollectionId = new Map<number, number | null>();
+        return rows.filter((row) =>
+            this.canMutateCurrentStateForCollection(
+                chainId,
+                row.collection_id,
+                blockNumber,
+                anchorByCollectionId,
+            ),
+        );
+    }
+
+    private canMutateCurrentStateForCollection(
+        chainId: number,
+        collectionId: number,
+        blockNumber: number | null | undefined,
+        anchorByCollectionId?: Map<number, number | null>,
+    ): boolean {
+        if (blockNumber === null || blockNumber === undefined) {
+            return true;
+        }
+
+        const cachedAnchor = anchorByCollectionId?.get(collectionId);
+        if (cachedAnchor !== undefined) {
+            return CollectionRecord.canProjectCurrentStateAtBlock(
+                cachedAnchor,
+                blockNumber,
+            );
+        }
+
+        const row = this.selectCollectionAnchor.get(
+            chainId,
+            collectionId,
+        ) as CollectionAnchorRow | undefined;
+        const anchorBlock = row?.bootstrap_anchor_block ?? null;
+        anchorByCollectionId?.set(collectionId, anchorBlock);
+        return CollectionRecord.canProjectCurrentStateAtBlock(
+            anchorBlock,
+            blockNumber,
+        );
     }
 
     private async revalidateSeaportOrder(

@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import { CollectionRecord } from "../../domain/collections.js";
 import type { OnChainData, TransactionRecord } from "../../domain/onchain.js";
 import type { StoragePort } from "../../ports/storage.js";
 import type { RpcBlock } from "../../ports/rpc.js";
@@ -168,14 +169,30 @@ export class SqliteStorage implements StoragePort {
         chainId: number,
         blocks: RpcBlock[],
         data: OnChainData,
+        collections: CollectionRecord[],
     ): void {
         const run = db.raw.transaction(() => {
             const blockMeta = buildBlockMeta(blocks);
+            const currentStateCollections = new Map(
+                collections.map((collection) => [collection.id, collection]),
+            );
             this.persistBlocks(chainId, blocks);
             this.persistTransactions(chainId, data.transactions, blockMeta);
             const inserted = this.persistTransfers(chainId, data, blockMeta);
             this.persistFills(chainId, data, blockMeta);
-            this.applyBalanceUpdatesFromEvents(chainId, inserted, blockMeta);
+            const currentStateTransfers = inserted.filter((event) => {
+                const collection = currentStateCollections.get(
+                    event.collectionId,
+                );
+                return Boolean(
+                    collection?.canProjectCurrentStateAt(event.blockNumber),
+                );
+            });
+            this.applyBalanceUpdatesFromEvents(
+                chainId,
+                currentStateTransfers,
+                blockMeta,
+            );
         });
         run();
     }

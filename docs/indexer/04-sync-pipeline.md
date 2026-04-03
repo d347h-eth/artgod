@@ -125,16 +125,22 @@ After persisting a realtime block, the sync worker checks whether the previous b
 - Writes blocks to `blocks` table.
 - Inserts transfer events into `nft_transfer_events`.
 - Inserts fill events into `fills`.
-- Applies balance updates for newly inserted transfers.
+- Applies balance updates for newly inserted transfers only when the event block is strictly after the affected collection's `bootstrap_anchor_block`.
 
 The storage layer is idempotent:
 
 - Transfers are inserted with `INSERT OR IGNORE` against a unique constraint.
 - Balances are updated only for transfers that were newly inserted.
 
+This is the key ownership invariant for historical backfill:
+
+- raw facts are always persisted for the requested range
+- current-state tables are anchor-gated
+- `block <= bootstrap_anchor_block` is facts-only and must not mutate `nft_balances`
+
 ## Domain Job Fan-Out
 
-After persistence, each sync job triggers domain jobs using the same range:
+After persistence, each sync job triggers domain jobs with an explicit projection split:
 
 - `domain.orders.sync`
 - `domain.metadata.sync`
@@ -144,9 +150,21 @@ These jobs carry:
 
 - `fromBlock`, `toBlock`
 - `mode` (realtime or backfill)
+- `projection` (`facts_only` or `current_state`)
 - `sourceJobId`, `sourceKind`
 
 See `indexer/src/runtime/sync-worker.ts` for the exact payloads.
+
+Current behavior:
+
+- `domain.activity.sync`
+    - always receives the full raw range with `projection = facts_only`
+    - activities are a historical-safe feed projection over persisted facts
+- `domain.metadata.sync`
+    - published only for the post-anchor window with `projection = current_state`
+- `domain.orders.sync`
+    - published only when the range intersects the post-anchor window
+    - currently remains a placeholder, but order update fanout from the sync worker is still anchor-gated
 
 Order maintenance then continues through dedicated update queues:
 
@@ -163,5 +181,5 @@ The collection bootstrap worker also uses the sync pipeline for short-range boot
 ## Notes and Current Limitations
 
 - Onchain order creation capture is still limited; the fully implemented orderbook path today is the separate OpenSea offchain pipeline (stream + snapshot/reconcile).
-- ERC1155 balances are derived from deltas only; without full historical backfill, balances may be incomplete for tokens that existed before the indexed range.
+- ERC1155 balances are derived from deltas only after the bootstrap anchor. Historical backfill before the anchor enriches raw history but intentionally does not rewrite current balances.
 - Collection-extension sync hooks are intentionally narrow in v1. They can request extra logs and emit metadata refresh events/ranges, but they do not yet publish broader domain actions.
