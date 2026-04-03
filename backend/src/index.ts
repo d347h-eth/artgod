@@ -176,6 +176,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
+        extensionAwareCollectionCustomization,
     );
     const getTokenActivityUseCase = new GetTokenActivityUseCase(
         config.defaultChainId,

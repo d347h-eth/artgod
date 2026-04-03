@@ -265,6 +265,7 @@ export type TokenDetailApiResponse = {
 	collection: ApiCollection;
 	media: ApiCollectionMediaState;
 	token: ApiTokenDetail;
+	traitFilterPresentation: ApiTraitFilterPresentationFeatureState;
 };
 
 export type TokenPreviewApiResponse = {

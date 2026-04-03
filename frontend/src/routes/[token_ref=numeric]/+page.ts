@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BackendApiError, getTokenDetail } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE
@@ -28,6 +29,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: response.collection,
 			media: response.media,
 			token: response.token,
+			traitFilterPresentation: response.traitFilterPresentation ?? defaultTraitFilterPresentationState(),
 			backPath,
 			backQuery
 		};

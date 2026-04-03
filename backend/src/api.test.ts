@@ -155,6 +155,7 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             collectionsReadModel,
+            customizationReadModel,
         );
     const getTokenPreviewUseCase =
         new tokenPreviewUseCaseModule.GetTokenPreviewUseCase(
@@ -563,6 +564,9 @@ describe("backend api routes", () => {
         expect(result.payload.token.attributes[2].rarityPercent).toBeCloseTo(
             33.3333,
             3,
+        );
+        expect(result.payload.traitFilterPresentation.effectiveConfig.rangeKeys).toEqual(
+            [],
         );
     });
 

@@ -1,10 +1,16 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import {
+		resolveTraitFilterDisplayKind,
+		TRAIT_FILTER_DISPLAY_KIND
+	} from '@artgod/shared/types';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import type {
 		ApiChain,
 		ApiCollection,
 		ApiCollectionMediaState,
+		ApiTraitFilterPresentationFeatureState,
 		ApiTokenDetail,
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
@@ -17,19 +23,26 @@
 		publicCollectionOwnerTokensPath,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
+	import { resolveTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 	import {
 		resolveTokenMediaAspectRatio,
 		resolveTokenMediaIframeSource,
 		tokenMediaTitle,
 		type TokenMediaIframeSource
 	} from '$lib/token-media';
-	import { buildOwnerTokensHref } from '$lib/token-browser-query';
+	import {
+		buildOwnerTokensHref,
+		buildTokenBrowserHref,
+		parseCollectionTokenStatus,
+		parseDisplayMode
+	} from '$lib/token-browser-query';
 
 	type PageData = {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		media: ApiCollectionMediaState;
 		token: ApiTokenDetail | null;
+		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
 		backPath: string | null;
 		backQuery: string | null;
 	};
@@ -177,6 +190,58 @@
 		return displayedMedia.availableModes.length > 1;
 	}
 
+	function currentTraitFilterPresentation(): ApiTraitFilterPresentationFeatureState {
+		return resolveTraitFilterPresentationState(data?.traitFilterPresentation);
+	}
+
+	function collectionTokensBasePath(): string {
+		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+			return publicCollectionTokensPath();
+		}
+		if (!data?.chain || !data.collection) return '/';
+		return `/${data.chain.slug}/${data.collection.slug}`;
+	}
+
+	function returnedFromOwnerTokens(): boolean {
+		const backPath = data?.backPath?.trim() ?? '';
+		return backPath.includes('/holders/');
+	}
+
+	function parseReturnLimit(raw: string | null): number {
+		if (!raw || !/^\d+$/.test(raw.trim())) {
+			return DEFAULT_PAGE_LIMIT;
+		}
+		return Number(raw.trim());
+	}
+
+	function isFilterableSetTrait(key: string): boolean {
+		return (
+			resolveTraitFilterDisplayKind(currentTraitFilterPresentation().effectiveConfig, key) ===
+			TRAIT_FILTER_DISPLAY_KIND.Set
+		);
+	}
+
+	function traitValueHref(trait: ApiTokenDetailTrait): string | null {
+		if (!data?.collection || !isFilterableSetTrait(trait.key)) {
+			return null;
+		}
+
+		const returnQuery = new URLSearchParams(data.backQuery ?? '');
+		const tokenStatus = returnedFromOwnerTokens()
+			? 'listed'
+			: parseCollectionTokenStatus(returnQuery.get('token_status'));
+
+		return buildTokenBrowserHref({
+			basePath: collectionTokensBasePath(),
+			limit: parseReturnLimit(returnQuery.get('limit')),
+			displayMode: parseDisplayMode(returnQuery.get('mode')),
+			tokenStatus,
+			selectedTraits: [{ key: trait.key, value: trait.value }],
+			selectedTraitRanges: [],
+			mediaMode: displayedMedia.selectedMode
+		});
+	}
+
 	async function setTokenDetailMediaMode(nextMode: string): Promise<void> {
 		if (!browser || !data?.chain || !data.collection || !displayedToken) {
 			return;
@@ -316,15 +381,22 @@
 							<th class="token-detail-col-right">rarity</th>
 						</tr>
 					</thead>
-					<tbody>
-						{#each sortedTraits() as trait}
-							<tr>
-								<td class="mono token-detail-col-center">{trait.key}</td>
-								<td class="mono token-detail-col-center">{trait.value}</td>
-								<td class="mono token-detail-col-right">{formatTraitCount(trait.tokenCount)}</td>
-								<td class="mono token-detail-col-right">{formatRarityPercent(trait.rarityPercent)}</td>
-							</tr>
-						{/each}
+						<tbody>
+							{#each sortedTraits() as trait}
+								{@const traitHref = traitValueHref(trait)}
+								<tr>
+									<td class="mono token-detail-col-center">{trait.key}</td>
+									<td class="mono token-detail-col-center">
+										{#if traitHref}
+											<a href={traitHref}>{trait.value}</a>
+										{:else}
+											{trait.value}
+										{/if}
+									</td>
+									<td class="mono token-detail-col-right">{formatTraitCount(trait.tokenCount)}</td>
+									<td class="mono token-detail-col-right">{formatRarityPercent(trait.rarityPercent)}</td>
+								</tr>
+							{/each}
 					</tbody>
 				</table>
 			{/if}

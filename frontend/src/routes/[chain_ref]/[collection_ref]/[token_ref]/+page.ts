@@ -3,6 +3,7 @@ import type { PageLoad } from './$types';
 import { BackendApiError, getTokenDetail } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
+import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE,
@@ -35,6 +36,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 			},
 			token: null,
+			traitFilterPresentation: defaultTraitFilterPresentationState(),
 			backPath,
 			backQuery
 		};
@@ -53,6 +55,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: response.collection,
 			media: response.media,
 			token: response.token,
+			traitFilterPresentation: response.traitFilterPresentation,
 			backPath,
 			backQuery
 		};

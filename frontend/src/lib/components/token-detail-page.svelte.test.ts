@@ -34,6 +34,13 @@ describe('token detail page', () => {
 							{ key: 'snapshot', label: 'snapshot' }
 						]
 					},
+					traitFilterPresentation: {
+						selectedSource: 'user',
+						userConfig: { rangeKeys: ['Power'] },
+						extensionConfig: null,
+						effectiveConfig: { rangeKeys: ['Power'] },
+						availableTraitKeys: ['Hat', 'Power']
+					},
 					token: {
 						tokenId: '1',
 						name: '',
@@ -48,6 +55,12 @@ describe('token detail page', () => {
 								value: 'Beanie',
 								tokenCount: 2,
 								rarityPercent: 66.6667
+							},
+							{
+								key: 'Power',
+								value: '7',
+								tokenCount: 1,
+								rarityPercent: 33.3333
 							}
 						],
 						hasMetadata: true,
@@ -80,6 +93,10 @@ describe('token detail page', () => {
 				'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
 			);
 			expect(body).toContain('0.5 ETH [OS]');
+			expect(body).toContain(
+				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			);
+			expect(body).not.toContain('traits=Power%3A7');
 	});
 
 	it('uses holder return path when provided', () => {
@@ -113,6 +130,13 @@ describe('token detail page', () => {
 							{ key: 'snapshot', label: 'snapshot' }
 						]
 					},
+					traitFilterPresentation: {
+						selectedSource: 'user',
+						userConfig: { rangeKeys: [] },
+						extensionConfig: null,
+						effectiveConfig: { rangeKeys: [] },
+						availableTraitKeys: ['Hat']
+					},
 					token: {
 						tokenId: '1',
 						name: 'Milady #1',
@@ -121,7 +145,14 @@ describe('token detail page', () => {
 						listingPrice: null,
 						listingCurrency: null,
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-						attributes: [],
+						attributes: [
+							{
+								key: 'Hat',
+								value: 'Beanie',
+								tokenCount: 2,
+								rarityPercent: 66.6667
+							}
+						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
 					},
@@ -140,5 +171,8 @@ describe('token detail page', () => {
 			expect(body).not.toContain('token-detail-media-image');
 			expect(body).toContain('aria-label="Token detail media mode"');
 			expect(body).toContain('>[OS]<');
+			expect(body).toContain(
+				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			);
 		});
 	});

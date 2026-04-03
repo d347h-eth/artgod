@@ -4,6 +4,7 @@ import type {
     CollectionListItem,
     TokenDetail,
 } from "@artgod/shared/types/browse";
+import type { TraitFilterPresentationFeatureState } from "@artgod/shared/types";
 
 export type GetTokenDetailInput = {
     chainRef: string;
@@ -17,6 +18,7 @@ export type GetTokenDetailOutput = {
     collection: CollectionListItem;
     media: CollectionMediaState;
     token: TokenDetail;
+    traitFilterPresentation: TraitFilterPresentationFeatureState;
 };
 
 export class GetTokenDetailUseCase {
@@ -45,6 +47,13 @@ export class GetTokenDetailUseCase {
                 mediaMode?: string;
             }): CollectionMediaState;
         },
+        readonly customizationReadPort: {
+            getTraitFilterPresentationState(params: {
+                chainId: number;
+                collectionId: number;
+                availableTraitKeys?: string[];
+            }): TraitFilterPresentationFeatureState;
+        },
     ) {}
 
     getTokenDetail(input: GetTokenDetailInput): GetTokenDetailOutput {
@@ -70,12 +79,19 @@ export class GetTokenDetailUseCase {
             tokenId: input.tokenRef,
             mediaMode: media.selectedMode,
         });
+        const traitFilterPresentation =
+            this.customizationReadPort.getTraitFilterPresentationState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                availableTraitKeys: token.attributes.map((attribute) => attribute.key),
+            });
 
         return {
             chain,
             collection,
             media,
             token,
+            traitFilterPresentation,
         };
     }
 }
