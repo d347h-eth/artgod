@@ -102,6 +102,15 @@ export class ExtensionAwareCollectionDetailRead {
         return this.resolveCollectionMediaState(params);
     }
 
+    getCollectionTokenMediaState(params: {
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+        mediaMode?: CollectionMediaMode;
+    }): CollectionMediaState {
+        return this.resolveTokenMediaState(params);
+    }
+
     listCollectionTokens(params: {
         chainId: number;
         collectionId: number;
@@ -179,7 +188,7 @@ export class ExtensionAwareCollectionDetailRead {
         mediaMode?: CollectionMediaMode;
     }): TokenDetail {
         const token = this.baseReadPort.getCollectionTokenDetail(params);
-        const mediaState = this.resolveCollectionMediaState(params);
+        const mediaState = this.resolveTokenMediaState(params);
         if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
             return token;
         }
@@ -218,7 +227,7 @@ export class ExtensionAwareCollectionDetailRead {
         mediaMode?: CollectionMediaMode;
     }): TokenMediaPreview {
         const token = this.baseReadPort.getCollectionTokenPreview(params);
-        const mediaState = this.resolveCollectionMediaState(params);
+        const mediaState = this.resolveTokenMediaState(params);
         if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
             return token;
         }
@@ -340,6 +349,51 @@ export class ExtensionAwareCollectionDetailRead {
             defaultMode,
             availableModes,
         };
+    }
+
+    private resolveTokenMediaState(params: {
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+        mediaMode?: CollectionMediaMode;
+    }): CollectionMediaPresentation {
+        const install = this.extensionRecords.getInstallByCollectionId(
+            params.chainId,
+            params.collectionId,
+        );
+        if (!install?.enabled) {
+            return this.resolveCollectionMediaState(params);
+        }
+
+        const extension = resolveBackendCollectionExtension(install);
+        if (!extension?.resolveTokenMediaPresentation) {
+            return this.resolveCollectionMediaState(params);
+        }
+
+        const artifactCache = new Map<
+            string,
+            BackendCollectionExtensionArtifactRecord | null
+        >();
+        const mediaState = extension.resolveTokenMediaPresentation(install, {
+            requestedMode: params.mediaMode,
+            getArtifact: (artifactRef) => {
+                if (!artifactCache.has(artifactRef)) {
+                    artifactCache.set(
+                        artifactRef,
+                        this.extensionRecords.getArtifact({
+                            chainId: params.chainId,
+                            collectionId: params.collectionId,
+                            tokenId: params.tokenId,
+                            extensionKey: install.extensionKey,
+                            artifactRef,
+                        }),
+                    );
+                }
+                return artifactCache.get(artifactRef) ?? null;
+            },
+        });
+
+        return mediaState ?? this.resolveCollectionMediaState(params);
     }
 
     private resolveMediaContext(

@@ -175,4 +175,80 @@ describe('token detail page', () => {
 				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 			);
 		});
+
+	it('keeps token-local lost mode out of collection navigation links', () => {
+		const { body } = render(TokenDetailPage, {
+			props: {
+				data: {
+					chain: {
+						id: 1,
+						type: 'evm',
+						publicChainId: 1,
+						slug: 'ethereum',
+						name: 'Ethereum'
+					},
+					collection: {
+						chainId: 1,
+						collectionId: 1,
+						slug: 'terraforms',
+						address: '0x1111111111111111111111111111111111111111',
+						standard: 'erc721',
+						status: 'live',
+						deploymentBlock: 1,
+						bootstrapAnchorBlock: null,
+						createdAt: '2026-01-01T00:00:00Z',
+						updatedAt: '2026-01-01T00:00:00Z'
+					},
+					media: {
+						selectedMode: 'lost-terrain',
+						defaultMode: 'artifact',
+						availableModes: [
+							{ key: 'artifact', label: 'artifact' },
+							{ key: 'lost-terrain', label: 'lost' },
+							{ key: 'snapshot', label: 'snapshot' }
+						]
+					},
+					traitFilterPresentation: {
+						selectedSource: 'user',
+						userConfig: { rangeKeys: [] },
+						extensionConfig: null,
+						effectiveConfig: { rangeKeys: [] },
+						availableTraitKeys: ['Mode']
+					},
+					token: {
+						tokenId: '7710',
+						name: 'Terraform #7710',
+						image: 'https://example.com/lost.png',
+						animationUrl: 'https://example.com/lost.html',
+						listingPrice: null,
+						listingCurrency: null,
+						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						attributes: [
+							{
+								key: 'Mode',
+								value: 'Terraform',
+								tokenCount: 1,
+								rarityPercent: 100
+							}
+						],
+						hasMetadata: true,
+						metadataUpdatedAt: '2026-01-01T00:00:00Z'
+					},
+					backPath: null,
+					backQuery: null
+				}
+			}
+		});
+
+		expect(body).toContain('>lost<');
+		expect(body).toContain('secondary-tab-active');
+		expect(body).toContain('/ethereum/terraforms?media_mode=artifact');
+		expect(body).toContain(
+			'/ethereum/terraforms/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
+		);
+		expect(body).toContain(
+			'/ethereum/terraforms?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Mode%3ATerraform'
+		);
+		expect(body).not.toContain('media_mode=lost-terrain');
+	});
 	});

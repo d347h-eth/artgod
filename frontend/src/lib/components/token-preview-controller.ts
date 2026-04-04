@@ -3,7 +3,7 @@ import { getContext, setContext } from 'svelte';
 import { get, writable, type Readable } from 'svelte/store';
 import type { ApiCollectionMediaMode, TokenPreviewApiResponse } from '$lib/api-types';
 import { getTokenPreview } from '$lib/backend-api';
-import { appendMediaModeParam, mediaModeLabel, nextMediaMode } from '$lib/media-mode';
+import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
 import {
 	resolveTokenMediaAspectRatio,
 	resolveTokenMediaIframeSource,
@@ -63,11 +63,11 @@ export type TokenPreviewController = {
 		previewAspectRatio?: number | null;
 		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
 	}): Promise<void>;
+	setTokenPreviewMediaMode(nextMode: string): Promise<void>;
 	cycleTokenPreviewMediaMode(): Promise<void>;
 	closeTokenPreview(): void;
 	onWindowKeydown(event: KeyboardEvent): void;
 	tokenPreviewAriaLabel(tokenId: string): string;
-	tokenPreviewMediaModeLabel(state: TokenPreviewState): string | null;
 };
 
 export function createTokenPreviewController(): TokenPreviewController {
@@ -172,6 +172,20 @@ export function createTokenPreviewController(): TokenPreviewController {
 			return;
 		}
 		const nextMode = nextMediaMode(current.availableMediaModes, current.selectedMediaMode);
+		await setTokenPreviewMediaMode(nextMode);
+	}
+
+	async function setTokenPreviewMediaMode(nextMode: string): Promise<void> {
+		const current = get(state);
+		if (!current.open || !current.chainRef || !current.collectionRef || !current.tokenId) {
+			return;
+		}
+		if (current.availableMediaModes.length <= 1) {
+			return;
+		}
+		if (nextMode === current.selectedMediaMode) {
+			return;
+		}
 		await openTokenPreview({
 			chainRef: current.chainRef,
 			collectionRef: current.collectionRef,
@@ -248,13 +262,6 @@ export function createTokenPreviewController(): TokenPreviewController {
 		return `preview token ${tokenId}`;
 	}
 
-	function tokenPreviewMediaModeLabel(state: TokenPreviewState): string | null {
-		if (state.availableMediaModes.length <= 1) {
-			return null;
-		}
-		return mediaModeLabel(state.availableMediaModes, state.selectedMediaMode);
-	}
-
 	function setPreviewError(message: string): void {
 		state.update((current) => ({
 			...current,
@@ -304,11 +311,11 @@ export function createTokenPreviewController(): TokenPreviewController {
 	return {
 		state: { subscribe: state.subscribe },
 		openTokenPreview,
+		setTokenPreviewMediaMode,
 		cycleTokenPreviewMediaMode,
 		closeTokenPreview,
 		onWindowKeydown,
-		tokenPreviewAriaLabel,
-		tokenPreviewMediaModeLabel
+		tokenPreviewAriaLabel
 	};
 
 	async function loadTokenPreview(

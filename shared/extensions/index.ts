@@ -11,6 +11,11 @@ export const COLLECTION_MEDIA_MODES = {
 
 export const TERRAFORMS_EXTENSION_ARTIFACT_REFS = {
     V2Media: "terraforms-v2-media",
+    LostTerrain: "terraforms-v2-lost-terrain",
+} as const;
+
+export const TERRAFORMS_MEDIA_MODES = {
+    LostTerrain: "lost-terrain",
 } as const;
 
 export type CollectionExtensionKey =

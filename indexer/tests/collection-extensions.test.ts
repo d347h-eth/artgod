@@ -87,7 +87,7 @@ describe("terraforms collection extension", () => {
         expect(decoded.metadataRefreshRangeEvents).toEqual([]);
     });
 
-    it("persists v2 artifacts for terraform mode with direct canvas reads", async () => {
+    it("persists current and lost-terrain v2 artifacts for terraform mode", async () => {
         resetExtensionTables();
         const collectionId = seedCollectionToken("7710", "Terraform");
 
@@ -111,6 +111,17 @@ describe("terraforms collection extension", () => {
                 }
                 if (functionName === "tokenURI") {
                     tokenUriArgs.push([...(args ?? [])]);
+                    if (tokenUriArgs.length === 2) {
+                        return buildMetadataDataUri({
+                            name: "Terraform #7710 lost",
+                            image: "data:image/svg+xml;base64,terraform-lost",
+                            animation_url:
+                                "https://example.com/terraform-lost-animation",
+                            attributes: [
+                                { trait_type: "Mode", value: "Terrain" },
+                            ],
+                        });
+                    }
                     return buildMetadataDataUri({
                         name: "Terraform #7710 v2",
                         image: "data:image/svg+xml;base64,terraform-v2",
@@ -123,6 +134,9 @@ describe("terraforms collection extension", () => {
                 }
                 if (functionName === "tokenHTML") {
                     tokenHtmlArgs.push([...(args ?? [])]);
+                    if (tokenHtmlArgs.length === 2) {
+                        return "<html><body>terraform-lost</body></html>";
+                    }
                     return "<html><body>terraform-v2</body></html>";
                 }
                 throw new Error(`Unexpected contract call: ${functionName}`);
@@ -161,9 +175,24 @@ describe("terraforms collection extension", () => {
         expect(artifact?.htmlContent).toBe(
             "<html><body>terraform-v2</body></html>",
         );
+        const lostArtifact = collectionExtensions.getArtifact({
+            chainId: 1,
+            collectionId,
+            tokenId: "7710",
+            extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+            artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
+        });
+        expect(lostArtifact?.image).toBe(
+            "data:image/svg+xml;base64,terraform-lost",
+        );
+        expect(lostArtifact?.htmlContent).toBe(
+            "<html><body>terraform-lost</body></html>",
+        );
         expect(canvasReads).toHaveLength(16);
         expect(tokenUriArgs[0]?.[1]).toBe(2n);
+        expect(tokenUriArgs[1]?.[1]).toBe(0n);
         expect(tokenHtmlArgs[0]?.[0]).toBe(2n);
+        expect(tokenHtmlArgs[1]?.[0]).toBe(0n);
     });
 
     it("uses terrain-derived canvas override for daydream mode", async () => {
@@ -243,8 +272,77 @@ describe("terraforms collection extension", () => {
         expect(heightmapCalls).toBe(1);
         expect(canvasReads).toBe(0);
         expect(tokenUriArgs[0]?.[1]).toBe(2n);
+        expect(tokenUriArgs[1]?.[1]).toBe(0n);
         expect(tokenHtmlArgs[0]?.[0]).toBe(2n);
+        expect(tokenHtmlArgs[1]?.[0]).toBe(0n);
         expect((tokenUriArgs[0]?.[5] as bigint[] | undefined)?.length).toBe(16);
+    });
+
+    it("skips lost-terrain artifacts for terrain mode", async () => {
+        resetExtensionTables();
+        const collectionId = seedCollectionToken("7712", "Terrain");
+
+        const collectionExtensions = new SqliteCollectionExtensions();
+        const metadataFetcher = new HttpMetadataFetcher();
+        let canvasReads = 0;
+        const tokenUriArgs: unknown[][] = [];
+        const rpc = createRpcStub({
+            onReadContract({ functionName, args }) {
+                if (functionName === "seed") {
+                    return 10196n;
+                }
+                if (functionName === "tokenToPlacement") {
+                    return 88n;
+                }
+                if (functionName === "tokenToCanvasData") {
+                    canvasReads += 1;
+                    return 123n;
+                }
+                if (functionName === "tokenURI") {
+                    tokenUriArgs.push([...(args ?? [])]);
+                    return buildMetadataDataUri({
+                        name: "Terrain #7712 v2",
+                        image: "data:image/svg+xml;base64,terrain-v2",
+                        animation_url:
+                            "https://example.com/terrain-v2-animation",
+                        attributes: [{ trait_type: "Mode", value: "Terrain" }],
+                    });
+                }
+                if (functionName === "tokenHTML") {
+                    return "<html><body>terrain-v2</body></html>";
+                }
+                throw new Error(`Unexpected contract call: ${functionName}`);
+            },
+        });
+
+        await terraformsIndexerExtension.refreshArtifacts({
+            rpc,
+            metadataFetcher,
+            installs: collectionExtensions,
+            artifacts: collectionExtensions,
+            install: buildInstall(collectionId),
+            payload: {
+                chainId: 1,
+                collectionId,
+                contract: TERRAFORMS_ADDRESS,
+                tokenId: "7712",
+                reason: "bootstrap-snapshot",
+                source: "bootstrap",
+            },
+        });
+
+        expect(canvasReads).toBe(0);
+        expect(tokenUriArgs).toHaveLength(1);
+        expect(tokenUriArgs[0]?.[1]).toBe(0n);
+        expect(
+            collectionExtensions.getArtifact({
+                chainId: 1,
+                collectionId,
+                tokenId: "7712",
+                extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+                artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
+            }),
+        ).toBeNull();
     });
 });
 

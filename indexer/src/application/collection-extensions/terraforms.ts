@@ -147,12 +147,16 @@ const [PARCEL_MODIFIED_TOPIC] = encodeEventTopics({
     eventName: "ParcelModified",
 }) as [Hex];
 
+const TERRAFORMS_STATUS_SLUG = {
+    Terrain: "terrain",
+    Daydream: "daydream",
+    Terraform: "terraform",
+    OriginDaydream: "origin-daydream",
+    OriginTerraform: "origin-terraform",
+} as const;
+
 type TerraformsStatusSlug =
-    | "terrain"
-    | "daydream"
-    | "terraform"
-    | "origin-daydream"
-    | "origin-terraform";
+    (typeof TERRAFORMS_STATUS_SLUG)[keyof typeof TERRAFORMS_STATUS_SLUG];
 
 type TerraformsStatus = {
     slug: TerraformsStatusSlug;
@@ -160,11 +164,17 @@ type TerraformsStatus = {
 };
 
 const MODE_TO_STATUS: Record<string, TerraformsStatus> = {
-    Terrain: { slug: "terrain", value: 0n },
-    Daydream: { slug: "daydream", value: 1n },
-    Terraform: { slug: "terraform", value: 2n },
-    "Origin Daydream": { slug: "origin-daydream", value: 3n },
-    "Origin Terraform": { slug: "origin-terraform", value: 4n },
+    Terrain: { slug: TERRAFORMS_STATUS_SLUG.Terrain, value: 0n },
+    Daydream: { slug: TERRAFORMS_STATUS_SLUG.Daydream, value: 1n },
+    Terraform: { slug: TERRAFORMS_STATUS_SLUG.Terraform, value: 2n },
+    "Origin Daydream": {
+        slug: TERRAFORMS_STATUS_SLUG.OriginDaydream,
+        value: 3n,
+    },
+    "Origin Terraform": {
+        slug: TERRAFORMS_STATUS_SLUG.OriginTerraform,
+        value: 4n,
+    },
 };
 
 export const terraformsIndexerExtension: IndexerCollectionExtension = {
@@ -244,7 +254,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             args: [BigInt(tokenId)],
         });
 
-        const renderArgs = await resolveRendererArgs(context, {
+        const currentRenderArgs = await resolveRendererArgs(context, {
             mainContractAddress: config.mainContractAddress,
             rendererV2ContractAddress: config.rendererV2ContractAddress,
             tokenId: BigInt(tokenId),
@@ -252,59 +262,34 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             seed,
             status,
         });
-
-        const uri = await context.rpc.readContract<string>({
-            address: config.rendererV2ContractAddress as Hex,
-            abi: TERRAFORMS_RENDERER_ABI,
-            functionName: "tokenURI",
-            args: [
-                BigInt(tokenId),
-                renderArgs.status,
-                renderArgs.placement,
-                renderArgs.seed,
-                renderArgs.decay,
-                renderArgs.canvas,
-            ],
-        });
-        const metadata = await context.metadataFetcher.fetchMetadata(uri);
-        if (!metadata) {
-            throw new Error(
-                `Terraforms v2 metadata fetch failed for token ${contract}:${tokenId}`,
-            );
-        }
-
-        const htmlContent = await context.rpc.readContract<string>({
-            address: config.rendererV2ContractAddress as Hex,
-            abi: TERRAFORMS_RENDERER_ABI,
-            functionName: "tokenHTML",
-            args: [
-                renderArgs.status,
-                renderArgs.placement,
-                renderArgs.seed,
-                renderArgs.decay,
-                renderArgs.canvas,
-            ],
-        });
-        if (typeof htmlContent !== "string" || htmlContent.length === 0) {
-            throw new Error(
-                `Terraforms v2 HTML fetch failed for token ${contract}:${tokenId}`,
-            );
-        }
-
-        context.artifacts.upsertArtifact({
+        await upsertRenderedArtifact(context, {
+            rendererV2ContractAddress: config.rendererV2ContractAddress,
             chainId: context.payload.chainId,
             collectionId: context.payload.collectionId,
-            contractAddress: contract,
+            contract,
             tokenId,
-            extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
             artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
-            uri,
-            rawJson: metadata.rawJson,
-            attributesJson: JSON.stringify(metadata.attributes ?? []),
-            image: metadata.image ?? null,
-            animationUrl: metadata.animationUrl ?? null,
-            htmlContent,
+            renderArgs: currentRenderArgs,
+            metadataFetchFailureMessage: `Terraforms v2 metadata fetch failed for token ${contract}:${tokenId}`,
+            htmlFetchFailureMessage: `Terraforms v2 HTML fetch failed for token ${contract}:${tokenId}`,
         });
+
+        let lostTerrainWritten = false;
+        if (status.slug !== TERRAFORMS_STATUS_SLUG.Terrain) {
+            await upsertRenderedArtifact(context, {
+                rendererV2ContractAddress: config.rendererV2ContractAddress,
+                chainId: context.payload.chainId,
+                collectionId: context.payload.collectionId,
+                contract,
+                tokenId,
+                artifactRef:
+                    TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
+                renderArgs: resolveTerrainRendererArgs({ placement, seed }),
+                metadataFetchFailureMessage: `Terraforms lost terrain metadata fetch failed for token ${contract}:${tokenId}`,
+                htmlFetchFailureMessage: `Terraforms lost terrain HTML fetch failed for token ${contract}:${tokenId}`,
+            });
+            lostTerrainWritten = true;
+        }
 
         logger.debug("Terraforms extension artifacts refreshed", {
             component: "CollectionExtensions",
@@ -315,7 +300,8 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             tokenId,
             reason: context.payload.reason,
             mode: tokenMode,
-            status: renderArgs.status.toString(),
+            status: currentRenderArgs.status.toString(),
+            lostTerrainWritten,
         });
     },
 };
@@ -405,6 +391,76 @@ function resolveStatusFromMode(mode: string): TerraformsStatus {
     return status;
 }
 
+async function upsertRenderedArtifact(
+    context: CollectionExtensionArtifactRefreshContext,
+    params: {
+        rendererV2ContractAddress: string;
+        chainId: number;
+        collectionId: number;
+        contract: string;
+        tokenId: string;
+        artifactRef: string;
+        renderArgs: {
+            status: bigint;
+            placement: bigint;
+            seed: bigint;
+            decay: bigint;
+            canvas: bigint[];
+        };
+        metadataFetchFailureMessage: string;
+        htmlFetchFailureMessage: string;
+    },
+): Promise<void> {
+    const uri = await context.rpc.readContract<string>({
+        address: params.rendererV2ContractAddress as Hex,
+        abi: TERRAFORMS_RENDERER_ABI,
+        functionName: "tokenURI",
+        args: [
+            BigInt(params.tokenId),
+            params.renderArgs.status,
+            params.renderArgs.placement,
+            params.renderArgs.seed,
+            params.renderArgs.decay,
+            params.renderArgs.canvas,
+        ],
+    });
+    const metadata = await context.metadataFetcher.fetchMetadata(uri);
+    if (!metadata) {
+        throw new Error(params.metadataFetchFailureMessage);
+    }
+
+    const htmlContent = await context.rpc.readContract<string>({
+        address: params.rendererV2ContractAddress as Hex,
+        abi: TERRAFORMS_RENDERER_ABI,
+        functionName: "tokenHTML",
+        args: [
+            params.renderArgs.status,
+            params.renderArgs.placement,
+            params.renderArgs.seed,
+            params.renderArgs.decay,
+            params.renderArgs.canvas,
+        ],
+    });
+    if (typeof htmlContent !== "string" || htmlContent.length === 0) {
+        throw new Error(params.htmlFetchFailureMessage);
+    }
+
+    context.artifacts.upsertArtifact({
+        chainId: params.chainId,
+        collectionId: params.collectionId,
+        contractAddress: params.contract,
+        tokenId: params.tokenId,
+        extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+        artifactRef: params.artifactRef,
+        uri,
+        rawJson: metadata.rawJson,
+        attributesJson: JSON.stringify(metadata.attributes ?? []),
+        image: metadata.image ?? null,
+        animationUrl: metadata.animationUrl ?? null,
+        htmlContent,
+    });
+}
+
 async function resolveRendererArgs(
     context: CollectionExtensionArtifactRefreshContext,
     params: {
@@ -423,8 +479,8 @@ async function resolveRendererArgs(
     canvas: bigint[];
 }> {
     const isDaydream =
-        params.status.slug === "daydream" ||
-        params.status.slug === "origin-daydream";
+        params.status.slug === TERRAFORMS_STATUS_SLUG.Daydream ||
+        params.status.slug === TERRAFORMS_STATUS_SLUG.OriginDaydream;
 
     if (isDaydream) {
         const zeroCanvas = Array.from({ length: 16 }, () => 0n);
@@ -444,7 +500,10 @@ async function resolveRendererArgs(
         })) as readonly (readonly bigint[])[];
 
         return {
-            status: params.status.slug === "daydream" ? 2n : 4n,
+            status:
+                params.status.slug === TERRAFORMS_STATUS_SLUG.Daydream
+                    ? 2n
+                    : 4n,
             placement: params.placement,
             seed: params.seed,
             decay: DEFAULT_DECAY,
@@ -452,14 +511,18 @@ async function resolveRendererArgs(
         };
     }
 
-    const canvas =
-        params.status.slug === "terrain"
-            ? Array.from({ length: 16 }, () => 0n)
-            : await readCanvasRows(
-                  context,
-                  params.mainContractAddress,
-                  params.tokenId,
-              );
+    if (params.status.slug === TERRAFORMS_STATUS_SLUG.Terrain) {
+        return resolveTerrainRendererArgs({
+            placement: params.placement,
+            seed: params.seed,
+        });
+    }
+
+    const canvas = await readCanvasRows(
+        context,
+        params.mainContractAddress,
+        params.tokenId,
+    );
 
     return {
         status: params.status.value,
@@ -467,6 +530,25 @@ async function resolveRendererArgs(
         seed: params.seed,
         decay: DEFAULT_DECAY,
         canvas,
+    };
+}
+
+function resolveTerrainRendererArgs(params: {
+    placement: bigint;
+    seed: bigint;
+}): {
+    status: bigint;
+    placement: bigint;
+    seed: bigint;
+    decay: bigint;
+    canvas: bigint[];
+} {
+    return {
+        status: 0n,
+        placement: params.placement,
+        seed: params.seed,
+        decay: DEFAULT_DECAY,
+        canvas: Array.from({ length: 16 }, () => 0n),
     };
 }
 

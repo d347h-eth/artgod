@@ -112,6 +112,7 @@ The first embedded extension, `terraforms`, shadows the metadata path in a very 
     - v2 `tokenURI(...)`
     - v2 `tokenHTML(...)`
 - for `Daydream` and `Origin Daydream` modes it follows the canvas-override path before calling the v2 renderer
+- for non-Terrain tokens it also writes a second artifact that forces the V2 renderer through Terrain status (`terraforms-v2-lost-terrain`)
 
 The resulting extension artifact row is then used later by backend read paths to override effective `image` and `animationUrl` while leaving canonical `token_metadata` untouched.
 

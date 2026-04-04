@@ -203,6 +203,67 @@ describe('token-preview-controller', () => {
 		expect(finalState.iframeSource?.value).toBe('https://example.com/1-snapshot.html');
 	});
 
+	it('cycles through token-local media modes in the returned order', async () => {
+		getTokenPreviewMock
+			.mockResolvedValueOnce({
+				token: {
+					tokenId: '7710',
+					image: null,
+					animationUrl: 'https://example.com/7710-artifact.html'
+				},
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'lost-terrain', label: 'lost' },
+						{ key: 'snapshot', label: 'snapshot' }
+					]
+				}
+			})
+			.mockResolvedValueOnce({
+				token: {
+					tokenId: '7710',
+					image: null,
+					animationUrl: 'https://example.com/7710-lost.html'
+				},
+				media: {
+					selectedMode: 'lost-terrain',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'lost-terrain', label: 'lost' },
+						{ key: 'snapshot', label: 'snapshot' }
+					]
+				}
+			});
+
+		const controller = createTokenPreviewController();
+
+		await controller.openTokenPreview({
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			tokenId: '7710',
+			selectedMediaMode: 'artifact',
+			availableMediaModes: [
+				{ key: 'artifact', label: 'artifact' },
+				{ key: 'snapshot', label: 'snapshot' }
+			]
+		});
+
+		await controller.cycleTokenPreviewMediaMode();
+
+		const state = get(controller.state);
+		expect(state.selectedMediaMode).toBe('lost-terrain');
+		expect(state.availableMediaModes).toEqual([
+			{ key: 'artifact', label: 'artifact' },
+			{ key: 'lost-terrain', label: 'lost' },
+			{ key: 'snapshot', label: 'snapshot' }
+		]);
+		expect(state.iframeSource?.kind).toBe('src');
+		expect(state.iframeSource?.value).toBe('https://example.com/7710-lost.html');
+	});
+
 	it('uses the trigger image aspect ratio in the preview style contract', async () => {
 		getTokenPreviewMock.mockResolvedValueOnce({
 			token: {

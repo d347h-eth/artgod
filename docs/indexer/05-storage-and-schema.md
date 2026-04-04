@@ -374,11 +374,13 @@ Current Terraforms artifact usage:
 
 - `extension_key = "terraforms"`
 - `artifact_ref = "terraforms-v2-media"`
+- `artifact_ref = "terraforms-v2-lost-terrain"` for non-Terrain tokens only
 - `uri` stores the raw v2 renderer `tokenURI(...)` response
 - `raw_json` stores the decoded JSON payload returned by the metadata fetcher
 - `attributes_json`, `image`, and `animation_url` store the parsed v2 metadata fields
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
-- backend currently resolves Terraforms token cards from artifact `image` and token detail animation from `html_content` encoded as `data:text/html;base64,...`
+- backend resolves Terraforms collection browsing from `terraforms-v2-media`
+- backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
 
 ## Storage Adapter Behavior
 

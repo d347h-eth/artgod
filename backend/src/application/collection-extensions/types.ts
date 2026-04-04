@@ -2,6 +2,7 @@ import type {
     CollectionExtensionKey,
     CollectionExtensionInstall,
     CollectionMediaMode,
+    CollectionMediaPresentation,
     CollectionMediaModeOption,
 } from "@artgod/shared/extensions";
 import type {
@@ -27,6 +28,13 @@ export type BackendCollectionExtensionMediaContext = {
     artifact: BackendCollectionExtensionArtifactRecord | null;
 };
 
+export type BackendCollectionExtensionTokenMediaContext = {
+    requestedMode?: CollectionMediaMode;
+    getArtifact(
+        artifactRef: string,
+    ): BackendCollectionExtensionArtifactRecord | null;
+};
+
 export interface BackendCollectionExtension {
     key: CollectionExtensionKey;
     resolveTraitFilterPresentationConfig(
@@ -42,6 +50,10 @@ export interface BackendCollectionExtension {
         install: CollectionExtensionInstall,
     ): CollectionMediaModeOption[];
     defaultMediaMode(install: CollectionExtensionInstall): CollectionMediaMode;
+    resolveTokenMediaPresentation?(
+        install: CollectionExtensionInstall,
+        context: BackendCollectionExtensionTokenMediaContext,
+    ): CollectionMediaPresentation | null;
     resolveArtifactRef(
         install: CollectionExtensionInstall,
         mediaMode: CollectionMediaMode,

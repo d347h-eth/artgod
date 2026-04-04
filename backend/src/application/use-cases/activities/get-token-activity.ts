@@ -52,9 +52,10 @@ export class GetTokenActivityUseCase {
                 tokenId: string;
                 mediaMode?: string;
             }): TokenDetail;
-            getCollectionMediaState(params: {
+            getCollectionTokenMediaState(params: {
                 chainId: number;
                 collectionId: number;
+                tokenId: string;
                 mediaMode?: string;
             }): CollectionMediaState;
         },
@@ -97,9 +98,10 @@ export class GetTokenActivityUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        const media = this.collectionReadPort.getCollectionMediaState({
+        const media = this.collectionReadPort.getCollectionTokenMediaState({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
+            tokenId: input.tokenRef,
             mediaMode: input.mediaMode,
         });
         const token = this.collectionReadPort.getCollectionTokenDetail({

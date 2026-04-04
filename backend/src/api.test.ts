@@ -586,11 +586,42 @@ describe("backend api routes", () => {
         expect(Object.keys(result.payload)).toEqual(["media", "token"]);
         expect(result.payload.media.selectedMode).toBe("artifact");
         expect(result.payload.media.defaultMode).toBe("artifact");
+        expect(result.payload.media.availableModes).toEqual([
+            { key: "artifact", label: "artifact" },
+            { key: "lost-terrain", label: "lost" },
+            { key: "snapshot", label: "snapshot" },
+        ]);
         expect(result.payload.token).toEqual({
             tokenId: "7710",
             image: "data:image/svg+xml;base64,terraforms-v2-image",
             animationUrl: `data:text/html;base64,${Buffer.from("<html><body>terraforms-v2</body></html>", "utf8").toString("base64")}`,
         });
+    });
+
+    it("returns Terraforms lost-terrain preview only when the token has that artifact", async () => {
+        const lost = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/7710/preview?media_mode=lost-terrain",
+        );
+        expect(lost.statusCode).toBe(200);
+        expect(lost.payload.media.selectedMode).toBe("lost-terrain");
+        expect(lost.payload.token.image).toBe(
+            "data:image/svg+xml;base64,terraforms-lost-image",
+        );
+        expect(lost.payload.token.animationUrl).toBe(
+            `data:text/html;base64,${Buffer.from("<html><body>terraforms-lost</body></html>", "utf8").toString("base64")}`,
+        );
+
+        const terrain = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/7711/preview?media_mode=lost-terrain",
+        );
+        expect(terrain.statusCode).toBe(200);
+        expect(terrain.payload.media.availableModes).toEqual([
+            { key: "artifact", label: "artifact" },
+            { key: "snapshot", label: "snapshot" },
+        ]);
+        expect(terrain.payload.media.selectedMode).toBe("artifact");
     });
 
     it("marks warmed preview responses with query cache headers", async () => {
@@ -1236,6 +1267,7 @@ describe("backend api routes", () => {
         expect(result.payload.media.defaultMode).toBe("artifact");
         expect(result.payload.media.availableModes).toEqual([
             { key: "artifact", label: "artifact" },
+            { key: "lost-terrain", label: "lost" },
             { key: "snapshot", label: "snapshot" },
         ]);
         expect(result.payload.token.tokenId).toBe("7710");
@@ -1245,6 +1277,28 @@ describe("backend api routes", () => {
         expect(result.payload.token.animationUrl).toBe(
             `data:text/html;base64,${Buffer.from("<html><body>terraforms-v2</body></html>", "utf8").toString("base64")}`,
         );
+    });
+
+    it("returns Terraforms lost-terrain media only for non-terrain tokens", async () => {
+        const lost = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/7710?media_mode=lost-terrain",
+        );
+        expect(lost.statusCode).toBe(200);
+        expect(lost.payload.media.selectedMode).toBe("lost-terrain");
+        expect(lost.payload.token.image).toBe(
+            "data:image/svg+xml;base64,terraforms-lost-image",
+        );
+        expect(lost.payload.token.animationUrl).toBe(
+            `data:text/html;base64,${Buffer.from("<html><body>terraforms-lost</body></html>", "utf8").toString("base64")}`,
+        );
+
+        const terrain = await resolve("GET", "/api/ethereum/terraforms/7711");
+        expect(terrain.statusCode).toBe(200);
+        expect(terrain.payload.media.availableModes).toEqual([
+            { key: "artifact", label: "artifact" },
+            { key: "snapshot", label: "snapshot" },
+        ]);
     });
 
     it("returns Terraforms canonical media when snapshot mode is requested", async () => {
@@ -1269,7 +1323,7 @@ describe("backend api routes", () => {
         );
         expect(result.statusCode).toBe(200);
         expect(result.payload.media.selectedMode).toBe("artifact");
-        expect(result.payload.tokens.items).toHaveLength(1);
+        expect(result.payload.tokens.items).toHaveLength(2);
         expect(result.payload.tokens.items[0].tokenId).toBe("7710");
         expect(result.payload.tokens.items[0].image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
@@ -2413,6 +2467,7 @@ function seedData(): void {
     insertToken.run(1, miladyCollectionId, MILADY_ADDRESS, "2");
     insertToken.run(1, miladyCollectionId, MILADY_ADDRESS, "10");
     insertToken.run(1, terraformsCollectionId, TERRAFORMS_ADDRESS, "7710");
+    insertToken.run(1, terraformsCollectionId, TERRAFORMS_ADDRESS, "7711");
 
     const insertMetadata = db.prepare(
         "INSERT INTO token_metadata " +
@@ -2450,6 +2505,19 @@ function seedData(): void {
         "{}",
         "2026-01-01T00:00:00Z",
     );
+    insertMetadata.run(
+        1,
+        terraformsCollectionId,
+        TERRAFORMS_ADDRESS,
+        "7711",
+        "ipfs://terraforms/7711",
+        "Terrain #7711",
+        "https://example.com/terraforms-terrain-default.png",
+        "https://example.com/terraforms-terrain-default.html",
+        JSON.stringify([{ traitType: "Mode", value: "Terrain" }]),
+        "{}",
+        "2026-01-01T00:00:00Z",
+    );
 
     db.prepare(
         "INSERT INTO collection_extension_installs " +
@@ -2484,6 +2552,36 @@ function seedData(): void {
         "data:image/svg+xml;base64,terraforms-v2-image",
         "https://example.com/terraforms-v2-animation.json",
         "<html><body>terraforms-v2</body></html>",
+    );
+    db.prepare(
+        "INSERT INTO token_extension_artifacts " +
+            "(chain_id, collection_id, contract_address, token_id, extension_key, artifact_ref, image, animation_url, html_content) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        1,
+        terraformsCollectionId,
+        TERRAFORMS_ADDRESS.toLowerCase(),
+        "7710",
+        COLLECTION_EXTENSION_KEYS.Terraforms,
+        TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
+        "data:image/svg+xml;base64,terraforms-lost-image",
+        "https://example.com/terraforms-lost-animation.json",
+        "<html><body>terraforms-lost</body></html>",
+    );
+    db.prepare(
+        "INSERT INTO token_extension_artifacts " +
+            "(chain_id, collection_id, contract_address, token_id, extension_key, artifact_ref, image, animation_url, html_content) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+        1,
+        terraformsCollectionId,
+        TERRAFORMS_ADDRESS.toLowerCase(),
+        "7711",
+        COLLECTION_EXTENSION_KEYS.Terraforms,
+        TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
+        "data:image/svg+xml;base64,terraforms-terrain-v2-image",
+        "https://example.com/terraforms-terrain-v2-animation.json",
+        "<html><body>terraforms-terrain-v2</body></html>",
     );
     insertMetadata.run(
         1,

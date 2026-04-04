@@ -60,14 +60,20 @@
 		onclick={onBackdropClick}
 		onkeydown={onBackdropKeydown}
 	>
-		{#if tokenPreview.tokenPreviewMediaModeLabel($tokenPreviewState)}
-			<button
-				type="button"
-				class="token-preview-media-mode-button"
-				onclick={() => void tokenPreview.cycleTokenPreviewMediaMode()}
-			>
-				{tokenPreview.tokenPreviewMediaModeLabel($tokenPreviewState)}
-			</button>
+		{#if $tokenPreviewState.availableMediaModes.length > 1}
+			<div class="token-preview-media-mode-buttons" aria-label="Preview media mode">
+				{#each $tokenPreviewState.availableMediaModes as mode}
+					<button
+						type="button"
+						class:token-preview-media-mode-button-active={mode.key === $tokenPreviewState.selectedMediaMode}
+						class="token-preview-media-mode-button"
+						disabled={mode.key === $tokenPreviewState.selectedMediaMode}
+						onclick={() => void tokenPreview.setTokenPreviewMediaMode(mode.key)}
+					>
+						{mode.label}
+					</button>
+				{/each}
+			</div>
 		{/if}
 
 		{#if $tokenPreviewState.status === 'error'}

@@ -33,9 +33,10 @@ type CollectionDetailReadPort = {
         tokenId: string;
         mediaMode?: string;
     }): TokenMediaPreview;
-    getCollectionMediaState(params: {
+    getCollectionTokenMediaState(params: {
         chainId: number;
         collectionId: number;
+        tokenId: string;
         mediaMode?: string;
     }): CollectionMediaState;
 };
@@ -61,9 +62,10 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
             chain.publicChainId,
             input.collectionRef,
         );
-        const media = this.collectionDetailReadPort.getCollectionMediaState({
+        const media = this.collectionDetailReadPort.getCollectionTokenMediaState({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
+            tokenId: input.tokenRef,
             mediaMode: input.mediaMode,
         });
         const token = this.collectionDetailReadPort.getCollectionTokenPreview({

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import {
 		resolveTraitFilterDisplayKind,
 		TRAIT_FILTER_DISPLAY_KIND
@@ -69,7 +70,7 @@
 				: `/${data.chain.slug}/${data.collection.slug}`);
 		if (data.backQuery) return `${base}?${data.backQuery}`;
 		const query = new URLSearchParams();
-		appendMediaModeParam(query, data.media?.selectedMode ?? null);
+		appendMediaModeParam(query, collectionNavigationMediaMode());
 		const suffix = query.toString();
 		return suffix ? `${base}?${suffix}` : base;
 	}
@@ -78,7 +79,7 @@
 		if (!data?.chain || !data.collection || !displayedToken?.currentHolder) return null;
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 			const query = new URLSearchParams();
-			appendMediaModeParam(query, data.media?.selectedMode ?? null);
+			appendMediaModeParam(query, collectionNavigationMediaMode());
 			const suffix = query.toString();
 			const path = publicCollectionOwnerTokensPath(displayedToken.currentHolder);
 			return suffix ? `${path}?${suffix}` : path;
@@ -87,7 +88,7 @@
 			basePath: `/${data.chain.slug}/${data.collection.slug}/holders/${encodeURIComponent(displayedToken.currentHolder)}`,
 			selectedTraits: [],
 			selectedTraitRanges: [],
-			mediaMode: data.media?.selectedMode ?? null
+			mediaMode: collectionNavigationMediaMode()
 		});
 	}
 
@@ -202,6 +203,16 @@
 		return `/${data.chain.slug}/${data.collection.slug}`;
 	}
 
+	function collectionNavigationMediaMode(): string | null {
+		if (displayedMedia.selectedMode === COLLECTION_MEDIA_MODES.Artifact) {
+			return displayedMedia.selectedMode;
+		}
+		if (displayedMedia.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
+			return displayedMedia.selectedMode;
+		}
+		return displayedMedia.defaultMode;
+	}
+
 	function returnedFromOwnerTokens(): boolean {
 		const backPath = data?.backPath?.trim() ?? '';
 		return backPath.includes('/holders/');
@@ -238,7 +249,7 @@
 			tokenStatus,
 			selectedTraits: [{ key: trait.key, value: trait.value }],
 			selectedTraitRanges: [],
-			mediaMode: displayedMedia.selectedMode
+			mediaMode: collectionNavigationMediaMode()
 		});
 	}
 

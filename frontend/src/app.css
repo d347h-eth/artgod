@@ -1257,28 +1257,44 @@ th {
 	background: color-mix(in srgb, var(--c-bg) 92%, transparent);
 }
 
+.token-preview-media-mode-buttons {
+	position: absolute;
+	display: inline-flex;
+	gap: 0.3rem;
+	right: var(--token-preview-pad-right);
+	bottom: var(--token-preview-pad-bottom);
+	z-index: 1;
+}
+
 .token-preview-media-mode-button {
-	min-width: 2.5rem;
-	min-height: 2.5rem;
-	padding: 0.4rem 0.55rem;
+	min-width: 2.1rem;
+	min-height: 1.75rem;
+	padding: 0.24rem 0.4rem;
 	border: 1px solid color-mix(in srgb, var(--c-sand) 42%, transparent);
 	background: color-mix(in srgb, var(--c-bg) 48%, transparent);
 	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
 	text-transform: uppercase;
+	font-size: 0.68rem;
+	line-height: 1;
 	cursor: pointer;
-	z-index: 1;
 }
 
-.token-preview-overlay > .token-preview-media-mode-button {
-	position: absolute;
-	right: var(--token-preview-pad-right);
-	bottom: var(--token-preview-pad-bottom);
+.token-preview-media-mode-button-active {
+	border-color: color-mix(in srgb, var(--c-yellow) 62%, transparent);
+	color: color-mix(in srgb, var(--c-yellow) 72%, transparent);
+	cursor: default;
 }
 
 .token-preview-media-mode-button:hover,
 .token-preview-media-mode-button:focus-visible {
 	color: var(--c-yellow);
 	border-color: var(--c-yellow);
+}
+
+.token-preview-media-mode-button:disabled:hover,
+.token-preview-media-mode-button:disabled:focus-visible {
+	color: color-mix(in srgb, var(--c-yellow) 72%, transparent);
+	border-color: color-mix(in srgb, var(--c-yellow) 62%, transparent);
 }
 
 .token-preview-frame {

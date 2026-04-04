@@ -91,7 +91,8 @@ Backend resolves effective token presentation through an extension-aware read la
 
 Today that includes:
 
-- media mode resolution (`artifact` / `snapshot`)
+- collection media mode resolution (`artifact` / `snapshot`)
+- token-local media mode enrichment when an extension can expose extra token-specific artifacts
 - token card image override
 - token detail image / animation override
 - activity token include media override
@@ -182,11 +183,18 @@ Terraforms caches version-2 media artifacts using:
 
 - `extension_key = "terraforms"`
 - `artifact_ref = "terraforms-v2-media"`
+- `artifact_ref = "terraforms-v2-lost-terrain"` for non-Terrain tokens only
 
 The backend can then resolve:
 
 - `artifact` mode -> extension-backed effective media when artifact exists
+- `lost-terrain` mode -> token-local bonus mode when `terraforms-v2-lost-terrain` exists for that token
 - `snapshot` mode -> canonical media from base token metadata
+
+Important scope rule:
+
+- collection browser surfaces still expose only `artifact` and `snapshot`
+- `lost-terrain` is token-local and appears only on token detail / preview for eligible non-Terrain tokens
 
 ### Current Terraforms customization override
 
