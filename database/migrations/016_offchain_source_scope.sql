@@ -11,6 +11,14 @@ ALTER TABLE orders DROP COLUMN raw_data;
 CREATE INDEX IF NOT EXISTS orders_source_scope_idx
   ON orders (chain_id, source, source_scope_kind, source_status);
 
+CREATE INDEX IF NOT EXISTS orders_active_token_sell_lookup_idx
+  ON orders (chain_id, collection_id, token_id, currency, valid_from, valid_until, id)
+  WHERE source_scope_kind = 'token'
+    AND side = 'sell'
+    AND source_status = 'active'
+    AND fillability_status = 'fillable'
+    AND token_id IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS orders_local_token_set_status_idx
   ON orders (chain_id, local_token_set_status);
 

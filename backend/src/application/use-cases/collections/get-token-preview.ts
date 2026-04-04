@@ -2,7 +2,7 @@ import type {
     ChainRecord,
     CollectionMediaState,
     CollectionListItem,
-    TokenDetail,
+    TokenMediaPreview,
 } from "@artgod/shared/types/browse";
 
 export type GetTokenPreviewInput = {
@@ -12,10 +12,7 @@ export type GetTokenPreviewInput = {
     mediaMode?: string;
 };
 
-export type TokenPreview = Pick<
-    TokenDetail,
-    "tokenId" | "image" | "animationUrl"
->;
+export type TokenPreview = TokenMediaPreview;
 
 export type GetTokenPreviewOutput = {
     media: CollectionMediaState;
@@ -30,12 +27,12 @@ export type GetTokenPreviewPort = {
 
 type CollectionDetailReadPort = {
     resolveCollectionRef(chainId: number, collectionRef: string): CollectionListItem;
-    getCollectionTokenDetail(params: {
+    getCollectionTokenPreview(params: {
         chainId: number;
         collectionId: number;
         tokenId: string;
         mediaMode?: string;
-    }): TokenDetail;
+    }): TokenMediaPreview;
     getCollectionMediaState(params: {
         chainId: number;
         collectionId: number;
@@ -69,7 +66,7 @@ export class GetTokenPreviewUseCase implements GetTokenPreviewPort {
             collectionId: collection.collectionId,
             mediaMode: input.mediaMode,
         });
-        const token = this.collectionDetailReadPort.getCollectionTokenDetail({
+        const token = this.collectionDetailReadPort.getCollectionTokenPreview({
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: input.tokenRef,

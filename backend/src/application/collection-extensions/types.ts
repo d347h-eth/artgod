@@ -8,7 +8,11 @@ import type {
     TraitFilterPresentationConfig,
     TraitSummaryTemplateConfig,
 } from "@artgod/shared/types";
-import type { TokenCard, TokenDetail } from "@artgod/shared/types/browse";
+import type {
+    TokenCard,
+    TokenDetail,
+    TokenMediaPreview,
+} from "@artgod/shared/types/browse";
 
 export type BackendCollectionExtensionArtifactRecord = {
     extensionKey: CollectionExtensionKey;
@@ -47,6 +51,11 @@ export interface BackendCollectionExtension {
         token: TokenCard,
         context: BackendCollectionExtensionMediaContext,
     ): TokenCard;
+    resolveTokenPreview(
+        install: CollectionExtensionInstall,
+        token: TokenMediaPreview,
+        context: BackendCollectionExtensionMediaContext,
+    ): TokenMediaPreview;
     resolveTokenDetail(
         install: CollectionExtensionInstall,
         token: TokenDetail,

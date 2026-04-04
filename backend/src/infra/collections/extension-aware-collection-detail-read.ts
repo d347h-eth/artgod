@@ -13,6 +13,7 @@ import type {
     TokenBrowserStatus,
     TokenCursorPage,
     TokenDetail,
+    TokenMediaPreview,
     TraitFacet,
     TraitFilter,
     TraitRangeFilter,
@@ -66,6 +67,12 @@ type CollectionDetailReadPort = {
         tokenId: string;
         mediaMode?: CollectionMediaMode;
     }): TokenDetail;
+    getCollectionTokenPreview(params: {
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+        mediaMode?: CollectionMediaMode;
+    }): TokenMediaPreview;
     listCollectionTokenCardsByIds(params: {
         chainId: number;
         collectionId: number;
@@ -191,6 +198,45 @@ export class ExtensionAwareCollectionDetailRead {
         }
 
         return extension.resolveTokenDetail(
+            install,
+            token,
+            this.resolveMediaContext(
+                install,
+                extension,
+                params.chainId,
+                params.collectionId,
+                params.tokenId,
+                mediaState.selectedMode,
+            ),
+        );
+    }
+
+    getCollectionTokenPreview(params: {
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+        mediaMode?: CollectionMediaMode;
+    }): TokenMediaPreview {
+        const token = this.baseReadPort.getCollectionTokenPreview(params);
+        const mediaState = this.resolveCollectionMediaState(params);
+        if (mediaState.selectedMode === COLLECTION_MEDIA_MODES.Snapshot) {
+            return token;
+        }
+
+        const install = this.extensionRecords.getInstallByCollectionId(
+            params.chainId,
+            params.collectionId,
+        );
+        if (!install?.enabled) {
+            return token;
+        }
+
+        const extension = resolveBackendCollectionExtension(install);
+        if (!extension) {
+            return token;
+        }
+
+        return extension.resolveTokenPreview(
             install,
             token,
             this.resolveMediaContext(

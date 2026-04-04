@@ -7,7 +7,6 @@ export type QueryCacheProvider =
     (typeof QUERY_CACHE_PROVIDERS)[keyof typeof QUERY_CACHE_PROVIDERS];
 
 export const QUERY_CACHE_NAMESPACES = {
-    CollectionDetailDefault: "collection-detail-default",
     TokenPreviewDefault: "token-preview-default",
 } as const;
 

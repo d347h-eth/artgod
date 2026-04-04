@@ -16,8 +16,10 @@ describe("loadBackendConfig", () => {
 
         expect(config.queryCache).toEqual({
             provider: QUERY_CACHE_PROVIDERS.Disabled,
-            maxEntries: 500,
-            collectionDetailDefaultTtlMs: 10000,
+            publicCollection: {
+                detailRefreshMs: 30000,
+                previewWarmRefreshMs: 600000,
+            },
             tokenPreview: {
                 maxEntries: 250,
                 freshMs: 600000,
@@ -31,8 +33,8 @@ describe("loadBackendConfig", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),
             BACKEND_QUERY_CACHE_PROVIDER: QUERY_CACHE_PROVIDERS.Memory,
-            BACKEND_QUERY_CACHE_MAX_ENTRIES: "123",
-            BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS: "4321",
+            BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS: "4321",
+            BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS: "6543",
             BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES: "250",
             BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS: "600000",
             BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS: "1200000",
@@ -41,8 +43,10 @@ describe("loadBackendConfig", () => {
 
         expect(config.queryCache).toEqual({
             provider: QUERY_CACHE_PROVIDERS.Memory,
-            maxEntries: 123,
-            collectionDetailDefaultTtlMs: 4321,
+            publicCollection: {
+                detailRefreshMs: 4321,
+                previewWarmRefreshMs: 6543,
+            },
             tokenPreview: {
                 maxEntries: 250,
                 freshMs: 600000,

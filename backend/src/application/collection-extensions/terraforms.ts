@@ -5,7 +5,11 @@ import {
     type CollectionExtensionInstall,
 } from "@artgod/shared/extensions";
 import type { BackendCollectionExtension } from "./types.js";
-import type { TokenCard, TokenDetail } from "@artgod/shared/types/browse";
+import type {
+    TokenCard,
+    TokenDetail,
+    TokenMediaPreview,
+} from "@artgod/shared/types/browse";
 
 export const terraformsBackendCollectionExtension: BackendCollectionExtension =
     {
@@ -63,6 +67,28 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
             return {
                 ...token,
                 image: context.artifact.image ?? token.image,
+            };
+        },
+        resolveTokenPreview(
+            install: CollectionExtensionInstall,
+            token: TokenMediaPreview,
+            context,
+        ): TokenMediaPreview {
+            if (
+                install.extensionKey !== COLLECTION_EXTENSION_KEYS.Terraforms ||
+                context.mediaMode !== COLLECTION_MEDIA_MODES.Artifact ||
+                context.artifact?.artifactRef !==
+                    TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media
+            ) {
+                return token;
+            }
+
+            return {
+                ...token,
+                image: context.artifact.image ?? token.image,
+                animationUrl:
+                    buildHtmlDataUrl(context.artifact.htmlContent) ??
+                    token.animationUrl,
             };
         },
         resolveTokenDetail(

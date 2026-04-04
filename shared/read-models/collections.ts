@@ -10,6 +10,7 @@ import type {
     TokenBrowserStatus,
     TokenDetail,
     TokenDetailTrait,
+    TokenMediaPreview,
     TokenCursorPage,
     TokenCursor,
     TokenAttribute,
@@ -70,6 +71,12 @@ type TokenDetailRow = {
     listing_currency: string | null;
     attributes_json: string | null;
     metadata_updated_at: string | null;
+};
+
+type TokenPreviewRow = {
+    token_id: string;
+    image: string | null;
+    animation_url: string | null;
 };
 
 type TokenIdRow = {
@@ -303,6 +310,20 @@ export class SqliteCollectionsReadModel {
             "AND cts.attribute_id = a.id " +
             "WHERE ta.chain_id = ? AND ta.collection_id = ? AND ta.token_id = ? " +
             "ORDER BY ak.key ASC, a.value ASC",
+    );
+
+    private selectTokenPreviewRow = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+    }>(
+        "SELECT t.token_id, m.image, m.animation_url " +
+            "FROM tokens t " +
+            "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
+            "AND m.collection_id = t.collection_id " +
+            "AND m.token_id = t.token_id " +
+            "WHERE t.chain_id = @chainId AND t.collection_id = @collectionId AND t.token_id = @tokenId " +
+            "LIMIT 1",
     );
 
     listCollections(
@@ -880,10 +901,7 @@ export class SqliteCollectionsReadModel {
     getCollectionTokenDetail(
         params: GetCollectionTokenDetailParams,
     ): TokenDetail {
-        const tokenId = params.tokenId.trim();
-        if (!tokenId) {
-            throw new ReadModelBadRequestError("Invalid token_ref");
-        }
+        const tokenId = normalizeCollectionTokenId(params.tokenId);
 
         const row = this.selectTokenDetailRow({
             chainId: params.chainId,
@@ -926,6 +944,26 @@ export class SqliteCollectionsReadModel {
             attributes,
             hasMetadata: row.metadata_updated_at !== null,
             metadataUpdatedAt: row.metadata_updated_at ?? null,
+        };
+    }
+
+    getCollectionTokenPreview(
+        params: GetCollectionTokenDetailParams,
+    ): TokenMediaPreview {
+        const tokenId = normalizeCollectionTokenId(params.tokenId);
+        const row = this.selectTokenPreviewRow.get({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenId,
+        }) as TokenPreviewRow | undefined;
+        if (!row) {
+            throw new ReadModelNotFoundError("Unknown token_ref");
+        }
+
+        return {
+            tokenId: row.token_id,
+            image: row.image ?? null,
+            animationUrl: row.animation_url ?? null,
         };
     }
 
@@ -1802,6 +1840,14 @@ function mapCollectionRow(row: CollectionRow): CollectionListItem {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
+}
+
+function normalizeCollectionTokenId(tokenId: string): string {
+    const normalized = tokenId.trim();
+    if (!normalized) {
+        throw new ReadModelBadRequestError("Invalid token_ref");
+    }
+    return normalized;
 }
 
 function mapTokenRow(row: TokenRow): TokenCard {

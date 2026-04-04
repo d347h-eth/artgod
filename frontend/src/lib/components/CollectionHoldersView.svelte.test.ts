@@ -121,4 +121,56 @@ describe('CollectionHoldersView', () => {
 		expect(body).toContain('0.009%');
 		expect(body).toContain('&lt;0.001%');
 	});
+
+	it('omits snapshot fallback when no media mode was requested', () => {
+		const { body } = render(CollectionHoldersView, {
+			props: {
+				chain: {
+					id: 1,
+					type: 'evm',
+					publicChainId: 1,
+					slug: 'ethereum',
+					name: 'Ethereum'
+				},
+				collection: {
+					chainId: 1,
+					collectionId: 1,
+					slug: 'milady',
+					address: '0x1111111111111111111111111111111111111111',
+					standard: 'erc721',
+					status: 'live',
+					deploymentBlock: 1,
+					bootstrapAnchorBlock: null,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T00:00:00Z'
+				},
+				holders: {
+					items: [
+						{
+							owner: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+							tokenCount: '12',
+							heldPercent: 60
+						}
+					],
+					nextCursor: null,
+					limit: 2,
+					totalItems: 1,
+					rangeStart: 1,
+					rangeEnd: 1,
+					currentPage: 1,
+					totalPages: 1
+				},
+				basePath: '/ethereum/milady',
+				selectedMediaMode: null,
+				requestCursor: null
+			}
+		});
+
+		expect(body).toContain('<a href="/ethereum/milady">milady</a>');
+		expect(body).not.toContain('/ethereum/milady?media_mode=snapshot');
+		expect(body).toContain('/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+		expect(body).not.toContain(
+			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=snapshot'
+		);
+	});
 });

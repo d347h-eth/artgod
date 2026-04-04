@@ -27,7 +27,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			collection: response.collection,
 			holders: response.holders,
 			basePath: '/',
-			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')) ?? 'snapshot',
+			selectedMediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
 			requestCursor: query.get('cursor') ?? null
 		};
 	} catch (cause) {

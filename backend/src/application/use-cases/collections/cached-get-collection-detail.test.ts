@@ -1,14 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { logger } from "@artgod/shared/utils";
 import {
     buildCollectionDetailDefaultQueryCacheKey,
-    CachedGetCollectionDetail,
     isCollectionDetailDefaultQueryCacheEligible,
+    isPublicCollectionDetailCacheEligible,
+    PublicCollectionDetailCache,
 } from "./cached-get-collection-detail.js";
 import type {
     GetCollectionDetailInput,
     GetCollectionDetailOutput,
 } from "./get-collection-detail.js";
-import { MemoryQueryCache } from "../../../infra/cache/memory.js";
 import {
     getCurrentQueryCacheDebugInfo,
     getCurrentQueryCacheDebugStatus,
@@ -16,17 +17,30 @@ import {
     runWithQueryCacheDebugContext,
 } from "../../../utils/query-cache-debug.js";
 
-describe("CachedGetCollectionDetail", () => {
-    it("caches eligible default collection detail responses", () => {
-        const cache = new MemoryQueryCache({ maxEntries: 8 });
+describe("PublicCollectionDetailCache", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+    });
+
+    it("fills the public default page cache on the first eligible request", async () => {
         const output = createOutput();
         const inner = {
             getCollectionDetail: vi.fn(() => output),
         };
-        const cached = new CachedGetCollectionDetail(cache, inner, 5000);
+        const cached = new PublicCollectionDetailCache(
+            inner,
+            createDefaultMediaModePort(),
+            null,
+            {
+                defaultInput: createInput(),
+                refreshMs: 5000,
+                previewWarmRefreshMs: 600000,
+            },
+        );
 
-        runWithQueryCacheDebugContext(() => {
-            expect(cached.getCollectionDetail(createInput())).toBe(output);
+        await runWithQueryCacheDebugContext(async () => {
+            expect(await cached.getCollectionDetail(createInput())).toBe(output);
             expect(getCurrentQueryCacheDebugStatus()).toBe(
                 QUERY_CACHE_DEBUG_STATUSES.Miss,
             );
@@ -42,15 +56,56 @@ describe("CachedGetCollectionDetail", () => {
             );
             expect(getCurrentQueryCacheDebugInfo().ttlMs).toBe(5000);
         });
+
+        expect(inner.getCollectionDetail).toHaveBeenCalledTimes(1);
+    });
+
+    it("serves explicit default media mode requests from the same cached page", async () => {
+        const output = createOutput();
+        const inner = {
+            getCollectionDetail: vi.fn(() => output),
+        };
+        const cached = new PublicCollectionDetailCache(
+            inner,
+            createDefaultMediaModePort(),
+            null,
+            {
+                defaultInput: createInput(),
+                refreshMs: 5000,
+                previewWarmRefreshMs: 600000,
+            },
+        );
+
+        await cached.getCollectionDetail(createInput());
+
+        runWithQueryCacheDebugContext(() => {
+            expect(
+                cached.getCollectionDetail(
+                    createInput({ mediaMode: output.media.defaultMode }),
+                ),
+            ).toBe(output);
+            expect(getCurrentQueryCacheDebugStatus()).toBe(
+                QUERY_CACHE_DEBUG_STATUSES.Hit,
+            );
+        });
+
         expect(inner.getCollectionDetail).toHaveBeenCalledTimes(1);
     });
 
     it("bypasses cache for non-default collection detail queries", () => {
-        const cache = new MemoryQueryCache({ maxEntries: 8 });
         const inner = {
             getCollectionDetail: vi.fn(() => createOutput()),
         };
-        const cached = new CachedGetCollectionDetail(cache, inner, 5000);
+        const cached = new PublicCollectionDetailCache(
+            inner,
+            createDefaultMediaModePort(),
+            null,
+            {
+                defaultInput: createInput(),
+                refreshMs: 5000,
+                previewWarmRefreshMs: 600000,
+            },
+        );
 
         runWithQueryCacheDebugContext(() => {
             cached.getCollectionDetail({
@@ -78,18 +133,84 @@ describe("CachedGetCollectionDetail", () => {
         expect(inner.getCollectionDetail).toHaveBeenCalledTimes(2);
     });
 
-    it("does not cache thrown errors", () => {
-        const cache = new MemoryQueryCache({ maxEntries: 8 });
-        const inner = {
-            getCollectionDetail: vi.fn(() => {
-                throw new Error("boom");
-            }),
-        };
-        const cached = new CachedGetCollectionDetail(cache, inner, 5000);
+    it("refreshes the cached page on cadence and warms previews on the slower cadence", async () => {
+        vi.useFakeTimers();
 
-        expect(() => cached.getCollectionDetail(createInput())).toThrow("boom");
-        expect(() => cached.getCollectionDetail(createInput())).toThrow("boom");
+        const inner = {
+            getCollectionDetail: vi.fn(() => createOutput()),
+        };
+        const warmup = {
+            warmTokenPreviews: vi.fn(),
+        };
+        const cached = new PublicCollectionDetailCache(
+            inner,
+            createDefaultMediaModePort(),
+            warmup,
+            {
+                defaultInput: createInput(),
+                refreshMs: 1000,
+                previewWarmRefreshMs: 3000,
+            },
+        );
+
+        cached.start();
+        await flushMicrotasks();
+
+        expect(inner.getCollectionDetail).toHaveBeenCalledTimes(1);
+        expect(warmup.warmTokenPreviews).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1000);
         expect(inner.getCollectionDetail).toHaveBeenCalledTimes(2);
+        expect(warmup.warmTokenPreviews).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(inner.getCollectionDetail).toHaveBeenCalledTimes(3);
+        expect(warmup.warmTokenPreviews).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(inner.getCollectionDetail).toHaveBeenCalledTimes(4);
+        expect(warmup.warmTokenPreviews).toHaveBeenCalledTimes(2);
+
+        cached.stop();
+    });
+
+    it("keeps serving the last good cached page when a background refresh fails", async () => {
+        vi.useFakeTimers();
+        vi.spyOn(logger, "error").mockImplementation(() => undefined);
+
+        const output = createOutput();
+        const inner = {
+            getCollectionDetail: vi
+                .fn()
+                .mockReturnValueOnce(output)
+                .mockImplementation(() => {
+                    throw new Error("boom");
+                }),
+        };
+        const cached = new PublicCollectionDetailCache(
+            inner,
+            createDefaultMediaModePort(),
+            null,
+            {
+                defaultInput: createInput(),
+                refreshMs: 1000,
+                previewWarmRefreshMs: 3000,
+            },
+        );
+
+        cached.start();
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(1000);
+
+        runWithQueryCacheDebugContext(() => {
+            expect(cached.getCollectionDetail(createInput())).toBe(output);
+            expect(getCurrentQueryCacheDebugStatus()).toBe(
+                QUERY_CACHE_DEBUG_STATUSES.Hit,
+            );
+        });
+        expect(inner.getCollectionDetail).toHaveBeenCalledTimes(2);
+
+        cached.stop();
     });
 });
 
@@ -98,6 +219,15 @@ describe("collection detail default query cache helpers", () => {
         expect(isCollectionDetailDefaultQueryCacheEligible(createInput())).toBe(
             true,
         );
+    });
+
+    it("requires the configured public collection scope", () => {
+        expect(
+            isPublicCollectionDetailCacheEligible(
+                createInput(),
+                createInput({ collectionRef: "terraforms" }),
+            ),
+        ).toBe(false);
     });
 
     it("normalizes slug refs in the cache key", () => {
@@ -118,7 +248,7 @@ function createInput(
 ): GetCollectionDetailInput {
     return {
         chainRef: "ethereum",
-        collectionRef: "terraforms",
+        collectionRef: "milady",
         tokenStatus: "listed",
         limit: 250,
         traits: [],
@@ -139,8 +269,8 @@ function createOutput(): GetCollectionDetailOutput {
         collection: {
             chainId: 1,
             collectionId: 1,
-            slug: "terraforms",
-            address: "0x4e1f41613c9084fdb9e34e11fae9412427480e56",
+            slug: "milady",
+            address: "0x1111111111111111111111111111111111111111",
             standard: "erc721",
             status: "live",
             deploymentBlock: null,
@@ -154,20 +284,59 @@ function createOutput(): GetCollectionDetailOutput {
             facets: [],
         },
         media: {
-            selectedMode: "snapshot",
-            defaultMode: "snapshot",
-            availableModes: [{ key: "snapshot", label: "snapshot" }],
+            selectedMode: "artifact",
+            defaultMode: "artifact",
+            availableModes: [
+                { key: "artifact", label: "artifact" },
+                { key: "snapshot", label: "snapshot" },
+            ],
         },
         tokens: {
-            items: [],
+            items: [
+                {
+                    tokenId: "1",
+                    name: "Milady #1",
+                    image: "https://example.com/1.png",
+                    traitSummary: null,
+                    listingPrice: "500000000000000000",
+                    listingCurrency: "0x0000000000000000000000000000000000000000",
+                    attributes: [],
+                    hasMetadata: true,
+                    metadataUpdatedAt: "2026-01-01T00:00:00.000Z",
+                },
+                {
+                    tokenId: "2",
+                    name: "Milady #2",
+                    image: "https://example.com/2.png",
+                    traitSummary: null,
+                    listingPrice: "600000000000000000",
+                    listingCurrency: "0x0000000000000000000000000000000000000000",
+                    attributes: [],
+                    hasMetadata: true,
+                    metadataUpdatedAt: "2026-01-01T00:00:00.000Z",
+                },
+            ],
             prevCursor: null,
             nextCursor: null,
             limit: 250,
-            totalItems: 0,
-            rangeStart: 0,
-            rangeEnd: 0,
-            currentPage: 0,
-            totalPages: 0,
+            totalItems: 2,
+            rangeStart: 1,
+            rangeEnd: 2,
+            currentPage: 1,
+            totalPages: 1,
         },
+    };
+}
+
+async function flushMicrotasks(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+}
+
+function createDefaultMediaModePort(): {
+    getDefaultMediaMode(): string;
+} {
+    return {
+        getDefaultMediaMode: () => "artifact",
     };
 }

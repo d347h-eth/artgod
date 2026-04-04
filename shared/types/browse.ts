@@ -87,6 +87,12 @@ export type TokenDetailTrait = {
     rarityPercent: number | null;
 };
 
+export type TokenMediaPreview = {
+    tokenId: string;
+    image: string | null;
+    animationUrl: string | null;
+};
+
 export type TokenDetail = {
     tokenId: string;
     name: string | null;

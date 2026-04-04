@@ -87,7 +87,9 @@ describe('HolderTokensView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('<a href="/ethereum/milady/holders">holders</a>');
+		expect(body).toContain(
+			'<a href="/ethereum/milady/holders?media_mode=artifact">holders</a>'
+		);
 		expect(body).not.toContain('<span class="runtime-tab-active">holders</span>');
 		expect(body).toContain('>traits<');
 		expect(body).toContain('>reset<');

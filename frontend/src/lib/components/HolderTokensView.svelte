@@ -13,6 +13,8 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import { appendMediaModeParam } from '$lib/media-mode';
+	import { withQuery } from '$lib/route-paths';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
@@ -98,6 +100,12 @@
 		});
 	}
 
+	function holdersHref(): string {
+		const query = new URLSearchParams();
+		appendMediaModeParam(query, media.selectedMode);
+		return withQuery(holdersBasePath, query);
+	}
+
 	function customizationHref(): string {
 		return buildCollectionCustomizationHref({
 			basePath: collectionBasePath,
@@ -119,7 +127,7 @@
 <CollectionPageLayout
 	tokensHref={collectionTokensHref()}
 	activitiesHref={collectionActivitiesHref()}
-	holdersHref={holdersBasePath}
+	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
 	activeSection={null}
 	collectionAvailable={collection !== null}
@@ -130,7 +138,7 @@
 			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 				<a href={collectionTokensHref()}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
-				<a href={holdersBasePath}>holders</a>
+				<a href={holdersHref()}>holders</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">{owner}</span>
 			{:else}
@@ -138,7 +146,7 @@
 				<span class="breadcrumbs-separator">/</span>
 				<a href={collectionTokensHref()}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
-				<a href={holdersBasePath}>holders</a>
+				<a href={holdersHref()}>holders</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">{owner}</span>
 			{/if}

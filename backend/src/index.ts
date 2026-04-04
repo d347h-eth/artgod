@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import {
     SqliteActivitiesReadModel,
     SqliteChainsReadModel,
@@ -17,13 +18,17 @@ import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-defau
 import { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
 import { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
 import { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
-import { CachedGetCollectionDetail } from "./application/use-cases/collections/cached-get-collection-detail.js";
 import {
     CachedGetTokenPreview,
     type TokenPreviewWarmupPort,
 } from "./application/use-cases/collections/cached-get-token-preview.js";
 import {
+    PublicCollectionDetailCache,
+    isCollectionDetailDefaultQueryCacheEligible,
+} from "./application/use-cases/collections/cached-get-collection-detail.js";
+import {
     GetCollectionDetailUseCase,
+    type GetCollectionDetailInput,
     type GetCollectionDetailPort,
 } from "./application/use-cases/collections/get-collection-detail.js";
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
@@ -34,7 +39,6 @@ import {
 } from "./application/use-cases/collections/get-token-preview.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
-import { WarmingGetCollectionDetail } from "./application/use-cases/collections/warming-get-collection-detail.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
@@ -147,9 +151,14 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config,
         getTokenPreviewUseCase,
     );
-    const collectionDetailPort = maybeCreateCollectionDetailPort(
+    const collectionDetail = maybeCreateCollectionDetailPort(
         config,
         getCollectionDetailUseCase,
+        createPublicCollectionDefaultMediaModePort(
+            config,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+        ),
         tokenPreview.warmup,
     );
     const getCollectionActivityUseCase = new GetCollectionActivityUseCase(
@@ -198,8 +207,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         new NatsRuntimeHealthAdapter(config.natsUrl),
         `${config.natsStreamPrefix}-jobs`,
     );
-
-    return createApiApp(
+    const app = createApiApp(
         createBootstrapRunUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
@@ -210,7 +218,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         getCollectionActivityUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
-        collectionDetailPort,
+        collectionDetail.port,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
         tokenPreview.port,
@@ -220,28 +228,51 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.security,
         config.deployment,
     );
+    collectionDetail.lifecycle?.start();
+    app.addHook("onClose", async () => {
+        collectionDetail.lifecycle?.stop();
+    });
+    return app;
 }
 
 function maybeCreateCollectionDetailPort(
     config: BackendConfig,
     port: GetCollectionDetailPort,
+    defaultMediaModePort: { getDefaultMediaMode(): string | Promise<string> },
     tokenPreviewWarmupPort: TokenPreviewWarmupPort | null,
-): GetCollectionDetailPort {
-    const cache = createQueryCache(
-        config.queryCache.provider,
-        config.queryCache.maxEntries,
-    );
-    const resolvedPort = cache
-        ? new CachedGetCollectionDetail(
-            cache,
+): {
+    port: GetCollectionDetailPort;
+    lifecycle: PublicCollectionDetailCache | null;
+} {
+    if (
+        config.deployment.mode !== "public_single_collection" ||
+        !config.deployment.publicCollectionScope ||
+        config.queryCache.provider === QUERY_CACHE_PROVIDERS.Disabled
+    ) {
+        return {
             port,
-            config.queryCache.collectionDetailDefaultTtlMs,
-        )
-        : port;
-    if (!tokenPreviewWarmupPort) {
-        return resolvedPort;
+            lifecycle: null,
+        };
     }
-    return new WarmingGetCollectionDetail(resolvedPort, tokenPreviewWarmupPort);
+
+    const cachedPort = new PublicCollectionDetailCache(
+        port,
+        defaultMediaModePort,
+        tokenPreviewWarmupPort,
+        {
+            defaultInput: createPublicCollectionDetailCacheInput(
+                config.deployment.publicCollectionScope,
+            ),
+            refreshMs: config.queryCache.publicCollection.detailRefreshMs,
+            previewWarmRefreshMs:
+                config.queryCache.publicCollection.previewWarmRefreshMs,
+        },
+    );
+
+    return {
+        port: cachedPort,
+        lifecycle: cachedPort,
+    };
 }
 
 function maybeCreateCachedGetTokenPreviewPort(
@@ -255,7 +286,10 @@ function maybeCreateCachedGetTokenPreviewPort(
         config.queryCache.provider,
         config.queryCache.tokenPreview.maxEntries,
     );
-    if (!cache) {
+    if (
+        config.deployment.mode !== "public_single_collection" ||
+        !cache
+    ) {
         return {
             port,
             warmup: null,
@@ -287,6 +321,69 @@ function createQueryCache(
         });
     }
     throw new Error(`Unsupported BACKEND_QUERY_CACHE_PROVIDER: ${provider}`);
+}
+
+function createPublicCollectionDefaultMediaModePort(
+    config: BackendConfig,
+    chainRefResolverPort: {
+        resolveChainRef(
+            chainRef: string | undefined,
+            defaultPublicChainId: number,
+        ): { publicChainId: number };
+    },
+    collectionDetailReadPort: {
+        resolveCollectionRef(
+            chainId: number,
+            collectionRef: string,
+        ): { collectionId: number };
+        getCollectionMediaState(params: {
+            chainId: number;
+            collectionId: number;
+            mediaMode?: string;
+        }): { defaultMode: string };
+    },
+): { getDefaultMediaMode(): string } {
+    return {
+        getDefaultMediaMode(): string {
+            const scope = config.deployment.publicCollectionScope;
+            if (!scope) {
+                throw new Error("Missing public collection scope");
+            }
+            const chain = chainRefResolverPort.resolveChainRef(
+                scope.chainRef,
+                config.defaultChainId,
+            );
+            const collection = collectionDetailReadPort.resolveCollectionRef(
+                chain.publicChainId,
+                scope.collectionRef,
+            );
+            const media = collectionDetailReadPort.getCollectionMediaState({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            });
+            return media.defaultMode;
+        },
+    };
+}
+
+function createPublicCollectionDetailCacheInput(scope: {
+    chainRef: string;
+    collectionRef: string;
+}): GetCollectionDetailInput {
+    const input = {
+        chainRef: scope.chainRef,
+        collectionRef: scope.collectionRef,
+        tokenStatus: "listed",
+        limit: DEFAULT_PAGE_LIMIT,
+        traits: [],
+        traitRanges: [],
+    } satisfies GetCollectionDetailInput;
+
+    if (!isCollectionDetailDefaultQueryCacheEligible(input)) {
+        throw new Error("Invalid public collection detail cache input");
+    }
+
+    return input;
 }
 
 async function main() {

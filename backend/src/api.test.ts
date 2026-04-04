@@ -305,13 +305,18 @@ beforeAll(async () => {
         userlandUiDistDir: null,
         security: API_SECURITY_CONFIG,
         deployment: {
-            mode: "standard",
-            publicCollectionScope: null,
+            mode: "public_single_collection",
+            publicCollectionScope: {
+                chainRef: "ethereum",
+                collectionRef: "terraforms",
+            },
         },
         queryCache: {
             provider: QUERY_CACHE_PROVIDERS.Memory,
-            maxEntries: 16,
-            collectionDetailDefaultTtlMs: 5000,
+            publicCollection: {
+                detailRefreshMs: 5000,
+                previewWarmRefreshMs: 600000,
+            },
             tokenPreview: {
                 maxEntries: 16,
                 freshMs: 600_000,
@@ -441,43 +446,47 @@ describe("backend api routes", () => {
     });
 
     it("marks cached collection detail responses with query cache headers", async () => {
-        const first = await resolveCached(
-            "GET",
-            "/api/ethereum/milady?limit=250",
+        const warmed = await waitForCachedHit(
+            "/api/ethereum/terraforms?limit=250",
         );
-        expect(first.statusCode).toBe(200);
-        expect(first.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()]).toBe(
-            "miss",
-        );
+        expect(warmed.statusCode).toBe(200);
         expect(
-            first.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()],
-        ).toBe("0");
-        expect(
-            first.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
-        ).toBe("5000");
-
-        const second = await resolveCached(
-            "GET",
-            "/api/ethereum/milady?limit=250",
-        );
-        expect(second.statusCode).toBe(200);
-        expect(
-            second.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+            warmed.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
         ).toBe("hit");
         expect(
-            second.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+            warmed.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
         ).toBe("5000");
         expect(
             Number(
-                second.headers[
+                warmed.headers[
                     QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()
                 ],
             ),
         ).toBeGreaterThanOrEqual(0);
 
+        const explicitDefaultMode = await resolveCached(
+            "GET",
+            "/api/ethereum/terraforms?limit=250&media_mode=artifact",
+        );
+        expect(explicitDefaultMode.statusCode).toBe(200);
+        expect(
+            explicitDefaultMode.headers[
+                QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()
+            ],
+        ).toBe("hit");
+
+        const nonDefaultMode = await resolveCached(
+            "GET",
+            "/api/ethereum/terraforms?limit=250&media_mode=snapshot",
+        );
+        expect(nonDefaultMode.statusCode).toBe(200);
+        expect(
+            nonDefaultMode.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("bypass");
+
         const bypass = await resolveCached(
             "GET",
-            "/api/ethereum/milady?limit=1",
+            "/api/ethereum/terraforms?limit=1",
         );
         expect(bypass.statusCode).toBe(200);
         expect(
@@ -584,36 +593,21 @@ describe("backend api routes", () => {
         });
     });
 
-    it("marks cached preview responses with query cache headers", async () => {
-        const first = await resolveCached(
-            "GET",
+    it("marks warmed preview responses with query cache headers", async () => {
+        await waitForCachedHit("/api/ethereum/terraforms?limit=250");
+        const preview = await waitForCachedHit(
             "/api/ethereum/terraforms/7710/preview?media_mode=artifact",
         );
-        expect(first.statusCode).toBe(200);
-        expect(first.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()]).toBe(
-            "miss",
-        );
+        expect(preview.statusCode).toBe(200);
         expect(
-            first.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()],
-        ).toBe("0");
-        expect(
-            first.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
-        ).toBe("1200000");
-
-        const second = await resolveCached(
-            "GET",
-            "/api/ethereum/terraforms/7710/preview?media_mode=artifact",
-        );
-        expect(second.statusCode).toBe(200);
-        expect(
-            second.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+            preview.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
         ).toBe("hit");
         expect(
-            second.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+            preview.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
         ).toBe("1200000");
         expect(
             Number(
-                second.headers[
+                preview.headers[
                     QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()
                 ],
             ),
@@ -621,13 +615,13 @@ describe("backend api routes", () => {
     });
 
     it("warms preview cache from the default collection page", async () => {
-        const page = await resolveCached("GET", "/api/ethereum/milady?limit=250");
+        const page = await waitForCachedHit("/api/ethereum/terraforms?limit=250");
         expect(page.statusCode).toBe(200);
         await waitForAsyncTasks();
 
         const preview = await resolveCached(
             "GET",
-            "/api/ethereum/milady/1/preview?media_mode=snapshot",
+            "/api/ethereum/terraforms/7710/preview?media_mode=artifact",
         );
         expect(preview.statusCode).toBe(200);
         expect(
@@ -2338,6 +2332,24 @@ async function resolveWith(
 async function waitForAsyncTasks(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function waitForCachedHit(pathWithQuery: string): Promise<{
+    statusCode: number;
+    payload: any;
+    headers: Record<string, string | string[] | undefined>;
+}> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const response = await resolveCached("GET", pathWithQuery);
+        if (
+            response.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()] ===
+            "hit"
+        ) {
+            return response;
+        }
+        await waitForAsyncTasks();
+    }
+    throw new Error(`Timed out waiting for cached hit: ${pathWithQuery}`);
 }
 
 function seedData(): void {

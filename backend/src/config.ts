@@ -21,8 +21,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:5173",
 ];
-const DEFAULT_BACKEND_QUERY_CACHE_MAX_ENTRIES = 500;
-const DEFAULT_BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS = 10000;
+const DEFAULT_BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS = 30 * 1000;
+const DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS = 10 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES = 250;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS = 10 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS = 20 * 60 * 1000;
@@ -48,8 +48,10 @@ export type BackendDeploymentConfig = {
 
 export type BackendQueryCacheConfig = {
     provider: QueryCacheProvider;
-    maxEntries: number;
-    collectionDetailDefaultTtlMs: number;
+    publicCollection: {
+        detailRefreshMs: number;
+        previewWarmRefreshMs: number;
+    };
     tokenPreview: {
         maxEntries: number;
         freshMs: number;
@@ -145,16 +147,18 @@ function parseQueryCacheConfig(
 
     return {
         provider,
-        maxEntries: parsePositiveInteger(
-            env.BACKEND_QUERY_CACHE_MAX_ENTRIES,
-            "BACKEND_QUERY_CACHE_MAX_ENTRIES",
-            DEFAULT_BACKEND_QUERY_CACHE_MAX_ENTRIES,
-        ),
-        collectionDetailDefaultTtlMs: parsePositiveInteger(
-            env.BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS,
-            "BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS",
-            DEFAULT_BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS,
-        ),
+        publicCollection: {
+            detailRefreshMs: parsePositiveInteger(
+                env.BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS,
+                "BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS",
+                DEFAULT_BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS,
+            ),
+            previewWarmRefreshMs: parsePositiveInteger(
+                env.BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS,
+                "BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS",
+                DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS,
+            ),
+        },
         tokenPreview: {
             maxEntries: parsePositiveInteger(
                 env.BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES,
