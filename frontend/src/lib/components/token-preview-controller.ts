@@ -10,8 +10,8 @@ import {
 	tokenMediaTitle,
 	type TokenMediaIframeSource
 } from '$lib/token-media';
+import { TOKEN_PREVIEW_SCALE_STORAGE_KEY } from '$lib/token-preview-storage';
 
-const TOKEN_PREVIEW_SCALE_STORAGE_KEY = 'artgod.tokenBrowser.previewScalePercent';
 const DEFAULT_TOKEN_PREVIEW_SCALE_PERCENT = 100;
 const MIN_TOKEN_PREVIEW_SCALE_PERCENT = 5;
 const MAX_TOKEN_PREVIEW_SCALE_PERCENT = 100;

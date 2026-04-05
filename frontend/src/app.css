@@ -1217,6 +1217,8 @@ th {
 .token-preview-overlay {
 	--token-preview-scale: 1;
 	--token-preview-ar: 1;
+	--token-preview-control-height: 1.75rem;
+	--token-preview-mobile-min-backdrop-buffer: 0px;
 	--token-preview-pad-top: env(safe-area-inset-top);
 	--token-preview-pad-right: env(safe-area-inset-right);
 	--token-preview-pad-bottom: env(safe-area-inset-bottom);
@@ -1237,6 +1239,15 @@ th {
 	background: color-mix(in srgb, var(--c-bg) 95%, transparent);
 	display: grid;
 	place-items: center;
+}
+
+.token-preview-overlay-touch {
+	--token-preview-mobile-min-backdrop-buffer: 28px;
+	--token-preview-available-height: calc(
+		100dvh - var(--token-preview-pad-top) - var(--token-preview-pad-bottom) -
+			var(--token-preview-mobile-min-backdrop-buffer)
+	);
+	touch-action: none;
 }
 
 .token-preview-overlay:focus,
@@ -1273,6 +1284,17 @@ th {
 	z-index: 1;
 }
 
+.token-preview-touch-controls {
+	position: absolute;
+	left: 50%;
+	bottom: var(--token-preview-pad-bottom);
+	transform: translateX(-50%);
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+	z-index: 1;
+}
+
 .token-preview-navigation-buttons,
 .token-preview-media-mode-buttons {
 	display: inline-flex;
@@ -1281,7 +1303,7 @@ th {
 
 .token-preview-media-mode-button {
 	min-width: 2.1rem;
-	min-height: 1.75rem;
+	min-height: var(--token-preview-control-height);
 	padding: 0.24rem 0.4rem;
 	border: 1px solid color-mix(in srgb, var(--c-sand) 42%, transparent);
 	background: color-mix(in srgb, var(--c-bg) 48%, transparent);
@@ -1308,6 +1330,12 @@ th {
 .token-preview-navigation-button:hover {
 	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
 	border-color: color-mix(in srgb, var(--c-sand) 42%, transparent);
+}
+
+.token-preview-swipe-hint-button {
+	border-radius: 999px;
+	padding-inline: 0.7rem;
+	touch-action: none;
 }
 
 .token-preview-media-mode-button-hovered {

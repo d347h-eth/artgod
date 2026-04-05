@@ -6,6 +6,7 @@ import {
 	type Page,
 	type TestInfo
 } from 'playwright/test';
+import { TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY } from '$lib/token-preview-storage';
 
 const TARGET_PATH = process.env.ARTGOD_E2E_TARGET_PATH?.trim() || '/ethereum/terraforms';
 const GEOMETRY_TOLERANCE_PX = 4;
@@ -113,7 +114,7 @@ test('renders token detail media within the viewport without horizontal overflow
 	}
 });
 
-test('mobile emulation does not leave preview next navigation button highlighted after tap', async ({
+test('mobile preview hides arrow buttons and persists swipe hint dismissal', async ({
 	page,
 	request
 }, testInfo) => {
@@ -126,6 +127,9 @@ test('mobile emulation does not leave preview next navigation button highlighted
 
 	try {
 		await assertAttachedAppReachable(request);
+		await page.addInitScript((storageKey) => {
+			window.localStorage.removeItem(storageKey);
+		}, TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY);
 
 		await page.goto(TARGET_PATH, {
 			waitUntil: 'domcontentloaded'
@@ -137,44 +141,28 @@ test('mobile emulation does not leave preview next navigation button highlighted
 		await previewTrigger.click();
 
 		const overlay = page.locator('.token-preview-overlay');
-		const nextButton = page.getByRole('button', { name: 'Next token preview' });
 		await expect(overlay).toBeVisible();
-		await expect(nextButton).toBeVisible();
-		await expect(nextButton).toBeEnabled();
+		await expect(page.getByRole('button', { name: 'Previous token preview' })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'Next token preview' })).toHaveCount(0);
 
-		await nextButton.tap();
-		await page.waitForTimeout(250);
+		const swipeHint = page.getByRole('button', { name: 'swipe for navigation' });
+		await expect(swipeHint).toBeVisible();
+		await swipeHint.tap();
+		await expect(swipeHint).toHaveCount(0);
 
-		const buttonState = await nextButton.evaluate((element) => {
-			const styles = window.getComputedStyle(element);
-			return {
-				borderColor: styles.borderColor,
-				color: styles.color,
-				matchesHover: element.matches(':hover'),
-				matchesFocusVisible: element.matches(':focus-visible'),
-				matchesFocus: element.matches(':focus')
-			};
-		});
-		console.log('preview-next-button-state', JSON.stringify(buttonState));
+		const metrics = await readPreviewMetrics(page);
+		const backdropPoint = resolveBackdropClickPoint(metrics);
+		await page.mouse.click(backdropPoint.x, backdropPoint.y);
+		await expect(overlay).toHaveCount(0);
 
-		await testInfo.attach('preview-next-button-after-tap.png', {
+		await previewTrigger.click();
+		await expect(overlay).toBeVisible();
+		await expect(page.getByRole('button', { name: 'swipe for navigation' })).toHaveCount(0);
+
+		await testInfo.attach('preview-swipe-hint-dismissed.png', {
 			body: await page.screenshot({ fullPage: false }),
 			contentType: 'image/png'
 		});
-
-		await testInfo.attach('preview-next-button-state.json', {
-			body: Buffer.from(JSON.stringify(buttonState, null, 2)),
-			contentType: 'application/json'
-		});
-
-		expect(
-			buttonState.borderColor,
-			'preview next button should not keep the highlighted yellow border after tap'
-		).not.toBe('rgb(246, 229, 24)');
-		expect(
-			buttonState.color,
-			'preview next button should not keep the highlighted yellow text color after tap'
-		).not.toBe('rgb(246, 229, 24)');
 	} catch (error) {
 		await attachDiagnostics(testInfo, diagnostics);
 		throw error;
@@ -252,6 +240,97 @@ test('mobile backdrop swipe navigates between adjacent previews', async ({
 		});
 
 		expect(nextTitle).not.toBe(originalTitle);
+	} catch (error) {
+		await attachDiagnostics(testInfo, diagnostics);
+		throw error;
+	}
+});
+
+test('pixel mobile bottom-backdrop swipe navigates with browser touch input', async ({
+	page,
+	request,
+	browserName
+}, testInfo) => {
+	test.skip(browserName !== 'chromium' || testInfo.project.name !== 'pixel-7');
+
+	const diagnostics = capturePageDiagnostics(page);
+
+	try {
+		await assertAttachedAppReachable(request);
+		await page.addInitScript((storageKey) => {
+			window.localStorage.removeItem(storageKey);
+		}, TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY);
+
+		await page.goto(TARGET_PATH, {
+			waitUntil: 'domcontentloaded'
+		});
+		await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+
+		const previewTrigger = page.locator('button[aria-label^="preview token "]').first();
+		await expect(previewTrigger).toBeVisible();
+		await previewTrigger.click();
+
+		const overlay = page.locator('.token-preview-overlay');
+		const frame = page.locator('.token-preview-frame');
+		const swipeHint = page.getByRole('button', { name: 'swipe for navigation' });
+		await expect(overlay).toBeVisible();
+		await expect(frame).toBeVisible();
+		await expect(swipeHint).toBeVisible();
+
+		const originalTitle = await frame.getAttribute('title');
+		if (!originalTitle) {
+			throw new Error('Preview frame title was missing before browser-touch swipe navigation');
+		}
+
+		const metrics = await readPreviewMetrics(page);
+		const bottomSwipeY = resolveBottomBackdropSwipeY(metrics);
+
+		await dispatchBrowserTouchSwipe(page, {
+			startX: metrics.viewport.width - 12,
+			endX: 12,
+			y: bottomSwipeY
+		});
+
+		await expect
+			.poll(async () => await frame.getAttribute('title'), {
+				message: 'Bottom-lane browser touch swipe should navigate to the next token preview'
+			})
+			.not.toBe(originalTitle);
+	} catch (error) {
+		await attachDiagnostics(testInfo, diagnostics);
+		throw error;
+	}
+});
+
+test('pixel mobile bottom-backdrop tap closes preview with browser touch input', async ({
+	page,
+	request,
+	browserName
+}, testInfo) => {
+	test.skip(browserName !== 'chromium' || testInfo.project.name !== 'pixel-7');
+
+	const diagnostics = capturePageDiagnostics(page);
+
+	try {
+		await assertAttachedAppReachable(request);
+
+		await page.goto(TARGET_PATH, {
+			waitUntil: 'domcontentloaded'
+		});
+		await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+
+		const previewTrigger = page.locator('button[aria-label^="preview token "]').first();
+		await expect(previewTrigger).toBeVisible();
+		await previewTrigger.click();
+
+		const overlay = page.locator('.token-preview-overlay');
+		await expect(overlay).toBeVisible();
+
+		const metrics = await readPreviewMetrics(page);
+		const backdropPoint = resolveBackdropClickPoint(metrics);
+
+		await dispatchBrowserTouchTap(page, backdropPoint);
+		await expect(overlay).toHaveCount(0);
 	} catch (error) {
 		await attachDiagnostics(testInfo, diagnostics);
 		throw error;
@@ -465,6 +544,14 @@ function resolveBackdropSwipeLaneY(metrics: PreviewMetrics): number {
 	return Math.max(12, Math.floor(metrics.box.top / 2));
 }
 
+function resolveBottomBackdropSwipeY(metrics: PreviewMetrics): number {
+	const bottomBackdropHeight = Math.max(0, metrics.viewport.height - metrics.box.bottom);
+	return Math.min(
+		metrics.viewport.height - 12,
+		Math.floor(metrics.box.bottom + Math.max(12, bottomBackdropHeight / 2))
+	);
+}
+
 async function dispatchBackdropSwipe(
 	overlay: Locator,
 	params: {
@@ -473,22 +560,101 @@ async function dispatchBackdropSwipe(
 		y: number;
 	}
 ): Promise<void> {
-	const pointerId = 1;
-
-	await overlay.dispatchEvent('pointerdown', {
-		pointerId,
-		pointerType: 'touch',
-		isPrimary: true,
-		clientX: params.startX,
-		clientY: params.y
+	const touch = (x: number) => ({
+		identifier: 1,
+		clientX: x,
+		clientY: params.y,
+		pageX: x,
+		pageY: params.y,
+		screenX: x,
+		screenY: params.y
 	});
 
-	await overlay.dispatchEvent('pointerup', {
-		pointerId,
-		pointerType: 'touch',
-		isPrimary: true,
-		clientX: params.endX,
-		clientY: params.y
+	await overlay.dispatchEvent('touchstart', {
+		touches: [touch(params.startX)],
+		targetTouches: [touch(params.startX)],
+		changedTouches: [touch(params.startX)]
+	});
+
+	await overlay.dispatchEvent('touchmove', {
+		touches: [touch(params.endX)],
+		targetTouches: [touch(params.endX)],
+		changedTouches: [touch(params.endX)]
+	});
+
+	await overlay.dispatchEvent('touchend', {
+		touches: [],
+		targetTouches: [],
+		changedTouches: [touch(params.endX)]
+	});
+}
+
+async function dispatchBrowserTouchSwipe(
+	page: Page,
+	params: {
+		startX: number;
+		endX: number;
+		y: number;
+	}
+): Promise<void> {
+	// Browser-level touch input exercises hit-testing and touch-target routing more faithfully than
+	// direct synthetic dispatch on the overlay element.
+	const session = await page.context().newCDPSession(page);
+	const touchPoint = (x: number) => ({
+		x,
+		y: params.y,
+		radiusX: 1,
+		radiusY: 1,
+		force: 1,
+		id: 0
+	});
+
+	await session.send('Input.dispatchTouchEvent', {
+		type: 'touchStart',
+		touchPoints: [touchPoint(params.startX)]
+	});
+	await page.waitForTimeout(32);
+	await session.send('Input.dispatchTouchEvent', {
+		type: 'touchMove',
+		touchPoints: [touchPoint(Math.round((params.startX + params.endX) / 2))]
+	});
+	await page.waitForTimeout(32);
+	await session.send('Input.dispatchTouchEvent', {
+		type: 'touchMove',
+		touchPoints: [touchPoint(params.endX)]
+	});
+	await page.waitForTimeout(32);
+	await session.send('Input.dispatchTouchEvent', {
+		type: 'touchEnd',
+		touchPoints: []
+	});
+}
+
+async function dispatchBrowserTouchTap(
+	page: Page,
+	params: {
+		x: number;
+		y: number;
+	}
+): Promise<void> {
+	const session = await page.context().newCDPSession(page);
+	const touchPoint = {
+		x: params.x,
+		y: params.y,
+		radiusX: 1,
+		radiusY: 1,
+		force: 1,
+		id: 0
+	};
+
+	await session.send('Input.dispatchTouchEvent', {
+		type: 'touchStart',
+		touchPoints: [touchPoint]
+	});
+	await page.waitForTimeout(32);
+	await session.send('Input.dispatchTouchEvent', {
+		type: 'touchEnd',
+		touchPoints: []
 	});
 }
 
