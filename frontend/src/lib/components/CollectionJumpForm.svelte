@@ -1,45 +1,28 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { joinPath } from '$lib/route-paths';
-	import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
+	import { resolveCollectionJumpHref } from '$lib/components/collection-jump';
 
 	let {
+		chainRef,
 		basePath,
 		mediaMode
 	}: {
+		chainRef: string;
 		basePath: string;
 		mediaMode: string | null;
 	} = $props();
 
 	let value = $state('');
 
-	function normalizedValue(): string {
-		return value.trim();
-	}
-
-	function resolveJumpHref(): string | null {
-		const nextValue = normalizedValue();
-		if (/^\d+$/.test(nextValue)) {
-			return buildTokenDetailHref({
-				basePath,
-				tokenId: nextValue,
-				mediaMode
-			});
-		}
-		if (/^0x[a-fA-F0-9]{40}$/.test(nextValue)) {
-			return buildOwnerTokensHref({
-				basePath: joinPath(basePath, `holders/${encodeURIComponent(nextValue)}`),
-				selectedTraits: [],
-				selectedTraitRanges: [],
-				mediaMode
-			});
-		}
-		return null;
-	}
-
 	async function onSubmit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
-		const href = resolveJumpHref();
+		const href = await resolveCollectionJumpHref({
+			fetchFn: fetch,
+			chainRef,
+			basePath,
+			mediaMode,
+			value
+		}).catch(() => null);
 		if (!href) return;
 		value = '';
 		await goto(href);
@@ -51,10 +34,11 @@
 		class="collection-jump-input"
 		type="text"
 		bind:value
-		placeholder="jump to token #/owner"
-		aria-label="Jump to token or owner"
+		placeholder="jump to token #/owner/.eth"
+		aria-label="Jump to token, owner, or ENS name"
 		autocomplete="off"
 		autocapitalize="off"
+		enterkeyhint="go"
 		spellcheck="false"
 	/>
 </form>

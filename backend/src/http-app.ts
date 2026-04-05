@@ -15,6 +15,7 @@ import type { GetTokenPreviewPort } from "./application/use-cases/collections/ge
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
+import type { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
 import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-bootstrap-run.js";
 import { GetBootstrapRunDetailHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-run-detail.js";
 import { GetBootstrapStatusHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-status.js";
@@ -31,6 +32,7 @@ import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-toke
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
+import { ResolveOwnerRefHttpAdapter } from "./http/handlers/owners/resolve-owner-ref.js";
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
 import { registerApiErrorHandlers } from "./http/common/error-handlers.js";
 import { registerApiResponseHeaders } from "./http/common/response-headers.js";
@@ -53,6 +55,7 @@ export function createApiApp(
     retryBootstrapRunFailedTasksUseCase: RetryBootstrapRunFailedTasksUseCase,
     getDefaultChainUseCase: GetDefaultChainUseCase,
     listCollectionsUseCase: ListCollectionsUseCase,
+    resolveOwnerRefUseCase: ResolveOwnerRefUseCase,
     getCollectionActivityUseCase: GetCollectionActivityUseCase,
     getTokenActivityUseCase: GetTokenActivityUseCase,
     getCollectionCustomizationUseCase: GetCollectionCustomizationUseCase,
@@ -92,6 +95,9 @@ export function createApiApp(
     );
     const listCollectionsAdapter = new ListCollectionsHttpAdapter(
         listCollectionsUseCase,
+    );
+    const resolveOwnerRefAdapter = new ResolveOwnerRefHttpAdapter(
+        resolveOwnerRefUseCase,
     );
     const getCollectionActivityAdapter = new GetCollectionActivityHttpAdapter(
         getCollectionActivityUseCase,
@@ -137,6 +143,7 @@ export function createApiApp(
         retryBootstrapRunFailedTasksAdapter,
         getDefaultChainAdapter,
         listCollectionsAdapter,
+        resolveOwnerRefAdapter,
         getCollectionActivityAdapter,
         getTokenActivityAdapter,
         getCollectionCustomizationAdapter,

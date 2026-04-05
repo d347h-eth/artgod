@@ -30,6 +30,11 @@ export type ApiCollectionMediaState = {
 	availableModes: ApiCollectionMediaMode[];
 };
 
+export type OwnerRefResolutionApiResponse = {
+	input: string;
+	resolvedAddress: string;
+};
+
 export type ApiCollectionCustomizationSource = 'user' | 'extension';
 
 export type ApiTraitFilterDisplayKind = 'set' | 'range';

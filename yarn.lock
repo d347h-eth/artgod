@@ -41,6 +41,7 @@ __metadata:
     nats: "npm:^2.29.1"
     tsx: "npm:^4.19.2"
     typescript: "npm:^5.8.3"
+    viem: "npm:2.41.2"
     vitest: "npm:4.0.13"
   languageName: unknown
   linkType: soft

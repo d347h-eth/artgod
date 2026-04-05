@@ -40,6 +40,7 @@ import {
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
+import { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
@@ -52,6 +53,7 @@ import { SqliteCollectionCustomizationRecords } from "./infra/collections/sqlite
 import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
+import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
 import {
     QUERY_CACHE_PROVIDERS,
     type QueryCachePort,
@@ -81,6 +83,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.wethAddress,
     ]);
     const activitiesReadModel = new SqliteActivitiesReadModel();
+    const backendRpcClient = new ViemBackendRpcClient(config.rpcUrl);
     const collectionExtensionRecords = new SqliteCollectionExtensionRecords();
     const collectionCustomizationRecords =
         new SqliteCollectionCustomizationRecords();
@@ -135,6 +138,11 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.defaultChainId,
         chainsReadModel,
         collectionsReadModel,
+    );
+    const resolveOwnerRefUseCase = new ResolveOwnerRefUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        backendRpcClient,
     );
     const getCollectionDetailUseCase = new GetCollectionDetailUseCase(
         config.defaultChainId,
@@ -215,6 +223,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
+        resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,

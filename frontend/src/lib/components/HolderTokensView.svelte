@@ -154,7 +154,11 @@
 	{/snippet}
 	{#snippet headerActions()}
 		{#if collection}
-			<CollectionJumpForm basePath={collectionBasePath} mediaMode={media.selectedMode} />
+			<CollectionJumpForm
+				chainRef={chain?.slug ?? ''}
+				basePath={collectionBasePath}
+				mediaMode={media.selectedMode}
+			/>
 		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}

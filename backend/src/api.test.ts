@@ -77,6 +77,8 @@ beforeAll(async () => {
         await import("./application/use-cases/activities/get-token-activity.js");
     const runtimeHealthUseCaseModule =
         await import("./application/use-cases/health/get-runtime-health.js");
+    const resolveOwnerRefUseCaseModule =
+        await import("./application/use-cases/owners/resolve-owner-ref.js");
     const sqliteRuntimeHealthModule =
         await import("./infra/runtime-health/sqlite-runtime-health.js");
     const readModels = await import("@artgod/shared/read-models");
@@ -120,6 +122,19 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             baseCollectionsReadModel,
+        );
+    const resolveOwnerRefUseCase =
+        new resolveOwnerRefUseCaseModule.ResolveOwnerRefUseCase(
+            1,
+            chainsReadModel,
+            {
+                async resolveEnsAddress(name: string) {
+                    if (name === "vitalik.eth") {
+                        return "0xD8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+                    }
+                    return null;
+                },
+            },
         );
     const getCollectionDetailUseCase =
         new collectionDetailUseCaseModule.GetCollectionDetailUseCase(
@@ -251,6 +266,7 @@ beforeAll(async () => {
         retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
+        resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
@@ -275,6 +291,7 @@ beforeAll(async () => {
         retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
         listCollectionsUseCase,
+        resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
@@ -299,6 +316,7 @@ beforeAll(async () => {
         port: 3000,
         defaultChainId: 1,
         dbPath,
+        rpcUrl: "http://127.0.0.1:8545",
         wethAddress: WETH_ADDRESS,
         natsUrl: "nats://127.0.0.1:4222",
         natsStreamPrefix: "artgod",
@@ -347,6 +365,19 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.chain.publicChainId).toBe(1);
         expect(result.payload.chain.slug).toBe("ethereum");
+    });
+
+    it("resolves ENS owner refs on the public API", async () => {
+        const result = await resolvePublic(
+            "GET",
+            "/api/ethereum/resolve-owner-ref?value=vitalik.eth",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload).toEqual({
+            input: "vitalik.eth",
+            resolvedAddress: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+        });
     });
 
     it("limits public single-collection mode to Terraforms read routes", async () => {

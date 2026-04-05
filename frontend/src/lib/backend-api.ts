@@ -10,6 +10,7 @@ import type {
 	CollectionHoldersApiResponse,
 	CollectionsApiResponse,
 	DefaultChainResponse,
+	OwnerRefResolutionApiResponse,
 	TokenDetailApiResponse,
 	TokenPreviewApiResponse
 } from '$lib/api-types';
@@ -88,6 +89,19 @@ export async function getCollectionActivities(
 	return requestJson<CollectionActivitiesApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/activity${suffix}`
+	);
+}
+
+export async function resolveOwnerRef(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	value: string
+): Promise<OwnerRefResolutionApiResponse> {
+	const query = new URLSearchParams();
+	query.set('value', value);
+	return requestJson<OwnerRefResolutionApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/resolve-owner-ref?${query.toString()}`
 	);
 }
 

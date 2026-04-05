@@ -62,6 +62,10 @@ import type {
     GetRuntimeHealthHttpAdapter,
     GetRuntimeHealthRoute,
 } from "./http/handlers/health/get-runtime-health.js";
+import type {
+    ResolveOwnerRefHttpAdapter,
+    ResolveOwnerRefRoute,
+} from "./http/handlers/owners/resolve-owner-ref.js";
 import type { CommonHttpHandlers } from "./http/common/handlers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -90,6 +94,7 @@ export function registerApiRoutes(
     retryBootstrapRunFailedTasksAdapter: RetryBootstrapRunFailedTasksHttpAdapter,
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
+    resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
     getTokenActivityAdapter: GetTokenActivityHttpAdapter,
     getCollectionCustomizationAdapter: GetCollectionCustomizationHttpAdapter,
@@ -104,6 +109,9 @@ export function registerApiRoutes(
     const publicCollectionScopeGuard = createPublicCollectionScopeGuard(
         options.publicCollectionScope,
     );
+    const publicChainScopeGuard = createPublicChainScopeGuard(
+        options.publicCollectionScope,
+    );
 
     app.get("/health", async () => ({ status: "ok" }));
     app.get<GetRuntimeHealthRoute>(
@@ -114,6 +122,13 @@ export function registerApiRoutes(
     app.get<GetDefaultChainRoute>(
         "/api/chains/default",
         getDefaultChainAdapter.handle,
+    );
+    app.get<ResolveOwnerRefRoute>(
+        "/api/:chain_ref/resolve-owner-ref",
+        {
+            preHandler: publicChainScopeGuard,
+        },
+        resolveOwnerRefAdapter.handle,
     );
     app.get<GetCollectionActivityRoute>(
         "/api/:chain_ref/:collection_ref/activity",
@@ -198,6 +213,26 @@ export function registerApiRoutes(
         "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",
         retryBootstrapRunFailedTasksAdapter.handle,
     );
+}
+
+function createPublicChainScopeGuard(scope: PublicCollectionScope) {
+    if (!scope) {
+        return undefined;
+    }
+
+    return async function publicChainScopeGuard(
+        request: FastifyRequest,
+        reply: FastifyReply,
+    ): Promise<void> {
+        const params = request.params as { chain_ref?: string } | undefined;
+        if (!params?.chain_ref) {
+            return;
+        }
+
+        if (normalizeSlugRef(params.chain_ref) !== scope.chainRef) {
+            await reply.callNotFound();
+        }
+    };
 }
 
 function createPublicCollectionScopeGuard(scope: PublicCollectionScope) {

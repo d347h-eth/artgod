@@ -1,5 +1,6 @@
 const ADDRESS_REF_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const SLUG_REF_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const ENS_NAME_REF_SUFFIX = ".eth";
 
 export function normalizeAddressRef(value: string): string {
     return value.trim().toLowerCase();
@@ -7,6 +8,19 @@ export function normalizeAddressRef(value: string): string {
 
 export function isAddressRef(value: string): boolean {
     return ADDRESS_REF_REGEX.test(value.trim());
+}
+
+export function normalizeEnsNameRef(value: string): string {
+    return value.trim().toLowerCase();
+}
+
+export function isEnsNameRef(value: string): boolean {
+    const normalized = normalizeEnsNameRef(value);
+    return (
+        normalized.length > ENS_NAME_REF_SUFFIX.length &&
+        normalized.endsWith(ENS_NAME_REF_SUFFIX) &&
+        !/\s/.test(normalized)
+    );
 }
 
 export function normalizeSlugRef(value: string): string {

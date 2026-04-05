@@ -6,6 +6,7 @@ describe("loadBackendConfig", () => {
     it("normalizes canonical address config to lowercase", () => {
         const config = loadBackendConfig(createBaseEnv());
 
+        expect(config.rpcUrl).toBe("http://127.0.0.1:8545");
         expect(config.wethAddress).toBe(
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
         );
@@ -84,6 +85,7 @@ function createBaseEnv(): Record<string, string> {
         BACKEND_PORT: "3000",
         CHAIN_ID: "1",
         ARTGOD_DB_PATH: "database/sqlite/main/db",
+        RPC_URL: "http://127.0.0.1:8545",
         WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
         NATS_URL: "nats://127.0.0.1:4222",
         NATS_STREAM_PREFIX: "artgod",
