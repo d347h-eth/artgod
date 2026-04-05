@@ -50,6 +50,8 @@ export type TokenPreviewState = {
 	scalePercent: number;
 	aspectRatio: number | null;
 	errorMessage: string | null;
+	canNavigatePrevious: boolean;
+	canNavigateNext: boolean;
 };
 
 export type TokenPreviewController = {
@@ -65,6 +67,8 @@ export type TokenPreviewController = {
 	}): Promise<void>;
 	setTokenPreviewMediaMode(nextMode: string): Promise<void>;
 	cycleTokenPreviewMediaMode(): Promise<void>;
+	navigatePreviousTokenPreview(): Promise<void>;
+	navigateNextTokenPreview(): Promise<void>;
 	closeTokenPreview(): void;
 	onWindowKeydown(event: KeyboardEvent): void;
 	tokenPreviewAriaLabel(tokenId: string): string;
@@ -82,7 +86,9 @@ export function createTokenPreviewController(): TokenPreviewController {
 		availableMediaModes: [],
 		scalePercent: readInitialTokenPreviewScalePercent(),
 		aspectRatio: null,
-		errorMessage: null
+		errorMessage: null,
+		canNavigatePrevious: false,
+		canNavigateNext: false
 	});
 	let requestId = 0;
 	let adjacentTokenResolver: TokenPreviewAdjacentResolver | null = null;
@@ -107,6 +113,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		const activeRequestId = ++requestId;
 		state.update((current) => {
 			const keepDisplayedMedia = current.iframeSource !== null && current.status !== 'error';
+			const adjacentAvailability = resolveAdjacentAvailability(tokenId);
 			return {
 				...current,
 				open: true,
@@ -120,10 +127,12 @@ export function createTokenPreviewController(): TokenPreviewController {
 				availableMediaModes: keepDisplayedMedia
 					? current.availableMediaModes
 					: params.availableMediaModes,
-					aspectRatio: resolveTokenMediaAspectRatio(
-						params.previewAspectRatio ?? null,
-						current.aspectRatio
-					),
+				aspectRatio: resolveTokenMediaAspectRatio(
+					params.previewAspectRatio ?? null,
+					current.aspectRatio
+				),
+				canNavigatePrevious: adjacentAvailability.canNavigatePrevious,
+				canNavigateNext: adjacentAvailability.canNavigateNext,
 				errorMessage: null
 			};
 		});
@@ -149,6 +158,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 				tokenId: preview.response.token.tokenId,
 				selectedMediaMode: preview.response.media.selectedMode,
 				availableMediaModes: preview.response.media.availableModes,
+				...resolveAdjacentAvailability(preview.response.token.tokenId),
 				errorMessage: null
 			}));
 			prefetchAdjacentNeighbors({
@@ -211,7 +221,9 @@ export function createTokenPreviewController(): TokenPreviewController {
 			selectedMediaMode: 'snapshot',
 			availableMediaModes: [],
 			aspectRatio: null,
-			errorMessage: null
+			errorMessage: null,
+			canNavigatePrevious: false,
+			canNavigateNext: false
 		}));
 	}
 
@@ -295,6 +307,14 @@ export function createTokenPreviewController(): TokenPreviewController {
 		});
 	}
 
+	async function navigatePreviousTokenPreview(): Promise<void> {
+		await openAdjacentTokenPreview(-1);
+	}
+
+	async function navigateNextTokenPreview(): Promise<void> {
+		await openAdjacentTokenPreview(1);
+	}
+
 	function updateScalePercent(delta: number): void {
 		setScalePercent(get(state).scalePercent + delta);
 	}
@@ -308,11 +328,30 @@ export function createTokenPreviewController(): TokenPreviewController {
 		}));
 	}
 
+	function resolveAdjacentAvailability(tokenId: string | null): {
+		canNavigatePrevious: boolean;
+		canNavigateNext: boolean;
+	} {
+		if (!adjacentTokenResolver || !tokenId) {
+			return {
+				canNavigatePrevious: false,
+				canNavigateNext: false
+			};
+		}
+
+		return {
+			canNavigatePrevious: adjacentTokenResolver(-1, tokenId) !== null,
+			canNavigateNext: adjacentTokenResolver(1, tokenId) !== null
+		};
+	}
+
 	return {
 		state: { subscribe: state.subscribe },
 		openTokenPreview,
 		setTokenPreviewMediaMode,
 		cycleTokenPreviewMediaMode,
+		navigatePreviousTokenPreview,
+		navigateNextTokenPreview,
 		closeTokenPreview,
 		onWindowKeydown,
 		tokenPreviewAriaLabel

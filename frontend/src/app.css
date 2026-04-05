@@ -1239,6 +1239,11 @@ th {
 	place-items: center;
 }
 
+.token-preview-overlay:focus,
+.token-preview-overlay:focus-visible {
+	outline: none;
+}
+
 .token-preview-box {
 	position: relative;
 	width: min(
@@ -1257,13 +1262,21 @@ th {
 	background: color-mix(in srgb, var(--c-bg) 92%, transparent);
 }
 
-.token-preview-media-mode-buttons {
+.token-preview-controls {
 	position: absolute;
 	display: inline-flex;
+	flex-direction: column;
+	align-items: flex-end;
 	gap: 0.3rem;
 	right: var(--token-preview-pad-right);
 	bottom: var(--token-preview-pad-bottom);
 	z-index: 1;
+}
+
+.token-preview-navigation-buttons,
+.token-preview-media-mode-buttons {
+	display: inline-flex;
+	gap: 0.3rem;
 }
 
 .token-preview-media-mode-button {
@@ -1279,22 +1292,38 @@ th {
 	cursor: pointer;
 }
 
+.token-preview-media-mode-button:disabled {
+	cursor: default;
+	color: color-mix(in srgb, var(--c-sand) 35%, transparent);
+	border-color: color-mix(in srgb, var(--c-sand) 28%, transparent);
+	pointer-events: none;
+}
+
 .token-preview-media-mode-button-active {
 	border-color: color-mix(in srgb, var(--c-yellow) 62%, transparent);
 	color: color-mix(in srgb, var(--c-yellow) 72%, transparent);
 	cursor: default;
 }
 
-.token-preview-media-mode-button:hover,
-.token-preview-media-mode-button:focus-visible {
+.token-preview-navigation-button:hover {
+	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
+	border-color: color-mix(in srgb, var(--c-sand) 42%, transparent);
+}
+
+.token-preview-media-mode-button-hovered {
 	color: var(--c-yellow);
 	border-color: var(--c-yellow);
 }
 
-.token-preview-media-mode-button:disabled:hover,
+.token-preview-media-mode-button:focus-visible {
+	color: var(--c-yellow);
+	border-color: var(--c-yellow);
+	outline: none;
+}
+
 .token-preview-media-mode-button:disabled:focus-visible {
-	color: color-mix(in srgb, var(--c-yellow) 72%, transparent);
-	border-color: color-mix(in srgb, var(--c-yellow) 62%, transparent);
+	color: color-mix(in srgb, var(--c-sand) 35%, transparent);
+	border-color: color-mix(in srgb, var(--c-sand) 28%, transparent);
 }
 
 .token-preview-frame {

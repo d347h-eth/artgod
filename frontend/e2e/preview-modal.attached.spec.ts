@@ -113,6 +113,151 @@ test('renders token detail media within the viewport without horizontal overflow
 	}
 });
 
+test('mobile emulation does not leave preview next navigation button highlighted after tap', async ({
+	page,
+	request
+}, testInfo) => {
+	test.skip(
+		!['pixel-7', 'iphone-12-pro'].includes(testInfo.project.name),
+		'This probe only applies to narrow mobile-emulation projects.'
+	);
+
+	const diagnostics = capturePageDiagnostics(page);
+
+	try {
+		await assertAttachedAppReachable(request);
+
+		await page.goto(TARGET_PATH, {
+			waitUntil: 'domcontentloaded'
+		});
+		await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+
+		const previewTrigger = page.locator('button[aria-label^="preview token "]').first();
+		await expect(previewTrigger).toBeVisible();
+		await previewTrigger.click();
+
+		const overlay = page.locator('.token-preview-overlay');
+		const nextButton = page.getByRole('button', { name: 'Next token preview' });
+		await expect(overlay).toBeVisible();
+		await expect(nextButton).toBeVisible();
+		await expect(nextButton).toBeEnabled();
+
+		await nextButton.tap();
+		await page.waitForTimeout(250);
+
+		const buttonState = await nextButton.evaluate((element) => {
+			const styles = window.getComputedStyle(element);
+			return {
+				borderColor: styles.borderColor,
+				color: styles.color,
+				matchesHover: element.matches(':hover'),
+				matchesFocusVisible: element.matches(':focus-visible'),
+				matchesFocus: element.matches(':focus')
+			};
+		});
+		console.log('preview-next-button-state', JSON.stringify(buttonState));
+
+		await testInfo.attach('preview-next-button-after-tap.png', {
+			body: await page.screenshot({ fullPage: false }),
+			contentType: 'image/png'
+		});
+
+		await testInfo.attach('preview-next-button-state.json', {
+			body: Buffer.from(JSON.stringify(buttonState, null, 2)),
+			contentType: 'application/json'
+		});
+
+		expect(
+			buttonState.borderColor,
+			'preview next button should not keep the highlighted yellow border after tap'
+		).not.toBe('rgb(246, 229, 24)');
+		expect(
+			buttonState.color,
+			'preview next button should not keep the highlighted yellow text color after tap'
+		).not.toBe('rgb(246, 229, 24)');
+	} catch (error) {
+		await attachDiagnostics(testInfo, diagnostics);
+		throw error;
+	}
+});
+
+test('mobile backdrop swipe navigates between adjacent previews', async ({
+	page,
+	request
+}, testInfo) => {
+	test.skip(
+		!['pixel-7', 'iphone-12-pro'].includes(testInfo.project.name),
+		'This probe only applies to narrow mobile-emulation projects.'
+	);
+
+	const diagnostics = capturePageDiagnostics(page);
+
+	try {
+		await assertAttachedAppReachable(request);
+
+		await page.goto(TARGET_PATH, {
+			waitUntil: 'domcontentloaded'
+		});
+		await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+
+		const previewTrigger = page.locator('button[aria-label^="preview token "]').first();
+		await expect(previewTrigger).toBeVisible();
+		await previewTrigger.click();
+
+		const overlay = page.locator('.token-preview-overlay');
+		const frame = page.locator('.token-preview-frame');
+		await expect(overlay).toBeVisible();
+		await expect(frame).toBeVisible();
+
+		const originalTitle = await frame.getAttribute('title');
+		if (!originalTitle) {
+			throw new Error('Preview frame title was missing before swipe navigation');
+		}
+
+		const metrics = await readPreviewMetrics(page);
+		const swipeLaneY = resolveBackdropSwipeLaneY(metrics);
+
+		await dispatchBackdropSwipe(overlay, {
+			startX: metrics.viewport.width - 12,
+			endX: 12,
+			y: swipeLaneY
+		});
+
+		await expect
+			.poll(async () => await frame.getAttribute('title'), {
+				message: 'Backdrop swipe left should navigate to the next token preview'
+			})
+			.not.toBe(originalTitle);
+
+		const nextTitle = await frame.getAttribute('title');
+		if (!nextTitle) {
+			throw new Error('Preview frame title was missing after swipe-to-next');
+		}
+
+		await dispatchBackdropSwipe(overlay, {
+			startX: 12,
+			endX: metrics.viewport.width - 12,
+			y: swipeLaneY
+		});
+
+		await expect
+			.poll(async () => await frame.getAttribute('title'), {
+				message: 'Backdrop swipe right should navigate back to the previous token preview'
+			})
+			.toBe(originalTitle);
+
+		await testInfo.attach('preview-backdrop-swipe.png', {
+			body: await page.screenshot({ fullPage: false }),
+			contentType: 'image/png'
+		});
+
+		expect(nextTitle).not.toBe(originalTitle);
+	} catch (error) {
+		await attachDiagnostics(testInfo, diagnostics);
+		throw error;
+	}
+});
+
 async function assertAttachedAppReachable(request: APIRequestContext): Promise<void> {
 	let pageResponse;
 	try {
@@ -301,6 +446,50 @@ function resolveBackdropClickPoint(metrics: PreviewMetrics): { x: number; y: num
 		x: Math.max(4, Math.floor(metrics.box.left / 2)),
 		y: Math.max(4, Math.floor(metrics.box.top / 2))
 	};
+}
+
+function resolveBackdropSwipeLaneY(metrics: PreviewMetrics): number {
+	const topBackdropHeight = Math.max(0, metrics.box.top);
+	if (topBackdropHeight >= 24) {
+		return Math.max(12, Math.floor(topBackdropHeight / 2));
+	}
+
+	const bottomBackdropHeight = Math.max(0, metrics.viewport.height - metrics.box.bottom);
+	if (bottomBackdropHeight >= 24) {
+		return Math.min(
+			metrics.viewport.height - 12,
+			Math.floor(metrics.box.bottom + bottomBackdropHeight / 2)
+		);
+	}
+
+	return Math.max(12, Math.floor(metrics.box.top / 2));
+}
+
+async function dispatchBackdropSwipe(
+	overlay: Locator,
+	params: {
+		startX: number;
+		endX: number;
+		y: number;
+	}
+): Promise<void> {
+	const pointerId = 1;
+
+	await overlay.dispatchEvent('pointerdown', {
+		pointerId,
+		pointerType: 'touch',
+		isPrimary: true,
+		clientX: params.startX,
+		clientY: params.y
+	});
+
+	await overlay.dispatchEvent('pointerup', {
+		pointerId,
+		pointerType: 'touch',
+		isPrimary: true,
+		clientX: params.endX,
+		clientY: params.y
+	});
 }
 
 function assertTokenDetailMetrics(

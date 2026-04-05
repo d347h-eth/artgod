@@ -51,6 +51,8 @@ describe('token-preview-controller', () => {
 		expect(state.status).toBe('ready');
 		expect(state.iframeSource?.kind).toBe('srcdoc');
 		expect(state.iframeSource?.value).toContain('<img src="https://example.com/1.png"');
+		expect(state.canNavigatePrevious).toBe(false);
+		expect(state.canNavigateNext).toBe(false);
 	});
 
 	it('keeps the modal open with an error state when preview loading fails', async () => {
@@ -70,6 +72,8 @@ describe('token-preview-controller', () => {
 		expect(state.open).toBe(true);
 		expect(state.status).toBe('error');
 		expect(state.errorMessage).toBe('Unable to load preview');
+		expect(state.canNavigatePrevious).toBe(false);
+		expect(state.canNavigateNext).toBe(false);
 	});
 
 	it('supports adjacent token navigation and scale hotkeys while preview is open', async () => {
@@ -111,6 +115,8 @@ describe('token-preview-controller', () => {
 				step === 1 && currentTokenId === '1' ? '2' : null
 		});
 		await flush();
+		expect(get(controller.state).canNavigatePrevious).toBe(false);
+		expect(get(controller.state).canNavigateNext).toBe(true);
 
 		const growEvent = keyboardEvent('=');
 		controller.onWindowKeydown(growEvent);
@@ -124,6 +130,8 @@ describe('token-preview-controller', () => {
 		expect(nextEvent.preventDefault).toHaveBeenCalledOnce();
 		expect(getTokenPreviewMock).toHaveBeenCalledTimes(2);
 		expect(get(controller.state).tokenId).toBe('2');
+		expect(get(controller.state).canNavigatePrevious).toBe(false);
+		expect(get(controller.state).canNavigateNext).toBe(false);
 	});
 
 	it('keeps the current media visible while the next preview request is still loading', async () => {
