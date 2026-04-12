@@ -31,6 +31,8 @@ const MAKER = "0xe20bc6122ec3fbfab73b15540495ce1bfc82a601";
 const CONTRACT = "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
 const ZERO_BYTES32 =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
+const ACTIVE_ORDER_START_TIME = "1704067200";
+const ACTIVE_ORDER_END_TIME = "2524608000";
 const ORDER_ID = computeSeaportOrderHash(buildSeaportData());
 
 describe("validateSeaportOrder", () => {
@@ -405,8 +407,8 @@ function buildOrderRecord(overrides: Partial<OrderRecord> = {}): OrderRecord {
         price: overrides.price ?? "276500000000000000",
         currency:
             overrides.currency ?? "0x0000000000000000000000000000000000000000",
-        validFrom: overrides.validFrom ?? 1772850621,
-        validUntil: overrides.validUntil ?? 1775442621,
+        validFrom: overrides.validFrom ?? Number(ACTIVE_ORDER_START_TIME),
+        validUntil: overrides.validUntil ?? Number(ACTIVE_ORDER_END_TIME),
         fillabilityStatus: overrides.fillabilityStatus ?? ORDER_STATUS.Fillable,
         sourceStatus: overrides.sourceStatus ?? "active",
         seaportData: overrides.seaportData ?? buildSeaportData(),
@@ -474,8 +476,8 @@ function buildSeaportData(): SeaportOrderData {
                 recipient: "0x0000a26b00c1f0df003000390027140000faa719",
             },
         ],
-        startTime: "1772850621",
-        endTime: "1775442621",
+        startTime: ACTIVE_ORDER_START_TIME,
+        endTime: ACTIVE_ORDER_END_TIME,
         orderType: "0",
         zoneHash: ZERO_BYTES32,
         salt: "70164244328926012465918583528159937063507298733090730315624638188190333160040",
