@@ -19,6 +19,16 @@ pub struct DesktopRuntimeConfig {
     pub restart_backoff_ms: u64,
     pub process_env: HashMap<String, String>,
     pub logs_dir: PathBuf,
+    #[allow(dead_code)]
+    pub wallet: DesktopWalletConfig,
+}
+
+#[allow(dead_code)]
+pub struct DesktopWalletConfig {
+    pub store_dir: PathBuf,
+    pub index_path: PathBuf,
+    pub secret_prompt_sidecar_path: Option<PathBuf>,
+    pub bot_unlock_stabilization_delay_ms: u64,
 }
 
 impl DesktopRuntimeConfig {
@@ -118,6 +128,23 @@ impl DesktopRuntimeConfig {
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
         let restart_backoff_ms =
             parse_u64(get_required(&process_env, "DESKTOP_RESTART_BACKOFF_MS")?)?;
+        let wallet_store_dir = resolve_from_base_dir(
+            &app_data_dir,
+            process_env
+                .get("DESKTOP_WALLET_STORE_DIR")
+                .map(String::as_str)
+                .unwrap_or("wallets"),
+        );
+        fs::create_dir_all(&wallet_store_dir).map_err(|error| {
+            format!(
+                "Failed to create wallet store dir {}: {error}",
+                wallet_store_dir.display()
+            )
+        })?;
+        let bot_unlock_stabilization_delay_ms = parse_u64(get_required(
+            &process_env,
+            "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS",
+        )?)?;
 
         // Core runtime env is required for backend/indexer startup.
         get_required(&process_env, "ARTGOD_DB_PATH")?;
@@ -146,6 +173,20 @@ impl DesktopRuntimeConfig {
             return Err(format!(
                 "USERLAND_UI_DIST_DIR does not exist: {}",
                 userland_ui_dist_dir.display()
+            ));
+        }
+        let secret_prompt_sidecar_path = process_env
+            .get("DESKTOP_SECRET_PROMPT_SIDECAR")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|raw_path| resolve_from_base_dir(&runtime_dir, raw_path));
+        if let Some(path) = &secret_prompt_sidecar_path
+            && !path.exists()
+        {
+            return Err(format!(
+                "DESKTOP_SECRET_PROMPT_SIDECAR does not exist: {}",
+                path.display()
             ));
         }
 
@@ -183,6 +224,12 @@ impl DesktopRuntimeConfig {
             restart_backoff_ms,
             process_env: merged_env,
             logs_dir,
+            wallet: DesktopWalletConfig {
+                store_dir: wallet_store_dir.clone(),
+                index_path: wallet_store_dir.join("index.json"),
+                secret_prompt_sidecar_path,
+                bot_unlock_stabilization_delay_ms,
+            },
         })
     }
 
@@ -258,9 +305,9 @@ fn parse_port(raw: &str) -> Result<u16, String> {
 
 fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
     let trimmed = raw.trim();
-    let without_scheme = trimmed.strip_prefix("nats://").ok_or_else(|| {
-        format!("Invalid NATS_URL \"{raw}\": expected nats://<host>:<port>")
-    })?;
+    let without_scheme = trimmed
+        .strip_prefix("nats://")
+        .ok_or_else(|| format!("Invalid NATS_URL \"{raw}\": expected nats://<host>:<port>"))?;
     let authority = without_scheme.split('/').next().unwrap_or("").trim();
     if authority.is_empty() {
         return Err(format!(
@@ -289,9 +336,7 @@ fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
         (host.trim(), raw_port.trim())
     } else {
         let Some((host, raw_port)) = host_port.rsplit_once(':') else {
-            return Err(format!(
-                "Invalid NATS_URL \"{raw}\": missing host or port",
-            ));
+            return Err(format!("Invalid NATS_URL \"{raw}\": missing host or port",));
         };
         (host.trim(), raw_port.trim())
     };
@@ -309,7 +354,10 @@ fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
 }
 
 fn is_loopback_host(host: &str) -> bool {
-    matches!(host.to_ascii_lowercase().as_str(), "localhost" | "127.0.0.1" | "::1")
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "localhost" | "127.0.0.1" | "::1"
+    )
 }
 
 fn parse_u64(raw: &str) -> Result<u64, String> {
@@ -419,6 +467,11 @@ fn build_default_env_template() -> String {
         "DESKTOP_RUNTIME_RESOURCES_DIR=runtime\n",
         "DESKTOP_AUTO_START=true\n",
         "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
+        "# Wallet store directory is resolved relative to app-data dir unless absolute\n",
+        "DESKTOP_WALLET_STORE_DIR=wallets\n",
+        "# Optional: point to the bundled secret prompt helper sidecar once Slice 2 lands\n",
+        "# DESKTOP_SECRET_PROMPT_SIDECAR=sidecars/artgod-secret-prompt\n",
+        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS=15000\n\n",
         "# Optional: override bundled NATS binary path (absolute or relative to runtime resources dir)\n",
         "# DESKTOP_NATS_BINARY_PATH=nats/nats-server(.exe)\n",
         "\n",

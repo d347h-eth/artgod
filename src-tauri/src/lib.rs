@@ -1,4 +1,6 @@
 mod runtime;
+#[allow(dead_code)]
+mod wallet;
 
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
@@ -109,10 +111,7 @@ fn runtime_open_logs_path(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn runtime_open_userland_ui(
-    app: AppHandle,
-    state: State<'_, DesktopState>,
-) -> Result<(), String> {
+fn runtime_open_userland_ui(app: AppHandle, state: State<'_, DesktopState>) -> Result<(), String> {
     let url = resolve_userland_ui_url(&app, &state)?;
     open_url(&url)
 }
@@ -416,7 +415,11 @@ fn request_runtime_shutdown(app_handle: &AppHandle, reason: &str) {
                 &format!("Desktop runtime shutdown failed: {error}"),
             );
         } else {
-            append_desktop_log(&app_handle, "info", "Runtime stopped after shutdown request");
+            append_desktop_log(
+                &app_handle,
+                "info",
+                "Runtime stopped after shutdown request",
+            );
         }
         app_handle.exit(0);
     });

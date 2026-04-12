@@ -956,9 +956,10 @@ fn wait_for_port(
             Ok(values) => values.collect::<Vec<_>>(),
             Err(_) => Vec::new(),
         };
-        if addresses.iter().any(|address| {
-            TcpStream::connect_timeout(address, Duration::from_millis(200)).is_ok()
-        }) {
+        if addresses
+            .iter()
+            .any(|address| TcpStream::connect_timeout(address, Duration::from_millis(200)).is_ok())
+        {
             return Ok(());
         }
         if Instant::now() >= deadline {
