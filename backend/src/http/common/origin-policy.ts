@@ -3,6 +3,9 @@ export type ApiOriginPolicy = {
     allowedOrigins: Set<string>;
 };
 
+const NETWORK_ORIGIN_PROTOCOLS = new Set(["http:", "https:"]);
+const LOCAL_DESKTOP_ORIGIN_PROTOCOLS = new Set(["tauri:"]);
+
 export function createApiOriginPolicy(config: {
     allowedHosts: string[];
     allowedOrigins: string[];
@@ -76,9 +79,19 @@ export function normalizeOrigin(originHeader: string | undefined): string | null
         return null;
     }
 
-    if (!(parsed.protocol === "http:" || parsed.protocol === "https:")) {
+    const protocol = parsed.protocol.toLowerCase();
+    if (NETWORK_ORIGIN_PROTOCOLS.has(protocol)) {
+        return parsed.origin.toLowerCase();
+    }
+
+    if (!LOCAL_DESKTOP_ORIGIN_PROTOCOLS.has(protocol)) {
         return null;
     }
 
-    return parsed.origin.toLowerCase();
+    const host = parsed.host.trim().toLowerCase();
+    if (!host) {
+        return null;
+    }
+
+    return `${protocol}//${host}`;
 }

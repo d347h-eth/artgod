@@ -77,6 +77,29 @@ describe("loadBackendConfig", () => {
             "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS must be greater than or equal to BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS",
         );
     });
+
+    it("accepts local desktop WebView origins in backend origin config", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            BACKEND_ALLOWED_ORIGINS:
+                "http://127.0.0.1:3000,tauri://localhost,http://tauri.localhost",
+        });
+
+        expect(config.security.allowedOrigins).toEqual([
+            "http://127.0.0.1:3000",
+            "tauri://localhost",
+            "http://tauri.localhost",
+        ]);
+    });
+
+    it("rejects placeholder custom protocol origins", () => {
+        expect(() =>
+            loadBackendConfig({
+                ...createBaseEnv(),
+                BACKEND_ALLOWED_ORIGINS: "customprotocol://localhost",
+            }),
+        ).toThrow("Invalid BACKEND_ALLOWED_ORIGINS entry");
+    });
 });
 
 function createBaseEnv(): Record<string, string> {

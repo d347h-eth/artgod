@@ -57,8 +57,7 @@ impl DesktopRuntimeConfig {
             })?;
         }
 
-        let mut process_env = parse_env_file(&env_file_path)?;
-        apply_runtime_env_defaults(&mut process_env);
+        let process_env = parse_env_file(&env_file_path)?;
 
         let runtime_dir = resolve_runtime_resources_dir(
             app,
@@ -447,7 +446,7 @@ fn build_default_env_template() -> String {
         "WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\n",
         "SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63\n",
         "BACKEND_ALLOWED_HOSTS=127.0.0.1,localhost,::1\n",
-        "BACKEND_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000\n",
+        "BACKEND_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173,http://tauri.localhost,tauri://localhost\n",
         "BACKEND_CSRF_COOKIE_SECURE=false\n",
         "PUBLIC_BACKEND_ORIGIN=http://127.0.0.1:3000\n",
         "NATS_STREAM_PREFIX=artgod\n",
@@ -479,37 +478,4 @@ fn build_default_env_template() -> String {
         "LOG_CHUNK_SIZE=2000\n"
     )
     .to_string()
-}
-
-fn apply_runtime_env_defaults(values: &mut HashMap<String, String>) {
-    // Keep desktop-managed runtime behavior aligned with repository .env.example
-    // when keys are missing in an existing app-data config file.
-    for (key, value) in [
-        ("BACKEND_HOST", "127.0.0.1"),
-        ("RPC_RETRY_MAX_ATTEMPTS", "5"),
-        ("RPC_RETRY_BASE_DELAY_MS", "100"),
-        ("RPC_RETRY_MAX_DELAY_MS", "3000"),
-        ("RPC_RATE_LIMIT_REQUESTS_PER_SECOND", "50"),
-        ("RPC_RATE_LIMIT_BURST", "100"),
-        ("RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5"),
-        ("RPC_CIRCUIT_BREAKER_OPEN_MS", "5000"),
-        ("RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "2"),
-        ("CACHE_MAX_ENTRIES", "5000"),
-        ("CACHE_TTL_MS", "30000"),
-        ("BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS", "5"),
-        ("BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS", "100"),
-        ("BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS", "3000"),
-        ("NATS_URL", "nats://127.0.0.1:4222"),
-        ("BACKEND_ALLOWED_HOSTS", "127.0.0.1,localhost,::1"),
-        (
-            "BACKEND_ALLOWED_ORIGINS",
-            "http://127.0.0.1:3000,http://localhost:3000",
-        ),
-        ("BACKEND_CSRF_COOKIE_SECURE", "false"),
-        ("PUBLIC_BACKEND_ORIGIN", "http://127.0.0.1:3000"),
-    ] {
-        values
-            .entry(key.to_owned())
-            .or_insert_with(|| value.to_owned());
-    }
 }

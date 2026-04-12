@@ -4,20 +4,9 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<script>
-			(() => {
-				try {
-					const stored = window.localStorage.getItem('artgod.traitFacetPanel.collapsed');
-					const isCollapsed = stored === null ? true : stored === '1';
-					if (isCollapsed) {
-						document.documentElement.classList.add('trait-facet-panel-collapsed');
-					}
-				} catch {}
-			})();
-		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
-		<div style="display: contents">%sveltekit.body%</div>
+		<div class="app-shell-contents">%sveltekit.body%</div>
 	</body>
 </html>

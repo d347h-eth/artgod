@@ -21,7 +21,28 @@
             }
         ],
         "security": {
-            "csp": null
+            "csp": {
+                "default-src": "'self' asset:",
+                "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*",
+                "img-src": "'self' asset: http://asset.localhost data: blob:",
+                "font-src": "'self' asset: http://asset.localhost data:",
+                "script-src": "'self'",
+                "style-src": "'self'",
+                "base-uri": "'none'",
+                "form-action": "'none'",
+                "object-src": "'none'"
+            },
+            "devCsp": {
+                "default-src": "'self' asset:",
+                "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*",
+                "img-src": "'self' asset: http://asset.localhost data: blob:",
+                "font-src": "'self' asset: http://asset.localhost data:",
+                "script-src": "'self' 'unsafe-eval'",
+                "style-src": "'self' 'unsafe-inline'",
+                "base-uri": "'none'",
+                "form-action": "'none'",
+                "object-src": "'none'"
+            }
         }
     },
     "bundle": {

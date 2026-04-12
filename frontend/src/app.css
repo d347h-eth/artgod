@@ -26,6 +26,10 @@ body {
 	font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
 }
 
+.app-shell-contents {
+	display: contents;
+}
+
 a {
 	color: var(--c-cyan);
 	text-decoration: none;

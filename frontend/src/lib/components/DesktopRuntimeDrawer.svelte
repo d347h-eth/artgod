@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { desktopRuntimeStore } from '$lib/runtime/desktop-runtime-store';
-	import type { LifecycleEventLevel } from '$lib/runtime/desktop-runtime-store';
+	import { adminRuntimeStore } from '$lib/admin/runtime/store';
+	import type { LifecycleEventLevel } from '$lib/admin/runtime/store';
 	import { parseBracketPrefixedLine, createTokenizedLogLine } from '$lib/runtime/log-line-format';
 	import {
 		resolveStartupSurfacePolicy,
@@ -13,7 +13,7 @@
 	type ConsoleTab = AdminConsoleTab;
 	let { embedded = false }: { embedded?: boolean } = $props();
 
-	const runtimeState = desktopRuntimeStore.state;
+	const runtimeState = adminRuntimeStore.state;
 
 	let open = $state(embedded);
 	let activeTab = $state<ConsoleTab>(embedded ? 'lifecycle' : 'logs');
@@ -31,18 +31,18 @@
 	let timer: ReturnType<typeof setInterval> | null = null;
 
 	onMount(() => {
-		void desktopRuntimeStore.init();
+		void adminRuntimeStore.init();
 		timer = setInterval(() => {
 			nowMs = Date.now();
 		}, 1_000);
 
 		if (embedded) {
-			void desktopRuntimeStore.openConsole(processFilter);
+			void adminRuntimeStore.openConsole(processFilter);
 			return () => {
 				if (timer) {
 					clearInterval(timer);
 				}
-				desktopRuntimeStore.dispose();
+				adminRuntimeStore.dispose();
 			};
 		}
 
@@ -70,7 +70,7 @@
 			if (timer) {
 				clearInterval(timer);
 			}
-			desktopRuntimeStore.dispose();
+			adminRuntimeStore.dispose();
 		};
 	});
 
@@ -140,7 +140,7 @@
 	async function openConsoleForTab(tab: ConsoleTab, rememberSelection: boolean) {
 		open = true;
 		setActiveTab(tab, rememberSelection);
-		await desktopRuntimeStore.openConsole(processFilter);
+		await adminRuntimeStore.openConsole(processFilter);
 	}
 
 	function closeConsole() {
@@ -148,7 +148,7 @@
 			return;
 		}
 		open = false;
-		desktopRuntimeStore.closeConsole();
+		adminRuntimeStore.closeConsole();
 	}
 
 	function setActiveTab(tab: ConsoleTab, rememberSelection = true) {
@@ -193,7 +193,7 @@
 		}
 		syncedLogProcess = processFilter;
 		logAutoFollow = true;
-		void desktopRuntimeStore.setLogProcess(processFilter);
+		void adminRuntimeStore.setLogProcess(processFilter);
 	});
 
 	const visibleLogs = $derived.by(() =>
@@ -326,7 +326,7 @@
 				<button
 					type="button"
 					class="runtime-primary-cta"
-					onclick={() => void desktopRuntimeStore.openUserlandUi()}
+					onclick={() => void adminRuntimeStore.openUserlandUi()}
 					disabled={$runtimeState.busyAction !== null}
 				>
 					OPEN USER APP (OPENS BROWSER)
@@ -370,21 +370,21 @@
 							<div class="desktop-lifecycle-actions">
 								<button
 									type="button"
-									onclick={() => void desktopRuntimeStore.start()}
+									onclick={() => void adminRuntimeStore.start()}
 									disabled={$runtimeState.busyAction !== null}
 								>
 									retry start
 								</button>
 								<button
 									type="button"
-									onclick={() => void desktopRuntimeStore.openConfigPath()}
+									onclick={() => void adminRuntimeStore.openConfigPath()}
 									disabled={$runtimeState.busyAction !== null}
 								>
 									open config
 								</button>
 								<button
 									type="button"
-									onclick={() => void desktopRuntimeStore.openLogsPath()}
+									onclick={() => void adminRuntimeStore.openLogsPath()}
 									disabled={$runtimeState.busyAction !== null}
 								>
 									open logs
@@ -433,7 +433,7 @@
 									<option value={option}>{option}</option>
 								{/each}
 							</select>
-							<button type="button" onclick={() => desktopRuntimeStore.clearLogs()}>
+							<button type="button" onclick={() => adminRuntimeStore.clearLogs()}>
 								clear
 							</button>
 						</div>
@@ -462,28 +462,28 @@
 					<div class="runtime-controls">
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.start()}
+							onclick={() => void adminRuntimeStore.start()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							start
 						</button>
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.stop()}
+							onclick={() => void adminRuntimeStore.stop()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							stop
 						</button>
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.restart()}
+							onclick={() => void adminRuntimeStore.restart()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							restart
 						</button>
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.refreshPreflight()}
+							onclick={() => void adminRuntimeStore.refreshPreflight()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							preflight
@@ -549,14 +549,14 @@
 					<div class="runtime-controls">
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.openConfigPath()}
+							onclick={() => void adminRuntimeStore.openConfigPath()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							open config
 						</button>
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.openLogsPath()}
+							onclick={() => void adminRuntimeStore.openLogsPath()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							open logs
