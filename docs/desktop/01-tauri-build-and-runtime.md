@@ -17,6 +17,10 @@ For add/remove runtime registry maintenance, see:
 
 - `docs/desktop/02-runtime-registry-maintenance.md`
 
+For desktop wallet custody, native secret prompts, and bot unlock policy, see:
+
+- `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
+
 ## Scope and Goals
 
 The desktop build/runtime pipeline is designed to:

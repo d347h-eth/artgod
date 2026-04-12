@@ -1,0 +1,981 @@
+# Wallet Keystore and Bot Unlock Model
+
+This document defines the canonical desktop wallet custody model for ArtGod.
+It covers private-key import/export/remove, encrypted local keystore storage, native secret-entry flows, and one-shot secret handoff into future trading bot runtimes.
+
+This is intentionally stricter than a typical desktop wallet UX.
+
+The design follows Foundry-like operational semantics:
+
+- import existing private keys only
+- keep keys encrypted at rest
+- prompt for the passphrase each time a wallet is unlocked
+- keep decrypted keys out of normal app state
+- treat process restart as a fresh lock boundary
+
+The storage and crypto path should align with Foundry/Paradigm wherever practical:
+
+- standard Ethereum keystore JSON files at rest
+- `alloy-signer-local` keystore support for encrypt/decrypt operations
+- the same bounded unlock behavior at the desktop core-process boundary
+
+ArtGod still keeps its own wallet metadata index for UI and bot assignment state.
+
+Related docs:
+
+- `docs/desktop/01-tauri-build-and-runtime.md`
+- `docs/desktop/02-runtime-registry-maintenance.md`
+- `docs/diagrams/00-desktop-components.md`
+- `docs/progress/desktop/01-wallet-keystore-implementation-plan.md`
+
+## Decision Summary
+
+ArtGod will use a hybrid desktop model:
+
+- wallet listing, labels, addresses, and bot assignment live in the privileged admin UI
+- raw private-key entry, passphrase entry, and plaintext export display do not live in the WebView
+- those secret-entry flows are owned by Rust via a dedicated native secret-prompt helper sidecar
+- encrypted wallet storage is owned by Rust and kept in desktop app-data as standard Ethereum keystore JSON files, outside backend/indexer SQLite
+- future bot workers receive decrypted key material only once at startup over a one-shot pipe/stdin channel
+- any bot restart requires a fresh passphrase prompt
+
+This design explicitly rejects all session unlock caching.
+
+## Alignment With Foundry and Alloy
+
+ArtGod should not invent a custom wallet cryptography format unless there is a compelling security reason that cannot be achieved with the Foundry/Alloy path.
+
+Current design decision:
+
+- use standard Ethereum keystore JSON for secret storage
+- use `alloy-signer-local` keystore support as the primary Rust integration
+- rely on the same underlying `eth-keystore` behavior used by Foundry rather than reimplementing wallet encryption ourselves
+- keep an ArtGod-owned metadata index for label, assignment, and status
+
+This keeps ArtGod aligned with a real production Rust wallet path that is already used by Paradigm tooling.
+
+## Scope
+
+This specification covers:
+
+- importing one or more existing EVM private keys into the desktop app
+- exporting a stored private key back to plaintext on explicit operator request
+- removing a stored wallet
+- assigning wallets to future `bidding` and `sniping` bot runtimes
+- decrypting a wallet only for explicit export or bot startup
+- keeping wallet storage and runtime wiring local-only
+
+This specification does not cover:
+
+- wallet generation
+- mnemonic generation or mnemonic import
+- browser userland wallet management
+- backend HTTP wallet APIs
+- remote custody or synchronized cloud state
+- unattended bot restart with cached secrets
+- session unlock TTLs, temporary unlock windows, or background auto-unlock
+
+## Core Security Invariants
+
+These are hard rules, not suggestions.
+
+1. Raw private keys must never enter the unprivileged browser userland UI.
+2. Raw private keys must never be stored in backend/indexer SQLite.
+3. Raw private keys must never be written to `.env`, process env, CLI args, or logs.
+4. Raw private keys must never be sent over backend HTTP routes.
+5. Raw private keys must never be stored in browser storage (`localStorage`, `sessionStorage`, IndexedDB).
+6. Raw private keys must never be rendered inside the Tauri WebView.
+7. Raw private keys may exist only in:
+   : the native secret prompt
+   : Rust keystore service memory during import/export/unlock
+   : bot runtime memory after one-shot startup handoff
+8. Every bot start and every bot restart is a fresh unlock event.
+9. There is no session unlock cache, no unlock TTL, and no silent reuse after restart.
+10. If decryption or prompt flow fails, the bot remains stopped and locked.
+## Threat Model
+
+This design is intended to reduce exposure to:
+
+- frontend/npm supply-chain compromise inside the admin UI bundle
+- WebView XSS or accidental secret leakage through DOM state
+- accidental logging of secrets in Rust, Node, or frontend code
+- local filesystem disclosure of app data at rest
+- accidental secret leakage through environment variables or command-line arguments
+- accidental persistence of secrets in backend tables or caches
+
+This design does not claim to protect against:
+
+- a fully compromised machine
+- root/admin-level local malware
+- kernel compromise
+- hardware keyloggers
+- memory scraping by a privileged attacker
+- OS screenshots or screen recording outside app control
+
+The objective is to make the wallet boundary materially narrower and more auditable, not to solve full host compromise.
+
+## Why Hybrid Instead of WebView-Only
+
+Even with a strict CSP and a minimal admin bundle, a WebView-only design still leaves the highest-value secret-entry path inside:
+
+- frontend dependencies
+- DOM/input handling
+- Tauri JS bridge payloads
+- general-purpose app state
+
+That is the wrong place to keep the most sensitive flow if the project is deliberately aiming for paranoid custody.
+
+The hybrid model keeps:
+
+- WebView for non-secret control-plane UX
+- Rust-only prompt path for raw secret entry and reveal
+
+This reduces the number of layers that can mishandle a raw private key.
+
+## High-Level Architecture
+
+```mermaid
+flowchart LR
+    U[User]
+    W[Admin UI<br/>Tauri WebView<br/>metadata only]
+    C[Tauri Command Adapter]
+    P[Native Secret Prompt Helper<br/>Rust only]
+    K[Rust Keystore Service]
+    S[(Wallet Store<br/>app-data)]
+    B[Bot Supervisor]
+    N[Node Bot Runtime]
+
+    U --> W
+    W --> C
+    C --> K
+    K --> P
+    K --> S
+    K --> B
+    B --> N
+```
+
+Boundary rules:
+
+- WebView can request wallet operations, but it never receives raw private-key material.
+- Secret prompt helper is the only UI surface allowed to capture or reveal raw secrets.
+- Keystore service is the only component allowed to encrypt/decrypt wallet files.
+- Bot supervisor is the only component allowed to hand decrypted key material to Node bots.
+
+## Component and Process Ownership
+
+ArtGod uses three distinct component roles for wallet and bot startup flows.
+
+### 1) Tauri Wallet/Bot Commands
+
+These are part of the main Tauri core process.
+
+Responsibilities:
+
+- receive admin UI requests over Tauri IPC
+- map transport DTOs into use-case input
+- call the Rust keystore service or bot supervisor
+- return sanitized status back to the WebView
+
+These commands are inbound adapters only.
+They are analogous to the existing runtime commands in `src-tauri/src/lib.rs`.
+
+### 2) Rust Keystore Service
+
+This is also part of the main Tauri core process.
+
+Responsibilities:
+
+- list wallets from metadata
+- import wallets
+- export wallets
+- remove wallets
+- unlock a wallet for bot startup
+- call Alloy keystore encrypt/decrypt functions
+- own all plaintext key handling inside the main app process
+
+This is the core business service for wallet custody inside the desktop app.
+
+### 3) Secret Prompt Helper
+
+This is a separate bundled Rust sidecar process.
+
+Responsibilities:
+
+- collect raw private keys and passphrases through a native UI
+- show plaintext export reveal UI
+- communicate prompt results back to the main Tauri process over stdio
+
+It does not own keystore files, metadata, or bot supervision.
+
+## Bounded Unlock Behavior
+
+Bounded unlock behavior in ArtGod means:
+
+- the main Tauri core process does not keep a reusable unlocked wallet session
+- the prompt helper returns the passphrase only for the current operation
+- the Rust keystore service decrypts only for that operation
+- the passphrase and decrypted key are dropped from the main Rust process as soon as the operation completes
+
+For import, the bounded operation is:
+
+- collect private key and passphrase
+- encrypt and persist keystore
+- drop plaintext buffers
+
+For export, the bounded operation is:
+
+- collect passphrase
+- decrypt key
+- reveal once in the helper
+- drop plaintext buffers
+
+For bot startup, the bounded operation is:
+
+- collect passphrase
+- decrypt key
+- spawn bot
+- send key once over stdin/pipe
+- drop plaintext buffers in the main Rust process
+
+Important:
+
+- the running bot still keeps the key in its own process memory for as long as the bot is active
+- bounded unlock applies to the keystore boundary in the main desktop process, not to the live bot runtime
+
+## Runtime Boundary Model
+
+ArtGod desktop should treat the runtime as two groups:
+
+### 1) Core Composition
+
+This is the existing always-on local stack:
+
+- NATS
+- backend
+- indexer workers
+
+Current fail-fast behavior is appropriate here.
+
+### 2) Trading Bots
+
+These are future optional runtimes:
+
+- `bidding`
+- `sniping`
+
+Bots must not share the same restart policy as the core composition.
+
+Required behavior:
+
+- a bot failure must not tear down the full core composition
+- a core composition failure may stop bots
+- a bot restart must return that bot to a locked state
+- a locked bot requires a fresh passphrase prompt before it starts again
+
+This keeps bot custody strict without making the entire desktop stack unusable.
+
+## Wallet Storage Location
+
+Wallet storage must live in desktop app-data under a Rust-owned directory, separate from the shared app database.
+
+Example layout:
+
+```text
+<app-data>/
+  wallets/
+    index.json
+    <wallet-id>.json
+    <wallet-id>.json
+```
+
+Why not backend/indexer SQLite:
+
+- backend and indexer are Node runtimes with broader file/database access
+- the admin UI can query Tauri directly, so backend does not need wallet reads
+- keeping wallet storage outside shared database reduces accidental coupling and leak surface
+
+## Wallet Metadata Model
+
+`index.json` stores non-secret metadata only.
+
+Suggested fields:
+
+- `walletId`
+- `label`
+- `address`
+- `createdAt`
+- `updatedAt`
+- `keystoreVersion`
+- `storageFormat`
+- `assignedBotKinds`
+- `status`
+
+Metadata rules:
+
+- address is not treated as secret
+- labels are operator-defined and must be unique
+- metadata must not include passphrases, ciphertext keys, plaintext key bytes, or recovery data
+- metadata must be enough for the admin UI to list and manage wallets without querying Node services
+
+## Ethereum Keystore File Format
+
+ArtGod should store private keys using the standard Ethereum keystore JSON format rather than a custom sealed file format.
+
+Reason:
+
+- this aligns directly with Foundry/Paradigm wallet handling
+- this lets ArtGod reuse Alloy's existing keystore encrypt/decrypt path
+- this avoids custom cryptography design and maintenance work
+- this keeps the on-disk format recognizable and auditable
+
+Implementation rule:
+
+- use `alloy-signer-local` keystore support for encrypt/decrypt operations
+- do not reimplement keystore cryptography unless there is a compelling reviewed reason
+- keep the Ethereum keystore file and ArtGod metadata file separate
+
+Expected characteristics of the stored keystore file:
+
+- JSON document
+- standard Ethereum keystore structure
+- versioned as part of the keystore format itself
+- includes cipher/KDF parameters required for later decrypt
+- contains no plaintext private-key material
+
+## Cryptography Requirements
+
+The keystore service must:
+
+- validate private keys in Rust
+- derive the wallet address in Rust
+- use Alloy/`eth-keystore` keystore encryption and decryption primitives
+- zeroize passphrase and plaintext key buffers after use
+
+Recommended baseline:
+
+- standard Ethereum keystore JSON
+- the same keystore path used by Foundry through Alloy
+- passphrase confirmation on import
+- strict tamper detection on decrypt
+
+The implementation should treat Alloy keystore handling as the source of truth for the file crypto path.
+ArtGod should own wallet orchestration, metadata, and runtime boundaries, not a custom encryption scheme.
+
+## Passphrase Policy
+
+The wallet passphrase is part of the threat boundary.
+
+Required policy:
+
+- minimum 12 characters
+- confirmation required on import
+- hidden input in native prompt
+- exact match required on unlock
+
+Recommended operator guidance:
+
+- prefer a long unique sentence instead of a short password
+- do not reuse exchange, email, or laptop login passwords
+
+The implementation must reject weak empty/short input rather than merely warn.
+
+## Native Secret Prompt Helper
+
+Raw secrets must be handled by a dedicated Rust-only prompt path, not by the WebView.
+
+Implementation shape:
+
+- bundle a tiny helper binary with the desktop app
+- register it as a Tauri sidecar
+- launch it only for secret-entry or secret-reveal flows
+- pass only non-secret context in command arguments
+- exchange structured request/response payloads over stdin/stdout pipes
+
+The helper is responsible for:
+
+- private-key input during import
+- passphrase input during import
+- passphrase input during unlock
+- passphrase input during remove
+- passphrase input and danger confirmation during export
+- plaintext private-key reveal during export
+
+The helper is not responsible for:
+
+- storing wallet files
+- decrypting wallet files long-term
+- supervisor policy
+
+Those remain in the main Rust runtime.
+
+### Why a Helper Binary
+
+Tauri itself is still a WebView application shell.
+If the goal is to avoid web components for raw secret entry, the cleanest strict boundary is a separate bundled Rust-native helper with no JS dependency path.
+
+This is not because the main Tauri core process is untrusted.
+It is because:
+
+- Tauri windows are WebView-driven UI surfaces
+- Tauri's native dialog support does not provide a dedicated secure password-entry UI flow for this use case
+- Tauri officially supports bundled external binaries as sidecars
+- a sidecar gives ArtGod a minimal native UI process dedicated only to secret input/output
+
+The main Tauri core process remains the trusted owner of wallet state and decryption logic.
+The helper exists only to keep raw secret input and reveal out of the WebView.
+
+This helper should be:
+
+- visually minimal
+- isolated from normal app UI
+- small enough to audit
+- free of telemetry and debug logging in release builds
+
+## Prompt Helper Communication Model
+
+The prompt helper talks back to the main Rust process over stdio.
+
+Canonical model:
+
+- non-secret action selection travels in command arguments
+- structured request payloads may be written to helper stdin when needed
+- structured result payloads are read from helper stdout
+- stderr is treated as diagnostic only and must not contain secrets
+
+Example directions:
+
+- import
+  : helper -> main app returns label, private key, and passphrase
+- unlock
+  : helper -> main app returns passphrase
+- export reveal
+  : main app -> helper sends plaintext key only after successful decrypt
+  : helper -> main app returns acknowledgement on close
+
+The helper never talks to the WebView directly.
+
+## WebView Responsibilities
+
+The admin WebView remains the operator control plane.
+
+It may show:
+
+- wallet labels
+- addresses
+- wallet assignment to bots
+- wallet locked/running status
+- buttons such as `Import`, `Export`, `Remove`, `Start Bot`, `Stop Bot`
+
+It must not:
+
+- render raw private keys
+- collect private keys in HTML forms
+- collect passphrases in HTML forms
+- persist any secret in frontend state stores
+- receive raw secret payloads from Tauri commands
+
+The WebView command result for secret operations should contain only:
+
+- success/failure status
+- sanitized error code or message
+- non-secret metadata updates
+
+## Import Flow
+
+Import supports raw private keys only in the initial implementation.
+
+Mnemonic import is out of scope.
+
+Sequence:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant W as Admin WebView
+    participant T as Tauri Wallet Command
+    participant P as Secret Prompt Helper
+    participant K as Rust Keystore Service
+    participant S as Wallet Store
+
+    U->>W: Click Import Wallet
+    W->>T: request import flow
+    T->>P: launch native import prompt
+    P-->>T: label + private key + passphrase
+    T->>K: validate and encrypt
+    K->>S: write metadata + Ethereum keystore JSON
+    T-->>W: sanitized wallet metadata
+```
+
+Import rules:
+
+- prompt for label, private key, passphrase, and passphrase confirmation
+- validate private key in Rust before writing anything
+- derive address in Rust and show success using address only
+- never echo the private key back to WebView
+- fail closed on malformed key, duplicate label, duplicate address, or write error
+
+Optional future extension:
+
+- import encrypted JSON keystore files
+
+That is not part of the initial design.
+
+## Export Flow
+
+Export is a high-risk operation and must be intentionally cumbersome.
+
+Sequence:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant W as Admin WebView
+    participant T as Tauri Wallet Command
+    participant P as Secret Prompt Helper
+    participant K as Rust Keystore Service
+
+    U->>W: Click Export Wallet
+    W->>T: request export for walletId
+    T->>P: passphrase + danger confirmation prompt
+    P-->>T: passphrase
+    T->>K: decrypt wallet
+    K-->>T: plaintext key
+    T->>P: launch reveal window
+    P-->>U: display plaintext key once
+```
+
+Export rules:
+
+- require the wallet to be unlocked via native passphrase prompt
+- require an explicit danger confirmation before reveal
+- do not send plaintext key to WebView
+- do not place plaintext key in system clipboard in the initial implementation
+- do not write plaintext key to disk in the initial implementation
+- reveal plaintext only inside the native prompt helper
+- zeroize buffers immediately after reveal window closes
+
+Recommended confirmation policy:
+
+- type `EXPORT`
+- show wallet label and address
+- explain that anyone with the key fully controls the wallet
+
+## Remove Flow
+
+Remove permanently deletes the local encrypted wallet record.
+
+Sequence:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant W as Admin WebView
+    participant T as Tauri Wallet Command
+    participant P as Secret Prompt Helper
+    participant K as Rust Keystore Service
+    participant S as Wallet Store
+
+    U->>W: Click Remove Wallet
+    W->>T: request removal for walletId
+    T->>P: passphrase + typed confirmation prompt
+    P-->>T: passphrase
+    T->>K: verify passphrase by decrypt
+    K->>S: delete keystore file + metadata entry
+    T-->>W: success/failure
+```
+
+Remove rules:
+
+- require passphrase verification
+- require typed confirmation using wallet label or address suffix
+- block removal if the wallet is assigned to a running bot
+- block removal if the wallet is configured for an enabled bot until the operator detaches it first
+- perform metadata delete and keystore file delete atomically as much as practical
+
+## Bot Assignment Model
+
+The system should support multiple stored wallets and explicit wallet-to-bot assignment.
+
+Initial assumption:
+
+- one bot process uses one wallet
+- one wallet may be assigned to one or more bots if the operator chooses
+
+Security rule:
+
+- assignment metadata is non-secret
+- assignment does not imply unlock
+- a bot marked `enabled` is still `locked` until passphrase entry succeeds
+
+## Unlock and Bot Startup Flow
+
+Bots must unlock only after the core composition is healthy and stable.
+
+Recommended policy:
+
+- start NATS, backend, and indexer normally
+- wait for semantic runtime health
+- keep bots in `awaiting_unlock` until the core composition remains healthy for the configured stabilization delay
+- then prompt for the wallet passphrase
+
+The delay exists only to avoid needless repeated prompts during boot instability.
+It is not a session unlock cache and does not weaken the restart=prompt rule.
+
+Sequence:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant W as Admin WebView
+    participant T as Tauri Bot Command
+    participant P as Secret Prompt Helper
+    participant K as Rust Keystore Service
+    participant B as Bot Supervisor
+    participant N as Node Bot
+
+    U->>W: Start bidding/sniping bot
+    W->>T: start bot(walletId, botKind)
+    T->>P: launch passphrase prompt
+    P-->>T: passphrase
+    T->>K: decrypt wallet
+    K-->>B: plaintext key bytes
+    B->>N: spawn bot and write one-shot secret envelope to stdin
+    B->>N: close stdin
+    N-->>B: startup success/failure
+```
+
+Unlock rules:
+
+- passphrase prompt is always native
+- decrypt happens in Rust only
+- decrypted key lifetime in Rust must be as short as practical
+- the secret channel is one-shot and immediately closed after write
+- if bot startup fails, the decrypted key is discarded and the bot remains locked
+
+## Bot Secret Handoff Protocol
+
+The supervisor must never pass secrets through:
+
+- CLI arguments
+- environment variables
+- temp files
+- shared database rows
+
+The canonical handoff is a one-shot stdin/pipe payload.
+
+Suggested format:
+
+1. fixed magic bytes
+2. protocol version
+3. metadata length
+4. metadata JSON
+5. 32 raw private-key bytes
+
+Suggested metadata:
+
+```json
+{
+  "walletId": "uuid",
+  "address": "0x...",
+  "botKind": "bidding",
+  "chainId": 1
+}
+```
+
+Protocol requirements:
+
+- metadata is non-secret
+- raw key bytes are binary, not hex text
+- child process must reject malformed or partial payloads
+- parent closes the pipe immediately after the payload is written
+- child must not persist the payload anywhere
+
+## Node Bot Bootstrap Rules
+
+The bot entrypoint must:
+
+- block normal startup until the secret payload is read
+- read the one-shot payload into a `Buffer`
+- construct the in-memory signer as early as possible
+- overwrite the original `Buffer` after signer construction
+- refuse to start if stdin is empty, malformed, or truncated
+- never log the payload or derived private-key hex
+
+Important limitation:
+
+- once the key is loaded into a JS signer object, complete memory zeroization is best-effort only
+
+That limitation is acceptable because Node runtime memory use is the actual business requirement.
+The important boundary is that the key does not enter Node until the exact startup moment.
+
+## Restart Policy
+
+This project explicitly chooses the simplest strict rule:
+
+- restart = prompt
+
+That applies to:
+
+- manual bot restart
+- crash restart
+- desktop app relaunch
+- core composition relaunch after shutdown
+
+Rejected alternatives:
+
+- session unlock cache
+- unlock TTL
+- memory-only session key
+- silent bot restart while core composition remains up
+
+If a bot exits unexpectedly:
+
+1. mark the bot stopped and locked
+2. discard any decrypted material in Rust
+3. require a fresh passphrase prompt before the next start
+
+## Future Idea: OS-Native Wrapping
+
+OS-native keychain or wrapper integration is not part of the planned implementation path for this subsystem.
+
+It may be explored later as an additive hardening idea only.
+
+Examples:
+
+- macOS Keychain
+- Windows DPAPI / user-bound protected storage
+- Linux Secret Service
+
+If this is ever explored later, the rules remain:
+
+- app passphrase still stays mandatory
+- restart still means prompt
+- OS-native wrapping must not silently unlock wallets by itself
+- the base passphrase-encrypted Ethereum keystore path remains the canonical cross-platform baseline
+
+## Logging and Error Handling Rules
+
+Logs must never include:
+
+- private-key bytes
+- passphrases
+- keystore ciphertext
+- prompt return payloads
+
+Logs may include:
+
+- wallet IDs
+- addresses, if needed
+- bot kinds
+- locked/unlocked status transitions
+- sanitized error categories
+
+Recommended sanitized error categories:
+
+- `prompt_cancelled`
+- `invalid_passphrase`
+- `wallet_not_found`
+- `duplicate_wallet`
+- `wallet_in_use`
+- `decrypt_failed`
+- `store_write_failed`
+- `bot_bootstrap_failed`
+
+Release builds of the secret prompt helper should not emit structured telemetry at all.
+
+## File and Permission Rules
+
+Wallet files must be created with restrictive permissions.
+
+Required behavior:
+
+- Unix: owner-only file mode where possible
+- Windows: user-restricted ACLs where possible
+- create parent directories explicitly
+- avoid predictable temp-file usage during writes
+- use atomic replace for metadata/index writes where practical
+
+The keystore file path and metadata path may be logged for diagnostics only if the log is guaranteed not to leak secrets.
+
+## Recommended Rust Module Layout
+
+The implementation should follow the same explicit boundary style used elsewhere in the repo.
+
+Suggested structure:
+
+```text
+src-tauri/src/
+  wallet/
+    mod.rs
+    domain/
+      wallet_metadata.rs
+      wallet_record.rs
+      passphrase_policy.rs
+    application/
+      use-cases/
+        import_wallet.rs
+        export_wallet.rs
+        remove_wallet.rs
+        list_wallets.rs
+        unlock_wallet_for_bot_start.rs
+    infra/
+      storage/
+        fs_wallet_store.rs
+      keystore/
+        alloy_keystore.rs
+      prompt/
+        secret_prompt_sidecar.rs
+    tauri/
+      commands.rs
+```
+
+Design rules:
+
+- use-case modules own their outbound port traits
+- Tauri commands stay thin and map transport to use-case input/output
+- composition root in `src-tauri/src/lib.rs` wires concrete adapters
+- business rules stay out of the command registration layer
+
+## Frontend/Admin UI Placement
+
+Admin UI should gain a wallet-management surface, but only for non-secret operations and status.
+
+Suggested responsibilities:
+
+- wallet list
+- wallet label management
+- address display
+- bot assignment
+- bot start/stop controls
+- locked/running/error state display
+
+Suggested frontend organization:
+
+```text
+frontend/src/lib/runtime/wallets/
+frontend/src/lib/components/admin/
+frontend/src/routes/...
+```
+
+Exact route paths can be decided during implementation, but they must remain admin-only and must not be served from the userland browser origin.
+
+## Supervisor and Composition Changes Required
+
+To support bots securely, the desktop runtime will need a new distinction between:
+
+- core runtimes
+- wallet-bound bot runtimes
+
+Expected supervisor behavior:
+
+- core runtime startup remains explicit and fail-fast
+- bot runtimes are started separately after core health is stable
+- bot crashes do not force full desktop composition restart
+- bot status is surfaced independently in the admin UI
+- bot unlock requests are serialized through the Rust prompt path
+
+This means wallet-bound bots should not simply be appended to the current `INDEXER_WORKERS` list with identical restart semantics.
+
+## Config Requirements
+
+All wallet-related config must be loaded through typed Rust config, not ad hoc environment reads.
+
+Expected config concepts:
+
+- wallet store directory
+- secret prompt helper sidecar path
+- bot unlock stabilization delay
+
+Rules:
+
+- no passphrases in config
+- no private keys in config
+- fail fast on missing required wallet runtime config
+
+## Test Strategy
+
+### Rust Unit Tests
+
+- private-key validation
+- address derivation
+- keystore roundtrip through Alloy keystore APIs
+- tamper detection
+- wrong-passphrase rejection
+- duplicate wallet detection
+- remove flow behavior
+
+### Rust Integration Tests
+
+- app-data wallet store layout
+- command -> use-case wiring
+- prompt cancellation handling
+- helper stdio protocol handling
+- bot start requiring fresh unlock after restart
+
+### Node Bot Tests
+
+- stdin secret envelope parsing
+- malformed envelope rejection
+- startup failure on missing secret
+- best-effort buffer zeroization after signer construction
+
+### Manual Desktop Verification
+
+- Linux
+- macOS
+- Windows
+
+The manual matrix should explicitly verify:
+
+- no secrets in logs
+- no secrets in env
+- no secrets in process list
+- restart=prompt behavior
+- bot crash -> locked state
+
+## Implementation Phases
+
+### Phase 1
+
+- Rust wallet domain + storage
+- native secret prompt helper
+- import/list/remove flows
+- admin wallet list/status UI
+
+### Phase 2
+
+- bot assignment model
+- bot startup unlock flow
+- one-shot stdin secret handoff
+- independent bot supervisor lifecycle
+
+### Phase 3
+
+- export flow
+- cross-platform hardening pass
+
+## Explicit Rejections
+
+The following are explicitly out of scope for this design:
+
+- WebView password entry for import/unlock/export
+- backend-managed wallet APIs
+- storing wallet metadata and ciphertext inside shared application SQLite
+- env-var private key injection into bots
+- CLI-arg private key injection into bots
+- automatic bot restart without a fresh prompt
+- ephemeral unlock sessions
+- prompt-once-use-many-times shortcuts
+
+## Final Design Rule
+
+If there is a conflict between convenience and custody, custody wins.
+
+For this subsystem, the intended operator experience is simple:
+
+- import through a native prompt
+- unlock through a native prompt
+- restart means prompt again
+- WebView never sees the raw key
+
+That simplicity is the security model.

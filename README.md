@@ -359,6 +359,7 @@ Use these as primary references for design and implementation details:
 - `docs/extensions/01-collection-extensions.md`
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
+- `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
 - `docs/deploy/01-web-hosted-read-only.md`
 - `docs/diagrams/architecture.md`
 - `docs/progress/indexer/15-unified-backlog.md`
