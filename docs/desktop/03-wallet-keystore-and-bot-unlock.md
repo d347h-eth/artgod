@@ -430,6 +430,9 @@ This helper should be:
 - isolated from normal app UI
 - small enough to audit
 - free of telemetry and debug logging in release builds
+- implemented as a tiny custom Rust window on `winit + softbuffer`
+- rendered only from baked bitmap glyph constants generated at compile time by the helper crate `build.rs` from a pinned Cozette hi-DPI BDF asset
+- free of runtime font parsing, system font lookup, and WebView involvement
 
 ## Prompt Helper Communication Model
 
@@ -883,8 +886,9 @@ All wallet-related config must be loaded through typed Rust config, not ad hoc e
 Expected config concepts:
 
 - wallet store directory
-- secret prompt helper sidecar path
 - bot unlock stabilization delay
+
+The secret prompt helper itself should be addressed through Tauri's bundled sidecar identifier, not through a runtime env path override.
 
 Rules:
 

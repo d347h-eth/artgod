@@ -27,7 +27,6 @@ pub struct DesktopRuntimeConfig {
 pub struct DesktopWalletConfig {
     pub store_dir: PathBuf,
     pub index_path: PathBuf,
-    pub secret_prompt_sidecar_path: Option<PathBuf>,
     pub bot_unlock_stabilization_delay_ms: u64,
 }
 
@@ -175,21 +174,6 @@ impl DesktopRuntimeConfig {
                 userland_ui_dist_dir.display()
             ));
         }
-        let secret_prompt_sidecar_path = process_env
-            .get("DESKTOP_SECRET_PROMPT_SIDECAR")
-            .map(String::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|raw_path| resolve_from_base_dir(&runtime_dir, raw_path));
-        if let Some(path) = &secret_prompt_sidecar_path
-            && !path.exists()
-        {
-            return Err(format!(
-                "DESKTOP_SECRET_PROMPT_SIDECAR does not exist: {}",
-                path.display()
-            ));
-        }
-
         let mut merged_env = process_env.clone();
         merged_env.insert(
             "ARTGOD_ENV_FILE".to_owned(),
@@ -227,7 +211,6 @@ impl DesktopRuntimeConfig {
             wallet: DesktopWalletConfig {
                 store_dir: wallet_store_dir.clone(),
                 index_path: wallet_store_dir.join("index.json"),
-                secret_prompt_sidecar_path,
                 bot_unlock_stabilization_delay_ms,
             },
         })
@@ -469,8 +452,6 @@ fn build_default_env_template() -> String {
         "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
         "# Wallet store directory is resolved relative to app-data dir unless absolute\n",
         "DESKTOP_WALLET_STORE_DIR=wallets\n",
-        "# Optional: point to the bundled secret prompt helper sidecar once Slice 2 lands\n",
-        "# DESKTOP_SECRET_PROMPT_SIDECAR=sidecars/artgod-secret-prompt\n",
         "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS=15000\n\n",
         "# Optional: override bundled NATS binary path (absolute or relative to runtime resources dir)\n",
         "# DESKTOP_NATS_BINARY_PATH=nats/nats-server(.exe)\n",

@@ -18,12 +18,14 @@ tauri-build = { version = "2.5.5", features = [] }
 [dependencies]
 alloy-primitives = "1.4.1"
 alloy-signer-local = { version = "1.8.3", default-features = false, features = ["keystore", "zeroize"] }
+artgod-secret-prompt-protocol = { path = "crates/artgod-secret-prompt-protocol" }
 rand = "0.8"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.10.2", features = ["tray-icon"] }
 tauri-plugin-log = "2.7.1"
+tauri-plugin-shell = "2.3.5"
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting"] }
 uuid = { version = "1.18.1", features = ["serde", "v4"] }

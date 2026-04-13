@@ -6,8 +6,8 @@
     "build": {
         "frontendDist": "../frontend/dist",
         "devUrl": "http://localhost:5173",
-        "beforeDevCommand": "node ./scripts/build/dev-frontend-target.mjs admin",
-        "beforeBuildCommand": "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources"
+        "beforeDevCommand": "node ./scripts/build/dev-frontend-target.mjs admin && yarn build:desktop-sidecars --profile debug",
+        "beforeBuildCommand": "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"
     },
     "app": {
         "windows": [
@@ -48,6 +48,9 @@
     "bundle": {
         "active": true,
         "targets": "all",
+        "externalBin": [
+            "binaries/artgod-secret-prompt"
+        ],
         "resources": [
             "resources/runtime"
         ]

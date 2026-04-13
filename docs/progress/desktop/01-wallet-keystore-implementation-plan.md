@@ -278,8 +278,8 @@ Primary files:
 
 - `src-tauri/tauri.conf.json`
 - `src-tauri/Cargo.toml`
-- `src-tauri/build.rs`
 - `src-tauri/capabilities/default.json`
+- new `src-tauri/crates/artgod-secret-prompt-protocol/**`
 - new `src-tauri/sidecars/artgod-secret-prompt/**`
 - new helper build/staging script under `scripts/build/`
 - `package.json`
@@ -289,6 +289,10 @@ Tasks:
 
 - create the helper binary project
 - keep the helper visually minimal and dependency-light
+- implement the helper as a tiny `winit + softbuffer` window, not a general GUI toolkit app
+- bake prompt glyphs from a pinned Cozette hi-DPI BDF asset into generated Rust constants via the helper crate `build.rs`
+- keep the sidecar build path responsible only for compiling and staging the finished helper binary
+- avoid runtime font parsing and system font lookup inside the helper
 - define a structured stdin/stdout contract between desktop app and helper
 - support helper actions:
   - import prompt

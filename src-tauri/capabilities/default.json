@@ -3,5 +3,23 @@
     "identifier": "default",
     "description": "enables the default permissions",
     "windows": ["main"],
-    "permissions": ["core:default"]
+    "permissions": [
+        "core:default",
+        "shell:allow-stdin-write",
+        {
+            "identifier": "shell:allow-spawn",
+            "allow": [
+                {
+                    "name": "binaries/artgod-secret-prompt",
+                    "args": [
+                        "--action",
+                        {
+                            "validator": "(import|unlock|remove-confirm|export-confirm|export-reveal)"
+                        }
+                    ],
+                    "sidecar": true
+                }
+            ]
+        }
+    ]
 }

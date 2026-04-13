@@ -274,6 +274,7 @@ pub fn run() {
             runtime: RuntimeManager::new(),
             shutdown_requested: Arc::new(AtomicBool::new(false)),
         })
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

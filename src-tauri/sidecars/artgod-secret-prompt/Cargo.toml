@@ -1,0 +1,14 @@
+[package]
+name = "artgod-secret-prompt"
+version = "0.0.1"
+edition = "2024"
+license = "AGPL-3.0-only"
+
+[dependencies]
+arboard = "3.6"
+artgod-secret-prompt-protocol = { path = "../../crates/artgod-secret-prompt-protocol" }
+serde_json = "1.0"
+softbuffer = "0.4"
+thiserror = "2.0"
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+zeroize = { version = "1.8", features = ["alloc"] }
