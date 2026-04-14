@@ -369,7 +369,15 @@ button {
 	padding: 0.25rem 0.45rem;
 }
 
-button:hover {
+button {
+	cursor: pointer;
+}
+
+button:disabled {
+	cursor: default;
+}
+
+button:not(:disabled):hover {
 	border-color: var(--c-yellow);
 	color: var(--c-yellow);
 }
@@ -1835,10 +1843,19 @@ th {
 .desktop-lifecycle-log-stream {
 	flex: 1;
 	min-height: 0;
-	overflow: auto;
+	min-width: 0;
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: auto;
 	padding: 0.75rem;
 	display: block;
 	line-height: 1.2;
+}
+
+.desktop-lifecycle-log-content {
+	display: block;
+	width: max-content;
+	min-width: 100%;
 }
 
 .desktop-lifecycle-event-row {
@@ -1875,6 +1892,56 @@ th {
 	overflow: hidden;
 }
 
+.runtime-drawer-embedded {
+	position: relative;
+	inset: auto;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	min-width: 0;
+	z-index: auto;
+	background: transparent;
+	border: 0;
+	padding: 0;
+	gap: 0.9rem;
+	overflow-x: hidden;
+	overflow-y: visible;
+}
+
+.runtime-drawer-embedded,
+.runtime-drawer-embedded .runtime-tab-panel,
+.runtime-drawer-embedded .runtime-section,
+.runtime-drawer-embedded .runtime-logs-section,
+.runtime-drawer-embedded .runtime-log-stream,
+.runtime-drawer-embedded .desktop-lifecycle-terminal,
+.runtime-drawer-embedded .desktop-lifecycle-log-stream {
+	width: 100%;
+	max-width: none;
+	box-sizing: border-box;
+}
+
+.runtime-drawer-embedded .runtime-tab-panel {
+	flex: 1 1 auto;
+	height: 100%;
+	min-height: 0;
+}
+
+.runtime-drawer-embedded .desktop-lifecycle-terminal {
+	height: 100%;
+	min-height: 0;
+	border: 1px solid var(--c-blue);
+}
+
+.runtime-drawer-embedded .runtime-logs-section {
+	height: 100%;
+	min-height: 0;
+}
+
+.runtime-drawer-embedded .runtime-tab-panel-status {
+	height: 100%;
+	max-height: none;
+}
+
 .runtime-drawer-header {
 	display: flex;
 	align-items: center;
@@ -1896,6 +1963,7 @@ th {
 	padding: 0.55rem;
 	display: grid;
 	gap: 0.5rem;
+	min-width: 0;
 }
 
 .runtime-section h3 {
@@ -1974,6 +2042,7 @@ th {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	min-width: 0;
 }
 
 .runtime-preflight-section {
@@ -1991,16 +2060,26 @@ th {
 .runtime-log-stream {
 	flex: 1;
 	min-height: 0;
-	overflow: auto;
+	min-width: 0;
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: auto;
 	border: 1px solid var(--c-blue);
 	padding: 0.45rem;
 	display: block;
 	line-height: 1.2;
 }
 
+.runtime-log-content {
+	display: block;
+	width: max-content;
+	min-width: 100%;
+}
+
 .runtime-tabs {
 	display: flex;
 	gap: 0.45rem;
+	min-width: 0;
 }
 
 .secondary-tabs {
@@ -2012,8 +2091,6 @@ th {
 .runtime-primary-actions {
 	display: flex;
 	justify-content: flex-start;
-	padding-bottom: 0.65rem;
-	border-bottom: 1px solid var(--c-blue);
 }
 
 .runtime-primary-cta {
@@ -2027,6 +2104,20 @@ th {
 
 .runtime-primary-cta:hover {
 	background: rgba(255, 232, 128, 0.16);
+}
+
+.runtime-primary-cta:disabled {
+	cursor: default;
+	border-color: rgba(113, 141, 188, 0.38);
+	color: rgba(230, 235, 241, 0.42);
+	background: rgba(31, 38, 48, 0.72);
+}
+
+.runtime-primary-cta:disabled:hover,
+.runtime-primary-cta:disabled:focus-visible {
+	border-color: rgba(113, 141, 188, 0.38);
+	color: rgba(230, 235, 241, 0.42);
+	background: rgba(31, 38, 48, 0.72);
 }
 
 .runtime-tabs button,
@@ -2043,6 +2134,7 @@ th {
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
 	min-width: 6rem;
+	cursor: pointer;
 }
 
 .secondary-tabs button,
@@ -2072,6 +2164,11 @@ th {
 .runtime-tabs button.runtime-tab-active,
 .runtime-tabs a.runtime-tab-active,
 .runtime-tabs span.runtime-tab-active {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
+.runtime-tabs button.runtime-tab-active:disabled {
 	border-color: var(--c-orange);
 	color: var(--c-orange);
 }
@@ -2119,9 +2216,18 @@ th {
 	color: var(--c-sand);
 }
 
+.runtime-tabs button.runtime-tab-active:disabled:hover,
+.runtime-tabs button.runtime-tab-active:disabled:focus-visible {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
 .runtime-tab-panel {
 	flex: 1;
 	min-height: 0;
+	min-width: 0;
+	max-width: 100%;
+	overflow-x: hidden;
 }
 
 .runtime-tab-panel-logs {
@@ -2139,6 +2245,8 @@ th {
 .runtime-tab-section {
 	height: 100%;
 	margin: 0;
+	min-width: 0;
+	max-width: 100%;
 }
 
 .runtime-preflight-stream {
@@ -2151,6 +2259,7 @@ th {
 .runtime-log-line {
 	font-size: 0.75rem;
 	line-height: 1.2;
+	display: block;
 	white-space: pre;
 	margin: 0;
 	padding: 0;

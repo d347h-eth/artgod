@@ -10,7 +10,7 @@ use tauri_plugin_shell::process::CommandEvent;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-const SECRET_PROMPT_SIDECAR_NAME: &str = "binaries/artgod-secret-prompt";
+const SECRET_PROMPT_SIDECAR_NAME: &str = "artgod-secret-prompt";
 
 /// Launches the bundled native secret prompt helper via Tauri's sidecar runtime.
 #[derive(Clone, Debug)]
@@ -37,11 +37,15 @@ impl SecretPromptSidecar {
         &self,
         app: &AppHandle,
         wallet_label_hint: Option<String>,
+        passphrase_min_length: usize,
     ) -> Result<ImportPromptOutput, SecretPromptError> {
         let response = self
             .run_prompt(
                 app,
-                SecretPromptRequest::Import(ImportSecretPromptRequest { wallet_label_hint }),
+                SecretPromptRequest::Import(ImportSecretPromptRequest {
+                    wallet_label_hint,
+                    passphrase_min_length,
+                }),
             )
             .await?;
         match response {

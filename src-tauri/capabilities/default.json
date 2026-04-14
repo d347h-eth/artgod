@@ -18,6 +18,16 @@
                         }
                     ],
                     "sidecar": true
+                },
+                {
+                    "name": "artgod-secret-prompt",
+                    "args": [
+                        "--action",
+                        {
+                            "validator": "(import|unlock|remove-confirm|export-confirm|export-reveal)"
+                        }
+                    ],
+                    "sidecar": true
                 }
             ]
         }

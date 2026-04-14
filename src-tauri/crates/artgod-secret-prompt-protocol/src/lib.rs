@@ -85,6 +85,12 @@ impl SecretPromptResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ImportSecretPromptRequest {
     pub wallet_label_hint: Option<String>,
+    #[serde(default = "default_import_passphrase_min_length")]
+    pub passphrase_min_length: usize,
+}
+
+fn default_import_passphrase_min_length() -> usize {
+    12
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,6 +219,21 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<SecretPromptResponse>(&response_json).unwrap(),
             response
+        );
+    }
+
+    #[test]
+    fn import_request_defaults_passphrase_min_length_for_older_payloads() {
+        let request = serde_json::from_str::<SecretPromptRequest>(
+            r#"{"type":"import","walletLabelHint":"Primary"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            request,
+            SecretPromptRequest::Import(ImportSecretPromptRequest {
+                wallet_label_hint: Some("Primary".to_owned()),
+                passphrase_min_length: 12,
+            })
         );
     }
 }

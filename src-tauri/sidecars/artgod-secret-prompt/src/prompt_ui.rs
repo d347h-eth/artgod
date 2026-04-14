@@ -28,9 +28,12 @@ const BUTTON_PRIMARY: u32 = 0xD1E4FF;
 const BUTTON_PRIMARY_TEXT: u32 = 0x0F1822;
 const BUTTON_SECONDARY: u32 = 0x26303B;
 const BUTTON_SECONDARY_TEXT: u32 = 0xE6EBF1;
+const BUTTON_DISABLED: u32 = 0x1E242C;
+const BUTTON_DISABLED_TEXT: u32 = 0x667381;
 const CARET: u32 = 0xF3F5F7;
 const MASK: u32 = 0xE6EBF1;
 const WARNING: u32 = 0xF4D35E;
+const SUCCESS: u32 = 0x93D1DE;
 
 const LINE_HEIGHT: i32 = CELL_HEIGHT as i32;
 const BUTTON_HEIGHT: i32 = 48;
@@ -40,6 +43,7 @@ const CONTENT_MARGIN: i32 = 28;
 const BUTTON_EDGE_INSET: i32 = 18;
 const FIELD_INNER_PADDING_X: i32 = 18;
 const FIELD_INNER_PADDING_Y: i32 = 10;
+const CARET_TEXT_GAP_PX: i32 = 4;
 const FIELD_HEIGHT: i32 = CELL_HEIGHT as i32 + (FIELD_INNER_PADDING_Y * 2);
 const TEXT_WINDOW_SIZE: (u32, u32) = (820, 360);
 const REVEAL_WINDOW_SIZE: (u32, u32) = (920, 420);
@@ -54,6 +58,7 @@ pub struct TextPromptSpec<'a> {
     pub cancel_label: &'a str,
     pub input_kind: TextInputKind,
     pub max_len: usize,
+    pub validation: TextValidationSpec<'a>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,8 +91,16 @@ pub struct RevealPromptSpec<'a> {
 pub struct ImportPromptSpec<'a> {
     pub title: &'a str,
     pub wallet_label_hint: &'a str,
+    pub passphrase_min_length: usize,
     pub ok_label: &'a str,
     pub cancel_label: &'a str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextValidationSpec<'a> {
+    None,
+    MinLength { min_length: usize },
+    MatchesValue { expected: &'a str },
 }
 
 #[derive(Debug)]
@@ -165,6 +178,7 @@ pub fn prompt_import(
         title: spec.title.to_owned(),
         ok_label: spec.ok_label.to_owned(),
         cancel_label: spec.cancel_label.to_owned(),
+        passphrase_min_length: spec.passphrase_min_length,
         label: None,
         private_key: None,
         passphrase: None,
@@ -178,6 +192,7 @@ pub fn prompt_import(
         cancel_label: spec.cancel_label,
         input_kind: TextInputKind::Label,
         max_len: 64,
+        validation: TextValidationSpec::None,
     });
     match run_flow(title, flow, initial_screen, TEXT_WINDOW_SIZE)? {
         FlowResult::ImportSubmitted(output) => Ok(Some(output)),
@@ -290,6 +305,7 @@ fn build_text_screen(spec: TextPromptSpec<'_>) -> ScreenState {
         cancel_label: spec.cancel_label.to_owned(),
         input_kind: spec.input_kind,
         max_len: spec.max_len,
+        validation: TextValidation::from_spec(spec.validation),
         focus: TextFocus::Input,
         cursor_index,
         scroll_offset: 0,
@@ -341,6 +357,7 @@ struct ImportFlowState {
     title: String,
     ok_label: String,
     cancel_label: String,
+    passphrase_min_length: usize,
     label: Option<String>,
     private_key: Option<String>,
     passphrase: Option<String>,
@@ -413,6 +430,7 @@ impl ImportFlowState {
                             cancel_label: &self.cancel_label,
                             input_kind: TextInputKind::PrivateKey,
                             max_len: 132,
+                            validation: TextValidationSpec::None,
                         },
                     )));
                 }
@@ -428,6 +446,9 @@ impl ImportFlowState {
                             cancel_label: &self.cancel_label,
                             input_kind: TextInputKind::Passphrase,
                             max_len: 256,
+                            validation: TextValidationSpec::MinLength {
+                                min_length: self.passphrase_min_length,
+                            },
                         },
                     )));
                 }
@@ -443,6 +464,9 @@ impl ImportFlowState {
                             cancel_label: &self.cancel_label,
                             input_kind: TextInputKind::Passphrase,
                             max_len: 256,
+                            validation: TextValidationSpec::MatchesValue {
+                                expected: self.passphrase.as_deref().unwrap_or_default(),
+                            },
                         },
                     )));
                 }
@@ -478,6 +502,7 @@ impl RemoveFlowState {
                         cancel_label: &self.cancel_label,
                         input_kind: TextInputKind::Passphrase,
                         max_len: 256,
+                        validation: TextValidationSpec::None,
                     },
                 )))
             }
@@ -505,6 +530,7 @@ impl ExportConfirmFlowState {
                     cancel_label: &self.cancel_label,
                     input_kind: TextInputKind::Confirmation,
                     max_len: 64,
+                    validation: TextValidationSpec::None,
                 })),
             ),
             ScreenResult::Submitted(value) if self.typed_confirmation.is_none() => {
@@ -519,6 +545,7 @@ impl ExportConfirmFlowState {
                         cancel_label: &self.cancel_label,
                         input_kind: TextInputKind::Passphrase,
                         max_len: 256,
+                        validation: TextValidationSpec::None,
                     },
                 )))
             }
@@ -900,6 +927,7 @@ struct TextScreenState {
     cancel_label: String,
     input_kind: TextInputKind,
     max_len: usize,
+    validation: TextValidation,
     focus: TextFocus,
     cursor_index: usize,
     scroll_offset: usize,
@@ -910,6 +938,31 @@ enum TextFocus {
     Input,
     Ok,
     Cancel,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TextValidation {
+    None,
+    MinLength { min_length: usize },
+    MatchesValue { expected: String },
+}
+
+struct ValidationFeedback {
+    message: String,
+    color: u32,
+    blocking: bool,
+}
+
+impl TextValidation {
+    fn from_spec(spec: TextValidationSpec<'_>) -> Self {
+        match spec {
+            TextValidationSpec::None => Self::None,
+            TextValidationSpec::MinLength { min_length } => Self::MinLength { min_length },
+            TextValidationSpec::MatchesValue { expected } => Self::MatchesValue {
+                expected: expected.to_owned(),
+            },
+        }
+    }
 }
 
 impl TextScreenState {
@@ -953,10 +1006,7 @@ impl TextScreenState {
 
         let inner_x = input_rect.x + FIELD_INNER_PADDING_X;
         let inner_y = input_rect.y + FIELD_INNER_PADDING_Y;
-        let visible_chars = max(
-            1,
-            (input_rect.w - (FIELD_INNER_PADDING_X * 2)) / ADVANCE_WIDTH as i32,
-        ) as usize;
+        let visible_chars = visible_text_columns(input_rect.w);
         self.scroll_offset = adjusted_scroll(self.scroll_offset, self.cursor_index, visible_chars);
         let visible_end = min(self.value.len(), self.scroll_offset + visible_chars);
         let visible_value = &self.value[self.scroll_offset..visible_end];
@@ -968,7 +1018,8 @@ impl TextScreenState {
         if self.focus == TextFocus::Input {
             let caret_x = inner_x
                 + (((self.cursor_index.saturating_sub(self.scroll_offset)) as i32)
-                    * ADVANCE_WIDTH as i32);
+                    * ADVANCE_WIDTH as i32)
+                + CARET_TEXT_GAP_PX;
             canvas.fill_rect(Rect::new(caret_x, inner_y, 2, CELL_HEIGHT as i32), CARET);
         }
 
@@ -982,6 +1033,14 @@ impl TextScreenState {
             &hint,
             TEXT_MUTED,
         );
+        if let Some(feedback) = self.validation_feedback() {
+            canvas.draw_text(
+                panel.x + 18,
+                input_rect.y + input_rect.h + 10 + LINE_HEIGHT + 4,
+                &feedback.message,
+                feedback.color,
+            );
+        }
 
         let buttons_y = panel.y + panel.h - BUTTON_HEIGHT - 18;
         let cancel_rect = Rect::new(
@@ -996,12 +1055,14 @@ impl TextScreenState {
             BUTTON_WIDTH,
             BUTTON_HEIGHT,
         );
+        let can_submit = self.can_submit();
         draw_button(
             canvas,
             ok_rect,
             &self.ok_label,
             self.focus == TextFocus::Ok,
             true,
+            can_submit,
         );
         draw_button(
             canvas,
@@ -1009,6 +1070,7 @@ impl TextScreenState {
             &self.cancel_label,
             self.focus == TextFocus::Cancel,
             false,
+            true,
         );
     }
 
@@ -1060,10 +1122,15 @@ impl TextScreenState {
 
     fn activate_focused(&mut self) -> Option<ScreenResult> {
         match self.focus {
-            TextFocus::Input | TextFocus::Ok => Some(ScreenResult::Submitted(normalize_submit(
-                &self.value,
-                self.input_kind,
-            ))),
+            TextFocus::Input | TextFocus::Ok => {
+                if !self.can_submit() {
+                    return None;
+                }
+                Some(ScreenResult::Submitted(normalize_submit(
+                    &self.value,
+                    self.input_kind,
+                )))
+            }
             TextFocus::Cancel => Some(ScreenResult::Cancelled),
         }
     }
@@ -1104,10 +1171,7 @@ impl TextScreenState {
         if input_rect.contains(x, y) {
             self.focus = TextFocus::Input;
             let inner_x = input_rect.x + FIELD_INNER_PADDING_X;
-            let visible_chars = max(
-                1,
-                (input_rect.w - (FIELD_INNER_PADDING_X * 2)) / ADVANCE_WIDTH as i32,
-            ) as usize;
+            let visible_chars = visible_text_columns(input_rect.w);
             self.scroll_offset =
                 adjusted_scroll(self.scroll_offset, self.cursor_index, visible_chars);
             let relative_x = max(0, x - inner_x);
@@ -1156,6 +1220,63 @@ impl TextScreenState {
             return;
         }
         self.value.remove(self.cursor_index);
+    }
+
+    fn can_submit(&self) -> bool {
+        self.validation_feedback()
+            .map(|feedback| !feedback.blocking)
+            .unwrap_or(true)
+    }
+
+    fn validation_feedback(&self) -> Option<ValidationFeedback> {
+        match &self.validation {
+            TextValidation::None => None,
+            TextValidation::MinLength { min_length } => {
+                let current = self.value.chars().count();
+                if current >= *min_length {
+                    Some(ValidationFeedback {
+                        message: format!("Passphrase length is valid ({current}/{min_length}+ chars)."),
+                        color: SUCCESS,
+                        blocking: false,
+                    })
+                } else if current == 0 {
+                    Some(ValidationFeedback {
+                        message: format!("Passphrase must be at least {min_length} characters."),
+                        color: TEXT_MUTED,
+                        blocking: true,
+                    })
+                } else {
+                    Some(ValidationFeedback {
+                        message: format!(
+                            "Passphrase must be at least {min_length} characters ({current}/{min_length})."
+                        ),
+                        color: WARNING,
+                        blocking: true,
+                    })
+                }
+            }
+            TextValidation::MatchesValue { expected } => {
+                if self.value.is_empty() {
+                    Some(ValidationFeedback {
+                        message: "Repeat the passphrase exactly.".to_owned(),
+                        color: TEXT_MUTED,
+                        blocking: true,
+                    })
+                } else if &self.value == expected {
+                    Some(ValidationFeedback {
+                        message: "Passphrase confirmation matches.".to_owned(),
+                        color: SUCCESS,
+                        blocking: false,
+                    })
+                } else {
+                    Some(ValidationFeedback {
+                        message: "Passphrase confirmation does not match.".to_owned(),
+                        color: WARNING,
+                        blocking: true,
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -1217,6 +1338,7 @@ impl ConfirmScreenState {
             &self.confirm_label,
             self.focus == ConfirmFocus::Confirm,
             true,
+            true,
         );
         draw_button(
             canvas,
@@ -1224,6 +1346,7 @@ impl ConfirmScreenState {
             &self.cancel_label,
             self.focus == ConfirmFocus::Cancel,
             false,
+            true,
         );
     }
 
@@ -1324,7 +1447,7 @@ impl RevealScreenState {
             BUTTON_WIDTH,
             BUTTON_HEIGHT,
         );
-        draw_button(canvas, button_rect, &self.acknowledge_label, true, true);
+        draw_button(canvas, button_rect, &self.acknowledge_label, true, true, true);
     }
 
     fn handle_click(
@@ -1446,13 +1569,24 @@ impl Rect {
     }
 }
 
-fn draw_button(canvas: &mut Canvas<'_>, rect: Rect, label: &str, focused: bool, primary: bool) {
-    let fill = if primary {
+fn draw_button(
+    canvas: &mut Canvas<'_>,
+    rect: Rect,
+    label: &str,
+    focused: bool,
+    primary: bool,
+    enabled: bool,
+) {
+    let fill = if !enabled {
+        BUTTON_DISABLED
+    } else if primary {
         BUTTON_PRIMARY
     } else {
         BUTTON_SECONDARY
     };
-    let text_color = if primary {
+    let text_color = if !enabled {
+        BUTTON_DISABLED_TEXT
+    } else if primary {
         BUTTON_PRIMARY_TEXT
     } else {
         BUTTON_SECONDARY_TEXT
@@ -1460,7 +1594,9 @@ fn draw_button(canvas: &mut Canvas<'_>, rect: Rect, label: &str, focused: bool, 
     canvas.fill_rect(rect, fill);
     canvas.stroke_rect(
         rect,
-        if focused {
+        if !enabled {
+            PANEL_BORDER
+        } else if focused {
             PANEL_BORDER_ACTIVE
         } else {
             PANEL_BORDER
@@ -1477,6 +1613,13 @@ fn draw_masked_text(canvas: &mut Canvas<'_>, x: i32, y: i32, count: usize, color
         let dot_x = x + (index as i32 * ADVANCE_WIDTH as i32) + 2;
         canvas.fill_rect(Rect::new(dot_x, y + 10, 8, 8), color);
     }
+}
+
+fn visible_text_columns(input_width: i32) -> usize {
+    max(
+        1,
+        (input_width - (FIELD_INNER_PADDING_X * 2) - CARET_TEXT_GAP_PX) / ADVANCE_WIDTH as i32,
+    ) as usize
 }
 
 fn glyph_rows(ch: char) -> Option<&'static [u32; CELL_HEIGHT]> {
@@ -1586,5 +1729,53 @@ mod tests {
             wrap_text("abcdef", 4),
             vec!["abcd".to_owned(), "ef".to_owned()]
         );
+    }
+
+    #[test]
+    fn min_length_validation_blocks_short_passphrase_submit() {
+        let screen = TextScreenState {
+            title: "Import Wallet".to_owned(),
+            message: "Keystore passphrase".to_owned(),
+            value: "short".to_owned(),
+            mode: TextPromptMode::Secret,
+            ok_label: "OK".to_owned(),
+            cancel_label: "Cancel".to_owned(),
+            input_kind: TextInputKind::Passphrase,
+            max_len: 256,
+            validation: TextValidation::MinLength { min_length: 12 },
+            focus: TextFocus::Input,
+            cursor_index: 5,
+            scroll_offset: 0,
+        };
+
+        assert!(!screen.can_submit());
+        assert!(screen
+            .validation_feedback()
+            .is_some_and(|feedback| feedback.blocking));
+    }
+
+    #[test]
+    fn matching_validation_accepts_matching_confirmation() {
+        let screen = TextScreenState {
+            title: "Import Wallet".to_owned(),
+            message: "Confirm keystore passphrase".to_owned(),
+            value: "very-secret-123".to_owned(),
+            mode: TextPromptMode::Secret,
+            ok_label: "OK".to_owned(),
+            cancel_label: "Cancel".to_owned(),
+            input_kind: TextInputKind::Passphrase,
+            max_len: 256,
+            validation: TextValidation::MatchesValue {
+                expected: "very-secret-123".to_owned(),
+            },
+            focus: TextFocus::Input,
+            cursor_index: 15,
+            scroll_offset: 0,
+        };
+
+        assert!(screen.can_submit());
+        assert!(screen
+            .validation_feedback()
+            .is_some_and(|feedback| !feedback.blocking));
     }
 }

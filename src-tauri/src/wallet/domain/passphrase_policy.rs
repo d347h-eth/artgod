@@ -13,6 +13,11 @@ impl Default for PassphrasePolicy {
 }
 
 impl PassphrasePolicy {
+    /// Returns the minimum passphrase length enforced for wallet secrets.
+    pub fn min_length(&self) -> usize {
+        self.min_length
+    }
+
     /// Validates a new passphrase and its confirmation.
     pub fn validate_new(
         &self,

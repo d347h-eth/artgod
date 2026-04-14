@@ -23,49 +23,33 @@ pub struct DesktopRuntimeConfig {
     pub wallet: DesktopWalletConfig,
 }
 
-#[allow(dead_code)]
+#[derive(Clone, Debug)]
 pub struct DesktopWalletConfig {
     pub store_dir: PathBuf,
     pub index_path: PathBuf,
+    #[allow(dead_code)]
     pub bot_unlock_stabilization_delay_ms: u64,
+}
+
+struct DesktopLocalPaths {
+    app_data_dir: PathBuf,
+    logs_dir: PathBuf,
+    env_file_path: PathBuf,
+}
+
+impl DesktopWalletConfig {
+    pub fn load_or_create(app: &AppHandle) -> Result<Self, String> {
+        let local_paths = ensure_desktop_local_paths(app)?;
+        let process_env = parse_env_file(&local_paths.env_file_path)?;
+        build_wallet_config(&local_paths.app_data_dir, &process_env)
+    }
 }
 
 impl DesktopRuntimeConfig {
     pub fn load_or_create(app: &AppHandle) -> Result<Self, String> {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
-        fs::create_dir_all(&app_data_dir).map_err(|error| {
-            format!(
-                "Failed to create app data dir {}: {error}",
-                app_data_dir.display()
-            )
-        })?;
-
-        let config_dir = app_data_dir.join("config");
-        let logs_dir = app_data_dir.join("logs");
-        fs::create_dir_all(&config_dir).map_err(|error| {
-            format!(
-                "Failed to create config dir {}: {error}",
-                config_dir.display()
-            )
-        })?;
-        fs::create_dir_all(&logs_dir).map_err(|error| {
-            format!("Failed to create logs dir {}: {error}", logs_dir.display())
-        })?;
-
-        let env_file_path = config_dir.join(".env");
-        if !env_file_path.exists() {
-            let template = build_default_env_template();
-            fs::write(&env_file_path, template).map_err(|error| {
-                format!(
-                    "Failed to create desktop env file {}: {error}",
-                    env_file_path.display()
-                )
-            })?;
-        }
-
+        let local_paths = ensure_desktop_local_paths(app)?;
+        let app_data_dir = local_paths.app_data_dir.clone();
+        let env_file_path = local_paths.env_file_path.clone();
         let process_env = parse_env_file(&env_file_path)?;
 
         let runtime_dir = resolve_runtime_resources_dir(
@@ -127,23 +111,7 @@ impl DesktopRuntimeConfig {
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
         let restart_backoff_ms =
             parse_u64(get_required(&process_env, "DESKTOP_RESTART_BACKOFF_MS")?)?;
-        let wallet_store_dir = resolve_from_base_dir(
-            &app_data_dir,
-            process_env
-                .get("DESKTOP_WALLET_STORE_DIR")
-                .map(String::as_str)
-                .unwrap_or("wallets"),
-        );
-        fs::create_dir_all(&wallet_store_dir).map_err(|error| {
-            format!(
-                "Failed to create wallet store dir {}: {error}",
-                wallet_store_dir.display()
-            )
-        })?;
-        let bot_unlock_stabilization_delay_ms = parse_u64(get_required(
-            &process_env,
-            "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS",
-        )?)?;
+        let wallet = build_wallet_config(&app_data_dir, &process_env)?;
 
         // Core runtime env is required for backend/indexer startup.
         get_required(&process_env, "ARTGOD_DB_PATH")?;
@@ -207,12 +175,8 @@ impl DesktopRuntimeConfig {
             auto_start,
             restart_backoff_ms,
             process_env: merged_env,
-            logs_dir,
-            wallet: DesktopWalletConfig {
-                store_dir: wallet_store_dir.clone(),
-                index_path: wallet_store_dir.join("index.json"),
-                bot_unlock_stabilization_delay_ms,
-            },
+            logs_dir: local_paths.logs_dir,
+            wallet,
         })
     }
 
@@ -223,6 +187,76 @@ impl DesktopRuntimeConfig {
     pub fn nats_url(&self) -> String {
         self.nats_url.clone()
     }
+}
+
+fn ensure_desktop_local_paths(app: &AppHandle) -> Result<DesktopLocalPaths, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
+    fs::create_dir_all(&app_data_dir).map_err(|error| {
+        format!(
+            "Failed to create app data dir {}: {error}",
+            app_data_dir.display()
+        )
+    })?;
+
+    let config_dir = app_data_dir.join("config");
+    let logs_dir = app_data_dir.join("logs");
+    fs::create_dir_all(&config_dir).map_err(|error| {
+        format!(
+            "Failed to create config dir {}: {error}",
+            config_dir.display()
+        )
+    })?;
+    fs::create_dir_all(&logs_dir)
+        .map_err(|error| format!("Failed to create logs dir {}: {error}", logs_dir.display()))?;
+
+    let env_file_path = config_dir.join(".env");
+    if !env_file_path.exists() {
+        let template = build_default_env_template();
+        fs::write(&env_file_path, template).map_err(|error| {
+            format!(
+                "Failed to create desktop env file {}: {error}",
+                env_file_path.display()
+            )
+        })?;
+    }
+
+    Ok(DesktopLocalPaths {
+        app_data_dir,
+        logs_dir,
+        env_file_path,
+    })
+}
+
+fn build_wallet_config(
+    app_data_dir: &Path,
+    process_env: &HashMap<String, String>,
+) -> Result<DesktopWalletConfig, String> {
+    let wallet_store_dir = resolve_from_base_dir(
+        app_data_dir,
+        process_env
+            .get("DESKTOP_WALLET_STORE_DIR")
+            .map(String::as_str)
+            .unwrap_or("wallets"),
+    );
+    fs::create_dir_all(&wallet_store_dir).map_err(|error| {
+        format!(
+            "Failed to create wallet store dir {}: {error}",
+            wallet_store_dir.display()
+        )
+    })?;
+    let bot_unlock_stabilization_delay_ms = parse_u64(get_required(
+        process_env,
+        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS",
+    )?)?;
+
+    Ok(DesktopWalletConfig {
+        store_dir: wallet_store_dir.clone(),
+        index_path: wallet_store_dir.join("index.json"),
+        bot_unlock_stabilization_delay_ms,
+    })
 }
 
 fn parse_env_file(path: &Path) -> Result<HashMap<String, String>, String> {
@@ -452,7 +486,7 @@ fn build_default_env_template() -> String {
         "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
         "# Wallet store directory is resolved relative to app-data dir unless absolute\n",
         "DESKTOP_WALLET_STORE_DIR=wallets\n",
-        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS=15000\n\n",
+        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS=5000\n\n",
         "# Optional: override bundled NATS binary path (absolute or relative to runtime resources dir)\n",
         "# DESKTOP_NATS_BINARY_PATH=nats/nats-server(.exe)\n",
         "\n",

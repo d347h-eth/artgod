@@ -14,7 +14,7 @@ use artgod_secret_prompt_protocol::{
 };
 use prompt_ui::{
     ExportConfirmPromptSpec, ImportPromptSpec, RemoveConfirmPromptSpec, RevealPromptSpec,
-    TextInputKind, TextPromptMode, TextPromptSpec,
+    TextInputKind, TextPromptMode, TextPromptSpec, TextValidationSpec,
 };
 use thiserror::Error;
 
@@ -145,6 +145,7 @@ fn handle_import_request(
     let Some(output) = prompt_ui::prompt_import(ImportPromptSpec {
         title: "Import Wallet",
         wallet_label_hint: payload.wallet_label_hint.as_deref().unwrap_or(""),
+        passphrase_min_length: payload.passphrase_min_length,
         ok_label: "OK",
         cancel_label: "Cancel",
     })
@@ -181,6 +182,7 @@ fn handle_unlock_request(
         cancel_label: "Cancel",
         input_kind: TextInputKind::Passphrase,
         max_len: 256,
+        validation: TextValidationSpec::None,
     })
     .map_err(|error| SecretPromptHelperError::UiFailure {
         action: SecretPromptAction::Unlock,
