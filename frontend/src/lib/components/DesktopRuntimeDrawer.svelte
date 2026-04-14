@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { desktopRuntimeStore } from '$lib/runtime/desktop-runtime-store';
-	import type { LifecycleEventLevel } from '$lib/runtime/desktop-runtime-store';
+	import { adminRuntimeStore } from '$lib/admin/runtime/store';
+	import type { LifecycleEventLevel } from '$lib/admin/runtime/store';
 	import { parseBracketPrefixedLine, createTokenizedLogLine } from '$lib/runtime/log-line-format';
 	import {
 		resolveStartupSurfacePolicy,
@@ -11,13 +11,21 @@
 
 	type FilterOption = string;
 	type ConsoleTab = AdminConsoleTab;
-	let { embedded = false }: { embedded?: boolean } = $props();
+	let {
+		embedded = false,
+		forcedTab = null,
+		showHeader = !embedded
+	}: {
+		embedded?: boolean;
+		forcedTab?: ConsoleTab | null;
+		showHeader?: boolean;
+	} = $props();
 
-	const runtimeState = desktopRuntimeStore.state;
+	const runtimeState = adminRuntimeStore.state;
 
 	let open = $state(embedded);
-	let activeTab = $state<ConsoleTab>(embedded ? 'lifecycle' : 'logs');
-	let lastUserTab = $state<ConsoleTab>(embedded ? 'lifecycle' : 'logs');
+	let activeTab = $state<ConsoleTab>(forcedTab ?? (embedded ? 'lifecycle' : 'logs'));
+	let lastUserTab = $state<ConsoleTab>(forcedTab ?? (embedded ? 'lifecycle' : 'logs'));
 	let processFilter = $state<FilterOption>('desktop-supervisor');
 	let logStreamElement = $state<HTMLDivElement | null>(null);
 	let lifecycleLogStreamElement = $state<HTMLDivElement | null>(null);
@@ -31,18 +39,18 @@
 	let timer: ReturnType<typeof setInterval> | null = null;
 
 	onMount(() => {
-		void desktopRuntimeStore.init();
+		void adminRuntimeStore.init();
 		timer = setInterval(() => {
 			nowMs = Date.now();
 		}, 1_000);
 
 		if (embedded) {
-			void desktopRuntimeStore.openConsole(processFilter);
+			void adminRuntimeStore.openConsole(processFilter);
 			return () => {
 				if (timer) {
 					clearInterval(timer);
 				}
-				desktopRuntimeStore.dispose();
+				adminRuntimeStore.dispose();
 			};
 		}
 
@@ -70,7 +78,7 @@
 			if (timer) {
 				clearInterval(timer);
 			}
-			desktopRuntimeStore.dispose();
+			adminRuntimeStore.dispose();
 		};
 	});
 
@@ -119,6 +127,13 @@
 		startupAutoOpened = false;
 	});
 
+	$effect(() => {
+		if (!forcedTab || activeTab === forcedTab) {
+			return;
+		}
+		setActiveTab(forcedTab, false);
+	});
+
 	async function toggleConsole() {
 		if (embedded) {
 			return;
@@ -140,7 +155,7 @@
 	async function openConsoleForTab(tab: ConsoleTab, rememberSelection: boolean) {
 		open = true;
 		setActiveTab(tab, rememberSelection);
-		await desktopRuntimeStore.openConsole(processFilter);
+		await adminRuntimeStore.openConsole(processFilter);
 	}
 
 	function closeConsole() {
@@ -148,7 +163,7 @@
 			return;
 		}
 		open = false;
-		desktopRuntimeStore.closeConsole();
+		adminRuntimeStore.closeConsole();
 	}
 
 	function setActiveTab(tab: ConsoleTab, rememberSelection = true) {
@@ -193,7 +208,7 @@
 		}
 		syncedLogProcess = processFilter;
 		logAutoFollow = true;
-		void desktopRuntimeStore.setLogProcess(processFilter);
+		void adminRuntimeStore.setLogProcess(processFilter);
 	});
 
 	const visibleLogs = $derived.by(() =>
@@ -315,47 +330,42 @@
 
 {#if open}
 	<aside class={`runtime-drawer ${embedded ? 'runtime-drawer-embedded' : ''}`} aria-label="Desktop Runtime Operations">
-		<header class="runtime-drawer-header">
-			<h2>ArtGod {APP_VERSION} | Admin UI</h2>
-			{#if !embedded}
-				<p class="muted">press <span class="mono">`</span> or <span class="mono">esc</span> to close</p>
-			{/if}
-		</header>
-		{#if embedded}
-			<div class="runtime-primary-actions">
+		{#if showHeader}
+			<header class="runtime-drawer-header">
+				<h2>ArtGod {APP_VERSION} | Admin UI</h2>
+				{#if !embedded}
+					<p class="muted">press <span class="mono">`</span> or <span class="mono">esc</span> to close</p>
+				{/if}
+			</header>
+		{/if}
+		{#if !forcedTab}
+			<nav class="runtime-tabs" aria-label="Runtime Console Tabs">
 				<button
 					type="button"
-					class="runtime-primary-cta"
-					onclick={() => void desktopRuntimeStore.openUserlandUi()}
-					disabled={$runtimeState.busyAction !== null}
+					class:runtime-tab-active={activeTab === 'lifecycle'}
+					disabled={activeTab === 'lifecycle'}
+					onclick={() => setActiveTab('lifecycle')}
 				>
-					OPEN USER APP (OPENS BROWSER)
+					lifecycle
 				</button>
-			</div>
+				<button
+					type="button"
+					class:runtime-tab-active={activeTab === 'logs'}
+					disabled={activeTab === 'logs'}
+					onclick={() => setActiveTab('logs')}
+				>
+					logs
+				</button>
+				<button
+					type="button"
+					class:runtime-tab-active={activeTab === 'status'}
+					disabled={activeTab === 'status'}
+					onclick={() => setActiveTab('status')}
+				>
+					status
+				</button>
+			</nav>
 		{/if}
-		<nav class="runtime-tabs" aria-label="Runtime Console Tabs">
-			<button
-				type="button"
-				class:runtime-tab-active={activeTab === 'lifecycle'}
-				onclick={() => setActiveTab('lifecycle')}
-			>
-				lifecycle
-			</button>
-			<button
-				type="button"
-				class:runtime-tab-active={activeTab === 'logs'}
-				onclick={() => setActiveTab('logs')}
-			>
-				logs
-			</button>
-			<button
-				type="button"
-				class:runtime-tab-active={activeTab === 'status'}
-				onclick={() => setActiveTab('status')}
-			>
-				status
-			</button>
-		</nav>
 
 		{#if activeTab === 'lifecycle'}
 			<div class="runtime-tab-panel runtime-tab-panel-lifecycle" role="tabpanel" aria-label="Lifecycle">
@@ -370,21 +380,21 @@
 							<div class="desktop-lifecycle-actions">
 								<button
 									type="button"
-									onclick={() => void desktopRuntimeStore.start()}
+									onclick={() => void adminRuntimeStore.start()}
 									disabled={$runtimeState.busyAction !== null}
 								>
 									retry start
 								</button>
 								<button
 									type="button"
-									onclick={() => void desktopRuntimeStore.openConfigPath()}
+									onclick={() => void adminRuntimeStore.openConfigPath()}
 									disabled={$runtimeState.busyAction !== null}
 								>
 									open config
 								</button>
 								<button
 									type="button"
-									onclick={() => void desktopRuntimeStore.openLogsPath()}
+									onclick={() => void adminRuntimeStore.openLogsPath()}
 									disabled={$runtimeState.busyAction !== null}
 								>
 									open logs
@@ -398,23 +408,25 @@
 						bind:this={lifecycleLogStreamElement}
 						onscroll={handleLifecycleLogScroll}
 					>
-						{#if tokenizedLifecycleEvents.length === 0}
-							<div class="desktop-lifecycle-event-row">
-								<span class="desktop-lifecycle-event-time mono">{formatTime(new Date().toISOString())} </span>
-								<span class="runtime-pass">[info] </span>
-								<span class="desktop-lifecycle-event-code mono">[boot.waiting] </span>
-								<span class="desktop-lifecycle-event-message">Waiting for first lifecycle event...</span>
-							</div>
-						{:else}
-							{#each tokenizedLifecycleEvents as event, index (lifecycleEvents[index].id)}
+						<div class="desktop-lifecycle-log-content">
+							{#if tokenizedLifecycleEvents.length === 0}
 								<div class="desktop-lifecycle-event-row">
-									<span class="desktop-lifecycle-event-time mono">{event.tokens[0]} </span>
-									<span class={lifecycleLevelClass(event.tokens[1] as LifecycleEventLevel)}>[{event.tokens[1]}] </span>
-									<span class="desktop-lifecycle-event-code mono">[{event.tokens[2]}] </span>
-									<span class="desktop-lifecycle-event-message">{event.message}</span>
+									<span class="desktop-lifecycle-event-time mono">{formatTime(new Date().toISOString())} </span>
+									<span class="runtime-pass">[info] </span>
+									<span class="desktop-lifecycle-event-code mono">[boot.waiting] </span>
+									<span class="desktop-lifecycle-event-message">Waiting for first lifecycle event...</span>
 								</div>
-							{/each}
-						{/if}
+							{:else}
+								{#each tokenizedLifecycleEvents as event, index (lifecycleEvents[index].id)}
+									<div class="desktop-lifecycle-event-row">
+										<span class="desktop-lifecycle-event-time mono">{event.tokens[0]} </span>
+										<span class={lifecycleLevelClass(event.tokens[1] as LifecycleEventLevel)}>[{event.tokens[1]}] </span>
+										<span class="desktop-lifecycle-event-code mono">[{event.tokens[2]}] </span>
+										<span class="desktop-lifecycle-event-message">{event.message}</span>
+									</div>
+								{/each}
+							{/if}
+						</div>
 					</div>
 				</section>
 			</div>
@@ -433,25 +445,27 @@
 									<option value={option}>{option}</option>
 								{/each}
 							</select>
-							<button type="button" onclick={() => desktopRuntimeStore.clearLogs()}>
+							<button type="button" onclick={() => adminRuntimeStore.clearLogs()}>
 								clear
 							</button>
 						</div>
 					</header>
 					<div class="runtime-log-stream" bind:this={logStreamElement} onscroll={handleLogScroll}>
-						{#if parsedVisibleLogs.length === 0}
-							<p class="muted">no logs</p>
-						{:else}
-							{#each parsedVisibleLogs as entry}
-								<div class="runtime-log-line">
-									<span class="mono runtime-log-process">[{entry.process}] </span>
-									{#each entry.tokens as token}
-										<span class={`mono ${runtimeTokenClass(token)}`}>[{token}] </span>
-									{/each}
-									<span class="runtime-log-message">{entry.message}</span>
-								</div>
-							{/each}
-						{/if}
+						<div class="runtime-log-content">
+							{#if parsedVisibleLogs.length === 0}
+								<p class="muted">no logs</p>
+							{:else}
+								{#each parsedVisibleLogs as entry}
+									<div class="runtime-log-line">
+										<span class="mono runtime-log-process">[{entry.process}] </span>
+										{#each entry.tokens as token}
+											<span class={`mono ${runtimeTokenClass(token)}`}>[{token}] </span>
+										{/each}
+										<span class="runtime-log-message">{entry.message}</span>
+									</div>
+								{/each}
+							{/if}
+						</div>
 					</div>
 				</section>
 			</div>
@@ -462,28 +476,28 @@
 					<div class="runtime-controls">
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.start()}
+							onclick={() => void adminRuntimeStore.start()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							start
 						</button>
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.stop()}
+							onclick={() => void adminRuntimeStore.stop()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							stop
 						</button>
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.restart()}
+							onclick={() => void adminRuntimeStore.restart()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							restart
 						</button>
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.refreshPreflight()}
+							onclick={() => void adminRuntimeStore.refreshPreflight()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							preflight
@@ -549,14 +563,14 @@
 					<div class="runtime-controls">
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.openConfigPath()}
+							onclick={() => void adminRuntimeStore.openConfigPath()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							open config
 						</button>
 						<button
 							type="button"
-							onclick={() => void desktopRuntimeStore.openLogsPath()}
+							onclick={() => void adminRuntimeStore.openLogsPath()}
 							disabled={$runtimeState.busyAction !== null}
 						>
 							open logs

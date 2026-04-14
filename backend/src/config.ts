@@ -10,6 +10,7 @@ import {
     QUERY_CACHE_PROVIDERS,
     type QueryCacheProvider,
 } from "./ports/query-cache.js";
+import { normalizeOrigin } from "./http/common/origin-policy.js";
 
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
@@ -20,6 +21,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
+    "http://tauri.localhost",
+    "tauri://localhost",
 ];
 const DEFAULT_BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS = 30 * 1000;
 const DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS = 10 * 60 * 1000;
@@ -297,16 +300,9 @@ function normalizeAllowedHostEntry(entry: string): string {
 }
 
 function normalizeAllowedOriginEntry(entry: string): string {
-    let parsed: URL;
-    try {
-        parsed = new URL(entry);
-    } catch {
+    const normalized = normalizeOrigin(entry);
+    if (!normalized) {
         throw new Error(`Invalid BACKEND_ALLOWED_ORIGINS entry: ${entry}`);
     }
-
-    if (!(parsed.protocol === "http:" || parsed.protocol === "https:")) {
-        throw new Error(`Invalid BACKEND_ALLOWED_ORIGINS entry: ${entry}`);
-    }
-
-    return parsed.origin.toLowerCase();
+    return normalized;
 }

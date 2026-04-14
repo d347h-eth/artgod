@@ -1,0 +1,9 @@
+#![allow(dead_code)]
+
+pub mod application;
+pub mod domain;
+pub mod infra;
+pub mod tauri;
+
+#[cfg(test)]
+mod tests;

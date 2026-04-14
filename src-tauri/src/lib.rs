@@ -1,20 +1,25 @@
+mod desktop_log;
 mod runtime;
+mod wallet;
 
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::desktop_log::append_desktop_log;
 use runtime::{DesktopRuntimeConfig, RuntimeEndpoints, RuntimeManager, RuntimeStatus};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State, include_image};
-use time::OffsetDateTime;
+use wallet::tauri::{
+    WalletCommandState, wallet_get_status, wallet_import, wallet_list, wallet_remove,
+};
 
 struct DesktopState {
     runtime: RuntimeManager,
@@ -109,10 +114,7 @@ fn runtime_open_logs_path(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn runtime_open_userland_ui(
-    app: AppHandle,
-    state: State<'_, DesktopState>,
-) -> Result<(), String> {
+fn runtime_open_userland_ui(app: AppHandle, state: State<'_, DesktopState>) -> Result<(), String> {
     let url = resolve_userland_ui_url(&app, &state)?;
     open_url(&url)
 }
@@ -275,6 +277,7 @@ pub fn run() {
             runtime: RuntimeManager::new(),
             shutdown_requested: Arc::new(AtomicBool::new(false)),
         })
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -283,6 +286,10 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            let wallet_state =
+                WalletCommandState::load(&app.handle()).map_err(std::io::Error::other)?;
+            app.manage(wallet_state);
 
             append_desktop_log(app.handle(), "info", "Desktop app setup started");
             append_desktop_log(
@@ -375,7 +382,11 @@ pub fn run() {
             runtime_open_userland_ui,
             runtime_get_logs_tail,
             runtime_list_log_processes,
-            runtime_preflight
+            runtime_preflight,
+            wallet_list,
+            wallet_get_status,
+            wallet_import,
+            wallet_remove
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -416,7 +427,11 @@ fn request_runtime_shutdown(app_handle: &AppHandle, reason: &str) {
                 &format!("Desktop runtime shutdown failed: {error}"),
             );
         } else {
-            append_desktop_log(&app_handle, "info", "Runtime stopped after shutdown request");
+            append_desktop_log(
+                &app_handle,
+                "info",
+                "Runtime stopped after shutdown request",
+            );
         }
         app_handle.exit(0);
     });
@@ -478,23 +493,6 @@ fn resolve_userland_ui_url(app: &AppHandle, state: &DesktopState) -> Result<Stri
 
     let config = DesktopRuntimeConfig::load_or_create(app)?;
     Ok(config.backend_http_base_url())
-}
-
-fn append_desktop_log(app: &AppHandle, level: &str, message: &str) {
-    let app_data_dir = match app.path().app_data_dir() {
-        Ok(path) => path,
-        Err(_) => return,
-    };
-    let logs_dir = app_data_dir.join("logs");
-    if fs::create_dir_all(&logs_dir).is_err() {
-        return;
-    }
-    let file_path = logs_dir.join("desktop-app.log");
-    let mut file = match OpenOptions::new().create(true).append(true).open(file_path) {
-        Ok(file) => file,
-        Err(_) => return,
-    };
-    let _ = writeln!(file, "[{}] [{}] {}", rfc3339_now(), level, message);
 }
 
 fn resolve_logs_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -639,19 +637,6 @@ fn read_file_tail_lines(path: &Path, limit: usize) -> Vec<String> {
         tail.push_back(line);
     }
     tail.into_iter().collect::<Vec<_>>()
-}
-
-fn rfc3339_now() -> String {
-    let now = OffsetDateTime::now_utc();
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        now.year(),
-        u8::from(now.month()),
-        now.day(),
-        now.hour(),
-        now.minute(),
-        now.second()
-    )
 }
 
 fn push_exists_check(checks: &mut Vec<RuntimePreflightCheck>, key: &str, label: &str, path: &Path) {

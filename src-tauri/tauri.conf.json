@@ -6,8 +6,8 @@
     "build": {
         "frontendDist": "../frontend/dist",
         "devUrl": "http://localhost:5173",
-        "beforeDevCommand": "node ./scripts/build/dev-frontend-target.mjs admin",
-        "beforeBuildCommand": "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources"
+        "beforeDevCommand": "node ./scripts/build/dev-frontend-target.mjs admin && yarn build:desktop-sidecars --profile debug",
+        "beforeBuildCommand": "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"
     },
     "app": {
         "windows": [
@@ -21,12 +21,36 @@
             }
         ],
         "security": {
-            "csp": null
+            "csp": {
+                "default-src": "'self' asset:",
+                "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*",
+                "img-src": "'self' asset: http://asset.localhost data: blob:",
+                "font-src": "'self' asset: http://asset.localhost data:",
+                "script-src": "'self'",
+                "style-src": "'self'",
+                "base-uri": "'none'",
+                "form-action": "'none'",
+                "object-src": "'none'"
+            },
+            "devCsp": {
+                "default-src": "'self' asset:",
+                "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*",
+                "img-src": "'self' asset: http://asset.localhost data: blob:",
+                "font-src": "'self' asset: http://asset.localhost data:",
+                "script-src": "'self' 'unsafe-eval'",
+                "style-src": "'self' 'unsafe-inline'",
+                "base-uri": "'none'",
+                "form-action": "'none'",
+                "object-src": "'none'"
+            }
         }
     },
     "bundle": {
         "active": true,
         "targets": "all",
+        "externalBin": [
+            "binaries/artgod-secret-prompt"
+        ],
         "resources": [
             "resources/runtime"
         ]

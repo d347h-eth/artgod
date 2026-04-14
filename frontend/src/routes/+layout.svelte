@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import '../app.css';
-	import DesktopRuntimeDrawer from '$lib/components/DesktopRuntimeDrawer.svelte';
+	import AdminShell from '$lib/admin/components/AdminShell.svelte';
 	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
 	import {
 		createTokenPreviewController,
@@ -10,7 +10,9 @@
 	import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
 	let { children } = $props();
-	setTokenPreviewControllerContext(createTokenPreviewController());
+	if (!IS_ADMIN_FRONTEND_TARGET) {
+		setTokenPreviewControllerContext(createTokenPreviewController());
+	}
 
 	onMount(() => {
 		document.documentElement.dataset.artgodHydrated = '1';
@@ -22,7 +24,7 @@
 </script>
 
 {#if IS_ADMIN_FRONTEND_TARGET}
-	<DesktopRuntimeDrawer embedded={true} />
+	<AdminShell />
 {:else}
 	{@render children()}
 	<TokenPreviewOverlay />

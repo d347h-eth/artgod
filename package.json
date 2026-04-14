@@ -27,6 +27,7 @@
         "build:desktop": "node ./scripts/build/build-frontend-target.mjs admin",
         "build:runtime": "node ./scripts/build/build-runtime-artifacts.mjs",
         "build:desktop-runtime-resources": "node ./scripts/build/prepare-desktop-runtime-resources.mjs",
+        "build:desktop-sidecars": "node ./scripts/build/prepare-desktop-sidecars.mjs",
         "check:runtime-registry": "node ./scripts/build/check-runtime-registry.mjs",
         "sync:version": "node ./scripts/build/sync-version.mjs",
         "clean:build": "node ./scripts/build/clean-build-artifacts.mjs",

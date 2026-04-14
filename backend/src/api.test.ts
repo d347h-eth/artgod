@@ -35,6 +35,8 @@ const API_SECURITY_CONFIG: BackendSecurityConfig = {
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://localhost:5173",
+        "http://tauri.localhost",
+        "tauri://localhost",
         "https://artgod.network",
     ],
     csrfCookieSecure: false,
@@ -1986,6 +1988,21 @@ describe("backend api routes", () => {
         );
 
         expect(create.statusCode).toBe(200);
+    });
+
+    it("returns CORS headers for local desktop WebView origins", async () => {
+        const response = await resolve("GET", "/api/chains/default", undefined, {
+            host: "127.0.0.1:3000",
+            origin: "tauri://localhost",
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers["access-control-allow-origin"]).toBe(
+            "tauri://localhost",
+        );
+        expect(response.headers["access-control-allow-credentials"]).toBe(
+            "true",
+        );
     });
 
     it("persists embedded extension key when bootstrap scope matches", async () => {

@@ -39,6 +39,25 @@ for (const workspace of workspaces) {
 
 // Rust/Tauri build output cache.
 candidatePaths.add(path.join(rootDir, "src-tauri", "target"));
+candidatePaths.add(path.join(rootDir, "src-tauri", "binaries"));
+candidatePaths.add(
+    path.join(
+        rootDir,
+        "src-tauri",
+        "crates",
+        "artgod-secret-prompt-protocol",
+        "target",
+    ),
+);
+candidatePaths.add(
+    path.join(
+        rootDir,
+        "src-tauri",
+        "sidecars",
+        "artgod-secret-prompt",
+        "target",
+    ),
+);
 candidatePaths.add(path.join(rootDir, "src-tauri", "resources", "runtime"));
 candidatePaths.add(path.join(rootDir, ".cache", "desktop-node-runtime"));
 candidatePaths.add(path.join(rootDir, ".cache", "desktop-nats-runtime"));
@@ -58,8 +77,11 @@ const runtimeResourcesDir = path.join(
     "resources",
     "runtime",
 );
+const sidecarBinariesDir = path.join(rootDir, "src-tauri", "binaries");
 await mkdir(runtimeResourcesDir, { recursive: true });
 await writeFile(path.join(runtimeResourcesDir, ".gitkeep"), "", "utf8");
+await mkdir(sidecarBinariesDir, { recursive: true });
+await writeFile(path.join(sidecarBinariesDir, ".gitkeep"), "", "utf8");
 
 if (removed.length === 0) {
     console.log("No build artifacts found to remove.");

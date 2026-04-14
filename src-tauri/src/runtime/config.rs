@@ -19,46 +19,38 @@ pub struct DesktopRuntimeConfig {
     pub restart_backoff_ms: u64,
     pub process_env: HashMap<String, String>,
     pub logs_dir: PathBuf,
+    #[allow(dead_code)]
+    pub wallet: DesktopWalletConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct DesktopWalletConfig {
+    pub store_dir: PathBuf,
+    pub index_path: PathBuf,
+    #[allow(dead_code)]
+    pub bot_unlock_stabilization_delay_ms: u64,
+}
+
+struct DesktopLocalPaths {
+    app_data_dir: PathBuf,
+    logs_dir: PathBuf,
+    env_file_path: PathBuf,
+}
+
+impl DesktopWalletConfig {
+    pub fn load_or_create(app: &AppHandle) -> Result<Self, String> {
+        let local_paths = ensure_desktop_local_paths(app)?;
+        let process_env = parse_env_file(&local_paths.env_file_path)?;
+        build_wallet_config(&local_paths.app_data_dir, &process_env)
+    }
 }
 
 impl DesktopRuntimeConfig {
     pub fn load_or_create(app: &AppHandle) -> Result<Self, String> {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
-        fs::create_dir_all(&app_data_dir).map_err(|error| {
-            format!(
-                "Failed to create app data dir {}: {error}",
-                app_data_dir.display()
-            )
-        })?;
-
-        let config_dir = app_data_dir.join("config");
-        let logs_dir = app_data_dir.join("logs");
-        fs::create_dir_all(&config_dir).map_err(|error| {
-            format!(
-                "Failed to create config dir {}: {error}",
-                config_dir.display()
-            )
-        })?;
-        fs::create_dir_all(&logs_dir).map_err(|error| {
-            format!("Failed to create logs dir {}: {error}", logs_dir.display())
-        })?;
-
-        let env_file_path = config_dir.join(".env");
-        if !env_file_path.exists() {
-            let template = build_default_env_template();
-            fs::write(&env_file_path, template).map_err(|error| {
-                format!(
-                    "Failed to create desktop env file {}: {error}",
-                    env_file_path.display()
-                )
-            })?;
-        }
-
-        let mut process_env = parse_env_file(&env_file_path)?;
-        apply_runtime_env_defaults(&mut process_env);
+        let local_paths = ensure_desktop_local_paths(app)?;
+        let app_data_dir = local_paths.app_data_dir.clone();
+        let env_file_path = local_paths.env_file_path.clone();
+        let process_env = parse_env_file(&env_file_path)?;
 
         let runtime_dir = resolve_runtime_resources_dir(
             app,
@@ -119,6 +111,7 @@ impl DesktopRuntimeConfig {
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
         let restart_backoff_ms =
             parse_u64(get_required(&process_env, "DESKTOP_RESTART_BACKOFF_MS")?)?;
+        let wallet = build_wallet_config(&app_data_dir, &process_env)?;
 
         // Core runtime env is required for backend/indexer startup.
         get_required(&process_env, "ARTGOD_DB_PATH")?;
@@ -149,7 +142,6 @@ impl DesktopRuntimeConfig {
                 userland_ui_dist_dir.display()
             ));
         }
-
         let mut merged_env = process_env.clone();
         merged_env.insert(
             "ARTGOD_ENV_FILE".to_owned(),
@@ -183,7 +175,8 @@ impl DesktopRuntimeConfig {
             auto_start,
             restart_backoff_ms,
             process_env: merged_env,
-            logs_dir,
+            logs_dir: local_paths.logs_dir,
+            wallet,
         })
     }
 
@@ -194,6 +187,76 @@ impl DesktopRuntimeConfig {
     pub fn nats_url(&self) -> String {
         self.nats_url.clone()
     }
+}
+
+fn ensure_desktop_local_paths(app: &AppHandle) -> Result<DesktopLocalPaths, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
+    fs::create_dir_all(&app_data_dir).map_err(|error| {
+        format!(
+            "Failed to create app data dir {}: {error}",
+            app_data_dir.display()
+        )
+    })?;
+
+    let config_dir = app_data_dir.join("config");
+    let logs_dir = app_data_dir.join("logs");
+    fs::create_dir_all(&config_dir).map_err(|error| {
+        format!(
+            "Failed to create config dir {}: {error}",
+            config_dir.display()
+        )
+    })?;
+    fs::create_dir_all(&logs_dir)
+        .map_err(|error| format!("Failed to create logs dir {}: {error}", logs_dir.display()))?;
+
+    let env_file_path = config_dir.join(".env");
+    if !env_file_path.exists() {
+        let template = build_default_env_template();
+        fs::write(&env_file_path, template).map_err(|error| {
+            format!(
+                "Failed to create desktop env file {}: {error}",
+                env_file_path.display()
+            )
+        })?;
+    }
+
+    Ok(DesktopLocalPaths {
+        app_data_dir,
+        logs_dir,
+        env_file_path,
+    })
+}
+
+fn build_wallet_config(
+    app_data_dir: &Path,
+    process_env: &HashMap<String, String>,
+) -> Result<DesktopWalletConfig, String> {
+    let wallet_store_dir = resolve_from_base_dir(
+        app_data_dir,
+        process_env
+            .get("DESKTOP_WALLET_STORE_DIR")
+            .map(String::as_str)
+            .unwrap_or("wallets"),
+    );
+    fs::create_dir_all(&wallet_store_dir).map_err(|error| {
+        format!(
+            "Failed to create wallet store dir {}: {error}",
+            wallet_store_dir.display()
+        )
+    })?;
+    let bot_unlock_stabilization_delay_ms = parse_u64(get_required(
+        process_env,
+        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS",
+    )?)?;
+
+    Ok(DesktopWalletConfig {
+        store_dir: wallet_store_dir.clone(),
+        index_path: wallet_store_dir.join("index.json"),
+        bot_unlock_stabilization_delay_ms,
+    })
 }
 
 fn parse_env_file(path: &Path) -> Result<HashMap<String, String>, String> {
@@ -259,9 +322,9 @@ fn parse_port(raw: &str) -> Result<u16, String> {
 
 fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
     let trimmed = raw.trim();
-    let without_scheme = trimmed.strip_prefix("nats://").ok_or_else(|| {
-        format!("Invalid NATS_URL \"{raw}\": expected nats://<host>:<port>")
-    })?;
+    let without_scheme = trimmed
+        .strip_prefix("nats://")
+        .ok_or_else(|| format!("Invalid NATS_URL \"{raw}\": expected nats://<host>:<port>"))?;
     let authority = without_scheme.split('/').next().unwrap_or("").trim();
     if authority.is_empty() {
         return Err(format!(
@@ -290,9 +353,7 @@ fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
         (host.trim(), raw_port.trim())
     } else {
         let Some((host, raw_port)) = host_port.rsplit_once(':') else {
-            return Err(format!(
-                "Invalid NATS_URL \"{raw}\": missing host or port",
-            ));
+            return Err(format!("Invalid NATS_URL \"{raw}\": missing host or port",));
         };
         (host.trim(), raw_port.trim())
     };
@@ -310,7 +371,10 @@ fn parse_nats_url(raw: &str) -> Result<(String, u16), String> {
 }
 
 fn is_loopback_host(host: &str) -> bool {
-    matches!(host.to_ascii_lowercase().as_str(), "localhost" | "127.0.0.1" | "::1")
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "localhost" | "127.0.0.1" | "::1"
+    )
 }
 
 fn parse_u64(raw: &str) -> Result<u64, String> {
@@ -420,6 +484,9 @@ fn build_default_env_template() -> String {
         "DESKTOP_RUNTIME_RESOURCES_DIR=runtime\n",
         "DESKTOP_AUTO_START=true\n",
         "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
+        "# Wallet store directory is resolved relative to app-data dir unless absolute\n",
+        "DESKTOP_WALLET_STORE_DIR=wallets\n",
+        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS=5000\n\n",
         "# Optional: override bundled NATS binary path (absolute or relative to runtime resources dir)\n",
         "# DESKTOP_NATS_BINARY_PATH=nats/nats-server(.exe)\n",
         "\n",
@@ -447,7 +514,7 @@ fn build_default_env_template() -> String {
         "WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\n",
         "SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63\n",
         "BACKEND_ALLOWED_HOSTS=127.0.0.1,localhost,::1\n",
-        "BACKEND_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000\n",
+        "BACKEND_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173,http://tauri.localhost,tauri://localhost\n",
         "BACKEND_CSRF_COOKIE_SECURE=false\n",
         "PUBLIC_BACKEND_ORIGIN=http://127.0.0.1:3000\n",
         "NATS_STREAM_PREFIX=artgod\n",
@@ -479,37 +546,4 @@ fn build_default_env_template() -> String {
         "LOG_CHUNK_SIZE=2000\n"
     )
     .to_string()
-}
-
-fn apply_runtime_env_defaults(values: &mut HashMap<String, String>) {
-    // Keep desktop-managed runtime behavior aligned with repository .env.example
-    // when keys are missing in an existing app-data config file.
-    for (key, value) in [
-        ("BACKEND_HOST", "127.0.0.1"),
-        ("RPC_RETRY_MAX_ATTEMPTS", "5"),
-        ("RPC_RETRY_BASE_DELAY_MS", "100"),
-        ("RPC_RETRY_MAX_DELAY_MS", "3000"),
-        ("RPC_RATE_LIMIT_REQUESTS_PER_SECOND", "50"),
-        ("RPC_RATE_LIMIT_BURST", "100"),
-        ("RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5"),
-        ("RPC_CIRCUIT_BREAKER_OPEN_MS", "5000"),
-        ("RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "2"),
-        ("CACHE_MAX_ENTRIES", "5000"),
-        ("CACHE_TTL_MS", "30000"),
-        ("BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS", "5"),
-        ("BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS", "100"),
-        ("BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS", "3000"),
-        ("NATS_URL", "nats://127.0.0.1:4222"),
-        ("BACKEND_ALLOWED_HOSTS", "127.0.0.1,localhost,::1"),
-        (
-            "BACKEND_ALLOWED_ORIGINS",
-            "http://127.0.0.1:3000,http://localhost:3000",
-        ),
-        ("BACKEND_CSRF_COOKIE_SECURE", "false"),
-        ("PUBLIC_BACKEND_ORIGIN", "http://127.0.0.1:3000"),
-    ] {
-        values
-            .entry(key.to_owned())
-            .or_insert_with(|| value.to_owned());
-    }
 }
