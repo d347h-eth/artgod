@@ -18,7 +18,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State, include_image};
 use wallet::tauri::{
-    WalletCommandState, wallet_get_status, wallet_import, wallet_list, wallet_remove,
+    WalletCommandState, wallet_export, wallet_get_status, wallet_import, wallet_list, wallet_remove,
 };
 
 struct DesktopState {
@@ -386,6 +386,7 @@ pub fn run() {
             wallet_list,
             wallet_get_status,
             wallet_import,
+            wallet_export,
             wallet_remove
         ])
         .build(tauri::generate_context!())

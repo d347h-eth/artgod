@@ -591,6 +591,7 @@ Remove rules:
 
 - require passphrase verification
 - require typed confirmation using wallet label or address suffix
+  : current implementation may use an address suffix to keep the confirmation string short in the native prompt
 - block removal if the wallet is assigned to a running bot
 - block removal if the wallet is configured for an enabled bot until the operator detaches it first
 - perform metadata delete and keystore file delete atomically as much as practical

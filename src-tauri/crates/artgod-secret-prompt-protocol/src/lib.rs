@@ -106,6 +106,7 @@ pub struct UnlockSecretPromptRequest {
 pub struct RemoveConfirmSecretPromptRequest {
     pub wallet_label: String,
     pub wallet_address: String,
+    pub expected_confirmation: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +144,7 @@ pub struct UnlockSecretPromptResponse {
 #[serde(rename_all = "camelCase")]
 pub struct RemoveConfirmSecretPromptResponse {
     pub passphrase: String,
+    pub typed_confirmation: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

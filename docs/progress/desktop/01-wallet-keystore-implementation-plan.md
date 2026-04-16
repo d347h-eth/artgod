@@ -147,6 +147,17 @@ If `trading/` is introduced, root `package.json` workspaces and desktop runtime 
 
 The slices are intentionally ordered so early slices produce a usable wallet subsystem before bot code exists.
 
+## Current Status
+
+As of 2026-04-15:
+
+- Slice 0 is complete.
+- Slice 1 is complete.
+- Slice 2 is complete.
+- Slice 3 is complete.
+- Slice 4 is complete for export/reveal and native destructive confirmations.
+- The remaining remove guard that depends on real bot `enabled` or `running` state moves with Slice 5, because the current wallet metadata model does not yet have an honest bot runtime state machine.
+
 ## Slice 0: Admin Shell and Desktop Hardening Baseline
 
 Goal:
@@ -320,6 +331,10 @@ Acceptance:
 
 ## Slice 3: Wallet Commands and Admin Metadata UI
 
+Status:
+
+- completed
+
 Goal:
 
 - expose the Rust wallet subsystem to the privileged admin UI without ever returning raw secret data
@@ -371,6 +386,11 @@ Acceptance:
 
 ## Slice 4: Export Flow and Destructive-Operation Hardening
 
+Status:
+
+- export/reveal and native destructive confirmations completed
+- bot-state-dependent remove blocking deferred until Slice 5 introduces real bot runtime state
+
 Goal:
 
 - complete the remaining high-risk wallet operations with the same native-only secret boundary
@@ -380,24 +400,30 @@ Primary files:
 - `src-tauri/src/wallet/application/use-cases/export_wallet.rs`
 - `src-tauri/src/wallet/infra/prompt/**`
 - `src-tauri/src/wallet/tauri/commands.rs`
-- new `frontend/src/lib/admin/wallets/export/**`
+- `frontend/src/lib/admin/wallets/**`
 
 Tasks:
 
-- finish the `ExportWallet` use case
+- wire the existing `ExportWallet` use case through Tauri and the admin UI
 - require native passphrase prompt plus explicit typed confirmation
 - show plaintext key only inside the helper reveal window
 - do not allow clipboard copy in the first implementation
 - do not write plaintext export files in the first implementation
-- tighten remove flow rules:
-  - block remove while a bot is running on that wallet
-  - block remove while wallet remains assigned to an enabled bot
-- standardize sanitized error codes returned to the frontend
+- require native typed confirmation for remove in addition to the passphrase prompt
+- keep remove/export failures frontend-readable and sanitized
 - add logging guards so wallet flows never write secret-bearing payloads
+
+Bot-state-dependent remove blocking is intentionally deferred:
+
+- block remove while a bot is running on that wallet
+- block remove while wallet remains assigned to an enabled bot
+
+Those rules need the real bot state machine from Slice 5 and should not be faked from static wallet metadata.
 
 Acceptance:
 
 - export works without exposing plaintext to WebView
+- remove requires native typed confirmation plus passphrase verification
 - remove/export failures are operator-readable but sanitized
 - no clipboard or temp-file plaintext path exists
 

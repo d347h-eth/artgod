@@ -1,4 +1,4 @@
-export type AdminWalletAction = 'import' | 'remove';
+export type AdminWalletAction = 'import' | 'export' | 'remove';
 
 export type AdminWalletBotKind = 'bidding' | 'sniping';
 export type AdminWalletStoredStatus = 'stored';
@@ -35,9 +35,19 @@ export type AdminWalletRemoveResult =
 			outcome: 'cancelled';
 	  };
 
+export type AdminWalletExportResult =
+	| {
+			outcome: 'revealed';
+			wallet: AdminWalletRecord;
+	  }
+	| {
+			outcome: 'cancelled';
+	  };
+
 export interface AdminWalletPort {
 	getStatus(): Promise<AdminWalletStatus>;
 	listWallets(): Promise<AdminWalletRecord[]>;
 	importWallet(): Promise<AdminWalletImportResult>;
+	exportWallet(walletId: string): Promise<AdminWalletExportResult>;
 	removeWallet(walletId: string): Promise<AdminWalletRemoveResult>;
 }

@@ -11,6 +11,7 @@
 	let loading = $state(true);
 	let refreshing = $state(false);
 	let importing = $state(false);
+	let exportingWalletId = $state<string | null>(null);
 	let removingWalletId = $state<string | null>(null);
 
 	onMount(() => {
@@ -57,7 +58,7 @@
 	}
 
 	async function handleImport(): Promise<void> {
-		if (importing || removingWalletId !== null) {
+		if (importing || exportingWalletId !== null || removingWalletId !== null) {
 			return;
 		}
 
@@ -76,8 +77,25 @@
 		}
 	}
 
+	async function handleExport(walletId: string): Promise<void> {
+		if (importing || refreshing || exportingWalletId !== null || removingWalletId !== null) {
+			return;
+		}
+
+		exportingWalletId = walletId;
+		errorMessage = null;
+
+		try {
+			await walletPort.exportWallet(walletId);
+		} catch (error) {
+			errorMessage = toErrorMessage(error, 'Wallet export failed.');
+		} finally {
+			exportingWalletId = null;
+		}
+	}
+
 	async function handleRemove(walletId: string): Promise<void> {
-		if (importing || refreshing || removingWalletId !== null) {
+		if (importing || refreshing || exportingWalletId !== null || removingWalletId !== null) {
 			return;
 		}
 
@@ -105,7 +123,7 @@
 					<button
 						type="button"
 						onclick={() => void handleImport()}
-						disabled={importing || refreshing || removingWalletId !== null}
+						disabled={importing || refreshing || exportingWalletId !== null || removingWalletId !== null}
 					>
 						{importing ? 'opening native prompt…' : 'import wallet'}
 					</button>
@@ -113,7 +131,7 @@
 					<button
 						type="button"
 						onclick={() => void refreshWalletState()}
-						disabled={loading || importing || refreshing || removingWalletId !== null}
+						disabled={loading || importing || refreshing || exportingWalletId !== null || removingWalletId !== null}
 					>
 						{refreshing ? 'refreshing…' : 'refresh'}
 					</button>
@@ -156,8 +174,16 @@
 							<div class="runtime-controls">
 								<button
 									type="button"
+									onclick={() => void handleExport(wallet.walletId)}
+									disabled={importing || refreshing || exportingWalletId !== null || removingWalletId !== null}
+								>
+									{exportingWalletId === wallet.walletId ? 'revealing…' : 'export'}
+								</button>
+
+								<button
+									type="button"
 									onclick={() => void handleRemove(wallet.walletId)}
-									disabled={importing || refreshing || removingWalletId !== null}
+									disabled={importing || refreshing || exportingWalletId !== null || removingWalletId !== null}
 								>
 									{removingWalletId === wallet.walletId ? 'removing…' : 'remove'}
 								</button>

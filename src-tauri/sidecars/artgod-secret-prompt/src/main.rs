@@ -203,11 +203,15 @@ fn handle_remove_confirm_request(
         "Remove wallet \"{}\" ({}) from this device?",
         payload.wallet_label, payload.wallet_address
     );
+    let confirmation_message = format!("Type {} to continue", payload.expected_confirmation);
     let Some(output) = prompt_ui::prompt_remove_confirmation(RemoveConfirmPromptSpec {
         title: "Remove Wallet",
         message: &message,
         confirm_label: "Remove",
         cancel_label: "Cancel",
+        typed_confirmation_message: &confirmation_message,
+        typed_confirmation_ok_label: "OK",
+        expected_confirmation: &payload.expected_confirmation,
         passphrase_message: "Enter wallet passphrase",
         passphrase_ok_label: "OK",
     })
@@ -221,6 +225,7 @@ fn handle_remove_confirm_request(
     Ok(SecretPromptResponse::RemoveConfirmSubmitted(
         RemoveConfirmSecretPromptResponse {
             passphrase: output.passphrase,
+            typed_confirmation: output.typed_confirmation,
         },
     ))
 }
@@ -240,6 +245,7 @@ fn handle_export_confirm_request(
         cancel_label: "Cancel",
         typed_confirmation_message: &confirmation_message,
         typed_confirmation_ok_label: "OK",
+        expected_confirmation: &payload.expected_confirmation,
         passphrase_message: "Enter wallet passphrase",
         passphrase_ok_label: "OK",
     })

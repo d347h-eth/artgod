@@ -10,8 +10,7 @@ const ASCII_END: i32 = 0x7e;
 const INPUT_FONT_PATH: &str = "assets/fonts/cozettecrossedseven_hidpi.bdf";
 const LICENSE_PATH: &str = "assets/fonts/Cozette-LICENSE.txt";
 const OUTPUT_FONT_PATH: &str = "generated_font.rs";
-const CANONICAL_COPYRIGHT_NOTICE: &str =
-    "Copyright (c) 2020 Samhain <samhain@moonwit.ch> & contributors <https://github.com/the-moonwitch/Cozette/contributors>";
+const CANONICAL_COPYRIGHT_NOTICE: &str = "Copyright (c) 2020 Samhain <samhain@moonwit.ch> & contributors <https://github.com/the-moonwitch/Cozette/contributors>";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
