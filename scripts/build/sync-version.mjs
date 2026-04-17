@@ -8,9 +8,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
 
 const rootPackageJsonPath = path.join(rootDir, "package.json");
-const rootPackageJson = JSON.parse(
-    await readFile(rootPackageJsonPath, "utf8"),
-);
+const rootPackageJson = JSON.parse(await readFile(rootPackageJsonPath, "utf8"));
 const rootVersion = String(rootPackageJson.version ?? "").trim();
 
 if (!rootVersion) {
@@ -23,6 +21,7 @@ for (const relativePath of [
     "frontend/package.json",
     "indexer/package.json",
     "shared/package.json",
+    "trading/package.json",
 ]) {
     const targetPath = path.join(rootDir, relativePath);
     const packageJson = JSON.parse(await readFile(targetPath, "utf8"));
@@ -36,10 +35,7 @@ await updateJsonFile("src-tauri/tauri.conf.json", (config) => {
 });
 
 await updateTextFile("src-tauri/Cargo.toml", (source) =>
-    source.replace(
-        /^version = ".*"$/m,
-        `version = "${rootVersion}"`,
-    ),
+    source.replace(/^version = ".*"$/m, `version = "${rootVersion}"`),
 );
 
 await updateTextFile("src-tauri/Cargo.lock", (source) =>
