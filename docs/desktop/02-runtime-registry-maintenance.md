@@ -4,6 +4,11 @@ This document is a maintainer guide for adding/removing desktop-managed runtimes
 
 Goal: keep all explicit runtime lists/maps in sync across build, supervisor, dev launchers, and observability.
 
+This now covers two runtime families:
+
+- fail-fast core composition runtimes (`backend`, `indexer/*`, `nats`)
+- wallet-bound trading bot runtimes (`trading/*`)
+
 ## Why This Exists
 
 Runtime composition is currently explicit, not auto-discovered.
@@ -24,6 +29,7 @@ What is explicit here:
 
 - backend runtime entrypoint (`server`)
 - indexer worker artifact entrypoints (`entryPoints` object keys)
+- trading bot artifact entrypoints (`entryPoints` object keys)
 
 If a worker is missing here, no `dist-desktop` artifact is produced for desktop runtime mode.
 
@@ -37,8 +43,9 @@ What is explicit here:
 
 - `BACKEND_ARTIFACT`
 - `INDEXER_WORKERS` list of `(process_name, artifact_relative_path)`
+- `BOT_RUNTIME_SPECS` list of wallet-bound bot process names, artifacts, and critical dependencies
 
-Supervisor uses this list to spawn, monitor, and log worker processes.
+Supervisor uses these lists to spawn, monitor, and log runtime processes.
 
 If a worker is missing here, desktop app will not start it even if artifact exists.
 
@@ -70,6 +77,7 @@ What is explicit here:
 - `build:runtime`
 - `build:desktop-runtime-resources`
 - `clean:build`
+- root workspace list, which must include `trading` once wallet-bound bot runtimes exist
 
 These commands are the stable interface used by Tauri build and developers.
 
@@ -86,6 +94,9 @@ What is explicit here:
 - dev launcher process names and startup list order
 
 This is separate from Tauri production composition, but should stay aligned with runtime topology.
+
+Trading bot runtimes do not currently have a parallel standalone dev launcher.
+They are desktop-managed only.
 
 ### 6) Worker Identity + Metrics Port Mapping
 
@@ -155,6 +166,33 @@ When adding a new indexer runtime (example `foo-worker`):
     : `yarn tauri build --no-bundle --ci`
     : Start desktop app and confirm process appears in runtime state/logs.
     : `up{job="artgod-indexer",runtime="foo-worker"}` in Prometheus/Grafana.
+
+When adding a new trading bot runtime (example `foo-bot`):
+
+1. Add runtime entrypoint.
+   : Create `trading/src/runtime/foo-bot-runtime.ts`.
+
+2. Add artifact build entrypoint.
+   : Add `foo-bot-runtime` in `scripts/build/build-runtime-artifacts.mjs`.
+
+3. Ensure runtime resource staging includes the new artifact.
+   : Validate `scripts/build/prepare-desktop-runtime-resources.mjs` copies `trading/dist-desktop/*`.
+
+4. Add supervisor bot spec.
+   : Add the process name, artifact path, and critical dependency list in `src-tauri/src/runtime/bot_runtime.rs`.
+
+5. Sync admin/UI contracts if needed.
+   : Update `src-tauri/src/wallet/tauri/bot_commands.rs` and `frontend/src/lib/admin/bots/**` if the new bot kind must be operator-visible.
+
+6. Sync docs.
+   : Update `README.md` and desktop wallet/bot docs if the operator model changes.
+
+7. Verify.
+   : `yarn install --immutable`
+   : `yarn build:runtime`
+   : `yarn build:desktop-runtime-resources`
+   : `yarn tauri build --no-bundle --ci`
+   : Start desktop app and confirm the bot can be assigned, unlocked, started, and stopped without secrets leaking to env or CLI.
 
 ## Remove Runtime Checklist
 

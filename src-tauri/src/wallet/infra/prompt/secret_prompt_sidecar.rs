@@ -97,6 +97,7 @@ impl SecretPromptSidecar {
         app: &AppHandle,
         wallet_label: String,
         wallet_address: String,
+        expected_confirmation: String,
     ) -> Result<RemoveConfirmPromptOutput, SecretPromptError> {
         let response = self
             .run_prompt(
@@ -104,6 +105,7 @@ impl SecretPromptSidecar {
                 SecretPromptRequest::RemoveConfirm(RemoveConfirmSecretPromptRequest {
                     wallet_label,
                     wallet_address,
+                    expected_confirmation,
                 }),
             )
             .await?;
@@ -111,6 +113,7 @@ impl SecretPromptSidecar {
             SecretPromptResponse::RemoveConfirmSubmitted(payload) => {
                 Ok(RemoveConfirmPromptOutput {
                     passphrase: Zeroizing::new(payload.passphrase),
+                    typed_confirmation: payload.typed_confirmation,
                 })
             }
             other => Err(SecretPromptError::UnexpectedResponse {
@@ -311,6 +314,7 @@ pub struct UnlockPromptOutput {
 
 pub struct RemoveConfirmPromptOutput {
     pub passphrase: Zeroizing<String>,
+    pub typed_confirmation: String,
 }
 
 pub struct ExportConfirmPromptOutput {

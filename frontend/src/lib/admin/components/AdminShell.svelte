@@ -27,12 +27,12 @@
 	}
 
 	const activeRuntimeTab = $derived(resolveRuntimeTab(activeTab));
-	const userlandAccessEnabled = $derived(
+	const userlandEntranceEnabled = $derived(
 		$runtimeState.lifecycle.phase === 'ready' && $runtimeState.busyAction === null
 	);
 
-	function handleAccessUserland(): void {
-		if (!userlandAccessEnabled) {
+	function handleEnterUserland(): void {
+		if (!userlandEntranceEnabled) {
 			return;
 		}
 		void adminRuntimeStore.openUserlandUi();
@@ -46,16 +46,16 @@
 <main class="admin-shell">
 	<div class="admin-shell-body">
 		<header class="admin-shell-header">
-			<p class="admin-shell-eyebrow">{APP_VERSION}</p>
 			<h1>ArtGod</h1>
+            <p class="admin-shell-eyebrow">{APP_VERSION}</p>
 			<div class="runtime-primary-actions">
 				<button
 					type="button"
 					class="runtime-primary-cta"
-					onclick={handleAccessUserland}
-					disabled={!userlandAccessEnabled}
+					onclick={handleEnterUserland}
+					disabled={!userlandEntranceEnabled}
 				>
-					Access the Userland
+					Enter the Userland
 				</button>
 			</div>
 		</header>

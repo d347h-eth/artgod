@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
+use alloy_primitives::hex;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::desktop_log::append_desktop_log;
 use crate::runtime::DesktopWalletConfig;
 use crate::wallet::application::use_cases::{
-    ImportWallet, ImportWalletError, ImportWalletInput, ListWallets, ListWalletsError,
-    RemoveWallet, RemoveWalletError, RemoveWalletInput,
+    ExportWallet, ExportWalletError, ExportWalletInput, ImportWallet, ImportWalletError,
+    ImportWalletInput, ListWallets, ListWalletsError, RemoveWallet, RemoveWalletError,
+    RemoveWalletInput,
 };
 use crate::wallet::domain::{BotKind, PassphrasePolicy, WalletId, WalletMetadata, WalletStatus};
 use crate::wallet::infra::keystore::AlloyKeystore;
@@ -58,6 +60,30 @@ impl WalletCommandState {
             self.keystore.clone(),
             self.passphrase_policy.clone(),
         )
+    }
+
+    fn export_wallet_use_case(&self) -> ExportWallet {
+        ExportWallet::new(
+            self.store.clone(),
+            self.keystore.clone(),
+            self.passphrase_policy.clone(),
+        )
+    }
+
+    pub(crate) fn store(&self) -> &Arc<FsWalletStore> {
+        &self.store
+    }
+
+    pub(crate) fn keystore(&self) -> &Arc<AlloyKeystore> {
+        &self.keystore
+    }
+
+    pub(crate) fn passphrase_policy(&self) -> &PassphrasePolicy {
+        &self.passphrase_policy
+    }
+
+    pub(crate) fn prompt(&self) -> &SecretPromptSidecar {
+        &self.prompt
     }
 
     fn list_wallet_dtos(&self) -> Result<Vec<WalletMetadataDto>, String> {
@@ -132,6 +158,9 @@ impl WalletCommandState {
             );
             sanitize_remove_lookup_error(&error.to_string())
         })?;
+        if wallet_record.metadata.has_bot_assignment() {
+            return Err("Unassign this wallet from all bots before removing it.".to_owned());
+        }
 
         let prompt_output = match self
             .prompt
@@ -139,6 +168,7 @@ impl WalletCommandState {
                 app,
                 wallet_record.metadata.label.as_str().to_owned(),
                 wallet_record.metadata.address.as_str().to_owned(),
+                remove_confirmation_phrase(wallet_record.metadata.address.as_str()),
             )
             .await
         {
@@ -152,6 +182,12 @@ impl WalletCommandState {
                 return Err(sanitize_prompt_error(error));
             }
         };
+        let expected_confirmation =
+            remove_confirmation_phrase(wallet_record.metadata.address.as_str());
+        if prompt_output.typed_confirmation != expected_confirmation {
+            append_desktop_log(app, "warn", "Wallet remove confirmation phrase mismatch");
+            return Err(format!("Type {expected_confirmation} exactly to continue."));
+        }
 
         self.remove_wallet_use_case()
             .execute(RemoveWalletInput {
@@ -165,6 +201,82 @@ impl WalletCommandState {
                 log_wallet_error(app, "Wallet remove failed", &error);
                 sanitize_remove_wallet_error(error)
             })
+    }
+
+    async fn export_wallet(
+        &self,
+        app: &AppHandle,
+        wallet_id: &str,
+    ) -> Result<WalletExportCommandResultDto, String> {
+        let wallet_id =
+            WalletId::parse(wallet_id).map_err(|_| "Wallet identifier is invalid.".to_owned())?;
+        let wallet_record = self.store.get_wallet_record(&wallet_id).map_err(|error| {
+            append_desktop_log(
+                app,
+                "error",
+                &format!("Wallet export lookup failed: {error}"),
+            );
+            sanitize_export_lookup_error(&error.to_string())
+        })?;
+
+        let prompt_output = match self
+            .prompt
+            .request_export_confirmation(
+                app,
+                wallet_record.metadata.label.as_str().to_owned(),
+                wallet_record.metadata.address.as_str().to_owned(),
+                export_confirmation_token().to_owned(),
+            )
+            .await
+        {
+            Ok(output) => output,
+            Err(SecretPromptError::Cancelled { .. }) => {
+                append_desktop_log(app, "info", "Wallet export prompt cancelled");
+                return Ok(WalletExportCommandResultDto::Cancelled);
+            }
+            Err(error) => {
+                log_wallet_error(app, "Wallet export prompt failed", &error);
+                return Err(sanitize_prompt_error(error));
+            }
+        };
+        if prompt_output.typed_confirmation != export_confirmation_token() {
+            append_desktop_log(app, "warn", "Wallet export confirmation token mismatch");
+            return Err(format!(
+                "Type {} exactly to continue.",
+                export_confirmation_token()
+            ));
+        }
+
+        let exported_wallet = self
+            .export_wallet_use_case()
+            .execute(ExportWalletInput {
+                wallet_id,
+                passphrase: prompt_output.passphrase,
+            })
+            .map_err(|error| {
+                log_wallet_error(app, "Wallet export failed", &error);
+                sanitize_export_wallet_error(error)
+            })?;
+
+        let private_key = format!("0x{}", hex::encode(exported_wallet.private_key.as_bytes()));
+        self.prompt
+            .reveal_exported_private_key(
+                app,
+                crate::wallet::infra::prompt::ExportRevealPromptInput {
+                    wallet_label: exported_wallet.metadata.label.as_str().to_owned(),
+                    wallet_address: exported_wallet.metadata.address.as_str().to_owned(),
+                    private_key,
+                },
+            )
+            .await
+            .map_err(|error| {
+                log_wallet_error(app, "Wallet export reveal failed", &error);
+                sanitize_prompt_error(error)
+            })?;
+
+        Ok(WalletExportCommandResultDto::Revealed {
+            wallet: WalletMetadataDto::from_metadata(&exported_wallet.metadata),
+        })
     }
 }
 
@@ -244,6 +356,13 @@ pub enum WalletRemoveCommandResultDto {
     Cancelled,
 }
 
+#[derive(Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum WalletExportCommandResultDto {
+    Revealed { wallet: WalletMetadataDto },
+    Cancelled,
+}
+
 impl WalletBotKindDto {
     fn from_domain(bot_kind: BotKind) -> Self {
         match bot_kind {
@@ -264,8 +383,24 @@ impl WalletStatusDto {
 fn supported_wallet_actions() -> Vec<WalletCommandActionDto> {
     vec![
         WalletCommandActionDto::Import,
+        WalletCommandActionDto::Export,
         WalletCommandActionDto::Remove,
     ]
+}
+
+fn remove_confirmation_phrase(wallet_address: &str) -> String {
+    wallet_address
+        .chars()
+        .rev()
+        .take(6)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect()
+}
+
+fn export_confirmation_token() -> &'static str {
+    "EXPORT"
 }
 
 fn sanitize_list_wallets_error(_: ListWalletsError) -> String {
@@ -296,6 +431,10 @@ fn sanitize_remove_lookup_error(_: &str) -> String {
     "Wallet does not exist.".to_owned()
 }
 
+fn sanitize_export_lookup_error(_: &str) -> String {
+    "Wallet does not exist.".to_owned()
+}
+
 fn sanitize_remove_wallet_error(error: RemoveWalletError) -> String {
     match error {
         RemoveWalletError::InvalidPassphraseInput(error) => error.to_string(),
@@ -305,6 +444,19 @@ fn sanitize_remove_wallet_error(error: RemoveWalletError) -> String {
         }
         RemoveWalletError::StorageFailure { .. } => {
             "Wallet metadata could not be updated. Check the desktop logs.".to_owned()
+        }
+    }
+}
+
+fn sanitize_export_wallet_error(error: ExportWalletError) -> String {
+    match error {
+        ExportWalletError::InvalidPassphraseInput(error) => error.to_string(),
+        ExportWalletError::WalletNotFound { .. } => "Wallet does not exist.".to_owned(),
+        ExportWalletError::UnlockRejected => {
+            "Wallet passphrase was rejected or the keystore is unreadable.".to_owned()
+        }
+        ExportWalletError::StorageFailure { .. } => {
+            "Wallet metadata could not be loaded. Check the desktop logs.".to_owned()
         }
     }
 }
@@ -356,4 +508,14 @@ pub async fn wallet_remove(
 ) -> Result<WalletRemoveCommandResultDto, String> {
     let command_state = state.inner().clone();
     command_state.remove_wallet(&app, &wallet_id).await
+}
+
+#[tauri::command]
+pub async fn wallet_export(
+    app: AppHandle,
+    state: State<'_, WalletCommandState>,
+    wallet_id: String,
+) -> Result<WalletExportCommandResultDto, String> {
+    let command_state = state.inner().clone();
+    command_state.export_wallet(&app, &wallet_id).await
 }

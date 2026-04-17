@@ -92,6 +92,7 @@ These are hard rules, not suggestions.
 8. Every bot start and every bot restart is a fresh unlock event.
 9. There is no session unlock cache, no unlock TTL, and no silent reuse after restart.
 10. If decryption or prompt flow fails, the bot remains stopped and locked.
+
 ## Threat Model
 
 This design is intended to reduce exposure to:
@@ -591,8 +592,8 @@ Remove rules:
 
 - require passphrase verification
 - require typed confirmation using wallet label or address suffix
-- block removal if the wallet is assigned to a running bot
-- block removal if the wallet is configured for an enabled bot until the operator detaches it first
+  : current implementation may use an address suffix to keep the confirmation string short in the native prompt
+- block removal while the wallet remains assigned to any bot until the operator detaches it first
 - perform metadata delete and keystore file delete atomically as much as practical
 
 ## Bot Assignment Model
@@ -618,6 +619,7 @@ Recommended policy:
 
 - start NATS, backend, and indexer normally
 - wait for semantic runtime health
+- evaluate the selected bot kind against its own declared critical dependencies
 - keep bots in `awaiting_unlock` until the core composition remains healthy for the configured stabilization delay
 - then prompt for the wallet passphrase
 
@@ -637,7 +639,7 @@ sequenceDiagram
     participant N as Node Bot
 
     U->>W: Start bidding/sniping bot
-    W->>T: start bot(walletId, botKind)
+    W->>T: start bot(botKind)
     T->>P: launch passphrase prompt
     P-->>T: passphrase
     T->>K: decrypt wallet
@@ -654,6 +656,13 @@ Unlock rules:
 - decrypted key lifetime in Rust must be as short as practical
 - the secret channel is one-shot and immediately closed after write
 - if bot startup fails, the decrypted key is discarded and the bot remains locked
+
+Critical dependency rule:
+
+- each bot kind declares the runtime processes that are critical to it
+- a runtime failure must not bluntly stop every bot by category alone
+- a bot is force-stopped only when one of its own declared critical dependencies becomes unhealthy
+- during a full core restart this usually still stops all bots, but it happens through explicit per-bot dependency checks rather than a blanket stop-all shortcut
 
 ## Bot Secret Handoff Protocol
 
@@ -678,10 +687,10 @@ Suggested metadata:
 
 ```json
 {
-  "walletId": "uuid",
-  "address": "0x...",
-  "botKind": "bidding",
-  "chainId": 1
+    "walletId": "uuid",
+    "address": "0x...",
+    "botKind": "bidding",
+    "chainId": 1
 }
 ```
 
@@ -733,7 +742,7 @@ Rejected alternatives:
 
 If a bot exits unexpectedly:
 
-1. mark the bot stopped and locked
+1. mark the bot in an error state
 2. discard any decrypted material in Rust
 3. require a fresh passphrase prompt before the next start
 

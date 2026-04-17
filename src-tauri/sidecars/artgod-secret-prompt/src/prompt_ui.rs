@@ -101,6 +101,7 @@ pub enum TextValidationSpec<'a> {
     None,
     MinLength { min_length: usize },
     MatchesValue { expected: &'a str },
+    ExactValue { expected: &'a str },
 }
 
 #[derive(Debug)]
@@ -116,12 +117,16 @@ pub struct RemoveConfirmPromptSpec<'a> {
     pub message: &'a str,
     pub confirm_label: &'a str,
     pub cancel_label: &'a str,
+    pub typed_confirmation_message: &'a str,
+    pub typed_confirmation_ok_label: &'a str,
+    pub expected_confirmation: &'a str,
     pub passphrase_message: &'a str,
     pub passphrase_ok_label: &'a str,
 }
 
 #[derive(Debug)]
 pub struct RemoveConfirmPromptOutput {
+    pub typed_confirmation: String,
     pub passphrase: String,
 }
 
@@ -132,6 +137,7 @@ pub struct ExportConfirmPromptSpec<'a> {
     pub cancel_label: &'a str,
     pub typed_confirmation_message: &'a str,
     pub typed_confirmation_ok_label: &'a str,
+    pub expected_confirmation: &'a str,
     pub passphrase_message: &'a str,
     pub passphrase_ok_label: &'a str,
 }
@@ -210,9 +216,13 @@ pub fn prompt_remove_confirmation(
     let flow = PromptFlow::Remove(RemoveFlowState {
         title: spec.title.to_owned(),
         cancel_label: spec.cancel_label.to_owned(),
+        typed_confirmation_message: spec.typed_confirmation_message.to_owned(),
+        typed_confirmation_ok_label: spec.typed_confirmation_ok_label.to_owned(),
+        expected_confirmation: spec.expected_confirmation.to_owned(),
         passphrase_message: spec.passphrase_message.to_owned(),
         passphrase_ok_label: spec.passphrase_ok_label.to_owned(),
         confirmed: false,
+        typed_confirmation: None,
     });
     let initial_screen = build_confirm_screen(ConfirmPromptSpec {
         title: spec.title,
@@ -238,6 +248,7 @@ pub fn prompt_export_confirmation(
         cancel_label: spec.cancel_label.to_owned(),
         typed_confirmation_message: spec.typed_confirmation_message.to_owned(),
         typed_confirmation_ok_label: spec.typed_confirmation_ok_label.to_owned(),
+        expected_confirmation: spec.expected_confirmation.to_owned(),
         passphrase_message: spec.passphrase_message.to_owned(),
         passphrase_ok_label: spec.passphrase_ok_label.to_owned(),
         typed_confirmation: None,
@@ -366,9 +377,13 @@ struct ImportFlowState {
 struct RemoveFlowState {
     title: String,
     cancel_label: String,
+    typed_confirmation_message: String,
+    typed_confirmation_ok_label: String,
+    expected_confirmation: String,
     passphrase_message: String,
     passphrase_ok_label: String,
     confirmed: bool,
+    typed_confirmation: Option<String>,
 }
 
 struct ExportConfirmFlowState {
@@ -376,6 +391,7 @@ struct ExportConfirmFlowState {
     cancel_label: String,
     typed_confirmation_message: String,
     typed_confirmation_ok_label: String,
+    expected_confirmation: String,
     passphrase_message: String,
     passphrase_ok_label: String,
     typed_confirmation: Option<String>,
@@ -495,6 +511,26 @@ impl RemoveFlowState {
                 Ok(FlowTransition::Continue(build_text_screen(
                     TextPromptSpec {
                         title: &self.title,
+                        message: &self.typed_confirmation_message,
+                        initial_value: "",
+                        mode: TextPromptMode::Plain,
+                        ok_label: &self.typed_confirmation_ok_label,
+                        cancel_label: &self.cancel_label,
+                        input_kind: TextInputKind::Confirmation,
+                        max_len: 64,
+                        validation: TextValidationSpec::ExactValue {
+                            expected: &self.expected_confirmation,
+                        },
+                    },
+                )))
+            }
+            ScreenResult::Submitted(value)
+                if self.confirmed && self.typed_confirmation.is_none() =>
+            {
+                self.typed_confirmation = Some(value);
+                Ok(FlowTransition::Continue(build_text_screen(
+                    TextPromptSpec {
+                        title: &self.title,
                         message: &self.passphrase_message,
                         initial_value: "",
                         mode: TextPromptMode::Secret,
@@ -507,7 +543,10 @@ impl RemoveFlowState {
                 )))
             }
             ScreenResult::Submitted(passphrase) if self.confirmed => Ok(FlowTransition::Finish(
-                FlowResult::RemoveConfirmSubmitted(RemoveConfirmPromptOutput { passphrase }),
+                FlowResult::RemoveConfirmSubmitted(RemoveConfirmPromptOutput {
+                    typed_confirmation: self.typed_confirmation.take().unwrap_or_default(),
+                    passphrase,
+                }),
             )),
             other => Err(PromptUiError::Render(format!(
                 "Unexpected remove confirm result: {other:?}"
@@ -530,7 +569,9 @@ impl ExportConfirmFlowState {
                     cancel_label: &self.cancel_label,
                     input_kind: TextInputKind::Confirmation,
                     max_len: 64,
-                    validation: TextValidationSpec::None,
+                    validation: TextValidationSpec::ExactValue {
+                        expected: &self.expected_confirmation,
+                    },
                 })),
             ),
             ScreenResult::Submitted(value) if self.typed_confirmation.is_none() => {
@@ -945,6 +986,7 @@ enum TextValidation {
     None,
     MinLength { min_length: usize },
     MatchesValue { expected: String },
+    ExactValue { expected: String },
 }
 
 struct ValidationFeedback {
@@ -959,6 +1001,9 @@ impl TextValidation {
             TextValidationSpec::None => Self::None,
             TextValidationSpec::MinLength { min_length } => Self::MinLength { min_length },
             TextValidationSpec::MatchesValue { expected } => Self::MatchesValue {
+                expected: expected.to_owned(),
+            },
+            TextValidationSpec::ExactValue { expected } => Self::ExactValue {
                 expected: expected.to_owned(),
             },
         }
@@ -1235,7 +1280,9 @@ impl TextScreenState {
                 let current = self.value.chars().count();
                 if current >= *min_length {
                     Some(ValidationFeedback {
-                        message: format!("Passphrase length is valid ({current}/{min_length}+ chars)."),
+                        message: format!(
+                            "Passphrase length is valid ({current}/{min_length}+ chars)."
+                        ),
                         color: SUCCESS,
                         blocking: false,
                     })
@@ -1271,6 +1318,27 @@ impl TextScreenState {
                 } else {
                     Some(ValidationFeedback {
                         message: "Passphrase confirmation does not match.".to_owned(),
+                        color: WARNING,
+                        blocking: true,
+                    })
+                }
+            }
+            TextValidation::ExactValue { expected } => {
+                if self.value.is_empty() {
+                    Some(ValidationFeedback {
+                        message: format!("Type {expected} exactly to continue."),
+                        color: TEXT_MUTED,
+                        blocking: true,
+                    })
+                } else if &self.value == expected {
+                    Some(ValidationFeedback {
+                        message: "Confirmation matches.".to_owned(),
+                        color: SUCCESS,
+                        blocking: false,
+                    })
+                } else {
+                    Some(ValidationFeedback {
+                        message: format!("Type {expected} exactly to continue."),
                         color: WARNING,
                         blocking: true,
                     })
@@ -1447,7 +1515,14 @@ impl RevealScreenState {
             BUTTON_WIDTH,
             BUTTON_HEIGHT,
         );
-        draw_button(canvas, button_rect, &self.acknowledge_label, true, true, true);
+        draw_button(
+            canvas,
+            button_rect,
+            &self.acknowledge_label,
+            true,
+            true,
+            true,
+        );
     }
 
     fn handle_click(
@@ -1749,9 +1824,11 @@ mod tests {
         };
 
         assert!(!screen.can_submit());
-        assert!(screen
-            .validation_feedback()
-            .is_some_and(|feedback| feedback.blocking));
+        assert!(
+            screen
+                .validation_feedback()
+                .is_some_and(|feedback| feedback.blocking)
+        );
     }
 
     #[test]
@@ -1774,8 +1851,38 @@ mod tests {
         };
 
         assert!(screen.can_submit());
-        assert!(screen
-            .validation_feedback()
-            .is_some_and(|feedback| !feedback.blocking));
+        assert!(
+            screen
+                .validation_feedback()
+                .is_some_and(|feedback| !feedback.blocking)
+        );
+    }
+
+    #[test]
+    fn exact_value_validation_blocks_mismatch() {
+        let screen = TextScreenState {
+            title: "Export Wallet".to_owned(),
+            message: "Type EXPORT to continue".to_owned(),
+            value: "WRONG".to_owned(),
+            mode: TextPromptMode::Plain,
+            ok_label: "OK".to_owned(),
+            cancel_label: "Cancel".to_owned(),
+            input_kind: TextInputKind::Confirmation,
+            max_len: 64,
+            validation: TextValidation::ExactValue {
+                expected: "EXPORT".to_owned(),
+            },
+            focus: TextFocus::Input,
+            cursor_index: 5,
+            scroll_offset: 0,
+        };
+
+        assert!(!screen.can_submit());
+        assert_eq!(
+            screen
+                .validation_feedback()
+                .map(|feedback| feedback.message),
+            Some("Type EXPORT exactly to continue.".to_owned())
+        );
     }
 }

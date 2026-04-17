@@ -1,0 +1,17 @@
+{
+    "name": "@artgod/trading",
+    "version": "0.0.1-pre-alpha.5",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "viem": "2.41.2"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.0",
+        "typescript": "^5.8.3",
+        "vitest": "4.0.13"
+    }
+}

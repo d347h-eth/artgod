@@ -16,7 +16,8 @@
         { "path": "./backend" },
         { "path": "./frontend" },
         { "path": "./indexer" },
-        { "path": "./shared" }
+        { "path": "./shared" },
+        { "path": "./trading" }
     ],
     "files": [],
     "include": []

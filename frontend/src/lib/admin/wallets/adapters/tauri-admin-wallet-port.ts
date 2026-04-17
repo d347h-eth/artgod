@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import type {
+	AdminWalletExportResult,
 	AdminWalletImportResult,
 	AdminWalletPort,
 	AdminWalletRemoveResult,
@@ -26,6 +27,11 @@ export function createTauriAdminWalletPort(): AdminWalletPort {
 		async importWallet(): Promise<AdminWalletImportResult> {
 			const invoke = await requireInvoke();
 			return invoke<AdminWalletImportResult>('wallet_import');
+		},
+
+		async exportWallet(walletId: string): Promise<AdminWalletExportResult> {
+			const invoke = await requireInvoke();
+			return invoke<AdminWalletExportResult>('wallet_export', { walletId });
 		},
 
 		async removeWallet(walletId: string): Promise<AdminWalletRemoveResult> {

@@ -209,6 +209,28 @@ impl WalletMetadata {
     pub fn matches_address(&self, address: &WalletAddress) -> bool {
         self.address.normalized() == address.normalized()
     }
+
+    /// Returns true when the wallet is assigned to the given bot kind.
+    pub fn is_assigned_to_bot(&self, bot_kind: BotKind) -> bool {
+        self.assigned_bot_kinds.contains(&bot_kind)
+    }
+
+    /// Returns true when the wallet is assigned to any bot runtime.
+    pub fn has_bot_assignment(&self) -> bool {
+        !self.assigned_bot_kinds.is_empty()
+    }
+
+    /// Returns a cloned metadata record with the provided bot assignments and updated timestamp.
+    pub fn with_assigned_bot_kinds(
+        &self,
+        assigned_bot_kinds: Vec<BotKind>,
+        updated_at: String,
+    ) -> Self {
+        let mut next = self.clone();
+        next.assigned_bot_kinds = assigned_bot_kinds;
+        next.updated_at = updated_at;
+        next
+    }
 }
 
 /// Full wallet record combining metadata with the keystore file path.

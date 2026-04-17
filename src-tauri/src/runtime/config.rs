@@ -15,6 +15,7 @@ pub struct DesktopRuntimeConfig {
     pub nats_port: u16,
     pub nats_url: String,
     pub backend_port: u16,
+    pub chain_id: u64,
     pub auto_start: bool,
     pub restart_backoff_ms: u64,
     pub process_env: HashMap<String, String>,
@@ -108,6 +109,7 @@ impl DesktopRuntimeConfig {
             ));
         }
         let backend_port = parse_port(get_required(&process_env, "BACKEND_PORT")?)?;
+        let chain_id = parse_u64(get_required(&process_env, "CHAIN_ID")?)?;
         let auto_start = parse_bool(get_required(&process_env, "DESKTOP_AUTO_START")?)?;
         let restart_backoff_ms =
             parse_u64(get_required(&process_env, "DESKTOP_RESTART_BACKOFF_MS")?)?;
@@ -172,6 +174,7 @@ impl DesktopRuntimeConfig {
             nats_port,
             nats_url,
             backend_port,
+            chain_id,
             auto_start,
             restart_backoff_ms,
             process_env: merged_env,
