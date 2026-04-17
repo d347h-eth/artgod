@@ -10,12 +10,15 @@ const rootDir = path.resolve(__dirname, "../..");
 const legacyOutDir = path.join(rootDir, "dist-desktop", "runtime");
 const backendOutDir = path.join(rootDir, "backend", "dist-desktop");
 const indexerOutDir = path.join(rootDir, "indexer", "dist-desktop");
+const tradingOutDir = path.join(rootDir, "trading", "dist-desktop");
 
 await rm(legacyOutDir, { recursive: true, force: true });
 await rm(backendOutDir, { recursive: true, force: true });
 await rm(indexerOutDir, { recursive: true, force: true });
+await rm(tradingOutDir, { recursive: true, force: true });
 await mkdir(backendOutDir, { recursive: true });
 await mkdir(indexerOutDir, { recursive: true });
+await mkdir(tradingOutDir, { recursive: true });
 
 const baseBuildConfig = {
     absWorkingDir: rootDir,
@@ -144,4 +147,25 @@ await build({
         ),
     },
     outdir: indexerOutDir,
+});
+
+await build({
+    ...baseBuildConfig,
+    entryPoints: {
+        "bidding-bot-runtime": path.join(
+            rootDir,
+            "trading",
+            "src",
+            "runtime",
+            "bidding-bot-runtime.ts",
+        ),
+        "sniping-bot-runtime": path.join(
+            rootDir,
+            "trading",
+            "src",
+            "runtime",
+            "sniping-bot-runtime.ts",
+        ),
+    },
+    outdir: tradingOutDir,
 });

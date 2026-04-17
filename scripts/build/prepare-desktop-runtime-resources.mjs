@@ -57,6 +57,11 @@ const copySpecs = [
         description: "indexer runtime artifacts",
     },
     {
+        source: path.join(rootDir, "trading", "dist-desktop"),
+        target: path.join(resourcesRootDir, "trading", "dist-desktop"),
+        description: "trading runtime artifacts",
+    },
+    {
         source: path.join(rootDir, "database", "migrations"),
         target: path.join(resourcesRootDir, "database", "migrations"),
         description: "database migrations",

@@ -18,12 +18,13 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State, include_image};
 use wallet::tauri::{
-    WalletCommandState, wallet_export, wallet_get_status, wallet_import, wallet_list, wallet_remove,
+    BotCommandState, WalletCommandState, bot_assign_wallet, bot_list, bot_start, bot_stop,
+    wallet_export, wallet_get_status, wallet_import, wallet_list, wallet_remove,
 };
 
-struct DesktopState {
-    runtime: RuntimeManager,
-    shutdown_requested: Arc<AtomicBool>,
+pub(crate) struct DesktopState {
+    pub(crate) runtime: RuntimeManager,
+    pub(crate) shutdown_requested: Arc<AtomicBool>,
 }
 
 const TRAY_OPEN_USERLAND_ID: &str = "tray.open_userland";
@@ -290,6 +291,8 @@ pub fn run() {
             let wallet_state =
                 WalletCommandState::load(&app.handle()).map_err(std::io::Error::other)?;
             app.manage(wallet_state);
+            let bot_state = BotCommandState::load(&app.handle()).map_err(std::io::Error::other)?;
+            app.manage(bot_state);
 
             append_desktop_log(app.handle(), "info", "Desktop app setup started");
             append_desktop_log(
@@ -387,7 +390,11 @@ pub fn run() {
             wallet_get_status,
             wallet_import,
             wallet_export,
-            wallet_remove
+            wallet_remove,
+            bot_list,
+            bot_assign_wallet,
+            bot_start,
+            bot_stop
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

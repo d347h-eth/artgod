@@ -12,9 +12,10 @@ use uuid::Uuid;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::wallet::application::use_cases::{
-    ExportWalletError, ExportWalletStorePort, ImportWalletError, ImportWalletStorePort,
-    ListWalletsError, ListWalletsStorePort, RemoveWalletError, RemoveWalletStorePort,
-    UnlockWalletForBotStartError, UnlockWalletForBotStartStorePort,
+    AssignWalletToBotError, AssignWalletToBotStorePort, ExportWalletError, ExportWalletStorePort,
+    ImportWalletError, ImportWalletStorePort, ListWalletsError, ListWalletsStorePort,
+    RemoveWalletError, RemoveWalletStorePort, UnlockWalletForBotStartError,
+    UnlockWalletForBotStartStorePort,
 };
 use crate::wallet::domain::{WalletId, WalletMetadata, WalletRecord, keystore_path_for};
 
@@ -186,6 +187,27 @@ impl FsWalletStore {
         }
 
         Ok(WalletRecord::new(metadata, keystore_path))
+    }
+
+    /// Replaces a set of wallet metadata records atomically by wallet id.
+    pub fn replace_wallet_metadata_batch(
+        &self,
+        updated_wallets: &[WalletMetadata],
+    ) -> Result<(), FsWalletStoreError> {
+        let mut index = self.read_index()?;
+        for updated_wallet in updated_wallets {
+            let Some(position) = index
+                .wallets
+                .iter()
+                .position(|wallet| wallet.wallet_id == updated_wallet.wallet_id)
+            else {
+                return Err(FsWalletStoreError::WalletNotFound {
+                    wallet_id: updated_wallet.wallet_id.to_string(),
+                });
+            };
+            index.wallets[position] = updated_wallet.clone();
+        }
+        self.write_index_atomic(&index)
     }
 
     fn ensure_index_file(&self) -> Result<(), FsWalletStoreError> {
@@ -371,6 +393,44 @@ impl ExportWalletStorePort for FsWalletStore {
             other => ExportWalletError::StorageFailure {
                 message: other.to_string(),
             },
+        })
+    }
+}
+
+impl AssignWalletToBotStorePort for FsWalletStore {
+    fn list_wallets(&self) -> Result<Vec<WalletMetadata>, AssignWalletToBotError> {
+        FsWalletStore::list_wallets(self).map_err(|error| AssignWalletToBotError::StorageFailure {
+            message: error.to_string(),
+        })
+    }
+
+    fn get_wallet_record(
+        &self,
+        wallet_id: &WalletId,
+    ) -> Result<WalletRecord, AssignWalletToBotError> {
+        FsWalletStore::get_wallet_record(self, wallet_id).map_err(|error| match error {
+            FsWalletStoreError::WalletNotFound { wallet_id } => {
+                AssignWalletToBotError::WalletNotFound { wallet_id }
+            }
+            other => AssignWalletToBotError::StorageFailure {
+                message: other.to_string(),
+            },
+        })
+    }
+
+    fn replace_wallet_metadata_batch(
+        &self,
+        updated_wallets: &[WalletMetadata],
+    ) -> Result<(), AssignWalletToBotError> {
+        FsWalletStore::replace_wallet_metadata_batch(self, updated_wallets).map_err(|error| {
+            match error {
+                FsWalletStoreError::WalletNotFound { wallet_id } => {
+                    AssignWalletToBotError::WalletNotFound { wallet_id }
+                }
+                other => AssignWalletToBotError::StorageFailure {
+                    message: other.to_string(),
+                },
+            }
         })
     }
 }

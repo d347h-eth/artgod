@@ -1,9 +1,15 @@
+mod assign_wallet_to_bot;
 mod export_wallet;
 mod import_wallet;
 mod list_wallets;
 mod remove_wallet;
 mod unlock_wallet_for_bot_start;
 
+#[allow(unused_imports)]
+pub use assign_wallet_to_bot::{
+    AssignWalletToBot, AssignWalletToBotError, AssignWalletToBotInput, AssignWalletToBotOutput,
+    AssignWalletToBotStorePort,
+};
 #[allow(unused_imports)]
 pub use export_wallet::{
     ExportWallet, ExportWalletError, ExportWalletInput, ExportWalletKeystorePort,

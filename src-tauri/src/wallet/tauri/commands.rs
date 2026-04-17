@@ -70,6 +70,22 @@ impl WalletCommandState {
         )
     }
 
+    pub(crate) fn store(&self) -> &Arc<FsWalletStore> {
+        &self.store
+    }
+
+    pub(crate) fn keystore(&self) -> &Arc<AlloyKeystore> {
+        &self.keystore
+    }
+
+    pub(crate) fn passphrase_policy(&self) -> &PassphrasePolicy {
+        &self.passphrase_policy
+    }
+
+    pub(crate) fn prompt(&self) -> &SecretPromptSidecar {
+        &self.prompt
+    }
+
     fn list_wallet_dtos(&self) -> Result<Vec<WalletMetadataDto>, String> {
         self.list_wallets_use_case()
             .execute()
@@ -142,6 +158,9 @@ impl WalletCommandState {
             );
             sanitize_remove_lookup_error(&error.to_string())
         })?;
+        if wallet_record.metadata.has_bot_assignment() {
+            return Err("Unassign this wallet from all bots before removing it.".to_owned());
+        }
 
         let prompt_output = match self
             .prompt

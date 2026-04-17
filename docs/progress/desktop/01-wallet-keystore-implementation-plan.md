@@ -149,14 +149,15 @@ The slices are intentionally ordered so early slices produce a usable wallet sub
 
 ## Current Status
 
-As of 2026-04-15:
+As of 2026-04-17:
 
 - Slice 0 is complete.
 - Slice 1 is complete.
 - Slice 2 is complete.
 - Slice 3 is complete.
-- Slice 4 is complete for export/reveal and native destructive confirmations.
-- The remaining remove guard that depends on real bot `enabled` or `running` state moves with Slice 5, because the current wallet metadata model does not yet have an honest bot runtime state machine.
+- Slice 4 is complete.
+- Slice 5 is complete.
+- The minimal Slice 6 bootstrap and stdin secret handoff foundation was pulled forward into Slice 5, because the supervisor split needed real wallet-bound bot artifacts to be honest.
 
 ## Slice 0: Admin Shell and Desktop Hardening Baseline
 
@@ -178,16 +179,16 @@ Tasks:
 
 - replace the admin-target `+layout.svelte` behavior that renders only `DesktopRuntimeDrawer`
 - introduce a minimal admin shell layout that can host:
-  - runtime panel
-  - wallet panel placeholder
-  - future bot panel placeholder
+    - runtime panel
+    - wallet panel placeholder
+    - future bot panel placeholder
 - keep the userland build path unchanged
 - add a strict Tauri CSP in `src-tauri/tauri.conf.json`
 - ensure the admin build uses no remote scripts, fonts, or styles
 - add explicit frontend separation between:
-  - runtime lifecycle APIs
-  - future wallet APIs
-  - future bot APIs
+    - runtime lifecycle APIs
+    - future wallet APIs
+    - future bot APIs
 - keep secret-related UI placeholders non-functional in this slice
 
 Recommended frontend shape after this slice:
@@ -235,40 +236,40 @@ Tasks:
 
 - add a `wallet` module to `src-tauri/src/`
 - define domain types:
-  - `WalletId`
-  - `WalletLabel`
-  - `WalletAddress`
-  - `WalletMetadata`
-  - `WalletRecord`
-  - `PassphrasePolicy`
+    - `WalletId`
+    - `WalletLabel`
+    - `WalletAddress`
+    - `WalletMetadata`
+    - `WalletRecord`
+    - `PassphrasePolicy`
 - define use cases:
-  - `ListWallets`
-  - `ImportWallet`
-  - `RemoveWallet`
-  - `ExportWallet`
-  - `UnlockWalletForBotStart`
+    - `ListWallets`
+    - `ImportWallet`
+    - `RemoveWallet`
+    - `ExportWallet`
+    - `UnlockWalletForBotStart`
 - keep outbound port traits local to each use-case module
 - add a Rust-owned wallet config section resolved from app-data:
-  - wallet directory
-  - metadata index path
-  - optional helper sidecar path
-  - bot unlock stabilization delay
+    - wallet directory
+    - metadata index path
+    - optional helper sidecar path
+    - bot unlock stabilization delay
 - implement filesystem storage adapter:
-  - `index.json`
-  - `<wallet-id>.json`
-  - atomic metadata writes
-  - restrictive file permissions
+    - `index.json`
+    - `<wallet-id>.json`
+    - atomic metadata writes
+    - restrictive file permissions
 - implement keystore adapter:
-  - validate private key
-  - derive EVM address
-  - encrypt using Alloy keystore support
-  - decrypt using Alloy keystore support
-  - zeroize plaintext buffers
+    - validate private key
+    - derive EVM address
+    - encrypt using Alloy keystore support
+    - decrypt using Alloy keystore support
+    - zeroize plaintext buffers
 - avoid custom cryptography implementation in this slice
 - define bounded unlock behavior explicitly in the service layer:
-  - decrypt for one operation
-  - do the operation
-  - drop plaintext from the main Tauri process
+    - decrypt for one operation
+    - do the operation
+    - drop plaintext from the main Tauri process
 - add test-only in-process prompt substitutes so use-case tests can run before the real helper exists
 
 Acceptance:
@@ -306,19 +307,19 @@ Tasks:
 - avoid runtime font parsing and system font lookup inside the helper
 - define a structured stdin/stdout contract between desktop app and helper
 - support helper actions:
-  - import prompt
-  - unlock prompt
-  - remove confirmation prompt
-  - export confirmation prompt
-  - export reveal window
+    - import prompt
+    - unlock prompt
+    - remove confirmation prompt
+    - export confirmation prompt
+    - export reveal window
 - make sure only non-secret context is passed in command arguments
 - return prompt results over stdout only
 - accept secret reveal payloads on stdin where needed
 - add a desktop build step to ensure the helper binary exists before bundle assembly
 - register the helper in `bundle.externalBin`
 - wire the official Tauri sidecar runtime path for:
-  - dev runs
-  - bundled desktop runs
+    - dev runs
+    - bundled desktop runs
 - use Tauri's Rust sidecar API instead of plain `std::process::Command`
 - add any required shell plugin wiring and capability permissions for the sidecar
 - sanitize helper errors before they bubble upward
@@ -351,24 +352,24 @@ Primary files:
 Tasks:
 
 - add Tauri command handlers for:
-  - `wallet_list`
-  - `wallet_import`
-  - `wallet_remove`
-  - `wallet_get_status`
+    - `wallet_list`
+    - `wallet_import`
+    - `wallet_remove`
+    - `wallet_get_status`
 - keep command handlers thin and transport-only
 - wire the wallet use cases in `src-tauri/src/lib.rs`
 - create a wallet DTO surface that contains metadata only:
-  - `walletId`
-  - `label`
-  - `address`
-  - `assignedBotKinds`
-  - `status`
+    - `walletId`
+    - `label`
+    - `address`
+    - `assignedBotKinds`
+    - `status`
 - add a frontend wallet port separate from the runtime lifecycle port
 - add an admin wallet panel that can:
-  - list wallets
-  - trigger import flow
-  - trigger remove flow
-  - show locked/assigned state
+    - list wallets
+    - trigger import flow
+    - trigger remove flow
+    - show locked/assigned state
 - after import or remove, refresh metadata via Tauri command results
 - keep the runtime drawer intact as a sibling panel, not a mixed concern
 
@@ -429,6 +430,10 @@ Acceptance:
 
 ## Slice 5: Supervisor Split for Wallet-Bound Bot Runtimes
 
+Status:
+
+- completed
+
 Goal:
 
 - separate optional trading bots from the fail-fast core composition so wallet unlock policy can remain strict without destabilizing the base runtime
@@ -438,31 +443,40 @@ Primary files:
 - `src-tauri/src/runtime/supervisor.rs`
 - `src-tauri/src/runtime/mod.rs`
 - `src-tauri/src/runtime/config.rs`
-- `frontend/src/lib/runtime/lifecycle/ports.ts`
-- `frontend/src/lib/runtime/desktop-runtime-store.ts`
+- `src-tauri/src/runtime/bot_runtime.rs`
+- `src-tauri/src/wallet/application/use_cases/assign_wallet_to_bot.rs`
+- `src-tauri/src/wallet/tauri/bot_commands.rs`
 - new `frontend/src/lib/admin/bots/**`
+- `package.json`
+- `scripts/build/build-runtime-artifacts.mjs`
+- `scripts/build/prepare-desktop-runtime-resources.mjs`
+- new `trading/src/runtime/**`
 
 Tasks:
 
 - refactor runtime state into:
-  - core composition state
-  - bot runtime states
+    - core composition state
+    - bot runtime states
 - introduce explicit bot state machine:
-  - `disabled`
-  - `locked`
-  - `awaiting_unlock`
-  - `starting`
-  - `running`
-  - `stopped`
-  - `error`
+    - `disabled`
+    - `locked`
+    - `awaiting_unlock`
+    - `starting`
+    - `running`
+    - `stopped`
+    - `error`
 - keep current core fail-fast behavior for:
-  - NATS
-  - backend
-  - indexer workers
+    - NATS
+    - backend
+    - indexer workers
 - ensure bot failure does not restart the full composition
-- ensure core composition failure may stop all bots
+- define critical runtime dependencies per bot kind
+- force-stop only the bots whose declared critical dependencies become unhealthy
 - add typed desktop config for the stabilization delay before unlock prompt
+- add explicit wallet-to-bot assignment commands and persisted assignment metadata
+- block wallet removal while a wallet remains assigned to any bot
 - surface bot state independently in the admin UI
+- pull in the minimal trading runtime bootstrap and stdin secret protocol so the split uses real bot artifacts, not placeholders
 
 Important rule:
 
@@ -471,10 +485,15 @@ Important rule:
 Acceptance:
 
 - supervisor can track bot runtimes independently from core composition
-- bot crash leaves the bot stopped and locked
+- a bot crash or dependency loss stops only the affected bot and does not restart the full composition
+- per-bot dependency health is explicit in the admin UI
 - next bot start requires a fresh prompt
 
 ## Slice 6: Trading Runtime Bootstrap and Stdin Secret Protocol
+
+Status:
+
+- completed as part of Slice 5 delivery
 
 Goal:
 
@@ -494,11 +513,11 @@ Tasks:
 
 - add a new `trading/` workspace
 - create one minimal bot runtime entrypoint that:
-  - reads the stdin secret envelope
-  - validates metadata
-  - constructs an in-memory signer
-  - zeroizes the original buffer best-effort
-  - reports startup success/failure
+    - reads the stdin secret envelope
+    - validates metadata
+    - constructs an in-memory signer
+    - zeroizes the original buffer best-effort
+    - reports startup success/failure
 - define the stdin secret envelope contract formally
 - keep the protocol versioned
 - add Rust-side writer and Node-side reader tests
