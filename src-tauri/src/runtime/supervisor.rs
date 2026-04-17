@@ -990,14 +990,8 @@ fn spawn_trading_bot_process(
         ));
     }
 
-    let args = vec![
-        "--require".to_owned(),
-        config.pnp_cjs_path.to_string_lossy().into_owned(),
-        "--experimental-loader".to_owned(),
-        config.pnp_loader_path.to_string_lossy().into_owned(),
-        artifact_path.to_string_lossy().into_owned(),
-    ];
-    let command_line = format!("{} {}", config.node_bin.display(), args.join(" "));
+    let args = build_node_process_args(config, &artifact_path);
+    let command_line = render_command_line(config.node_bin.to_string_lossy().as_ref(), &args);
     emit_supervisor_log(
         app,
         &config.logs_dir,
@@ -1464,19 +1458,14 @@ fn spawn_node_process(
         ));
     }
 
+    let args = build_node_process_args(config, &artifact_path);
     spawn_process(
         app,
         config,
         ProcessSpec {
             name: process_name.to_owned(),
             command: config.node_bin.to_string_lossy().into_owned(),
-            args: vec![
-                "--require".to_owned(),
-                config.pnp_cjs_path.to_string_lossy().into_owned(),
-                "--experimental-loader".to_owned(),
-                config.pnp_loader_path.to_string_lossy().into_owned(),
-                artifact_path.to_string_lossy().into_owned(),
-            ],
+            args,
             cleanup: None,
         },
     )
@@ -1506,7 +1495,7 @@ fn spawn_process(
     config: &DesktopRuntimeConfig,
     spec: ProcessSpec,
 ) -> Result<ManagedProcess, String> {
-    let command_line = format!("{} {}", spec.command, spec.args.join(" "));
+    let command_line = render_command_line(spec.command.as_str(), &spec.args);
     emit_supervisor_log(
         app,
         &config.logs_dir,
@@ -1571,6 +1560,26 @@ fn spawn_process(
         output_threads,
         cleanup: spec.cleanup,
     })
+}
+
+fn build_node_process_args(
+    config: &DesktopRuntimeConfig,
+    artifact_path: &std::path::Path,
+) -> Vec<String> {
+    vec![
+        "--require".to_owned(),
+        config.pnp_cjs_path.to_string_lossy().into_owned(),
+        "--experimental-loader".to_owned(),
+        config.pnp_loader_path.to_string_lossy().into_owned(),
+        artifact_path.to_string_lossy().into_owned(),
+    ]
+}
+
+fn render_command_line(command: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        return command.to_owned();
+    }
+    format!("{command} {}", args.join(" "))
 }
 
 fn spawn_log_stream_worker<R>(
@@ -1887,5 +1896,81 @@ where
         update(&mut status);
         let snapshot = status.clone();
         let _ = app.emit("runtime-state-changed", &snapshot);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use serde::Deserialize;
+
+    use super::*;
+    use crate::runtime::config::DesktopWalletConfig;
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TradingSecretEnvelopeFixture {
+        wallet_id: String,
+        address: String,
+        private_key_hex: String,
+    }
+
+    fn load_fixture() -> TradingSecretEnvelopeFixture {
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../trading/src/runtime/fixtures/secret-envelope-v1.json");
+        let raw = fs::read_to_string(&fixture_path).expect("fixture file should load");
+        serde_json::from_str(&raw).expect("fixture json should parse")
+    }
+
+    fn build_test_runtime_config() -> DesktopRuntimeConfig {
+        DesktopRuntimeConfig {
+            env_file_path: PathBuf::from("config/.env"),
+            node_bin: PathBuf::from("/runtime/node/node"),
+            nats_bin: PathBuf::from("/runtime/nats/nats-server"),
+            runtime_dir: PathBuf::from("/runtime"),
+            pnp_cjs_path: PathBuf::from("/runtime/.pnp.cjs"),
+            pnp_loader_path: PathBuf::from("/runtime/.pnp.loader.mjs"),
+            nats_host: "127.0.0.1".to_owned(),
+            nats_port: 4222,
+            nats_url: "nats://127.0.0.1:4222".to_owned(),
+            backend_port: 3000,
+            chain_id: 1,
+            auto_start: true,
+            restart_backoff_ms: 1000,
+            process_env: HashMap::from([
+                ("ARTGOD_DB_PATH".to_owned(), "/runtime/artgod.sqlite".to_owned()),
+                ("NODE_ENV".to_owned(), "production".to_owned()),
+            ]),
+            logs_dir: PathBuf::from("/runtime/logs"),
+            wallet: DesktopWalletConfig {
+                store_dir: PathBuf::from("/runtime/wallets"),
+                index_path: PathBuf::from("/runtime/wallets/index.json"),
+                bot_unlock_stabilization_delay_ms: 15000,
+            },
+        }
+    }
+
+    #[test]
+    fn trading_bot_launch_shape_does_not_leak_wallet_material() {
+        let fixture = load_fixture();
+        let config = build_test_runtime_config();
+        let spec = crate::runtime::bot_runtime::BIDDING_BOT_SPEC;
+        let artifact_path = config.runtime_dir.join(spec.artifact_relative_path);
+        let args = build_node_process_args(&config, &artifact_path);
+        let command_line = render_command_line(config.node_bin.to_string_lossy().as_ref(), &args);
+
+        assert!(command_line.contains(spec.artifact_relative_path));
+        assert!(!command_line.contains(fixture.wallet_id.as_str()));
+        assert!(!command_line.contains(fixture.address.as_str()));
+        assert!(!command_line.contains(fixture.private_key_hex.as_str()));
+
+        for value in config.process_env.values() {
+            assert!(!value.contains(fixture.wallet_id.as_str()));
+            assert!(!value.contains(fixture.address.as_str()));
+            assert!(!value.contains(fixture.private_key_hex.as_str()));
+        }
     }
 }

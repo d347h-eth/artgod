@@ -1,44 +1,54 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-    SECRET_ENVELOPE_MAGIC,
-    SECRET_ENVELOPE_VERSION,
     parseSecretEnvelope,
 } from "./secret-envelope.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const fixturePath = path.join(__dirname, "fixtures", "secret-envelope-v1.json");
+
+type TradingSecretEnvelopeFixture = {
+    walletId: string;
+    address: string;
+    botKind: "bidding" | "sniping";
+    chainId: number;
+    privateKeyHex: string;
+    payloadHex: string;
+};
+
+function loadFixture(): TradingSecretEnvelopeFixture {
+    return JSON.parse(readFileSync(fixturePath, "utf8")) as TradingSecretEnvelopeFixture;
+}
+
 describe("parseSecretEnvelope", () => {
-    it("parses a valid binary envelope", () => {
-        const metadata = Buffer.from(
-            JSON.stringify({
-                walletId: "wallet-1",
-                address: "0x1111111111111111111111111111111111111111",
-                botKind: "bidding",
-                chainId: 1,
-            }),
-            "utf8",
-        );
-        const privateKey = Buffer.alloc(32, 7);
-        const buffer = Buffer.alloc(
-            SECRET_ENVELOPE_MAGIC.length +
-                1 +
-                4 +
-                metadata.length +
-                privateKey.length,
-        );
-        let offset = 0;
-        SECRET_ENVELOPE_MAGIC.copy(buffer, offset);
-        offset += SECRET_ENVELOPE_MAGIC.length;
-        buffer.writeUInt8(SECRET_ENVELOPE_VERSION, offset);
-        offset += 1;
-        buffer.writeUInt32BE(metadata.length, offset);
-        offset += 4;
-        metadata.copy(buffer, offset);
-        offset += metadata.length;
-        privateKey.copy(buffer, offset);
+    it("parses the shared golden envelope fixture", () => {
+        const fixture = loadFixture();
+        const buffer = Buffer.from(fixture.payloadHex, "hex");
 
         const envelope = parseSecretEnvelope(buffer);
-        expect(envelope.metadata.botKind).toBe("bidding");
-        expect(envelope.metadata.walletId).toBe("wallet-1");
+        expect(envelope.metadata.botKind).toBe(fixture.botKind);
+        expect(envelope.metadata.walletId).toBe(fixture.walletId);
+        expect(envelope.metadata.address).toBe(fixture.address);
+        expect(envelope.metadata.chainId).toBe(fixture.chainId);
         expect(envelope.privateKeyBytes).toHaveLength(32);
-        expect(envelope.privateKeyBytes[0]).toBe(7);
+        expect(envelope.privateKeyBytes.toString("hex")).toBe(fixture.privateKeyHex);
+    });
+
+    it("rejects a truncated envelope", () => {
+        const fixture = loadFixture();
+        const truncated = Buffer.from(fixture.payloadHex.slice(0, -2), "hex");
+
+        expect(() => parseSecretEnvelope(truncated)).toThrow("length is invalid");
+    });
+
+    it("rejects an envelope with invalid magic bytes", () => {
+        const fixture = loadFixture();
+        const buffer = Buffer.from(fixture.payloadHex, "hex");
+        buffer[0] = 0x00;
+
+        expect(() => parseSecretEnvelope(buffer)).toThrow("magic");
     });
 });

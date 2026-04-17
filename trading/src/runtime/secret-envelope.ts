@@ -59,8 +59,9 @@ export function parseSecretEnvelope(buffer: Buffer): TradingSecretEnvelope {
         throw new Error("Secret envelope metadata is invalid");
     }
 
-    const privateKeyBytes = Buffer.from(
-        buffer.subarray(HEADER_LENGTH + metadataLength, expectedTotalLength),
+    const privateKeyBytes = buffer.subarray(
+        HEADER_LENGTH + metadataLength,
+        expectedTotalLength,
     );
     if (privateKeyBytes.length !== SECRET_KEY_LENGTH_BYTES) {
         throw new Error("Secret envelope private key payload is invalid");

@@ -5,9 +5,9 @@ use tempfile::TempDir;
 use zeroize::Zeroizing;
 
 use crate::wallet::application::use_cases::{
-    ExportWallet, ExportWalletError, ExportWalletInput, ImportWallet, ImportWalletError,
-    ImportWalletInput, ListWallets, RemoveWallet, RemoveWalletError, RemoveWalletInput,
-    UnlockWalletForBotStart, UnlockWalletForBotStartInput,
+    AssignWalletToBot, AssignWalletToBotInput, ExportWallet, ExportWalletError, ExportWalletInput,
+    ImportWallet, ImportWalletError, ImportWalletInput, ListWallets, RemoveWallet,
+    RemoveWalletError, RemoveWalletInput, UnlockWalletForBotStart, UnlockWalletForBotStartInput,
 };
 use crate::wallet::domain::{BotKind, PassphrasePolicy};
 use crate::wallet::infra::keystore::AlloyKeystore;
@@ -255,4 +255,73 @@ fn unlock_for_bot_start_returns_secret_once() {
         format!("0x{}", hex::encode(unlocked.private_key.as_bytes())),
         TEST_PRIVATE_KEY_TWO
     );
+}
+
+#[test]
+fn assign_wallet_to_bot_reassigns_and_clears_prior_owner() {
+    let stack = build_wallet_stack();
+    let import_wallet = ImportWallet::new(
+        stack.store.clone(),
+        stack.keystore.clone(),
+        PassphrasePolicy::default(),
+    );
+    let assign_wallet = AssignWalletToBot::new(stack.store.clone());
+    let list_wallets = ListWallets::new(stack.store.clone());
+
+    let first_wallet = import_wallet
+        .execute(ImportWalletInput {
+            label: "Primary".to_owned(),
+            private_key: Zeroizing::new(TEST_PRIVATE_KEY_ONE.to_owned()),
+            passphrase: Zeroizing::new(TEST_PASSPHRASE.to_owned()),
+            passphrase_confirmation: Zeroizing::new(TEST_PASSPHRASE.to_owned()),
+        })
+        .unwrap();
+    let second_wallet = import_wallet
+        .execute(ImportWalletInput {
+            label: "Secondary".to_owned(),
+            private_key: Zeroizing::new(TEST_PRIVATE_KEY_TWO.to_owned()),
+            passphrase: Zeroizing::new(TEST_PASSPHRASE.to_owned()),
+            passphrase_confirmation: Zeroizing::new(TEST_PASSPHRASE.to_owned()),
+        })
+        .unwrap();
+
+    assign_wallet
+        .execute(AssignWalletToBotInput {
+            bot_kind: BotKind::Bidding,
+            wallet_id: Some(first_wallet.wallet_id.to_string()),
+        })
+        .unwrap();
+    assign_wallet
+        .execute(AssignWalletToBotInput {
+            bot_kind: BotKind::Bidding,
+            wallet_id: Some(second_wallet.wallet_id.to_string()),
+        })
+        .unwrap();
+
+    let listed = list_wallets.execute().unwrap();
+    let first = listed
+        .wallets
+        .iter()
+        .find(|wallet| wallet.wallet_id == first_wallet.wallet_id)
+        .unwrap();
+    let second = listed
+        .wallets
+        .iter()
+        .find(|wallet| wallet.wallet_id == second_wallet.wallet_id)
+        .unwrap();
+    assert!(!first.is_assigned_to_bot(BotKind::Bidding));
+    assert!(second.is_assigned_to_bot(BotKind::Bidding));
+
+    assign_wallet
+        .execute(AssignWalletToBotInput {
+            bot_kind: BotKind::Bidding,
+            wallet_id: None,
+        })
+        .unwrap();
+
+    let listed = list_wallets.execute().unwrap();
+    assert!(listed
+        .wallets
+        .iter()
+        .all(|wallet| !wallet.is_assigned_to_bot(BotKind::Bidding)));
 }

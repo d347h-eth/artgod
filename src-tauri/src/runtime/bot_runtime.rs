@@ -119,9 +119,32 @@ pub fn build_trading_secret_envelope(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::Path;
+
+    use alloy_primitives::hex;
+    use serde::Deserialize;
     use serde_json::Value;
 
     use super::*;
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TradingSecretEnvelopeFixture {
+        wallet_id: String,
+        address: String,
+        bot_kind: String,
+        chain_id: u64,
+        private_key_hex: String,
+        payload_hex: String,
+    }
+
+    fn load_fixture() -> TradingSecretEnvelopeFixture {
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../trading/src/runtime/fixtures/secret-envelope-v1.json");
+        let raw = fs::read_to_string(&fixture_path).expect("fixture file should load");
+        serde_json::from_str(&raw).expect("fixture json should parse")
+    }
 
     #[test]
     fn trading_secret_envelope_binary_layout_is_stable() {
@@ -145,5 +168,29 @@ mod tests {
         assert_eq!(metadata["walletId"], "11111111-1111-4111-8111-111111111111");
         assert_eq!(metadata["botKind"], "bidding");
         assert_eq!(payload.len() - metadata_end, SECRET_KEY_LENGTH_BYTES);
+    }
+
+    #[test]
+    fn trading_secret_envelope_matches_shared_fixture() {
+        let fixture = load_fixture();
+        let wallet_id = WalletId::parse(fixture.wallet_id.as_str()).unwrap();
+        let private_key_bytes = hex::decode(fixture.private_key_hex).unwrap();
+        let private_key = WalletPrivateKey::new(private_key_bytes.try_into().unwrap());
+        let bot_kind = match fixture.bot_kind.as_str() {
+            "bidding" => BotKind::Bidding,
+            "sniping" => BotKind::Sniping,
+            other => panic!("unexpected bot kind fixture value: {other}"),
+        };
+
+        let payload = build_trading_secret_envelope(
+            &wallet_id,
+            fixture.address.as_str(),
+            bot_kind,
+            fixture.chain_id,
+            &private_key,
+        )
+        .unwrap();
+
+        assert_eq!(hex::encode(payload), fixture.payload_hex);
     }
 }
