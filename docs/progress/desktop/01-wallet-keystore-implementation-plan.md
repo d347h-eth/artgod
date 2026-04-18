@@ -32,22 +32,26 @@ Desktop Rust composition:
 Desktop resource/build pipeline:
 
 - `package.json`
+- `scripts/build/build-runtime-artifacts.mjs`
 - `scripts/build/prepare-desktop-runtime-resources.mjs`
+- `scripts/build/prepare-desktop-sidecars.mjs`
 
 Admin frontend:
 
 - `frontend/src/routes/+layout.svelte`
+- `frontend/src/lib/admin/components/AdminShell.svelte`
+- `frontend/src/lib/admin/runtime/**`
+- `frontend/src/lib/admin/wallets/**`
+- `frontend/src/lib/admin/bots/**`
 - `frontend/src/lib/components/DesktopRuntimeDrawer.svelte`
-- `frontend/src/lib/runtime/desktop-runtime-store.ts`
 - `frontend/src/lib/runtime/lifecycle/adapters/tauri-runtime-port.ts`
-- `frontend/src/lib/runtime/lifecycle/ports.ts`
+- `frontend/src/lib/admin/runtime/store.ts`
 
-Important current constraint:
+Current state:
 
-- the admin build is not yet a full admin shell
-- it currently mounts `DesktopRuntimeDrawer` directly and ignores normal route content
-
-That means wallet metadata UI needs a small admin-surface refactor before it can grow cleanly.
+- the admin build is now a dedicated shell with `lifecycle`, `wallets`, `bots`, `logs`, and `status` tabs
+- wallet metadata and bot control surfaces are already wired through the native Tauri command boundary
+- the remaining follow-up work is desktop E2E automation and future strategy implementation rather than admin-shell scaffolding
 
 ## Delivery Rules
 
@@ -61,11 +65,11 @@ Each slice must preserve these rules:
 6. Wallet logic stays in Rust and follows explicit ports/adapters boundaries.
 7. Bot-specific trading logic must not be mixed into the indexer package by convenience.
 
-## Recommended Package Shape
+## Implemented Package Shape
 
 ### Rust Desktop App
 
-Add a dedicated wallet subsystem under `src-tauri/src/wallet/`.
+The desktop app now uses a dedicated wallet subsystem under `src-tauri/src/wallet/`.
 
 Suggested structure:
 
@@ -119,9 +123,9 @@ Component split:
 This split is important because only the helper is out-of-process.
 The actual wallet state and decrypt logic remain in the main Tauri Rust runtime.
 
-### Future Bot Runtime Package
+### Trading Runtime Package
 
-Recommended package decision:
+Implemented package decision:
 
 - create a dedicated `trading/` workspace for wallet-bound bot runtimes
 
@@ -133,7 +137,7 @@ Reason:
 - restart/unlock policy is different
 - telemetry and runtime state should be separated cleanly
 
-If `trading/` is introduced, root `package.json` workspaces and desktop runtime build scripts must be updated accordingly.
+`trading/` is now part of the root workspaces and desktop runtime build pipeline.
 
 ## Slice Overview
 
@@ -149,7 +153,7 @@ The slices are intentionally ordered so early slices produce a usable wallet sub
 
 ## Current Status
 
-As of 2026-04-17:
+As of 2026-04-18:
 
 - Slice 0 is complete.
 - Slice 1 is complete.
@@ -157,7 +161,7 @@ As of 2026-04-17:
 - Slice 3 is complete.
 - Slice 4 is complete.
 - Slice 5 is complete.
-- The minimal Slice 6 bootstrap and stdin secret handoff foundation was pulled forward into Slice 5, because the supervisor split needed real wallet-bound bot artifacts to be honest.
+- Slice 6 is complete, including the shared golden-fixture protocol tests and secret-leak guards around bot startup.
 
 ## Slice 0: Admin Shell and Desktop Hardening Baseline
 

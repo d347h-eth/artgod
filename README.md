@@ -19,6 +19,8 @@ Current implementation snapshot:
 - Userland collection browsing includes shared collection-page chrome, tokens / activities / holders sections, reusable trait facets, collection activity feeds, and owner-scoped token browsing.
 - Local observability stack is available (logs, metrics, traces, profiles).
 - Tauri desktop runtime supervisor composes local NATS + backend + indexer workers from production runtime artifacts.
+- Desktop admin UI now includes lifecycle, wallets, bots, logs, and status surfaces behind the native Tauri shell.
+- Desktop wallet custody is implemented with Rust-owned Ethereum keystore storage, native secret prompts, and one-shot stdin secret handoff into wallet-bound trading runtimes.
 
 Canonical backlog and priorities live in `docs/progress/indexer/15-unified-backlog.md`.
 
@@ -51,6 +53,7 @@ yarn build:admin
 yarn build:desktop
 yarn build:runtime
 yarn build:desktop-runtime-resources
+yarn build:desktop-sidecars --profile release
 yarn check:runtime-registry
 yarn clean:build
 ```
@@ -172,8 +175,9 @@ yarn build:web                 # frontend web build only
 yarn build:userland            # frontend userland static build (adapter-static -> frontend/dist-userland)
 yarn build:admin               # frontend admin static build for Tauri window (adapter-static -> frontend/dist)
 yarn build:desktop             # alias for build:admin
-yarn build:runtime             # backend/indexer Node runtime artifacts
+yarn build:runtime             # backend/indexer/trading Node runtime artifacts
 yarn build:desktop-runtime-resources # copies runtime artifacts + Yarn runtime deps + bundled Node+NATS runtimes (cached under .cache/desktop-*-runtime)
+yarn build:desktop-sidecars --profile release # builds and stages the native secret-prompt sidecar
 yarn check:runtime-registry    # validates runtime list consistency across build/supervisor/dev/observability
 yarn clean:build               # clears dist and build caches across all workspaces
 yarn tauri build --no-bundle --ci
@@ -184,12 +188,12 @@ Desktop executable lifecycle:
 
 1. Rust app process initializes and exposes runtime commands (startup is deferred; no immediate supervisor auto-start in `setup`).
 2. System tray is initialized with native actions: `open ArtGod in browser`, `open admin UI`, `shutdown`.
-3. Admin UI runs in the native Tauri window and is limited to runtime operations (`lifecycle`, `logs`, `status` + browser-open action).
+3. Admin UI runs in the native Tauri window and exposes the privileged desktop control plane (`lifecycle`, `wallets`, `bots`, `logs`, `status` + userland-open action).
 4. Userland UI runs in a regular browser tab and is served by the local backend origin.
 5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`.
-6. Supervisor starts local NATS from bundled `nats-server`, then backend, then all indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; runtime status becomes `running` only after semantic backend health (`/health/runtime`) succeeds.
+6. Supervisor starts local NATS from bundled `nats-server`, then backend, then all indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; wallet-bound trading bots are staged too but start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe succeeds (not merely until process state is `running`).
-8. Any core process exit triggers fail-fast full stack restart.
+8. Any core composition process exit triggers fail-fast full stack restart; wallet-bound trading bots are supervised separately and stop only when they crash or when one of their declared critical dependencies becomes unhealthy.
 9. Closing the admin window hides it (runtime keeps running in tray). Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app exit.
 
 If your desktop config file was generated before runtime-artifact keys were added, either update it manually or delete it to regenerate:
@@ -251,9 +255,10 @@ Core components:
 2. Backend API (`backend/`)
 3. Frontend UI (`frontend/`)
 4. Indexer runtimes (`indexer/src/runtime/`)
-5. Shared database utilities (`shared/database/`)
-6. SQLite migrations (`database/migrations/`)
-7. Queue broker (NATS JetStream)
+5. Trading runtimes (`trading/src/runtime/`)
+6. Shared database utilities (`shared/database/`)
+7. SQLite migrations (`database/migrations/`)
+8. Queue broker (NATS JetStream)
 
 ### Indexer Runtime Topology
 
@@ -324,6 +329,7 @@ Historical backfill for blocks at or before the bootstrap anchor is facts-only: 
 - `backend/` Node.js API server (TypeScript, ESM)
 - `frontend/` SvelteKit UI (Tailwind, Vite)
 - `indexer/` runtime workers, domain logic, infra adapters, tests
+- `trading/` wallet-bound bot runtimes and stdin secret-envelope bootstrap
 - `shared/` shared TypeScript utilities and database access
 - `database/` SQLite migrations and storage roots
 - `observability/` Grafana/Loki/Tempo/Pyroscope/Alloy provisioning
@@ -360,6 +366,7 @@ Use these as primary references for design and implementation details:
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
+- `docs/progress/desktop/01-wallet-keystore-implementation-plan.md`
 - `docs/deploy/01-web-hosted-read-only.md`
 - `docs/diagrams/architecture.md`
 - `docs/progress/indexer/15-unified-backlog.md`
@@ -381,6 +388,7 @@ yarn build:web
 yarn build:desktop
 yarn build:runtime
 yarn build:desktop-runtime-resources
+yarn build:desktop-sidecars --profile release
 yarn check:runtime-registry
 yarn clean:build
 yarn tauri build --no-bundle --ci

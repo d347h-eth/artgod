@@ -16,7 +16,7 @@ sequenceDiagram
     U->>R: Launch app
     R->>R: Initialize tray + commands
     R->>A: Show admin window
-    A->>A: Mount lifecycle tab immediately
+    A->>A: Mount admin shell and lifecycle tab immediately
 
     A->>T: Wait bridge, then invoke runtime_auto_start
     T->>R: runtime_auto_start
@@ -45,3 +45,4 @@ sequenceDiagram
 
 - Runtime is running and semantically healthy.
 - Admin lifecycle transitions to `ready`.
+- Wallet-bound bot runtimes remain stopped/locked until the operator assigns a wallet and starts them explicitly.

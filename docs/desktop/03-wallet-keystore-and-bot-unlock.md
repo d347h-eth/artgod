@@ -1,7 +1,7 @@
 # Wallet Keystore and Bot Unlock Model
 
 This document defines the canonical desktop wallet custody model for ArtGod.
-It covers private-key import/export/remove, encrypted local keystore storage, native secret-entry flows, and one-shot secret handoff into future trading bot runtimes.
+It covers private-key import/export/remove, encrypted local keystore storage, native secret-entry flows, and one-shot secret handoff into trading bot runtimes.
 
 This is intentionally stricter than a typical desktop wallet UX.
 
@@ -36,7 +36,7 @@ ArtGod will use a hybrid desktop model:
 - raw private-key entry, passphrase entry, and plaintext export display do not live in the WebView
 - those secret-entry flows are owned by Rust via a dedicated native secret-prompt helper sidecar
 - encrypted wallet storage is owned by Rust and kept in desktop app-data as standard Ethereum keystore JSON files, outside backend/indexer SQLite
-- future bot workers receive decrypted key material only once at startup over a one-shot pipe/stdin channel
+- trading bot runtimes receive decrypted key material only once at startup over a one-shot pipe/stdin channel
 - any bot restart requires a fresh passphrase prompt
 
 This design explicitly rejects all session unlock caching.
@@ -61,7 +61,7 @@ This specification covers:
 - importing one or more existing EVM private keys into the desktop app
 - exporting a stored private key back to plaintext on explicit operator request
 - removing a stored wallet
-- assigning wallets to future `bidding` and `sniping` bot runtimes
+- assigning wallets to `bidding` and `sniping` bot runtimes
 - decrypting a wallet only for explicit export or bot startup
 - keeping wallet storage and runtime wiring local-only
 
@@ -259,7 +259,7 @@ Current fail-fast behavior is appropriate here.
 
 ### 2) Trading Bots
 
-These are future optional runtimes:
+These are desktop-managed optional runtimes:
 
 - `bidding`
 - `sniping`
@@ -269,7 +269,7 @@ Bots must not share the same restart policy as the core composition.
 Required behavior:
 
 - a bot failure must not tear down the full core composition
-- a core composition failure may stop bots
+- a bot may be stopped when one of its declared critical dependencies becomes unhealthy
 - a bot restart must return that bot to a locked state
 - a locked bot requires a fresh passphrase prompt before it starts again
 
@@ -850,7 +850,7 @@ Design rules:
 
 ## Frontend/Admin UI Placement
 
-Admin UI should gain a wallet-management surface, but only for non-secret operations and status.
+Admin UI owns the wallet-management and bot-control surfaces, but only for non-secret operations and status.
 
 Suggested responsibilities:
 
@@ -861,12 +861,14 @@ Suggested responsibilities:
 - bot start/stop controls
 - locked/running/error state display
 
-Suggested frontend organization:
+Current frontend organization:
 
 ```text
-frontend/src/lib/runtime/wallets/
-frontend/src/lib/components/admin/
-frontend/src/routes/...
+frontend/src/lib/admin/components/
+frontend/src/lib/admin/runtime/
+frontend/src/lib/admin/wallets/
+frontend/src/lib/admin/bots/
+frontend/src/routes/+layout.svelte
 ```
 
 Exact route paths can be decided during implementation, but they must remain admin-only and must not be served from the userland browser origin.

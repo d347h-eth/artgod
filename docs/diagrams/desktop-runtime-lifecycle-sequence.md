@@ -24,4 +24,5 @@ The previous all-in-one sequence was split into focused diagrams so each one ans
 - `src-tauri/*` runs in the native Rust desktop process.
 - Admin UI runs in the Tauri WebView and calls Tauri commands.
 - Userland UI runs in the system browser against localhost backend.
-- Backend and indexer workers are separate Node child processes managed by the Rust supervisor.
+- Backend, indexer workers, and wallet-bound trading bots are separate Node child processes managed by the Rust supervisor.
+- Native secret entry/reveal flows use the bundled Rust sidecar, not the WebView.

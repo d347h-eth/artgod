@@ -35,5 +35,5 @@ sequenceDiagram
 
 ## Notes
 
-- Admin UI button `open ArtGod in browser` triggers the same open-userland action.
+- Admin shell header action to enter the userland triggers the same open-userland action.
 - Tray double-click can also trigger open-userland where supported by the platform.

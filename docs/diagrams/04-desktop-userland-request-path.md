@@ -11,7 +11,7 @@ sequenceDiagram
     participant BE as Backend HTTP
     participant DB as SQLite
 
-    U->>A: Trigger "open ArtGod in browser"
+    U->>A: Trigger the userland-open action from admin shell or tray
     A->>BR: Open http://127.0.0.1:<backend-port>
 
     BR->>BE: GET /

@@ -25,12 +25,12 @@ For desktop wallet custody, native secret prompts, and bot unlock policy, see:
 
 The desktop build/runtime pipeline is designed to:
 
-- keep frontend/backend/indexer in one local executable wrapper
-- keep runtime behavior explicit and fail-fast
+- keep frontend/backend/indexer/trading in one local executable wrapper
+- keep core-composition runtime behavior explicit and fail-fast
 - avoid relying on development launch commands in production desktop mode
 - make release builds reproducible in public CI
 
-The desktop shell does not replace backend/indexer logic. It orchestrates existing runtimes.
+The desktop shell does not replace backend/indexer/trading logic. It orchestrates existing runtimes.
 
 ## Build Commands
 
@@ -44,6 +44,7 @@ yarn build:admin
 yarn build:desktop
 yarn build:runtime
 yarn build:desktop-runtime-resources
+yarn build:desktop-sidecars --profile release
 yarn check:runtime-registry
 yarn clean:build
 yarn tauri build --no-bundle --ci
@@ -69,16 +70,23 @@ What each command does:
 
 - `yarn build:runtime`
   : Runs `scripts/build/build-runtime-artifacts.mjs`.
-  : Produces backend/indexer runtime artifacts under workspace-local `dist-desktop` folders.
+  : Produces backend/indexer/trading runtime artifacts under workspace-local `dist-desktop` folders.
 
 - `yarn build:desktop-runtime-resources`
   : Runs `scripts/build/prepare-desktop-runtime-resources.mjs`.
   : Copies runtime artifacts plus Yarn runtime dependency data into `src-tauri/resources/runtime` for bundling:
+    - `backend/dist-desktop/*`
+    - `indexer/dist-desktop/*`
+    - `trading/dist-desktop/*`
     - `.yarn/cache`
     - `.yarn/unplugged`
     - `.yarn/install-state.gz`
     - `.pnp.cjs`
     - `.pnp.loader.mjs`
+
+- `yarn build:desktop-sidecars --profile release`
+  : Runs `scripts/build/prepare-desktop-sidecars.mjs`.
+  : Builds the native secret-prompt sidecar and stages the target-specific binary under `src-tauri/binaries`.
 
 - `yarn check:runtime-registry`
   : Runs `scripts/build/check-runtime-registry.mjs`.
@@ -86,13 +94,14 @@ What each command does:
 
 - `yarn clean:build`
   : Runs `scripts/build/clean-build-artifacts.mjs`.
-  : Removes dist and cache outputs across workspaces (`dist*`, `.vite`, `.vitest`, `.svelte-kit`, `src-tauri/target`, `src-tauri/resources/runtime`).
+  : Removes dist and cache outputs across workspaces (`dist*`, `.vite`, `.vitest`, `.svelte-kit`, `src-tauri/target`, `src-tauri/resources/runtime`, `src-tauri/binaries`, sidecar crate `target/*`).
 
 ## Tauri Build Hooking
 
 `src-tauri/tauri.conf.json` contains:
 
-- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources"`
+- `beforeDevCommand = "node ./scripts/build/dev-frontend-target.mjs admin && yarn build:desktop-sidecars --profile debug"`
+- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"`
 - `frontendDist = "../frontend/dist"`
 
 This ensures `yarn tauri build ...` always has:
@@ -101,6 +110,7 @@ This ensures `yarn tauri build ...` always has:
 2. browser userland static output
 3. backend/indexer runtime `.mjs` artifacts
 4. staged runtime resources under `src-tauri/resources/runtime`
+5. staged native sidecar binaries under `src-tauri/binaries`
 
 before Rust bundling starts.
 
@@ -125,10 +135,11 @@ Responsibilities:
 Responsibilities:
 
 - cleans old runtime outputs
-- builds backend/indexer runtime entrypoints with `esbuild`
+- builds backend/indexer/trading runtime entrypoints with `esbuild`
 - writes:
     - `backend/dist-desktop/server.mjs`
     - `indexer/dist-desktop/*.mjs` (all worker entrypoints)
+    - `trading/dist-desktop/*.mjs` (wallet-bound bot runtimes)
 
 Current build strategy details:
 
@@ -154,6 +165,7 @@ Responsibilities:
     - `backend/dist-desktop/*`
     - `frontend/dist-userland/*`
     - `indexer/dist-desktop/*`
+    - `trading/dist-desktop/*`
     - `node/node` or `node/node.exe`
     - `nats/nats-server` or `nats/nats-server.exe`
     - `.yarn/cache/*`
@@ -161,6 +173,14 @@ Responsibilities:
     - `.yarn/install-state.gz`
     - `.pnp.cjs`
     - `.pnp.loader.mjs`
+
+### `scripts/build/prepare-desktop-sidecars.mjs`
+
+Responsibilities:
+
+- builds the native secret-prompt sidecar crate for the active target triple
+- stages the built binary into `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
+- keeps sidecar build output separate from the main `src-tauri/target` tree by using `src-tauri/target/sidecars`
 
 ### `scripts/build/clean-build-artifacts.mjs`
 
@@ -200,8 +220,16 @@ Produced runtime artifacts:
 - `indexer/dist-desktop/opensea-reconcile-worker.mjs`
 - `indexer/dist-desktop/opensea-reconcile-scheduler-worker.mjs`
 - `indexer/dist-desktop/dead-letter-worker.mjs`
+- `trading/dist-desktop/bidding-bot-runtime.mjs`
+- `trading/dist-desktop/sniping-bot-runtime.mjs`
 
 During Tauri build these artifacts are copied to `src-tauri/resources/runtime/...` and that staged tree is bundled into the desktop app resources.
+
+Produced sidecar artifacts:
+
+- `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
+
+During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked through Tauri's sidecar mechanism.
 
 ## Desktop Runtime Config File
 
@@ -224,6 +252,11 @@ Desktop-specific optional overrides:
 - `DESKTOP_RUNTIME_RESOURCES_DIR` (default `runtime`, resolved from app resource dir)
 - `DESKTOP_NODE_PNP_CJS` (default `.pnp.cjs`, resolved from runtime resources dir)
 - `DESKTOP_NODE_PNP_LOADER` (default `.pnp.loader.mjs`, resolved from runtime resources dir)
+
+Desktop-specific wallet/bot keys:
+
+- `DESKTOP_WALLET_STORE_DIR` (defaults to `wallets`, resolved relative to app-data dir unless absolute)
+- `DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS` (required; core runtime must remain healthy for this long before a bot unlock prompt is shown)
 
 Core runtime keys are also validated (for backend/indexer startup), for example:
 
@@ -270,6 +303,9 @@ Supervisor startup order:
    : checks backend process + DB ping + NATS/JetStream jobs stream readiness details
    : NATS connectivity errors are fatal; "jobs stream not yet created" is reported as warning (`warn`) and does not block startup
 7. only after semantic readiness succeeds, supervisor sets runtime status to `running`
+
+Wallet-bound bot runtimes are not part of the startup order above.
+They stay independently managed and start only after explicit admin action, dependency stabilization, native unlock, and one-shot stdin secret handoff.
 
 If any step fails:
 
@@ -324,10 +360,16 @@ Supervisor stop behavior:
 
 ### Restart Strategy
 
-Runtime is fail-fast:
+Core composition is fail-fast:
 
 - if any core process exits unexpectedly, supervisor stops all and restarts the full stack
 - status and last error are emitted to frontend via runtime events
+
+Wallet-bound bot runtimes use separate restart semantics:
+
+- a bot crash does not restart the core composition
+- a bot stops if one of its declared critical dependencies becomes unhealthy
+- a bot restart always returns to a locked state and requires a fresh native unlock prompt
 
 ## Logging
 
@@ -336,6 +378,7 @@ Supervisor captures stdout/stderr from each child process and writes:
 - `<app-data>/logs/<process>.log`
 
 It also emits log lines to frontend runtime event stream.
+This includes wallet-bound bot process logs once those runtimes are started.
 
 Admin runtime drawer process dropdown behavior:
 
@@ -351,15 +394,18 @@ Desktop UI is split into:
 - admin UI (native Tauri WebView)
 - userland UI (regular browser tab at backend localhost origin)
 
-Admin UI mounts runtime operations view in root layout (`frontend/src/routes/+layout.svelte`):
+Admin UI mounts a dedicated shell in root layout (`frontend/src/routes/+layout.svelte`):
 
+- shell tabs: `lifecycle`, `wallets`, `bots`, `logs`, `status`
+- header action to open the userland browser UI
 - live runtime state (`runtime-state-changed` event)
 - live log stream (`runtime-log` event)
 - controls: start / stop / restart / preflight
 - paths: config path and logs path with open actions
-- action: `open ArtGod in browser` (opens userland UI in system browser)
+- wallet metadata controls: import / export / remove
+- bot controls: list / assign wallet / start / stop
 
-Admin lifecycle UX is embedded in runtime operations (`lifecycle` tab):
+Admin lifecycle UX is embedded in the `lifecycle` tab:
 
 - visible immediately on startup while lifecycle phase is not `ready`
 - shows lifecycle events as single-line rows with bracket tokens (`[level] [code]`) for copy-friendly logs
@@ -381,6 +427,15 @@ Tauri commands used by desktop frontend runtime UI/state:
 - `runtime_open_config_path`
 - `runtime_open_logs_path`
 - `runtime_open_userland_ui`
+- `wallet_list`
+- `wallet_get_status`
+- `wallet_import`
+- `wallet_export`
+- `wallet_remove`
+- `bot_list`
+- `bot_assign_wallet`
+- `bot_start`
+- `bot_stop`
 
 ## CI Release Pipeline
 
