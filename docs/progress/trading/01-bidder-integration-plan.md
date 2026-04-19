@@ -1,7 +1,7 @@
 # Bidder Integration Plan
 
 Status: WIP
-Current milestone: Slice 4 complete
+Current milestone: Slice 5 complete
 
 ## Progress Snapshot
 
@@ -29,6 +29,10 @@ Current milestone: Slice 4 complete
 - Ported the OpenSea bidding adapter and collection-offer snapshot source with upstream-equivalent discovery and recovery behavior.
 - Added focused adapter tests covering placement, cancellation, direct order lookup, fallback order recovery, competitive-trait discovery, and snapshot-backed offer discovery.
 - The Slice 4 adapter layer intentionally uses small injected OpenSea client interfaces so Slice 6 can decide the runtime SDK/API wiring without touching the ported bidder logic.
+- Slice 5 completed in `trading/`.
+- Ported the OpenSea stream-side event normalization and stream adapter building blocks for bidding-relevant events.
+- Ported the opponent-only filter and blocking collection-offer snapshot refresh stage used by the hot-refresh path.
+- Added explicit pipeline-order tests proving that snapshot refresh blocks before bidder hot refresh continues.
 
 This document is the implementation plan for porting the existing battle-tested bidding bot into ArtGod.
 
@@ -410,6 +414,10 @@ Acceptance:
 
 - the pipeline order is explicit and tested
 - a stale snapshot on the hot path blocks until refreshed before hot refresh continues
+
+Status:
+
+- done
 
 ## Slice 6: Compose the Real Bidding Runtime
 
