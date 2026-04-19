@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+/// Maximum serialized request size allowed over the secret-prompt stdio protocol.
+pub const SECRET_PROMPT_MAX_REQUEST_BYTES: usize = 4 * 1024;
+
+/// Maximum serialized response size allowed over the secret-prompt stdio protocol.
+pub const SECRET_PROMPT_MAX_RESPONSE_BYTES: usize = 4 * 1024;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretPromptAction {

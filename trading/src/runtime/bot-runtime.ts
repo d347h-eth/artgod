@@ -72,6 +72,10 @@ async function readAllStdin(): Promise<Buffer> {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
     const buffer = Buffer.concat(chunks);
+    for (const chunk of chunks) {
+        chunk.fill(0);
+    }
+    chunks.length = 0;
     if (buffer.length === 0) {
         throw new Error("Secret envelope is missing");
     }

@@ -1,8 +1,8 @@
 use artgod_secret_prompt_protocol::{
     ExportConfirmSecretPromptRequest, ExportRevealAcknowledgedResponse,
     ExportRevealSecretPromptRequest, ImportSecretPromptRequest, RemoveConfirmSecretPromptRequest,
-    SecretPromptAction, SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse,
-    UnlockSecretPromptRequest,
+    SECRET_PROMPT_MAX_REQUEST_BYTES, SECRET_PROMPT_MAX_RESPONSE_BYTES, SecretPromptAction,
+    SecretPromptErrorCode, SecretPromptRequest, SecretPromptResponse, UnlockSecretPromptRequest,
 };
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
@@ -11,6 +11,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 
 const SECRET_PROMPT_SIDECAR_NAME: &str = "artgod-secret-prompt";
+const SECRET_PROMPT_MAX_STDERR_BYTES: usize = 4 * 1024;
 
 /// Launches the bundled native secret prompt helper via Tauri's sidecar runtime.
 #[derive(Clone, Debug)]
@@ -190,6 +191,14 @@ impl SecretPromptSidecar {
             serde_json::to_vec(&request).map_err(|error| SecretPromptError::ProtocolFailure {
                 message: format!("Failed to serialize secret prompt request: {error}"),
             })?;
+        if request_payload.len() > SECRET_PROMPT_MAX_REQUEST_BYTES {
+            return Err(SecretPromptError::ProtocolFailure {
+                message: format!(
+                    "Secret prompt request exceeded {} bytes",
+                    SECRET_PROMPT_MAX_REQUEST_BYTES
+                ),
+            });
+        }
 
         let sidecar_command = app
             .shell()
@@ -209,23 +218,37 @@ impl SecretPromptSidecar {
                     message: error.to_string(),
                 })?;
 
-        let mut payload = request_payload;
-        payload.push(b'\n');
-        child
-            .write(&payload)
-            .map_err(|error| SecretPromptError::StdinFailure {
-                action: request_action,
-                message: error.to_string(),
-            })?;
+        {
+            let mut payload = Zeroizing::new(request_payload);
+            payload.push(b'\n');
+            child
+                .write(&payload)
+                .map_err(|error| SecretPromptError::StdinFailure {
+                    action: request_action,
+                    message: error.to_string(),
+                })?;
+        }
 
-        let mut stdout = Vec::<u8>::new();
-        let mut stderr = Vec::<u8>::new();
+        let mut stdout = Zeroizing::new(Vec::<u8>::new());
+        let mut stderr = Zeroizing::new(Vec::<u8>::new());
         let mut exit_code: Option<i32> = None;
 
         while let Some(event) = rx.recv().await {
             match event {
-                CommandEvent::Stdout(bytes) => stdout.extend_from_slice(&bytes),
-                CommandEvent::Stderr(bytes) => stderr.extend_from_slice(&bytes),
+                CommandEvent::Stdout(bytes) => append_sidecar_output(
+                    &mut stdout,
+                    &bytes,
+                    SECRET_PROMPT_MAX_RESPONSE_BYTES,
+                    "stdout",
+                    request_action,
+                )?,
+                CommandEvent::Stderr(bytes) => append_sidecar_output(
+                    &mut stderr,
+                    &bytes,
+                    SECRET_PROMPT_MAX_STDERR_BYTES,
+                    "stderr",
+                    request_action,
+                )?,
                 CommandEvent::Terminated(terminated) => {
                     exit_code = terminated.code;
                 }
@@ -268,6 +291,26 @@ impl SecretPromptSidecar {
 
         Ok(response)
     }
+}
+
+fn append_sidecar_output(
+    buffer: &mut Vec<u8>,
+    chunk: &[u8],
+    max_bytes: usize,
+    stream_name: &str,
+    action: SecretPromptAction,
+) -> Result<(), SecretPromptError> {
+    let next_len = buffer.len().saturating_add(chunk.len());
+    if next_len > max_bytes {
+        return Err(SecretPromptError::ProtocolFailure {
+            message: format!(
+                "Secret prompt {stream_name} exceeded {max_bytes} bytes for {}",
+                action.as_cli_arg()
+            ),
+        });
+    }
+    buffer.extend_from_slice(chunk);
+    Ok(())
 }
 
 fn parse_prompt_response(
@@ -403,5 +446,15 @@ mod tests {
         let raw = serde_json::to_vec(&response).unwrap();
         let parsed = parse_prompt_response(&raw, SecretPromptAction::Unlock).unwrap();
         assert_eq!(parsed, response);
+    }
+
+    #[test]
+    fn append_sidecar_output_rejects_oversized_chunks() {
+        let mut buffer = Vec::from([1_u8, 2_u8, 3_u8]);
+        let error =
+            append_sidecar_output(&mut buffer, &[4, 5], 4, "stdout", SecretPromptAction::Import)
+                .unwrap_err();
+        assert!(matches!(error, SecretPromptError::ProtocolFailure { .. }));
+        assert_eq!(buffer, vec![1_u8, 2_u8, 3_u8]);
     }
 }
