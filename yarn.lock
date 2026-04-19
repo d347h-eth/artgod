@@ -127,6 +127,7 @@ __metadata:
   resolution: "@artgod/trading@workspace:trading"
   dependencies:
     "@types/node": "npm:^24.0.0"
+    async-mutex: "npm:0.5.0"
     typescript: "npm:^5.8.3"
     viem: "npm:2.41.2"
     vitest: "npm:4.0.13"
@@ -3614,6 +3615,15 @@ __metadata:
   version: 1.4.1
   resolution: "async-lock@npm:1.4.1"
   checksum: 10/80d55ac95f920e880a865968b799963014f6d987dd790dd08173fae6e1af509d8cd0ab45a25daaca82e3ef8e7c939f5d128cd1facfcc5c647da8ac2409e20ef9
+  languageName: node
+  linkType: hard
+
+"async-mutex@npm:0.5.0":
+  version: 0.5.0
+  resolution: "async-mutex@npm:0.5.0"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10/4c6bfce1cc9cd43f723c4d96403ac5f4757f885c953b839cde6956ec8817ff39623b82d67614de10c7933e21626925882fb9bac367db7d15d7cb4f84228722c9
   languageName: node
   linkType: hard
 
