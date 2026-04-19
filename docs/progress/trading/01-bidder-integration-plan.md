@@ -1,7 +1,7 @@
 # Bidder Integration Plan
 
 Status: WIP
-Current milestone: Slice 1 complete
+Current milestone: Slice 2 complete
 
 ## Progress Snapshot
 
@@ -19,6 +19,10 @@ Current milestone: Slice 1 complete
   - `yarn workspace @artgod/trading test`
   - `yarn tsc -b trading`
 - No host-facing `autobid*` names remain in the current `trading/src` bidding port.
+- Slice 2 completed in `trading/`.
+- Added a typed trading config loader with the `BIDDING_*` env surface and dedicated OpenSea bot lanes.
+- Added external JSON bidding job loading with runtime-state reset on load.
+- The bidding runtime now validates config and loads the external jobs file before emitting `bot_ready`.
 
 This document is the implementation plan for porting the existing battle-tested bidding bot into ArtGod.
 
@@ -294,6 +298,10 @@ Acceptance:
 
 - no scattered `process.env` reads in bidding runtime logic
 - bidding jobs load from a user-editable external file
+
+Status:
+
+- done
 
 ## Slice 3: Add ArtGod-Compatible Safe Adapters
 

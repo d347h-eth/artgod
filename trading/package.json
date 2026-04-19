@@ -7,7 +7,9 @@
         "test": "vitest run"
     },
     "dependencies": {
+        "@artgod/shared": "workspace:*",
         "async-mutex": "0.5.0",
+        "dotenv": "^16.4.5",
         "viem": "2.41.2"
     },
     "devDependencies": {

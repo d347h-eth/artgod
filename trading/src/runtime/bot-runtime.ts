@@ -2,6 +2,8 @@ import { Buffer } from "node:buffer";
 import process from "node:process";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
+import { loadBiddingJobsFromFile } from "../adapters/config/bidding-jobs-file.js";
+import { loadTradingConfig } from "../config/trading-config.js";
 import { parseSecretEnvelope, type TradingBotKind } from "./secret-envelope.js";
 
 type ReadyPayload = {
@@ -35,6 +37,17 @@ export async function bootstrapTradingBot(
             throw new Error(
                 `Derived address mismatch: expected ${envelope.metadata.address}, received ${account.address}`,
             );
+        }
+
+        if (botKind === "bidding") {
+            const config = loadTradingConfig();
+            if (!config.bidding.enabled) {
+                throw new Error(
+                    "BIDDING_ENABLED is false; bidding runtime is disabled",
+                );
+            }
+
+            await loadBiddingJobsFromFile(config.bidding.jobsFile);
         }
 
         const readyPayload: ReadyPayload = {
