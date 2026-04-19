@@ -1,7 +1,7 @@
 # Bidder Integration Plan
 
 Status: WIP
-Current milestone: Slice 2 complete
+Current milestone: Slice 3 complete
 
 ## Progress Snapshot
 
@@ -23,6 +23,8 @@ Current milestone: Slice 2 complete
 - Added a typed trading config loader with the `BIDDING_*` env surface and dedicated OpenSea bot lanes.
 - Added external JSON bidding job loading with runtime-state reset on load.
 - The bidding runtime now validates config and loads the external jobs file before emitting `bot_ready`.
+- Slice 3 completed in `trading/`.
+- Added ArtGod-compatible safe adapters for process logging, SQLite metadata lookup, viem-based WETH balance reads, retry, and rate limiting.
 
 This document is the implementation plan for porting the existing battle-tested bidding bot into ArtGod.
 
@@ -199,6 +201,13 @@ Current planning assumption:
 - do not depend on a private local portal fork
 - if logger wiring still needs a workaround, solve it with a thin ArtGod-local adapter or wrapper, not a custom long-lived fork unless strictly necessary
 
+Ethereum library preference:
+
+- avoid adding `ethers` as a direct project dependency
+- prefer `viem` and other Paradigm-led Ethereum/EVM libraries
+- known planned exception: OpenSea SDK order-fulfillment flow inside the sniping bot may still require `ethers`
+- treat that sniping fulfillment usage as a narrow compatibility exception, not a general dependency choice
+
 ## Recommended Trading Workspace Shape
 
 Recommended ArtGod structure for the bidding port:
@@ -332,6 +341,10 @@ Acceptance:
 
 - bidding runtime logs flow cleanly into ArtGod supervisor-managed process logs
 - token hot refresh trait matching can run against ArtGod local metadata
+
+Status:
+
+- done
 
 ## Slice 4: Port OpenSea Bidding and Snapshot Adapters
 

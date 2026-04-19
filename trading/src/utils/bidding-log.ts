@@ -1,26 +1,36 @@
+import { logger } from "@artgod/shared/utils/logger";
+
 type LogLevel = "debug" | "info" | "warn" | "error";
 
-// Keeps pure bidding-core log calls self-contained inside the trading workspace.
-function emit(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
+// Routes bidding-core logs through ArtGod's shared process logger.
+function emit(
+    level: LogLevel,
+    message: string,
+    meta?: Record<string, unknown>,
+): void {
     const isTestRun =
         process.env.VITEST === "true" || process.env.NODE_ENV === "test";
     if (isTestRun && (level === "debug" || level === "info")) {
         return;
     }
 
-    const line = JSON.stringify({
-        t: new Date().toISOString(),
-        level,
-        msg: `[bidding] ${message}`,
-        ...(meta ?? {}),
-    });
+    const payload = meta ? { ...meta } : undefined;
+    const prefixed = `[bidding] ${message}`;
 
-    if (level === "warn" || level === "error") {
-        console.error(line);
-        return;
+    switch (level) {
+        case "debug":
+            logger.debug(prefixed, payload);
+            return;
+        case "info":
+            logger.info(prefixed, payload);
+            return;
+        case "warn":
+            logger.warn(prefixed, payload);
+            return;
+        case "error":
+            logger.error(prefixed, payload);
+            return;
     }
-
-    console.log(line);
 }
 
 export const biddingLog = {
