@@ -7,6 +7,17 @@ import {
     parseRequiredString,
 } from "@artgod/shared/utils/env";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
+import {
+    BIDDING_DEFAULT_BOOTSTRAP_CONCURRENCY,
+    BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
+    BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS,
+    BIDDING_DEFAULT_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
+    BIDDING_DEFAULT_MAX_CONCURRENT_JOBS,
+    BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
+    BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
+    BIDDING_DEFAULT_POLL_MS,
+    BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
+} from "./bidding-defaults.js";
 
 export type EnabledBiddingConfig = {
     enabled: true;
@@ -59,20 +70,6 @@ type LoadTradingConfigOptions = {
     hydrateProcessEnv?: boolean;
 };
 
-const DEFAULT_BIDDING_POLL_MS = 8 * 60 * 1000;
-const DEFAULT_BIDDING_MAX_CONCURRENT_JOBS = 1;
-const DEFAULT_BIDDING_BOOTSTRAP_CONCURRENCY = 3;
-const DEFAULT_BIDDING_OFFER_EXPIRATION_SECONDS = (3 * 60 + 52) * 60;
-const DEFAULT_BIDDING_COLLECTION_OFFERS_POLL_MS = 60_000;
-const DEFAULT_BIDDING_COLLECTION_OFFERS_TTL_MS = 15_000;
-const DEFAULT_BIDDING_ORDER_LOOKUP_MAX_PAGES = 5;
-const DEFAULT_BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION = {
-    terraforms: ["Zone", "Biome", "Level"],
-};
-const DEFAULT_BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION = {
-    terraforms: ["Zone", "Biome", "Level", "Mode"],
-};
-
 // Loads the typed trading env surface and resolves path-like fields needed by the bidding runtime.
 export function loadTradingConfig(
     env: Record<string, string | undefined> = process.env,
@@ -94,46 +91,46 @@ export function loadTradingConfig(
         pollMs: parsePositiveInteger(
             env.BIDDING_POLL_MS,
             "BIDDING_POLL_MS",
-            DEFAULT_BIDDING_POLL_MS,
+            BIDDING_DEFAULT_POLL_MS,
         ),
         maxConcurrentJobs: parsePositiveInteger(
             env.BIDDING_MAX_CONCURRENT_JOBS,
             "BIDDING_MAX_CONCURRENT_JOBS",
-            DEFAULT_BIDDING_MAX_CONCURRENT_JOBS,
+            BIDDING_DEFAULT_MAX_CONCURRENT_JOBS,
         ),
         bootstrapConcurrency: parsePositiveInteger(
             env.BIDDING_BOOTSTRAP_CONCURRENCY,
             "BIDDING_BOOTSTRAP_CONCURRENCY",
-            DEFAULT_BIDDING_BOOTSTRAP_CONCURRENCY,
+            BIDDING_DEFAULT_BOOTSTRAP_CONCURRENCY,
         ),
         offerExpirationSeconds: parsePositiveInteger(
             env.BIDDING_OFFER_EXPIRATION_SECONDS,
             "BIDDING_OFFER_EXPIRATION_SECONDS",
-            DEFAULT_BIDDING_OFFER_EXPIRATION_SECONDS,
+            BIDDING_DEFAULT_OFFER_EXPIRATION_SECONDS,
         ),
         collectionOffersPollMs: parsePositiveInteger(
             env.BIDDING_COLLECTION_OFFERS_POLL_MS,
             "BIDDING_COLLECTION_OFFERS_POLL_MS",
-            DEFAULT_BIDDING_COLLECTION_OFFERS_POLL_MS,
+            BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
         ),
         collectionOffersTtlMs: parsePositiveInteger(
             env.BIDDING_COLLECTION_OFFERS_TTL_MS,
             "BIDDING_COLLECTION_OFFERS_TTL_MS",
-            DEFAULT_BIDDING_COLLECTION_OFFERS_TTL_MS,
+            BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS,
         ),
         orderLookupMaxPages: parsePositiveInteger(
             env.BIDDING_ORDER_LOOKUP_MAX_PAGES,
             "BIDDING_ORDER_LOOKUP_MAX_PAGES",
-            DEFAULT_BIDDING_ORDER_LOOKUP_MAX_PAGES,
+            BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
         ),
         criteriaRefreshTraitsByCollection: parseStringArrayMap(
             env.BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
-            DEFAULT_BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
+            BIDDING_DEFAULT_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
             "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION",
         ),
         tokenCriteriaTraitsByCollection: parseStringArrayMap(
             env.BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
-            DEFAULT_BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
+            BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
             "BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION",
         ),
     };

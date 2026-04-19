@@ -1,7 +1,7 @@
 # Bidder Integration Plan
 
 Status: WIP
-Current milestone: Slice 3 complete
+Current milestone: Slice 4 complete
 
 ## Progress Snapshot
 
@@ -25,6 +25,10 @@ Current milestone: Slice 3 complete
 - The bidding runtime now validates config and loads the external jobs file before emitting `bot_ready`.
 - Slice 3 completed in `trading/`.
 - Added ArtGod-compatible safe adapters for process logging, SQLite metadata lookup, viem-based WETH balance reads, retry, and rate limiting.
+- Slice 4 completed in `trading/`.
+- Ported the OpenSea bidding adapter and collection-offer snapshot source with upstream-equivalent discovery and recovery behavior.
+- Added focused adapter tests covering placement, cancellation, direct order lookup, fallback order recovery, competitive-trait discovery, and snapshot-backed offer discovery.
+- The Slice 4 adapter layer intentionally uses small injected OpenSea client interfaces so Slice 6 can decide the runtime SDK/API wiring without touching the ported bidder logic.
 
 This document is the implementation plan for porting the existing battle-tested bidding bot into ArtGod.
 
@@ -370,6 +374,10 @@ Rules:
 Acceptance:
 
 - adapter tests cover direct lookup, fallback lookup, placement, cancellation, and snapshot-backed offer discovery
+
+Status:
+
+- done
 
 ## Slice 5: Port Direct OpenSea Stream and Bid Hot-Refresh Pipeline
 
