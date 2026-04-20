@@ -1,7 +1,7 @@
 # Bidder Integration Plan
 
 Status: WIP
-Current milestone: Slice 6 complete
+Current milestone: Slice 7 complete
 
 ## Progress Snapshot
 
@@ -41,6 +41,12 @@ Current milestone: Slice 6 complete
 - Refined desktop bot lifecycle semantics so bidding now emits a fast `bot_bootstrapping` handshake, periodic bootstrap progress, and a final `bot_ready`.
 - Supervisor startup now uses a short startup-signal timeout plus a separate bootstrap stall watchdog instead of one hard full-readiness deadline.
 - Desktop admin bot state now exposes `bootstrapping` separately from `starting` and `running`, and stop remains available during that live warmup phase.
+- Slice 7 completed across desktop config and packaging docs.
+- Desktop generated env now exposes the dedicated bot OpenSea key split and the `BIDDING_*` runtime surface without reusing the indexer `OPENSEA_API_KEY`.
+- Desktop first launch now creates an operator-managed `bidding-jobs.json` beside the generated `.env`, outside bundled runtime resources.
+- Runtime resource staging already carries trading artifacts plus Yarn PnP cache/loader data required by packaged bot startup.
+- Runtime registry checks now enforce that trading bot artifacts are built, referenced by desktop bot specs, copied into staged resources, and included in Tauri bundle resources.
+- Desktop docs now describe bidding config paths, lifecycle bootstrapping semantics, and non-secret bot lifecycle event requirements.
 
 This document is the implementation plan for porting the existing battle-tested bidding bot into ArtGod.
 
@@ -476,6 +482,10 @@ Supervisor notes:
 - `running` still means authoritative snapshot bootstrap and current-price bootstrap both finished
 
 ## Slice 7: Desktop Runtime and Packaging Integration
+
+Status:
+
+- completed
 
 Goal:
 

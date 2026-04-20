@@ -258,6 +258,14 @@ Desktop-specific wallet/bot keys:
 - `DESKTOP_WALLET_STORE_DIR` (defaults to `wallets`, resolved relative to app-data dir unless absolute)
 - `DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS` (required; core runtime must remain healthy for this long before a bot unlock prompt is shown)
 
+Trading bot runtime keys:
+
+- `OPENSEA_STREAM_SECRET_KEY` (bot stream lane; separate from indexer `OPENSEA_API_KEY`)
+- `OPENSEA_BIDDING_SECRET_KEY` (bot order placement/cancellation lane)
+- `OPENSEA_SNAPSHOT_SECRET_KEY` (bot collection-offer snapshot polling lane)
+- `BIDDING_JOBS_FILE` (defaults to `bidding-jobs.json`, resolved relative to the desktop env file unless absolute)
+- `BIDDING_*` tuning keys for dry-run mode, poll intervals, bootstrap concurrency, offer expiration, snapshot cadence, and trait-refresh maps
+
 Core runtime keys are also validated (for backend/indexer startup), for example:
 
 - `ARTGOD_DB_PATH`
@@ -271,6 +279,8 @@ Desktop-first default path behavior:
 
 - `ARTGOD_DB_PATH` defaults to `sqlite/main/db` and is resolved relative to app-data dir unless absolute.
 - `USERLAND_UI_DIST_DIR` defaults to `frontend/userland` and is resolved relative to desktop runtime resources dir unless absolute.
+- `BIDDING_JOBS_FILE` defaults to `bidding-jobs.json` beside the generated desktop env file.
+- On first launch the desktop runtime creates that jobs file as an empty JSON array so operators can edit it without touching bundled resources.
 
 Important:
 
@@ -306,6 +316,7 @@ Supervisor startup order:
 
 Wallet-bound bot runtimes are not part of the startup order above.
 They stay independently managed and start only after explicit admin action, dependency stabilization, native unlock, and one-shot stdin secret handoff.
+During long bidder warmup, bots move from `starting` to `bootstrapping`; the supervisor treats that as a live runtime phase and expects periodic bootstrap progress before final `running`.
 
 If any step fails:
 

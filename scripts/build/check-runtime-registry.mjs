@@ -13,6 +13,12 @@ const BUILD_SCRIPT_PATH = path.join(
     "build",
     "build-runtime-artifacts.mjs",
 );
+const DESKTOP_RESOURCE_SCRIPT_PATH = path.join(
+    rootDir,
+    "scripts",
+    "build",
+    "prepare-desktop-runtime-resources.mjs",
+);
 const SUPERVISOR_PATH = path.join(
     rootDir,
     "src-tauri",
@@ -20,6 +26,14 @@ const SUPERVISOR_PATH = path.join(
     "runtime",
     "supervisor.rs",
 );
+const BOT_RUNTIME_PATH = path.join(
+    rootDir,
+    "src-tauri",
+    "src",
+    "runtime",
+    "bot_runtime.rs",
+);
+const TAURI_CONFIG_PATH = path.join(rootDir, "src-tauri", "tauri.conf.json");
 const INDEXER_PACKAGE_JSON_PATH = path.join(rootDir, "indexer", "package.json");
 const INDEXER_DEV_SCRIPT_PATH = path.join(rootDir, "scripts", "indexer-dev.sh");
 const PROMETHEUS_CONFIG_PATH = path.join(
@@ -101,6 +115,32 @@ async function parseBuildArtifacts() {
     return workers;
 }
 
+async function parseBuildTradingArtifacts() {
+    const source = await readFile(BUILD_SCRIPT_PATH, "utf8");
+    const artifacts = new Set();
+    const pattern =
+        /"([a-z0-9-]+-bot-runtime)"\s*:\s*path\.join\([\s\S]*?"trading"[\s\S]*?"src"[\s\S]*?"runtime"[\s\S]*?"([a-z0-9-]+-bot-runtime)\.ts"[\s\S]*?\)/g;
+
+    for (const match of source.matchAll(pattern)) {
+        const artifactName = match[1];
+        const sourceName = match[2];
+        if (artifactName !== sourceName) {
+            throw new Error(
+                `Trading build artifact "${artifactName}" points at mismatched source "${sourceName}.ts"`,
+            );
+        }
+        artifacts.add(artifactName);
+    }
+
+    if (artifacts.size === 0) {
+        throw new Error(
+            "Failed to parse trading bot entryPoints from build-runtime-artifacts.mjs",
+        );
+    }
+
+    return artifacts;
+}
+
 async function parseSupervisorWorkers() {
     const source = await readFile(SUPERVISOR_PATH, "utf8");
     const processNames = new Set();
@@ -118,6 +158,43 @@ async function parseSupervisorWorkers() {
     }
 
     return { processNames, artifactNames };
+}
+
+async function parseBotRuntimeArtifacts() {
+    const source = await readFile(BOT_RUNTIME_PATH, "utf8");
+    const artifacts = new Set();
+    const pattern =
+        /artifact_relative_path:\s*"trading\/dist-desktop\/([a-z0-9-]+-bot-runtime)\.mjs"/g;
+
+    for (const match of source.matchAll(pattern)) {
+        artifacts.add(match[1]);
+    }
+
+    if (artifacts.size === 0) {
+        throw new Error("Failed to parse bot runtime artifacts from bot_runtime.rs");
+    }
+
+    return artifacts;
+}
+
+async function parseDesktopRuntimeResourceChecks() {
+    const source = await readFile(DESKTOP_RESOURCE_SCRIPT_PATH, "utf8");
+
+    return {
+        copiesTradingDist:
+            /source:\s*path\.join\(\s*rootDir,\s*"trading",\s*"dist-desktop"\s*\)/.test(
+                source,
+            ) &&
+            /target:\s*path\.join\(\s*resourcesRootDir,\s*"trading",\s*"dist-desktop"\s*\)/.test(
+                source,
+            ),
+    };
+}
+
+async function parseTauriBundledResources() {
+    const source = await readFile(TAURI_CONFIG_PATH, "utf8");
+    const config = JSON.parse(source);
+    return new Set(config.bundle?.resources ?? []);
 }
 
 async function parseIndexerDevScripts() {
@@ -191,10 +268,15 @@ async function main() {
     const errors = [];
 
     const runtimeWorkers = await parseBuildArtifacts();
+    const runtimeTradingArtifacts = await parseBuildTradingArtifacts();
     const {
         processNames: supervisorProcessNames,
         artifactNames: supervisorWorkers,
     } = await parseSupervisorWorkers();
+    const botRuntimeArtifacts = await parseBotRuntimeArtifacts();
+    const desktopRuntimeResourceChecks =
+        await parseDesktopRuntimeResourceChecks();
+    const tauriBundledResources = await parseTauriBundledResources();
     const devScriptWorkers = await parseIndexerDevScripts();
     const {
         processNames: devLauncherProcessNames,
@@ -216,6 +298,30 @@ async function main() {
         actual: supervisorWorkers,
         errors,
     });
+
+    assertNoMissingEntries({
+        source: "bot runtime artifacts",
+        expected: runtimeTradingArtifacts,
+        actual: botRuntimeArtifacts,
+        errors,
+    });
+    assertNoUnknownEntries({
+        source: "bot runtime artifacts",
+        expected: runtimeTradingArtifacts,
+        actual: botRuntimeArtifacts,
+        errors,
+    });
+
+    if (!desktopRuntimeResourceChecks.copiesTradingDist) {
+        errors.push(
+            "prepare-desktop-runtime-resources.mjs: missing trading/dist-desktop copy into resources/runtime/trading/dist-desktop",
+        );
+    }
+    if (!tauriBundledResources.has("resources/runtime")) {
+        errors.push(
+            'src-tauri/tauri.conf.json: bundle.resources must include "resources/runtime"',
+        );
+    }
 
     assertNoMissingEntries({
         source: "indexer/package.json dev:* scripts",
@@ -315,6 +421,7 @@ async function main() {
 
     console.log("Runtime registry consistency check passed.");
     console.log(`Workers: ${formatSet(runtimeWorkers)}`);
+    console.log(`Trading bots: ${formatSet(runtimeTradingArtifacts)}`);
 }
 
 main().catch((error) => {
