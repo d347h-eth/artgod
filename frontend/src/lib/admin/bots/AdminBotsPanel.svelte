@@ -91,6 +91,7 @@
 			bot.assignedWallet !== null &&
 			bot.state !== 'awaiting_unlock' &&
 			bot.state !== 'starting' &&
+			bot.state !== 'bootstrapping' &&
 			bot.state !== 'running'
 		);
 	}
@@ -223,7 +224,7 @@
 											(event.currentTarget as HTMLSelectElement).value
 										);
 									}}
-									disabled={busyAction !== null || bot.state === 'running' || bot.state === 'starting' || bot.state === 'awaiting_unlock'}
+									disabled={busyAction !== null || bot.state === 'running' || bot.state === 'bootstrapping' || bot.state === 'starting' || bot.state === 'awaiting_unlock'}
 								>
 									<option value="">unassigned</option>
 									{#each wallets as wallet (wallet.walletId)}
@@ -236,7 +237,7 @@
 								<button
 									type="button"
 									onclick={() => void handleAssignWallet(bot.botKind)}
-									disabled={busyAction !== null || bot.state === 'running' || bot.state === 'starting' || bot.state === 'awaiting_unlock'}
+									disabled={busyAction !== null || bot.state === 'running' || bot.state === 'bootstrapping' || bot.state === 'starting' || bot.state === 'awaiting_unlock'}
 								>
 									{busyAction === `assign:${bot.botKind}` ? 'applying…' : 'apply wallet'}
 								</button>
@@ -252,7 +253,7 @@
 								<button
 									type="button"
 									onclick={() => void handleStop(bot.botKind)}
-									disabled={busyAction !== null || bot.state !== 'running'}
+									disabled={busyAction !== null || (bot.state !== 'running' && bot.state !== 'bootstrapping')}
 								>
 									{busyAction === `stop:${bot.botKind}` ? 'stopping…' : 'stop'}
 								</button>

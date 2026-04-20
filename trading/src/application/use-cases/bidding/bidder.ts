@@ -66,6 +66,17 @@ interface ProgressContext {
     total: number;
 }
 
+export interface BidderBootstrapProgress {
+    jobId: string;
+    completed: number;
+    total: number;
+    warmed: boolean;
+}
+
+export interface BidderBootstrapOptions {
+    onProgress?: (progress: BidderBootstrapProgress) => void;
+}
+
 interface JobExecutionState {
     running: boolean;
     executing: boolean;
@@ -96,6 +107,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     private readonly maxConcurrentJobs: number;
     private readonly bootstrapConcurrency: number;
     private nextActivationId = 1;
+    private started = false;
+    private pollTimer?: ReturnType<typeof setTimeout>;
 
     constructor(
         private readonly biddingService: BiddingService,
@@ -164,7 +177,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         await this.refreshJobImmediately(jobId);
     }
 
-    public async bootstrapCurrentPrices(): Promise<void> {
+    public async bootstrapCurrentPrices(
+        options: BidderBootstrapOptions = {},
+    ): Promise<void> {
         const tokenJobIds = Array.from(this.tokenJobIdByCollectionToken.values());
         const warmCandidates = tokenJobIds
             .map((jobId) => this.jobs.get(jobId))
@@ -180,6 +195,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             this.bootstrapConcurrency,
             warmCandidates.length,
         );
+        let completedCount = 0;
 
         biddingLog.debug(
             `[Bidder] Bootstrapping currentPrice for ${warmCandidates.length}/${tokenJobIds.length} token job(s). concurrency=${concurrency}`,
@@ -199,6 +215,13 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 const warmed = await this.tryWarmCurrentPrice(job, {
                     sequence: candidateIndex + 1,
                     total: warmCandidates.length,
+                });
+                completedCount++;
+                options.onProgress?.({
+                    jobId: job.id,
+                    completed: completedCount,
+                    total: warmCandidates.length,
+                    warmed,
                 });
                 if (warmed) {
                     warmedCount++;
@@ -247,20 +270,21 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     public start(): void {
-        void (async () => {
-            while (true) {
-                try {
-                    await this.tick();
-                } catch (error: unknown) {
-                    const message =
-                        error instanceof Error ? error.message : String(error);
-                    biddingLog.error(`[Bidder] Tick failed: ${message}`);
-                }
-                await new Promise((resolve) =>
-                    setTimeout(resolve, this.pollIntervalMs),
-                );
-            }
-        })();
+        if (this.started) {
+            return;
+        }
+
+        this.started = true;
+        void this.runTickLoop();
+    }
+
+    // stop cancels the recurring bidder timer so the runtime can shut down cleanly.
+    public stop(): void {
+        this.started = false;
+        if (this.pollTimer) {
+            clearTimeout(this.pollTimer);
+            this.pollTimer = undefined;
+        }
     }
 
     public async tick(): Promise<void> {
@@ -360,6 +384,27 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         await jobMutex.runExclusive(async () => {
             await this.executeJob(jobId);
         });
+    }
+
+    private async runTickLoop(): Promise<void> {
+        if (!this.started) {
+            return;
+        }
+
+        try {
+            await this.tick();
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            biddingLog.error(`[Bidder] Tick failed: ${message}`);
+        }
+
+        if (!this.started) {
+            return;
+        }
+
+        this.pollTimer = setTimeout(() => {
+            void this.runTickLoop();
+        }, this.pollIntervalMs);
     }
 
     private async executeJob(

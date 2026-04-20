@@ -289,6 +289,7 @@ pub enum BotRuntimeStateDto {
     Locked,
     AwaitingUnlock,
     Starting,
+    Bootstrapping,
     Running,
     Stopped,
     Error,
@@ -351,6 +352,7 @@ impl BotRuntimeStateDto {
             BotRuntimeState::Locked => Self::Locked,
             BotRuntimeState::AwaitingUnlock => Self::AwaitingUnlock,
             BotRuntimeState::Starting => Self::Starting,
+            BotRuntimeState::Bootstrapping => Self::Bootstrapping,
             BotRuntimeState::Running => Self::Running,
             BotRuntimeState::Stopped => Self::Stopped,
             BotRuntimeState::Error => Self::Error,
@@ -389,7 +391,10 @@ impl BotCriticalDependencyStatusDto {
 fn is_bot_runtime_busy(snapshot: &BotRuntimeSnapshot) -> bool {
     matches!(
         snapshot.state,
-        BotRuntimeState::AwaitingUnlock | BotRuntimeState::Starting | BotRuntimeState::Running
+        BotRuntimeState::AwaitingUnlock
+            | BotRuntimeState::Starting
+            | BotRuntimeState::Bootstrapping
+            | BotRuntimeState::Running
     )
 }
 

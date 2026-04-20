@@ -13,6 +13,7 @@ pub enum BotRuntimeState {
     Locked,
     AwaitingUnlock,
     Starting,
+    Bootstrapping,
     Running,
     Stopped,
     Error,

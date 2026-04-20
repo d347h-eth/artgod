@@ -4,6 +4,7 @@ export type AdminBotState =
 	| 'locked'
 	| 'awaiting_unlock'
 	| 'starting'
+	| 'bootstrapping'
 	| 'running'
 	| 'stopped'
 	| 'error';

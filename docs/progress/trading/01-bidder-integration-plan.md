@@ -1,7 +1,7 @@
 # Bidder Integration Plan
 
 Status: WIP
-Current milestone: Slice 5 complete
+Current milestone: Slice 6 complete
 
 ## Progress Snapshot
 
@@ -33,6 +33,14 @@ Current milestone: Slice 5 complete
 - Ported the OpenSea stream-side event normalization and stream adapter building blocks for bidding-relevant events.
 - Ported the opponent-only filter and blocking collection-offer snapshot refresh stage used by the hot-refresh path.
 - Added explicit pipeline-order tests proving that snapshot refresh blocks before bidder hot refresh continues.
+- Slice 6 completed in `trading/`.
+- Replaced the placeholder bidding runtime with the real composition path that loads jobs, wires live OpenSea lanes, bootstraps authoritative snapshots, warms token prices, attaches bid streams, and only then emits `bot_ready`.
+- Added clean shutdown hooks for the long-running bidder and snapshot loops so the supervised desktop process can stop without a forced process exit.
+- Added focused runtime helper tests for watched collections, snapshot-backed collections, and stream-side snapshot refresh trigger selection.
+- Increased the desktop trading-bot ready timeout because real bidder bootstrap now includes snapshot and price warmup before readiness.
+- Refined desktop bot lifecycle semantics so bidding now emits a fast `bot_bootstrapping` handshake, periodic bootstrap progress, and a final `bot_ready`.
+- Supervisor startup now uses a short startup-signal timeout plus a separate bootstrap stall watchdog instead of one hard full-readiness deadline.
+- Desktop admin bot state now exposes `bootstrapping` separately from `starting` and `running`, and stop remains available during that live warmup phase.
 
 This document is the implementation plan for porting the existing battle-tested bidding bot into ArtGod.
 
@@ -215,6 +223,12 @@ Ethereum library preference:
 - prefer `viem` and other Paradigm-led Ethereum/EVM libraries
 - known planned exception: OpenSea SDK order-fulfillment flow inside the sniping bot may still require `ethers`
 - treat that sniping fulfillment usage as a narrow compatibility exception, not a general dependency choice
+
+Current bidder-runtime compatibility note:
+
+- the age-gated public `opensea-js` line currently available to ArtGod still requires ethers-native signer wiring
+- ArtGod therefore keeps `viem` for independent EVM reads and wallet-adjacent helpers where possible
+- any direct `ethers` usage is isolated to the runtime-only OpenSea SDK composition layer, not the bidding core or its ports
 
 ## Recommended Trading Workspace Shape
 
@@ -450,6 +464,16 @@ Acceptance:
 
 - starting the bidding bot from the admin UI launches the real runtime
 - runtime only transitions to `running` after true bidder bootstrap completion
+
+Status:
+
+- completed
+
+Supervisor notes:
+
+- `starting` now means the process was spawned and is still expected to emit its first lifecycle signal quickly
+- `bootstrapping` means the bot process is live, has entered snapshot/current-price warmup, and must keep reporting bootstrap progress
+- `running` still means authoritative snapshot bootstrap and current-price bootstrap both finished
 
 ## Slice 7: Desktop Runtime and Packaging Integration
 

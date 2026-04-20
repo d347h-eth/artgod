@@ -8,8 +8,11 @@
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
+        "@opensea/stream-js": "^0.2.0",
         "async-mutex": "0.5.0",
         "dotenv": "^16.4.5",
+        "ethers": "^6.0.0",
+        "opensea-js": "^8.0.0",
         "viem": "2.41.2"
     },
     "devDependencies": {

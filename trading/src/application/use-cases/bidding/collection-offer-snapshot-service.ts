@@ -28,6 +28,16 @@ export interface CollectionOfferRefreshOptions {
     respectTtl?: boolean;
 }
 
+export interface CollectionOfferBootstrapProgress {
+    collectionSlug: string;
+    completed: number;
+    total: number;
+}
+
+export interface CollectionOfferBootstrapOptions {
+    onProgress?: (progress: CollectionOfferBootstrapProgress) => void;
+}
+
 interface CollectionRefreshState {
     refreshing: boolean;
     pendingReason?: string;
@@ -42,6 +52,7 @@ export class CollectionOfferSnapshotService
     private readonly snapshots = new Map<string, CollectionOfferSnapshot>();
     private readonly refreshStates = new Map<string, CollectionRefreshState>();
     private started = false;
+    private pollTimer?: ReturnType<typeof setTimeout>;
 
     constructor(
         private readonly source: CollectionOfferSource,
@@ -58,25 +69,38 @@ export class CollectionOfferSnapshotService
         }
 
         this.started = true;
-
-        void (async () => {
-            while (true) {
-                await sleep(this.pollIntervalMs);
-                this.watchedCollectionSlugs.forEach((collectionSlug) =>
-                    this.requestRefresh(collectionSlug, "poll cadence"),
-                );
-            }
-        })();
+        this.scheduleNextPoll();
     }
 
-    public async bootstrap(): Promise<void> {
+    // stop cancels the recurring poll timer so the runtime can shut down cleanly.
+    public stop(): void {
+        this.started = false;
+        if (this.pollTimer) {
+            clearTimeout(this.pollTimer);
+            this.pollTimer = undefined;
+        }
+    }
+
+    public async bootstrap(
+        options: CollectionOfferBootstrapOptions = {},
+    ): Promise<void> {
         if (this.watchedCollectionSlugs.size === 0) {
             return;
         }
 
+        const total = this.watchedCollectionSlugs.size;
+        let completed = 0;
+
         await Promise.all(
             Array.from(this.watchedCollectionSlugs).map((collectionSlug) =>
-                this.refreshAndWait(collectionSlug, "bootstrap"),
+                this.refreshAndWait(collectionSlug, "bootstrap").then(() => {
+                    completed += 1;
+                    options.onProgress?.({
+                        collectionSlug,
+                        completed,
+                        total,
+                    });
+                }),
             ),
         );
     }
@@ -173,6 +197,19 @@ export class CollectionOfferSnapshotService
         }
 
         return state;
+    }
+
+    private scheduleNextPoll(): void {
+        this.pollTimer = setTimeout(() => {
+            if (!this.started) {
+                return;
+            }
+
+            this.watchedCollectionSlugs.forEach((collectionSlug) =>
+                this.requestRefresh(collectionSlug, "poll cadence"),
+            );
+            this.scheduleNextPoll();
+        }, this.pollIntervalMs);
     }
 
     private mergeRefreshReasons(
