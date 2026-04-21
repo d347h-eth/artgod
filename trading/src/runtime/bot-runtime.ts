@@ -3,7 +3,10 @@ import process from "node:process";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 import { loadTradingConfig } from "../config/trading-config.js";
-import { startBiddingRuntime } from "./bidding-runtime.js";
+import {
+    startBiddingRuntime,
+    type BiddingRuntimeBootstrapPhase,
+} from "./bidding-runtime.js";
 import {
     parseSecretEnvelope,
     type TradingBotKind,
@@ -19,7 +22,7 @@ type BaseLifecyclePayload = {
 
 type BootstrappingPayload = BaseLifecyclePayload & {
     event: "bot_bootstrapping";
-    phase: "snapshot_bootstrap" | "price_bootstrap";
+    phase: BiddingRuntimeBootstrapPhase;
     completed: number;
     total: number;
     detail: string;
@@ -27,7 +30,7 @@ type BootstrappingPayload = BaseLifecyclePayload & {
 
 type BootstrapProgressPayload = BaseLifecyclePayload & {
     event: "bot_bootstrap_progress";
-    phase: "snapshot_bootstrap" | "price_bootstrap";
+    phase: BiddingRuntimeBootstrapPhase;
     completed: number;
     total: number;
     detail: string;
@@ -143,13 +146,13 @@ function createBiddingLifecyclePort(
     address: string,
 ): {
     bootstrapping(payload: {
-        phase: "snapshot_bootstrap" | "price_bootstrap";
+        phase: BiddingRuntimeBootstrapPhase;
         completed: number;
         total: number;
         detail: string;
     }): void;
     progress(payload: {
-        phase: "snapshot_bootstrap" | "price_bootstrap";
+        phase: BiddingRuntimeBootstrapPhase;
         completed: number;
         total: number;
         detail: string;

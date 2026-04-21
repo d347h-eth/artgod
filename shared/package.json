@@ -6,6 +6,7 @@
     "main": "./types/index.ts",
     "exports": {
         "./config/pagination": "./config/pagination.ts",
+        "./evm/transactions": "./evm/transactions.ts",
         "./extensions": "./extensions/index.ts",
         "./types": "./types/index.ts",
         "./types/browse": "./types/browse.ts",

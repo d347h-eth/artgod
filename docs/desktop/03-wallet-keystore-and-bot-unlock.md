@@ -711,7 +711,7 @@ The bot entrypoint must:
 - construct the in-memory signer as early as possible
 - overwrite the original `Buffer` after signer construction
 - refuse to start if stdin is empty, malformed, or truncated
-- emit `bot_bootstrapping` after config, jobs, wallet, and adapter setup succeeds but before long snapshot/current-price warmup
+- emit `bot_bootstrapping` after config, jobs, wallet, and adapter setup succeeds but before configured WETH allowance approval or long snapshot/current-price warmup can block startup
 - emit `bot_bootstrap_progress` while long warmup phases are advancing
 - emit `bot_ready` only after authoritative snapshot bootstrap and current-price bootstrap complete
 - keep lifecycle event payloads limited to non-secret runtime metadata
@@ -727,7 +727,7 @@ The important boundary is that the key does not enter Node until the exact start
 Bootstrap lifecycle:
 
 - `starting` means the process was spawned and must quickly emit its first lifecycle signal
-- `bootstrapping` means the process is live and warming required runtime state under a stall watchdog
+- `bootstrapping` means the process is live and handling allowance approval or warming required runtime state under a stall watchdog
 - `running` means the bot finished required bootstrap and regular job ticks may start
 
 ## Restart Policy

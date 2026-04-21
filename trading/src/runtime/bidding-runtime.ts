@@ -1,9 +1,20 @@
 import { setDbPath } from "@artgod/shared/database";
-import { LogLevel, Network, OpenSeaStreamClient as OpenSeaSdkStreamClient } from "@opensea/stream-js";
+import {
+    LogLevel,
+    Network,
+    OpenSeaStreamClient as OpenSeaSdkStreamClient,
+} from "@opensea/stream-js";
 import { JsonRpcProvider, Wallet } from "ethers";
-import { Chain, OpenSeaSDK, OrderSide } from "opensea-js";
+import { Chain, getDefaultConduit, OpenSeaSDK, OrderSide } from "opensea-js";
 import { OpenSeaAPI } from "opensea-js/lib/api/api.js";
-import { createPublicClient, http, type Hex } from "viem";
+import {
+    createPublicClient,
+    createWalletClient,
+    formatEther,
+    http,
+    type Hex,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 import { loadBiddingJobsFromFile } from "../adapters/config/bidding-jobs-file.js";
 import { SqliteTokenMetadataRepository } from "../adapters/metadata/sqlite-token-metadata-repository.js";
@@ -11,6 +22,7 @@ import { OpenSeaBiddingService } from "../adapters/opensea/open-sea-bidding-serv
 import { OpenSeaCollectionOfferSource } from "../adapters/opensea/open-sea-collection-offer-source.js";
 import { OpenSeaEventStream } from "../adapters/opensea/open-sea-event-stream.js";
 import { OpenSeaMarketEventFactory } from "../adapters/opensea/open-sea-market-event-factory.js";
+import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-allowance-approval-service.js";
 import { ViemMakerWethBalanceService } from "../adapters/wallet/viem-maker-weth-balance-service.js";
 import { Bidder } from "../application/use-cases/bidding/bidder.js";
 import { CollectionOfferSnapshotService } from "../application/use-cases/bidding/collection-offer-snapshot-service.js";
@@ -52,14 +64,17 @@ type RegisteredBidStream = {
 };
 
 export interface BiddingRuntimeLifecyclePort {
-    bootstrapping(
-        update: BiddingRuntimeBootstrapLifecycleUpdate,
-    ): void;
+    bootstrapping(update: BiddingRuntimeBootstrapLifecycleUpdate): void;
     progress(update: BiddingRuntimeBootstrapLifecycleUpdate): void;
 }
 
+export type BiddingRuntimeBootstrapPhase =
+    | "allowance_approval"
+    | "snapshot_bootstrap"
+    | "price_bootstrap";
+
 export interface BiddingRuntimeBootstrapLifecycleUpdate {
-    phase: "snapshot_bootstrap" | "price_bootstrap";
+    phase: BiddingRuntimeBootstrapPhase;
     completed: number;
     total: number;
     detail: string;
@@ -75,11 +90,17 @@ export async function startBiddingRuntime(
     setDbPath(params.config.dbPath);
 
     // Load operator-managed bidding jobs before creating any market-facing adapters.
+    biddingLog.info(
+        `[BiddingRuntime] Loading bidding jobs. jobsFile=${params.biddingConfig.jobsFile}`,
+    );
     const jobs = await loadBiddingJobsFromFile(params.biddingConfig.jobsFile);
     const watchedCollectionSlugs = collectWatchedCollectionSlugs(jobs);
     const snapshotBackedCollectionSlugs =
         collectSnapshotBackedCollectionSlugs(jobs);
     const tokenWarmCandidates = collectTokenWarmCandidateCount(jobs);
+    biddingLog.info(
+        `[BiddingRuntime] Loaded bidding jobs. jobs=${jobs.length}, watchedCollections=${watchedCollectionSlugs.length}, snapshotBackedCollections=${snapshotBackedCollectionSlugs.length}, tokenWarmCandidates=${tokenWarmCandidates}`,
+    );
 
     const tokenMetadataRepository = new SqliteTokenMetadataRepository(
         params.config.chainId,
@@ -91,6 +112,53 @@ export async function startBiddingRuntime(
     const makerWethBalanceService = new ViemMakerWethBalanceService(
         publicClient,
         params.config.tokens.wethAddress,
+    );
+    const walletClient = createWalletClient({
+        account: privateKeyToAccount(params.privateKeyHex),
+        chain: mainnet,
+        transport: http(params.config.rpc.primaryUrl),
+    });
+    const openSeaConduit = getDefaultConduit(Chain.Mainnet);
+    const wethAllowanceApprovalService = new ViemWethAllowanceApprovalService(
+        publicClient,
+        walletClient,
+        params.config.tokens.wethAddress,
+        openSeaConduit.address,
+        params.biddingConfig.transactionPolicy,
+    );
+
+    const allowanceApprovalTotal =
+        params.biddingConfig.wethAllowanceWei > 0n ? 1 : 0;
+    const reportAllowanceProgress = (detail: string): void => {
+        params.lifecycle.progress({
+            phase: "allowance_approval",
+            completed: 0,
+            total: allowanceApprovalTotal,
+            detail,
+        });
+    };
+    // Tell the supervisor the runtime is live before any startup approval transaction can block.
+    params.lifecycle.bootstrapping({
+        phase: "allowance_approval",
+        completed: 0,
+        total: allowanceApprovalTotal,
+        detail: `desired=${formatWeth(params.biddingConfig.wethAllowanceWei)}, conduit=${openSeaConduit.address}`,
+    });
+    // Ensure the maker grants the static WETH allowance configured for OpenSea bidding.
+    const allowanceResult = await wethAllowanceApprovalService.ensureAllowance({
+        ownerAddress: params.makerAddress,
+        desiredAllowanceWei: params.biddingConfig.wethAllowanceWei,
+        dryRun: params.biddingConfig.dryRun,
+        onProgress: reportAllowanceProgress,
+    });
+    params.lifecycle.progress({
+        phase: "allowance_approval",
+        completed: allowanceApprovalTotal,
+        total: allowanceApprovalTotal,
+        detail: `status=${allowanceResult.status}, desired=${formatWeth(allowanceResult.desiredAllowanceWei)}, current=${formatOptionalWeth(allowanceResult.currentAllowanceWei)}`,
+    });
+    biddingLog.info(
+        `[BiddingRuntime] Allowance approval bootstrap complete. status=${allowanceResult.status}, desired=${formatWeth(allowanceResult.desiredAllowanceWei)}, current=${formatOptionalWeth(allowanceResult.currentAllowanceWei)}`,
     );
 
     // Create the write-capable OpenSea SDK lane for live offer discovery, placement, and cancellation.
@@ -301,7 +369,9 @@ function buildBidPipeline(
 ) {
     const opponentBidsFilter = new AttrFilter("opponent-bids");
     opponentBidsFilter.addCriteria("opponent-only", (marketEvent) => {
-        return marketEvent.getMaker().toLowerCase() !== makerAddress.toLowerCase();
+        return (
+            marketEvent.getMaker().toLowerCase() !== makerAddress.toLowerCase()
+        );
     });
 
     const pipelineBuilder = new PipelineBuilder().with(opponentBidsFilter);
@@ -471,4 +541,12 @@ function assertSupportedBiddingChain(chainId: number): void {
             `Bidding runtime currently supports Ethereum mainnet only. received CHAIN_ID=${chainId}`,
         );
     }
+}
+
+function formatWeth(amountWei: bigint): string {
+    return `${formatEther(amountWei)} WETH`;
+}
+
+function formatOptionalWeth(amountWei: bigint | null): string {
+    return amountWei === null ? "n/a" : formatWeth(amountWei);
 }

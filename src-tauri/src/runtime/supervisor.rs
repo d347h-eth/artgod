@@ -888,7 +888,9 @@ fn run_bot_runtime_loop(
                     );
                     return;
                 }
-                BotBootstrapOutcome::CriticalDependencyUnavailable { process: dependency } => {
+                BotBootstrapOutcome::CriticalDependencyUnavailable {
+                    process: dependency,
+                } => {
                     stop_all_processes(std::slice::from_mut(&mut process.process));
                     update_bot_runtime_state(
                         &app,
@@ -904,8 +906,10 @@ fn run_bot_runtime_loop(
                     return;
                 }
                 BotBootstrapOutcome::ProcessExited { status } => {
-                    let error =
-                        format!("{} exited during bootstrapping: {status}", spec.process_name);
+                    let error = format!(
+                        "{} exited during bootstrapping: {status}",
+                        spec.process_name
+                    );
                     stop_all_processes(std::slice::from_mut(&mut process.process));
                     update_bot_runtime_state(
                         &app,
@@ -1490,6 +1494,9 @@ where
 
             if let Ok(payload) = serde_json::from_str::<BotLifecyclePayload>(&payload_line) {
                 if payload.bot_kind == bot_kind && payload.kind().is_some() {
+                    if let Some(log_file) = log_file.as_mut() {
+                        let _ = writeln!(log_file, "[lifecycle] {payload_line}");
+                    }
                     let _ = lifecycle_tx.send(Ok(payload));
                     lifecycle_started = true;
                     continue;
@@ -1508,9 +1515,8 @@ where
         }
 
         if !lifecycle_started {
-            let _ = lifecycle_tx.send(Err(
-                "Trading bot did not emit a lifecycle signal".to_owned(),
-            ));
+            let _ =
+                lifecycle_tx.send(Err("Trading bot did not emit a lifecycle signal".to_owned()));
         }
     })
 }
@@ -2183,7 +2189,10 @@ mod tests {
             auto_start: true,
             restart_backoff_ms: 1000,
             process_env: HashMap::from([
-                ("ARTGOD_DB_PATH".to_owned(), "/runtime/artgod.sqlite".to_owned()),
+                (
+                    "ARTGOD_DB_PATH".to_owned(),
+                    "/runtime/artgod.sqlite".to_owned(),
+                ),
                 ("NODE_ENV".to_owned(), "production".to_owned()),
             ]),
             logs_dir: PathBuf::from("/runtime/logs"),

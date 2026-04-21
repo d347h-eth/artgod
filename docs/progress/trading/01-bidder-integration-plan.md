@@ -8,16 +8,16 @@ Current milestone: Slice 7 complete
 - Slice 1 completed in `trading/`.
 - The pure bidding core was ported with mechanical `autobid -> bidder` renames only.
 - Ported artifacts currently include:
-  - `MarketEvent`
-  - bidding job/domain contracts
-  - `Bidder`
-  - `CollectionOfferSnapshotService`
-  - market-event pipeline builder
-  - `BidderRefresh`
-  - upstream-equivalent bidding tests in Vitest
+    - `MarketEvent`
+    - bidding job/domain contracts
+    - `Bidder`
+    - `CollectionOfferSnapshotService`
+    - market-event pipeline builder
+    - `BidderRefresh`
+    - upstream-equivalent bidding tests in Vitest
 - Verification completed:
-  - `yarn workspace @artgod/trading test`
-  - `yarn tsc -b trading`
+    - `yarn workspace @artgod/trading test`
+    - `yarn tsc -b trading`
 - No host-facing `autobid*` names remain in the current `trading/src` bidding port.
 - Slice 2 completed in `trading/`.
 - Added a typed trading config loader with the `BIDDING_*` env surface and dedicated OpenSea bot lanes.
@@ -47,6 +47,10 @@ Current milestone: Slice 7 complete
 - Runtime resource staging already carries trading artifacts plus Yarn PnP cache/loader data required by packaged bot startup.
 - Runtime registry checks now enforce that trading bot artifacts are built, referenced by desktop bot specs, copied into staged resources, and included in Tauri bundle resources.
 - Desktop docs now describe bidding config paths, lifecycle bootstrapping semantics, and non-secret bot lifecycle event requirements.
+- Added a simple startup WETH allowance adapter that approves the configured `BIDDING_WETH_ALLOWANCE_ETH` amount to the OpenSea SDK-selected conduit before bidder bootstrap continues.
+- Added a shared `@artgod/shared/evm/transactions` policy module for EIP-1559 fee selection and pending-nonce safety checks, and wired startup WETH approval through it.
+- Raised the default bot transaction min priority fee to `0.1` gwei because some nodes can report `0` while mainnet inclusion still requires a nonzero builder/validator tip.
+- Added `eth_feeHistory` reward-percentile sampling to the shared transaction policy so configured floors are only a lower bound, not the primary dynamic tip source.
 
 This document is the implementation plan for porting the existing battle-tested bidding bot into ArtGod.
 
@@ -120,14 +124,14 @@ Mechanical renames are allowed and encouraged, as long as they do not change beh
 
 Recommended naming mapping:
 
-| Upstream name | ArtGod name |
-| --- | --- |
-| `Autobidder` | `Bidder` |
-| `AutobidJob` | `BiddingJob` |
-| `AutobidRefresh` | `BidderRefresh` |
-| `AutobidActivationPort` | `BiddingActivationPort` |
+| Upstream name            | ArtGod name              |
+| ------------------------ | ------------------------ |
+| `Autobidder`             | `Bidder`                 |
+| `AutobidJob`             | `BiddingJob`             |
+| `AutobidRefresh`         | `BidderRefresh`          |
+| `AutobidActivationPort`  | `BiddingActivationPort`  |
 | `autobid*` config fields | `bidding*` config fields |
-| `AUTOBID_*` env vars | `BIDDING_*` env vars |
+| `AUTOBID_*` env vars     | `BIDDING_*` env vars     |
 
 Rule:
 
@@ -321,6 +325,13 @@ Recommended config groups:
 - `BIDDING_COLLECTION_OFFERS_POLL_MS`
 - `BIDDING_COLLECTION_OFFERS_TTL_MS`
 - `BIDDING_ORDER_LOOKUP_MAX_PAGES`
+- `BIDDING_WETH_ALLOWANCE_ETH`
+- `BIDDING_TX_MIN_PRIORITY_FEE_GWEI`
+- `BIDDING_TX_FEE_HISTORY_BLOCKS`
+- `BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE`
+- `BIDDING_TX_BASE_FEE_MULTIPLIER`
+- `BIDDING_TX_MAX_FEE_GWEI`
+- `BIDDING_TX_PENDING_NONCE_POLICY`
 - `BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION`
 - `BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION`
 - `BIDDING_JOBS_FILE`
@@ -385,8 +396,8 @@ Scope:
 - port `BiddingService`
 - port snapshot source adapter
 - create separate SDK/API clients and limiters for:
-  - bidding
-  - snapshot
+    - bidding
+    - snapshot
 
 Rules:
 

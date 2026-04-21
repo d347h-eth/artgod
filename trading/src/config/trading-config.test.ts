@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
+import { parseEther } from "viem";
 import { loadTradingConfig } from "./trading-config.js";
 
 const requiredBaseEnv = {
@@ -37,6 +38,19 @@ describe("loadTradingConfig", () => {
         }
         assert.equal(config.bidding.pollMs, 8 * 60 * 1000);
         assert.equal(config.bidding.jobsFile, "/tmp/artgod/jobs/bidding.json");
+        assert.equal(config.bidding.wethAllowanceWei, 0n);
+        assert.deepEqual(config.bidding.transactionPolicy, {
+            fees: {
+                minPriorityFeePerGasWei: 100_000_000n,
+                priorityFeeHistoryBlockCount: 20,
+                priorityFeeHistoryRewardPercentile: 70,
+                baseFeeMultiplierBps: 12_500n,
+                maxFeePerGasWei: 50_000_000_000n,
+            },
+            nonce: {
+                pendingNoncePolicy: "fail",
+            },
+        });
         assert.equal(config.bidding.openSea.streamSecretKey, "stream-key");
         assert.deepEqual(
             config.bidding.criteriaRefreshTraitsByCollection.terraforms,
@@ -58,24 +72,27 @@ describe("loadTradingConfig", () => {
         assert.equal(config.bidding.enabled, false);
     });
 
-    it("rejects duplicated OpenSea lane keys when bidding is enabled", () => {
-        assert.throws(
-            () =>
-                loadTradingConfig(
-                    {
-                        ...requiredBaseEnv,
-                        BIDDING_ENABLED: "true",
-                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
-                        OPENSEA_STREAM_SECRET_KEY: "shared-key",
-                        OPENSEA_BIDDING_SECRET_KEY: "shared-key",
-                        OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
-                    },
-                    {
-                        envFilePath: "/tmp/artgod/runtime.env",
-                    },
-                ),
-            /must stay split by lane/,
+    it("allows OpenSea lane keys to share the same value", () => {
+        const config = loadTradingConfig(
+            {
+                ...requiredBaseEnv,
+                BIDDING_ENABLED: "true",
+                BIDDING_JOBS_FILE: "./jobs/bidding.json",
+                OPENSEA_STREAM_SECRET_KEY: "shared-key",
+                OPENSEA_BIDDING_SECRET_KEY: "shared-key",
+                OPENSEA_SNAPSHOT_SECRET_KEY: "shared-key",
+            },
+            {
+                envFilePath: "/tmp/artgod/runtime.env",
+            },
         );
+
+        if (!config.bidding.enabled) {
+            throw new Error("Expected bidding to be enabled");
+        }
+        assert.equal(config.bidding.openSea.streamSecretKey, "shared-key");
+        assert.equal(config.bidding.openSea.biddingSecretKey, "shared-key");
+        assert.equal(config.bidding.openSea.snapshotSecretKey, "shared-key");
     });
 
     it("parses explicit trait map overrides", () => {
@@ -87,6 +104,12 @@ describe("loadTradingConfig", () => {
                 OPENSEA_STREAM_SECRET_KEY: "stream-key",
                 OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                 OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
+                BIDDING_WETH_ALLOWANCE_ETH: "2.5",
+                BIDDING_TX_MIN_PRIORITY_FEE_GWEI: "0.25",
+                BIDDING_TX_FEE_HISTORY_BLOCKS: "12",
+                BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE: "80",
+                BIDDING_TX_BASE_FEE_MULTIPLIER: "1.5",
+                BIDDING_TX_MAX_FEE_GWEI: "120",
                 BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION:
                     '{"terraforms":["Zone","Biome"],"other":["Rarity"]}',
                 BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION:
@@ -108,5 +131,107 @@ describe("loadTradingConfig", () => {
         assert.deepEqual(config.bidding.tokenCriteriaTraitsByCollection, {
             terraforms: ["Zone", "Biome", "Mode"],
         });
+        assert.equal(config.bidding.wethAllowanceWei, parseEther("2.5"));
+        assert.equal(
+            config.bidding.transactionPolicy.fees.minPriorityFeePerGasWei,
+            250_000_000n,
+        );
+        assert.equal(
+            config.bidding.transactionPolicy.fees.baseFeeMultiplierBps,
+            15_000n,
+        );
+        assert.equal(
+            config.bidding.transactionPolicy.fees.priorityFeeHistoryBlockCount,
+            12,
+        );
+        assert.equal(
+            config.bidding.transactionPolicy.fees
+                .priorityFeeHistoryRewardPercentile,
+            80,
+        );
+        assert.equal(
+            config.bidding.transactionPolicy.fees.maxFeePerGasWei,
+            120_000_000_000n,
+        );
+    });
+
+    it("rejects invalid WETH allowance values", () => {
+        assert.throws(
+            () =>
+                loadTradingConfig(
+                    {
+                        ...requiredBaseEnv,
+                        BIDDING_ENABLED: "true",
+                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
+                        OPENSEA_STREAM_SECRET_KEY: "stream-key",
+                        OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
+                        OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
+                        BIDDING_WETH_ALLOWANCE_ETH: "not-ether",
+                    },
+                    {
+                        envFilePath: "/tmp/artgod/runtime.env",
+                    },
+                ),
+            /Invalid BIDDING_WETH_ALLOWANCE_ETH/,
+        );
+    });
+
+    it("rejects invalid transaction fee policy values", () => {
+        assert.throws(
+            () =>
+                loadTradingConfig(
+                    {
+                        ...requiredBaseEnv,
+                        BIDDING_ENABLED: "true",
+                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
+                        OPENSEA_STREAM_SECRET_KEY: "stream-key",
+                        OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
+                        OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
+                        BIDDING_TX_MIN_PRIORITY_FEE_GWEI: "0",
+                    },
+                    {
+                        envFilePath: "/tmp/artgod/runtime.env",
+                    },
+                ),
+            /Invalid BIDDING_TX_MIN_PRIORITY_FEE_GWEI/,
+        );
+
+        assert.throws(
+            () =>
+                loadTradingConfig(
+                    {
+                        ...requiredBaseEnv,
+                        BIDDING_ENABLED: "true",
+                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
+                        OPENSEA_STREAM_SECRET_KEY: "stream-key",
+                        OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
+                        OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
+                        BIDDING_TX_BASE_FEE_MULTIPLIER: "0.99",
+                    },
+                    {
+                        envFilePath: "/tmp/artgod/runtime.env",
+                    },
+                ),
+            /Invalid BIDDING_TX_BASE_FEE_MULTIPLIER/,
+        );
+
+        assert.throws(
+            () =>
+                loadTradingConfig(
+                    {
+                        ...requiredBaseEnv,
+                        BIDDING_ENABLED: "true",
+                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
+                        OPENSEA_STREAM_SECRET_KEY: "stream-key",
+                        OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
+                        OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
+                        BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE: "101",
+                    },
+                    {
+                        envFilePath: "/tmp/artgod/runtime.env",
+                    },
+                ),
+            /Invalid BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE/,
+        );
     });
 });

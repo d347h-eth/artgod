@@ -57,7 +57,7 @@ File:
 
 What is explicit here:
 
-- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources"`
+- `beforeBuildCommand = "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"`
 
 This must continue to include runtime resource staging so artifacts are present in bundled resources before desktop packaging.
 Staging must include both runtime artifacts and runtime dependencies:

@@ -130,6 +130,7 @@ __metadata:
     "@opensea/stream-js": "npm:^0.2.0"
     "@types/node": "npm:^24.0.0"
     async-mutex: "npm:0.5.0"
+    better-sqlite3: "npm:^v12.2.0"
     dotenv: "npm:^16.4.5"
     ethers: "npm:^6.0.0"
     opensea-js: "npm:^8.0.0"

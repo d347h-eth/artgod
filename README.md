@@ -26,36 +26,45 @@ Canonical backlog and priorities live in `docs/progress/indexer/15-unified-backl
 
 ## Quick Start
 
+Local web/indexer development:
+
 ```sh
-yarn install
+# Install Yarn Berry/PnP dependencies exactly from yarn.lock.
+yarn install --immutable
+
+# Start the local backend, indexer launcher, and frontend dev server.
 yarn dev
 ```
 
-Optional desktop shell:
+Desktop dev from a clean checkout:
 
 ```sh
+# Install Yarn Berry/PnP dependencies and materialize the PnP runtime files.
+yarn install --immutable
+
+# Build the browser/userland static UI into frontend/dist-userland.
+yarn build:userland
+
+# Bundle backend, indexer workers, and trading bot runtimes into */dist-desktop.
+yarn build:runtime
+
+# Stage runtime artifacts, userland UI, DB migrations, Yarn PnP data, bundled Node, and bundled NATS into src-tauri/resources/runtime.
+yarn build:desktop-runtime-resources
+
+# Start the Tauri dev shell; beforeDevCommand builds the debug sidecar first, then starts the admin frontend dev server.
 cargo tauri dev
 ```
 
-Local desktop build (no bundle):
+`cargo tauri dev` does not run `beforeBuildCommand`, so `frontend/dist-userland` and `src-tauri/resources/runtime` must already exist after a clean checkout or `yarn clean:build`. The debug sidecar is built by `beforeDevCommand` before the admin frontend dev server starts.
+
+Desktop no-bundle build from a clean checkout:
 
 ```sh
+# Install Yarn Berry/PnP dependencies exactly from yarn.lock.
 yarn install --immutable
+
+# Run Tauri's beforeBuildCommand, which builds admin UI, userland UI, runtime artifacts, staged runtime resources, and release sidecars before compiling Rust.
 yarn tauri build --debug --no-bundle --ci
-```
-
-Build helper commands:
-
-```sh
-yarn build:web
-yarn build:userland
-yarn build:admin
-yarn build:desktop
-yarn build:runtime
-yarn build:desktop-runtime-resources
-yarn build:desktop-sidecars --profile release
-yarn check:runtime-registry
-yarn clean:build
 ```
 
 Ad-hoc web-hosted deploy:
@@ -168,22 +177,6 @@ For the current hosted Docker deployment shape (public reads, local-only writes,
 
 - `docs/deploy/01-web-hosted-read-only.md`
 
-Build helper commands:
-
-```sh
-yarn build:web                 # frontend web build only
-yarn build:userland            # frontend userland static build (adapter-static -> frontend/dist-userland)
-yarn build:admin               # frontend admin static build for Tauri window (adapter-static -> frontend/dist)
-yarn build:desktop             # alias for build:admin
-yarn build:runtime             # backend/indexer/trading Node runtime artifacts
-yarn build:desktop-runtime-resources # copies runtime artifacts + Yarn runtime deps + bundled Node+NATS runtimes (cached under .cache/desktop-*-runtime)
-yarn build:desktop-sidecars --profile release # builds and stages the native secret-prompt sidecar
-yarn check:runtime-registry    # validates runtime list consistency across build/supervisor/dev/observability
-yarn clean:build               # clears dist and build caches across all workspaces
-yarn tauri build --no-bundle --ci
-yarn tauri build --debug --no-bundle --ci
-```
-
 Desktop executable lifecycle:
 
 1. Rust app process initializes and exposes runtime commands (startup is deferred; no immediate supervisor auto-start in `setup`).
@@ -235,6 +228,7 @@ Useful optional env groups:
 - RPC resilience (`RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
 - Metadata refresh/batch tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
+- Trading bot transaction policy (`BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_*`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, `BIDDING_TX_PENDING_NONCE_POLICY`)
 - Metrics (`METRICS_ENABLED`, `METRICS_HOST`, `METRICS_PORT_*`)
 - APM (`APM_ENABLED`, `APM_*`)
 
@@ -380,16 +374,24 @@ Blueprint/reference material:
 ## Common Commands
 
 ```sh
+# Start backend, indexer launcher, and frontend dev server.
 yarn dev
+
+# Start the desktop dev shell after the desktop dev staging sequence in Quick Start.
+cargo tauri dev
+
+# Start only the backend workspace dev server.
 yarn workspace @artgod/backend run dev
+
+# Start only the frontend workspace dev server.
 yarn workspace @artgod/frontend run dev
+
+# Start only the indexer workspace dev entrypoint.
 yarn workspace @artgod/indexer run dev
-yarn build:web
-yarn build:desktop
-yarn build:runtime
-yarn build:desktop-runtime-resources
-yarn build:desktop-sidecars --profile release
+
+# Validate runtime registry consistency across build maps, supervisor mappings, dev launchers, and observability mappings.
 yarn check:runtime-registry
+
+# Remove generated build artifacts and caches.
 yarn clean:build
-yarn tauri build --no-bundle --ci
 ```

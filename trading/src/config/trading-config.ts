@@ -6,7 +6,9 @@ import {
     parsePositiveInteger,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
+import type { EvmTransactionPolicyConfig } from "@artgod/shared/evm/transactions";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
+import { parseEther, parseGwei } from "viem";
 import {
     BIDDING_DEFAULT_BOOTSTRAP_CONCURRENCY,
     BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
@@ -17,6 +19,13 @@ import {
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
     BIDDING_DEFAULT_POLL_MS,
     BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
+    BIDDING_DEFAULT_TX_BASE_FEE_MULTIPLIER,
+    BIDDING_DEFAULT_TX_FEE_HISTORY_BLOCKS,
+    BIDDING_DEFAULT_TX_FEE_HISTORY_REWARD_PERCENTILE,
+    BIDDING_DEFAULT_TX_MAX_FEE_GWEI,
+    BIDDING_DEFAULT_TX_MIN_PRIORITY_FEE_GWEI,
+    BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY,
+    BIDDING_DEFAULT_WETH_ALLOWANCE_ETH,
 } from "./bidding-defaults.js";
 
 export type EnabledBiddingConfig = {
@@ -31,6 +40,8 @@ export type EnabledBiddingConfig = {
     orderLookupMaxPages: number;
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
+    wethAllowanceWei: bigint;
+    transactionPolicy: EvmTransactionPolicyConfig;
     jobsFile: string;
     openSea: {
         streamSecretKey: string;
@@ -51,6 +62,8 @@ export type DisabledBiddingConfig = {
     orderLookupMaxPages: number;
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
+    wethAllowanceWei: bigint;
+    transactionPolicy: EvmTransactionPolicyConfig;
 };
 
 export type TradingConfig = {
@@ -133,6 +146,12 @@ export function loadTradingConfig(
             BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
             "BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION",
         ),
+        wethAllowanceWei: parseNonNegativeEtherToWei(
+            env.BIDDING_WETH_ALLOWANCE_ETH,
+            "BIDDING_WETH_ALLOWANCE_ETH",
+            BIDDING_DEFAULT_WETH_ALLOWANCE_ETH,
+        ),
+        transactionPolicy: parseBiddingTransactionPolicy(env),
     };
 
     const biddingEnabled = parseBoolean(
@@ -190,18 +209,48 @@ function parseOpenSeaSecrets(env: Record<string, string | undefined>): {
         ),
     };
 
-    const seen = new Map<string, string>();
-    for (const [fieldName, value] of Object.entries(secrets)) {
-        const existing = seen.get(value);
-        if (existing) {
-            throw new Error(
-                `OpenSea bot secret keys must stay split by lane. ${fieldName} duplicates ${existing}`,
-            );
-        }
-        seen.set(value, fieldName);
-    }
-
     return secrets;
+}
+
+function parseBiddingTransactionPolicy(
+    env: Record<string, string | undefined>,
+): EvmTransactionPolicyConfig {
+    return {
+        fees: {
+            minPriorityFeePerGasWei: parsePositiveGweiToWei(
+                env.BIDDING_TX_MIN_PRIORITY_FEE_GWEI,
+                "BIDDING_TX_MIN_PRIORITY_FEE_GWEI",
+                BIDDING_DEFAULT_TX_MIN_PRIORITY_FEE_GWEI,
+            ),
+            priorityFeeHistoryBlockCount: parseFeeHistoryBlockCount(
+                env.BIDDING_TX_FEE_HISTORY_BLOCKS,
+                "BIDDING_TX_FEE_HISTORY_BLOCKS",
+                BIDDING_DEFAULT_TX_FEE_HISTORY_BLOCKS,
+            ),
+            priorityFeeHistoryRewardPercentile: parseRewardPercentile(
+                env.BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE,
+                "BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE",
+                BIDDING_DEFAULT_TX_FEE_HISTORY_REWARD_PERCENTILE,
+            ),
+            baseFeeMultiplierBps: parseBaseFeeMultiplierBps(
+                env.BIDDING_TX_BASE_FEE_MULTIPLIER,
+                "BIDDING_TX_BASE_FEE_MULTIPLIER",
+                BIDDING_DEFAULT_TX_BASE_FEE_MULTIPLIER,
+            ),
+            maxFeePerGasWei: parsePositiveGweiToWei(
+                env.BIDDING_TX_MAX_FEE_GWEI,
+                "BIDDING_TX_MAX_FEE_GWEI",
+                BIDDING_DEFAULT_TX_MAX_FEE_GWEI,
+            ),
+        },
+        nonce: {
+            pendingNoncePolicy: parsePendingNoncePolicy(
+                env.BIDDING_TX_PENDING_NONCE_POLICY,
+                "BIDDING_TX_PENDING_NONCE_POLICY",
+                BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY,
+            ),
+        },
+    };
 }
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -210,6 +259,100 @@ function parseAddress(value: string | undefined, name: string): string {
         throw new Error(`Invalid ${name}: ${value}`);
     }
     return normalized.toLowerCase();
+}
+
+function parseNonNegativeEtherToWei(
+    value: string | undefined,
+    name: string,
+    defaultValue: string,
+): bigint {
+    const normalized = value?.trim() || defaultValue;
+    if (!/^(0|[1-9]\d*)(\.\d+)?$/.test(normalized)) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    try {
+        return parseEther(normalized);
+    } catch {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+}
+
+function parsePositiveGweiToWei(
+    value: string | undefined,
+    name: string,
+    defaultValue: string,
+): bigint {
+    const normalized = value?.trim() || defaultValue;
+    if (!/^(0|[1-9]\d*)(\.\d+)?$/.test(normalized)) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    try {
+        const parsed = parseGwei(normalized);
+        if (parsed <= 0n) {
+            throw new Error(`Invalid ${name}: ${value}`);
+        }
+        return parsed;
+    } catch {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+}
+
+function parseBaseFeeMultiplierBps(
+    value: string | undefined,
+    name: string,
+    defaultValue: string,
+): bigint {
+    const normalized = value?.trim() || defaultValue;
+    if (!/^(0|[1-9]\d*)(\.\d+)?$/.test(normalized)) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    const [wholePart, fractionPart = ""] = normalized.split(".");
+    if (fractionPart.length > 4) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    const basisPoints =
+        BigInt(wholePart) * 10_000n +
+        BigInt(fractionPart.padEnd(4, "0") || "0");
+    if (basisPoints < 10_000n) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    return basisPoints;
+}
+
+function parseRewardPercentile(
+    value: string | undefined,
+    name: string,
+    defaultValue: number,
+): number {
+    const parsed = parseNumber(value, name, defaultValue);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    return parsed;
+}
+
+function parseFeeHistoryBlockCount(
+    value: string | undefined,
+    name: string,
+    defaultValue: number,
+): number {
+    const parsed = parsePositiveInteger(value, name, defaultValue);
+    if (parsed > 1024) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    return parsed;
+}
+
+function parsePendingNoncePolicy(
+    value: string | undefined,
+    name: string,
+    defaultValue: string,
+): "fail" {
+    const normalized = (value?.trim() || defaultValue).toLowerCase();
+    if (normalized !== "fail") {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    return "fail";
 }
 
 function parseStringArrayMap(
