@@ -526,6 +526,14 @@ function createStreamClient(streamSecretKey: string): OpenSeaSdkStreamClient {
         token: streamSecretKey,
         network: Network.MAINNET,
         logLevel: LogLevel.ERROR,
+        // Route socket-level OpenSea stream errors through the bot logger instead of SDK console stderr.
+        onError: (error) => {
+            const formatted = formatOpenSeaStreamSocketError(error);
+            biddingLog.warn(
+                `[OpenSeaStream] Socket error from OpenSea stream. ${formatted.detail}`,
+                formatted.meta,
+            );
+        },
     });
 }
 
@@ -549,4 +557,97 @@ function formatWeth(amountWei: bigint): string {
 
 function formatOptionalWeth(amountWei: bigint | null): string {
     return amountWei === null ? "n/a" : formatWeth(amountWei);
+}
+
+// formatOpenSeaStreamSocketError keeps Phoenix/WebSocket ErrorEvent logs compact and JSON-safe.
+export function formatOpenSeaStreamSocketError(error: unknown): {
+    detail: string;
+    meta: Record<string, unknown>;
+} {
+    if (error instanceof Error) {
+        return {
+            detail: `${error.name}: ${error.message}`,
+            meta: {
+                errorName: error.name,
+                errorMessage: error.message,
+            },
+        };
+    }
+
+    if (isRecord(error)) {
+        const constructorName = getConstructorName(error);
+        const eventType = readStringProperty(error, "type");
+        const eventMessage = readStringProperty(error, "message");
+        const detailParts = [
+            constructorName ? `constructor=${constructorName}` : null,
+            eventType ? `type=${eventType}` : null,
+            eventMessage ? `message=${eventMessage}` : null,
+        ].filter((part): part is string => part !== null);
+
+        return {
+            detail:
+                detailParts.length > 0
+                    ? detailParts.join(", ")
+                    : "non-error object",
+            meta: compactMeta({
+                errorConstructor: constructorName,
+                errorType: eventType,
+                errorMessage: eventMessage,
+                defaultPrevented: readBooleanProperty(
+                    error,
+                    "defaultPrevented",
+                ),
+                cancelable: readBooleanProperty(error, "cancelable"),
+                timeStamp: readNumberProperty(error, "timeStamp"),
+            }),
+        };
+    }
+
+    return {
+        detail: String(error),
+        meta: { errorValue: String(error) },
+    };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object";
+}
+
+function getConstructorName(value: object): string | undefined {
+    const constructorName = value.constructor?.name;
+    return constructorName && constructorName !== "Object"
+        ? constructorName
+        : undefined;
+}
+
+function readStringProperty(
+    value: Record<string, unknown>,
+    key: string,
+): string | undefined {
+    const raw = value[key];
+    return typeof raw === "string" && raw.trim().length > 0 ? raw : undefined;
+}
+
+function readBooleanProperty(
+    value: Record<string, unknown>,
+    key: string,
+): boolean | undefined {
+    const raw = value[key];
+    return typeof raw === "boolean" ? raw : undefined;
+}
+
+function readNumberProperty(
+    value: Record<string, unknown>,
+    key: string,
+): number | undefined {
+    const raw = value[key];
+    return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function compactMeta(
+    meta: Record<string, unknown | undefined>,
+): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries(meta).filter(([, value]) => value !== undefined),
+    );
 }

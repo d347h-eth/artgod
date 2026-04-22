@@ -7,6 +7,7 @@ import {
     collectTokenWarmCandidateCount,
     collectWatchedCollectionSlugs,
     createCriteriaOfferRefreshReasonResolver,
+    formatOpenSeaStreamSocketError,
 } from "./bidding-runtime.js";
 
 function makeJob(
@@ -154,5 +155,34 @@ describe("bidding runtime helpers", () => {
             ),
             null,
         );
+    });
+
+    it("formats OpenSea stream ErrorEvent-like socket errors for structured logs", () => {
+        const formatted = formatOpenSeaStreamSocketError({
+            type: "error",
+            defaultPrevented: false,
+            cancelable: false,
+            timeStamp: 123.45,
+        });
+
+        assert.equal(formatted.detail, "type=error");
+        assert.deepEqual(formatted.meta, {
+            errorType: "error",
+            defaultPrevented: false,
+            cancelable: false,
+            timeStamp: 123.45,
+        });
+    });
+
+    it("formats real OpenSea stream errors without relying on object inspection", () => {
+        const formatted = formatOpenSeaStreamSocketError(
+            new Error("stream disconnected"),
+        );
+
+        assert.equal(formatted.detail, "Error: stream disconnected");
+        assert.deepEqual(formatted.meta, {
+            errorName: "Error",
+            errorMessage: "stream disconnected",
+        });
     });
 });

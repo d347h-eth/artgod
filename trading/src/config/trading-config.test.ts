@@ -45,7 +45,7 @@ describe("loadTradingConfig", () => {
                 priorityFeeHistoryBlockCount: 20,
                 priorityFeeHistoryRewardPercentile: 70,
                 baseFeeMultiplierBps: 12_500n,
-                maxFeePerGasWei: 50_000_000_000n,
+                maxFeePerGasWei: 10_000_000_000n,
             },
             nonce: {
                 pendingNoncePolicy: "fail",
