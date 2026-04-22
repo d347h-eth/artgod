@@ -6,7 +6,7 @@
     "build": {
         "frontendDist": "../frontend/dist",
         "devUrl": "http://localhost:5173",
-        "beforeDevCommand": "node ./scripts/build/dev-frontend-target.mjs admin && yarn build:desktop-sidecars --profile debug",
+        "beforeDevCommand": "yarn build:desktop-sidecars --profile debug && node ./scripts/build/dev-frontend-target.mjs admin",
         "beforeBuildCommand": "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"
     },
     "app": {
@@ -15,8 +15,8 @@
                 "title": "ArtGod",
                 "resizable": true,
                 "maximized": false,
-                "width": 1000,
-                "height": 1000,
+                "width": 768,
+                "height": 1024,
                 "fullscreen": false
             }
         ],

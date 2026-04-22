@@ -126,7 +126,14 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@artgod/trading@workspace:trading"
   dependencies:
+    "@artgod/shared": "workspace:*"
+    "@opensea/stream-js": "npm:^0.2.0"
     "@types/node": "npm:^24.0.0"
+    async-mutex: "npm:0.5.0"
+    better-sqlite3: "npm:^v12.2.0"
+    dotenv: "npm:^16.4.5"
+    ethers: "npm:^6.0.0"
+    opensea-js: "npm:^8.0.0"
     typescript: "npm:^5.8.3"
     viem: "npm:2.41.2"
     vitest: "npm:4.0.13"
@@ -1035,9 +1042,28 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@opensea/seaport-js@npm:^4.0.7":
+  version: 4.0.7
+  resolution: "@opensea/seaport-js@npm:4.0.7"
+  dependencies:
+    ethers: "npm:^6.16.0"
+    merkletreejs: "npm:^0.6.0"
+  checksum: 10/034747f5ab718f3bddf5d910b0cf2f89fb52538cc8dd0a00ced12fda0711a4e52a80df2cc47c135b148695c1d11818f66cda6553f21ee8d4d6f849930b10251b
+  languageName: node
+  linkType: hard
+
 "@opensea/stream-js@github:ProjectOpenSea/stream-js#v0.2.3":
   version: 0.2.3
   resolution: "@opensea/stream-js@https://github.com/ProjectOpenSea/stream-js.git#commit=e21442bf77a672affde503e37873167c3f177404"
+  dependencies:
+    phoenix: "npm:^1.6.15"
+  checksum: 10/1e9c7e3e424bb3e394d64adc14dd0457716f30a372b3b39bcd799ba9e7ddfd924f157abbcbc3be199920e76c7492e2f0c45c3f53f8328f78710f7a9c5a13a85b
+  languageName: node
+  linkType: hard
+
+"@opensea/stream-js@npm:^0.2.0":
+  version: 0.2.3
+  resolution: "@opensea/stream-js@npm:0.2.3"
   dependencies:
     phoenix: "npm:^1.6.15"
   checksum: 10/1e9c7e3e424bb3e394d64adc14dd0457716f30a372b3b39bcd799ba9e7ddfd924f157abbcbc3be199920e76c7492e2f0c45c3f53f8328f78710f7a9c5a13a85b
@@ -3617,6 +3643,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"async-mutex@npm:0.5.0":
+  version: 0.5.0
+  resolution: "async-mutex@npm:0.5.0"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10/4c6bfce1cc9cd43f723c4d96403ac5f4757f885c953b839cde6956ec8817ff39623b82d67614de10c7933e21626925882fb9bac367db7d15d7cb4f84228722c9
+  languageName: node
+  linkType: hard
+
 "async@npm:^3.2.4":
   version: 3.2.6
   resolution: "async@npm:3.2.6"
@@ -4713,7 +4748,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ethers@npm:^6.9.0":
+"ethers@npm:^6.0.0, ethers@npm:^6.16.0, ethers@npm:^6.9.0":
   version: 6.16.0
   resolution: "ethers@npm:6.16.0"
   dependencies:
@@ -6286,6 +6321,16 @@ __metadata:
     "@opensea/seaport-js": "npm:^4.0.6"
     ethers: "npm:^6.9.0"
   checksum: 10/5f043560eb02a7fab74e5450fb8a9791be637f3af19b34de1be5e2e40f0157a8df2caac240b8bc3e645097b7abc4e8327b0f8263d76295fb51f61c7b88f24a59
+  languageName: node
+  linkType: hard
+
+"opensea-js@npm:^8.0.0":
+  version: 8.0.20
+  resolution: "opensea-js@npm:8.0.20"
+  dependencies:
+    "@opensea/seaport-js": "npm:^4.0.7"
+    ethers: "npm:^6.16.0"
+  checksum: 10/2f6ccb61313e5378baf9836c5e7cdcb65f4910aed95c5a37dc2a6a2d8cf059d3512a73b3e37433e1b9ad5228186d98ad59ff6a328ebc1d00019524f48bc0b4cb
   languageName: node
   linkType: hard
 

@@ -1,0 +1,36 @@
+[
+    {
+        "id": "example-token-bid",
+        "network": "eth",
+        "collectionAddress": "0x0000000000000000000000000000000000000000",
+        "collectionSlug": "example-collection",
+        "target": {
+            "type": "token",
+            "tokenId": "123"
+        },
+        "config": {
+            "floorEth": "0.10",
+            "ceilingEth": "0.20",
+            "deltaEth": "0.001"
+        }
+    },
+    {
+        "id": "example-multi-trait-collection-bid",
+        "network": "eth",
+        "collectionAddress": "0x0000000000000000000000000000000000000000",
+        "collectionSlug": "example-collection",
+        "target": {
+            "type": "collection",
+            "quantity": 1,
+            "traits": [
+                { "type": "Biome", "value": "81" },
+                { "type": "Mode", "value": "Terrain" }
+            ]
+        },
+        "config": {
+            "floorEth": "0.10",
+            "ceilingEth": "0.20",
+            "deltaEth": "0.001"
+        }
+    }
+]

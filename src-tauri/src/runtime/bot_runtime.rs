@@ -13,6 +13,7 @@ pub enum BotRuntimeState {
     Locked,
     AwaitingUnlock,
     Starting,
+    Bootstrapping,
     Running,
     Stopped,
     Error,
@@ -49,13 +50,7 @@ pub const BIDDING_BOT_SPEC: BotRuntimeSpec = BotRuntimeSpec {
     process_name: "trading-bidding-bot",
     artifact_relative_path: "trading/dist-desktop/bidding-bot-runtime.mjs",
     startup_reason: "start bidding bot",
-    critical_processes: &[
-        "nats",
-        "backend",
-        "indexer-sync-worker",
-        "indexer-reorg-worker",
-        "indexer-domain-worker",
-    ],
+    critical_processes: &[],
 };
 
 pub const SNIPING_BOT_SPEC: BotRuntimeSpec = BotRuntimeSpec {
@@ -63,14 +58,7 @@ pub const SNIPING_BOT_SPEC: BotRuntimeSpec = BotRuntimeSpec {
     process_name: "trading-sniping-bot",
     artifact_relative_path: "trading/dist-desktop/sniping-bot-runtime.mjs",
     startup_reason: "start sniping bot",
-    critical_processes: &[
-        "nats",
-        "backend",
-        "indexer-sync-worker",
-        "indexer-reorg-worker",
-        "indexer-domain-worker",
-        "indexer-opensea-stream-worker",
-    ],
+    critical_processes: &[],
 };
 
 pub const BOT_RUNTIME_SPECS: &[BotRuntimeSpec] = &[BIDDING_BOT_SPEC, SNIPING_BOT_SPEC];

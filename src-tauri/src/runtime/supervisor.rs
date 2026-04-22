@@ -29,7 +29,10 @@ const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const PROCESS_STOP_GRACE_PERIOD: Duration = Duration::from_secs(10);
 const PROCESS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STARTUP_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(150);
-const BOT_READY_TIMEOUT: Duration = Duration::from_secs(10);
+// Trading bots must quickly prove they entered their managed bootstrap path after unlock/start.
+const BOT_START_SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
+// Once bootstrapping started, long warmup is allowed as long as the bot keeps reporting progress.
+const BOT_BOOTSTRAP_STALL_TIMEOUT: Duration = Duration::from_secs(180);
 
 const BACKEND_ARTIFACT: &str = "backend/dist-desktop/server.mjs";
 const INDEXER_WORKERS: &[(&str, &str)] = &[
@@ -805,14 +808,134 @@ fn run_bot_runtime_loop(
         return;
     }
 
-    match wait_for_bot_ready_signal(
+    match wait_for_bot_start_signal(
         &mut process.process.child,
-        &process.ready_rx,
+        &process.lifecycle_rx,
         &stop_rx,
         &stop_signal,
-        BOT_READY_TIMEOUT,
+        BOT_START_SIGNAL_TIMEOUT,
     ) {
-        BotReadyOutcome::Ready(payload) => {
+        BotStartOutcome::Bootstrapping(payload) => {
+            update_bot_runtime_state(
+                &app,
+                &status_ref,
+                &bot_statuses_ref,
+                spec.bot_kind,
+                BotRuntimeState::Bootstrapping,
+                None,
+            );
+            emit_supervisor_log(
+                &app,
+                &config.logs_dir,
+                "info",
+                &format!(
+                    "{} entered bootstrapping ({})",
+                    spec.process_name,
+                    payload.bootstrap_summary()
+                ),
+            );
+
+            match wait_for_bot_ready_after_bootstrap_start(
+                &status_ref,
+                spec,
+                &mut process.process.child,
+                &process.lifecycle_rx,
+                &stop_rx,
+                &stop_signal,
+                BOT_BOOTSTRAP_STALL_TIMEOUT,
+            ) {
+                BotBootstrapOutcome::Ready(payload) => {
+                    update_bot_runtime_state(
+                        &app,
+                        &status_ref,
+                        &bot_statuses_ref,
+                        spec.bot_kind,
+                        BotRuntimeState::Running,
+                        None,
+                    );
+                    emit_supervisor_log(
+                        &app,
+                        &config.logs_dir,
+                        "info",
+                        &format!(
+                            "{} reported ready ({})",
+                            spec.process_name,
+                            payload.readiness_fields()
+                        ),
+                    );
+                }
+                BotBootstrapOutcome::StoppedByRequest => {
+                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    update_bot_runtime_state(
+                        &app,
+                        &status_ref,
+                        &bot_statuses_ref,
+                        spec.bot_kind,
+                        BotRuntimeState::Stopped,
+                        None,
+                    );
+                    return;
+                }
+                BotBootstrapOutcome::BootstrapFailure(error) => {
+                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    update_bot_runtime_state(
+                        &app,
+                        &status_ref,
+                        &bot_statuses_ref,
+                        spec.bot_kind,
+                        BotRuntimeState::Error,
+                        Some(error),
+                    );
+                    return;
+                }
+                BotBootstrapOutcome::CriticalDependencyUnavailable {
+                    process: dependency,
+                } => {
+                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    update_bot_runtime_state(
+                        &app,
+                        &status_ref,
+                        &bot_statuses_ref,
+                        spec.bot_kind,
+                        BotRuntimeState::Error,
+                        Some(format!(
+                            "{} lost critical dependency during bootstrapping: {}",
+                            spec.process_name, dependency
+                        )),
+                    );
+                    return;
+                }
+                BotBootstrapOutcome::ProcessExited { status } => {
+                    let error = format!(
+                        "{} exited during bootstrapping: {status}",
+                        spec.process_name
+                    );
+                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    update_bot_runtime_state(
+                        &app,
+                        &status_ref,
+                        &bot_statuses_ref,
+                        spec.bot_kind,
+                        BotRuntimeState::Error,
+                        Some(error),
+                    );
+                    return;
+                }
+                BotBootstrapOutcome::ProcessFailure { error } => {
+                    stop_all_processes(std::slice::from_mut(&mut process.process));
+                    update_bot_runtime_state(
+                        &app,
+                        &status_ref,
+                        &bot_statuses_ref,
+                        spec.bot_kind,
+                        BotRuntimeState::Error,
+                        Some(error),
+                    );
+                    return;
+                }
+            }
+        }
+        BotStartOutcome::Ready(payload) => {
             update_bot_runtime_state(
                 &app,
                 &status_ref,
@@ -826,12 +949,13 @@ fn run_bot_runtime_loop(
                 &config.logs_dir,
                 "info",
                 &format!(
-                    "{} reported ready (wallet_id={}, address={}, chain_id={})",
-                    spec.process_name, payload.wallet_id, payload.address, payload.chain_id
+                    "{} reported ready ({})",
+                    spec.process_name,
+                    payload.readiness_fields()
                 ),
             );
         }
-        BotReadyOutcome::StoppedByRequest => {
+        BotStartOutcome::StoppedByRequest => {
             stop_all_processes(std::slice::from_mut(&mut process.process));
             update_bot_runtime_state(
                 &app,
@@ -843,7 +967,7 @@ fn run_bot_runtime_loop(
             );
             return;
         }
-        BotReadyOutcome::ReadyFailure(error) => {
+        BotStartOutcome::StartupFailure(error) => {
             stop_all_processes(std::slice::from_mut(&mut process.process));
             update_bot_runtime_state(
                 &app,
@@ -855,8 +979,11 @@ fn run_bot_runtime_loop(
             );
             return;
         }
-        BotReadyOutcome::ProcessExited { status } => {
-            let error = format!("{} exited before readiness: {status}", spec.process_name);
+        BotStartOutcome::ProcessExited { status } => {
+            let error = format!(
+                "{} exited before bootstrapping or readiness: {status}",
+                spec.process_name
+            );
             stop_all_processes(std::slice::from_mut(&mut process.process));
             update_bot_runtime_state(
                 &app,
@@ -868,7 +995,7 @@ fn run_bot_runtime_loop(
             );
             return;
         }
-        BotReadyOutcome::ProcessFailure { error } => {
+        BotStartOutcome::ProcessFailure { error } => {
             stop_all_processes(std::slice::from_mut(&mut process.process));
             update_bot_runtime_state(
                 &app,
@@ -963,17 +1090,60 @@ fn update_bot_runtime_state(
 struct SpawnedBotProcess {
     process: ManagedProcess,
     stdin: Option<ChildStdin>,
-    ready_rx: Receiver<Result<BotReadyPayload, String>>,
+    lifecycle_rx: Receiver<Result<BotLifecyclePayload, String>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct BotReadyPayload {
+struct BotLifecyclePayload {
     event: String,
     bot_kind: BotKind,
     wallet_id: String,
     address: String,
     chain_id: u64,
+    phase: Option<String>,
+    completed: Option<u64>,
+    total: Option<u64>,
+    detail: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BotLifecycleKind {
+    Bootstrapping,
+    BootstrapProgress,
+    Ready,
+}
+
+impl BotLifecyclePayload {
+    fn kind(&self) -> Option<BotLifecycleKind> {
+        match self.event.as_str() {
+            "bot_bootstrapping" => Some(BotLifecycleKind::Bootstrapping),
+            "bot_bootstrap_progress" => Some(BotLifecycleKind::BootstrapProgress),
+            "bot_ready" => Some(BotLifecycleKind::Ready),
+            _ => None,
+        }
+    }
+
+    fn readiness_fields(&self) -> String {
+        format!(
+            "wallet_id={}, address={}, chain_id={}",
+            self.wallet_id, self.address, self.chain_id
+        )
+    }
+
+    fn bootstrap_summary(&self) -> String {
+        let phase = self.phase.as_deref().unwrap_or("unknown");
+        let completed = self
+            .completed
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "?".to_owned());
+        let total = self
+            .total
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "?".to_owned());
+        let detail = self.detail.as_deref().unwrap_or("none");
+        format!("phase={phase}, completed={completed}/{total}, detail={detail}")
+    }
 }
 
 fn spawn_trading_bot_process(
@@ -1035,14 +1205,14 @@ fn spawn_trading_bot_process(
         .take()
         .ok_or_else(|| format!("Process {} stdout pipe is unavailable", spec.process_name))?;
     let stderr = child.stderr.take();
-    let (ready_tx, ready_rx) = mpsc::channel::<Result<BotReadyPayload, String>>();
+    let (lifecycle_tx, lifecycle_rx) = mpsc::channel::<Result<BotLifecyclePayload, String>>();
     let mut output_threads = vec![spawn_bot_stdout_worker(
         app.clone(),
         config.logs_dir.clone(),
         spec.process_name.to_owned(),
         spec.bot_kind,
         stdout,
-        ready_tx,
+        lifecycle_tx,
     )];
     if let Some(stderr) = stderr {
         output_threads.push(spawn_log_stream_worker(
@@ -1062,7 +1232,7 @@ fn spawn_trading_bot_process(
             cleanup: None,
         },
         stdin,
-        ready_rx,
+        lifecycle_rx,
     })
 }
 
@@ -1086,53 +1256,129 @@ fn send_bot_secret_envelope(
     write_result
 }
 
-enum BotReadyOutcome {
-    Ready(BotReadyPayload),
+enum BotStartOutcome {
+    Bootstrapping(BotLifecyclePayload),
+    Ready(BotLifecyclePayload),
     StoppedByRequest,
-    ReadyFailure(String),
+    StartupFailure(String),
     ProcessExited { status: ExitStatus },
     ProcessFailure { error: String },
 }
 
-fn wait_for_bot_ready_signal(
+fn wait_for_bot_start_signal(
     child: &mut Child,
-    ready_rx: &Receiver<Result<BotReadyPayload, String>>,
+    lifecycle_rx: &Receiver<Result<BotLifecyclePayload, String>>,
     stop_rx: &Receiver<()>,
     stop_signal: &AtomicBool,
     timeout: Duration,
-) -> BotReadyOutcome {
+) -> BotStartOutcome {
     let deadline = Instant::now() + timeout;
 
     loop {
         if stop_requested(stop_rx, stop_signal) {
-            return BotReadyOutcome::StoppedByRequest;
+            return BotStartOutcome::StoppedByRequest;
         }
 
-        match ready_rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(payload)) => return BotReadyOutcome::Ready(payload),
-            Ok(Err(error)) => return BotReadyOutcome::ReadyFailure(error),
+        match lifecycle_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(Ok(payload)) => match payload.kind() {
+                Some(BotLifecycleKind::Bootstrapping)
+                | Some(BotLifecycleKind::BootstrapProgress) => {
+                    return BotStartOutcome::Bootstrapping(payload);
+                }
+                Some(BotLifecycleKind::Ready) => return BotStartOutcome::Ready(payload),
+                None => {}
+            },
+            Ok(Err(error)) => return BotStartOutcome::StartupFailure(error),
             Err(RecvTimeoutError::Disconnected) => {
-                return BotReadyOutcome::ReadyFailure(
-                    "Trading bot ready signal channel closed unexpectedly".to_owned(),
+                return BotStartOutcome::StartupFailure(
+                    "Trading bot lifecycle signal channel closed unexpectedly".to_owned(),
                 );
             }
             Err(RecvTimeoutError::Timeout) => {}
         }
 
         match child.try_wait() {
-            Ok(Some(status)) => return BotReadyOutcome::ProcessExited { status },
+            Ok(Some(status)) => return BotStartOutcome::ProcessExited { status },
             Ok(None) => {}
             Err(error) => {
-                return BotReadyOutcome::ProcessFailure {
+                return BotStartOutcome::ProcessFailure {
                     error: error.to_string(),
                 };
             }
         }
 
         if Instant::now() >= deadline {
-            return BotReadyOutcome::ReadyFailure(format!(
-                "Trading bot did not report ready within {}s",
+            return BotStartOutcome::StartupFailure(format!(
+                "Trading bot did not report bootstrapping or ready within {}s",
                 timeout.as_secs()
+            ));
+        }
+    }
+}
+
+enum BotBootstrapOutcome {
+    Ready(BotLifecyclePayload),
+    StoppedByRequest,
+    BootstrapFailure(String),
+    CriticalDependencyUnavailable { process: String },
+    ProcessExited { status: ExitStatus },
+    ProcessFailure { error: String },
+}
+
+fn wait_for_bot_ready_after_bootstrap_start(
+    status_ref: &Arc<Mutex<RuntimeStatus>>,
+    spec: crate::runtime::bot_runtime::BotRuntimeSpec,
+    child: &mut Child,
+    lifecycle_rx: &Receiver<Result<BotLifecyclePayload, String>>,
+    stop_rx: &Receiver<()>,
+    stop_signal: &AtomicBool,
+    stall_timeout: Duration,
+) -> BotBootstrapOutcome {
+    let mut last_progress_at = Instant::now();
+
+    loop {
+        if stop_requested(stop_rx, stop_signal) {
+            return BotBootstrapOutcome::StoppedByRequest;
+        }
+
+        match lifecycle_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(Ok(payload)) => match payload.kind() {
+                Some(BotLifecycleKind::Ready) => {
+                    return BotBootstrapOutcome::Ready(payload);
+                }
+                Some(BotLifecycleKind::Bootstrapping)
+                | Some(BotLifecycleKind::BootstrapProgress) => {
+                    last_progress_at = Instant::now();
+                }
+                None => {}
+            },
+            Ok(Err(error)) => return BotBootstrapOutcome::BootstrapFailure(error),
+            Err(RecvTimeoutError::Disconnected) => {
+                return BotBootstrapOutcome::BootstrapFailure(
+                    "Trading bot lifecycle signal channel closed unexpectedly".to_owned(),
+                );
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+
+        if let Some(process) = first_unhealthy_critical_dependency(status_ref, spec) {
+            return BotBootstrapOutcome::CriticalDependencyUnavailable { process };
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => return BotBootstrapOutcome::ProcessExited { status },
+            Ok(None) => {}
+            Err(error) => {
+                return BotBootstrapOutcome::ProcessFailure {
+                    error: error.to_string(),
+                };
+            }
+        }
+
+        if last_progress_at.elapsed() >= stall_timeout {
+            return BotBootstrapOutcome::BootstrapFailure(format!(
+                "Trading bot bootstrap stalled: no progress signal received within {}s",
+                stall_timeout.as_secs()
             ));
         }
     }
@@ -1209,7 +1455,7 @@ fn spawn_bot_stdout_worker<R>(
     process: String,
     bot_kind: BotKind,
     reader: R,
-    ready_tx: Sender<Result<BotReadyPayload, String>>,
+    lifecycle_tx: Sender<Result<BotLifecyclePayload, String>>,
 ) -> JoinHandle<()>
 where
     R: std::io::Read + Send + 'static,
@@ -1223,17 +1469,17 @@ where
             .ok();
         let mut buffered = BufReader::new(reader);
         let mut line = String::new();
-        let mut ready_sent = false;
+        let mut lifecycle_started = false;
 
         loop {
             line.clear();
             let bytes = match buffered.read_line(&mut line) {
                 Ok(bytes) => bytes,
                 Err(error) => {
-                    if !ready_sent {
-                        let _ = ready_tx
+                    if !lifecycle_started {
+                        let _ = lifecycle_tx
                             .send(Err(format!("Failed to read trading bot stdout: {error}")));
-                        ready_sent = true;
+                        lifecycle_started = true;
                     }
                     break;
                 }
@@ -1246,14 +1492,15 @@ where
                 continue;
             }
 
-            if !ready_sent
-                && let Ok(payload) = serde_json::from_str::<BotReadyPayload>(&payload_line)
-                && payload.event == "bot_ready"
-                && payload.bot_kind == bot_kind
-            {
-                let _ = ready_tx.send(Ok(payload));
-                ready_sent = true;
-                continue;
+            if let Ok(payload) = serde_json::from_str::<BotLifecyclePayload>(&payload_line) {
+                if payload.bot_kind == bot_kind && payload.kind().is_some() {
+                    if let Some(log_file) = log_file.as_mut() {
+                        let _ = writeln!(log_file, "[lifecycle] {payload_line}");
+                    }
+                    let _ = lifecycle_tx.send(Ok(payload));
+                    lifecycle_started = true;
+                    continue;
+                }
             }
 
             let payload = RuntimeLogEvent {
@@ -1267,8 +1514,9 @@ where
             }
         }
 
-        if !ready_sent {
-            let _ = ready_tx.send(Err("Trading bot ready signal was not emitted".to_owned()));
+        if !lifecycle_started {
+            let _ =
+                lifecycle_tx.send(Err("Trading bot did not emit a lifecycle signal".to_owned()));
         }
     })
 }
@@ -1941,7 +2189,10 @@ mod tests {
             auto_start: true,
             restart_backoff_ms: 1000,
             process_env: HashMap::from([
-                ("ARTGOD_DB_PATH".to_owned(), "/runtime/artgod.sqlite".to_owned()),
+                (
+                    "ARTGOD_DB_PATH".to_owned(),
+                    "/runtime/artgod.sqlite".to_owned(),
+                ),
                 ("NODE_ENV".to_owned(), "production".to_owned()),
             ]),
             logs_dir: PathBuf::from("/runtime/logs"),
