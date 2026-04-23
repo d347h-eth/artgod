@@ -1,4 +1,3 @@
-import { dirname, isAbsolute, resolve } from "node:path";
 import dotenv from "dotenv";
 import {
     parseBoolean,
@@ -42,7 +41,6 @@ export type EnabledBiddingConfig = {
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
     wethAllowanceWei: bigint;
     transactionPolicy: EvmTransactionPolicyConfig;
-    jobsFile: string;
     openSea: {
         streamSecretKey: string;
         biddingSecretKey: string;
@@ -83,7 +81,7 @@ type LoadTradingConfigOptions = {
     hydrateProcessEnv?: boolean;
 };
 
-// Loads the typed trading env surface and resolves path-like fields needed by the bidding runtime.
+// Loads the typed trading env surface needed by the bidding runtime.
 export function loadTradingConfig(
     env: Record<string, string | undefined> = process.env,
     options: LoadTradingConfigOptions = {},
@@ -173,13 +171,6 @@ export function loadTradingConfig(
             ? {
                   enabled: true,
                   ...biddingBase,
-                  jobsFile: resolveRelativeToEnvFile(
-                      parseRequiredString(
-                          env.BIDDING_JOBS_FILE,
-                          "BIDDING_JOBS_FILE",
-                      ),
-                      envFilePath,
-                  ),
                   openSea: parseOpenSeaSecrets(env),
               }
             : {
@@ -396,15 +387,4 @@ function parseStringArrayMap(
     }
 
     return normalized;
-}
-
-function resolveRelativeToEnvFile(
-    configuredPath: string,
-    envFilePath: string,
-): string {
-    if (isAbsolute(configuredPath)) {
-        return configuredPath;
-    }
-
-    return resolve(dirname(envFilePath), configuredPath);
 }

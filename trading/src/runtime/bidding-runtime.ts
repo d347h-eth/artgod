@@ -16,7 +16,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
-import { loadBiddingJobsFromFile } from "../adapters/config/bidding-jobs-file.js";
+import { SqliteBiddingJobSource } from "../adapters/jobs/sqlite-bidding-job-source.js";
 import { SqliteTokenMetadataRepository } from "../adapters/metadata/sqlite-token-metadata-repository.js";
 import { OpenSeaBiddingService } from "../adapters/opensea/open-sea-bidding-service.js";
 import { OpenSeaCollectionOfferSource } from "../adapters/opensea/open-sea-collection-offer-source.js";
@@ -89,11 +89,12 @@ export async function startBiddingRuntime(
     // Point the shared SQLite helpers at the runtime-selected ArtGod database before metadata adapters start reading.
     setDbPath(params.config.dbPath);
 
-    // Load operator-managed bidding jobs before creating any market-facing adapters.
+    const biddingJobSource = new SqliteBiddingJobSource(params.config.chainId);
+    // Load the authoritative enabled bidding jobs from SQLite before creating any market-facing adapters.
     biddingLog.info(
-        `[BiddingRuntime] Loading bidding jobs. jobsFile=${params.biddingConfig.jobsFile}`,
+        `[BiddingRuntime] Loading bidding jobs from SQLite. dbPath=${params.config.dbPath}, chainId=${params.config.chainId}`,
     );
-    const jobs = await loadBiddingJobsFromFile(params.biddingConfig.jobsFile);
+    const jobs = await biddingJobSource.loadEnabledJobs();
     const watchedCollectionSlugs = collectWatchedCollectionSlugs(jobs);
     const snapshotBackedCollectionSlugs =
         collectSnapshotBackedCollectionSlugs(jobs);

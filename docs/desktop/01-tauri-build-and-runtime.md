@@ -263,7 +263,6 @@ Trading bot runtime keys:
 - `OPENSEA_STREAM_SECRET_KEY` (bot stream lane; separate from indexer `OPENSEA_API_KEY`)
 - `OPENSEA_BIDDING_SECRET_KEY` (bot order placement/cancellation lane)
 - `OPENSEA_SNAPSHOT_SECRET_KEY` (bot collection-offer snapshot polling lane)
-- `BIDDING_JOBS_FILE` (defaults to `bidding-jobs.json`, resolved relative to the desktop env file unless absolute)
 - `BIDDING_WETH_ALLOWANCE_ETH` (static startup WETH approval target for the OpenSea conduit, in Ether units; `0` skips startup approval)
 - `BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_BLOCKS`, `BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, and `BIDDING_TX_PENDING_NONCE_POLICY` (bot-owned EIP-1559 fee and nonce guard policy for onchain transactions)
 - `BIDDING_*` tuning keys for dry-run mode, poll intervals, bootstrap concurrency, offer expiration, snapshot cadence, and trait-refresh maps
@@ -281,8 +280,7 @@ Desktop-first default path behavior:
 
 - `ARTGOD_DB_PATH` defaults to `sqlite/main/db` and is resolved relative to app-data dir unless absolute.
 - `USERLAND_UI_DIST_DIR` defaults to `frontend/userland` and is resolved relative to desktop runtime resources dir unless absolute.
-- `BIDDING_JOBS_FILE` defaults to `bidding-jobs.json` beside the generated desktop env file.
-- On first launch the desktop runtime creates that jobs file as an empty JSON array so operators can edit it without touching bundled resources.
+- bidding jobs are loaded from the ArtGod SQLite database.
 
 Important:
 

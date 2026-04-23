@@ -21,8 +21,8 @@ Current milestone: Slice 7 complete
 - No host-facing `autobid*` names remain in the current `trading/src` bidding port.
 - Slice 2 completed in `trading/`.
 - Added a typed trading config loader with the `BIDDING_*` env surface and dedicated OpenSea bot lanes.
-- Added external JSON bidding job loading with runtime-state reset on load.
-- The bidding runtime now validates config and loads the external jobs file before emitting `bot_ready`.
+- The bidding runtime now loads declared bidding jobs from ArtGod SQLite with runtime-state reset on load.
+- The bidding runtime validates config and loads enabled DB jobs before emitting `bot_ready`.
 - Slice 3 completed in `trading/`.
 - Added ArtGod-compatible safe adapters for process logging, SQLite metadata lookup, viem-based WETH balance reads, retry, and rate limiting.
 - Slice 4 completed in `trading/`.
@@ -43,7 +43,7 @@ Current milestone: Slice 7 complete
 - Desktop admin bot state now exposes `bootstrapping` separately from `starting` and `running`, and stop remains available during that live warmup phase.
 - Slice 7 completed across desktop config and packaging docs.
 - Desktop generated env now exposes the dedicated bot OpenSea key split and the `BIDDING_*` runtime surface without reusing the indexer `OPENSEA_API_KEY`.
-- Desktop first launch now creates an operator-managed `bidding-jobs.json` beside the generated `.env`, outside bundled runtime resources.
+- Desktop runtime treats SQLite as the authoritative bidding-job store.
 - Runtime resource staging already carries trading artifacts plus Yarn PnP cache/loader data required by packaged bot startup.
 - Runtime registry checks now enforce that trading bot artifacts are built, referenced by desktop bot specs, copied into staged resources, and included in Tauri bundle resources.
 - Desktop docs now describe bidding config paths, lifecycle bootstrapping semantics, and non-secret bot lifecycle event requirements.
@@ -178,18 +178,12 @@ The upstream repo loads local uncommitted TypeScript job modules.
 
 That is not sufficient for ArtGod desktop packaged runtime because bundled runtime resources are not the right operator-edit surface.
 
-Recommended ArtGod phase-1 config model:
+Current ArtGod config model:
 
-- keep strategy/job config file-based
-- store that file outside the bundled resources
-- resolve it from desktop app-data or an explicit env path
-- keep the file format simple and operator-editable
-
-Recommended first pass:
-
-- `BIDDING_JOBS_FILE` points to a JSON file under desktop app-data
-- the runtime maps JSON DTOs into `BiddingJob` domain objects
-- no admin UI job editor is required for the first working port
+- persist declared bidding jobs in ArtGod SQLite
+- keep desktop runtime env focused on keys, cadence, and transaction policy
+- load enabled jobs from DB into `BidderJob` domain objects at runtime startup
+- manage operator-facing job CRUD through backend/Userland
 
 Important wallet/config difference from upstream:
 
@@ -334,7 +328,6 @@ Recommended config groups:
 - `BIDDING_TX_PENDING_NONCE_POLICY`
 - `BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION`
 - `BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION`
-- `BIDDING_JOBS_FILE`
 
 Compatibility decisions:
 
@@ -345,7 +338,7 @@ Compatibility decisions:
 Acceptance:
 
 - no scattered `process.env` reads in bidding runtime logic
-- bidding jobs load from a user-editable external file
+- bidding jobs load from ArtGod SQLite declared state
 
 Status:
 

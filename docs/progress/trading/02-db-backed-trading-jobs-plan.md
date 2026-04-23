@@ -1,7 +1,7 @@
 # DB-Backed Trading Jobs Plan
 
 Status: WIP
-Current milestone: planning complete
+Current milestone: Slice 5 complete
 
 This document is the working plan for moving bidding jobs, and later sniping jobs, from operator-managed JSON files into ArtGod SQLite.
 
@@ -341,14 +341,7 @@ export interface BiddingJobSource {
 
 Adapters:
 
-- existing JSON adapter remains available temporarily
 - new SQLite adapter maps `trading_jobs + trading_bidding_job_specs + collections` into existing `BidderJob`
-
-Config:
-
-- add explicit `BIDDING_JOBS_SOURCE=db|file`
-- keep `BIDDING_JOBS_FILE` required only when source is `file`
-- default can remain `file` until the UI/API path is implemented, then switch desktop default to `db`
 
 Important mapping:
 
@@ -429,11 +422,11 @@ If the bot is offline, the command remains pending. On next bot startup, command
 - Support create/update/archive for token jobs.
 - Keep form compact and fit-to-content.
 
-### Slice 5: Trading DB Job Source
+### Slice 5: Trading DB Job Source (done)
 
 - Add `BiddingJobSource` port and SQLite adapter in `trading`.
-- Add `BIDDING_JOBS_SOURCE`.
-- Wire startup loading from DB while preserving JSON file fallback.
+- Wire bidding startup loading directly from SQLite as the only supported declared-job source.
+- Remove temporary JSON-file job loading and stale desktop/env references.
 - Verify existing bidder tests remain unchanged.
 
 ### Slice 6: Runtime Command Reconciliation
@@ -452,7 +445,6 @@ If the bot is offline, the command remains pending. On next bot startup, command
 
 ## Open Questions
 
-- Should first-pass desktop default be `BIDDING_JOBS_SOURCE=file` until CRUD UI exists, or switch to `db` as soon as the migration/API exists?
 - Should archive immediately hide rows from the collection bidding page by default, or show archived rows behind a filter?
 - Should pause be implemented in the first UI pass, or wait until runtime command reconciliation exists?
 - Should runtime state persistence be enabled immediately, or only when cancellation recovery is implemented?

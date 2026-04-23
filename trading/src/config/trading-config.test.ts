@@ -11,12 +11,11 @@ const requiredBaseEnv = {
 } satisfies Record<string, string>;
 
 describe("loadTradingConfig", () => {
-    it("loads enabled bidding config with defaults and resolves jobs file relative to the env file", () => {
+    it("loads enabled bidding config with defaults", () => {
         const config = loadTradingConfig(
             {
                 ...requiredBaseEnv,
                 BIDDING_ENABLED: "true",
-                BIDDING_JOBS_FILE: "./jobs/bidding.json",
                 OPENSEA_STREAM_SECRET_KEY: "stream-key",
                 OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                 OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
@@ -37,7 +36,6 @@ describe("loadTradingConfig", () => {
             throw new Error("Expected bidding to be enabled");
         }
         assert.equal(config.bidding.pollMs, 8 * 60 * 1000);
-        assert.equal(config.bidding.jobsFile, "/tmp/artgod/jobs/bidding.json");
         assert.equal(config.bidding.wethAllowanceWei, 0n);
         assert.deepEqual(config.bidding.transactionPolicy, {
             fees: {
@@ -77,7 +75,6 @@ describe("loadTradingConfig", () => {
             {
                 ...requiredBaseEnv,
                 BIDDING_ENABLED: "true",
-                BIDDING_JOBS_FILE: "./jobs/bidding.json",
                 OPENSEA_STREAM_SECRET_KEY: "shared-key",
                 OPENSEA_BIDDING_SECRET_KEY: "shared-key",
                 OPENSEA_SNAPSHOT_SECRET_KEY: "shared-key",
@@ -100,7 +97,6 @@ describe("loadTradingConfig", () => {
             {
                 ...requiredBaseEnv,
                 BIDDING_ENABLED: "true",
-                BIDDING_JOBS_FILE: "./jobs/bidding.json",
                 OPENSEA_STREAM_SECRET_KEY: "stream-key",
                 OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                 OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
@@ -162,7 +158,6 @@ describe("loadTradingConfig", () => {
                     {
                         ...requiredBaseEnv,
                         BIDDING_ENABLED: "true",
-                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
                         OPENSEA_STREAM_SECRET_KEY: "stream-key",
                         OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                         OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
@@ -183,7 +178,6 @@ describe("loadTradingConfig", () => {
                     {
                         ...requiredBaseEnv,
                         BIDDING_ENABLED: "true",
-                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
                         OPENSEA_STREAM_SECRET_KEY: "stream-key",
                         OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                         OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
@@ -202,7 +196,6 @@ describe("loadTradingConfig", () => {
                     {
                         ...requiredBaseEnv,
                         BIDDING_ENABLED: "true",
-                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
                         OPENSEA_STREAM_SECRET_KEY: "stream-key",
                         OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                         OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",
@@ -221,7 +214,6 @@ describe("loadTradingConfig", () => {
                     {
                         ...requiredBaseEnv,
                         BIDDING_ENABLED: "true",
-                        BIDDING_JOBS_FILE: "./jobs/bidding.json",
                         OPENSEA_STREAM_SECRET_KEY: "stream-key",
                         OPENSEA_BIDDING_SECRET_KEY: "bidding-key",
                         OPENSEA_SNAPSHOT_SECRET_KEY: "snapshot-key",

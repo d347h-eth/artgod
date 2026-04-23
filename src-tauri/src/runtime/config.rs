@@ -38,8 +38,6 @@ struct DesktopLocalPaths {
     env_file_path: PathBuf,
 }
 
-const DEFAULT_BIDDING_JOBS_FILE_NAME: &str = "bidding-jobs.json";
-
 impl DesktopWalletConfig {
     pub fn load_or_create(app: &AppHandle) -> Result<Self, String> {
         let local_paths = ensure_desktop_local_paths(app)?;
@@ -224,16 +222,6 @@ fn ensure_desktop_local_paths(app: &AppHandle) -> Result<DesktopLocalPaths, Stri
             format!(
                 "Failed to create desktop env file {}: {error}",
                 env_file_path.display()
-            )
-        })?;
-    }
-    let bidding_jobs_path = config_dir.join(DEFAULT_BIDDING_JOBS_FILE_NAME);
-    if !bidding_jobs_path.exists() {
-        // Create the operator-managed bidding jobs surface outside bundled runtime resources.
-        fs::write(&bidding_jobs_path, "[]\n").map_err(|error| {
-            format!(
-                "Failed to create default bidding jobs file {}: {error}",
-                bidding_jobs_path.display()
             )
         })?;
     }
@@ -573,8 +561,6 @@ fn build_default_env_template() -> String {
         "BIDDING_ORDER_LOOKUP_MAX_PAGES=5\n",
         "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION={\"terraforms\":[\"Zone\",\"Biome\",\"Level\"]}\n",
         "BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION={\"terraforms\":[\"Zone\",\"Biome\",\"Level\",\"Mode\"]}\n",
-        "# BIDDING_JOBS_FILE is resolved relative to this env file unless absolute.\n",
-        "BIDDING_JOBS_FILE=bidding-jobs.json\n",
         "METRICS_ENABLED=false\n",
         "APM_ENABLED=false\n",
         "METADATA_REFRESH_RANGE_CHUNK_SIZE=200\n",
