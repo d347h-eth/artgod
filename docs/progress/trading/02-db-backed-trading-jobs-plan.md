@@ -14,6 +14,7 @@ The near-term implementation is bidding-first. Sniping should reuse the same job
 - Keep the bidder's direct OpenSea stream, REST, SDK, and snapshot lanes as the authoritative market-operation path.
 - Add backend CRUD and Userland UI management for bidding jobs.
 - Allow dynamic job changes without bot restart in the long-term runtime model.
+- Close the backend crash window between DB commit and bot wake-up signal publication.
 - Treat job disable/delete as market-side lifecycle actions that eventually cancel active offers.
 - Build the schema and API in a way that can support sniping jobs later.
 
@@ -30,10 +31,12 @@ The near-term implementation is bidding-first. Sniping should reuse the same job
 2. The bidding runtime still owns market-side effects: bid placement, cancellation, allowance checks, and OpenSea reads.
 3. Backend CRUD must not call OpenSea directly and must not reach into bot internals.
 4. Job changes must be durable in SQLite before any runtime signal is emitted.
-5. Runtime signals are accelerators only. The bot must be able to recover missed changes by scanning SQLite.
-6. Human-readable config, API, and UI values should use Ether units. Runtime internals and DB amount columns can use wei strings.
-7. Delete/disable semantics must be deliberate. If a job has an active offer, the long-term behavior is to stop scheduling it and request offer cancellation.
-8. The first DB runtime path may load enabled jobs on startup only, but the schema should not block dynamic reconciliation later.
+5. Backend must write desired job state changes and Outbox rows in the same SQLite transaction.
+6. JetStream is the low-latency wake-up path after publish. The Outbox exists specifically to close the DB-commit-to-publish gap.
+7. The bot must process Outbox rows both on immediate wake-up and on periodic recovery scans.
+8. Human-readable config, API, and UI values should use Ether units. Runtime internals and DB amount columns can use wei strings.
+9. Delete/disable semantics must be deliberate. If a job has an active offer, the long-term behavior is to stop scheduling it and request offer cancellation.
+10. The first DB runtime path may load enabled jobs on startup only, but the schema should not block dynamic reconciliation later.
 
 ## Domain Model
 
@@ -44,6 +47,12 @@ The central distinction is:
 - command/outbox item: a durable side-effect request that the bot must process
 
 This prevents CRUD from being confused with market execution.
+
+Signal model:
+
+- DB is authoritative desired state.
+- Outbox is authoritative downstream effect state.
+- JetStream is the speed-up signal only.
 
 ## Proposed Schema
 
@@ -153,7 +162,7 @@ Runtime state can start as optional or unused. The clean long-term delete/disabl
 
 ### `trading_job_commands`
 
-Durable outbox for runtime side effects.
+Durable Outbox for runtime side effects.
 
 ```sql
 CREATE TABLE trading_job_commands (
@@ -177,6 +186,13 @@ CREATE TABLE trading_job_commands (
 ```
 
 The command table is the recovery mechanism. NATS can notify the bot immediately, but the DB command is what guarantees the bot can recover missed changes.
+
+This is the table that closes the backend crash window between:
+
+1. committed DB job change
+2. published JetStream wake-up event
+
+Backend writes the job mutation and the Outbox row in one SQLite transaction. After commit, backend best-effort publishes a JetStream event. The bot uses the event for immediate processing and also scans pending Outbox rows periodically for recovery.
 
 ## Backend API Shape
 
@@ -261,11 +277,13 @@ Validation rules:
 
 Mutation rules:
 
-- Upsert writes `trading_jobs` and `trading_bidding_job_specs` in one SQLite transaction.
+- Upsert writes `trading_jobs`, `trading_bidding_job_specs`, and the Outbox row in one SQLite transaction.
 - Upsert increments `revision`.
 - Upsert emits a `job_created` or `job_updated` command row in the same transaction.
 - Archive marks `status = 'archived'`, sets `archived_at`, increments `revision`, and emits `job_archived` plus `cancel_active_offer` command rows in the same transaction.
 - Pause, when introduced, should behave like archive for runtime scheduling and active-offer cancellation, but remain visible/editable.
+- Backend publishes a best-effort JetStream wake-up after the DB transaction commits.
+- JetStream payload is not authoritative business state. It may carry `job_id`, `revision`, and optionally one or more Outbox ids to speed bot processing.
 
 ## Userland UI
 
@@ -347,10 +365,10 @@ Long-term runtime should not require restart after job CRUD.
 Clean model:
 
 1. Backend writes job rows and command rows transactionally.
-2. Backend publishes a local NATS notification such as `trading.bidding.jobs.changed`.
-3. Running bidding bot receives the notification and scans pending commands or changed job revisions from SQLite.
+2. Backend publishes a local JetStream notification such as `trading.bidding.jobs.changed` after commit.
+3. Running bidding bot receives the notification and immediately scans or claims pending Outbox rows from SQLite.
 4. Bot applies reconciliation inside the runtime, not in the backend.
-5. Bot also polls the DB command table or `updated_at` cursor periodically as a missed-signal fallback.
+5. Bot also polls the DB Outbox table periodically as a recovery path for the DB-commit-to-publish gap.
 
 Reconciliation behavior:
 
@@ -362,6 +380,8 @@ Reconciliation behavior:
 - Startup recovery: before normal enabled-job bootstrap, process pending cancellation commands for archived/paused jobs that still have active runtime state.
 
 The bot owns cancellation because only the bot has the correct OpenSea SDK/client context, maker wallet, job-scoped active order knowledge, and market-operation logging.
+
+No dedicated Outbox worker is justified yet. The bot should own both immediate event-driven Outbox processing and periodic Outbox recovery scans.
 
 ## Active Offer Cancellation Semantics
 
@@ -436,4 +456,3 @@ If the bot is offline, the command remains pending. On next bot startup, command
 - Should archive immediately hide rows from the collection bidding page by default, or show archived rows behind a filter?
 - Should pause be implemented in the first UI pass, or wait until runtime command reconciliation exists?
 - Should runtime state persistence be enabled immediately, or only when cancellation recovery is implemented?
-
