@@ -423,7 +423,7 @@ If the bot is offline, the command remains pending. On next bot startup, command
 - Add inline edit/archive actions for existing jobs.
 - Keep collection and trait scoped creation out of scope.
 
-### Slice 4: Token Detail Job Form
+### Slice 4: Token Detail Job Form (done)
 
 - Add token job form at the bottom of token detail.
 - Support create/update/archive for token jobs.

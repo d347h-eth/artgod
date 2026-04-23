@@ -7,7 +7,9 @@
 		TRAIT_FILTER_DISPLAY_KIND
 	} from '@artgod/shared/types';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
+	import TokenBiddingJobForm from '$lib/components/TokenBiddingJobForm.svelte';
 	import type {
+		ApiBiddingJob,
 		ApiChain,
 		ApiCollection,
 		ApiCollectionMediaState,
@@ -16,6 +18,7 @@
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
 	import { getTokenDetail } from '$lib/backend-api';
+	import { buildCollectionBiddingHref } from '$lib/bidding-query';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
@@ -44,6 +47,7 @@
 		media: ApiCollectionMediaState;
 		token: ApiTokenDetail | null;
 		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
+		tokenBiddingJob?: ApiBiddingJob | null;
 		backPath: string | null;
 		backQuery: string | null;
 	};
@@ -113,11 +117,29 @@
 		if (!data?.chain || !data.collection) return 'back';
 		const collectionPath = `/${data.chain.slug}/${data.collection.slug}`;
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
-			return data.backPath && data.backPath !== publicCollectionTokensPath()
-				? 'back to holder'
-				: 'back to collection';
+			return data.backPath && data.backPath.endsWith('/bidding')
+				? 'back to bidding'
+				: data.backPath && data.backPath !== publicCollectionTokensPath()
+					? 'back to holder'
+					: 'back to collection';
+		}
+		if (data.backPath && data.backPath.endsWith('/bidding')) {
+			return 'back to bidding';
 		}
 		return data.backPath && data.backPath !== collectionPath ? 'back to holder' : 'back to collection';
+	}
+
+	function collectionBiddingHref(): string {
+		return buildCollectionBiddingHref({
+			basePath: collectionTokensBasePath(),
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			mediaMode: collectionNavigationMediaMode()
+		});
+	}
+
+	function shouldShowTokenBiddingForm(): boolean {
+		return !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && !!data?.chain && !!data.collection && !!displayedToken;
 	}
 
 	function sortedTraits(): ApiTokenDetailTrait[] {
@@ -412,6 +434,16 @@
 				</table>
 			{/if}
 		</div>
+
+		{#if shouldShowTokenBiddingForm()}
+			<TokenBiddingJobForm
+				chain={data?.chain ?? null}
+				collection={data?.collection ?? null}
+				token={displayedToken}
+				job={data?.tokenBiddingJob ?? null}
+				collectionBiddingHref={collectionBiddingHref()}
+			/>
+		{/if}
 	{:else}
 		<section class="panel-header">
 			<span class="muted">token not found</span>

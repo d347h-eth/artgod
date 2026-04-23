@@ -66,6 +66,7 @@ describe('token detail page', () => {
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
 					},
+					tokenBiddingJob: null,
 					backPath: '/ethereum/milady',
 					backQuery: 'cursor=opaque-cursor-token&token_status=listed&mode=grid&media_mode=artifact'
 				}
@@ -97,6 +98,9 @@ describe('token detail page', () => {
 				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 			);
 			expect(body).not.toContain('traits=Power%3A7');
+		expect(body).toContain('token bidding');
+		expect(body).toContain('collection bidding page');
+		expect(body).toContain('>create<');
 	});
 
 	it('uses holder return path when provided', () => {
@@ -156,6 +160,31 @@ describe('token detail page', () => {
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
 					},
+					tokenBiddingJob: {
+						jobId: 'job-token-1',
+						status: 'enabled',
+						revision: 2,
+						createdAt: '2026-01-01T00:00:00Z',
+						updatedAt: '2026-01-01T12:00:00Z',
+						archivedAt: null,
+						target: {
+							type: 'token',
+							tokenId: '1'
+						},
+						config: {
+							floorEth: '0.1',
+							ceilingEth: '0.2',
+							deltaEth: '0.01'
+						},
+						runtime: {
+							currentPriceEth: '0.15',
+							activeOrderId: '0xabc123',
+							activeProtocolAddress: '0xdef456',
+							activeExpirationTimeMs: 1760000000000,
+							lastRunAt: '2026-01-01T13:00:00Z',
+							lastError: null
+						}
+					},
 					backPath: '/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					backQuery:
 						'cursor=opaque-cursor-token&token_status=listed_then_unlisted&mode=grid&media_mode=artifact'
@@ -174,6 +203,9 @@ describe('token detail page', () => {
 			expect(body).toContain(
 				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 			);
+		expect(body).toContain('0.15 ETH');
+		expect(body).toContain('0xabc123');
+		expect(body).toContain('>archive<');
 		});
 
 	it('keeps token-local lost mode out of collection navigation links', () => {
@@ -234,6 +266,7 @@ describe('token detail page', () => {
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
 					},
+					tokenBiddingJob: null,
 					backPath: null,
 					backQuery: null
 				}
@@ -250,5 +283,66 @@ describe('token detail page', () => {
 			'/ethereum/terraforms?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Mode%3ATerraform'
 		);
 		expect(body).not.toContain('media_mode=lost-terrain');
+	});
+
+	it('uses bidding return path when opened from the collection bidding page', () => {
+		const { body } = render(TokenDetailPage, {
+			props: {
+				data: {
+					chain: {
+						id: 1,
+						type: 'evm',
+						publicChainId: 1,
+						slug: 'ethereum',
+						name: 'Ethereum'
+					},
+					collection: {
+						chainId: 1,
+						collectionId: 1,
+						slug: 'milady',
+						address: '0x1111111111111111111111111111111111111111',
+						standard: 'erc721',
+						status: 'live',
+						deploymentBlock: 1,
+						bootstrapAnchorBlock: null,
+						createdAt: '2026-01-01T00:00:00Z',
+						updatedAt: '2026-01-01T00:00:00Z'
+					},
+					media: {
+						selectedMode: 'artifact',
+						defaultMode: 'artifact',
+						availableModes: [
+							{ key: 'artifact', label: 'artifact' },
+							{ key: 'snapshot', label: 'snapshot' }
+						]
+					},
+					traitFilterPresentation: {
+						selectedSource: 'user',
+						userConfig: { rangeKeys: [] },
+						extensionConfig: null,
+						effectiveConfig: { rangeKeys: [] },
+						availableTraitKeys: ['Hat']
+					},
+					token: {
+						tokenId: '1',
+						name: 'Milady #1',
+						image: 'https://example.com/1.png',
+						animationUrl: null,
+						listingPrice: null,
+						listingCurrency: null,
+						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						attributes: [],
+						hasMetadata: true,
+						metadataUpdatedAt: '2026-01-01T00:00:00Z'
+					},
+					tokenBiddingJob: null,
+					backPath: '/ethereum/milady/bidding',
+					backQuery: 'media_mode=artifact'
+				}
+			}
+		});
+
+		expect(body).toContain('back to bidding');
+		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact');
 	});
 	});

@@ -1564,6 +1564,43 @@ th {
 	padding: 0 0.75rem;
 }
 
+.token-bidding-panel {
+	width: fit-content;
+	max-width: calc(100% - 1.5rem);
+	margin: 1rem auto 0;
+}
+
+.token-bidding-panel-header {
+	padding: 0 0 0.75rem;
+}
+
+.token-bidding-runtime-grid {
+	padding-bottom: 0.75rem;
+}
+
+.token-bidding-form {
+	margin-inline: auto;
+}
+
+.bidding-token-input {
+	width: 12ch;
+}
+
+.token-bidding-form-footer {
+	padding: 0.75rem 0 0;
+	justify-content: flex-start;
+}
+
+.token-bidding-form-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+}
+
+.token-bidding-feedback {
+	margin: 0;
+}
+
 .token-detail-traits {
 	width: min(820px, 100%);
 	border-collapse: separate;
