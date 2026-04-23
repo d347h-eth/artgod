@@ -402,14 +402,14 @@ If the bot is offline, the command remains pending. On next bot startup, command
 
 ## Implementation Slices
 
-### Slice 1: Schema and Repository Contracts
+### Slice 1: Schema and Repository Contracts (done)
 
 - Add migration `019_trading_jobs_schema.sql`.
 - Add backend/trading domain contracts for persisted bidding job records.
 - Add SQLite repository adapter tests.
 - Do not change runtime behavior yet.
 
-### Slice 2: Backend CRUD
+### Slice 2: Backend CRUD (done)
 
 - Add list/get/upsert/archive use cases.
 - Add HTTP adapters and route registration.
