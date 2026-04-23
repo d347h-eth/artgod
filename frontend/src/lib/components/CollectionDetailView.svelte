@@ -20,6 +20,7 @@
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
+	import { buildCollectionBiddingHref } from '$lib/bidding-query';
 	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -139,6 +140,15 @@
 		});
 	}
 
+	function biddingSectionHref(): string {
+		return buildCollectionBiddingHref({
+			basePath,
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
 	function latestRunHref(): string | null {
 		if (!chain || !bootstrapStatus?.latestRun) return null;
 		return `/${chain.slug}/bootstrap-runs/${bootstrapStatus.latestRun.runId}`;
@@ -177,9 +187,11 @@
 	activitiesHref={activitiesSectionHref()}
 	holdersHref={holdersSectionHref()}
 	customizationHref={customizationSectionHref()}
+	biddingHref={biddingSectionHref()}
 	activeSection="tokens"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}

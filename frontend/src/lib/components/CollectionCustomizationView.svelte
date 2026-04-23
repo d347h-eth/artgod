@@ -15,6 +15,7 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import { buildCollectionBiddingHref } from '$lib/bidding-query';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { joinPath, withQuery } from '$lib/route-paths';
@@ -114,6 +115,15 @@
 
 	function customizationHref(): string {
 		return buildCollectionCustomizationHref({
+			basePath,
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode
+		});
+	}
+
+	function biddingHref(): string {
+		return buildCollectionBiddingHref({
 			basePath,
 			selectedTraits,
 			selectedTraitRanges,
@@ -349,9 +359,11 @@
 	activitiesHref={activitiesHref()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
+	biddingHref={biddingHref()}
 	activeSection="customization"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}

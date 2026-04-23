@@ -1135,6 +1135,68 @@ th {
 	padding: 0.75rem 0 0;
 }
 
+.bidding-jobs-table {
+	table-layout: auto;
+}
+
+.bidding-target-cell {
+	min-width: 15rem;
+}
+
+.bidding-target-label {
+	margin-bottom: 0.2rem;
+	color: var(--c-pink);
+	font-size: 0.68rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.bidding-target-summary {
+	line-height: 1.25;
+}
+
+.bidding-status-cell,
+.bidding-config-cell {
+	white-space: nowrap;
+}
+
+.bidding-status-select {
+	width: 10rem;
+}
+
+.bidding-number-input {
+	width: 10ch;
+}
+
+.bidding-runtime-cell {
+	min-width: 15rem;
+}
+
+.bidding-runtime-lines {
+	display: grid;
+	gap: 0.35rem;
+}
+
+.bidding-runtime-lines > div {
+	display: grid;
+	gap: 0.1rem;
+}
+
+.bidding-actions-cell {
+	min-width: 14rem;
+}
+
+.bidding-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+}
+
+.bidding-row-note,
+.bidding-row-error {
+	margin: 0.35rem 0 0;
+}
+
 .token-panel {
 	padding: 0;
 }

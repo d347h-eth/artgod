@@ -416,7 +416,7 @@ If the bot is offline, the command remains pending. On next bot startup, command
 - Add API tests covering validation, transaction writes, and command outbox rows.
 - Keep routes admin-only.
 
-### Slice 3: Userland Collection Bidding Page
+### Slice 3: Userland Collection Bidding Page (done)
 
 - Add `bidding` tab after `customization`.
 - Add collection bidding jobs page.

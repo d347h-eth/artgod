@@ -22,6 +22,7 @@
 	import { formatListingPrice } from '$lib/listing-price';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
+	import { buildCollectionBiddingHref } from '$lib/bidding-query';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
@@ -176,6 +177,15 @@
 
 	function customizationHref(): string {
 		return buildCollectionCustomizationHref({
+			basePath,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
+	function biddingHref(): string {
+		return buildCollectionBiddingHref({
 			basePath,
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
@@ -397,9 +407,11 @@
 	activitiesHref={activitiesHref()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
+	biddingHref={biddingHref()}
 	activeSection="activities"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}

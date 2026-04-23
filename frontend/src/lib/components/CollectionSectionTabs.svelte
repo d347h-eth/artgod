@@ -4,15 +4,19 @@
 		activitiesHref,
 		holdersHref,
 		customizationHref,
+		biddingHref,
 		active,
-		showCustomization = true
+		showCustomization = true,
+		showBidding = true
 	}: {
 		tokensHref: string;
 		activitiesHref: string;
 		holdersHref: string;
 		customizationHref: string;
-		active: 'tokens' | 'activities' | 'holders' | 'customization' | null;
+		biddingHref: string;
+		active: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
 		showCustomization?: boolean;
+		showBidding?: boolean;
 	} = $props();
 </script>
 
@@ -37,6 +41,13 @@
 			<span class="runtime-tab-active">customization</span>
 		{:else}
 			<a href={customizationHref}>customization</a>
+		{/if}
+	{/if}
+	{#if showBidding}
+		{#if active === 'bidding'}
+			<span class="runtime-tab-active">bidding</span>
+		{:else}
+			<a href={biddingHref}>bidding</a>
 		{/if}
 	{/if}
 </div>
