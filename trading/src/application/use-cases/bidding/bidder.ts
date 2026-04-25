@@ -130,11 +130,64 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     public addJob(job: BidderJob): void {
         const existingJob = this.jobs.get(job.id);
         if (existingJob) {
+            if (this.hasSameTargetIdentity(existingJob, job)) {
+                job.state = {
+                    ...existingJob.state,
+                    ...job.state,
+                };
+            }
             this.removeJobFromIndexes(existingJob);
         }
 
         this.jobs.set(job.id, job);
         this.addJobToIndexes(job);
+    }
+
+    public getJob(jobId: string): BidderJob | undefined {
+        return this.jobs.get(jobId);
+    }
+
+    public removeJob(jobId: string): BidderJob | undefined {
+        const existingJob = this.jobs.get(jobId);
+        if (!existingJob) {
+            return undefined;
+        }
+
+        this.clearRuntimeOverride(jobId);
+        this.removeJobFromIndexes(existingJob);
+        this.jobs.delete(jobId);
+        return existingJob;
+    }
+
+    public async cancelActiveOffersForJob(job: BidderJob): Promise<number> {
+        const jobMutex = this.getJobMutex(job.id);
+        return await jobMutex.runExclusive(async () => {
+            biddingLog.info(
+                `[Bidder] Discovering active maker offers for cancellation. jobId=${job.id}`,
+            );
+            // Fetch active offers through the bidding service so cancellation uses the same market scope as normal refreshes.
+            const offers = await this.biddingService.getActiveOffers(job);
+            const makerAddress = this.makerAddress.toLowerCase();
+            const makerOffers = offers.filter(
+                (offer) =>
+                    offer.maker === makerAddress &&
+                    this.isOfferManagedByJob(job, offer),
+            );
+            if (makerOffers.length === 0) {
+                biddingLog.info(
+                    `[Bidder] No active maker offers found for cancellation. jobId=${job.id}`,
+                );
+                this.clearTrackedOrderForJobId(job.id);
+                return 0;
+            }
+
+            biddingLog.info(
+                `[Bidder] Cancelling ${makerOffers.length} active maker offer(s). jobId=${job.id}`,
+            );
+            await this.cancelMakerOffers(job, makerOffers);
+            this.clearTrackedOrderForJobId(job.id);
+            return makerOffers.length;
+        });
     }
 
     public async activateJob(
@@ -1448,6 +1501,13 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.activeExpirationTimeMs = undefined;
     }
 
+    private clearTrackedOrderForJobId(jobId: string): void {
+        const job = this.jobs.get(jobId);
+        if (job) {
+            this.clearTrackedOrder(job);
+        }
+    }
+
     private async cancelMakerOffers(
         job: BidderJob,
         myOffers: Order[],
@@ -1460,6 +1520,48 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
             await this.cancelAndTrack(job, offer);
         }
+    }
+
+    private hasSameTargetIdentity(
+        existingJob: BidderJob,
+        nextJob: BidderJob,
+    ): boolean {
+        if (
+            existingJob.collectionAddress !== nextJob.collectionAddress ||
+            existingJob.collectionSlug !== nextJob.collectionSlug ||
+            existingJob.target.type !== nextJob.target.type
+        ) {
+            return false;
+        }
+
+        if (
+            existingJob.target.type === "token" &&
+            nextJob.target.type === "token"
+        ) {
+            return existingJob.target.tokenId === nextJob.target.tokenId;
+        }
+
+        if (
+            existingJob.target.type === "collection" &&
+            nextJob.target.type === "collection"
+        ) {
+            return this.matchesExactTraitTargets(
+                existingJob.target.traits ?? [],
+                nextJob.target.traits ?? [],
+            );
+        }
+
+        if (
+            existingJob.target.type === "competitiveTrait" &&
+            nextJob.target.type === "competitiveTrait"
+        ) {
+            return this.matchesExactTraitTargets(
+                [existingJob.target.targetTrait],
+                [nextJob.target.targetTrait],
+            );
+        }
+
+        return false;
     }
 
     private getBidRenewalReason(

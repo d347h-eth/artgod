@@ -85,7 +85,6 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady%2Fbidding&amp;returnQuery=media_mode%3Dartifact%26traits%3DHat%253ABeanie'
 		);
-		expect(body).toContain('token-scoped jobs can be edited inline here');
 		expect(body).toContain('token 1');
 		expect(body).toContain('save');
 		expect(body).toContain('archive');

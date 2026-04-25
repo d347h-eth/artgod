@@ -377,16 +377,6 @@
 		<h1 class="token-detail-title">{resolveTokenTitle(displayedToken, data?.collection ?? null)}</h1>
 
 		<section class="panel-header token-detail-meta">
-			<div class="token-detail-meta-block">
-				<p class="muted token-detail-meta-label">current holder:</p>
-				{#if holderHref()}
-					<a class="mono token-detail-meta-value" href={holderHref() ?? '#'}
-						>{displayedToken.currentHolder}</a
-					>
-				{:else}
-					<span class="mono token-detail-meta-value">{displayedToken.currentHolder ?? '-'}</span>
-				{/if}
-			</div>
 			{#if openseaItemHref()}
 				<div class="token-detail-meta-block token-grid-price">
 					<a
@@ -399,6 +389,16 @@
 					</a>
 				</div>
 			{/if}
+            <div class="token-detail-meta-block">
+				<p class="muted token-detail-meta-label">current holder:</p>
+				{#if holderHref()}
+					<a class="mono token-detail-meta-value" href={holderHref() ?? '#'}
+						>{displayedToken.currentHolder}</a
+					>
+				{:else}
+					<span class="mono token-detail-meta-value">{displayedToken.currentHolder ?? '-'}</span>
+				{/if}
+			</div>
 		</section>
 
 		<div class="token-detail-traits-wrap">

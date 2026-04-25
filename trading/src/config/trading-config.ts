@@ -10,6 +10,10 @@ import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import { parseEther, parseGwei } from "viem";
 import {
     BIDDING_DEFAULT_BOOTSTRAP_CONCURRENCY,
+    BIDDING_DEFAULT_COMMAND_BATCH_SIZE,
+    BIDDING_DEFAULT_COMMAND_CLAIM_TIMEOUT_MS,
+    BIDDING_DEFAULT_COMMAND_MAX_ATTEMPTS,
+    BIDDING_DEFAULT_COMMAND_POLL_MS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_POLL_MS,
     BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS,
     BIDDING_DEFAULT_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
@@ -37,6 +41,10 @@ export type EnabledBiddingConfig = {
     collectionOffersPollMs: number;
     collectionOffersTtlMs: number;
     orderLookupMaxPages: number;
+    commandPollMs: number;
+    commandBatchSize: number;
+    commandMaxAttempts: number;
+    commandClaimTimeoutMs: number;
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
     wethAllowanceWei: bigint;
@@ -58,6 +66,10 @@ export type DisabledBiddingConfig = {
     collectionOffersPollMs: number;
     collectionOffersTtlMs: number;
     orderLookupMaxPages: number;
+    commandPollMs: number;
+    commandBatchSize: number;
+    commandMaxAttempts: number;
+    commandClaimTimeoutMs: number;
     criteriaRefreshTraitsByCollection: Record<string, string[]>;
     tokenCriteriaTraitsByCollection: Record<string, string[]>;
     wethAllowanceWei: bigint;
@@ -69,6 +81,10 @@ export type TradingConfig = {
     chainId: number;
     rpc: {
         primaryUrl: string;
+    };
+    queue: {
+        natsUrl: string;
+        streamPrefix: string;
     };
     tokens: {
         wethAddress: string;
@@ -95,6 +111,11 @@ export function loadTradingConfig(
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", 1);
     const rpcUrl = parseRequiredString(env.RPC_URL, "RPC_URL");
+    const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
+    const natsStreamPrefix = parseRequiredString(
+        env.NATS_STREAM_PREFIX,
+        "NATS_STREAM_PREFIX",
+    );
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
 
     const biddingBase = {
@@ -134,6 +155,26 @@ export function loadTradingConfig(
             "BIDDING_ORDER_LOOKUP_MAX_PAGES",
             BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
         ),
+        commandPollMs: parsePositiveInteger(
+            env.BIDDING_COMMAND_POLL_MS,
+            "BIDDING_COMMAND_POLL_MS",
+            BIDDING_DEFAULT_COMMAND_POLL_MS,
+        ),
+        commandBatchSize: parsePositiveInteger(
+            env.BIDDING_COMMAND_BATCH_SIZE,
+            "BIDDING_COMMAND_BATCH_SIZE",
+            BIDDING_DEFAULT_COMMAND_BATCH_SIZE,
+        ),
+        commandMaxAttempts: parsePositiveInteger(
+            env.BIDDING_COMMAND_MAX_ATTEMPTS,
+            "BIDDING_COMMAND_MAX_ATTEMPTS",
+            BIDDING_DEFAULT_COMMAND_MAX_ATTEMPTS,
+        ),
+        commandClaimTimeoutMs: parsePositiveInteger(
+            env.BIDDING_COMMAND_CLAIM_TIMEOUT_MS,
+            "BIDDING_COMMAND_CLAIM_TIMEOUT_MS",
+            BIDDING_DEFAULT_COMMAND_CLAIM_TIMEOUT_MS,
+        ),
         criteriaRefreshTraitsByCollection: parseStringArrayMap(
             env.BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
             BIDDING_DEFAULT_CRITERIA_REFRESH_TRAITS_BY_COLLECTION,
@@ -163,6 +204,10 @@ export function loadTradingConfig(
         chainId,
         rpc: {
             primaryUrl: rpcUrl,
+        },
+        queue: {
+            natsUrl,
+            streamPrefix: natsStreamPrefix,
         },
         tokens: {
             wethAddress,

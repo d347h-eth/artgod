@@ -175,10 +175,6 @@
 				<span class="runtime-v">{nonTokenJobCount}</span>
 			</div>
 		</div>
-		<p class="muted">
-			token-scoped jobs can be edited inline here. collection and competitive-trait rows stay
-			read-only until their scoped CRUD lands.
-		</p>
 	</section>
 
 	{#if collectionJobs.length === 0}

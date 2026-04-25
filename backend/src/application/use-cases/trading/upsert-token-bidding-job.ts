@@ -10,6 +10,7 @@ import {
     parsePositiveEthToWei,
     type TokenBiddingJobMutationStatus,
 } from "./types.js";
+import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 export type { UpsertTokenBiddingJobOutput } from "./types.js";
 
 export type UpsertTokenBiddingJobInput = {
@@ -46,6 +47,7 @@ export class UpsertTokenBiddingJobUseCase {
             BiddingJobsRepositoryPort,
             "upsertTokenJob"
         >,
+        readonly tradingJobCommandSignalPort: TradingJobCommandSignalPort,
     ) {}
 
     upsertTokenBiddingJob(
@@ -89,6 +91,10 @@ export class UpsertTokenBiddingJobUseCase {
         // Persist the desired job state and enqueue the matching Outbox command.
         const result = this.biddingJobsRepositoryPort.upsertTokenJob(
             persistedInput,
+        );
+        // Publish a post-commit wake-up so the running bot scans the durable command rows immediately.
+        this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
+            result.commands,
         );
 
         return {

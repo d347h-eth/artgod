@@ -192,21 +192,24 @@ describe('token detail page', () => {
 			}
 		});
 
-			expect(body).toContain('back to holder');
-			expect(body).toContain(
-				'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?cursor=opaque-cursor-token&amp;token_status=listed_then_unlisted&amp;mode=grid&amp;media_mode=artifact'
-			);
-			expect(body).toContain('srcdoc=');
-			expect(body).not.toContain('token-detail-media-image');
-			expect(body).toContain('aria-label="Token detail media mode"');
-			expect(body).toContain('>[OS]<');
-			expect(body).toContain(
-				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
-			);
+		expect(body).toContain('back to holder');
+		expect(body).toContain(
+			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?cursor=opaque-cursor-token&amp;token_status=listed_then_unlisted&amp;mode=grid&amp;media_mode=artifact'
+		);
+		expect(body).toContain('srcdoc=');
+		expect(body).not.toContain('token-detail-media-image');
+		expect(body).toContain('aria-label="Token detail media mode"');
+		expect(body).toContain('>[OS]<');
+		expect(body).toContain(
+			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
 		expect(body).toContain('0.15 ETH');
 		expect(body).toContain('0xabc123');
+		expect(body).toContain('value="0.1"');
+		expect(body).toContain('value="0.2"');
+		expect(body).toContain('value="0.01"');
 		expect(body).toContain('>archive<');
-		});
+	});
 
 	it('keeps token-local lost mode out of collection navigation links', () => {
 		const { body } = render(TokenDetailPage, {

@@ -4,8 +4,12 @@ import {
     TRADING_BOT_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
+    type TradingJobStatus,
 } from "@artgod/shared/types";
-import type { BiddingJobSource } from "../../application/use-cases/bidding/bidding-job-source.js";
+import type {
+    BiddingJobSource,
+    BiddingJobSourceRecord,
+} from "../../application/use-cases/bidding/bidding-job-source.js";
 import type {
     BidderJob,
     TraitSelector,
@@ -17,6 +21,8 @@ type BiddingJobRow = {
     collection_slug: string;
     collection_opensea_slug: string | null;
     collection_address: string;
+    status: TradingJobStatus;
+    revision: number;
     target_kind:
         | keyof typeof TRADING_JOB_TARGET_KIND
         | (typeof TRADING_JOB_TARGET_KIND)[keyof typeof TRADING_JOB_TARGET_KIND];
@@ -35,24 +41,46 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
         chainId: number;
         status: typeof TRADING_JOB_STATUS.Enabled;
     }>;
+    private readonly selectJobById: BetterSqlite3NamedStatement<{
+        botKind: typeof TRADING_BOT_KIND.Bidding;
+        chainId: number;
+        jobId: string;
+    }>;
 
     constructor(private readonly chainId: number) {
+        const selectFields =
+            "SELECT j.job_id, j.status, j.revision, c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
+            "j.target_kind, j.token_id, s.floor_wei, s.ceiling_wei, s.delta_wei, s.quantity, s.target_traits_json, s.competitor_traits_json " +
+            "FROM trading_jobs j " +
+            "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
+            "JOIN collections c ON c.collection_id = j.collection_id ";
+
         this.selectEnabledJobs = db.prepare<{
             botKind: typeof TRADING_BOT_KIND.Bidding;
             chainId: number;
             status: typeof TRADING_JOB_STATUS.Enabled;
         }>(
-            "SELECT j.job_id, c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
-                "j.target_kind, j.token_id, s.floor_wei, s.ceiling_wei, s.delta_wei, s.quantity, s.target_traits_json, s.competitor_traits_json " +
-                "FROM trading_jobs j " +
-                "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
-                "JOIN collections c ON c.collection_id = j.collection_id " +
+            selectFields +
                 "WHERE j.bot_kind = @botKind AND j.chain_id = @chainId AND j.status = @status " +
                 "ORDER BY j.job_id ASC",
         ) as BetterSqlite3NamedStatement<{
             botKind: typeof TRADING_BOT_KIND.Bidding;
             chainId: number;
             status: typeof TRADING_JOB_STATUS.Enabled;
+        }>;
+
+        this.selectJobById = db.prepare<{
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+            chainId: number;
+            jobId: string;
+        }>(
+            selectFields +
+                "WHERE j.bot_kind = @botKind AND j.chain_id = @chainId AND j.job_id = @jobId " +
+                "LIMIT 1",
+        ) as BetterSqlite3NamedStatement<{
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+            chainId: number;
+            jobId: string;
         }>;
     }
 
@@ -66,6 +94,29 @@ export class SqliteBiddingJobSource implements BiddingJobSource {
 
         // Map persisted job declarations into the stable bidder domain shape without hydrating runtime state yet.
         return rows.map((row) => this.mapJobRow(row));
+    }
+
+    async loadJobById(jobId: string): Promise<BiddingJobSourceRecord | null> {
+        // Read one declared bidding job by id so command reconciliation can resolve archived or paused jobs too.
+        const row = this.selectJobById.get({
+            botKind: TRADING_BOT_KIND.Bidding,
+            chainId: this.chainId,
+            jobId,
+        }) as BiddingJobRow | undefined;
+        return row ? this.mapJobRecord(row) : null;
+    }
+
+    async loadEnabledJobById(jobId: string): Promise<BidderJob | null> {
+        const record = await this.loadJobById(jobId);
+        return record?.status === TRADING_JOB_STATUS.Enabled ? record.job : null;
+    }
+
+    private mapJobRecord(row: BiddingJobRow): BiddingJobSourceRecord {
+        return {
+            job: this.mapJobRow(row),
+            status: row.status,
+            revision: row.revision,
+        };
     }
 
     private mapJobRow(row: BiddingJobRow): BidderJob {

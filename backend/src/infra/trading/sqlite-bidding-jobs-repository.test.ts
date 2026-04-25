@@ -154,10 +154,13 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(updated.job.runtime?.activeOrderId, "0xactive-order");
         assert.equal(updated.job.runtime?.currentPriceWei, "150000000000000000");
 
-        assert.equal(updated.commands.length, 1);
-        assert.equal(
-            updated.commands[0]?.commandKind,
-            TRADING_JOB_COMMAND_KIND.JobUpdated,
+        assert.equal(updated.commands.length, 2);
+        assert.deepEqual(
+            updated.commands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobPaused,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            ],
         );
         assert.equal(updated.commands[0]?.requestedRevision, 2);
 
@@ -166,7 +169,8 @@ describe("SqliteBiddingJobsRepository", () => {
             pendingCommands.map((command) => command.commandKind),
             [
                 TRADING_JOB_COMMAND_KIND.JobCreated,
-                TRADING_JOB_COMMAND_KIND.JobUpdated,
+                TRADING_JOB_COMMAND_KIND.JobPaused,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
             ],
         );
     });

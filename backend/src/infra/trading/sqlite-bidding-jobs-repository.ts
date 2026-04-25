@@ -373,20 +373,41 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                     });
 
                     const job = this.requireTokenJobById(existing.jobId);
-                    const command = this.insertCommandRecord(
-                        job.jobId,
-                        TRADING_JOB_COMMAND_KIND.JobUpdated,
-                        job.revision,
-                        {
-                            chainId: job.chainId,
-                            collectionId: job.collectionId,
-                            tokenId: job.tokenId,
-                            jobId: job.jobId,
-                        },
-                    );
+                    const commandKind =
+                        job.status === TRADING_JOB_STATUS.Paused
+                            ? TRADING_JOB_COMMAND_KIND.JobPaused
+                            : TRADING_JOB_COMMAND_KIND.JobUpdated;
+                    const commands = [
+                        this.insertCommandRecord(
+                            job.jobId,
+                            commandKind,
+                            job.revision,
+                            {
+                                chainId: job.chainId,
+                                collectionId: job.collectionId,
+                                tokenId: job.tokenId,
+                                jobId: job.jobId,
+                            },
+                        ),
+                    ];
+                    if (job.status === TRADING_JOB_STATUS.Paused) {
+                        commands.push(
+                            this.insertCommandRecord(
+                                job.jobId,
+                                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                                job.revision,
+                                {
+                                    chainId: job.chainId,
+                                    collectionId: job.collectionId,
+                                    tokenId: job.tokenId,
+                                    jobId: job.jobId,
+                                },
+                            ),
+                        );
+                    }
                     return {
                         job,
-                        commands: [command],
+                        commands,
                     };
                 }
 
@@ -410,7 +431,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 const job = this.requireTokenJobById(jobId);
                 const command = this.insertCommandRecord(
                     job.jobId,
-                    TRADING_JOB_COMMAND_KIND.JobCreated,
+                    job.status === TRADING_JOB_STATUS.Paused
+                        ? TRADING_JOB_COMMAND_KIND.JobPaused
+                        : TRADING_JOB_COMMAND_KIND.JobCreated,
                     job.revision,
                     {
                         chainId: job.chainId,

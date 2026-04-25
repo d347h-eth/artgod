@@ -43,6 +43,8 @@ For implementation details, use:
   Do not stretch UI elements to `100%` width unless the user explicitly asks for a full-width layout.
 - For frontend controls, reuse existing visual/control families when the interaction already exists elsewhere in the app.
   Do not introduce near-duplicate button/tab styles or alternate active-state behavior without explicit user approval.
+- Do not add redundant UI explanatory text, helper copy, or placeholder descriptions unless the user explicitly asks for it.
+  Prefer compact labels and controls over instructional prose.
 
 ## Domain Modeling
 

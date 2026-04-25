@@ -58,6 +58,7 @@ import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-col
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
+import { NatsTradingJobCommandSignalPublisher } from "./infra/trading/nats-trading-job-command-signals.js";
 import { SqliteBiddingJobsRepository } from "./infra/trading/sqlite-bidding-jobs-repository.js";
 import {
     QUERY_CACHE_PROVIDERS,
@@ -103,6 +104,11 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
             collectionCustomizationRecords,
         );
     const biddingJobsRepository = new SqliteBiddingJobsRepository();
+    const tradingJobCommandSignalPublisher =
+        new NatsTradingJobCommandSignalPublisher(
+            config.natsUrl,
+            config.natsStreamPrefix,
+        );
     const bootstrapRunsRepository = new SqliteBootstrapRunsRepository();
     const bootstrapCommandQueue = new NatsBootstrapCommandQueue(
         config.natsUrl,
@@ -234,12 +240,14 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         chainsReadModel,
         extensionAwareCollectionsReadModel,
         biddingJobsRepository,
+        tradingJobCommandSignalPublisher,
     );
     const archiveTokenBiddingJobUseCase = new ArchiveTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
         biddingJobsRepository,
+        tradingJobCommandSignalPublisher,
     );
     const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
         new SqliteRuntimeHealthAdapter(),
@@ -275,6 +283,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
     collectionDetail.lifecycle?.start();
     app.addHook("onClose", async () => {
         collectionDetail.lifecycle?.stop();
+        await tradingJobCommandSignalPublisher.close();
     });
     return app;
 }

@@ -7,6 +7,8 @@ const requiredBaseEnv = {
     ARTGOD_DB_PATH: "database/sqlite/main/db",
     CHAIN_ID: "1",
     RPC_URL: "http://127.0.0.1:8545",
+    NATS_URL: "nats://127.0.0.1:4222",
+    NATS_STREAM_PREFIX: "artgod",
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
 } satisfies Record<string, string>;
 
@@ -27,6 +29,8 @@ describe("loadTradingConfig", () => {
 
         assert.equal(config.chainId, 1);
         assert.equal(config.rpc.primaryUrl, "http://127.0.0.1:8545");
+        assert.equal(config.queue.natsUrl, "nats://127.0.0.1:4222");
+        assert.equal(config.queue.streamPrefix, "artgod");
         assert.equal(
             config.tokens.wethAddress,
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
@@ -36,6 +40,10 @@ describe("loadTradingConfig", () => {
             throw new Error("Expected bidding to be enabled");
         }
         assert.equal(config.bidding.pollMs, 8 * 60 * 1000);
+        assert.equal(config.bidding.commandPollMs, 5_000);
+        assert.equal(config.bidding.commandBatchSize, 20);
+        assert.equal(config.bidding.commandMaxAttempts, 5);
+        assert.equal(config.bidding.commandClaimTimeoutMs, 300_000);
         assert.equal(config.bidding.wethAllowanceWei, 0n);
         assert.deepEqual(config.bidding.transactionPolicy, {
             fees: {

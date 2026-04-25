@@ -265,6 +265,7 @@ Trading bot runtime keys:
 - `OPENSEA_SNAPSHOT_SECRET_KEY` (bot collection-offer snapshot polling lane)
 - `BIDDING_WETH_ALLOWANCE_ETH` (static startup WETH approval target for the OpenSea conduit, in Ether units; `0` skips startup approval)
 - `BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_BLOCKS`, `BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, and `BIDDING_TX_PENDING_NONCE_POLICY` (bot-owned EIP-1559 fee and nonce guard policy for onchain transactions)
+- `BIDDING_COMMAND_POLL_MS`, `BIDDING_COMMAND_BATCH_SIZE`, `BIDDING_COMMAND_MAX_ATTEMPTS`, and `BIDDING_COMMAND_CLAIM_TIMEOUT_MS` (DB Outbox recovery scan and retry policy for live job reconciliation)
 - `BIDDING_*` tuning keys for dry-run mode, poll intervals, bootstrap concurrency, offer expiration, snapshot cadence, and trait-refresh maps
 
 Core runtime keys are also validated (for backend/indexer startup), for example:

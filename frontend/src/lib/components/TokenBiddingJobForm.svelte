@@ -19,10 +19,11 @@
 	} = $props();
 
 	let currentJob = $state<ApiBiddingJob | null>(job);
-	let status = $state<EditableTokenJobStatus>('enabled');
-	let floorEth = $state('');
-	let ceilingEth = $state('');
-	let deltaEth = $state('');
+	let loadedJobKey = $state(resolveLoadedJobKey(job));
+	let status = $state<EditableTokenJobStatus>(resolveInitialStatus(job));
+	let floorEth = $state(job?.config.floorEth ?? '');
+	let ceilingEth = $state(job?.config.ceilingEth ?? '');
+	let deltaEth = $state(job?.config.deltaEth ?? '');
 	let saving = $state(false);
 	let archiving = $state(false);
 	let saveMessage = $state<string | null>(null);
@@ -33,22 +34,41 @@
 	const hasDraftChanges = $derived(resolveHasDraftChanges());
 
 	$effect(() => {
-		currentJob = job;
-		resetDraft();
+		const nextLoadedJobKey = resolveLoadedJobKey(job);
+		if (nextLoadedJobKey === loadedJobKey) {
+			return;
+		}
+
+		loadedJobKey = nextLoadedJobKey;
+		applyLoadedJob(job);
 		saving = false;
 		archiving = false;
 		saveMessage = null;
 		saveError = null;
 	});
 
-	function resolveInitialStatus(): EditableTokenJobStatus {
-		return currentJob?.status === 'paused' ? 'paused' : 'enabled';
+	function resolveLoadedJobKey(value: ApiBiddingJob | null): string {
+		if (!value) {
+			return 'empty';
+		}
+		return [
+			value.jobId,
+			value.revision,
+			value.status,
+			value.config.floorEth,
+			value.config.ceilingEth,
+			value.config.deltaEth
+		].join(':');
+	}
+
+	function resolveInitialStatus(value: ApiBiddingJob | null): EditableTokenJobStatus {
+		return value?.status === 'paused' ? 'paused' : 'enabled';
 	}
 
 	function resolveHasDraftChanges(): boolean {
 		if (currentJob) {
 			return (
-				status !== resolveInitialStatus() ||
+				status !== resolveInitialStatus(currentJob) ||
 				floorEth.trim() !== currentJob.config.floorEth ||
 				ceilingEth.trim() !== currentJob.config.ceilingEth ||
 				deltaEth.trim() !== currentJob.config.deltaEth
@@ -64,12 +84,21 @@
 	}
 
 	function resetDraft(): void {
-		status = resolveInitialStatus();
-		floorEth = currentJob?.config.floorEth ?? '';
-		ceilingEth = currentJob?.config.ceilingEth ?? '';
-		deltaEth = currentJob?.config.deltaEth ?? '';
+		applyDraft(currentJob);
 		saveMessage = null;
 		saveError = null;
+	}
+
+	function applyLoadedJob(value: ApiBiddingJob | null): void {
+		currentJob = value;
+		applyDraft(value);
+	}
+
+	function applyDraft(value: ApiBiddingJob | null): void {
+		status = resolveInitialStatus(value);
+		floorEth = value?.config.floorEth ?? '';
+		ceilingEth = value?.config.ceilingEth ?? '';
+		deltaEth = value?.config.deltaEth ?? '';
 	}
 
 	function formatEthLabel(value: string | null): string {
@@ -143,21 +172,12 @@
 	<header class="panel-header token-bidding-panel-header">
 		<div>
 			<h2 class="panel-title">token bidding</h2>
-			<p class="muted">manage the token-scoped bidder job for this token</p>
 		</div>
 		<a class="button-link" href={collectionBiddingHref}>collection bidding page</a>
 	</header>
 
 	{#if currentJob}
 		<div class="runtime-kv-grid token-bidding-runtime-grid">
-			<div>
-				<span class="runtime-k">job</span>
-				<span class="runtime-v mono">{currentJob.jobId}</span>
-			</div>
-			<div>
-				<span class="runtime-k">revision</span>
-				<span class="runtime-v">{currentJob.revision}</span>
-			</div>
 			<div>
 				<span class="runtime-k">updated</span>
 				<span class="runtime-v mono">{currentJob.updatedAt}</span>
@@ -180,11 +200,6 @@
 		{#if currentJob.runtime?.lastError}
 			<p class="runtime-error token-bidding-feedback" role="alert">{currentJob.runtime.lastError}</p>
 		{/if}
-	{:else}
-		<p class="muted token-bidding-feedback">
-			no token-scoped bidding job exists yet. collection and trait-scoped jobs are managed from the
-			collection bidding page.
-		</p>
 	{/if}
 
 	<form

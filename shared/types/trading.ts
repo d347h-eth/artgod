@@ -46,6 +46,36 @@ export const TRADING_JOB_COMMAND_STATUS = {
 export type TradingJobCommandStatus =
     (typeof TRADING_JOB_COMMAND_STATUS)[keyof typeof TRADING_JOB_COMMAND_STATUS];
 
+export const TRADING_JOB_SIGNAL_KIND = {
+    BiddingJobsChanged: "bidding_jobs_changed",
+} as const;
+
+export type TradingJobSignalKind =
+    (typeof TRADING_JOB_SIGNAL_KIND)[keyof typeof TRADING_JOB_SIGNAL_KIND];
+
+export const TRADING_JOB_SIGNAL_STREAM_SUFFIX = "trading-signals";
+
+export const TRADING_JOB_SIGNAL_SUBJECT = {
+    BiddingJobsChanged: "trading.bidding.jobs.changed",
+} as const;
+
+export type TradingBiddingJobsChangedSignal = {
+    kind: typeof TRADING_JOB_SIGNAL_KIND.BiddingJobsChanged;
+    commandIds: number[];
+    jobIds: string[];
+    publishedAt: string;
+};
+
+// Builds the shared JetStream stream name for trading command wake-up signals.
+export function tradingJobSignalStreamName(streamPrefix: string): string {
+    return `${streamPrefix}-${TRADING_JOB_SIGNAL_STREAM_SUFFIX}`;
+}
+
+// Builds the shared subject for bidding job command wake-up signals.
+export function tradingBiddingJobsChangedSubject(streamPrefix: string): string {
+    return `${streamPrefix}.${TRADING_JOB_SIGNAL_SUBJECT.BiddingJobsChanged}`;
+}
+
 export type TradingTraitCriterion = {
     type: string;
     value: string;

@@ -1,7 +1,7 @@
 # DB-Backed Trading Jobs Plan
 
 Status: WIP
-Current milestone: Slice 5 complete
+Current milestone: Slice 6 complete
 
 This document is the working plan for moving bidding jobs, and later sniping jobs, from operator-managed JSON files into ArtGod SQLite.
 
@@ -429,13 +429,17 @@ If the bot is offline, the command remains pending. On next bot startup, command
 - Remove temporary JSON-file job loading and stale desktop/env references.
 - Verify existing bidder tests remain unchanged.
 
-### Slice 6: Runtime Command Reconciliation
+### Slice 6: Runtime Command Reconciliation (done)
 
 - Add bot-side command scanner.
 - Add NATS notification subscription as an accelerator.
 - Add periodic DB fallback scan.
 - Implement create/update/pause/archive reconciliation.
 - Implement active-offer cancellation for archive/pause.
+- Backend CRUD now publishes best-effort JetStream wake-up signals after command rows are committed.
+- Pausing a job now emits `job_paused` plus `cancel_active_offer`, matching archive cleanup semantics.
+- Runtime reconciliation reloads authoritative job state from SQLite before mutating live bidder state.
+- Dynamic enabled token/collection jobs prepare direct OpenSea stream subscriptions and authoritative snapshot refreshes before immediate bid refresh.
 
 ### Slice 7: Sniping Reuse
 

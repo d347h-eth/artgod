@@ -3,6 +3,7 @@ import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import type { BiddingJobsRepositoryPort } from "./ports.js";
 import type { ArchiveTokenBiddingJobOutput } from "./types.js";
 import { mapPersistedTokenBiddingJobToView } from "./types.js";
+import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 export type { ArchiveTokenBiddingJobOutput } from "./types.js";
 
 export type ArchiveTokenBiddingJobInput = {
@@ -35,6 +36,7 @@ export class ArchiveTokenBiddingJobUseCase {
             BiddingJobsRepositoryPort,
             "archiveTokenJob"
         >,
+        readonly tradingJobCommandSignalPort: TradingJobCommandSignalPort,
     ) {}
 
     archiveTokenBiddingJob(
@@ -66,6 +68,10 @@ export class ArchiveTokenBiddingJobUseCase {
         if (!result) {
             throw new ReadModelNotFoundError("Unknown bidding job");
         }
+        // Publish a post-commit wake-up so the running bot scans the durable cleanup commands immediately.
+        this.tradingJobCommandSignalPort.publishBiddingJobCommandsChanged(
+            result.commands,
+        );
 
         return {
             chain,

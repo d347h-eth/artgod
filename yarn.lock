@@ -133,6 +133,7 @@ __metadata:
     better-sqlite3: "npm:^v12.2.0"
     dotenv: "npm:^16.4.5"
     ethers: "npm:^6.0.0"
+    nats: "npm:^2.29.1"
     opensea-js: "npm:^8.0.0"
     typescript: "npm:^5.8.3"
     viem: "npm:2.41.2"

@@ -242,12 +242,16 @@ beforeAll(async () => {
             collectionsReadModel,
             biddingJobsRepository,
         );
+    const tradingJobCommandSignalPort = {
+        publishBiddingJobCommandsChanged: () => undefined,
+    };
     const upsertTokenBiddingJobUseCase =
         new upsertTokenBiddingJobUseCaseModule.UpsertTokenBiddingJobUseCase(
             1,
             chainsReadModel,
             collectionsReadModel,
             biddingJobsRepository,
+            tradingJobCommandSignalPort,
         );
     const archiveTokenBiddingJobUseCase =
         new archiveTokenBiddingJobUseCaseModule.ArchiveTokenBiddingJobUseCase(
@@ -255,6 +259,7 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             biddingJobsRepository,
+            tradingJobCommandSignalPort,
         );
     const bootstrapRepositoryModule =
         await import("./infra/bootstrap/sqlite-bootstrap-runs.js");
@@ -570,7 +575,8 @@ describe("backend api routes", () => {
         });
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
-            TRADING_JOB_COMMAND_KIND.JobUpdated,
+            TRADING_JOB_COMMAND_KIND.JobPaused,
+            TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
         ]);
     });
 
