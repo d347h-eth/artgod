@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { BackendApiError, getTokenDetail } from '$lib/backend-api';
+import { BackendApiError, getTokenBiddingJob, getTokenDetail } from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
@@ -43,19 +43,24 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	}
 
 	try {
-		const response = await getTokenDetail(
-			fetch,
-			params.chain_ref,
-			params.collection_ref,
-			params.token_ref,
-			buildMediaModeQuery(mediaMode)
-		);
+		// Load the token detail and its token-scoped bidding job together for the page shell.
+		const [response, biddingJobResponse] = await Promise.all([
+			getTokenDetail(
+				fetch,
+				params.chain_ref,
+				params.collection_ref,
+				params.token_ref,
+				buildMediaModeQuery(mediaMode)
+			),
+			getTokenBiddingJob(fetch, params.chain_ref, params.collection_ref, params.token_ref)
+		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
 			media: response.media,
 			token: response.token,
 			traitFilterPresentation: response.traitFilterPresentation,
+			tokenBiddingJob: biddingJobResponse.job,
 			backPath,
 			backQuery
 		};

@@ -81,6 +81,9 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
 		expect(body).toContain('only listed');
 		expect(body).toContain('show all');
 		expect(body).toContain(

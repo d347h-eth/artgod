@@ -20,6 +20,7 @@
     "scripts": {
         "dev": "./scripts/dev.sh",
         "dev:indexer": "./scripts/indexer-dev.sh",
+        "dev:desktop": "cargo tauri dev --no-watch",
         "tauri": "cargo tauri",
         "build": "node ./scripts/build/build-frontend-target.mjs web",
         "build:web": "node ./scripts/build/build-frontend-target.mjs web",

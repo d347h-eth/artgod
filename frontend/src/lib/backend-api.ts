@@ -4,6 +4,7 @@ import type {
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BootstrapStatusApiResponse,
+	CollectionBiddingJobsApiResponse,
 	CollectionActivitiesApiResponse,
 	CollectionCustomizationApiResponse,
 	CollectionDetailApiResponse,
@@ -11,6 +12,8 @@ import type {
 	CollectionsApiResponse,
 	DefaultChainResponse,
 	OwnerRefResolutionApiResponse,
+	TokenBiddingJobApiResponse,
+	TokenBiddingJobMutationApiResponse,
 	TokenDetailApiResponse,
 	TokenPreviewApiResponse
 } from '$lib/api-types';
@@ -113,6 +116,65 @@ export async function getCollectionCustomization(
 	return requestJson<CollectionCustomizationApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`
+	);
+}
+
+export async function getCollectionBiddingJobs(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<CollectionBiddingJobsApiResponse> {
+	return requestJson<CollectionBiddingJobsApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs`
+	);
+}
+
+export async function getTokenBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tokenRef: string
+): Promise<TokenBiddingJobApiResponse> {
+	return requestJson<TokenBiddingJobApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`
+	);
+}
+
+export async function upsertTokenBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tokenRef: string,
+	body: {
+		status: 'enabled' | 'paused';
+		floorEth: string;
+		ceilingEth: string;
+		deltaEth: string;
+	}
+): Promise<TokenBiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<TokenBiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
+		'PUT',
+		body
+	);
+}
+
+export async function archiveTokenBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tokenRef: string
+): Promise<TokenBiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<TokenBiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
+		'DELETE',
+		{}
 	);
 }
 

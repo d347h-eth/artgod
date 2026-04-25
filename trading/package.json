@@ -13,6 +13,7 @@
         "better-sqlite3": "^v12.2.0",
         "dotenv": "^16.4.5",
         "ethers": "^6.0.0",
+        "nats": "^2.29.1",
         "opensea-js": "^8.0.0",
         "viem": "2.41.2"
     },

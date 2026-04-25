@@ -225,7 +225,6 @@ a:hover {
 	display: inline-grid;
 	gap: 0.85rem;
 	padding: 0.75rem;
-	border-bottom: 1px solid var(--c-blue);
 	align-items: start;
 	justify-items: start;
 	width: fit-content;
@@ -374,7 +373,11 @@ button {
 }
 
 button:disabled {
-	cursor: default;
+	border-color: color-mix(in srgb, var(--c-blue) 55%, transparent);
+	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
+	background: color-mix(in srgb, var(--c-bg) 92%, var(--c-blue));
+	cursor: not-allowed;
+	opacity: 0.62;
 }
 
 button:not(:disabled):hover {
@@ -817,6 +820,21 @@ th {
 	color: var(--c-yellow);
 }
 
+.button-link[disabled],
+.button-link[aria-disabled='true'] {
+	border-color: color-mix(in srgb, var(--c-orange) 45%, transparent);
+	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
+	cursor: not-allowed;
+	opacity: 0.62;
+	pointer-events: none;
+}
+
+.button-link[disabled]:hover,
+.button-link[aria-disabled='true']:hover {
+	border-color: color-mix(in srgb, var(--c-orange) 45%, transparent);
+	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
+}
+
 .facet-panel-action-button.facet-reset-button:hover,
 .facet-panel-action-button.facet-reset-button:focus-visible {
 	outline: none;
@@ -1135,6 +1153,68 @@ th {
 	padding: 0.75rem 0 0;
 }
 
+.bidding-jobs-table {
+	table-layout: auto;
+}
+
+.bidding-target-cell {
+	min-width: 15rem;
+}
+
+.bidding-target-label {
+	margin-bottom: 0.2rem;
+	color: var(--c-pink);
+	font-size: 0.68rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.bidding-target-summary {
+	line-height: 1.25;
+}
+
+.bidding-status-cell,
+.bidding-config-cell {
+	white-space: nowrap;
+}
+
+.bidding-status-select {
+	width: 10rem;
+}
+
+.bidding-number-input {
+	width: 10ch;
+}
+
+.bidding-runtime-cell {
+	min-width: 15rem;
+}
+
+.bidding-runtime-lines {
+	display: grid;
+	gap: 0.35rem;
+}
+
+.bidding-runtime-lines > div {
+	display: grid;
+	gap: 0.1rem;
+}
+
+.bidding-actions-cell {
+	min-width: 14rem;
+}
+
+.bidding-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+}
+
+.bidding-row-note,
+.bidding-row-error {
+	margin: 0.35rem 0 0;
+}
+
 .token-panel {
 	padding: 0;
 }
@@ -1241,7 +1321,9 @@ th {
 	--token-preview-available-height: calc(
 		100dvh - var(--token-preview-pad-top) - var(--token-preview-pad-bottom)
 	);
-	--token-preview-max-width: calc(var(--token-preview-available-width) * var(--token-preview-scale));
+	--token-preview-max-width: calc(
+		var(--token-preview-available-width) * var(--token-preview-scale)
+	);
 	--token-preview-max-height: calc(
 		var(--token-preview-available-height) * var(--token-preview-scale)
 	);
@@ -1500,6 +1582,45 @@ th {
 	display: flex;
 	justify-content: center;
 	padding: 0 0.75rem;
+}
+
+.token-bidding-panel {
+	width: fit-content;
+	max-width: calc(100% - 1.5rem);
+	margin: 1rem auto 0;
+	border-top: 1px solid var(--c-blue);
+	border-bottom: 1px solid var(--c-blue);
+}
+
+.token-bidding-panel-header {
+	padding: 0 0 0.75rem;
+}
+
+.token-bidding-runtime-grid {
+	padding-bottom: 0.75rem;
+}
+
+.token-bidding-form {
+	margin-inline: auto;
+}
+
+.bidding-token-input {
+	width: 12ch;
+}
+
+.token-bidding-form-footer {
+	padding: 0.75rem 0 0;
+	justify-content: flex-start;
+}
+
+.token-bidding-form-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+}
+
+.token-bidding-feedback {
+	margin: 0;
 }
 
 .token-detail-traits {
@@ -1959,7 +2080,6 @@ th {
 }
 
 .runtime-section {
-	border: 1px solid var(--c-blue);
 	padding: 0.55rem;
 	display: grid;
 	gap: 0.5rem;

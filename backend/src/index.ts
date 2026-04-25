@@ -41,6 +41,10 @@ import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/co
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
+import { ListCollectionBiddingJobsUseCase } from "./application/use-cases/trading/list-collection-bidding-jobs.js";
+import { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
+import { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
+import { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/archive-token-bidding-job.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
@@ -54,6 +58,8 @@ import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-col
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
+import { NatsTradingJobCommandSignalPublisher } from "./infra/trading/nats-trading-job-command-signals.js";
+import { SqliteBiddingJobsRepository } from "./infra/trading/sqlite-bidding-jobs-repository.js";
 import {
     QUERY_CACHE_PROVIDERS,
     type QueryCachePort,
@@ -96,6 +102,12 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         new ExtensionAwareCollectionCustomization(
             collectionExtensionRecords,
             collectionCustomizationRecords,
+        );
+    const biddingJobsRepository = new SqliteBiddingJobsRepository();
+    const tradingJobCommandSignalPublisher =
+        new NatsTradingJobCommandSignalPublisher(
+            config.natsUrl,
+            config.natsStreamPrefix,
         );
     const bootstrapRunsRepository = new SqliteBootstrapRunsRepository();
     const bootstrapCommandQueue = new NatsBootstrapCommandQueue(
@@ -210,6 +222,33 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
             extensionAwareCollectionsReadModel,
             extensionAwareCollectionCustomization,
         );
+    const listCollectionBiddingJobsUseCase =
+        new ListCollectionBiddingJobsUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingJobsRepository,
+        );
+    const getTokenBiddingJobUseCase = new GetTokenBiddingJobUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        biddingJobsRepository,
+    );
+    const upsertTokenBiddingJobUseCase = new UpsertTokenBiddingJobUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        biddingJobsRepository,
+        tradingJobCommandSignalPublisher,
+    );
+    const archiveTokenBiddingJobUseCase = new ArchiveTokenBiddingJobUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        biddingJobsRepository,
+        tradingJobCommandSignalPublisher,
+    );
     const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
         new SqliteRuntimeHealthAdapter(),
         new NatsRuntimeHealthAdapter(config.natsUrl),
@@ -232,6 +271,10 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         getTokenDetailUseCase,
         tokenPreview.port,
         updateCollectionCustomizationUseCase,
+        listCollectionBiddingJobsUseCase,
+        getTokenBiddingJobUseCase,
+        upsertTokenBiddingJobUseCase,
+        archiveTokenBiddingJobUseCase,
         runtimeHealthUseCase,
         config.userlandUiDistDir,
         config.security,
@@ -240,6 +283,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
     collectionDetail.lifecycle?.start();
     app.addHook("onClose", async () => {
         collectionDetail.lifecycle?.stop();
+        await tradingJobCommandSignalPublisher.close();
     });
     return app;
 }

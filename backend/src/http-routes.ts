@@ -66,6 +66,22 @@ import type {
     ResolveOwnerRefHttpAdapter,
     ResolveOwnerRefRoute,
 } from "./http/handlers/owners/resolve-owner-ref.js";
+import type {
+    ListCollectionBiddingJobsHttpAdapter,
+    ListCollectionBiddingJobsRoute,
+} from "./http/handlers/trading/list-collection-bidding-jobs.js";
+import type {
+    GetTokenBiddingJobHttpAdapter,
+    GetTokenBiddingJobRoute,
+} from "./http/handlers/trading/get-token-bidding-job.js";
+import type {
+    UpsertTokenBiddingJobHttpAdapter,
+    UpsertTokenBiddingJobRoute,
+} from "./http/handlers/trading/upsert-token-bidding-job.js";
+import type {
+    ArchiveTokenBiddingJobHttpAdapter,
+    ArchiveTokenBiddingJobRoute,
+} from "./http/handlers/trading/archive-token-bidding-job.js";
 import type { CommonHttpHandlers } from "./http/common/handlers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -103,6 +119,10 @@ export function registerApiRoutes(
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
     updateCollectionCustomizationAdapter: UpdateCollectionCustomizationHttpAdapter,
+    listCollectionBiddingJobsAdapter: ListCollectionBiddingJobsHttpAdapter,
+    getTokenBiddingJobAdapter: GetTokenBiddingJobHttpAdapter,
+    upsertTokenBiddingJobAdapter: UpsertTokenBiddingJobHttpAdapter,
+    archiveTokenBiddingJobAdapter: ArchiveTokenBiddingJobHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
     options: ApiRouteRegistrationOptions,
 ): void {
@@ -172,7 +192,6 @@ export function registerApiRoutes(
         },
         getTokenDetailAdapter.handle,
     );
-
     if (options.includeCsrfRoute) {
         app.get("/api/security/csrf", issueCsrfTokenHandler);
     }
@@ -188,6 +207,14 @@ export function registerApiRoutes(
     app.get<GetCollectionCustomizationRoute>(
         "/api/:chain_ref/:collection_ref/customization",
         getCollectionCustomizationAdapter.handle,
+    );
+    app.get<ListCollectionBiddingJobsRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/jobs",
+        listCollectionBiddingJobsAdapter.handle,
+    );
+    app.get<GetTokenBiddingJobRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
+        getTokenBiddingJobAdapter.handle,
     );
     app.post<CreateBootstrapRunRoute>(
         "/api/:chain_ref/collections/bootstrap",
@@ -208,6 +235,14 @@ export function registerApiRoutes(
     app.put<UpdateCollectionCustomizationRoute>(
         "/api/:chain_ref/:collection_ref/customization",
         updateCollectionCustomizationAdapter.handle,
+    );
+    app.put<UpsertTokenBiddingJobRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
+        upsertTokenBiddingJobAdapter.handle,
+    );
+    app.delete<ArchiveTokenBiddingJobRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
+        archiveTokenBiddingJobAdapter.handle,
     );
     app.post<RetryBootstrapRunFailedTasksRoute>(
         "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",

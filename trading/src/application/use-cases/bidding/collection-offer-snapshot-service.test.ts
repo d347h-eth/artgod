@@ -95,4 +95,49 @@ describe("CollectionOfferSnapshotService", () => {
 
         assert.deepEqual(source.calls, ["terraforms"]);
     });
+
+    it("skips async refresh requests when the snapshot is still within ttl", async () => {
+        const source = new FakeCollectionOfferSource();
+        source.responses.terraforms = [{ order_hash: "0x1" }];
+        const service = new CollectionOfferSnapshotService(
+            source as any,
+            ["terraforms"],
+            60000,
+            1000,
+        );
+
+        await service.refreshAndWait("terraforms", "bootstrap");
+        service.requestRefresh("terraforms", "poll cadence");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        assert.deepEqual(source.calls, ["terraforms"]);
+    });
+
+    it("waits for in-flight ttl-aware refresh before skipping duplicate work", async () => {
+        const source = new FakeCollectionOfferSource();
+        let releaseGate!: () => void;
+        source.gate = new Promise<void>((resolve) => {
+            releaseGate = resolve;
+        });
+        source.responses.terraforms = [{ order_hash: "0x1" }];
+        const service = new CollectionOfferSnapshotService(
+            source as any,
+            ["terraforms"],
+            60000,
+            1000,
+        );
+
+        const firstRefresh = service.refreshAndWait("terraforms", "command");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const duplicateRefresh = service.refreshAndWait(
+            "terraforms",
+            "poll cadence",
+            { respectTtl: true },
+        );
+
+        releaseGate();
+        await Promise.all([firstRefresh, duplicateRefresh]);
+
+        assert.deepEqual(source.calls, ["terraforms"]);
+    });
 });

@@ -13,6 +13,8 @@ import {
     ACTIVITY_KIND,
     ACTIVITY_SCOPE_KIND,
     ACTIVITY_SOURCE_KIND,
+    TRADING_JOB_COMMAND_KIND,
+    TRADING_JOB_STATUS,
 } from "@artgod/shared/types";
 import type { BackendSecurityConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -208,6 +210,57 @@ beforeAll(async () => {
             },
             "artgod-jobs",
         );
+    const biddingJobsRepositoryModule =
+        await import("./infra/trading/sqlite-bidding-jobs-repository.js");
+    const listCollectionBiddingJobsUseCaseModule =
+        await import(
+            "./application/use-cases/trading/list-collection-bidding-jobs.js"
+        );
+    const getTokenBiddingJobUseCaseModule =
+        await import("./application/use-cases/trading/get-token-bidding-job.js");
+    const upsertTokenBiddingJobUseCaseModule =
+        await import(
+            "./application/use-cases/trading/upsert-token-bidding-job.js"
+        );
+    const archiveTokenBiddingJobUseCaseModule =
+        await import(
+            "./application/use-cases/trading/archive-token-bidding-job.js"
+        );
+    const biddingJobsRepository =
+        new biddingJobsRepositoryModule.SqliteBiddingJobsRepository();
+    const listCollectionBiddingJobsUseCase =
+        new listCollectionBiddingJobsUseCaseModule.ListCollectionBiddingJobsUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+        );
+    const getTokenBiddingJobUseCase =
+        new getTokenBiddingJobUseCaseModule.GetTokenBiddingJobUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+        );
+    const tradingJobCommandSignalPort = {
+        publishBiddingJobCommandsChanged: () => undefined,
+    };
+    const upsertTokenBiddingJobUseCase =
+        new upsertTokenBiddingJobUseCaseModule.UpsertTokenBiddingJobUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+            tradingJobCommandSignalPort,
+        );
+    const archiveTokenBiddingJobUseCase =
+        new archiveTokenBiddingJobUseCaseModule.ArchiveTokenBiddingJobUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+            tradingJobCommandSignalPort,
+        );
     const bootstrapRepositoryModule =
         await import("./infra/bootstrap/sqlite-bootstrap-runs.js");
     const createBootstrapUseCaseModule =
@@ -277,6 +330,10 @@ beforeAll(async () => {
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
         updateCollectionCustomizationUseCase,
+        listCollectionBiddingJobsUseCase,
+        getTokenBiddingJobUseCase,
+        upsertTokenBiddingJobUseCase,
+        archiveTokenBiddingJobUseCase,
         runtimeHealthUseCase,
         null,
         API_SECURITY_CONFIG,
@@ -302,6 +359,10 @@ beforeAll(async () => {
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
         updateCollectionCustomizationUseCase,
+        listCollectionBiddingJobsUseCase,
+        getTokenBiddingJobUseCase,
+        upsertTokenBiddingJobUseCase,
+        archiveTokenBiddingJobUseCase,
         runtimeHealthUseCase,
         null,
         API_SECURITY_CONFIG,
@@ -412,6 +473,211 @@ describe("backend api routes", () => {
 
         const csrf = await resolvePublic("GET", "/api/security/csrf");
         expect(csrf.statusCode).toBe(404);
+
+        const biddingJobs = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms/bidding/jobs",
+        );
+        expect(biddingJobs.statusCode).toBe(404);
+
+        const tokenBiddingJob = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms/7710/bidding/job",
+        );
+        expect(tokenBiddingJob.statusCode).toBe(404);
+    });
+
+    it("lists empty bidding jobs and returns null for tokens without a job", async () => {
+        clearTradingJobFixtures();
+
+        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
+        expect(jobs.statusCode).toBe(200);
+        expect(jobs.payload.collection.slug).toBe("milady");
+        expect(jobs.payload.jobs).toEqual([]);
+
+        const tokenJob = await resolve(
+            "GET",
+            "/api/ethereum/milady/1/bidding/job",
+        );
+        expect(tokenJob.statusCode).toBe(200);
+        expect(tokenJob.payload.collection.slug).toBe("milady");
+        expect(tokenJob.payload.tokenId).toBe("1");
+        expect(tokenJob.payload.job).toBeNull();
+    });
+
+    it("creates and updates token bidding jobs via admin routes", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        const created = await resolve(
+            "PUT",
+            "/api/ethereum/milady/1/bidding/job",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+            },
+            csrf,
+        );
+        expect(created.statusCode).toBe(200);
+        expect(created.payload.tokenId).toBe("1");
+        expect(created.payload.job.status).toBe(TRADING_JOB_STATUS.Enabled);
+        expect(created.payload.job.revision).toBe(1);
+        expect(created.payload.job.target).toEqual({
+            type: "token",
+            tokenId: "1",
+        });
+        expect(created.payload.job.config).toEqual({
+            floorEth: "0.1",
+            ceilingEth: "0.2",
+            deltaEth: "0.01",
+        });
+
+        const updated = await resolve(
+            "PUT",
+            "/api/ethereum/milady/1/bidding/job",
+            {
+                status: TRADING_JOB_STATUS.Paused,
+                floorEth: "0.11",
+                ceilingEth: "0.22",
+                deltaEth: "0.02",
+            },
+            csrf,
+        );
+        expect(updated.statusCode).toBe(200);
+        expect(updated.payload.job.status).toBe(TRADING_JOB_STATUS.Paused);
+        expect(updated.payload.job.revision).toBe(2);
+        expect(updated.payload.job.config).toEqual({
+            floorEth: "0.11",
+            ceilingEth: "0.22",
+            deltaEth: "0.02",
+        });
+
+        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
+        expect(jobs.statusCode).toBe(200);
+        expect(jobs.payload.jobs).toHaveLength(1);
+        expect(jobs.payload.jobs[0].target).toEqual({
+            type: "token",
+            tokenId: "1",
+        });
+        expect(jobs.payload.jobs[0].status).toBe(TRADING_JOB_STATUS.Paused);
+
+        const tokenJob = await resolve(
+            "GET",
+            "/api/ethereum/milady/1/bidding/job",
+        );
+        expect(tokenJob.statusCode).toBe(200);
+        expect(tokenJob.payload.job.config).toEqual({
+            floorEth: "0.11",
+            ceilingEth: "0.22",
+            deltaEth: "0.02",
+        });
+        expect(listTradingCommandKinds()).toEqual([
+            TRADING_JOB_COMMAND_KIND.JobCreated,
+            TRADING_JOB_COMMAND_KIND.JobPaused,
+            TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+        ]);
+    });
+
+    it("archives token bidding jobs and enqueues active-offer cancellation", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        const created = await resolve(
+            "PUT",
+            "/api/ethereum/milady/1/bidding/job",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+            },
+            csrf,
+        );
+        expect(created.statusCode).toBe(200);
+
+        const archived = await resolve(
+            "DELETE",
+            "/api/ethereum/milady/1/bidding/job",
+            undefined,
+            csrf,
+        );
+        expect(archived.statusCode).toBe(200);
+        expect(archived.payload.job.status).toBe(TRADING_JOB_STATUS.Archived);
+        expect(archived.payload.job.archivedAt).toEqual(expect.any(String));
+
+        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
+        expect(jobs.statusCode).toBe(200);
+        expect(jobs.payload.jobs).toEqual([]);
+
+        const tokenJob = await resolve(
+            "GET",
+            "/api/ethereum/milady/1/bidding/job",
+        );
+        expect(tokenJob.statusCode).toBe(200);
+        expect(tokenJob.payload.job).toBeNull();
+        expect(listTradingCommandKinds()).toEqual([
+            TRADING_JOB_COMMAND_KIND.JobCreated,
+            TRADING_JOB_COMMAND_KIND.JobArchived,
+            TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+        ]);
+    });
+
+    it("rejects invalid token bidding job payloads", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        const invalidStatus = await resolve(
+            "PUT",
+            "/api/ethereum/milady/1/bidding/job",
+            {
+                status: TRADING_JOB_STATUS.Archived,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+            },
+            csrf,
+        );
+        expect(invalidStatus.statusCode).toBe(400);
+        expect(invalidStatus.payload).toEqual({
+            error: "bad_request",
+            message: "status is invalid",
+        });
+
+        const invalidRange = await resolve(
+            "PUT",
+            "/api/ethereum/milady/1/bidding/job",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.3",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+            },
+            csrf,
+        );
+        expect(invalidRange.statusCode).toBe(422);
+        expect(invalidRange.payload).toEqual({
+            error: "validation_error",
+            message: "floorEth must be <= ceilingEth",
+        });
+    });
+
+    it("returns 404 when archiving a token without an active bidding job", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        const archived = await resolve(
+            "DELETE",
+            "/api/ethereum/milady/1/bidding/job",
+            undefined,
+            csrf,
+        );
+        expect(archived.statusCode).toBe(404);
+        expect(archived.payload).toEqual({
+            error: "not_found",
+            message: "Unknown bidding job",
+        });
     });
 
     it("reports runtime health with semantic checks", async () => {
@@ -2431,6 +2697,23 @@ async function resolveWith(
     };
 }
 
+async function issueAdminCsrf(): Promise<Record<string, string>> {
+    const csrf = await resolve("GET", "/api/security/csrf", undefined, {
+        host: "127.0.0.1:3000",
+        origin: "http://127.0.0.1:5173",
+    });
+    if (csrf.statusCode !== 200) {
+        throw new Error(`Expected CSRF token request to succeed: ${csrf.statusCode}`);
+    }
+
+    return {
+        host: "127.0.0.1:3000",
+        origin: "http://127.0.0.1:5173",
+        cookie: csrf.headers["set-cookie"] as string,
+        "x-artgod-csrf": csrf.payload.token as string,
+    };
+}
+
 async function waitForAsyncTasks(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -3008,6 +3291,24 @@ function seedData(): void {
         dedupeKey: "offchain:opensea:item_received_bid:buy-order-token-2:2",
         isOpen: true,
     });
+}
+
+function clearTradingJobFixtures(): void {
+    db.exec(
+        [
+            "DELETE FROM trading_job_commands;",
+            "DELETE FROM trading_bidding_job_runtime_state;",
+            "DELETE FROM trading_bidding_job_specs;",
+            "DELETE FROM trading_jobs;",
+        ].join("\n"),
+    );
+}
+
+function listTradingCommandKinds(): string[] {
+    const rows = db
+        .prepare("SELECT command_kind FROM trading_job_commands ORDER BY command_id ASC")
+        .all() as { command_kind: string }[];
+    return rows.map((row) => row.command_kind);
 }
 
 function insertActivityFixture(input: {

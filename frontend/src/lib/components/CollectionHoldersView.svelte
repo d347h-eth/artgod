@@ -18,6 +18,7 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import { buildCollectionBiddingHref } from '$lib/bidding-query';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
@@ -146,6 +147,15 @@
 		});
 	}
 
+	function biddingHref(): string {
+		return buildCollectionBiddingHref({
+			basePath,
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			mediaMode: selectedMediaMode
+		});
+	}
+
 	function holdersSignature(limit: number): string {
 		return `${holdersHref()}|${limit}`;
 	}
@@ -216,9 +226,11 @@
 	})}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
+	biddingHref={biddingHref()}
 	activeSection="holders"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}

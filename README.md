@@ -52,7 +52,7 @@ yarn build:runtime
 yarn build:desktop-runtime-resources
 
 # Start the Tauri dev shell; beforeDevCommand builds the debug sidecar first, then starts the admin frontend dev server.
-cargo tauri dev
+yarn dev:desktop
 ```
 
 `cargo tauri dev` does not run `beforeBuildCommand`, so `frontend/dist-userland` and `src-tauri/resources/runtime` must already exist after a clean checkout or `yarn clean:build`. The debug sidecar is built by `beforeDevCommand` before the admin frontend dev server starts.

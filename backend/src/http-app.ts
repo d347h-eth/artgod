@@ -16,6 +16,10 @@ import type { UpdateCollectionCustomizationUseCase } from "./application/use-cas
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
+import type { ListCollectionBiddingJobsUseCase } from "./application/use-cases/trading/list-collection-bidding-jobs.js";
+import type { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
+import type { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
+import type { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/archive-token-bidding-job.js";
 import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-bootstrap-run.js";
 import { GetBootstrapRunDetailHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-run-detail.js";
 import { GetBootstrapStatusHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-status.js";
@@ -33,6 +37,10 @@ import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collec
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
 import { ResolveOwnerRefHttpAdapter } from "./http/handlers/owners/resolve-owner-ref.js";
+import { ListCollectionBiddingJobsHttpAdapter } from "./http/handlers/trading/list-collection-bidding-jobs.js";
+import { GetTokenBiddingJobHttpAdapter } from "./http/handlers/trading/get-token-bidding-job.js";
+import { UpsertTokenBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-token-bidding-job.js";
+import { ArchiveTokenBiddingJobHttpAdapter } from "./http/handlers/trading/archive-token-bidding-job.js";
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
 import { registerApiErrorHandlers } from "./http/common/error-handlers.js";
 import { registerApiResponseHeaders } from "./http/common/response-headers.js";
@@ -64,6 +72,10 @@ export function createApiApp(
     getTokenDetailUseCase: GetTokenDetailUseCase,
     getTokenPreviewUseCase: GetTokenPreviewPort,
     updateCollectionCustomizationUseCase: UpdateCollectionCustomizationUseCase,
+    listCollectionBiddingJobsUseCase: ListCollectionBiddingJobsUseCase,
+    getTokenBiddingJobUseCase: GetTokenBiddingJobUseCase,
+    upsertTokenBiddingJobUseCase: UpsertTokenBiddingJobUseCase,
+    archiveTokenBiddingJobUseCase: ArchiveTokenBiddingJobUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
     userlandUiDistDir: string | null,
     securityConfig: BackendSecurityConfig,
@@ -125,6 +137,20 @@ export function createApiApp(
         new UpdateCollectionCustomizationHttpAdapter(
             updateCollectionCustomizationUseCase,
         );
+    const listCollectionBiddingJobsAdapter =
+        new ListCollectionBiddingJobsHttpAdapter(
+            listCollectionBiddingJobsUseCase,
+        );
+    const getTokenBiddingJobAdapter = new GetTokenBiddingJobHttpAdapter(
+        getTokenBiddingJobUseCase,
+    );
+    const upsertTokenBiddingJobAdapter = new UpsertTokenBiddingJobHttpAdapter(
+        upsertTokenBiddingJobUseCase,
+    );
+    const archiveTokenBiddingJobAdapter =
+        new ArchiveTokenBiddingJobHttpAdapter(
+            archiveTokenBiddingJobUseCase,
+        );
     const getRuntimeHealthAdapter = new GetRuntimeHealthHttpAdapter(
         getRuntimeHealthUseCase,
     );
@@ -152,6 +178,10 @@ export function createApiApp(
         getTokenDetailAdapter,
         getTokenPreviewAdapter,
         updateCollectionCustomizationAdapter,
+        listCollectionBiddingJobsAdapter,
+        getTokenBiddingJobAdapter,
+        upsertTokenBiddingJobAdapter,
+        archiveTokenBiddingJobAdapter,
         getRuntimeHealthAdapter,
         {
             publicCollectionScope: deploymentConfig.publicCollectionScope,

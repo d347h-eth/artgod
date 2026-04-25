@@ -15,6 +15,7 @@
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { withQuery } from '$lib/route-paths';
+	import { buildCollectionBiddingHref } from '$lib/bidding-query';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
@@ -115,6 +116,15 @@
 		});
 	}
 
+	function biddingHref(): string {
+		return buildCollectionBiddingHref({
+			basePath: collectionBasePath,
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
 	async function onResetTraits(): Promise<void> {
 		await goto(resetTraitsHref(), {
 			invalidateAll: true,
@@ -129,9 +139,11 @@
 	activitiesHref={collectionActivitiesHref()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
+	biddingHref={biddingHref()}
 	activeSection={null}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}

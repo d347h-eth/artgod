@@ -36,6 +36,7 @@ export type OwnerRefResolutionApiResponse = {
 };
 
 export type ApiCollectionCustomizationSource = 'user' | 'extension';
+export type ApiBiddingJobStatus = 'enabled' | 'paused' | 'archived';
 
 export type ApiTraitFilterDisplayKind = 'set' | 'range';
 
@@ -131,6 +132,11 @@ export type ApiTraitRangeFilter = {
 	key: string;
 	fromValue: string | null;
 	toValue: string | null;
+};
+
+export type ApiTradingTraitCriterion = {
+	type: string;
+	value: string;
 };
 
 export type ApiTokenCard = {
@@ -263,6 +269,68 @@ export type CollectionCustomizationApiResponse = {
 		tokenCardTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 		activityRowTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 	};
+};
+
+export type ApiBiddingJobTarget =
+	| {
+			type: 'token';
+			tokenId: string;
+	  }
+	| {
+			type: 'collection';
+			quantity: number;
+			targetTraits: ApiTradingTraitCriterion[];
+	  }
+	| {
+			type: 'competitiveTrait';
+			quantity: number;
+			targetTraits: ApiTradingTraitCriterion[];
+			competitorTraits: ApiTradingTraitCriterion[];
+	  };
+
+export type ApiBiddingJobRuntimeState = {
+	currentPriceEth: string | null;
+	activeOrderId: string | null;
+	activeProtocolAddress: string | null;
+	activeExpirationTimeMs: number | null;
+	lastRunAt: string | null;
+	lastError: string | null;
+};
+
+export type ApiBiddingJob = {
+	jobId: string;
+	status: ApiBiddingJobStatus;
+	revision: number;
+	createdAt: string;
+	updatedAt: string;
+	archivedAt: string | null;
+	target: ApiBiddingJobTarget;
+	config: {
+		floorEth: string;
+		ceilingEth: string;
+		deltaEth: string;
+	};
+	runtime: ApiBiddingJobRuntimeState | null;
+};
+
+export type CollectionBiddingJobsApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	jobs: ApiBiddingJob[];
+};
+
+export type TokenBiddingJobApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tokenId: string;
+	job: ApiBiddingJob | null;
+};
+
+export type TokenBiddingJobMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tokenId: string;
+	job: ApiBiddingJob;
 };
 
 export type TokenDetailApiResponse = {

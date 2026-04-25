@@ -16,7 +16,9 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
-import { loadBiddingJobsFromFile } from "../adapters/config/bidding-jobs-file.js";
+import { NatsBiddingJobCommandSignalListener } from "../adapters/jobs/nats-bidding-job-command-signal-listener.js";
+import { SqliteBiddingJobCommandRepository } from "../adapters/jobs/sqlite-bidding-job-command-repository.js";
+import { SqliteBiddingJobSource } from "../adapters/jobs/sqlite-bidding-job-source.js";
 import { SqliteTokenMetadataRepository } from "../adapters/metadata/sqlite-token-metadata-repository.js";
 import { OpenSeaBiddingService } from "../adapters/opensea/open-sea-bidding-service.js";
 import { OpenSeaCollectionOfferSource } from "../adapters/opensea/open-sea-collection-offer-source.js";
@@ -25,6 +27,7 @@ import { OpenSeaMarketEventFactory } from "../adapters/opensea/open-sea-market-e
 import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-allowance-approval-service.js";
 import { ViemMakerWethBalanceService } from "../adapters/wallet/viem-maker-weth-balance-service.js";
 import { Bidder } from "../application/use-cases/bidding/bidder.js";
+import { BiddingJobCommandReconciler } from "../application/use-cases/bidding/bidding-job-command-reconciler.js";
 import { CollectionOfferSnapshotService } from "../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { AttrFilter } from "../application/use-cases/market/pipeline/lib/attr-filter.js";
 import { BidderRefresh } from "../application/use-cases/market/pipeline/lib/bidder-refresh.js";
@@ -38,6 +41,7 @@ import {
 import { MarketEvent, Type } from "../domain/market/event.js";
 import { BidderJob } from "../domain/market/strategy/job.js";
 import { biddingLog } from "../utils/bidding-log.js";
+import { startBiddingCommandReconciliationLoop } from "./bidding-command-reconciliation-loop.js";
 import type {
     OpenSeaApiClient,
     OpenSeaBiddingSdkClient,
@@ -89,11 +93,12 @@ export async function startBiddingRuntime(
     // Point the shared SQLite helpers at the runtime-selected ArtGod database before metadata adapters start reading.
     setDbPath(params.config.dbPath);
 
-    // Load operator-managed bidding jobs before creating any market-facing adapters.
+    const biddingJobSource = new SqliteBiddingJobSource(params.config.chainId);
+    // Load the authoritative enabled bidding jobs from SQLite before creating any market-facing adapters.
     biddingLog.info(
-        `[BiddingRuntime] Loading bidding jobs. jobsFile=${params.biddingConfig.jobsFile}`,
+        `[BiddingRuntime] Loading bidding jobs from SQLite. dbPath=${params.config.dbPath}, chainId=${params.config.chainId}`,
     );
-    const jobs = await loadBiddingJobsFromFile(params.biddingConfig.jobsFile);
+    const jobs = await biddingJobSource.loadEnabledJobs();
     const watchedCollectionSlugs = collectWatchedCollectionSlugs(jobs);
     const snapshotBackedCollectionSlugs =
         collectSnapshotBackedCollectionSlugs(jobs);
@@ -167,20 +172,17 @@ export async function startBiddingRuntime(
         params.config.rpc.primaryUrl,
         params.biddingConfig.openSea.biddingSecretKey,
     );
-    const collectionOfferSnapshotService =
-        snapshotBackedCollectionSlugs.length > 0
-            ? new CollectionOfferSnapshotService(
-                  // Create the dedicated snapshot API lane so polling never shares the bidding key or limiter.
-                  new OpenSeaCollectionOfferSource(
-                      createSnapshotApiClient(
-                          params.biddingConfig.openSea.snapshotSecretKey,
-                      ),
-                  ),
-                  snapshotBackedCollectionSlugs,
-                  params.biddingConfig.collectionOffersPollMs,
-                  params.biddingConfig.collectionOffersTtlMs,
-              )
-            : undefined;
+    const collectionOfferSnapshotService = new CollectionOfferSnapshotService(
+        // Create the dedicated snapshot API lane so polling never shares the bidding key or limiter.
+        new OpenSeaCollectionOfferSource(
+            createSnapshotApiClient(
+                params.biddingConfig.openSea.snapshotSecretKey,
+            ),
+        ),
+        snapshotBackedCollectionSlugs,
+        params.biddingConfig.collectionOffersPollMs,
+        params.biddingConfig.collectionOffersTtlMs,
+    );
 
     const biddingService = new OpenSeaBiddingService(
         biddingSdk,
@@ -210,7 +212,7 @@ export async function startBiddingRuntime(
     // Register all configured jobs before bootstrapping snapshot state or current prices.
     jobs.forEach((job) => bidder.addJob(job));
 
-    if (collectionOfferSnapshotService) {
+    if (snapshotBackedCollectionSlugs.length > 0) {
         // Tell the supervisor the runtime is live and entering the authoritative snapshot bootstrap phase.
         params.lifecycle.bootstrapping({
             phase: "snapshot_bootstrap",
@@ -250,31 +252,78 @@ export async function startBiddingRuntime(
         },
     });
 
-    const streamClient =
-        watchedCollectionSlugs.length > 0
-            ? createStreamClient(params.biddingConfig.openSea.streamSecretKey)
-            : undefined;
-    const bidStreams =
-        streamClient !== undefined
-            ? registerBidStreams(
-                  streamClient,
-                  watchedCollectionSlugs,
-                  buildBidPipeline(
-                      params.makerAddress,
-                      bidder,
-                      collectionOfferSnapshotService,
-                      params.biddingConfig.criteriaRefreshTraitsByCollection,
-                  ),
-              )
-            : [];
+    const streamClient = createStreamClient(
+        params.biddingConfig.openSea.streamSecretKey,
+    );
+    const bidPipeline = buildBidPipeline(
+        params.makerAddress,
+        bidder,
+        collectionOfferSnapshotService,
+        params.biddingConfig.criteriaRefreshTraitsByCollection,
+    );
+    const bidStreams: RegisteredBidStream[] = [];
+    const watchedRuntimeCollectionSlugs = new Set<string>();
+    const ensureBidStream = (collectionSlug: string): void => {
+        if (watchedRuntimeCollectionSlugs.has(collectionSlug)) {
+            return;
+        }
 
-    if (collectionOfferSnapshotService) {
-        // Start the steady-state snapshot polling only after bootstrap completed successfully.
-        collectionOfferSnapshotService.start();
-    }
+        // Subscribe the direct OpenSea bid stream when a DB-driven job introduces a watched collection.
+        bidStreams.push(
+            registerBidStream(streamClient, collectionSlug, bidPipeline),
+        );
+        watchedRuntimeCollectionSlugs.add(collectionSlug);
+    };
+    watchedCollectionSlugs.forEach(ensureBidStream);
+
+    // Start the steady-state snapshot polling only after bootstrap completed successfully.
+    collectionOfferSnapshotService.start();
+
+    const commandRepository = new SqliteBiddingJobCommandRepository();
+    const commandReconciler = new BiddingJobCommandReconciler(
+        commandRepository,
+        biddingJobSource,
+        bidder,
+        {
+            prepareEnabledJob: async (job) => {
+                ensureBidStream(job.collectionSlug);
+                if (
+                    job.target.type === "token" ||
+                    job.target.type === "collection"
+                ) {
+                    collectionOfferSnapshotService.watchCollection(
+                        job.collectionSlug,
+                    );
+                    // Refresh the authoritative snapshot before the reconciled job performs an immediate bid pass.
+                    await collectionOfferSnapshotService.refreshAndWait(
+                        job.collectionSlug,
+                        `job command reconciliation: ${job.id}`,
+                        { respectTtl: true },
+                    );
+                }
+            },
+        },
+        {
+            batchSize: params.biddingConfig.commandBatchSize,
+            claimTimeoutMs: params.biddingConfig.commandClaimTimeoutMs,
+            maxAttempts: params.biddingConfig.commandMaxAttempts,
+        },
+    );
+    // Process any committed DB commands before the normal bidder loop starts.
+    await commandReconciler.processPendingCommands("startup");
 
     // Start the steady-state bidder tick loop only after stream listeners and warm state are ready.
     bidder.start();
+
+    const commandLoop = startBiddingCommandReconciliationLoop(
+        commandReconciler,
+        params.biddingConfig.commandPollMs,
+    );
+    const signalListener = await startBiddingJobCommandSignalListener(
+        params.config.queue.natsUrl,
+        params.config.queue.streamPrefix,
+        commandReconciler,
+    );
 
     biddingLog.info(
         `[BiddingRuntime] Started bidder with ${jobs.length} job(s), watchedCollections=${watchedCollectionSlugs.length}, snapshotCollections=${snapshotBackedCollectionSlugs.length}, dryRun=${params.biddingConfig.dryRun}`,
@@ -283,10 +332,12 @@ export async function startBiddingRuntime(
     return {
         async shutdown(): Promise<void> {
             bidder.stop();
-            collectionOfferSnapshotService?.stop();
+            collectionOfferSnapshotService.stop();
+            await commandLoop.shutdown();
+            await signalListener?.shutdown();
             bidStreams.forEach(({ stream }) => stream.dispose());
             // Disconnect the shared OpenSea socket after all per-collection handlers were removed.
-            streamClient?.disconnect();
+            streamClient.disconnect();
         },
     };
 }
@@ -391,35 +442,56 @@ function buildBidPipeline(
     return pipelineBuilder.build();
 }
 
-function registerBidStreams(
+function registerBidStream(
     streamClient: OpenSeaSdkStreamClient,
-    watchedCollectionSlugs: string[],
+    collectionSlug: string,
     bidPipeline: Parameters<StreamListener["attachHandler"]>[1],
-): RegisteredBidStream[] {
-    return watchedCollectionSlugs.map((collectionSlug) => {
-        // Subscribe the direct OpenSea bid stream for each watched collection.
-        const stream = new OpenSeaEventStream(
-            streamClient,
-            collectionSlug,
-            new OpenSeaMarketEventFactory(),
-        )
-            .withItemReceivedBid()
-            .withCollectionOffer()
-            .withTraitOffer();
-        const listener = new StreamListener(stream);
+): RegisteredBidStream {
+    // Subscribe the direct OpenSea bid stream for each watched collection.
+    const stream = new OpenSeaEventStream(
+        streamClient,
+        collectionSlug,
+        new OpenSeaMarketEventFactory(),
+    )
+        .withItemReceivedBid()
+        .withCollectionOffer()
+        .withTraitOffer();
+    const listener = new StreamListener(stream);
 
-        // Attach the hot-refresh pipeline only after the bidder bootstrap path already completed.
-        listener.attachHandler(
-            `${collectionSlug}-item-received-bid-filtered`,
-            bidPipeline,
-        );
+    // Attach the hot-refresh pipeline only after the bidder bootstrap path already completed.
+    listener.attachHandler(
+        `${collectionSlug}-item-received-bid-filtered`,
+        bidPipeline,
+    );
 
-        return {
-            collectionSlug,
-            stream,
-            listener,
-        };
+    return {
+        collectionSlug,
+        stream,
+        listener,
+    };
+}
+
+async function startBiddingJobCommandSignalListener(
+    natsUrl: string,
+    streamPrefix: string,
+    commandReconciler: BiddingJobCommandReconciler,
+) {
+    const listener = new NatsBiddingJobCommandSignalListener({
+        natsUrl,
+        streamPrefix,
+        consumerName: "trading-bidding-bot-command-signals",
     });
+    try {
+        return await listener.start(async () => {
+            await commandReconciler.processPendingCommands("nats");
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        biddingLog.warn(
+            `[BiddingRuntime] Failed to start NATS bidding job command listener; DB polling remains active. error=${message}`,
+        );
+        return undefined;
+    }
 }
 
 function createBiddingSdkClient(

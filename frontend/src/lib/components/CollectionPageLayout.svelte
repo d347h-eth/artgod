@@ -7,9 +7,11 @@
 		activitiesHref,
 		holdersHref,
 		customizationHref,
+		biddingHref,
 		activeSection,
 		collectionAvailable = true,
 		showCustomization = true,
+		showBidding = true,
 		breadcrumbs,
 		headerActions,
 		topActions,
@@ -19,9 +21,11 @@
 		activitiesHref: string;
 		holdersHref: string;
 		customizationHref: string;
-		activeSection: 'tokens' | 'activities' | 'holders' | 'customization' | null;
+		biddingHref: string;
+		activeSection: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
 		collectionAvailable?: boolean;
 		showCustomization?: boolean;
+		showBidding?: boolean;
 		breadcrumbs: Snippet;
 		headerActions?: Snippet;
 		topActions?: Snippet;
@@ -42,8 +46,10 @@
 					{activitiesHref}
 					{holdersHref}
 					{customizationHref}
+					{biddingHref}
 					active={activeSection}
 					{showCustomization}
+					{showBidding}
 				/>
 			{:else}
 				<span class="muted">collection not found</span>

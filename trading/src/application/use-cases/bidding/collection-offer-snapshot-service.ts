@@ -64,12 +64,14 @@ export class CollectionOfferSnapshotService
     }
 
     public start(): void {
-        if (this.started || this.watchedCollectionSlugs.size === 0) {
+        if (this.started) {
             return;
         }
 
         this.started = true;
-        this.scheduleNextPoll();
+        if (this.watchedCollectionSlugs.size > 0) {
+            this.scheduleNextPoll();
+        }
     }
 
     // stop cancels the recurring poll timer so the runtime can shut down cleanly.
@@ -109,6 +111,21 @@ export class CollectionOfferSnapshotService
         return this.snapshots.get(collectionSlug) ?? null;
     }
 
+    public watchCollection(collectionSlug: string): boolean {
+        if (this.watchedCollectionSlugs.has(collectionSlug)) {
+            return false;
+        }
+
+        this.watchedCollectionSlugs.add(collectionSlug);
+        biddingLog.info(
+            `[CollectionOfferSnapshotService] Added watched collection ${collectionSlug}. watchedCollections=${this.watchedCollectionSlugs.size}`,
+        );
+        if (this.started && !this.pollTimer) {
+            this.scheduleNextPoll();
+        }
+        return true;
+    }
+
     public requestRefresh(
         collectionSlug: string,
         reason: string = "unspecified",
@@ -117,7 +134,9 @@ export class CollectionOfferSnapshotService
             return;
         }
 
-        void this.refreshAndWait(collectionSlug, reason).catch((error: unknown) => {
+        void this.refreshAndWait(collectionSlug, reason, {
+            respectTtl: true,
+        }).catch((error: unknown) => {
             const message =
                 error instanceof Error ? error.message : String(error);
             biddingLog.error(
@@ -136,14 +155,46 @@ export class CollectionOfferSnapshotService
         }
 
         if (options.respectTtl && this.isSnapshotFresh(collectionSlug)) {
-            const snapshotAgeMs = this.getSnapshotAgeMs(collectionSlug);
-            biddingLog.debug(
-                `[CollectionOfferSnapshotService] Skipping ${collectionSlug} refresh: reason=${reason}, snapshotAgeMs=${snapshotAgeMs}, ttlMs=${this.refreshTtlMs}`,
-            );
+            this.logFreshSnapshotSkip(collectionSlug, reason);
+            return;
+        }
+
+        if (
+            options.respectTtl &&
+            (await this.waitForFreshInFlightRefresh(collectionSlug, reason))
+        ) {
             return;
         }
 
         await this.refreshCollection(collectionSlug, reason);
+    }
+
+    private async waitForFreshInFlightRefresh(
+        collectionSlug: string,
+        reason: string,
+    ): Promise<boolean> {
+        const state = this.refreshStates.get(collectionSlug);
+        if (!state?.refreshing || !state.inFlightPromise) {
+            return false;
+        }
+
+        biddingLog.debug(
+            `[CollectionOfferSnapshotService] Waiting for in-flight ${collectionSlug} refresh before deciding TTL skip: reason=${reason}, ttlMs=${this.refreshTtlMs}`,
+        );
+        await state.inFlightPromise;
+        if (!this.isSnapshotFresh(collectionSlug)) {
+            return false;
+        }
+
+        this.logFreshSnapshotSkip(collectionSlug, reason);
+        return true;
+    }
+
+    private logFreshSnapshotSkip(collectionSlug: string, reason: string): void {
+        const snapshotAgeMs = this.getSnapshotAgeMs(collectionSlug);
+        biddingLog.debug(
+            `[CollectionOfferSnapshotService] Skipping ${collectionSlug} refresh: reason=${reason}, snapshotAgeMs=${snapshotAgeMs}, ttlMs=${this.refreshTtlMs}`,
+        );
     }
 
     private async refreshCollection(
