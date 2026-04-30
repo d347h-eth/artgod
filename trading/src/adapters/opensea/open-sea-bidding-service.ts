@@ -1,8 +1,14 @@
 import { formatUnits } from "viem";
 import {
+    getOpenSeaOfferCriteria,
+    inferOpenSeaNftSelectionKind,
+    isOpenSeaCollectionWideOffer,
+    normalizeOpenSeaOfferTraitCriteria,
+    parseOpenSeaBiddingOffer,
+} from "@artgod/shared/trading/open-sea-bidding-offers";
+import {
     BiddingService,
     OfferDiscoverySource,
-    OfferScope,
     Order,
 } from "../../application/use-cases/bidding/bidding-service.js";
 import {
@@ -32,12 +38,6 @@ import {
     OpenSeaApiClient,
     OpenSeaBiddingSdkClient,
 } from "./open-sea-client.js";
-
-type PriceExtraction = {
-    price: bigint;
-    source: string;
-    quantity: bigint;
-};
 
 type SnapshotScanSummary = {
     collectionWideAdded: number;
@@ -692,18 +692,6 @@ export class OpenSeaBiddingService implements BiddingService {
         );
     }
 
-    private tryParseBigInt(value: unknown): bigint | null {
-        if (value === null || value === undefined) {
-            return null;
-        }
-
-        try {
-            return BigInt(value as bigint | boolean | number | string);
-        } catch {
-            return null;
-        }
-    }
-
     private tryParseNumber(value: unknown): number | null {
         if (value === null || value === undefined) {
             return null;
@@ -713,292 +701,19 @@ export class OpenSeaBiddingService implements BiddingService {
         return Number.isFinite(parsed) ? parsed : null;
     }
 
-    private sumWethItems(items: unknown): bigint {
-        if (!Array.isArray(items)) {
-            return 0n;
-        }
-
-        let sum = 0n;
-        for (const item of items) {
-            const token = stringOrUndefined(asRecord(item)?.token);
-            if (!token || token.toLowerCase() !== OPENSEA_WETH_ADDRESS) {
-                continue;
-            }
-
-            const amountRaw =
-                asRecord(item)?.startAmount ??
-                asRecord(item)?.start_amount ??
-                asRecord(item)?.amount;
-            const amount = this.tryParseBigInt(amountRaw);
-            if (amount === null) {
-                continue;
-            }
-
-            sum += amount;
-        }
-
-        return sum;
-    }
-
-    private sumNftUnits(items: unknown, collectionAddress?: string): bigint {
-        if (!Array.isArray(items)) {
-            return 0n;
-        }
-
-        let sum = 0n;
-        for (const item of items) {
-            const itemType = Number(asRecord(item)?.itemType);
-            if (![2, 3, 4, 5].includes(itemType)) {
-                continue;
-            }
-
-            const token = stringOrUndefined(asRecord(item)?.token);
-            if (
-                collectionAddress &&
-                token &&
-                token.toLowerCase() !== collectionAddress.toLowerCase()
-            ) {
-                continue;
-            }
-
-            const amountRaw =
-                asRecord(item)?.startAmount ??
-                asRecord(item)?.start_amount ??
-                asRecord(item)?.amount;
-            const amount = this.tryParseBigInt(amountRaw);
-            if (amount === null) {
-                continue;
-            }
-
-            sum += amount;
-        }
-
-        return sum;
-    }
-
-    private isPartialOrderType(orderType: unknown): boolean {
-        if (typeof orderType === "number") {
-            return orderType === 1 || orderType === 3;
-        }
-        if (typeof orderType === "string") {
-            const upper = orderType.toUpperCase();
-            return upper.includes("PARTIAL") || upper === "1" || upper === "3";
-        }
-        return false;
-    }
-
-    private divCeil(numerator: bigint, denominator: bigint): bigint {
-        if (denominator === 0n) {
-            throw new Error("Division by zero");
-        }
-
-        const q = numerator / denominator;
-        const r = numerator % denominator;
-        return r === 0n ? q : q + 1n;
-    }
-
-    private isWethOrder(rawOrder: unknown): boolean {
-        const order = asRecord(rawOrder);
-        const paymentToken =
-            stringOrUndefined(order.paymentToken) ??
-            stringOrUndefined(order.payment_token) ??
-            stringOrUndefined(order.paymentTokenAddress) ??
-            stringOrUndefined(order.payment_token_address);
-
-        if (paymentToken?.toLowerCase() === OPENSEA_WETH_ADDRESS) {
-            return true;
-        }
-
-        const proto = getProtocolEnvelope(rawOrder);
-        const offerItems = asArray(proto?.parameters?.offer);
-        if (
-            offerItems.some(
-                (item) =>
-                    stringOrUndefined(asRecord(item)?.token)?.toLowerCase() ===
-                    OPENSEA_WETH_ADDRESS,
-            )
-        ) {
-            return true;
-        }
-
-        const considerationItems = asArray(proto?.parameters?.consideration);
-        return considerationItems.some(
-            (item) =>
-                stringOrUndefined(asRecord(item)?.token)?.toLowerCase() ===
-                OPENSEA_WETH_ADDRESS,
-        );
-    }
-
-    private getNftItems(rawOrder: unknown, collectionAddress?: string): unknown[] {
-        const proto = getProtocolEnvelope(rawOrder);
-        const candidateBuckets = [
-            asArray(proto?.parameters?.consideration),
-            asArray(proto?.parameters?.offer),
-        ];
-
-        for (const items of candidateBuckets) {
-            const nftItems = items.filter((item) => {
-                const itemType = Number(asRecord(item)?.itemType);
-                if (![2, 3, 4, 5].includes(itemType)) {
-                    return false;
-                }
-
-                if (!collectionAddress) {
-                    return true;
-                }
-
-                const token = stringOrUndefined(asRecord(item)?.token);
-                return (
-                    typeof token === "string" &&
-                    token.toLowerCase() === collectionAddress.toLowerCase()
-                );
-            });
-
-            if (nftItems.length > 0) {
-                return nftItems;
-            }
-        }
-
-        return [];
-    }
-
     private inferNftSelectionKind(
         rawOrder: unknown,
         collectionAddress?: string,
     ): "item" | "criteria" | "unknown" {
-        const nftItems = this.getNftItems(rawOrder, collectionAddress);
-        if (nftItems.length === 0) {
-            return "unknown";
-        }
-
-        const hasExplicitItem = nftItems.some((item) =>
-            [2, 3].includes(Number(asRecord(item)?.itemType)),
-        );
-        if (hasExplicitItem) {
-            return "item";
-        }
-
-        const hasCriteriaItem = nftItems.some((item) =>
-            [4, 5].includes(Number(asRecord(item)?.itemType)),
-        );
-        if (hasCriteriaItem) {
-            return "criteria";
-        }
-
-        return "unknown";
+        return inferOpenSeaNftSelectionKind(rawOrder, collectionAddress);
     }
 
     private getOfferCriteria(rawOffer: unknown): Record<string, unknown> | undefined {
-        const offer = asRecord(rawOffer);
-        return (
-            recordOrUndefined(offer.criteria) ??
-            recordOrUndefined(recordOrUndefined(offer.protocolData)?.criteria) ??
-            recordOrUndefined(recordOrUndefined(offer.protocol_data)?.criteria)
-        );
-    }
-
-    private inferOfferScope(rawOrder: unknown): OfferScope {
-        const criteria = this.getOfferCriteria(rawOrder);
-        if (criteria) {
-            if (criteria.trait || criteria.traits) {
-                return "trait";
-            }
-
-            const encodedIds =
-                stringOrUndefined(criteria.encoded_token_ids) ??
-                stringOrUndefined(criteria.encodedTokenIds);
-            if (typeof encodedIds === "string" && encodedIds.length > 0) {
-                return "collection";
-            }
-
-            return "collection";
-        }
-
-        const nftSelectionKind = this.inferNftSelectionKind(rawOrder);
-        if (nftSelectionKind === "criteria") {
-            return "collection";
-        }
-
-        return "item";
-    }
-
-    private normalizeTraitCriteria(criteria: unknown): TraitSelector[] {
-        if (!criteria) {
-            return [];
-        }
-
-        const entries = Array.isArray(criteria) ? criteria : [criteria];
-        const normalized: TraitSelector[] = [];
-
-        for (const entry of entries) {
-            const type =
-                stringOrUndefined(asRecord(entry)?.type) ??
-                stringOrUndefined(asRecord(entry)?.trait_type);
-            const value =
-                stringOrUndefined(asRecord(entry)?.value) ??
-                stringOrUndefined(asRecord(entry)?.trait_value);
-
-            if (typeof type !== "string") {
-                continue;
-            }
-
-            if (value === undefined) {
-                normalized.push({ type });
-                continue;
-            }
-
-            normalized.push({ type, value });
-        }
-
-        return normalized;
+        return getOpenSeaOfferCriteria(rawOffer);
     }
 
     private normalizeOfferTraitCriteria(criteria: unknown): TraitTarget[] {
-        if (!criteria) {
-            return [];
-        }
-
-        if (Array.isArray(criteria)) {
-            return criteria.flatMap((entry) =>
-                this.normalizeOfferTraitCriteria(entry),
-            );
-        }
-
-        const candidate = asRecord(criteria);
-        if (candidate.trait || candidate.traits) {
-            return this.normalizeOfferTraitCriteria(
-                candidate.trait ?? candidate.traits,
-            );
-        }
-
-        const type =
-            stringOrUndefined(candidate.type) ??
-            stringOrUndefined(candidate.trait_type);
-        const value = candidate.value ?? candidate.trait_value;
-        if (typeof type === "string" && value !== undefined && value !== null) {
-            return [{ type, value: String(value) }];
-        }
-
-        if (typeof criteria === "object" && criteria !== null) {
-            const normalized: TraitTarget[] = [];
-            for (const [key, rawValue] of Object.entries(
-                criteria as Record<string, unknown>,
-            )) {
-                if (
-                    rawValue === undefined ||
-                    rawValue === null ||
-                    typeof rawValue === "object"
-                ) {
-                    continue;
-                }
-
-                normalized.push({ type: key, value: String(rawValue) });
-            }
-
-            return normalized;
-        }
-
-        return [];
+        return normalizeOpenSeaOfferTraitCriteria(criteria);
     }
 
     private matchesTraitSelector(
@@ -1480,19 +1195,7 @@ export class OpenSeaBiddingService implements BiddingService {
     }
 
     private isCollectionWideOffer(rawOffer: unknown): boolean {
-        const nftSelectionKind = this.inferNftSelectionKind(rawOffer);
-        if (nftSelectionKind === "item") {
-            return false;
-        }
-
-        const criteria = this.getOfferCriteria(rawOffer);
-        const traitCriteriaRaw = criteria?.trait ?? criteria?.traits;
-        const criteriaTraits = this.normalizeTraitCriteria(traitCriteriaRaw);
-        const encodedIds =
-            stringOrUndefined(criteria?.encoded_token_ids) ??
-            stringOrUndefined(criteria?.encodedTokenIds);
-
-        return criteriaTraits.length === 0 && (!encodedIds || encodedIds === "*");
+        return isOpenSeaCollectionWideOffer(rawOffer);
     }
 
     private async fetchAllCollectionOffers(
@@ -1686,129 +1389,17 @@ export class OpenSeaBiddingService implements BiddingService {
         return this.dedupeTraitTargets(explicitTargets);
     }
 
-    private extractWethUnitPrice(
-        rawOrder: unknown,
-        collectionAddress?: string,
-    ): PriceExtraction | null {
-        const proto = getProtocolEnvelope(rawOrder);
-        if (proto?.parameters) {
-            const offerSum = this.sumWethItems(proto.parameters.offer);
-            const considerationSum = this.sumWethItems(
-                proto.parameters.consideration,
-            );
-            const nftUnitsFromConsideration = this.sumNftUnits(
-                proto.parameters.consideration,
-                collectionAddress,
-            );
-            const nftUnitsFromOffer = this.sumNftUnits(
-                proto.parameters.offer,
-                collectionAddress,
-            );
-            const nftUnits =
-                nftUnitsFromConsideration > 0n
-                    ? nftUnitsFromConsideration
-                    : nftUnitsFromOffer;
-            const orderType =
-                proto.parameters.orderType ?? proto.parameters.order_type;
-            const remainingQuantityRaw =
-                asRecord(rawOrder)?.remainingQuantity ??
-                asRecord(rawOrder)?.remaining_quantity;
-            const remainingQuantity = this.tryParseNumber(remainingQuantityRaw);
-            const isPartial =
-                this.isPartialOrderType(orderType) ||
-                (remainingQuantity !== null && remainingQuantity > 1);
-
-            if (offerSum > 0n || considerationSum > 0n) {
-                const total =
-                    offerSum >= considerationSum
-                        ? { value: offerSum, source: "protocol.offer" }
-                        : {
-                              value: considerationSum,
-                              source: "protocol.consideration",
-                          };
-                const quantity = nftUnits > 0n ? nftUnits : 1n;
-                if (isPartial && quantity > 1n) {
-                    return {
-                        price: this.divCeil(total.value, quantity),
-                        source: `${total.source}/unit`,
-                        quantity,
-                    };
-                }
-
-                return {
-                    price: total.value,
-                    source: total.source,
-                    quantity,
-                };
-            }
-        }
-
-        if (!this.isWethOrder(rawOrder)) {
-            return null;
-        }
-
-        const currentPriceRaw =
-            asRecord(rawOrder)?.currentPrice ?? asRecord(rawOrder)?.current_price;
-        const currentPrice = this.tryParseBigInt(currentPriceRaw);
-        if (currentPrice !== null) {
-            return {
-                price: currentPrice,
-                source: "currentPrice",
-                quantity: 1n,
-            };
-        }
-
-        return null;
-    }
-
     private parseRawOffer(
         rawOffer: unknown,
         collectionAddress?: string,
         discoverySource: OfferDiscoverySource = "collectionOffers",
     ): Order | null {
-        if (!rawOffer) {
-            return null;
-        }
-
-        const record = asRecord(rawOffer);
-        const orderHash = getOrderHash(rawOffer);
-        if (!orderHash) {
-            return null;
-        }
-
-        const maker =
-            stringOrUndefined(asRecord(record.maker)?.address) ??
-            stringOrUndefined(record.maker) ??
-            stringOrUndefined(
-                getProtocolEnvelope(rawOffer)?.parameters?.offerer,
-            );
-        if (!maker) {
-            return null;
-        }
-
-        const extracted = this.extractWethUnitPrice(rawOffer, collectionAddress);
-        if (!extracted) {
-            return null;
-        }
-
-        return {
-            id: orderHash,
-            price: extracted.price,
-            maker: maker.toLowerCase(),
-            protocolAddress:
-                stringOrUndefined(record.protocolAddress) ??
-                stringOrUndefined(record.protocol_address),
-            expirationTime:
-                this.tryParseNumber(
-                    record.expirationTime ?? record.expiration_time,
-                ) ?? undefined,
-            rawOrder: rawOffer,
-            offerScope: this.inferOfferScope(rawOffer),
+        // Keep bidder runtime offer parsing centralized for snapshot projection and backend fallback reuse.
+        return parseOpenSeaBiddingOffer(rawOffer, {
+            collectionAddress,
+            wethAddress: OPENSEA_WETH_ADDRESS,
             discoverySource,
-            priceSource: extracted.source,
-            source: extracted.source,
-            quantity: extracted.quantity,
-        };
+        });
     }
 }
 
@@ -1824,29 +1415,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringOrUndefined(value: unknown): string | undefined {
     return typeof value === "string" ? value : undefined;
-}
-
-function getProtocolEnvelope(rawOrder: unknown): {
-    parameters?: Record<string, unknown>;
-} | undefined {
-    const order = asRecord(rawOrder);
-    const protocolData = recordOrUndefined(order.protocolData);
-    if (protocolData) {
-        return protocolData as { parameters?: Record<string, unknown> };
-    }
-
-    const legacyProtocolData = recordOrUndefined(order.protocol_data);
-    if (legacyProtocolData) {
-        return legacyProtocolData as { parameters?: Record<string, unknown> };
-    }
-
-    return undefined;
-}
-
-function recordOrUndefined(value: unknown): Record<string, unknown> | undefined {
-    return value && typeof value === "object"
-        ? (value as Record<string, unknown>)
-        : undefined;
 }
 
 function getOrderHash(rawOrder: unknown): string | undefined {

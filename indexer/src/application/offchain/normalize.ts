@@ -39,9 +39,11 @@ export type RawOrderPayload = {
     contract: string;
     tokenId?: string | null;
     sourceScopeKind: OrderSourceScopeKind;
+    sourceEncodedTokenIds?: string | null;
     sourceSchema?: TokenSetSchema | null;
     sourceCriteriaRoot?: string | null;
     localTokenSetStatus?: OrderLocalTokenSetStatus | null;
+    quantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;
@@ -124,9 +126,11 @@ export function normalizeOffchainOrder(
         contract: assertAddress(order.contract, "contract"),
         tokenId: order.tokenId ?? null,
         sourceScopeKind: order.sourceScopeKind,
+        sourceEncodedTokenIds: order.sourceEncodedTokenIds ?? null,
         sourceSchema: order.sourceSchema ?? null,
         sourceCriteriaRoot: order.sourceCriteriaRoot ?? null,
         localTokenSetStatus: order.localTokenSetStatus ?? null,
+        quantity: normalizeOrderQuantity(order.quantity),
         price: order.price ?? null,
         currency: parseOptionalAddress(order.currency, "currency"),
         validFrom: order.validFrom ?? null,
@@ -147,9 +151,11 @@ function toRawOrderPayload(value: Record<string, unknown>): RawOrderPayload {
         taker: parseOptionalAddress(value.taker, "taker"),
         contract: assertString(value.contract, "contract"),
         tokenId: parseOptionalString(value.tokenId, "tokenId"),
+        quantity: parseOptionalString(value.quantity, "quantity"),
         price: parseOptionalString(value.price, "price"),
         currency: parseOptionalString(value.currency, "currency"),
         sourceScopeKind: "token",
+        sourceEncodedTokenIds: null,
         sourceSchema: null,
         sourceCriteriaRoot: null,
         localTokenSetStatus: "none",
@@ -157,6 +163,18 @@ function toRawOrderPayload(value: Record<string, unknown>): RawOrderPayload {
         validUntil: parseOptionalNumber(value.validUntil, "validUntil"),
         seaportData: null,
     };
+}
+
+function normalizeOrderQuantity(value: string | null | undefined): string {
+    if (value === undefined || value === null || value.trim() === "") {
+        return "1";
+    }
+
+    const parsed = BigInt(value);
+    if (parsed <= 0n) {
+        throw new Error("Invalid order quantity");
+    }
+    return parsed.toString();
 }
 
 export function normalizeOffchainOrderUpdateById(

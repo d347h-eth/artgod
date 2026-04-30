@@ -65,11 +65,73 @@ describe('token detail page', () => {
 						],
 						hasMetadata: true,
 						metadataUpdatedAt: '2026-01-01T00:00:00Z'
-					},
-					tokenBiddingJob: null,
-					backPath: '/ethereum/milady',
-					backQuery: 'cursor=opaque-cursor-token&token_status=listed&mode=grid&media_mode=artifact'
-				}
+						},
+						tokenBiddingJob: null,
+						tokenBiddingBidBook: {
+							state: {
+								source: 'orders',
+								snapshotRefreshedAtMs: null,
+								projectedAt: null,
+								rowCount: 2,
+								durationMs: null,
+								lastError: null
+							},
+							bids: [
+								{
+									orderId: '0xcollection-bid',
+									source: 'orders',
+									scope: {
+										kind: 'collection',
+										label: 'collection',
+										tokenId: null,
+										traits: []
+									},
+									maker: {
+										address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+										label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+										isOwn: false
+									},
+									priceWei: '100000000000000000',
+									priceEth: '0.1',
+									quantity: '1',
+									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+									currencySymbol: 'WETH',
+									protocolAddress: null,
+									validUntil: 4_000_000_000,
+									placedAt: '2026-01-01T00:00:00Z',
+									snapshotRefreshedAtMs: null,
+									seenAt: '2026-01-01T00:00:00Z'
+								},
+								{
+									orderId: '0xtrait-bid',
+									source: 'orders',
+									scope: {
+										kind: 'trait',
+										label: 'Hat=Beanie',
+										tokenId: null,
+										traits: [{ type: 'Hat', value: 'Beanie' }]
+									},
+									maker: {
+										address: '0xcccccccccccccccccccccccccccccccccccccccc',
+										label: '0xcccccccccccccccccccccccccccccccccccccccc',
+										isOwn: false
+									},
+									priceWei: '100000000000000000',
+									priceEth: '0.1',
+									quantity: '1',
+									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+									currencySymbol: 'WETH',
+									protocolAddress: null,
+									validUntil: 4_000_000_000,
+									placedAt: '2026-01-01T00:00:00Z',
+									snapshotRefreshedAtMs: null,
+									seenAt: '2026-01-01T00:00:00Z'
+								}
+							]
+						},
+						backPath: '/ethereum/milady',
+						backQuery: 'cursor=opaque-cursor-token&token_status=listed&mode=grid&media_mode=artifact'
+					}
 			}
 		});
 
@@ -98,10 +160,13 @@ describe('token detail page', () => {
 				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 			);
 			expect(body).not.toContain('traits=Power%3A7');
-		expect(body).toContain('token bidding');
-		expect(body).toContain('collection bidding page');
-		expect(body).toContain('>create<');
-	});
+			expect(body).toContain('token bidding');
+			expect(body).toContain('<th class="bid-book-col-center">scope</th>');
+			expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
+			expect(body).toContain('Hat=Beanie');
+			expect(body).toContain('collection bidding page');
+			expect(body).toContain('>create<');
+		});
 
 	it('uses holder return path when provided', () => {
 		const { body } = render(TokenDetailPage, {

@@ -1,11 +1,12 @@
 # DB-Backed Trading Jobs Plan
 
-Status: WIP
-Current milestone: Slice 6 complete
+Status: Implemented for bidding; sniping reuse deferred
+Current milestone: DB job management, runtime reconciliation, and bid-book display are active
 
 This document is the working plan for moving bidding jobs, and later sniping jobs, from operator-managed JSON files into ArtGod SQLite.
 
 The near-term implementation is bidding-first. Sniping should reuse the same job lifecycle and command model later, but should not block the first bidding pass.
+The current-state reference for the implemented bidding runtime is `docs/trading/01-bidding-runtime-and-jobs.md`.
 
 ## Goals
 
@@ -23,7 +24,7 @@ The near-term implementation is bidding-first. Sniping should reuse the same job
 - Do not make ArtGod's canonical `orders` table the bidder's source of truth.
 - Do not rewrite bidding business logic while adding persistence.
 - Do not build collection-scoped or trait-scoped job creation UI in the first UI pass.
-- Do not require dynamic runtime reconciliation in the first DB persistence slice if the DB startup loader is still being brought online.
+- Do not build sniping-specific persistence or runtime behavior until bidding is stable.
 
 ## Hard Invariants
 
@@ -35,8 +36,8 @@ The near-term implementation is bidding-first. Sniping should reuse the same job
 6. JetStream is the low-latency wake-up path after publish. The Outbox exists specifically to close the DB-commit-to-publish gap.
 7. The bot must process Outbox rows both on immediate wake-up and on periodic recovery scans.
 8. Human-readable config, API, and UI values should use Ether units. Runtime internals and DB amount columns can use wei strings.
-9. Delete/disable semantics must be deliberate. If a job has an active offer, the long-term behavior is to stop scheduling it and request offer cancellation.
-10. The first DB runtime path may load enabled jobs on startup only, but the schema should not block dynamic reconciliation later.
+9. Delete/disable semantics must be deliberate. If a job has an active offer, the bot stops scheduling it and requests offer cancellation.
+10. Runtime reconciliation must be dynamic; bot restart is not required for normal bidding job CRUD.
 
 ## Domain Model
 
@@ -54,7 +55,7 @@ Signal model:
 - Outbox is authoritative downstream effect state.
 - JetStream is the speed-up signal only.
 
-## Proposed Schema
+## Implemented Schema
 
 ### `trading_jobs`
 
@@ -194,21 +195,57 @@ This is the table that closes the backend crash window between:
 
 Backend writes the job mutation and the Outbox row in one SQLite transaction. After commit, backend best-effort publishes a JetStream event. The bot uses the event for immediate processing and also scans pending Outbox rows periodically for recovery.
 
+### `trading_bidding_bid_book_rows`
+
+Materialized display rows for the bid book.
+
+The bidding runtime writes `bot_snapshot` rows from its OpenSea collection-offer snapshots. Backend fallback reads synthesize `orders` rows from canonical orders using the shared OpenSea bidding-offer parser.
+
+Important fields:
+
+- `source`: `bot_snapshot` or `orders`
+- `scope_kind`: `collection`, `trait`, `token`, `token_set`, or `unknown`
+- `scope_traits_json`: full trait criteria for trait-scoped bids
+- `encoded_token_ids`: token-set payload when available
+- `price_wei`: unit price in wei
+- `quantity`: offer quantity as a string
+- `placed_at`: source order creation time when available
+- `valid_until`: source expiration timestamp in seconds
+
+### `trading_bidding_collection_bid_book_state`
+
+Projection freshness and diagnostics per collection/source.
+
+The bot updates this after snapshot projection replacement. Backend reads it to expose row counts, projection time, duration, and last error to the UI.
+
+### `trading_bot_runtime_state`
+
+Non-secret bot heartbeat table.
+
+Backend uses this table with projection freshness metadata to decide whether `bot_snapshot` is a live bid-book source. If a collection has enabled jobs but the heartbeat or projection is stale, backend falls back to `orders` for read-only display.
+
 ## Backend API Shape
 
-Admin-only routes should be registered in the backend's admin route section.
+Trading routes are local backend routes. Mutating job routes are protected by the existing host/origin/CSRF guards.
 
 Collection bidding page:
 
 - `GET /api/:chain_ref/:collection_ref/bidding/jobs`
 - Lists current bidding jobs for a collection.
 - Default filters should include non-archived jobs.
+- `GET /api/:chain_ref/:collection_ref/bidding/bids`
+- Lists collection bid-book rows.
+- Query `bid_scope=collection` returns collection-wide bids only.
+- Query `bid_scope=traits` returns trait-scoped bids and applies repeated `traits=key:value` / `trait_ranges=key:from..to` filters.
+- Source selection prefers the bot snapshot projection only when enabled jobs exist, the bidding bot heartbeat is live, and projection metadata is fresh; otherwise it falls back to orders.
 
 Token detail management:
 
 - `GET /api/:chain_ref/:collection_ref/:token_ref/bidding/job`
 - `PUT /api/:chain_ref/:collection_ref/:token_ref/bidding/job`
 - `DELETE /api/:chain_ref/:collection_ref/:token_ref/bidding/job`
+- `GET /api/:chain_ref/:collection_ref/:token_ref/bidding/bids`
+- Token bid-book rows include all applicable scopes: collection, trait, token-set, and exact-token.
 
 First-pass token job body:
 
@@ -264,6 +301,8 @@ Initial use cases:
 - `GetTokenBiddingJobUseCase`
 - `UpsertTokenBiddingJobUseCase`
 - `ArchiveTokenBiddingJobUseCase`
+- `ListCollectionBiddingBidBookUseCase`
+- `GetTokenBiddingBidBookUseCase`
 
 Validation rules:
 
@@ -298,9 +337,9 @@ Route:
 
 View:
 
-- `frontend/src/lib/components/CollectionBiddingJobsView.svelte`
+- `frontend/src/lib/components/CollectionBiddingView.svelte`
 
-The collection bidding page should list existing jobs for the collection and allow quick inline actions:
+The collection bidding page lists the bid book above existing jobs and allows quick inline actions:
 
 - inline edit `floorEth`
 - inline edit `ceilingEth`
@@ -316,6 +355,8 @@ For the first pass, collection and competitive-trait jobs can be displayed if th
 
 Add a compact token-bidding management form near the bottom of the token detail page.
 
+The token detail page renders the bid book above the token job form because current bids are the primary user navigation surface.
+
 First-pass fields:
 
 - status display
@@ -327,11 +368,26 @@ First-pass fields:
 
 This form should manage only `target.type = 'token'`.
 
+### Reusable Bid Book Panel
+
+`frontend/src/lib/components/BidBookPanel.svelte` is shared by collection bidding and token detail pages.
+
+Display rules:
+
+- source value `orders` is labeled `normal`
+- source value `bot_snapshot` is labeled `competitive`
+- WETH prices omit the WETH suffix
+- multi-quantity offers display as quantity times unit price
+- token detail always shows scope because multiple bid scopes can apply to one token
+- collection `bid_scope=collection` hides the scope column because all rows are collection-wide
+- collection `bid_scope=traits` shows the scope column and centers scope values
+- dates default to compact relative display with RFC 3339 available on hover/toggle
+
 ## Trading Runtime Integration
 
-### First DB Runtime Pass
+### DB Runtime Job Source
 
-Add a trading-side port:
+The runtime uses a trading-side port:
 
 ```ts
 export interface BiddingJobSource {
@@ -342,6 +398,7 @@ export interface BiddingJobSource {
 Adapters:
 
 - new SQLite adapter maps `trading_jobs + trading_bidding_job_specs + collections` into existing `BidderJob`
+- no JSON-file fallback remains
 
 Important mapping:
 
@@ -349,13 +406,13 @@ Important mapping:
 - `collections.opensea_slug ?? collections.slug -> BidderJob.collectionSlug`
 - `trading_jobs.token_id -> target.tokenId`
 - `*_wei` text columns -> `bigint`
-- runtime state should be reset on load unless and until runtime-state persistence is deliberately enabled
+- runtime state is rebuilt from live bot state; DB runtime-state persistence is used for active-offer cancellation and diagnostics, not as declared job configuration
 
 ### Dynamic Reconciliation Pass
 
-Long-term runtime should not require restart after job CRUD.
+Runtime does not require restart after job CRUD.
 
-Clean model:
+Current model:
 
 1. Backend writes job rows and command rows transactionally.
 2. Backend publishes a local JetStream notification such as `trading.bidding.jobs.changed` after commit.
@@ -371,6 +428,7 @@ Reconciliation behavior:
 - Archived job: remove from scheduling and enqueue/carry out active-offer cancellation.
 - Failed command: record error and retry with bounded backoff.
 - Startup recovery: before normal enabled-job bootstrap, process pending cancellation commands for archived/paused jobs that still have active runtime state.
+- Watch reconciliation: reload enabled jobs and update snapshot polling plus direct OpenSea stream subscriptions from the resulting collection set.
 
 The bot owns cancellation because only the bot has the correct OpenSea SDK/client context, maker wallet, job-scoped active order knowledge, and market-operation logging.
 
@@ -392,6 +450,32 @@ Archive flow:
 8. Bot marks the command completed and updates runtime cancellation fields.
 
 If the bot is offline, the command remains pending. On next bot startup, command scanning should run before or alongside enabled-job loading so stale active offers are cancelled.
+
+## Bid Book Projection
+
+The bid-book read model is display-only and must not feed bot decisions.
+
+Runtime projection:
+
+1. `CollectionOfferSnapshotService` refreshes a collection offer snapshot.
+2. It notifies `BiddingBidBookProjectionScheduler` without awaiting projection completion.
+3. Scheduler coalesces concurrent notifications per collection.
+4. Scheduler respects `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`.
+5. Projection parses snapshot offers through the shared OpenSea bidding-offer parser.
+6. Projection replaces `bot_snapshot` rows for that collection in one transaction.
+7. Projection updates `trading_bidding_collection_bid_book_state`.
+
+Orders fallback:
+
+- fallback reads active buy orders only
+- fallback parses `raw_rest_data` first, then `raw_stream_data` if REST parsing returns no offer
+- failed parsing is logged explicitly and the row is skipped
+- fallback is used only when the collection has no live competitive bot snapshot source
+
+Source selection:
+
+- enabled collection jobs + live bidding heartbeat + fresh projection metadata -> `bot_snapshot`
+- all other cases -> `orders`
 
 ## Implementation Slices
 
@@ -441,7 +525,17 @@ If the bot is offline, the command remains pending. On next bot startup, command
 - Runtime reconciliation reloads authoritative job state from SQLite before mutating live bidder state.
 - Dynamic enabled token/collection jobs prepare direct OpenSea stream subscriptions and authoritative snapshot refreshes before immediate bid refresh.
 
-### Slice 7: Sniping Reuse
+### Slice 7: Bid Book Projection and Display (done)
+
+- Add `trading_bidding_bid_book_rows`.
+- Add `trading_bidding_collection_bid_book_state`.
+- Add `trading_bot_runtime_state`.
+- Project bot snapshots into bid-book display rows.
+- Add orders fallback through the shared OpenSea bidding-offer parser.
+- Add collection and token bid-book API routes.
+- Add reusable `BidBookPanel.svelte`.
+
+### Slice 8: Sniping Reuse
 
 - Reuse `trading_jobs` and `trading_job_commands`.
 - Add sniping-specific spec table.
@@ -449,6 +543,6 @@ If the bot is offline, the command remains pending. On next bot startup, command
 
 ## Open Questions
 
-- Should archive immediately hide rows from the collection bidding page by default, or show archived rows behind a filter?
-- Should pause be implemented in the first UI pass, or wait until runtime command reconciliation exists?
-- Should runtime state persistence be enabled immediately, or only when cancellation recovery is implemented?
+- How much of the sniping runtime should reuse the bidding command/outbox implementation directly versus sharing only the generic trading job envelope?
+- When should collection-scoped and trait-scoped bidding job creation UI be added?
+- Should token-card best bids be materialized from the bid-book projection for listed tokens only, or should the UI request token bid books on demand?

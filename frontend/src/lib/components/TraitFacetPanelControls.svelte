@@ -30,7 +30,7 @@
 		title="toggle traits panel"
 		onclick={onToggleClick}
 	>
-		traits
+		filter
 	</button>
 	{#if hasActiveFilters}
 		<button

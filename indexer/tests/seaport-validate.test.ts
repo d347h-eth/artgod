@@ -172,6 +172,58 @@ describe("validateSeaportOrder", () => {
         nowSpy.mockRestore();
     });
 
+    it("verifies a compact OpenSea stream order signature with Seaport typed data", async () => {
+        const seaportData = buildCompactSignatureCriteriaOfferData();
+        const orderId = computeSeaportOrderHash(seaportData);
+        expect(orderId).toBe(
+            "0x57796f776326ac27c1fca12a847183170891e95a5c33ea57c912f262ed7e8232",
+        );
+
+        const rpc = new MockRpc({
+            conduitKey:
+                "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+            conduitAddress: SEAPORT_CONDUIT,
+            channels: [SEAPORT],
+        });
+        const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1777214700 * 1000);
+
+        const result = await validateSeaportOrder(
+            rpc,
+            new MemoryConduitRegistry(),
+            {
+                conduitController: "0x00000000f9490004c11cef243f5400493c00ad63",
+            },
+            buildOrderRecord({
+                id: orderId,
+                side: "buy",
+                maker: seaportData.offerer,
+                contract: "0x7011ee079f579eb313012bddb92fd6f06fa43335",
+                tokenId: null,
+                price: "18800000000000000",
+                currency: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                validFrom: 1777214679,
+                validUntil: 1777215288,
+                seaportData,
+                seaportDataSourceKind: ORDER_SEAPORT_DATA_SOURCE_KIND.Stream,
+            }),
+        );
+
+        expect(result).toEqual({
+            status: ORDER_STATUS.Fillable,
+            reason: "erc20-ok",
+        });
+        expect(rpc.calledFunctions).toEqual([
+            "getOrderStatus",
+            "getCounter",
+            "getConduit",
+            "getChannels",
+            "allowance",
+            "balanceOf",
+        ]);
+
+        nowSpy.mockRestore();
+    });
+
     it("invalidates a stream order when the recovered signer does not match maker", async () => {
         const fixture = await readFixture("item_listed.json");
         const normalized = normalizeOpenSeaEvent(fixture);
@@ -482,6 +534,52 @@ function buildSeaportData(): SeaportOrderData {
         zoneHash: ZERO_BYTES32,
         salt: "70164244328926012465918583528159937063507298733090730315624638188190333160040",
         conduitKey: ZERO_BYTES32,
+        totalOriginalConsiderationItems: "2",
+        counter: "0",
+    };
+}
+
+function buildCompactSignatureCriteriaOfferData(): SeaportOrderData {
+    return {
+        protocolAddress: SEAPORT,
+        signature:
+            "0x292bf4b29ae863fe8c7c4d06ebbd9e067afbb5ad28e2ac30413e270bcb973aa2912502384238fc1b0f9b5c0bea02bdfd706023bc1a56529a656f14d5d2ffc968",
+        offerer: "0xfee36c593a39e68efab66c7ca0a38242344f68e6",
+        zone: "0x000056f7000000ece9003ca63978907a00ffd100",
+        offer: [
+            {
+                itemType: "1",
+                token: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                identifierOrCriteria: "0",
+                startAmount: "18800000000000000",
+                endAmount: "18800000000000000",
+            },
+        ],
+        consideration: [
+            {
+                itemType: "4",
+                token: "0x7011ee079f579eb313012bddb92fd6f06fa43335",
+                identifierOrCriteria: "0",
+                startAmount: "1",
+                endAmount: "1",
+                recipient: "0xfee36c593a39e68efab66c7ca0a38242344f68e6",
+            },
+            {
+                itemType: "1",
+                token: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                identifierOrCriteria: "0",
+                startAmount: "188000000000000",
+                endAmount: "188000000000000",
+                recipient: "0x0000a26b00c1f0df003000390027140000faa719",
+            },
+        ],
+        startTime: "1777214679",
+        endTime: "1777215288",
+        orderType: "3",
+        zoneHash: ZERO_BYTES32,
+        salt: "0",
+        conduitKey:
+            "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
         totalOriginalConsiderationItems: "2",
         counter: "0",
     };

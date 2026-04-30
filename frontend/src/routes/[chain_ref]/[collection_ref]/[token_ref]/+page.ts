@@ -1,6 +1,11 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { BackendApiError, getTokenBiddingJob, getTokenDetail } from '$lib/backend-api';
+import {
+	BackendApiError,
+	getTokenBiddingBidBook,
+	getTokenBiddingJob,
+	getTokenDetail
+} from '$lib/backend-api';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
@@ -37,6 +42,17 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			},
 			token: null,
 			traitFilterPresentation: defaultTraitFilterPresentationState(),
+			tokenBiddingBidBook: {
+				state: {
+					source: 'orders',
+					snapshotRefreshedAtMs: null,
+					projectedAt: null,
+					rowCount: 0,
+					durationMs: null,
+					lastError: null
+				},
+				bids: []
+			},
 			backPath,
 			backQuery
 		};
@@ -44,7 +60,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 
 	try {
 		// Load the token detail and its token-scoped bidding job together for the page shell.
-		const [response, biddingJobResponse] = await Promise.all([
+		const [response, biddingJobResponse, biddingBidBookResponse] = await Promise.all([
 			getTokenDetail(
 				fetch,
 				params.chain_ref,
@@ -52,7 +68,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				params.token_ref,
 				buildMediaModeQuery(mediaMode)
 			),
-			getTokenBiddingJob(fetch, params.chain_ref, params.collection_ref, params.token_ref)
+			getTokenBiddingJob(fetch, params.chain_ref, params.collection_ref, params.token_ref),
+			getTokenBiddingBidBook(fetch, params.chain_ref, params.collection_ref, params.token_ref)
 		]);
 		return {
 			chain: response.chain,
@@ -61,6 +78,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			token: response.token,
 			traitFilterPresentation: response.traitFilterPresentation,
 			tokenBiddingJob: biddingJobResponse.job,
+			tokenBiddingBidBook: biddingBidBookResponse.bidBook,
 			backPath,
 			backQuery
 		};

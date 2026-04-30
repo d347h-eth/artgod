@@ -20,6 +20,7 @@ export type BiddingJobCommandReconcilerOptions = {
 
 export interface BiddingRuntimeJobPreparationPort {
     prepareEnabledJob(job: BidderJob): Promise<void>;
+    reconcileEnabledJobs(jobs: BidderJob[]): Promise<void>;
 }
 
 // BiddingJobCommandReconciler applies durable DB Outbox commands to the live bidder.
@@ -61,6 +62,7 @@ export class BiddingJobCommandReconciler {
     private async processCommand(command: BiddingJobCommand): Promise<void> {
         try {
             await this.applyCommand(command);
+            await this.reconcileEnabledJobs();
             await this.commandRepository.markCompleted(command.commandId);
             biddingLog.info(
                 `[BiddingJobCommandReconciler] Completed command. commandId=${command.commandId}, kind=${command.commandKind}, jobId=${command.jobId}, attempts=${command.attempts}`,
@@ -176,5 +178,11 @@ export class BiddingJobCommandReconciler {
         // Load archived or paused declarations too so restart recovery can still discover maker offers by target.
         const record = await this.jobSource.loadJobById(command.jobId);
         return record?.job ?? null;
+    }
+
+    private async reconcileEnabledJobs(): Promise<void> {
+        // Reload enabled declarations so runtime watch state follows DB truth after each command.
+        const jobs = await this.jobSource.loadEnabledJobs();
+        await this.jobPreparationPort.reconcileEnabledJobs(jobs);
     }
 }

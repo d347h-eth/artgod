@@ -715,6 +715,8 @@ The bot entrypoint must:
 - emit `bot_bootstrap_progress` while long warmup phases are advancing
 - emit `bot_ready` only after authoritative snapshot bootstrap and current-price bootstrap complete
 - keep lifecycle event payloads limited to non-secret runtime metadata
+- write only non-secret heartbeat/state rows to `trading_bot_runtime_state`
+- load bidding jobs from SQLite after secret handoff; the DB contains declared job config, not wallet material
 - never log the payload or derived private-key hex
 
 Important limitation:
@@ -729,6 +731,8 @@ Bootstrap lifecycle:
 - `starting` means the process was spawned and must quickly emit its first lifecycle signal
 - `bootstrapping` means the process is live and handling allowance approval or warming required runtime state under a stall watchdog
 - `running` means the bot finished required bootstrap and regular job ticks may start
+
+The heartbeat table is safe for backend read-source decisions because it stores only bot kind, chain, wallet id, public address, state, timestamps, and last error.
 
 ## Restart Policy
 

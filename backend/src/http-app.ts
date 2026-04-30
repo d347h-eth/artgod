@@ -17,7 +17,9 @@ import type { ListCollectionsUseCase } from "./application/use-cases/collections
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
 import type { ListCollectionBiddingJobsUseCase } from "./application/use-cases/trading/list-collection-bidding-jobs.js";
+import type { ListCollectionBiddingBidBookUseCase } from "./application/use-cases/trading/list-collection-bidding-bid-book.js";
 import type { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
+import type { GetTokenBiddingBidBookUseCase } from "./application/use-cases/trading/get-token-bidding-bid-book.js";
 import type { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
 import type { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/archive-token-bidding-job.js";
 import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-bootstrap-run.js";
@@ -38,7 +40,9 @@ import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-col
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
 import { ResolveOwnerRefHttpAdapter } from "./http/handlers/owners/resolve-owner-ref.js";
 import { ListCollectionBiddingJobsHttpAdapter } from "./http/handlers/trading/list-collection-bidding-jobs.js";
+import { ListCollectionBiddingBidBookHttpAdapter } from "./http/handlers/trading/list-collection-bidding-bid-book.js";
 import { GetTokenBiddingJobHttpAdapter } from "./http/handlers/trading/get-token-bidding-job.js";
+import { GetTokenBiddingBidBookHttpAdapter } from "./http/handlers/trading/get-token-bidding-bid-book.js";
 import { UpsertTokenBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-token-bidding-job.js";
 import { ArchiveTokenBiddingJobHttpAdapter } from "./http/handlers/trading/archive-token-bidding-job.js";
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
@@ -73,7 +77,9 @@ export function createApiApp(
     getTokenPreviewUseCase: GetTokenPreviewPort,
     updateCollectionCustomizationUseCase: UpdateCollectionCustomizationUseCase,
     listCollectionBiddingJobsUseCase: ListCollectionBiddingJobsUseCase,
+    listCollectionBiddingBidBookUseCase: ListCollectionBiddingBidBookUseCase,
     getTokenBiddingJobUseCase: GetTokenBiddingJobUseCase,
+    getTokenBiddingBidBookUseCase: GetTokenBiddingBidBookUseCase,
     upsertTokenBiddingJobUseCase: UpsertTokenBiddingJobUseCase,
     archiveTokenBiddingJobUseCase: ArchiveTokenBiddingJobUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
@@ -141,9 +147,17 @@ export function createApiApp(
         new ListCollectionBiddingJobsHttpAdapter(
             listCollectionBiddingJobsUseCase,
         );
+    const listCollectionBiddingBidBookAdapter =
+        new ListCollectionBiddingBidBookHttpAdapter(
+            listCollectionBiddingBidBookUseCase,
+        );
     const getTokenBiddingJobAdapter = new GetTokenBiddingJobHttpAdapter(
         getTokenBiddingJobUseCase,
     );
+    const getTokenBiddingBidBookAdapter =
+        new GetTokenBiddingBidBookHttpAdapter(
+            getTokenBiddingBidBookUseCase,
+        );
     const upsertTokenBiddingJobAdapter = new UpsertTokenBiddingJobHttpAdapter(
         upsertTokenBiddingJobUseCase,
     );
@@ -179,7 +193,9 @@ export function createApiApp(
         getTokenPreviewAdapter,
         updateCollectionCustomizationAdapter,
         listCollectionBiddingJobsAdapter,
+        listCollectionBiddingBidBookAdapter,
         getTokenBiddingJobAdapter,
+        getTokenBiddingBidBookAdapter,
         upsertTokenBiddingJobAdapter,
         archiveTokenBiddingJobAdapter,
         getRuntimeHealthAdapter,

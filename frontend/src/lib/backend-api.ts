@@ -3,6 +3,7 @@ import type {
 	BootstrapRetryFailedResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
+	CollectionBiddingBidBookApiResponse,
 	BootstrapStatusApiResponse,
 	CollectionBiddingJobsApiResponse,
 	CollectionActivitiesApiResponse,
@@ -12,6 +13,7 @@ import type {
 	CollectionsApiResponse,
 	DefaultChainResponse,
 	OwnerRefResolutionApiResponse,
+	TokenBiddingBidBookApiResponse,
 	TokenBiddingJobApiResponse,
 	TokenBiddingJobMutationApiResponse,
 	TokenDetailApiResponse,
@@ -130,6 +132,20 @@ export async function getCollectionBiddingJobs(
 	);
 }
 
+export async function getCollectionBiddingBidBook(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	params: URLSearchParams
+): Promise<CollectionBiddingBidBookApiResponse> {
+	const query = params.toString();
+	const suffix = query ? `?${query}` : '';
+	return requestJson<CollectionBiddingBidBookApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/bids${suffix}`
+	);
+}
+
 export async function getTokenBiddingJob(
 	fetchFn: typeof fetch,
 	chainRef: string,
@@ -139,6 +155,18 @@ export async function getTokenBiddingJob(
 	return requestJson<TokenBiddingJobApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`
+	);
+}
+
+export async function getTokenBiddingBidBook(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tokenRef: string
+): Promise<TokenBiddingBidBookApiResponse> {
+	return requestJson<TokenBiddingBidBookApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/bids`
 	);
 }
 

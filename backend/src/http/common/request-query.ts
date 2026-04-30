@@ -17,6 +17,10 @@ import type {
     BootstrapMetadataTaskStatus,
     BootstrapRunStatus,
 } from "../../application/use-cases/bootstrap/types.js";
+import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    type CollectionBiddingBidScopeFilter,
+} from "../../application/use-cases/trading/bidding-bid-book.js";
 
 const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
     "bootstrapping",
@@ -54,6 +58,12 @@ const ALLOWED_ACTIVITY_FILTER_KINDS = new Set<ActivityFeedFilterKind>([
     "transfers",
 ]);
 
+const ALLOWED_COLLECTION_BIDDING_BID_SCOPE_FILTERS =
+    new Set<CollectionBiddingBidScopeFilter>([
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+    ]);
+
 export function getSearchParams(request: FastifyRequest): URLSearchParams {
     return new URL(request.raw.url ?? "/", "http://localhost").searchParams;
 }
@@ -88,6 +98,22 @@ export function parseActivityFilterKind(
         throw new ReadModelBadRequestError("Invalid kind");
     }
     return raw as ActivityFeedFilterKind;
+}
+
+export function parseCollectionBiddingBidScopeFilter(
+    raw: string | null,
+): CollectionBiddingBidScopeFilter {
+    if (!raw || !raw.trim()) {
+        return COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection;
+    }
+    if (
+        !ALLOWED_COLLECTION_BIDDING_BID_SCOPE_FILTERS.has(
+            raw as CollectionBiddingBidScopeFilter,
+        )
+    ) {
+        throw new ReadModelBadRequestError("Invalid bid scope filter");
+    }
+    return raw as CollectionBiddingBidScopeFilter;
 }
 
 export function parseOwner(raw: string | null): string | undefined {

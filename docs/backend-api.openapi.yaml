@@ -17,6 +17,7 @@ tags:
     - name: Collections
     - name: Activities
     - name: Bootstrap
+    - name: Trading
 
 paths:
     /health:
@@ -383,6 +384,74 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/bidding/jobs:
+        get:
+            tags: [Trading]
+            summary: List bidding jobs for a collection
+            operationId: listCollectionBiddingJobs
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            responses:
+                "200":
+                    description: Bidding jobs for the collection
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ListCollectionBiddingJobsResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/bids:
+        get:
+            tags: [Trading]
+            summary: Get collection bid book
+            description: |
+                Returns display-only bid-book rows.
+                Source is `bot_snapshot` when enabled collection jobs exist, the bidding bot heartbeat is live, and projection metadata is fresh; otherwise source is `orders`.
+            operationId: listCollectionBiddingBidBook
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/BidScopeFilter"
+                - name: traits
+                  in: query
+                  required: false
+                  description: Repeated `key:value` trait filter
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+                - name: trait_ranges
+                  in: query
+                  required: false
+                  description: Repeated `key:from..to` inclusive unsigned-integer range filter
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+            responses:
+                "200":
+                    description: Collection bid book
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ListCollectionBiddingBidBookResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/holders:
         get:
             tags: [Collections]
@@ -427,6 +496,117 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/GetTokenActivityResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/{token_ref}/bidding/job:
+        get:
+            tags: [Trading]
+            summary: Get token-scoped bidding job
+            operationId: getTokenBiddingJob
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+            responses:
+                "200":
+                    description: Token bidding job, if one exists
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/TokenBiddingJobResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+        put:
+            tags: [Trading]
+            summary: Create or update token-scoped bidding job
+            description: Mutating endpoint protected by host/origin/CSRF checks.
+            operationId: upsertTokenBiddingJob
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/UpsertTokenBiddingJobRequest"
+            responses:
+                "200":
+                    description: Token bidding job created or updated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/TokenBiddingJobMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+        delete:
+            tags: [Trading]
+            summary: Archive token-scoped bidding job
+            description: |
+                Mutating endpoint protected by host/origin/CSRF checks.
+                Archive emits runtime commands so the bot can stop scheduling and cancel any job-scoped active offer.
+            operationId: archiveTokenBiddingJob
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+            responses:
+                "200":
+                    description: Token bidding job archived
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/TokenBiddingJobMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/{token_ref}/bidding/bids:
+        get:
+            tags: [Trading]
+            summary: Get token bid book
+            description: Returns display-only bid rows applicable to the token across collection, trait, token-set, and exact-token scopes.
+            operationId: getTokenBiddingBidBook
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TokenRef"
+            responses:
+                "200":
+                    description: Token bid book
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/TokenBiddingBidBookResponse"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "404":
@@ -723,6 +903,15 @@ components:
                 `snapshot` requests canonical token media.
                 `artifact` requests extension-provided media when available.
                 Unsupported or missing artifact media falls back to canonical token media.
+        BidScopeFilter:
+            name: bid_scope
+            in: query
+            required: false
+            schema:
+                type: string
+                enum: [collection, traits]
+                default: collection
+            description: Collection bid-book scope view. `collection` shows collection-wide bids only; `traits` shows trait-scoped bids.
 
     responses:
         BadRequest:
@@ -1112,6 +1301,375 @@ components:
                     type: array
                     items:
                         $ref: "#/components/schemas/TraitFacetValue"
+
+        TradingJobStatus:
+            type: string
+            enum: [enabled, paused, archived]
+
+        TokenBiddingJobMutationStatus:
+            type: string
+            enum: [enabled, paused]
+
+        BiddingJobRuntimeState:
+            type: object
+            required:
+                [
+                    currentPriceEth,
+                    activeOrderId,
+                    activeProtocolAddress,
+                    activeExpirationTimeMs,
+                    lastRunAt,
+                    lastError,
+                ]
+            additionalProperties: false
+            nullable: true
+            properties:
+                currentPriceEth:
+                    type: string
+                    nullable: true
+                activeOrderId:
+                    type: string
+                    nullable: true
+                activeProtocolAddress:
+                    type: string
+                    nullable: true
+                activeExpirationTimeMs:
+                    type: integer
+                    nullable: true
+                lastRunAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                lastError:
+                    type: string
+                    nullable: true
+
+        BiddingJobTarget:
+            oneOf:
+                - type: object
+                  required: [type, tokenId]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [token]
+                      tokenId:
+                          type: string
+                - type: object
+                  required: [type, quantity, targetTraits]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [collection]
+                      quantity:
+                          type: integer
+                      targetTraits:
+                          type: array
+                          items:
+                              $ref: "#/components/schemas/TraitFilter"
+                - type: object
+                  required: [type, quantity, targetTraits, competitorTraits]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [competitiveTrait]
+                      quantity:
+                          type: integer
+                      targetTraits:
+                          type: array
+                          items:
+                              $ref: "#/components/schemas/TraitFilter"
+                      competitorTraits:
+                          type: array
+                          items:
+                              $ref: "#/components/schemas/TraitFilter"
+
+        BiddingJob:
+            type: object
+            required:
+                [
+                    jobId,
+                    status,
+                    revision,
+                    createdAt,
+                    updatedAt,
+                    archivedAt,
+                    target,
+                    config,
+                    runtime,
+                ]
+            additionalProperties: false
+            properties:
+                jobId:
+                    type: string
+                status:
+                    $ref: "#/components/schemas/TradingJobStatus"
+                revision:
+                    type: integer
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+                archivedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                target:
+                    $ref: "#/components/schemas/BiddingJobTarget"
+                config:
+                    type: object
+                    required: [floorEth, ceilingEth, deltaEth]
+                    additionalProperties: false
+                    properties:
+                        floorEth:
+                            type: string
+                        ceilingEth:
+                            type: string
+                        deltaEth:
+                            type: string
+                runtime:
+                    $ref: "#/components/schemas/BiddingJobRuntimeState"
+
+        UpsertTokenBiddingJobRequest:
+            type: object
+            required: [status, floorEth, ceilingEth, deltaEth]
+            additionalProperties: false
+            properties:
+                status:
+                    $ref: "#/components/schemas/TokenBiddingJobMutationStatus"
+                floorEth:
+                    type: string
+                ceilingEth:
+                    type: string
+                deltaEth:
+                    type: string
+
+        BiddingBidBookSource:
+            type: string
+            enum: [bot_snapshot, orders]
+
+        BiddingBidScopeKind:
+            type: string
+            enum: [collection, trait, token, token_set, unknown]
+
+        BiddingBidBookState:
+            type: object
+            required:
+                [
+                    source,
+                    snapshotRefreshedAtMs,
+                    projectedAt,
+                    rowCount,
+                    durationMs,
+                    lastError,
+                ]
+            additionalProperties: false
+            properties:
+                source:
+                    $ref: "#/components/schemas/BiddingBidBookSource"
+                snapshotRefreshedAtMs:
+                    type: integer
+                    nullable: true
+                projectedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                rowCount:
+                    type: integer
+                durationMs:
+                    type: integer
+                    nullable: true
+                lastError:
+                    type: string
+                    nullable: true
+
+        BiddingBidBookRow:
+            type: object
+            required:
+                [
+                    orderId,
+                    source,
+                    scope,
+                    maker,
+                    priceWei,
+                    priceEth,
+                    quantity,
+                    currencyAddress,
+                    currencySymbol,
+                    protocolAddress,
+                    validUntil,
+                    placedAt,
+                    snapshotRefreshedAtMs,
+                    seenAt,
+                ]
+            additionalProperties: false
+            properties:
+                orderId:
+                    type: string
+                source:
+                    $ref: "#/components/schemas/BiddingBidBookSource"
+                scope:
+                    type: object
+                    required: [kind, label, tokenId, traits]
+                    additionalProperties: false
+                    properties:
+                        kind:
+                            $ref: "#/components/schemas/BiddingBidScopeKind"
+                        label:
+                            type: string
+                        tokenId:
+                            type: string
+                            nullable: true
+                        traits:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFilter"
+                maker:
+                    type: object
+                    required: [address, label, isOwn]
+                    additionalProperties: false
+                    properties:
+                        address:
+                            type: string
+                        label:
+                            type: string
+                        isOwn:
+                            type: boolean
+                priceWei:
+                    type: string
+                priceEth:
+                    type: string
+                quantity:
+                    type: string
+                currencyAddress:
+                    type: string
+                    nullable: true
+                currencySymbol:
+                    type: string
+                    nullable: true
+                protocolAddress:
+                    type: string
+                    nullable: true
+                validUntil:
+                    type: integer
+                    nullable: true
+                placedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                snapshotRefreshedAtMs:
+                    type: integer
+                    nullable: true
+                seenAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+
+        BiddingBidBook:
+            type: object
+            required: [state, bids]
+            additionalProperties: false
+            properties:
+                state:
+                    $ref: "#/components/schemas/BiddingBidBookState"
+                bids:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingBidBookRow"
+
+        ListCollectionBiddingJobsResponse:
+            type: object
+            required: [chain, collection, jobs]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                jobs:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingJob"
+
+        ListCollectionBiddingBidBookResponse:
+            type: object
+            required: [chain, collection, scopeFilter, traits, bidBook]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                scopeFilter:
+                    type: string
+                    enum: [collection, traits]
+                traits:
+                    type: object
+                    required: [selected, selectedRanges, facets]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFilter"
+                        selectedRanges:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitRangeFilter"
+                        facets:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/TraitFacet"
+                bidBook:
+                    $ref: "#/components/schemas/BiddingBidBook"
+
+        TokenBiddingJobResponse:
+            type: object
+            required: [chain, collection, tokenId, job]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                tokenId:
+                    type: string
+                job:
+                    allOf:
+                        - $ref: "#/components/schemas/BiddingJob"
+                    nullable: true
+
+        TokenBiddingJobMutationResponse:
+            type: object
+            required: [chain, collection, tokenId, job]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                tokenId:
+                    type: string
+                job:
+                    $ref: "#/components/schemas/BiddingJob"
+
+        TokenBiddingBidBookResponse:
+            type: object
+            required: [chain, collection, tokenId, bidBook]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                tokenId:
+                    type: string
+                bidBook:
+                    $ref: "#/components/schemas/BiddingBidBook"
 
         CollectionCustomizationSource:
             type: string

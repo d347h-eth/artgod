@@ -1,5 +1,4 @@
 import type { RawOrderPayload } from "./normalize.js";
-import type { TokenSetSchema } from "../../domain/token-sets.js";
 import type { OrderUpdateByMakerReason } from "../../domain/order-jobs.js";
 import {
     ORDER_LOCAL_TOKEN_SET_STATUS,
@@ -12,22 +11,16 @@ import {
     assertPaymentToken,
     assertPrice,
     assertString,
-    normalizeCriteriaRoot,
     parseNftId,
     parseOptionalAddress,
     parseTimestamp,
 } from "./normalizer-utils.js";
 import { logger } from "@artgod/shared/utils";
-import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
 import {
-    extractSeaportCriteriaOfferTerms,
-    extractSeaportItemOfferTerms,
     extractSeaportSellTerms,
     normalizeSeaportOrderData,
 } from "./seaport-order-data.js";
-
-const SEAPORT_ITEM_TYPE_ERC721_WITH_CRITERIA = 4;
-const SEAPORT_ITEM_TYPE_ERC1155_WITH_CRITERIA = 5;
+import { parseRequiredOpenSeaBiddingOrderTerms } from "./opensea-bidding-order-terms.js";
 
 export type OpenSeaOrderUpdate = {
     orderId: string;
@@ -56,10 +49,10 @@ export function normalizeOpenSeaEvent(raw: unknown): RawOrderPayload | null {
         return normalizeItemListed(payload);
     }
     if (eventType === "item_received_bid") {
-        return normalizeItemReceivedBid(payload);
+        return normalizeItemReceivedBid(payload, eventType);
     }
     if (eventType === "item_received_offer") {
-        return normalizeItemReceivedBid(payload);
+        return normalizeItemReceivedBid(payload, eventType);
     }
     if (eventType === "collection_offer") {
         return normalizeCollectionOffer(payload);
@@ -209,45 +202,35 @@ function normalizeItemListed(
 
 function normalizeItemReceivedBid(
     payload: Record<string, unknown>,
+    eventType: "item_received_bid" | "item_received_offer",
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
-    const protocolTerms = extractSeaportItemOfferTerms(seaportData);
-    const orderHash = assertString(payload.order_hash, "order_hash");
-    const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
-    const { contract, tokenId } = protocolTerms
-        ? {
-              contract: protocolTerms.contract,
-              tokenId: protocolTerms.tokenId,
-          }
-        : parseNftId(payload.item);
-    const price =
-        protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
-    const currency =
-        protocolTerms?.currency ??
-        assertPaymentToken(payload.payment_token, "payment_token");
-    const validFrom =
-        protocolTerms?.validFrom ??
-        parseTimestamp(payload.created_date, "created_date");
-    const validUntil =
-        protocolTerms?.validUntil ??
-        parseTimestamp(payload.expiration_date, "expiration_date");
+    // Parse buy-offer order terms through the shared bidder-owned OpenSea parser.
+    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
+        context: {
+            eventType,
+            orderHash: payload.order_hash,
+        },
+    });
 
     return {
-        orderId: orderHash.toLowerCase(),
+        orderId: terms.orderId,
         kind: "seaport",
         side: "buy",
-        maker,
+        maker: terms.maker,
         taker: parseOptionalAddress(payload.taker, "taker"),
-        contract,
-        tokenId,
-        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Token,
-        sourceSchema: null,
-        sourceCriteriaRoot: null,
-        localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.None,
-        price,
-        currency,
-        validFrom,
-        validUntil,
+        contract: terms.contract,
+        tokenId: terms.tokenId,
+        sourceScopeKind: terms.sourceScopeKind,
+        sourceSchema: terms.sourceSchema,
+        sourceCriteriaRoot: terms.sourceCriteriaRoot,
+        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
+        localTokenSetStatus: terms.localTokenSetStatus,
+        quantity: terms.quantity,
+        price: terms.price,
+        currency: terms.currency,
+        validFrom: terms.validFrom,
+        validUntil: terms.validUntil,
         seaportData,
     };
 }
@@ -256,42 +239,32 @@ function normalizeCollectionOffer(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
-    const protocolTerms = extractSeaportCriteriaOfferTerms(seaportData);
-    const orderHash = assertString(payload.order_hash, "order_hash");
-    const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
-    const contract = protocolTerms?.contract ?? parseCriteriaContract(payload);
-    const price =
-        protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
-    const currency =
-        protocolTerms?.currency ??
-        assertPaymentToken(payload.payment_token, "payment_token");
-    const validFrom =
-        protocolTerms?.validFrom ??
-        parseTimestamp(payload.created_date, "created_date");
-    const validUntil =
-        protocolTerms?.validUntil ??
-        parseTimestamp(payload.expiration_date, "expiration_date");
+    // Parse collection/criteria offer terms through the shared bidder-owned OpenSea parser.
+    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
+        context: {
+            eventType: "collection_offer",
+            orderHash: payload.order_hash,
+        },
+    });
 
     return {
-        orderId: orderHash.toLowerCase(),
+        orderId: terms.orderId,
         kind: "seaport",
         side: "buy",
-        maker,
+        maker: terms.maker,
         taker: parseOptionalAddress(payload.taker, "taker"),
-        contract,
-        tokenId: null,
-        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Collection,
-        sourceSchema: {
-            kind: "collection",
-            data: { collection: contract },
-        },
-        sourceCriteriaRoot:
-            protocolTerms?.criteriaRoot ?? parseCriteriaRoot(payload),
-        localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
-        price,
-        currency,
-        validFrom,
-        validUntil,
+        contract: terms.contract,
+        tokenId: terms.tokenId,
+        sourceScopeKind: terms.sourceScopeKind,
+        sourceSchema: terms.sourceSchema,
+        sourceCriteriaRoot: terms.sourceCriteriaRoot,
+        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
+        localTokenSetStatus: terms.localTokenSetStatus,
+        quantity: terms.quantity,
+        price: terms.price,
+        currency: terms.currency,
+        validFrom: terms.validFrom,
+        validUntil: terms.validUntil,
         seaportData,
     };
 }
@@ -300,122 +273,34 @@ function normalizeTraitOffer(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
-    const protocolTerms = extractSeaportCriteriaOfferTerms(seaportData);
-    const orderHash = assertString(payload.order_hash, "order_hash");
-    const maker = protocolTerms?.maker ?? assertAddress(payload.maker, "maker");
-    const contract = protocolTerms?.contract ?? parseCriteriaContract(payload);
-    const price =
-        protocolTerms?.price ?? assertPrice(payload.base_price, "base_price");
-    const currency =
-        protocolTerms?.currency ??
-        assertPaymentToken(payload.payment_token, "payment_token");
-    const validFrom =
-        protocolTerms?.validFrom ??
-        parseTimestamp(payload.created_date, "created_date");
-    const validUntil =
-        protocolTerms?.validUntil ??
-        parseTimestamp(payload.expiration_date, "expiration_date");
-
-    const attributes = parseTraitCriteria(payload);
-    const tokenSetSchema: TokenSetSchema = {
-        kind: "attribute",
-        data: {
-            collection: contract,
-            attributes,
+    // Parse trait offer terms through the shared bidder-owned OpenSea parser.
+    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
+        context: {
+            eventType: "trait_offer",
+            orderHash: payload.order_hash,
         },
-    };
+    });
 
     return {
-        orderId: orderHash.toLowerCase(),
+        orderId: terms.orderId,
         kind: "seaport",
         side: "buy",
-        maker,
+        maker: terms.maker,
         taker: parseOptionalAddress(payload.taker, "taker"),
-        contract,
-        tokenId: null,
-        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Attribute,
-        sourceSchema: tokenSetSchema,
-        sourceCriteriaRoot:
-            protocolTerms?.criteriaRoot ?? parseCriteriaRoot(payload),
-        localTokenSetStatus: ORDER_LOCAL_TOKEN_SET_STATUS.Unresolved,
-        price,
-        currency,
-        validFrom,
-        validUntil,
+        contract: terms.contract,
+        tokenId: terms.tokenId,
+        sourceScopeKind: terms.sourceScopeKind,
+        sourceSchema: terms.sourceSchema,
+        sourceCriteriaRoot: terms.sourceCriteriaRoot,
+        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
+        localTokenSetStatus: terms.localTokenSetStatus,
+        quantity: terms.quantity,
+        price: terms.price,
+        currency: terms.currency,
+        validFrom: terms.validFrom,
+        validUntil: terms.validUntil,
         seaportData,
     };
-}
-
-function parseCriteriaContract(payload: Record<string, unknown>): string {
-    const assetCriteria = asObject(
-        payload.asset_contract_criteria,
-        "asset_contract_criteria",
-    );
-    return assertAddress(
-        assetCriteria.address,
-        "asset_contract_criteria.address",
-    );
-}
-
-function parseTraitCriteria(
-    payload: Record<string, unknown>,
-): Array<{ key: string; value: string }> {
-    const criteria = payload.trait_criteria;
-    const criteriaList = payload.trait_criteria_list;
-    const raw: Array<{ key: unknown; value: unknown }> = [];
-
-    if (criteria && typeof criteria === "object") {
-        const entry = criteria as Record<string, unknown>;
-        raw.push({
-            key: entry.trait_type,
-            value: entry.trait_name,
-        });
-    }
-
-    if (Array.isArray(criteriaList)) {
-        for (const item of criteriaList) {
-            if (!item || typeof item !== "object") continue;
-            const entry = item as Record<string, unknown>;
-            raw.push({
-                key: entry.trait_type,
-                value: entry.trait_name,
-            });
-        }
-    }
-
-    const normalized = normalizeUniqueAttributeList(raw);
-    if (normalized.length === 0) {
-        throw new Error("Missing trait criteria");
-    }
-    return normalized;
-}
-
-function parseCriteriaRoot(payload: Record<string, unknown>): string | null {
-    const protocol = payload.protocol_data;
-    if (!protocol || typeof protocol !== "object") return null;
-    const parameters = (protocol as Record<string, unknown>).parameters;
-    if (!parameters || typeof parameters !== "object") return null;
-    const consideration = (parameters as Record<string, unknown>).consideration;
-    if (!Array.isArray(consideration)) return null;
-
-    for (const item of consideration) {
-        if (!item || typeof item !== "object") continue;
-        const entry = item as Record<string, unknown>;
-        const itemType = Number(entry.itemType);
-        if (!Number.isFinite(itemType)) continue;
-        if (
-            itemType !== SEAPORT_ITEM_TYPE_ERC721_WITH_CRITERIA &&
-            itemType !== SEAPORT_ITEM_TYPE_ERC1155_WITH_CRITERIA
-        ) {
-            continue;
-        }
-        return normalizeCriteriaRoot(
-            entry.identifierOrCriteria,
-            "protocol_data.parameters.consideration.identifierOrCriteria",
-        );
-    }
-
-    return null;
 }
 
 function parseOpenSeaEnvelope(raw: unknown): {

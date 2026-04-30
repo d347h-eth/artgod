@@ -266,6 +266,7 @@ Trading bot runtime keys:
 - `BIDDING_WETH_ALLOWANCE_ETH` (static startup WETH approval target for the OpenSea conduit, in Ether units; `0` skips startup approval)
 - `BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_BLOCKS`, `BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, and `BIDDING_TX_PENDING_NONCE_POLICY` (bot-owned EIP-1559 fee and nonce guard policy for onchain transactions)
 - `BIDDING_COMMAND_POLL_MS`, `BIDDING_COMMAND_BATCH_SIZE`, `BIDDING_COMMAND_MAX_ATTEMPTS`, and `BIDDING_COMMAND_CLAIM_TIMEOUT_MS` (DB Outbox recovery scan and retry policy for live job reconciliation)
+- `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS` (minimum interval between bot snapshot bid-book projections per collection)
 - `BIDDING_*` tuning keys for dry-run mode, poll intervals, bootstrap concurrency, offer expiration, snapshot cadence, and trait-refresh maps
 
 Core runtime keys are also validated (for backend/indexer startup), for example:
@@ -282,6 +283,7 @@ Desktop-first default path behavior:
 - `ARTGOD_DB_PATH` defaults to `sqlite/main/db` and is resolved relative to app-data dir unless absolute.
 - `USERLAND_UI_DIST_DIR` defaults to `frontend/userland` and is resolved relative to desktop runtime resources dir unless absolute.
 - bidding jobs are loaded from the ArtGod SQLite database.
+- bidding bot heartbeat is written to SQLite as non-secret runtime state so backend reads can choose between competitive bot snapshots and normal orders fallback.
 
 Important:
 

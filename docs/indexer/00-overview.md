@@ -92,7 +92,7 @@ These assumptions are relied on by the implementation and should be preserved in
 3. No implicit full historical backfill runs on startup. Full backfills are user-triggered.
 4. Runtime logic depends on ports (`indexer/src/ports/`); infra adapters implemented in `indexer/src/infra/`.
 5. Configuration is explicit and loaded through typed env/config modules.
-6. Raw OpenSea payloads persisted into SQLite are audit/debug-only. Downstream runtime logic must operate on normalized canonical order data, not raw JSON.
+6. Raw OpenSea payloads persisted into SQLite are audit/debug-only for indexer/order validation. The trading bid-book fallback has one explicit read-only exception: it may parse `raw_rest_data`/`raw_stream_data` through the shared OpenSea bidding-offer parser to avoid inheriting stale order-scope classification.
 7. `fillability_status` and `source_status` are separate concerns.
     - `fillability_status` is protocol/onchain executability.
     - `source_status` is source-visible activity from OpenSea snapshot/stream/reconcile.

@@ -29,6 +29,7 @@ dist-desktop/
 node_modules/.vite
 frontend/test-results/
 frontend/playwright-report/
+**/coverage/
 
 # Cloudflare worker mgmt cache
 **/.wrangler/cache

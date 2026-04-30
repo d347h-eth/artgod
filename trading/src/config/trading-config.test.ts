@@ -40,7 +40,8 @@ describe("loadTradingConfig", () => {
             throw new Error("Expected bidding to be enabled");
         }
         assert.equal(config.bidding.pollMs, 8 * 60 * 1000);
-        assert.equal(config.bidding.commandPollMs, 5_000);
+        assert.equal(config.bidding.commandPollMs, 1_000);
+        assert.equal(config.bidding.bidBookProjectionThrottleMs, 15_000);
         assert.equal(config.bidding.commandBatchSize, 20);
         assert.equal(config.bidding.commandMaxAttempts, 5);
         assert.equal(config.bidding.commandClaimTimeoutMs, 300_000);
@@ -114,6 +115,7 @@ describe("loadTradingConfig", () => {
                 BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE: "80",
                 BIDDING_TX_BASE_FEE_MULTIPLIER: "1.5",
                 BIDDING_TX_MAX_FEE_GWEI: "120",
+                BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS: "30000",
                 BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION:
                     '{"terraforms":["Zone","Biome"],"other":["Rarity"]}',
                 BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION:
@@ -136,6 +138,7 @@ describe("loadTradingConfig", () => {
             terraforms: ["Zone", "Biome", "Mode"],
         });
         assert.equal(config.bidding.wethAllowanceWei, parseEther("2.5"));
+        assert.equal(config.bidding.bidBookProjectionThrottleMs, 30_000);
         assert.equal(
             config.bidding.transactionPolicy.fees.minPriorityFeePerGasWei,
             250_000_000n,

@@ -4,6 +4,9 @@
     "private": true,
     "type": "module",
     "main": "./types/index.ts",
+    "scripts": {
+        "test": "vitest run"
+    },
     "exports": {
         "./config/pagination": "./config/pagination.ts",
         "./evm/transactions": "./evm/transactions.ts",
@@ -25,7 +28,9 @@
         "./read-models": "./read-models/index.ts",
         "./read-models/errors": "./read-models/errors.ts",
         "./read-models/chains": "./read-models/chains.ts",
-        "./read-models/collections": "./read-models/collections.ts"
+        "./read-models/collections": "./read-models/collections.ts",
+        "./trading/open-sea-bidding-offers": "./trading/open-sea-bidding-offers.ts",
+        "./trading/runtime-state": "./trading/runtime-state.ts"
     },
     "dependencies": {
         "better-sqlite3": "^v12.2.0"
@@ -33,6 +38,7 @@
     "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",
         "@types/node": "^24.0.0",
-        "typescript": "^5.8.3"
+        "typescript": "^5.8.3",
+        "vitest": "4.0.13"
     }
 }

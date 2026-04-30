@@ -1,5 +1,12 @@
 <script lang="ts">
-	import type { ApiBiddingJob, ApiChain, ApiCollection, ApiTokenDetail } from '$lib/api-types';
+	import type {
+		ApiBiddingBidBook,
+		ApiBiddingBidBookRow,
+		ApiBiddingJob,
+		ApiChain,
+		ApiCollection,
+		ApiTokenDetail
+	} from '$lib/api-types';
 	import { archiveTokenBiddingJob, upsertTokenBiddingJob } from '$lib/backend-api';
 
 	type EditableTokenJobStatus = 'enabled' | 'paused';
@@ -9,12 +16,14 @@
 		collection,
 		token,
 		job,
+		bidBook = null,
 		collectionBiddingHref
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		token: ApiTokenDetail | null;
 		job: ApiBiddingJob | null;
+		bidBook?: ApiBiddingBidBook | null;
 		collectionBiddingHref: string;
 	} = $props();
 
@@ -32,6 +41,7 @@
 	const hasExistingJob = $derived(currentJob !== null);
 	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
 	const hasDraftChanges = $derived(resolveHasDraftChanges());
+	const bidPosition = $derived(resolveBidPosition(currentJob, bidBook));
 
 	$effect(() => {
 		const nextLoadedJobKey = resolveLoadedJobKey(job);
@@ -108,6 +118,40 @@
 		return `${value} ETH`;
 	}
 
+	function resolveBidPosition(
+		currentValue: ApiBiddingJob | null,
+		currentBidBook: ApiBiddingBidBook | null
+	): string | null {
+		if (!currentValue || !currentBidBook) {
+			return null;
+		}
+
+		const ownBid = bestBid(currentBidBook.bids, (bid) => bid.maker.isOwn);
+		if (!ownBid) {
+			return 'no active bid';
+		}
+
+		const opponentBid = bestBid(currentBidBook.bids, (bid) => !bid.maker.isOwn);
+		if (!opponentBid || BigInt(ownBid.priceWei) >= BigInt(opponentBid.priceWei)) {
+			return 'winning';
+		}
+		return 'outbid';
+	}
+
+	function bestBid(
+		bids: ApiBiddingBidBookRow[],
+		predicate: (bid: ApiBiddingBidBookRow) => boolean
+	): ApiBiddingBidBookRow | null {
+		return bids.filter(predicate).sort((left, right) => {
+			const leftPrice = BigInt(left.priceWei);
+			const rightPrice = BigInt(right.priceWei);
+			if (leftPrice === rightPrice) {
+				return left.orderId.localeCompare(right.orderId);
+			}
+			return leftPrice > rightPrice ? -1 : 1;
+		})[0] ?? null;
+	}
+
 	async function handleSave(): Promise<void> {
 		if (!chain || !collection || !token || saving || archiving) {
 			return;
@@ -182,6 +226,12 @@
 				<span class="runtime-k">updated</span>
 				<span class="runtime-v mono">{currentJob.updatedAt}</span>
 			</div>
+			{#if bidPosition}
+				<div>
+					<span class="runtime-k">position</span>
+					<span class="runtime-v">{bidPosition}</span>
+				</div>
+			{/if}
 			{#if hasRuntimeState}
 				<div>
 					<span class="runtime-k">current price</span>

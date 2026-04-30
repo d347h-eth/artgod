@@ -76,6 +76,57 @@ describe("CollectionOfferSnapshotService", () => {
         assert.equal(service.getSnapshot("remilio-babies"), null);
     });
 
+    it("reconciles watched collections against the enabled snapshot-backed job set", async () => {
+        const source = new FakeCollectionOfferSource();
+        source.responses.milady = [{ order_hash: "0x1" }];
+        source.responses.yumemono = [{ order_hash: "0x2" }];
+        const service = new CollectionOfferSnapshotService(
+            source as any,
+            ["terraforms", "milady"],
+            60000,
+            0,
+        );
+
+        const result = service.reconcileWatchedCollections([
+            "milady",
+            "yumemono",
+        ]);
+        await service.refreshAndWait("terraforms", "removed");
+        await service.refreshAndWait("milady", "kept");
+        await service.refreshAndWait("yumemono", "added");
+
+        assert.deepEqual(result, { added: 1, removed: 1 });
+        assert.deepEqual(source.calls, ["milady", "yumemono"]);
+    });
+
+    it("does not await snapshot observers after replacing the authoritative snapshot", async () => {
+        const source = new FakeCollectionOfferSource();
+        source.responses.terraforms = [{ order_hash: "0x1" }];
+        let observerStarted = false;
+        let releaseObserver!: () => void;
+        const observer = {
+            onSnapshotRefreshed() {
+                observerStarted = true;
+                return new Promise<void>((resolve) => {
+                    releaseObserver = resolve;
+                });
+            },
+        };
+        const service = new CollectionOfferSnapshotService(
+            source as any,
+            ["terraforms"],
+            60000,
+            0,
+            observer as any,
+        );
+
+        await service.refreshAndWait("terraforms", "test");
+
+        assert.equal(observerStarted, true);
+        assert.equal(source.calls.length, 1);
+        releaseObserver();
+    });
+
     it("skips event-triggered refresh when the snapshot is still within ttl", async () => {
         const source = new FakeCollectionOfferSource();
         source.responses.terraforms = [{ order_hash: "0x1" }];

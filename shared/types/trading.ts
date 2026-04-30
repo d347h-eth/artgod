@@ -6,6 +6,16 @@ export const TRADING_BOT_KIND = {
 export type TradingBotKind =
     (typeof TRADING_BOT_KIND)[keyof typeof TRADING_BOT_KIND];
 
+export const TRADING_BOT_RUNTIME_STATE = {
+    Bootstrapping: "bootstrapping",
+    Running: "running",
+    Stopped: "stopped",
+    Error: "error",
+} as const;
+
+export type TradingBotRuntimeState =
+    (typeof TRADING_BOT_RUNTIME_STATE)[keyof typeof TRADING_BOT_RUNTIME_STATE];
+
 export const TRADING_JOB_STATUS = {
     Enabled: "enabled",
     Paused: "paused",
@@ -80,6 +90,25 @@ export type TradingTraitCriterion = {
     type: string;
     value: string;
 };
+
+export const TRADING_BIDDING_BID_BOOK_SOURCE = {
+    BotSnapshot: "bot_snapshot",
+    Orders: "orders",
+} as const;
+
+export type TradingBiddingBidBookSource =
+    (typeof TRADING_BIDDING_BID_BOOK_SOURCE)[keyof typeof TRADING_BIDDING_BID_BOOK_SOURCE];
+
+export const TRADING_BIDDING_BID_SCOPE_KIND = {
+    Collection: "collection",
+    Trait: "trait",
+    Token: "token",
+    TokenSet: "token_set",
+    Unknown: "unknown",
+} as const;
+
+export type TradingBiddingBidScopeKind =
+    (typeof TRADING_BIDDING_BID_SCOPE_KIND)[keyof typeof TRADING_BIDDING_BID_SCOPE_KIND];
 
 export type PersistedBiddingJobRuntimeState = {
     currentPriceWei: string | null;

@@ -119,6 +119,7 @@ __metadata:
     "@types/node": "npm:^24.0.0"
     better-sqlite3: "npm:^v12.2.0"
     typescript: "npm:^5.8.3"
+    vitest: "npm:4.0.13"
   languageName: unknown
   linkType: soft
 

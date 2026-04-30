@@ -45,10 +45,12 @@ type OrderRow = {
     token_id: string | null;
     source_scope_kind: string;
     source_criteria_root: string | null;
+    source_encoded_token_ids: string | null;
     source_schema_json: string | null;
     local_token_set_status: string;
     token_set_id: string | null;
     token_set_schema_hash: string | null;
+    quantity: string | null;
     price: string | null;
     currency: string | null;
     valid_from: number | null;
@@ -102,7 +104,7 @@ type MakerSeaportOrdersParams = {
 };
 
 const SELECT_ORDER_FIELDS =
-    "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, " +
+    "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, " +
     "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index " +
     "FROM orders ";
 
@@ -119,7 +121,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "WHERE chain_id = @chainId AND id = @orderId",
     );
     private selectOrderById = db.prepare<OrderIdentityParams>(
-        "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, " +
+        "SELECT id, chain_id, collection_id, kind, side, source, maker, taker, contract_address AS contract, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, " +
             "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index " +
             "FROM orders WHERE chain_id = @chainId AND id = @orderId",
     );
@@ -157,10 +159,12 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         tokenId: string | null;
         sourceScopeKind: OrderSourceScopeKind;
         sourceCriteriaRoot: string | null;
+        sourceEncodedTokenIds: string | null;
         sourceSchemaJson: string | null;
         localTokenSetStatus: OrderLocalTokenSetStatus;
         tokenSetId: string | null;
         tokenSetSchemaHash: string | null;
+        quantity: string;
         price: string | null;
         currency: string | null;
         validFrom: number | null;
@@ -172,8 +176,8 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         rawRestData: string | null;
         rawStreamData: string | null;
     }>(
-        "INSERT INTO orders (id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_criteria_root, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, raw_rest_data, raw_stream_data) " +
-            "VALUES (@id, @chainId, @collectionId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @sourceScopeKind, @sourceCriteriaRoot, @sourceSchemaJson, @localTokenSetStatus, @tokenSetId, @tokenSetSchemaHash, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @seaportDataJson, @seaportDataSourceKind, @rawRestData, @rawStreamData) " +
+        "INSERT INTO orders (id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_criteria_root, source_encoded_token_ids, source_schema_json, local_token_set_status, token_set_id, token_set_schema_hash, quantity, price, currency, valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, raw_rest_data, raw_stream_data) " +
+            "VALUES (@id, @chainId, @collectionId, @kind, @side, @source, @maker, @taker, @contract, @tokenId, @sourceScopeKind, @sourceCriteriaRoot, @sourceEncodedTokenIds, @sourceSchemaJson, @localTokenSetStatus, @tokenSetId, @tokenSetSchemaHash, @quantity, @price, @currency, @validFrom, @validUntil, @fillabilityStatus, @sourceStatus, @seaportDataJson, @seaportDataSourceKind, @rawRestData, @rawStreamData) " +
             "ON CONFLICT(id) DO UPDATE SET " +
             "collection_id = excluded.collection_id, " +
             "kind = excluded.kind, " +
@@ -185,10 +189,12 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             "token_id = excluded.token_id, " +
             "source_scope_kind = excluded.source_scope_kind, " +
             "source_criteria_root = excluded.source_criteria_root, " +
+            "source_encoded_token_ids = excluded.source_encoded_token_ids, " +
             "source_schema_json = excluded.source_schema_json, " +
             "local_token_set_status = excluded.local_token_set_status, " +
             "token_set_id = excluded.token_set_id, " +
             "token_set_schema_hash = excluded.token_set_schema_hash, " +
+            "quantity = excluded.quantity, " +
             "price = excluded.price, " +
             "currency = excluded.currency, " +
             "valid_from = excluded.valid_from, " +
@@ -437,12 +443,14 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             tokenId: payload.tokenId ?? null,
             sourceScopeKind,
             sourceCriteriaRoot: payload.sourceCriteriaRoot ?? null,
+            sourceEncodedTokenIds: payload.sourceEncodedTokenIds ?? null,
             sourceSchemaJson,
             localTokenSetStatus:
                 payload.localTokenSetStatus ??
                 defaultLocalTokenSetStatus(sourceScopeKind),
             tokenSetId: payload.tokenSetId ?? null,
             tokenSetSchemaHash: payload.tokenSetSchemaHash ?? null,
+            quantity: payload.quantity ?? "1",
             price: payload.price ?? null,
             currency,
             validFrom: payload.validFrom ?? null,
@@ -562,11 +570,13 @@ function mapOrderRow(row: OrderRow): OrderRecord {
         tokenId: row.token_id,
         sourceScopeKind: row.source_scope_kind as OrderSourceScopeKind,
         sourceCriteriaRoot: row.source_criteria_root,
+        sourceEncodedTokenIds: row.source_encoded_token_ids,
         sourceSchemaJson: row.source_schema_json,
         localTokenSetStatus:
             row.local_token_set_status as OrderLocalTokenSetStatus,
         tokenSetId: row.token_set_id,
         tokenSetSchemaHash: row.token_set_schema_hash,
+        quantity: row.quantity,
         price: row.price,
         currency: row.currency,
         validFrom: row.valid_from,

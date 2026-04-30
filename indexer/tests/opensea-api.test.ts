@@ -40,10 +40,11 @@ describe("OpenSeaApiAdapter REST records", () => {
     it("emits raw offer records with rest offer types", async () => {
         const itemOffer = buildItemOfferRecord();
         const collectionOffer = buildCollectionOfferRecord();
+        const numericTraitOffer = buildNumericTraitOfferRecord();
         const adapter = createAdapter();
         adapter.api = {
             getAllOffers: async () => ({
-                offers: [itemOffer, collectionOffer],
+                offers: [itemOffer, collectionOffer, numericTraitOffer],
                 next: undefined,
             }),
         };
@@ -57,10 +58,15 @@ describe("OpenSeaApiAdapter REST records", () => {
             },
         );
 
-        expect(events).toHaveLength(2);
+        expect(events).toHaveLength(3);
         expect(events[0]?.eventType).toBe("rest.offer.item");
         expect(events[1]?.eventType).toBe("rest.offer.collection");
-        for (const [index, source] of [itemOffer, collectionOffer].entries()) {
+        expect(events[2]?.eventType).toBe("rest.offer.trait");
+        for (const [index, source] of [
+            itemOffer,
+            collectionOffer,
+            numericTraitOffer,
+        ].entries()) {
             expect(events[index]?.payload).toEqual(source);
         }
     });
@@ -143,6 +149,21 @@ function buildCollectionOfferRecord(): Record<string, unknown> {
             contract: {
                 address: CONTRACT,
             },
+        },
+    };
+}
+
+function buildNumericTraitOfferRecord(): Record<string, unknown> {
+    return {
+        ...buildCollectionOfferRecord(),
+        order_hash:
+            "0xe42d30d10b52ac6e813d3ecb2e14bf79ccc61db4c65fc89d70cacb2ae9cfae52",
+        criteria: {
+            contract: {
+                address: CONTRACT,
+            },
+            numeric_traits: [{ type: "Biome", min: 42, max: 42 }],
+            encoded_token_ids: "1,2,3",
         },
     };
 }

@@ -3,22 +3,15 @@ import {
     asObject,
     assertAddress,
     assertString,
-    normalizeCriteriaRoot,
     parseOptionalAddress,
     toBigInt,
 } from "./normalizer-utils.js";
-import {
-    buildAttributeSchema,
-    buildCollectionSchema,
-} from "../token-sets/utils.js";
-import { normalizeUniqueAttributeList } from "../../domain/attributes.js";
 import { ORDER_SOURCE_SCOPE_KIND } from "../../domain/orders.js";
 import {
-    extractSeaportCriteriaOfferTerms,
-    extractSeaportItemOfferTerms,
     extractSeaportSellTerms,
     normalizeSeaportOrderData,
 } from "./seaport-order-data.js";
+import { parseRequiredOpenSeaBiddingOrderTerms } from "./opensea-bidding-order-terms.js";
 
 const NFT_ITEM_TYPES = new Set([2, 3, 4, 5]);
 const PAYMENT_ITEM_TYPES = new Set([0, 1]);
@@ -103,52 +96,32 @@ function normalizeRestItemOffer(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
-    const protocolTerms = extractSeaportItemOfferTerms(seaportData);
-    const parameters = parseProtocolParameters(payload.protocol_data);
-    const nftItem = requireNftItem(parameters.consideration, "consideration");
-    const paymentItem = findPaymentItem(parameters.offer);
+    // Parse buy-offer order terms through the shared bidder-owned OpenSea parser.
+    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
+        context: {
+            recordType: "rest.offer.item",
+            orderHash: payload.order_hash,
+        },
+    });
 
     return {
-        orderId: parseOrderHash(payload),
+        orderId: terms.orderId,
         kind: "seaport",
         side: "buy",
-        maker:
-            protocolTerms?.maker ??
-            assertAddress(
-                parameters.offerer,
-                "protocol_data.parameters.offerer",
-            ),
+        maker: terms.maker,
         taker: parseOptionalAddress(payload.taker, "taker"),
-        contract:
-            protocolTerms?.contract ??
-            assertAddress(
-                nftItem.token,
-                "protocol_data.parameters.consideration.token",
-            ),
-        tokenId:
-            protocolTerms?.tokenId ??
-            identifierToString(
-                nftItem.identifierOrCriteria,
-                "protocol_data.parameters.consideration.identifierOrCriteria",
-            ),
-        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Token,
-        sourceSchema: null,
-        sourceCriteriaRoot: null,
-        price: protocolTerms?.price ?? extractOfferPrice(payload, paymentItem),
-        currency:
-            protocolTerms?.currency ??
-            (paymentItem
-                ? assertAddress(
-                      paymentItem.token,
-                      "protocol_data.parameters.offer.token",
-                  )
-                : ZERO_ADDRESS),
-        validFrom:
-            protocolTerms?.validFrom ??
-            unixSecondsToNumber(parameters.startTime, "startTime"),
-        validUntil:
-            protocolTerms?.validUntil ??
-            unixSecondsToNumber(parameters.endTime, "endTime"),
+        contract: terms.contract,
+        tokenId: terms.tokenId,
+        sourceScopeKind: terms.sourceScopeKind,
+        sourceSchema: terms.sourceSchema,
+        sourceCriteriaRoot: terms.sourceCriteriaRoot,
+        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
+        localTokenSetStatus: terms.localTokenSetStatus,
+        quantity: terms.quantity,
+        price: terms.price,
+        currency: terms.currency,
+        validFrom: terms.validFrom,
+        validUntil: terms.validUntil,
         seaportData,
     };
 }
@@ -157,46 +130,32 @@ function normalizeRestCollectionOffer(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
-    const protocolTerms = extractSeaportCriteriaOfferTerms(seaportData);
-    const parameters = parseProtocolParameters(payload.protocol_data);
-    const contract = parseCriteriaContract(payload, parameters.consideration);
-    const paymentItem = findPaymentItem(parameters.offer);
+    // Parse collection/criteria offer terms through the shared bidder-owned OpenSea parser.
+    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
+        context: {
+            recordType: "rest.offer.collection",
+            orderHash: payload.order_hash,
+        },
+    });
 
     return {
-        orderId: parseOrderHash(payload),
+        orderId: terms.orderId,
         kind: "seaport",
         side: "buy",
-        maker:
-            protocolTerms?.maker ??
-            assertAddress(
-                parameters.offerer,
-                "protocol_data.parameters.offerer",
-            ),
+        maker: terms.maker,
         taker: parseOptionalAddress(payload.taker, "taker"),
-        contract: protocolTerms?.contract ?? contract,
-        tokenId: null,
-        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Collection,
-        sourceSchema: buildCollectionSchema(
-            protocolTerms?.contract ?? contract,
-        ),
-        sourceCriteriaRoot:
-            protocolTerms?.criteriaRoot ??
-            parseCriteriaRootFromItems(parameters.consideration),
-        price: protocolTerms?.price ?? extractOfferPrice(payload, paymentItem),
-        currency:
-            protocolTerms?.currency ??
-            (paymentItem
-                ? assertAddress(
-                      paymentItem.token,
-                      "protocol_data.parameters.offer.token",
-                  )
-                : ZERO_ADDRESS),
-        validFrom:
-            protocolTerms?.validFrom ??
-            unixSecondsToNumber(parameters.startTime, "startTime"),
-        validUntil:
-            protocolTerms?.validUntil ??
-            unixSecondsToNumber(parameters.endTime, "endTime"),
+        contract: terms.contract,
+        tokenId: terms.tokenId,
+        sourceScopeKind: terms.sourceScopeKind,
+        sourceSchema: terms.sourceSchema,
+        sourceCriteriaRoot: terms.sourceCriteriaRoot,
+        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
+        localTokenSetStatus: terms.localTokenSetStatus,
+        quantity: terms.quantity,
+        price: terms.price,
+        currency: terms.currency,
+        validFrom: terms.validFrom,
+        validUntil: terms.validUntil,
         seaportData,
     };
 }
@@ -205,48 +164,32 @@ function normalizeRestTraitOffer(
     payload: Record<string, unknown>,
 ): RawOrderPayload {
     const seaportData = normalizeSeaportOrderData(payload);
-    const protocolTerms = extractSeaportCriteriaOfferTerms(seaportData);
-    const parameters = parseProtocolParameters(payload.protocol_data);
-    const contract = parseCriteriaContract(payload, parameters.consideration);
-    const paymentItem = findPaymentItem(parameters.offer);
-    const attributes = parseTraitCriteria(payload);
+    // Parse trait offer order terms through the shared bidder-owned OpenSea parser.
+    const terms = parseRequiredOpenSeaBiddingOrderTerms(payload, {
+        context: {
+            recordType: "rest.offer.trait",
+            orderHash: payload.order_hash,
+        },
+    });
 
     return {
-        orderId: parseOrderHash(payload),
+        orderId: terms.orderId,
         kind: "seaport",
         side: "buy",
-        maker:
-            protocolTerms?.maker ??
-            assertAddress(
-                parameters.offerer,
-                "protocol_data.parameters.offerer",
-            ),
+        maker: terms.maker,
         taker: parseOptionalAddress(payload.taker, "taker"),
-        contract: protocolTerms?.contract ?? contract,
-        tokenId: null,
-        sourceScopeKind: ORDER_SOURCE_SCOPE_KIND.Attribute,
-        sourceSchema: buildAttributeSchema(
-            protocolTerms?.contract ?? contract,
-            attributes,
-        ),
-        sourceCriteriaRoot:
-            protocolTerms?.criteriaRoot ??
-            parseCriteriaRootFromItems(parameters.consideration),
-        price: protocolTerms?.price ?? extractOfferPrice(payload, paymentItem),
-        currency:
-            protocolTerms?.currency ??
-            (paymentItem
-                ? assertAddress(
-                      paymentItem.token,
-                      "protocol_data.parameters.offer.token",
-                  )
-                : ZERO_ADDRESS),
-        validFrom:
-            protocolTerms?.validFrom ??
-            unixSecondsToNumber(parameters.startTime, "startTime"),
-        validUntil:
-            protocolTerms?.validUntil ??
-            unixSecondsToNumber(parameters.endTime, "endTime"),
+        contract: terms.contract,
+        tokenId: terms.tokenId,
+        sourceScopeKind: terms.sourceScopeKind,
+        sourceSchema: terms.sourceSchema,
+        sourceCriteriaRoot: terms.sourceCriteriaRoot,
+        sourceEncodedTokenIds: terms.sourceEncodedTokenIds,
+        localTokenSetStatus: terms.localTokenSetStatus,
+        quantity: terms.quantity,
+        price: terms.price,
+        currency: terms.currency,
+        validFrom: terms.validFrom,
+        validUntil: terms.validUntil,
         seaportData,
     };
 }
@@ -273,57 +216,6 @@ function parseProtocolParameters(value: unknown): Record<string, unknown> & {
 
 function parseOrderHash(payload: Record<string, unknown>): string {
     return assertString(payload.order_hash, "order_hash").toLowerCase();
-}
-
-function parseCriteriaContract(
-    payload: Record<string, unknown>,
-    consideration: unknown,
-): string {
-    const criteria = asObject(payload.criteria, "criteria");
-    const contract = toRecord(criteria.contract);
-    const contractAddress = contract.address;
-    if (contractAddress) {
-        return assertAddress(contractAddress, "criteria.contract.address");
-    }
-
-    const nftItem = requireNftItem(consideration, "consideration");
-    return assertAddress(
-        nftItem.token,
-        "protocol_data.parameters.consideration.token",
-    );
-}
-
-function parseTraitCriteria(
-    payload: Record<string, unknown>,
-): Array<{ key: string; value: string }> {
-    const criteria = asObject(payload.criteria, "criteria");
-    const raw: Array<{ key: unknown; value: unknown }> = [];
-
-    const single = toRecord(criteria.trait);
-    if (single.type && single.value) {
-        raw.push({
-            key: single.type,
-            value: single.value,
-        });
-    }
-
-    const multi = criteria.traits;
-    if (Array.isArray(multi)) {
-        for (const entry of multi) {
-            if (!entry || typeof entry !== "object") continue;
-            const trait = entry as Record<string, unknown>;
-            raw.push({
-                key: trait.type,
-                value: trait.value,
-            });
-        }
-    }
-
-    const normalized = normalizeUniqueAttributeList(raw);
-    if (normalized.length === 0) {
-        throw new Error("Missing criteria.trait/traits");
-    }
-    return normalized;
 }
 
 function requireNftItem(items: unknown, name: string): Record<string, unknown> {
@@ -362,26 +254,6 @@ function findPaymentItem(items: unknown): Record<string, unknown> | null {
     return null;
 }
 
-function parseCriteriaRootFromItems(items: unknown): string | null {
-    if (!Array.isArray(items)) return null;
-    for (const entry of items) {
-        if (!entry || typeof entry !== "object") continue;
-        const item = entry as Record<string, unknown>;
-        const itemType = Number(item.itemType);
-        if (!Number.isFinite(itemType) || !NFT_ITEM_TYPES.has(itemType)) {
-            continue;
-        }
-        if (itemType !== 4 && itemType !== 5) {
-            continue;
-        }
-        return normalizeCriteriaRoot(
-            item.identifierOrCriteria,
-            "protocol_data.parameters.consideration.identifierOrCriteria",
-        );
-    }
-    return null;
-}
-
 function identifierToString(value: unknown, name: string): string {
     const identifier = toBigInt(value, name);
     return identifier.toString();
@@ -407,27 +279,4 @@ function extractListingPrice(
         return String(paymentItem.startAmount);
     }
     throw new Error("Missing listing price");
-}
-
-function extractOfferPrice(
-    payload: Record<string, unknown>,
-    paymentItem: Record<string, unknown> | null,
-): string {
-    const price = asObject(payload.price, "price");
-    if (price.value !== undefined && price.value !== null) {
-        return String(price.value);
-    }
-    if (
-        paymentItem?.startAmount !== undefined &&
-        paymentItem.startAmount !== null
-    ) {
-        return String(paymentItem.startAmount);
-    }
-    throw new Error("Missing offer price");
-}
-
-function toRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object"
-        ? (value as Record<string, unknown>)
-        : {};
 }

@@ -13,7 +13,12 @@ import {
     ACTIVITY_KIND,
     ACTIVITY_SCOPE_KIND,
     ACTIVITY_SOURCE_KIND,
+    TRADING_BIDDING_BID_BOOK_SOURCE,
+    TRADING_BIDDING_BID_SCOPE_KIND,
+    TRADING_BOT_KIND,
+    TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_COMMAND_KIND,
+    TRADING_JOB_TARGET_KIND,
     TRADING_JOB_STATUS,
 } from "@artgod/shared/types";
 import type { BackendSecurityConfig } from "./config.js";
@@ -212,12 +217,21 @@ beforeAll(async () => {
         );
     const biddingJobsRepositoryModule =
         await import("./infra/trading/sqlite-bidding-jobs-repository.js");
+    const biddingBidBookRepositoryModule = await import(
+        "./infra/trading/sqlite-bidding-bid-book-repository.js"
+    );
     const listCollectionBiddingJobsUseCaseModule =
         await import(
             "./application/use-cases/trading/list-collection-bidding-jobs.js"
         );
+    const listCollectionBiddingBidBookUseCaseModule = await import(
+        "./application/use-cases/trading/list-collection-bidding-bid-book.js"
+    );
     const getTokenBiddingJobUseCaseModule =
         await import("./application/use-cases/trading/get-token-bidding-job.js");
+    const getTokenBiddingBidBookUseCaseModule = await import(
+        "./application/use-cases/trading/get-token-bidding-bid-book.js"
+    );
     const upsertTokenBiddingJobUseCaseModule =
         await import(
             "./application/use-cases/trading/upsert-token-bidding-job.js"
@@ -228,6 +242,8 @@ beforeAll(async () => {
         );
     const biddingJobsRepository =
         new biddingJobsRepositoryModule.SqliteBiddingJobsRepository();
+    const biddingBidBookRepository =
+        new biddingBidBookRepositoryModule.SqliteBiddingBidBookRepository();
     const listCollectionBiddingJobsUseCase =
         new listCollectionBiddingJobsUseCaseModule.ListCollectionBiddingJobsUseCase(
             1,
@@ -235,12 +251,27 @@ beforeAll(async () => {
             collectionsReadModel,
             biddingJobsRepository,
         );
+    const listCollectionBiddingBidBookUseCase =
+        new listCollectionBiddingBidBookUseCaseModule.ListCollectionBiddingBidBookUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            customizationReadModel,
+            biddingBidBookRepository,
+        );
     const getTokenBiddingJobUseCase =
         new getTokenBiddingJobUseCaseModule.GetTokenBiddingJobUseCase(
             1,
             chainsReadModel,
             collectionsReadModel,
             biddingJobsRepository,
+        );
+    const getTokenBiddingBidBookUseCase =
+        new getTokenBiddingBidBookUseCaseModule.GetTokenBiddingBidBookUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingBidBookRepository,
         );
     const tradingJobCommandSignalPort = {
         publishBiddingJobCommandsChanged: () => undefined,
@@ -331,7 +362,9 @@ beforeAll(async () => {
         getTokenPreviewUseCase,
         updateCollectionCustomizationUseCase,
         listCollectionBiddingJobsUseCase,
+        listCollectionBiddingBidBookUseCase,
         getTokenBiddingJobUseCase,
+        getTokenBiddingBidBookUseCase,
         upsertTokenBiddingJobUseCase,
         archiveTokenBiddingJobUseCase,
         runtimeHealthUseCase,
@@ -360,7 +393,9 @@ beforeAll(async () => {
         getTokenPreviewUseCase,
         updateCollectionCustomizationUseCase,
         listCollectionBiddingJobsUseCase,
+        listCollectionBiddingBidBookUseCase,
         getTokenBiddingJobUseCase,
+        getTokenBiddingBidBookUseCase,
         upsertTokenBiddingJobUseCase,
         archiveTokenBiddingJobUseCase,
         runtimeHealthUseCase,
@@ -480,11 +515,23 @@ describe("backend api routes", () => {
         );
         expect(biddingJobs.statusCode).toBe(404);
 
+        const biddingBids = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms/bidding/bids",
+        );
+        expect(biddingBids.statusCode).toBe(404);
+
         const tokenBiddingJob = await resolvePublic(
             "GET",
             "/api/ethereum/terraforms/7710/bidding/job",
         );
         expect(tokenBiddingJob.statusCode).toBe(404);
+
+        const tokenBiddingBids = await resolvePublic(
+            "GET",
+            "/api/ethereum/terraforms/7710/bidding/bids",
+        );
+        expect(tokenBiddingBids.statusCode).toBe(404);
     });
 
     it("lists empty bidding jobs and returns null for tokens without a job", async () => {
@@ -503,6 +550,386 @@ describe("backend api routes", () => {
         expect(tokenJob.payload.collection.slug).toBe("milady");
         expect(tokenJob.payload.tokenId).toBe("1");
         expect(tokenJob.payload.job).toBeNull();
+    });
+
+    it("reads bid book from indexed orders when a collection has no enabled bidding jobs", async () => {
+        clearTradingJobFixtures();
+        db.prepare("DELETE FROM orders WHERE id IN (?, ?, ?, ?, ?)").run(
+            "bid-book-collection",
+            "bid-book-token-1",
+            "bid-book-raw-biome-42",
+            "bid-book-biome-42-terrain",
+            "bid-book-stream-fallback",
+        );
+        insertOrderFixture({
+            id: "bid-book-collection",
+            side: "buy",
+            contract: MILADY_ADDRESS,
+            tokenId: null,
+            sourceScopeKind: "collection",
+            price: "100000000000000000",
+            currency: WETH_ADDRESS,
+            sourceStatus: "active",
+            fillabilityStatus: "fillable",
+            validFrom: 1,
+            validUntil: 4_000_000_000,
+            rawRestData: makeOpenSeaBuyOrderPayload({
+                orderId: "bid-book-collection",
+                contract: MILADY_ADDRESS,
+                priceWei: "100000000000000000",
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+        });
+        insertOrderFixture({
+            id: "bid-book-token-1",
+            side: "buy",
+            contract: MILADY_ADDRESS,
+            tokenId: "1",
+            sourceScopeKind: "token",
+            price: "200000000000000000",
+            currency: WETH_ADDRESS,
+            sourceStatus: "active",
+            fillabilityStatus: "fillable",
+            validFrom: 1,
+            validUntil: 4_000_000_000,
+            rawRestData: makeOpenSeaBuyOrderPayload({
+                orderId: "bid-book-token-1",
+                contract: MILADY_ADDRESS,
+                tokenId: "1",
+                priceWei: "200000000000000000",
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+        });
+        insertOrderFixture({
+            id: "bid-book-raw-biome-42",
+            side: "buy",
+            contract: MILADY_ADDRESS,
+            tokenId: null,
+            sourceScopeKind: "collection",
+            price: "620000000000000000",
+            currency: WETH_ADDRESS,
+            sourceStatus: "active",
+            fillabilityStatus: "fillable",
+            validFrom: 1,
+            validUntil: 4_000_000_000,
+            rawRestData: {
+                order_hash: "bid-book-raw-biome-42",
+                protocol_address:
+                    "0x0000000000000068f116a894984e2db1123eb395",
+                remaining_quantity: 2,
+                protocol_data: {
+                    parameters: {
+                        offerer:
+                            "0x9999999999999999999999999999999999999999",
+                        offer: [
+                            {
+                                itemType: 1,
+                                token: WETH_ADDRESS,
+                                identifierOrCriteria: "0",
+                                startAmount: "620000000000000000",
+                                endAmount: "620000000000000000",
+                            },
+                        ],
+                        consideration: [
+                            {
+                                itemType: 4,
+                                token: MILADY_ADDRESS,
+                                identifierOrCriteria:
+                                    "113703377976973476812273708665395356499261988770439230068849221413098206214838",
+                                startAmount: "2",
+                                endAmount: "2",
+                                recipient:
+                                    "0x9999999999999999999999999999999999999999",
+                            },
+                        ],
+                        orderType: 3,
+                        endTime: "4000000000",
+                    },
+                },
+                criteria: {
+                    collection: { slug: "milady" },
+                    contract: { address: MILADY_ADDRESS },
+                    trait: null,
+                    traits: null,
+                    numeric_traits: [{ type: "Biome", min: 42, max: 42 }],
+                    encoded_token_ids: "1,2,3",
+                },
+            },
+        });
+        insertOrderFixture({
+            id: "bid-book-biome-42-terrain",
+            side: "buy",
+            contract: MILADY_ADDRESS,
+            tokenId: null,
+            sourceScopeKind: "attribute",
+            price: "400000000000000000",
+            currency: WETH_ADDRESS,
+            sourceStatus: "active",
+            fillabilityStatus: "fillable",
+            validFrom: 1,
+            validUntil: 4_000_000_000,
+            sourceSchemaJson: {
+                kind: "attribute",
+                data: {
+                    collection: MILADY_ADDRESS,
+                    attributes: [
+                        { key: "Biome", value: "42" },
+                        { key: "Mode", value: "Terrain" },
+                    ],
+                },
+            },
+            rawRestData: makeOpenSeaBuyOrderPayload({
+                orderId: "bid-book-biome-42-terrain",
+                contract: MILADY_ADDRESS,
+                priceWei: "400000000000000000",
+                traits: [
+                    { type: "Biome", value: "42" },
+                    { type: "Mode", value: "Terrain" },
+                ],
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+        });
+        insertOrderFixture({
+            id: "bid-book-stream-fallback",
+            side: "buy",
+            contract: MILADY_ADDRESS,
+            tokenId: null,
+            sourceScopeKind: "collection",
+            price: "150000000000000000",
+            currency: WETH_ADDRESS,
+            sourceStatus: "active",
+            fillabilityStatus: "fillable",
+            validFrom: 1,
+            validUntil: 4_000_000_000,
+            rawRestData: { order_hash: "bid-book-stream-fallback" },
+            rawStreamData: makeOpenSeaBuyOrderPayload({
+                orderId: "bid-book-stream-fallback",
+                contract: MILADY_ADDRESS,
+                priceWei: "150000000000000000",
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+        });
+
+        const collectionBidBook = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids",
+        );
+        expect(collectionBidBook.statusCode).toBe(200);
+        expect(collectionBidBook.payload.bidBook.state.source).toBe("orders");
+        expect(collectionBidBook.payload.scopeFilter).toBe("collection");
+        const collectionOrderIds = collectionBidBook.payload.bidBook.bids.map(
+            (bid: { orderId: string }) => bid.orderId,
+        );
+        expect(collectionOrderIds).toContain("bid-book-collection");
+        expect(collectionOrderIds).toContain("bid-book-stream-fallback");
+        expect(collectionOrderIds).not.toContain("bid-book-token-1");
+        expect(collectionOrderIds).not.toContain("bid-book-raw-biome-42");
+        expect(collectionOrderIds).not.toContain("bid-book-biome-42-terrain");
+
+        const filteredCollectionBidBook = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids?bid_scope=traits&traits=Biome:42",
+        );
+        expect(filteredCollectionBidBook.statusCode).toBe(200);
+        expect(filteredCollectionBidBook.payload.scopeFilter).toBe("traits");
+        const filteredOrderIds =
+            filteredCollectionBidBook.payload.bidBook.bids.map(
+                (bid: { orderId: string }) => bid.orderId,
+            );
+        expect(filteredOrderIds).not.toContain("bid-book-collection");
+        expect(filteredOrderIds).not.toContain("bid-book-biome-42-terrain");
+        const rawTraitBid = filteredCollectionBidBook.payload.bidBook.bids.find(
+            (bid: { orderId: string }) =>
+                bid.orderId === "bid-book-raw-biome-42",
+        );
+        expect(rawTraitBid).toMatchObject({
+            orderId: "bid-book-raw-biome-42",
+            scope: {
+                kind: "trait",
+                label: "Biome=42",
+                traits: [{ type: "Biome", value: "42" }],
+            },
+            priceWei: "310000000000000000",
+        });
+
+        const exactMultiTraitBidBook = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids?bid_scope=traits&traits=Biome:42&traits=Mode:Terrain",
+        );
+        expect(exactMultiTraitBidBook.statusCode).toBe(200);
+        const exactMultiTraitOrderIds =
+            exactMultiTraitBidBook.payload.bidBook.bids.map(
+                (bid: { orderId: string }) => bid.orderId,
+            );
+        expect(exactMultiTraitOrderIds).toContain("bid-book-biome-42-terrain");
+
+        const tokenBidBook = await resolve(
+            "GET",
+            "/api/ethereum/milady/1/bidding/bids",
+        );
+        expect(tokenBidBook.statusCode).toBe(200);
+        expect(tokenBidBook.payload.bidBook.state.source).toBe("orders");
+        const tokenOrderIds = tokenBidBook.payload.bidBook.bids.map(
+            (bid: { orderId: string }) => bid.orderId,
+        );
+        expect(tokenOrderIds).toEqual(
+            expect.arrayContaining(["bid-book-token-1", "bid-book-collection"]),
+        );
+        expect(tokenOrderIds.indexOf("bid-book-token-1")).toBeLessThan(
+            tokenOrderIds.indexOf("bid-book-collection"),
+        );
+    });
+
+    it("uses bot snapshot bids only when the bidding bot heartbeat and projection are fresh", async () => {
+        clearTradingJobFixtures();
+        db.prepare("DELETE FROM orders WHERE id IN (?, ?)").run(
+            "bid-book-runtime-orders",
+            "bid-book-runtime-snapshot",
+        );
+        insertOrderFixture({
+            id: "bid-book-runtime-orders",
+            side: "buy",
+            contract: MILADY_ADDRESS,
+            tokenId: null,
+            sourceScopeKind: "collection",
+            price: "100000000000000000",
+            currency: WETH_ADDRESS,
+            sourceStatus: "active",
+            fillabilityStatus: "fillable",
+            validFrom: 1,
+            validUntil: 4_000_000_000,
+            rawRestData: makeOpenSeaBuyOrderPayload({
+                orderId: "bid-book-runtime-orders",
+                contract: MILADY_ADDRESS,
+                priceWei: "100000000000000000",
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+        });
+
+        const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
+        db.prepare(
+            "INSERT INTO trading_jobs " +
+                "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id, revision) " +
+                "VALUES (?, ?, 1, ?, ?, ?, '1', 1)",
+        ).run(
+            "runtime-source-job",
+            TRADING_BOT_KIND.Bidding,
+            collection.collection_id,
+            TRADING_JOB_STATUS.Enabled,
+            TRADING_JOB_TARGET_KIND.Token,
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_job_specs " +
+                "(job_id, floor_wei, ceiling_wei, delta_wei) " +
+                "VALUES (?, '100000000000000000', '200000000000000000', '10000000000000000')",
+        ).run("runtime-source-job");
+        db.prepare(
+            "INSERT INTO trading_bidding_bid_book_rows " +
+                "(chain_id, collection_id, order_id, source, scope_kind, scope_label, maker, is_own, price_wei, currency_address, snapshot_refreshed_at_ms) " +
+                "VALUES (1, ?, ?, ?, ?, 'collection', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 0, '300000000000000000', ?, ?)",
+        ).run(
+            collection.collection_id,
+            "bid-book-runtime-snapshot",
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+            TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            WETH_ADDRESS.toLowerCase(),
+            Date.now(),
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_collection_bid_book_state " +
+                "(chain_id, collection_id, source, snapshot_refreshed_at_ms, projected_at, row_count, duration_ms, last_error) " +
+                "VALUES (1, ?, ?, ?, ?, 1, 1, NULL)",
+        ).run(
+            collection.collection_id,
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+            Date.now(),
+            new Date().toISOString(),
+        );
+
+        const noRuntimeHeartbeat = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids",
+        );
+        expect(noRuntimeHeartbeat.statusCode).toBe(200);
+        expect(noRuntimeHeartbeat.payload.bidBook.state.source).toBe("orders");
+        expect(
+            noRuntimeHeartbeat.payload.bidBook.bids.map(
+                (bid: { orderId: string }) => bid.orderId,
+            ),
+        ).toContain("bid-book-runtime-orders");
+
+        db.prepare(
+            "INSERT INTO trading_bot_runtime_state " +
+                "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
+                "VALUES (?, 1, 'wallet-1', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, NULL)",
+        ).run(
+            TRADING_BOT_KIND.Bidding,
+            TRADING_BOT_RUNTIME_STATE.Running,
+            new Date().toISOString(),
+            new Date().toISOString(),
+            new Date().toISOString(),
+        );
+
+        const liveRuntime = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids",
+        );
+        expect(liveRuntime.statusCode).toBe(200);
+        expect(liveRuntime.payload.bidBook.state.source).toBe("bot_snapshot");
+        expect(
+            liveRuntime.payload.bidBook.bids.map(
+                (bid: { orderId: string }) => bid.orderId,
+            ),
+        ).toContain("bid-book-runtime-snapshot");
+
+        db.prepare(
+            "UPDATE trading_bot_runtime_state " +
+                "SET heartbeat_at = ?, updated_at = ? " +
+                "WHERE bot_kind = ? AND chain_id = 1 AND wallet_id = 'wallet-1'",
+        ).run(
+            new Date(Date.now() - 31_000).toISOString(),
+            new Date().toISOString(),
+            TRADING_BOT_KIND.Bidding,
+        );
+
+        const staleHeartbeat = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids",
+        );
+        expect(staleHeartbeat.statusCode).toBe(200);
+        expect(staleHeartbeat.payload.bidBook.state.source).toBe("orders");
+
+        db.prepare(
+            "UPDATE trading_bot_runtime_state " +
+                "SET heartbeat_at = ?, updated_at = ? " +
+                "WHERE bot_kind = ? AND chain_id = 1 AND wallet_id = 'wallet-1'",
+        ).run(
+            new Date().toISOString(),
+            new Date().toISOString(),
+            TRADING_BOT_KIND.Bidding,
+        );
+
+        db.prepare(
+            "UPDATE trading_bidding_collection_bid_book_state " +
+                "SET snapshot_refreshed_at_ms = ? " +
+                "WHERE chain_id = 1 AND collection_id = ? AND source = ?",
+        ).run(
+            Date.now() - 121_000,
+            collection.collection_id,
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+        );
+
+        const staleProjection = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids",
+        );
+        expect(staleProjection.statusCode).toBe(200);
+        expect(staleProjection.payload.bidBook.state.source).toBe("orders");
     });
 
     it("creates and updates token bidding jobs via admin routes", async () => {
@@ -3167,6 +3594,14 @@ function seedData(): void {
         fillabilityStatus: "fillable",
         validFrom: 1_700_000_000,
         validUntil: 1_900_000_000,
+        rawRestData: makeOpenSeaBuyOrderPayload({
+            orderId: "buy-order-token-2",
+            contract: MILADY_ADDRESS,
+            tokenId: "2",
+            priceWei: "300000000000000000",
+            validFrom: 1_700_000_000,
+            validUntil: 1_900_000_000,
+        }),
     });
     insertOrderFixture({
         id: "collection-offer",
@@ -3180,6 +3615,13 @@ function seedData(): void {
         fillabilityStatus: "fillable",
         validFrom: 1_700_000_000,
         validUntil: 1_900_000_000,
+        rawRestData: makeOpenSeaBuyOrderPayload({
+            orderId: "collection-offer",
+            contract: MILADY_ADDRESS,
+            priceWei: "900000000000000000",
+            validFrom: 1_700_000_000,
+            validUntil: 1_900_000_000,
+        }),
     });
     insertOrderFixture({
         id: "expired-listing-token-2",
@@ -3296,6 +3738,9 @@ function seedData(): void {
 function clearTradingJobFixtures(): void {
     db.exec(
         [
+            "DELETE FROM trading_bidding_bid_book_rows;",
+            "DELETE FROM trading_bidding_collection_bid_book_state;",
+            "DELETE FROM trading_bot_runtime_state;",
             "DELETE FROM trading_job_commands;",
             "DELETE FROM trading_bidding_job_runtime_state;",
             "DELETE FROM trading_bidding_job_specs;",
@@ -3373,7 +3818,7 @@ function insertOrderFixture(input: {
     side: "buy" | "sell";
     contract: string;
     tokenId: string | null;
-    sourceScopeKind: "token" | "collection" | "attribute";
+    sourceScopeKind: "token" | "collection" | "attribute" | "token_set";
     price: string;
     currency: string;
     sourceStatus:
@@ -3394,12 +3839,15 @@ function insertOrderFixture(input: {
         | "invalid";
     validFrom: number;
     validUntil: number;
+    sourceSchemaJson?: unknown;
+    rawRestData?: unknown;
+    rawStreamData?: unknown;
 }): void {
     const collection = getCollectionFixtureByAddress(input.contract);
     db.prepare(
         "INSERT INTO orders " +
-            "(id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, price, currency, valid_from, valid_until, fillability_status, source_status, created_at, updated_at) " +
-            "VALUES (?, 1, ?, 'seaport', ?, 'opensea', '0x9999999999999999999999999999999999999999', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            "(id, chain_id, collection_id, kind, side, source, maker, taker, contract_address, token_id, source_scope_kind, source_schema_json, price, currency, valid_from, valid_until, fillability_status, source_status, raw_rest_data, raw_stream_data, created_at, updated_at) " +
+            "VALUES (?, 1, ?, 'seaport', ?, 'opensea', '0x9999999999999999999999999999999999999999', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
     ).run(
         input.id,
         collection.collection_id,
@@ -3407,13 +3855,82 @@ function insertOrderFixture(input: {
         input.contract.toLowerCase(),
         input.tokenId,
         input.sourceScopeKind,
+        input.sourceSchemaJson ? JSON.stringify(input.sourceSchemaJson) : null,
         input.price,
         input.currency.toLowerCase(),
         input.validFrom,
         input.validUntil,
         input.fillabilityStatus,
         input.sourceStatus,
+        input.rawRestData ? JSON.stringify(input.rawRestData) : null,
+        input.rawStreamData ? JSON.stringify(input.rawStreamData) : null,
     );
+}
+
+function makeOpenSeaBuyOrderPayload(input: {
+    orderId: string;
+    contract: string;
+    priceWei: string;
+    tokenId?: string;
+    traits?: Array<{ type: string; value: string }>;
+    quantity?: number;
+    validFrom: number;
+    validUntil: number;
+}): unknown {
+    const maker = "0x9999999999999999999999999999999999999999";
+    const quantity = input.quantity ?? 1;
+    const itemType = input.tokenId ? 2 : 4;
+    const identifierOrCriteria = input.tokenId ?? "0";
+
+    return {
+        order_hash: input.orderId,
+        protocol_address: "0x0000000000000068f116a894984e2db1123eb395",
+        maker: { address: maker },
+        created_at: new Date(input.validFrom * 1000).toISOString(),
+        expiration_time: input.validUntil,
+        remaining_quantity: quantity,
+        protocol_data: {
+            parameters: {
+                offerer: maker,
+                offer: [
+                    {
+                        itemType: 1,
+                        token: WETH_ADDRESS,
+                        identifierOrCriteria: "0",
+                        startAmount: (
+                            BigInt(input.priceWei) * BigInt(quantity)
+                        ).toString(),
+                        endAmount: (
+                            BigInt(input.priceWei) * BigInt(quantity)
+                        ).toString(),
+                    },
+                ],
+                consideration: [
+                    {
+                        itemType,
+                        token: input.contract,
+                        identifierOrCriteria,
+                        startAmount: String(quantity),
+                        endAmount: String(quantity),
+                        recipient: maker,
+                    },
+                ],
+                orderType: 3,
+                startTime: String(input.validFrom),
+                endTime: String(input.validUntil),
+            },
+        },
+        criteria: input.tokenId
+            ? null
+            : {
+                  collection: { slug: "milady" },
+                  contract: { address: input.contract },
+                  trait: null,
+                  traits: input.traits ?? null,
+                  numeric_traits: null,
+                  encoded_token_ids: "*",
+              },
+    };
 }
 
 function insertBootstrapRun(input: {

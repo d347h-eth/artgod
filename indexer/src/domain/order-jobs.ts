@@ -72,10 +72,12 @@ export type OrderUpsertPayload = {
     tokenId?: string | null;
     sourceScopeKind: OrderSourceScopeKind;
     sourceCriteriaRoot?: string | null;
+    sourceEncodedTokenIds?: string | null;
     sourceSchema?: TokenSetSchema | null;
     localTokenSetStatus?: OrderLocalTokenSetStatus | null;
     tokenSetId?: string | null;
     tokenSetSchemaHash?: string | null;
+    quantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;

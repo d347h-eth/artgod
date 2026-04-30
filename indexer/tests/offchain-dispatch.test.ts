@@ -109,6 +109,93 @@ describe("offchain dispatch", () => {
         );
     });
 
+    it("persists REST numeric-trait offers through shared OpenSea bidding parser semantics", async () => {
+        const collectionId = ensureCollection(1, CONTRACT);
+        const queue = new QueueCapture();
+        const tokenSets = new SqliteTokenSetRegistry();
+        const payload: OffchainOrderRawPayload = {
+            source: "opensea",
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: "snapshot",
+            dedupeKey: "snapshot:test:numeric-trait-offer",
+            eventType: "rest.offer.collection",
+            orderId:
+                "0xe42d30d10b52ac6e813d3ecb2e14bf79ccc61db4c65fc89d70cacb2ae9cfae52",
+            runId: 1,
+            sourceEventAt: 1773545938,
+            payload: buildRestNumericTraitOfferRecord(),
+        };
+
+        const result = await dispatchOffchainPayload(
+            queue,
+            tokenSets,
+            new OrderActivityLookupStub(),
+            payload,
+        );
+
+        expect(result).toEqual({
+            handled: true,
+            upsertedOrderId: payload.orderId,
+        });
+        expect(queue.published).toHaveLength(1);
+
+        const upsert = queue.published[0] as JobEnvelope<OrderUpsertPayload>;
+        expect(upsert.payload.sourceScopeKind).toBe("attribute");
+        expect(upsert.payload.sourceEncodedTokenIds).toBe("30,314,5108:5109");
+        expect(upsert.payload.quantity).toBe("2");
+        expect(upsert.payload.price).toBe("310000000000000000");
+        expect(upsert.payload.sourceSchema).toEqual({
+            kind: "attribute",
+            data: {
+                collection: CONTRACT,
+                attributes: [{ key: "Biome", value: "42" }],
+            },
+        });
+        expect(upsert.payload.localTokenSetStatus).toBe("unresolved");
+        expect(upsert.payload.rawSourceKind).toBe("rest");
+    });
+
+    it("persists encoded token-set offers without collapsing them to collection scope", async () => {
+        const collectionId = ensureCollection(1, CONTRACT);
+        const queue = new QueueCapture();
+        const tokenSets = new SqliteTokenSetRegistry();
+        const payload: OffchainOrderRawPayload = {
+            source: "opensea",
+            chainId: 1,
+            collectionId,
+            receivedAt: Date.now(),
+            channel: "snapshot",
+            dedupeKey: "snapshot:test:token-set-offer",
+            eventType: "rest.offer.collection",
+            orderId:
+                "0x111d30d10b52ac6e813d3ecb2e14bf79ccc61db4c65fc89d70cacb2ae9cfae52",
+            runId: 1,
+            sourceEventAt: 1773545938,
+            payload: buildRestTokenSetOfferRecord(),
+        };
+
+        const result = await dispatchOffchainPayload(
+            queue,
+            tokenSets,
+            new OrderActivityLookupStub(),
+            payload,
+        );
+
+        expect(result).toEqual({
+            handled: true,
+            upsertedOrderId: payload.orderId,
+        });
+        expect(queue.published).toHaveLength(1);
+
+        const upsert = queue.published[0] as JobEnvelope<OrderUpsertPayload>;
+        expect(upsert.payload.sourceScopeKind).toBe("token_set");
+        expect(upsert.payload.sourceEncodedTokenIds).toBe("30,314,5108:5109");
+        expect(upsert.payload.sourceSchema).toBeNull();
+        expect(upsert.payload.localTokenSetStatus).toBe("unresolved");
+    });
+
     it("persists trait offers with local token-set mismatch instead of dropping them", async () => {
         const collectionId = ensureCollection(1, CONTRACT);
         seedAttribute(1, collectionId, CONTRACT, "Zone", "Mori");
@@ -350,6 +437,85 @@ function buildRestCollectionOfferRecord(): Record<string, unknown> {
             contract: {
                 address: CONTRACT,
             },
+        },
+    };
+}
+
+function buildRestNumericTraitOfferRecord(): Record<string, unknown> {
+    return {
+        status: "ACTIVE",
+        order_hash:
+            "0xe42d30d10b52ac6e813d3ecb2e14bf79ccc61db4c65fc89d70cacb2ae9cfae52",
+        protocol_address: SEAPORT,
+        protocol_data: {
+            parameters: {
+                offerer: MAKER,
+                offer: [
+                    {
+                        itemType: 1,
+                        token: WETH,
+                        identifierOrCriteria: "0",
+                        startAmount: "620000000000000000",
+                        endAmount: "620000000000000000",
+                    },
+                ],
+                consideration: [
+                    {
+                        itemType: 4,
+                        token: CONTRACT,
+                        identifierOrCriteria:
+                            "113703377976973476812273708665395356499261988770439230068849221413098206214838",
+                        startAmount: "2",
+                        endAmount: "2",
+                        recipient: MAKER,
+                    },
+                    {
+                        itemType: 1,
+                        token: WETH,
+                        identifierOrCriteria: "0",
+                        startAmount: "6200000000000000",
+                        endAmount: "6200000000000000",
+                        recipient:
+                            "0x0000a26b00c1f0df003000390027140000faa719",
+                    },
+                ],
+                startTime: "1773545938",
+                endTime: "1789097938",
+                orderType: 3,
+                zone: "0x000056f7000000ece9003ca63978907a00ffd100",
+                zoneHash: ZERO_BYTES32,
+                salt: "3",
+                conduitKey:
+                    "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
+                totalOriginalConsiderationItems: 2,
+                counter: "0x0",
+            },
+            signature: null,
+        },
+        remaining_quantity: 2,
+        price: {
+            value: "620000000000000000",
+        },
+        criteria: {
+            contract: {
+                address: CONTRACT,
+            },
+            numeric_traits: [{ type: "Biome", min: 42, max: 42 }],
+            encoded_token_ids: "30,314,5108:5109",
+        },
+    };
+}
+
+function buildRestTokenSetOfferRecord(): Record<string, unknown> {
+    return {
+        ...buildRestNumericTraitOfferRecord(),
+        order_hash:
+            "0x111d30d10b52ac6e813d3ecb2e14bf79ccc61db4c65fc89d70cacb2ae9cfae52",
+        criteria: {
+            contract: {
+                address: CONTRACT,
+            },
+            encoded_token_ids: "30,314,5108:5109",
         },
     };
 }

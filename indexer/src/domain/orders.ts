@@ -27,6 +27,7 @@ export const ORDER_SOURCE_SCOPE_KIND = {
     Token: "token",
     Collection: "collection",
     Attribute: "attribute",
+    TokenSet: "token_set",
 } as const;
 
 export type OrderSourceScopeKind =
@@ -92,10 +93,12 @@ export type OrderRecord = {
     tokenId?: string | null;
     sourceScopeKind?: OrderSourceScopeKind | null;
     sourceCriteriaRoot?: string | null;
+    sourceEncodedTokenIds?: string | null;
     sourceSchemaJson?: string | null;
     localTokenSetStatus?: OrderLocalTokenSetStatus | null;
     tokenSetId?: string | null;
     tokenSetSchemaHash?: string | null;
+    quantity?: string | null;
     price?: string | null;
     currency?: string | null;
     validFrom?: number | null;

@@ -7,13 +7,11 @@ import {
     asObject,
     assertAddress,
     assertString,
-    normalizeCriteriaRoot,
     parseOptionalString,
     toBigInt,
 } from "./normalizer-utils.js";
 
 const NFT_ITEM_TYPES = new Set(["2", "3", "4", "5"]);
-const CRITERIA_ITEM_TYPES = new Set(["4", "5"]);
 const PAYMENT_ITEM_TYPES = new Set(["0", "1"]);
 
 export function normalizeSeaportOrderData(
@@ -89,69 +87,6 @@ export function extractSeaportSellTerms(
     };
 }
 
-export function extractSeaportItemOfferTerms(
-    seaportData: SeaportOrderData | null | undefined,
-): {
-    maker: string;
-    contract: string;
-    tokenId: string;
-    currency: string;
-    price: string;
-    validFrom: number;
-    validUntil: number;
-} | null {
-    if (!seaportData) return null;
-
-    const nftItem = findSingleNftItem(seaportData.consideration);
-    const payment = sumFixedCurrencyItems(seaportData.offer);
-    if (!nftItem || !payment) {
-        return null;
-    }
-
-    return {
-        maker: seaportData.offerer,
-        contract: nftItem.token,
-        tokenId: nftItem.identifierOrCriteria,
-        currency: payment.currency,
-        price: payment.amount,
-        validFrom: toUnixSecondsNumber(seaportData.startTime),
-        validUntil: toUnixSecondsNumber(seaportData.endTime),
-    };
-}
-
-export function extractSeaportCriteriaOfferTerms(
-    seaportData: SeaportOrderData | null | undefined,
-): {
-    maker: string;
-    contract: string;
-    currency: string;
-    price: string;
-    validFrom: number;
-    validUntil: number;
-    criteriaRoot: string | null;
-} | null {
-    if (!seaportData) return null;
-
-    const criteriaItem = findCriteriaNftItem(seaportData.consideration);
-    const payment = sumFixedCurrencyItems(seaportData.offer);
-    if (!criteriaItem || !payment) {
-        return null;
-    }
-
-    return {
-        maker: seaportData.offerer,
-        contract: criteriaItem.token,
-        currency: payment.currency,
-        price: payment.amount,
-        validFrom: toUnixSecondsNumber(seaportData.startTime),
-        validUntil: toUnixSecondsNumber(seaportData.endTime),
-        criteriaRoot: normalizeCriteriaRoot(
-            criteriaItem.identifierOrCriteria,
-            "protocol_data.parameters.consideration.identifierOrCriteria",
-        ),
-    };
-}
-
 function parseOfferItems(value: unknown): SeaportOrderItem[] {
     if (!Array.isArray(value)) {
         throw new Error("Invalid offer: expected array");
@@ -201,17 +136,6 @@ function findSingleNftItem(
         return null;
     }
     return nftItems[0] ?? null;
-}
-
-function findCriteriaNftItem(
-    items: SeaportConsiderationItem[],
-): SeaportConsiderationItem | null {
-    for (const item of items) {
-        if (CRITERIA_ITEM_TYPES.has(item.itemType)) {
-            return item;
-        }
-    }
-    return null;
 }
 
 function sumFixedCurrencyItems(

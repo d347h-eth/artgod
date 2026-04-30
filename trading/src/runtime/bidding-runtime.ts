@@ -1,5 +1,9 @@
 import { setDbPath } from "@artgod/shared/database";
 import {
+    TRADING_BOT_KIND,
+    TRADING_BOT_RUNTIME_STATE,
+} from "@artgod/shared/types";
+import {
     LogLevel,
     Network,
     OpenSeaStreamClient as OpenSeaSdkStreamClient,
@@ -17,6 +21,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 import { NatsBiddingJobCommandSignalListener } from "../adapters/jobs/nats-bidding-job-command-signal-listener.js";
+import { SqliteBiddingBidBookProjection } from "../adapters/bid-book/sqlite-bidding-bid-book-projection.js";
 import { SqliteBiddingJobCommandRepository } from "../adapters/jobs/sqlite-bidding-job-command-repository.js";
 import { SqliteBiddingJobSource } from "../adapters/jobs/sqlite-bidding-job-source.js";
 import { SqliteTokenMetadataRepository } from "../adapters/metadata/sqlite-token-metadata-repository.js";
@@ -24,9 +29,11 @@ import { OpenSeaBiddingService } from "../adapters/opensea/open-sea-bidding-serv
 import { OpenSeaCollectionOfferSource } from "../adapters/opensea/open-sea-collection-offer-source.js";
 import { OpenSeaEventStream } from "../adapters/opensea/open-sea-event-stream.js";
 import { OpenSeaMarketEventFactory } from "../adapters/opensea/open-sea-market-event-factory.js";
+import { SqliteTradingBotRuntimeState } from "../adapters/runtime/sqlite-trading-bot-runtime-state.js";
 import { ViemWethAllowanceApprovalService } from "../adapters/wallet/viem-weth-allowance-approval-service.js";
 import { ViemMakerWethBalanceService } from "../adapters/wallet/viem-maker-weth-balance-service.js";
 import { Bidder } from "../application/use-cases/bidding/bidder.js";
+import { BiddingBidBookProjectionScheduler } from "../application/use-cases/bidding/bidding-bid-book-projection.js";
 import { BiddingJobCommandReconciler } from "../application/use-cases/bidding/bidding-job-command-reconciler.js";
 import { CollectionOfferSnapshotService } from "../application/use-cases/bidding/collection-offer-snapshot-service.js";
 import { AttrFilter } from "../application/use-cases/market/pipeline/lib/attr-filter.js";
@@ -58,6 +65,7 @@ type StartBiddingRuntimeParams = {
     biddingConfig: EnabledBiddingConfig;
     privateKeyHex: Hex;
     makerAddress: string;
+    walletId: string;
     lifecycle: BiddingRuntimeLifecyclePort;
 };
 
@@ -92,6 +100,19 @@ export async function startBiddingRuntime(
 
     // Point the shared SQLite helpers at the runtime-selected ArtGod database before metadata adapters start reading.
     setDbPath(params.config.dbPath);
+
+    const runtimeStateIdentity = {
+        botKind: TRADING_BOT_KIND.Bidding,
+        chainId: params.config.chainId,
+        walletId: params.walletId,
+        address: params.makerAddress,
+    };
+    const runtimeState = new SqliteTradingBotRuntimeState();
+    // Publish a bootstrapping heartbeat so backend readers can see the bot process is alive but not snapshot-ready.
+    runtimeState.startHeartbeat(
+        runtimeStateIdentity,
+        TRADING_BOT_RUNTIME_STATE.Bootstrapping,
+    );
 
     const biddingJobSource = new SqliteBiddingJobSource(params.config.chainId);
     // Load the authoritative enabled bidding jobs from SQLite before creating any market-facing adapters.
@@ -172,6 +193,14 @@ export async function startBiddingRuntime(
         params.config.rpc.primaryUrl,
         params.biddingConfig.openSea.biddingSecretKey,
     );
+    const bidBookProjection = new BiddingBidBookProjectionScheduler(
+        new SqliteBiddingBidBookProjection(
+            params.config.chainId,
+            params.makerAddress,
+            params.config.tokens.wethAddress,
+        ),
+        params.biddingConfig.bidBookProjectionThrottleMs,
+    );
     const collectionOfferSnapshotService = new CollectionOfferSnapshotService(
         // Create the dedicated snapshot API lane so polling never shares the bidding key or limiter.
         new OpenSeaCollectionOfferSource(
@@ -182,6 +211,11 @@ export async function startBiddingRuntime(
         snapshotBackedCollectionSlugs,
         params.biddingConfig.collectionOffersPollMs,
         params.biddingConfig.collectionOffersTtlMs,
+        {
+            onSnapshotRefreshed: (snapshot, reason) => {
+                bidBookProjection.requestProjection(snapshot, reason);
+            },
+        },
     );
 
     const biddingService = new OpenSeaBiddingService(
@@ -261,18 +295,57 @@ export async function startBiddingRuntime(
         collectionOfferSnapshotService,
         params.biddingConfig.criteriaRefreshTraitsByCollection,
     );
-    const bidStreams: RegisteredBidStream[] = [];
-    const watchedRuntimeCollectionSlugs = new Set<string>();
-    const ensureBidStream = (collectionSlug: string): void => {
-        if (watchedRuntimeCollectionSlugs.has(collectionSlug)) {
-            return;
+    const bidStreams = new Map<string, RegisteredBidStream>();
+    const ensureBidStream = (collectionSlug: string): boolean => {
+        if (bidStreams.has(collectionSlug)) {
+            return false;
         }
 
         // Subscribe the direct OpenSea bid stream when a DB-driven job introduces a watched collection.
-        bidStreams.push(
+        bidStreams.set(
+            collectionSlug,
             registerBidStream(streamClient, collectionSlug, bidPipeline),
         );
-        watchedRuntimeCollectionSlugs.add(collectionSlug);
+        biddingLog.info(
+            `[BiddingRuntime] Subscribed direct OpenSea bid stream for ${collectionSlug}. streamCollections=${bidStreams.size}`,
+        );
+        return true;
+    };
+    const disposeBidStream = (collectionSlug: string): boolean => {
+        const registered = bidStreams.get(collectionSlug);
+        if (!registered) {
+            return false;
+        }
+
+        // Unsubscribe the direct OpenSea bid stream once no enabled job needs this collection.
+        registered.stream.dispose();
+        bidStreams.delete(collectionSlug);
+        biddingLog.info(
+            `[BiddingRuntime] Unsubscribed direct OpenSea bid stream for ${collectionSlug}. streamCollections=${bidStreams.size}`,
+        );
+        return true;
+    };
+    const reconcileBidStreams = (collectionSlugs: string[]): {
+        added: number;
+        removed: number;
+    } => {
+        const next = new Set(collectionSlugs);
+        let added = 0;
+        let removed = 0;
+
+        for (const collectionSlug of Array.from(bidStreams.keys())) {
+            if (!next.has(collectionSlug) && disposeBidStream(collectionSlug)) {
+                removed += 1;
+            }
+        }
+
+        for (const collectionSlug of next) {
+            if (ensureBidStream(collectionSlug)) {
+                added += 1;
+            }
+        }
+
+        return { added, removed };
     };
     watchedCollectionSlugs.forEach(ensureBidStream);
 
@@ -302,6 +375,16 @@ export async function startBiddingRuntime(
                     );
                 }
             },
+            reconcileEnabledJobs: async (enabledJobs) => {
+                const nextStreamCollections =
+                    collectWatchedCollectionSlugs(enabledJobs);
+                reconcileBidStreams(nextStreamCollections);
+                const nextSnapshotCollections =
+                    collectSnapshotBackedCollectionSlugs(enabledJobs);
+                collectionOfferSnapshotService.reconcileWatchedCollections(
+                    nextSnapshotCollections,
+                );
+            },
         },
         {
             batchSize: params.biddingConfig.commandBatchSize,
@@ -328,16 +411,32 @@ export async function startBiddingRuntime(
     biddingLog.info(
         `[BiddingRuntime] Started bidder with ${jobs.length} job(s), watchedCollections=${watchedCollectionSlugs.length}, snapshotCollections=${snapshotBackedCollectionSlugs.length}, dryRun=${params.biddingConfig.dryRun}`,
     );
+    // Switch to running heartbeat only after bootstrap and steady-state loops have started.
+    runtimeState.startHeartbeat(
+        runtimeStateIdentity,
+        TRADING_BOT_RUNTIME_STATE.Running,
+    );
 
     return {
         async shutdown(): Promise<void> {
-            bidder.stop();
-            collectionOfferSnapshotService.stop();
-            await commandLoop.shutdown();
-            await signalListener?.shutdown();
-            bidStreams.forEach(({ stream }) => stream.dispose());
-            // Disconnect the shared OpenSea socket after all per-collection handlers were removed.
-            streamClient.disconnect();
+            try {
+                bidder.stop();
+                bidBookProjection.stop();
+                collectionOfferSnapshotService.stop();
+                await commandLoop.shutdown();
+                await signalListener?.shutdown();
+                bidStreams.forEach(({ stream }) => stream.dispose());
+                bidStreams.clear();
+                // Disconnect the shared OpenSea socket after all per-collection handlers were removed.
+                streamClient.disconnect();
+            } finally {
+                runtimeState.stopHeartbeat();
+                // Mark the bot stopped so backend reads fall back to indexed orders immediately.
+                runtimeState.markState(
+                    runtimeStateIdentity,
+                    TRADING_BOT_RUNTIME_STATE.Stopped,
+                );
+            }
         },
     };
 }

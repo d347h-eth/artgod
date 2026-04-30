@@ -1,19 +1,27 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import type {
+		ApiBiddingBidBook,
 		ApiBiddingJob,
 		ApiChain,
 		ApiCollection,
+		ApiCollectionBiddingBidScopeFilter,
 		ApiTokenAttribute,
+		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
+	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import CollectionBiddingJobRow from '$lib/components/CollectionBiddingJobRow.svelte';
+	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
+	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
+	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { joinPath, withQuery } from '$lib/route-paths';
@@ -21,28 +29,39 @@
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
+	import { nextSelectedTraits, setTraitRangeFilter } from '$lib/trait-filters';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
 		collection,
 		jobs,
+		bidBook,
+		facets,
 		basePath,
 		selectedTraits,
 		selectedTraitRanges,
+		bidScope,
 		mediaMode
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		jobs: ApiBiddingJob[];
+		bidBook: ApiBiddingBidBook;
+		facets: ApiTraitFacet[];
 		basePath: string;
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
+		bidScope: ApiCollectionBiddingBidScopeFilter;
 		mediaMode: string | null;
 	} = $props();
 
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const traitFacetPanel = createTraitFacetPanelController();
+	const traitFacetPanelState = traitFacetPanel.state;
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
+	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
+	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
@@ -51,6 +70,14 @@
 
 	$effect(() => {
 		collectionJobs = jobs;
+	});
+
+	$effect(() => {
+		activeTraits = selectedTraits;
+	});
+
+	$effect(() => {
+		activeTraitRanges = selectedTraitRanges;
 	});
 
 	function collectionsHref(): string {
@@ -93,6 +120,7 @@
 			basePath,
 			selectedTraits,
 			selectedTraitRanges,
+			bidScope,
 			mediaMode
 		});
 	}
@@ -106,6 +134,33 @@
 		});
 	}
 
+	function filtersHref(
+		traits: ApiTokenAttribute[],
+		ranges: ApiTraitRangeFilter[]
+	): string {
+		return buildCollectionBiddingHref({
+			basePath,
+			selectedTraits: traits,
+			selectedTraitRanges: ranges,
+			bidScope,
+			mediaMode
+		});
+	}
+
+	function bidScopeHref(nextBidScope: ApiCollectionBiddingBidScopeFilter): string {
+		return buildCollectionBiddingHref({
+			basePath,
+			selectedTraits,
+			selectedTraitRanges,
+			bidScope: nextBidScope,
+			mediaMode
+		});
+	}
+
+	function resetTraitsHref(): string {
+		return filtersHref([], []);
+	}
+
 	function biddingPath(): string {
 		return joinPath(basePath, 'bidding');
 	}
@@ -114,6 +169,7 @@
 		return buildCollectionBiddingQuery({
 			selectedTraits,
 			selectedTraitRanges,
+			bidScope,
 			mediaMode
 		}).toString();
 	}
@@ -125,7 +181,54 @@
 	function handleJobArchived(jobId: string): void {
 		collectionJobs = collectionJobs.filter((job) => job.jobId !== jobId);
 	}
+
+	async function onResetTraits(): Promise<void> {
+		await goto(resetTraitsHref(), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onTraitToggleWithMode(
+		key: string,
+		value: string,
+		checked: boolean,
+		exclusiveMode: boolean
+	): Promise<void> {
+		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, exclusiveMode);
+		activeTraits = nextTraits;
+		await goto(filtersHref(nextTraits, activeTraitRanges), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onApplyTraitRange(
+		key: string,
+		fromValue: string | null,
+		toValue: string | null
+	): Promise<void> {
+		const nextRanges = setTraitRangeFilter(activeTraitRanges, key, fromValue, toValue);
+		activeTraitRanges = nextRanges;
+		await goto(filtersHref(activeTraits, nextRanges), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		keyboardShortcutsHelp.onWindowKeydown(event);
+		if (event.defaultPrevented) return;
+		traitFacetPanel.onWindowKeydown(event, {
+			onReset: onResetTraits
+		});
+	}
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <CollectionPageLayout
 	tokensHref={tokensHref()}
@@ -159,58 +262,99 @@
 		{/if}
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
+	{#snippet topActions()}
+		{#if collection}
+			<div class="panel-top-actions-row">
+				<div class="secondary-tabs" aria-label="Bid scope filter">
+					{#if bidScope === 'collection'}
+						<span class="secondary-tab-active">collection</span>
+					{:else}
+						<a href={bidScopeHref('collection')}>collection</a>
+					{/if}
+					{#if bidScope === 'traits'}
+						<span class="secondary-tab-active">traits</span>
+					{:else}
+						<a href={bidScopeHref('traits')}>traits</a>
+					{/if}
+				</div>
+			</div>
+			<div class="panel-top-actions-row">
+				<TraitFacetPanelControls
+					hasActiveFilters={activeTraits.length > 0 || activeTraitRanges.length > 0}
+					collapsed={$traitFacetPanelState.collapsed}
+					onToggleCollapsed={traitFacetPanel.toggle}
+					onReset={onResetTraits}
+				/>
+			</div>
+		{/if}
+	{/snippet}
 
-	<section class="runtime-section">
-		<div class="runtime-kv-grid">
-			<div>
-				<span class="runtime-k">jobs</span>
-				<span class="runtime-v">{collectionJobs.length}</span>
-			</div>
-			<div>
-				<span class="runtime-k">token jobs</span>
-				<span class="runtime-v">{tokenJobCount}</span>
-			</div>
-			<div>
-				<span class="runtime-k">other scopes</span>
-				<span class="runtime-v">{nonTokenJobCount}</span>
-			</div>
-		</div>
-	</section>
+	<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
+		<TraitFacetPanel
+			{facets}
+			selectedTraits={activeTraits}
+			selectedRanges={activeTraitRanges}
+			collapsed={$traitFacetPanelState.collapsed}
+			onToggleTrait={onTraitToggleWithMode}
+			onApplyTraitRange={onApplyTraitRange}
+		/>
 
-	{#if collectionJobs.length === 0}
-		<section class="runtime-section">
-			<p class="muted">no bidding jobs declared for this collection yet</p>
-		</section>
-	{:else}
-		<div class="table-wrap">
-			<table class="bidding-jobs-table">
-				<thead>
-					<tr>
-						<th>target</th>
-						<th>status</th>
-						<th>floor</th>
-						<th>ceiling</th>
-						<th>delta</th>
-						<th>runtime</th>
-						<th>actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each collectionJobs as job (job.jobId)}
-						<CollectionBiddingJobRow
-							chainRef={chain?.slug ?? ''}
-							collectionRef={collection?.slug ?? ''}
-							collectionBasePath={basePath}
-							returnPath={biddingPath()}
-							returnQuery={biddingReturnQuery()}
-							{mediaMode}
-							{job}
-							onJobUpdated={handleJobUpdated}
-							onJobArchived={handleJobArchived}
-						/>
-					{/each}
-				</tbody>
-			</table>
+		<div class="token-panel bidding-panel-main">
+			<BidBookPanel {bidBook} showScope={bidScope !== 'collection'} {basePath} {mediaMode} />
+
+			<section class="runtime-section">
+				<div class="runtime-kv-grid">
+					<div>
+						<span class="runtime-k">jobs</span>
+						<span class="runtime-v">{collectionJobs.length}</span>
+					</div>
+					<div>
+						<span class="runtime-k">token jobs</span>
+						<span class="runtime-v">{tokenJobCount}</span>
+					</div>
+					<div>
+						<span class="runtime-k">other scopes</span>
+						<span class="runtime-v">{nonTokenJobCount}</span>
+					</div>
+				</div>
+			</section>
+
+			{#if collectionJobs.length === 0}
+				<section class="runtime-section">
+					<p class="muted">no bidding jobs declared for this collection yet</p>
+				</section>
+			{:else}
+				<div class="table-wrap">
+					<table class="bidding-jobs-table">
+						<thead>
+							<tr>
+								<th>target</th>
+								<th>status</th>
+								<th>floor</th>
+								<th>ceiling</th>
+								<th>delta</th>
+								<th>runtime</th>
+								<th>actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each collectionJobs as job (job.jobId)}
+								<CollectionBiddingJobRow
+									chainRef={chain?.slug ?? ''}
+									collectionRef={collection?.slug ?? ''}
+									collectionBasePath={basePath}
+									returnPath={biddingPath()}
+									returnQuery={biddingReturnQuery()}
+									{mediaMode}
+									{job}
+									onJobUpdated={handleJobUpdated}
+									onJobArchived={handleJobArchived}
+								/>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 		</div>
-	{/if}
+	</div>
 </CollectionPageLayout>

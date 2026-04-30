@@ -313,10 +313,64 @@ export type ApiBiddingJob = {
 	runtime: ApiBiddingJobRuntimeState | null;
 };
 
+export type ApiBiddingBidBookSource = 'bot_snapshot' | 'orders';
+export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
+export type ApiCollectionBiddingBidScopeFilter = 'collection' | 'traits';
+
+export type ApiBiddingBidBookRow = {
+	orderId: string;
+	source: ApiBiddingBidBookSource;
+	scope: {
+		kind: ApiBiddingBidScopeKind;
+		label: string;
+		tokenId: string | null;
+		traits: ApiTradingTraitCriterion[];
+	};
+	maker: {
+		address: string;
+		label: string;
+		isOwn: boolean;
+	};
+	priceWei: string;
+	priceEth: string;
+	quantity: string;
+	currencyAddress: string | null;
+	currencySymbol: string | null;
+	protocolAddress: string | null;
+	validUntil: number | null;
+	placedAt: string | null;
+	snapshotRefreshedAtMs: number | null;
+	seenAt: string | null;
+};
+
+export type ApiBiddingBidBook = {
+	state: {
+		source: ApiBiddingBidBookSource;
+		snapshotRefreshedAtMs: number | null;
+		projectedAt: string | null;
+		rowCount: number;
+		durationMs: number | null;
+		lastError: string | null;
+	};
+	bids: ApiBiddingBidBookRow[];
+};
+
 export type CollectionBiddingJobsApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
 	jobs: ApiBiddingJob[];
+};
+
+export type CollectionBiddingBidBookApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	scopeFilter: ApiCollectionBiddingBidScopeFilter;
+	traits: {
+		selected: ApiTokenAttribute[];
+		selectedRanges: ApiTraitRangeFilter[];
+		facets: ApiTraitFacet[];
+	};
+	bidBook: ApiBiddingBidBook;
 };
 
 export type TokenBiddingJobApiResponse = {
@@ -324,6 +378,13 @@ export type TokenBiddingJobApiResponse = {
 	collection: ApiCollection;
 	tokenId: string;
 	job: ApiBiddingJob | null;
+};
+
+export type TokenBiddingBidBookApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tokenId: string;
+	bidBook: ApiBiddingBidBook;
 };
 
 export type TokenBiddingJobMutationApiResponse = {

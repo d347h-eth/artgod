@@ -38,6 +38,10 @@ export interface CollectionOfferBootstrapOptions {
     onProgress?: (progress: CollectionOfferBootstrapProgress) => void;
 }
 
+export interface CollectionOfferSnapshotObserver {
+    onSnapshotRefreshed(snapshot: CollectionOfferSnapshot, reason: string): void;
+}
+
 interface CollectionRefreshState {
     refreshing: boolean;
     pendingReason?: string;
@@ -59,10 +63,12 @@ export class CollectionOfferSnapshotService
         collectionSlugs: string[],
         private readonly pollIntervalMs: number,
         private readonly refreshTtlMs: number,
+        private readonly observer?: CollectionOfferSnapshotObserver,
     ) {
         this.watchedCollectionSlugs = new Set(collectionSlugs);
     }
 
+    // start begins TTL-aware polling for watched collections; per-collection refreshes remain serialized.
     public start(): void {
         if (this.started) {
             return;
@@ -83,6 +89,7 @@ export class CollectionOfferSnapshotService
         }
     }
 
+    // bootstrap force-builds initial snapshots for all watched collections before steady-state bidding starts.
     public async bootstrap(
         options: CollectionOfferBootstrapOptions = {},
     ): Promise<void> {
@@ -107,10 +114,12 @@ export class CollectionOfferSnapshotService
         );
     }
 
+    // getSnapshot returns the latest stored snapshot immediately; it does not wait for in-flight refreshes.
     public getSnapshot(collectionSlug: string): CollectionOfferSnapshot | null {
         return this.snapshots.get(collectionSlug) ?? null;
     }
 
+    // watchCollection adds a collection to snapshot management and starts polling it if the service is running.
     public watchCollection(collectionSlug: string): boolean {
         if (this.watchedCollectionSlugs.has(collectionSlug)) {
             return false;
@@ -126,6 +135,47 @@ export class CollectionOfferSnapshotService
         return true;
     }
 
+    // unwatchCollection removes a collection from snapshot polling once no enabled snapshot-backed jobs need it.
+    public unwatchCollection(collectionSlug: string): boolean {
+        if (!this.watchedCollectionSlugs.delete(collectionSlug)) {
+            return false;
+        }
+
+        biddingLog.info(
+            `[CollectionOfferSnapshotService] Removed watched collection ${collectionSlug}. watchedCollections=${this.watchedCollectionSlugs.size}`,
+        );
+        if (this.watchedCollectionSlugs.size === 0 && this.pollTimer) {
+            clearTimeout(this.pollTimer);
+            this.pollTimer = undefined;
+        }
+        return true;
+    }
+
+    // reconcileWatchedCollections makes snapshot polling match the current enabled DB job set.
+    public reconcileWatchedCollections(collectionSlugs: string[]): {
+        added: number;
+        removed: number;
+    } {
+        const next = new Set(collectionSlugs);
+        let added = 0;
+        let removed = 0;
+
+        for (const collectionSlug of Array.from(this.watchedCollectionSlugs)) {
+            if (!next.has(collectionSlug) && this.unwatchCollection(collectionSlug)) {
+                removed += 1;
+            }
+        }
+
+        for (const collectionSlug of next) {
+            if (this.watchCollection(collectionSlug)) {
+                added += 1;
+            }
+        }
+
+        return { added, removed };
+    }
+
+    // requestRefresh schedules a TTL-aware async refresh and never starts duplicate network fetches for fresh snapshots.
     public requestRefresh(
         collectionSlug: string,
         reason: string = "unspecified",
@@ -145,6 +195,7 @@ export class CollectionOfferSnapshotService
         });
     }
 
+    // refreshAndWait serializes same-collection refreshes and optionally reuses fresh or in-flight snapshots via TTL.
     public async refreshAndWait(
         collectionSlug: string,
         reason: string = "unspecified",
@@ -222,6 +273,11 @@ export class CollectionOfferSnapshotService
                         offers,
                         refreshedAt: Date.now(),
                     });
+                    const snapshot = this.snapshots.get(collectionSlug);
+                    if (snapshot) {
+                        // Notify read-model observers after the authoritative snapshot has been replaced.
+                        this.observer?.onSnapshotRefreshed(snapshot, nextReason);
+                    }
 
                     if (!state.pendingReason) {
                         return;
@@ -251,7 +307,13 @@ export class CollectionOfferSnapshotService
     }
 
     private scheduleNextPoll(): void {
+        if (!this.started || this.watchedCollectionSlugs.size === 0) {
+            this.pollTimer = undefined;
+            return;
+        }
+
         this.pollTimer = setTimeout(() => {
+            this.pollTimer = undefined;
             if (!this.started) {
                 return;
             }
@@ -331,6 +393,10 @@ export class CollectionOfferSnapshotService
                 };
                 protocol_data?: {
                     criteria?: SnapshotCriteria;
+                    parameters?: {
+                        consideration?: Array<{ itemType?: number | string }>;
+                        offer?: Array<{ itemType?: number | string }>;
+                    };
                 };
             };
 
@@ -367,6 +433,12 @@ export class CollectionOfferSnapshotService
                     : []),
                 ...(Array.isArray(parsedOffer.protocolData?.parameters?.offer)
                     ? parsedOffer.protocolData.parameters.offer
+                    : []),
+                ...(Array.isArray(parsedOffer.protocol_data?.parameters?.consideration)
+                    ? parsedOffer.protocol_data.parameters.consideration
+                    : []),
+                ...(Array.isArray(parsedOffer.protocol_data?.parameters?.offer)
+                    ? parsedOffer.protocol_data.parameters.offer
                     : []),
             ].filter((item) => [2, 3].includes(Number(item.itemType)));
 

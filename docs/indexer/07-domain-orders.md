@@ -45,7 +45,8 @@ Even so, the orders domain now enforces the bootstrap-anchor contract for onchai
 Important invariant:
 
 - canonical runtime logic uses normalized DTO fields and persisted `seaport_data_json`
-- `raw_rest_data` and `raw_stream_data` are stored only for audit/debug
+- `raw_rest_data` and `raw_stream_data` are stored only for audit/debug in the indexer/order domain
+- trading bid-book fallback may parse those raw payloads through the shared OpenSea bidding-offer parser for read-only display, but not for bidder decisions
 
 ## Status Model
 
@@ -195,4 +196,4 @@ WETH transfer/approval logs can trigger maker updates, but to avoid queue spam t
 - `domain.orders.sync` is still a placeholder.
 - Validation semantics are intentionally split between source visibility and protocol executability.
 - Local time is still used for active/expired checks.
-- Raw audit payloads are intentionally not part of runtime decision-making.
+- Raw audit payloads are intentionally not part of runtime decision-making outside the trading bid-book display exception.

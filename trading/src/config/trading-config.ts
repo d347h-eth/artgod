@@ -10,6 +10,7 @@ import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import { parseEther, parseGwei } from "viem";
 import {
     BIDDING_DEFAULT_BOOTSTRAP_CONCURRENCY,
+    BIDDING_DEFAULT_BID_BOOK_PROJECTION_THROTTLE_MS,
     BIDDING_DEFAULT_COMMAND_BATCH_SIZE,
     BIDDING_DEFAULT_COMMAND_CLAIM_TIMEOUT_MS,
     BIDDING_DEFAULT_COMMAND_MAX_ATTEMPTS,
@@ -40,6 +41,7 @@ export type EnabledBiddingConfig = {
     offerExpirationSeconds: number;
     collectionOffersPollMs: number;
     collectionOffersTtlMs: number;
+    bidBookProjectionThrottleMs: number;
     orderLookupMaxPages: number;
     commandPollMs: number;
     commandBatchSize: number;
@@ -65,6 +67,7 @@ export type DisabledBiddingConfig = {
     offerExpirationSeconds: number;
     collectionOffersPollMs: number;
     collectionOffersTtlMs: number;
+    bidBookProjectionThrottleMs: number;
     orderLookupMaxPages: number;
     commandPollMs: number;
     commandBatchSize: number;
@@ -149,6 +152,11 @@ export function loadTradingConfig(
             env.BIDDING_COLLECTION_OFFERS_TTL_MS,
             "BIDDING_COLLECTION_OFFERS_TTL_MS",
             BIDDING_DEFAULT_COLLECTION_OFFERS_TTL_MS,
+        ),
+        bidBookProjectionThrottleMs: parsePositiveInteger(
+            env.BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS,
+            "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS",
+            BIDDING_DEFAULT_BID_BOOK_PROJECTION_THROTTLE_MS,
         ),
         orderLookupMaxPages: parsePositiveInteger(
             env.BIDDING_ORDER_LOOKUP_MAX_PAGES,

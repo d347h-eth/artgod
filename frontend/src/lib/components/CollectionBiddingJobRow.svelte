@@ -276,8 +276,6 @@
 					{archiving ? 'archiving…' : 'archive'}
 				</button>
 			</div>
-		{:else}
-			<p class="muted bidding-row-note">inline token controls only</p>
 		{/if}
 		{#if saveMessage}
 			<p class="runtime-pass bidding-row-note">{saveMessage}</p>

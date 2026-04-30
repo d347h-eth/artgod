@@ -6,9 +6,11 @@
 		resolveTraitFilterDisplayKind,
 		TRAIT_FILTER_DISPLAY_KIND
 	} from '@artgod/shared/types';
+	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import TokenBiddingJobForm from '$lib/components/TokenBiddingJobForm.svelte';
 	import type {
+		ApiBiddingBidBook,
 		ApiBiddingJob,
 		ApiChain,
 		ApiCollection,
@@ -48,6 +50,7 @@
 		token: ApiTokenDetail | null;
 		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
 		tokenBiddingJob?: ApiBiddingJob | null;
+		tokenBiddingBidBook?: ApiBiddingBidBook;
 		backPath: string | null;
 		backQuery: string | null;
 	};
@@ -338,6 +341,20 @@
 		const tag = target.tagName.toLowerCase();
 		return tag === 'input' || tag === 'textarea' || tag === 'select';
 	}
+
+	function emptyBidBook(): ApiBiddingBidBook {
+		return {
+			state: {
+				source: 'orders',
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 0,
+				durationMs: null,
+				lastError: null
+			},
+			bids: []
+		};
+	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -436,11 +453,19 @@
 		</div>
 
 		{#if shouldShowTokenBiddingForm()}
+				<BidBookPanel
+					bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
+					job={data?.tokenBiddingJob ?? null}
+					showScope
+					basePath={collectionTokensBasePath()}
+					mediaMode={collectionNavigationMediaMode()}
+				/>
 			<TokenBiddingJobForm
 				chain={data?.chain ?? null}
 				collection={data?.collection ?? null}
 				token={displayedToken}
 				job={data?.tokenBiddingJob ?? null}
+				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
 				collectionBiddingHref={collectionBiddingHref()}
 			/>
 		{/if}

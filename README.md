@@ -21,6 +21,8 @@ Current implementation snapshot:
 - Tauri desktop runtime supervisor composes local NATS + backend + indexer workers from production runtime artifacts.
 - Desktop admin UI now includes lifecycle, wallets, bots, logs, and status surfaces behind the native Tauri shell.
 - Desktop wallet custody is implemented with Rust-owned Ethereum keystore storage, native secret prompts, and one-shot stdin secret handoff into wallet-bound trading runtimes.
+- Bidding runtime is operational with DB-backed job management, secure wallet unlock, direct OpenSea bidding/snapshot lanes, WETH allowance bootstrap, and live command reconciliation.
+- Bid-book UI is implemented for collection bidding and token detail pages, sourcing from the live/fresh bot snapshot projection when bidding is active and from canonical orders otherwise.
 
 Canonical backlog and priorities live in `docs/progress/indexer/15-unified-backlog.md`.
 
@@ -228,6 +230,8 @@ Useful optional env groups:
 - RPC resilience (`RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
 - Metadata refresh/batch tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
+- Trading bot OpenSea lanes (`OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`)
+- Trading bot command reconciliation and bid-book projection (`BIDDING_COMMAND_*`, `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`)
 - Trading bot transaction policy (`BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_*`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, `BIDDING_TX_PENDING_NONCE_POLICY`)
 - Metrics (`METRICS_ENABLED`, `METRICS_HOST`, `METRICS_PORT_*`)
 - APM (`APM_ENABLED`, `APM_*`)
@@ -360,6 +364,9 @@ Use these as primary references for design and implementation details:
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
+- `docs/trading/01-bidding-runtime-and-jobs.md`
+- `docs/progress/trading/01-bidder-integration-plan.md`
+- `docs/progress/trading/02-db-backed-trading-jobs-plan.md`
 - `docs/progress/desktop/01-wallet-keystore-implementation-plan.md`
 - `docs/deploy/01-web-hosted-read-only.md`
 - `docs/diagrams/architecture.md`

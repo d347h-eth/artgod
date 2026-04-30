@@ -1,4 +1,5 @@
 import {
+    compactSignatureToSignature,
     concatHex,
     getAddress,
     keccak256,
@@ -6,6 +7,7 @@ import {
     stringToBytes,
     toHex,
     type Hex,
+    type Signature,
 } from "viem";
 import type { SeaportOrderData } from "../../domain/orders.js";
 
@@ -143,10 +145,22 @@ export async function recoverSeaportSigner(
         types: EIP_712_ORDER_TYPE,
         primaryType: "OrderComponents",
         message: orderComponents,
-        signature: seaportData.signature as Hex,
+        signature: normalizeSeaportSignature(seaportData.signature),
     });
 
     return getAddress(recovered);
+}
+
+function normalizeSeaportSignature(signature: string): Hex | Signature {
+    if (signature.startsWith("0x") && signature.length === 130) {
+        // OpenSea can emit EIP-2098 compact signatures; viem recovery expects an expanded signature shape.
+        return compactSignatureToSignature({
+            r: `0x${signature.slice(2, 66)}` as Hex,
+            yParityAndS: `0x${signature.slice(66)}` as Hex,
+        });
+    }
+
+    return signature as Hex;
 }
 
 function buildSeaportTypedDataDomain(chainId: number, protocolAddress: string) {

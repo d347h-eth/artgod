@@ -71,9 +71,17 @@ import type {
     ListCollectionBiddingJobsRoute,
 } from "./http/handlers/trading/list-collection-bidding-jobs.js";
 import type {
+    ListCollectionBiddingBidBookHttpAdapter,
+    ListCollectionBiddingBidBookRoute,
+} from "./http/handlers/trading/list-collection-bidding-bid-book.js";
+import type {
     GetTokenBiddingJobHttpAdapter,
     GetTokenBiddingJobRoute,
 } from "./http/handlers/trading/get-token-bidding-job.js";
+import type {
+    GetTokenBiddingBidBookHttpAdapter,
+    GetTokenBiddingBidBookRoute,
+} from "./http/handlers/trading/get-token-bidding-bid-book.js";
 import type {
     UpsertTokenBiddingJobHttpAdapter,
     UpsertTokenBiddingJobRoute,
@@ -120,7 +128,9 @@ export function registerApiRoutes(
     getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
     updateCollectionCustomizationAdapter: UpdateCollectionCustomizationHttpAdapter,
     listCollectionBiddingJobsAdapter: ListCollectionBiddingJobsHttpAdapter,
+    listCollectionBiddingBidBookAdapter: ListCollectionBiddingBidBookHttpAdapter,
     getTokenBiddingJobAdapter: GetTokenBiddingJobHttpAdapter,
+    getTokenBiddingBidBookAdapter: GetTokenBiddingBidBookHttpAdapter,
     upsertTokenBiddingJobAdapter: UpsertTokenBiddingJobHttpAdapter,
     archiveTokenBiddingJobAdapter: ArchiveTokenBiddingJobHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
@@ -212,9 +222,17 @@ export function registerApiRoutes(
         "/api/:chain_ref/:collection_ref/bidding/jobs",
         listCollectionBiddingJobsAdapter.handle,
     );
+    app.get<ListCollectionBiddingBidBookRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/bids",
+        listCollectionBiddingBidBookAdapter.handle,
+    );
     app.get<GetTokenBiddingJobRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         getTokenBiddingJobAdapter.handle,
+    );
+    app.get<GetTokenBiddingBidBookRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/bidding/bids",
+        getTokenBiddingBidBookAdapter.handle,
     );
     app.post<CreateBootstrapRunRoute>(
         "/api/:chain_ref/collections/bootstrap",

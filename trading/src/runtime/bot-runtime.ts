@@ -88,6 +88,7 @@ export async function bootstrapTradingBot(
                 biddingConfig: config.bidding,
                 privateKeyHex: privateKeyHex as Hex,
                 makerAddress: account.address,
+                walletId: envelope.metadata.walletId,
                 lifecycle,
             });
 

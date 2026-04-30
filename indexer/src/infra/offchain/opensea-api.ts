@@ -1,5 +1,6 @@
 import { logger } from "@artgod/shared/utils";
 import { OpenSeaAPI } from "opensea-js/lib/api/api.js";
+import { normalizeOpenSeaOfferTraitCriteria } from "@artgod/shared/trading/open-sea-bidding-offers";
 import { Chain } from "opensea-js/lib/types.js";
 
 type RetryPolicy = {
@@ -317,27 +318,10 @@ function getProtocolParameters(value: unknown): Record<string, unknown> {
 function normalizeCriteriaTraits(
     criteria: Record<string, unknown>,
 ): Array<{ trait_type: string; trait_name: string }> {
-    const out: Array<{ trait_type: string; trait_name: string }> = [];
-
-    const single = asRecord(criteria.trait);
-    if (single.type && single.value) {
-        out.push({
-            trait_type: String(single.type),
-            trait_name: String(single.value),
-        });
-    }
-
-    const multi = asArray(criteria.traits);
-    for (const entry of multi) {
-        const trait = asRecord(entry);
-        if (!trait.type || !trait.value) continue;
-        out.push({
-            trait_type: String(trait.type),
-            trait_name: String(trait.value),
-        });
-    }
-
-    return out;
+    return normalizeOpenSeaOfferTraitCriteria(criteria).map((trait) => ({
+        trait_type: trait.type,
+        trait_name: trait.value,
+    }));
 }
 
 function findNftItem(

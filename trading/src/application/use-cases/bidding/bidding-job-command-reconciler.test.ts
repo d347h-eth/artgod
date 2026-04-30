@@ -165,6 +165,7 @@ describe("BiddingJobCommandReconciler", () => {
             dryRun: true,
         });
         const prepared: string[] = [];
+        const reconciled: string[][] = [];
         const reconciler = new BiddingJobCommandReconciler(
             repository,
             source,
@@ -172,6 +173,9 @@ describe("BiddingJobCommandReconciler", () => {
             {
                 prepareEnabledJob: async (preparedJob) => {
                     prepared.push(preparedJob.id);
+                },
+                reconcileEnabledJobs: async (jobs) => {
+                    reconciled.push(jobs.map((item) => item.id));
                 },
             },
             {
@@ -186,6 +190,7 @@ describe("BiddingJobCommandReconciler", () => {
         assert.equal(processed, 1);
         assert.equal(bidder.getJob(job.id)?.id, job.id);
         assert.deepEqual(prepared, [job.id]);
+        assert.deepEqual(reconciled, [[job.id]]);
         assert.deepEqual(repository.completed, [1]);
     });
 
@@ -209,12 +214,16 @@ describe("BiddingJobCommandReconciler", () => {
         ]);
         const bidder = new Bidder(biddingService, makerAddress, 60_000);
         bidder.addJob(job);
+        const reconciled: string[][] = [];
         const reconciler = new BiddingJobCommandReconciler(
             repository,
             source,
             bidder,
             {
                 prepareEnabledJob: async () => undefined,
+                reconcileEnabledJobs: async (jobs) => {
+                    reconciled.push(jobs.map((item) => item.id));
+                },
             },
             {
                 batchSize: 10,
@@ -228,6 +237,7 @@ describe("BiddingJobCommandReconciler", () => {
         assert.equal(processed, 2);
         assert.equal(bidder.getJob(job.id), undefined);
         assert.deepEqual(biddingService.cancelled, ["0xactive"]);
+        assert.deepEqual(reconciled, [[], []]);
         assert.deepEqual(repository.completed, [1, 2]);
     });
 });

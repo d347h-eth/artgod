@@ -1,7 +1,7 @@
 # Bidder Integration Plan
 
-Status: WIP
-Current milestone: Slice 7 complete
+Status: Current-state plus remaining hardening
+Current milestone: Bidding runtime operational; bid-book and DB job management integrated
 
 ## Progress Snapshot
 
@@ -51,6 +51,13 @@ Current milestone: Slice 7 complete
 - Added a shared `@artgod/shared/evm/transactions` policy module for EIP-1559 fee selection and pending-nonce safety checks, and wired startup WETH approval through it.
 - Raised the default bot transaction min priority fee to `0.1` gwei because some nodes can report `0` while mainnet inclusion still requires a nonzero builder/validator tip.
 - Added `eth_feeHistory` reward-percentile sampling to the shared transaction policy so configured floors are only a lower bound, not the primary dynamic tip source.
+- DB-backed bidding jobs are now the only declared-job source. Temporary JSON job loading has been removed.
+- Backend CRUD writes job changes and command Outbox rows transactionally, then publishes a JetStream wake-up after commit.
+- Running bots process job commands from both JetStream wake-ups and periodic DB scans, then reconcile enabled jobs from authoritative SQLite state.
+- Runtime reconciliation updates scheduled jobs, active-offer cancellation commands, watched snapshot collections, and direct OpenSea stream subscriptions from enabled jobs.
+- Bid-book projection now materializes the bot's OpenSea snapshot into SQLite for UI display when a collection has enabled jobs, a live bidding bot heartbeat, and fresh projection metadata.
+- When the bot snapshot projection is not live, bid-book UI falls back to canonical orders through the shared OpenSea bidding-offer parser.
+- Current-state trading reference lives in `docs/trading/01-bidding-runtime-and-jobs.md`.
 
 This document is the implementation plan for porting the existing battle-tested bidding bot into ArtGod.
 
@@ -295,7 +302,7 @@ Status:
 
 - done
 
-## Slice 2: Add Typed Trading Config and External Job Loading
+## Slice 2: Add Typed Trading Config and Job Loading
 
 Goal:
 
@@ -305,7 +312,7 @@ Scope:
 
 - typed `trading` config loader
 - desktop env contract additions
-- external JSON job file loader
+- SQLite-backed declared job loader
 - rename upstream `AUTOBID_*` surface to `BIDDING_*`
 
 Recommended config groups:
@@ -318,6 +325,11 @@ Recommended config groups:
 - `BIDDING_OFFER_EXPIRATION_SECONDS`
 - `BIDDING_COLLECTION_OFFERS_POLL_MS`
 - `BIDDING_COLLECTION_OFFERS_TTL_MS`
+- `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`
+- `BIDDING_COMMAND_POLL_MS`
+- `BIDDING_COMMAND_BATCH_SIZE`
+- `BIDDING_COMMAND_MAX_ATTEMPTS`
+- `BIDDING_COMMAND_CLAIM_TIMEOUT_MS`
 - `BIDDING_ORDER_LOOKUP_MAX_PAGES`
 - `BIDDING_WETH_ALLOWANCE_ETH`
 - `BIDDING_TX_MIN_PRIORITY_FEE_GWEI`
@@ -542,18 +554,19 @@ Do not include these in the first bidding rollout:
 
 - sniping port
 - intent-signal monitor
-- admin UI for editing bidding jobs
+- collection-scoped and trait-scoped bidding job creation UI
 - replacing the direct OpenSea model with ArtGod indexed order state
 - broad refactors for elegance that risk changing behavior
 
-## Deferred Until Bidding Is Operational
+## Deferred Until Bidding Is Hardened
 
-Only after bidding is fully operational should ArtGod start:
+Only after bidding is stable under live operation should ArtGod start:
 
 - sniping runtime port
 - intent-monitor port
 - sniper-specific config and admin surfaces
 - deeper refactors of the ported trading code
+- token-card best-bid projection
 
 ## Definition of Success
 
@@ -561,6 +574,8 @@ The bidding port is successful when:
 
 - the real bidding runtime replaces the placeholder runtime in `trading/`
 - the bot runs under ArtGod’s existing wallet-bound desktop supervisor
+- token-scoped DB job CRUD and live runtime reconciliation work without restart
+- bid-book UI can display the competitive bot snapshot projection and normal orders fallback
 - no material bidding behavior was lost during the port
 - authoritative offer discovery still comes from direct OpenSea snapshot plus SDK paths
 - missed stream events do not invalidate competitiveness because snapshot polling remains intact

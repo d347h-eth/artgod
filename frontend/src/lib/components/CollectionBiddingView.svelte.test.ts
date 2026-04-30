@@ -71,9 +71,48 @@ describe('CollectionBiddingView', () => {
 						runtime: null
 					}
 				],
+				bidBook: {
+					state: {
+						source: 'bot_snapshot',
+						snapshotRefreshedAtMs: 1_760_000_000_000,
+						projectedAt: '2026-01-02T00:00:00Z',
+						rowCount: 1,
+						durationMs: 12,
+						lastError: null
+					},
+					bids: [
+						{
+							orderId: '0xbid1',
+							source: 'bot_snapshot',
+							scope: {
+								kind: 'collection',
+								label: 'collection',
+								tokenId: null,
+								traits: []
+							},
+							maker: {
+								address: '0x9999999999999999999999999999999999999999',
+								label: '0x9999999999999999999999999999999999999999',
+								isOwn: false
+							},
+							priceWei: '100000000000000000',
+							priceEth: '0.1',
+							quantity: '1',
+							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+							currencySymbol: 'WETH',
+							protocolAddress: null,
+							validUntil: 1_900_000_000,
+							placedAt: '2026-01-02T00:00:00Z',
+							snapshotRefreshedAtMs: 1_760_000_000_000,
+							seenAt: '2026-01-02T00:00:00Z'
+						}
+					]
+				},
+				facets: [],
 				basePath: '/ethereum/milady',
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				selectedTraitRanges: [],
+				bidScope: 'traits',
 				mediaMode: 'artifact'
 			}
 		});
@@ -83,12 +122,21 @@ describe('CollectionBiddingView', () => {
 			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady%2Fbidding&amp;returnQuery=media_mode%3Dartifact%26traits%3DHat%253ABeanie'
+			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady%2Fbidding&amp;returnQuery=media_mode%3Dartifact%26bid_scope%3Dtraits%26traits%3DHat%253ABeanie'
 		);
 		expect(body).toContain('token 1');
 		expect(body).toContain('save');
 		expect(body).toContain('archive');
-		expect(body).toContain('inline token controls only');
+		expect(body).toContain('bids source');
+		expect(body).toContain('0.10');
+		expect(body).not.toContain('0.1 WETH');
+		expect(body).toContain('placed');
+		expect(body).not.toContain('placed at');
+		expect(body).toContain('valid');
+		expect(body).not.toContain('valid until');
 		expect(body).toContain('collection scope');
+		expect(body).toContain('Bid scope filter');
+		expect(body).toContain('<span class="secondary-tab-active">traits</span>');
+		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact&amp;traits=Hat%3ABeanie');
 	});
 });

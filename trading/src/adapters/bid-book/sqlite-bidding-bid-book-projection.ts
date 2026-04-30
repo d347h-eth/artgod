@@ -1,0 +1,269 @@
+import { db } from "@artgod/shared/database";
+import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
+import { parseOpenSeaBiddingOffer } from "@artgod/shared/trading/open-sea-bidding-offers";
+import {
+    TRADING_BIDDING_BID_BOOK_SOURCE,
+    type TradingBiddingBidScopeKind,
+} from "@artgod/shared/types";
+import type { CollectionOfferSnapshot } from "../../application/use-cases/bidding/collection-offer-snapshot-service.js";
+import type {
+    BiddingBidBookProjectionPort,
+    BiddingBidBookProjectionResult,
+} from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
+import { biddingLog } from "../../utils/bidding-log.js";
+
+type CollectionRow = {
+    collection_id: number;
+    slug: string;
+    opensea_slug: string | null;
+    address: string;
+};
+
+type BidBookProjectionRow = {
+    orderId: string;
+    source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+    scopeKind: TradingBiddingBidScopeKind;
+    scopeLabel: string;
+    tokenId: string | null;
+    scopeTraitsJson: string;
+    encodedTokenIds: string | null;
+    maker: string;
+    isOwn: number;
+    priceWei: string;
+    quantity: string;
+    currencyAddress: string | null;
+    currencySymbol: string | null;
+    protocolAddress: string | null;
+    validUntil: number | null;
+    placedAt: string | null;
+    snapshotRefreshedAtMs: number;
+};
+
+export class SqliteBiddingBidBookProjection
+    implements BiddingBidBookProjectionPort
+{
+    private readonly selectCollection: BetterSqlite3NamedStatement<{
+        chainId: number;
+        collectionSlug: string;
+    }>;
+    private readonly deleteSnapshotRows: BetterSqlite3NamedStatement<{
+        chainId: number;
+        collectionId: number;
+        source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+    }>;
+    private readonly insertSnapshotRow: BetterSqlite3NamedStatement<
+        BidBookProjectionRow & {
+            chainId: number;
+            collectionId: number;
+        }
+    >;
+    private readonly upsertState: BetterSqlite3NamedStatement<{
+        chainId: number;
+        collectionId: number;
+        source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+        snapshotRefreshedAtMs: number;
+        projectedAt: string;
+        rowCount: number;
+        durationMs: number;
+        lastError: string | null;
+    }>;
+
+    constructor(
+        private readonly chainId: number,
+        private readonly makerAddress: string,
+        private readonly wethAddress: string,
+    ) {
+        this.selectCollection = db.prepare<{
+            chainId: number;
+            collectionSlug: string;
+        }>(
+            "SELECT collection_id, slug, opensea_slug, address " +
+                "FROM collections " +
+                "WHERE chain_id = @chainId " +
+                "AND (slug = @collectionSlug OR opensea_slug = @collectionSlug) " +
+                "LIMIT 1",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            collectionSlug: string;
+        }>;
+
+        this.deleteSnapshotRows = db.prepare<{
+            chainId: number;
+            collectionId: number;
+            source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+        }>(
+            "DELETE FROM trading_bidding_bid_book_rows " +
+                "WHERE chain_id = @chainId AND collection_id = @collectionId AND source = @source",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            collectionId: number;
+            source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+        }>;
+
+        this.insertSnapshotRow = db.prepare<
+            BidBookProjectionRow & {
+                chainId: number;
+                collectionId: number;
+            }
+        >(
+            "INSERT INTO trading_bidding_bid_book_rows " +
+                "(chain_id, collection_id, order_id, source, scope_kind, scope_label, token_id, scope_traits_json, encoded_token_ids, maker, is_own, price_wei, quantity, currency_address, currency_symbol, protocol_address, valid_until, placed_at, snapshot_refreshed_at_ms, seen_at) " +
+                "VALUES (@chainId, @collectionId, @orderId, @source, @scopeKind, @scopeLabel, @tokenId, @scopeTraitsJson, @encodedTokenIds, @maker, @isOwn, @priceWei, @quantity, @currencyAddress, @currencySymbol, @protocolAddress, @validUntil, @placedAt, @snapshotRefreshedAtMs, CURRENT_TIMESTAMP)",
+        ) as BetterSqlite3NamedStatement<
+            BidBookProjectionRow & {
+                chainId: number;
+                collectionId: number;
+            }
+        >;
+
+        this.upsertState = db.prepare<{
+            chainId: number;
+            collectionId: number;
+            source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+            snapshotRefreshedAtMs: number;
+            projectedAt: string;
+            rowCount: number;
+            durationMs: number;
+            lastError: string | null;
+        }>(
+            "INSERT INTO trading_bidding_collection_bid_book_state " +
+                "(chain_id, collection_id, source, snapshot_refreshed_at_ms, projected_at, row_count, duration_ms, last_error) " +
+                "VALUES (@chainId, @collectionId, @source, @snapshotRefreshedAtMs, @projectedAt, @rowCount, @durationMs, @lastError) " +
+                "ON CONFLICT(chain_id, collection_id, source) DO UPDATE SET " +
+                "snapshot_refreshed_at_ms = excluded.snapshot_refreshed_at_ms, " +
+                "projected_at = excluded.projected_at, " +
+                "row_count = excluded.row_count, " +
+                "duration_ms = excluded.duration_ms, " +
+                "last_error = excluded.last_error",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            collectionId: number;
+            source: typeof TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
+            snapshotRefreshedAtMs: number;
+            projectedAt: string;
+            rowCount: number;
+            durationMs: number;
+            lastError: string | null;
+        }>;
+    }
+
+    async replaceCollectionBidBook(
+        snapshot: CollectionOfferSnapshot,
+        reason: string,
+    ): Promise<BiddingBidBookProjectionResult> {
+        const startedAt = Date.now();
+        const collection = this.selectCollection.get({
+            chainId: this.chainId,
+            collectionSlug: snapshot.collectionSlug,
+        }) as CollectionRow | undefined;
+        if (!collection) {
+            biddingLog.warn(
+                `[SqliteBiddingBidBookProjection] Skipping ${snapshot.collectionSlug}: collection not found for bid-book projection.`,
+            );
+            return {
+                collectionSlug: snapshot.collectionSlug,
+                rowCount: 0,
+                durationMs: Date.now() - startedAt,
+            };
+        }
+
+        const rows = this.mapSnapshotRows(snapshot, collection);
+        const durationBeforeWriteMs = Date.now() - startedAt;
+
+        // Replace the projected bid book transactionally so UI readers never see a partial snapshot.
+        db.raw.transaction(() => {
+            this.deleteSnapshotRows.run({
+                chainId: this.chainId,
+                collectionId: collection.collection_id,
+                source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+            });
+            for (const row of rows) {
+                this.insertSnapshotRow.run({
+                    chainId: this.chainId,
+                    collectionId: collection.collection_id,
+                    ...row,
+                });
+            }
+
+            const durationMs = Date.now() - startedAt;
+            this.upsertState.run({
+                chainId: this.chainId,
+                collectionId: collection.collection_id,
+                source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+                snapshotRefreshedAtMs: snapshot.refreshedAt,
+                projectedAt: new Date().toISOString(),
+                rowCount: rows.length,
+                durationMs,
+                lastError: null,
+            });
+        })();
+
+        const durationMs = Date.now() - startedAt;
+        biddingLog.info(
+            `[SqliteBiddingBidBookProjection] Replaced bid book for ${snapshot.collectionSlug}. reason=${reason}, rows=${rows.length}, parseDurationMs=${durationBeforeWriteMs}, totalDurationMs=${durationMs}`,
+        );
+        return {
+            collectionSlug: snapshot.collectionSlug,
+            rowCount: rows.length,
+            durationMs,
+        };
+    }
+
+    private mapSnapshotRows(
+        snapshot: CollectionOfferSnapshot,
+        collection: CollectionRow,
+    ): BidBookProjectionRow[] {
+        const rows = new Map<string, BidBookProjectionRow>();
+
+        for (const rawOffer of snapshot.offers) {
+            const row = this.mapOffer(rawOffer, snapshot, collection);
+            if (!row || rows.has(row.orderId)) {
+                continue;
+            }
+            rows.set(row.orderId, row);
+        }
+
+        return Array.from(rows.values());
+    }
+
+    private mapOffer(
+        rawOffer: unknown,
+        snapshot: CollectionOfferSnapshot,
+        collection: CollectionRow,
+    ): BidBookProjectionRow | null {
+        // Parse snapshot offers through the bidder-owned OpenSea semantics before writing UI rows.
+        const parsed = parseOpenSeaBiddingOffer(rawOffer, {
+            collectionAddress: collection.address,
+            wethAddress: this.wethAddress,
+            discoverySource: "collectionOffers",
+        });
+        if (!parsed || parsed.price <= 0n) {
+            return null;
+        }
+
+        const scope = parsed.bidScope;
+
+        return {
+            orderId: parsed.id,
+            source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+            scopeKind: scope.kind,
+            scopeLabel: scope.label,
+            tokenId: scope.tokenId,
+            scopeTraitsJson: JSON.stringify(scope.traits),
+            encodedTokenIds: scope.encodedTokenIds,
+            maker: parsed.maker,
+            isOwn:
+                parsed.maker.toLowerCase() === this.makerAddress.toLowerCase()
+                    ? 1
+                    : 0,
+            priceWei: parsed.price.toString(),
+            quantity: parsed.quantity.toString(),
+            currencyAddress: this.wethAddress.toLowerCase(),
+            currencySymbol: "WETH",
+            protocolAddress: parsed.protocolAddress ?? null,
+            validUntil: parsed.expirationTime ?? null,
+            placedAt: parsed.createdAt,
+            snapshotRefreshedAtMs: snapshot.refreshedAt,
+        };
+    }
+}

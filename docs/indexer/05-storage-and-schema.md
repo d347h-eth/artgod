@@ -252,9 +252,14 @@ In practice this means a manual backfill for `X-100 .. X-1` after a snapshot anc
 
 ### Raw payload invariant
 
-`raw_rest_data` and `raw_stream_data` are audit/debug-only.
+`raw_rest_data` and `raw_stream_data` are audit/debug-only for indexer/order validation.
 
-Runtime validation and downstream logic must use normalized canonical fields (`seaport_data_json`, side/maker/price/currency/scope fields), not raw stored JSON. The runtime SQL paths intentionally do not select the raw payload columns for order validation.
+Runtime validation must use normalized canonical fields (`seaport_data_json`, side/maker/price/currency/scope fields), not raw stored JSON. The runtime SQL paths intentionally do not select the raw payload columns for order validation.
+
+Exception:
+
+- trading bid-book fallback may parse raw OpenSea payloads with the shared bidding-offer parser for read-only bid display
+- this exception does not make raw payloads authoritative for bidder decisions, order validation, or indexer domain projections
 
 ## Offchain OpenSea Tables
 
