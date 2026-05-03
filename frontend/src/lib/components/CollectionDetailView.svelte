@@ -180,6 +180,28 @@
 			noScroll: true
 		});
 	}
+
+	async function applyTraitFilters(
+		nextTraits: ApiTokenAttribute[],
+		nextRanges: ApiTraitRangeFilter[]
+	): Promise<void> {
+		await goto(
+			buildTokenBrowserHref({
+				basePath,
+				limit: tokens.limit,
+				displayMode,
+				tokenStatus,
+				selectedTraits: nextTraits,
+				selectedTraitRanges: nextRanges,
+				mediaMode: media.selectedMode
+			}),
+			{
+				invalidateAll: true,
+				keepFocus: true,
+				noScroll: true
+			}
+		);
+	}
 </script>
 
 <CollectionPageLayout
@@ -229,6 +251,9 @@
 				collapsed={$traitFacetPanelState.collapsed}
 				onToggleCollapsed={traitFacetPanel.toggle}
 				onReset={onResetTraits}
+				{selectedTraits}
+				selectedRanges={selectedTraitRanges}
+				onSelectedFiltersChange={applyTraitFilters}
 			/>
 		</div>
 	{/if}

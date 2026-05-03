@@ -5,6 +5,10 @@
 
 	type BidBookTimeMode = 'relative' | 'absolute';
 	type BidBookPanelView = 'rows' | 'trait-demand';
+	type TraitFilterValue = {
+		key: string;
+		value: string;
+	};
 	type BidBookDemandGroup = {
 		key: string;
 		label: string;
@@ -31,7 +35,9 @@
 		showMuted = false,
 		view = 'rows',
 		basePath = '/',
-		mediaMode = null
+		mediaMode = null,
+		preferredDemandTraitKey = null,
+		traitValueHref = null
 	}: {
 		bidBook: ApiBiddingBidBook;
 		job?: ApiBiddingJob | null;
@@ -40,12 +46,15 @@
 		view?: BidBookPanelView;
 		basePath?: string;
 		mediaMode?: string | null;
+		preferredDemandTraitKey?: string | null;
+		traitValueHref?: ((trait: TraitFilterValue) => string) | null;
 	} = $props();
 
 	let placedAtMode = $state<BidBookTimeMode>('relative');
 	let validUntilMode = $state<BidBookTimeMode>('relative');
 	let bidBookExpanded = $state(false);
-	let activeDemandTraitKey = $state<string | null>(null);
+	let activeDemandTraitKey = $state<string | null>(preferredDemandTraitKey);
+	let lastPreferredDemandTraitKey = $state<string | null>(preferredDemandTraitKey);
 	let highlightedMakerAddress = $state<string | null>(null);
 	let nowMs = $state(Date.now());
 
@@ -81,6 +90,12 @@
 		if (activeDemandTraitKey && !demandTraitTabs.some((tab) => tab.key === activeDemandTraitKey)) {
 			activeDemandTraitKey = null;
 		}
+	});
+
+	$effect(() => {
+		if (preferredDemandTraitKey === lastPreferredDemandTraitKey) return;
+		activeDemandTraitKey = preferredDemandTraitKey;
+		lastPreferredDemandTraitKey = preferredDemandTraitKey;
 	});
 
 	$effect(() => {
@@ -182,8 +197,10 @@
 		return trimText(bid.scope.label);
 	}
 
-	function formatDemandTarget(group: BidBookDemandGroup): string {
-		return formatDemandTraits(group.traits, activeDemandTraitKey);
+	function demandDisplayTraits(
+		group: BidBookDemandGroup
+	): ApiBiddingBidBookRow['scope']['traits'] {
+		return sortDemandTraitsForDisplay(group.traits, activeDemandTraitKey);
 	}
 
 	function makerHref(bid: ApiBiddingBidBookRow): string {
@@ -296,21 +313,31 @@
 		traits: ApiBiddingBidBookRow['scope']['traits'],
 		primaryTraitKey: string | null
 	): string {
-		const displayTraits =
-			primaryTraitKey === null
-				? traits
-				: [...traits].sort((left, right) => {
-						const leftPrimary = left.type === primaryTraitKey;
-						const rightPrimary = right.type === primaryTraitKey;
-						if (leftPrimary !== rightPrimary) {
-							return leftPrimary ? -1 : 1;
-						}
-						const typeCompare = left.type.localeCompare(right.type);
-						return typeCompare === 0 ? left.value.localeCompare(right.value) : typeCompare;
-					});
-		return displayTraits
+		return sortDemandTraitsForDisplay(traits, primaryTraitKey)
 			.map((trait) => `${trimText(trait.type)}=${trimText(trait.value)}`)
 			.join(' + ');
+	}
+
+	function sortDemandTraitsForDisplay(
+		traits: ApiBiddingBidBookRow['scope']['traits'],
+		primaryTraitKey: string | null
+	): ApiBiddingBidBookRow['scope']['traits'] {
+		if (primaryTraitKey === null) {
+			return traits;
+		}
+		return [...traits].sort((left, right) => {
+			const leftPrimary = left.type === primaryTraitKey;
+			const rightPrimary = right.type === primaryTraitKey;
+			if (leftPrimary !== rightPrimary) {
+				return leftPrimary ? -1 : 1;
+			}
+			const typeCompare = left.type.localeCompare(right.type);
+			return typeCompare === 0 ? left.value.localeCompare(right.value) : typeCompare;
+		});
+	}
+
+	function setActiveDemandTraitKey(nextKey: string | null): void {
+		activeDemandTraitKey = nextKey;
 	}
 
 	function resolveDemandTraitTabs(groups: BidBookDemandGroup[]): BidBookDemandTraitTab[] {
@@ -609,13 +636,13 @@
 	}
 
 	function formatFreshness(): string {
-		const projectedAt = bidBook.state.projectedAt;
-		if (projectedAt) {
-			const projectedAtMs = Date.parse(projectedAt);
-			return Number.isFinite(projectedAtMs) ? formatRfc3339(projectedAtMs) : projectedAt;
+		const updatedAt = bidBook.state.updatedAt;
+		if (updatedAt) {
+			const updatedAtMs = Date.parse(updatedAt);
+			return Number.isFinite(updatedAtMs) ? formatRfc3339(updatedAtMs) : updatedAt;
 		}
 		const snapshotAt = bidBook.state.snapshotRefreshedAtMs;
-		if (snapshotAt !== null) {
+		if (bidBook.state.source === 'bot_snapshot' && snapshotAt !== null) {
 			return formatRfc3339(snapshotAt);
 		}
 		return '-';
@@ -670,7 +697,7 @@
 					{#if activeDemandTraitKey === tab.key}
 						<span class="secondary-tab-active">{tab.label} [{tab.count}]</span>
 					{:else}
-						<button type="button" onclick={() => (activeDemandTraitKey = tab.key)}>
+						<button type="button" onclick={() => setActiveDemandTraitKey(tab.key)}>
 							{tab.label} [{tab.count}]
 						</button>
 					{/if}
@@ -723,7 +750,34 @@
 						>
 							<td colspan={4}>
 								<div class="bid-book-demand-group-header">
-									<span class="bid-book-demand-group-title">{formatDemandTarget(group)}</span>
+									<span class="bid-book-demand-group-title">
+										<span class="bid-book-demand-trait-list">
+											{#each demandDisplayTraits(group) as trait, traitIndex (`${trait.type}:${trait.value}`)}
+												<span class="bid-book-demand-trait-entry">
+													{#if traitIndex > 0}
+														<span class="bid-book-demand-trait-separator">+</span>
+													{/if}
+													<span class="bid-book-demand-trait">
+														<span class="bid-book-demand-trait-key">{trimText(trait.type)}</span>
+														<span class="bid-book-demand-trait-equals">=</span>
+														{#if traitValueHref}
+															<a
+																class="bid-book-demand-trait-value-link"
+																href={traitValueHref({
+																	key: trait.type,
+																	value: trait.value
+																})}
+															>
+																{trimText(trait.value)}
+															</a>
+														{:else}
+															<span class="bid-book-demand-trait-value">{trimText(trait.value)}</span>
+														{/if}
+													</span>
+												</span>
+											{/each}
+										</span>
+									</span>
 									{#if groupActiveOfferCount > 1}
 										<div class="runtime-kv-grid bid-book-demand-group-meta">
 											<div>

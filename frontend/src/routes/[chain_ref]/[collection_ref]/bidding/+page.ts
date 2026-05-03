@@ -7,6 +7,7 @@ import {
 } from '$lib/backend-api';
 import {
 	parseCollectionBiddingView,
+	parseCollectionBiddingTraitFilterJoinMode,
 	parseShowMutedBidBook,
 	type CollectionBiddingBidScopeFilter
 } from '$lib/bidding-query';
@@ -28,6 +29,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			bidBook: {
 				state: {
 					source: 'orders',
+					updatedAt: null,
 					snapshotRefreshedAtMs: null,
 					projectedAt: null,
 					rowCount: 0,
@@ -50,6 +52,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraits: parseSelectedTraits(url.searchParams),
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
 			bidScope: parseBidScope(url.searchParams),
+			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))
@@ -74,6 +77,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraits: bidBookResponse.traits.selected,
 			selectedTraitRanges: bidBookResponse.traits.selectedRanges,
 			bidScope: bidBookResponse.scopeFilter,
+			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))

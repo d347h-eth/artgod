@@ -6,6 +6,7 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
+		ApiCollectionBiddingTraitFilterJoinMode,
 		ApiCollectionMediaState,
 		ApiTokenPresentationSummary,
 		ApiTokenAttribute,
@@ -29,6 +30,7 @@
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		bidScope: ApiCollectionBiddingBidScopeFilter;
+		traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 		biddingView: CollectionBiddingViewMode;
 		showMuted: boolean;
 		mediaMode: string | null;
@@ -40,6 +42,7 @@
 		return {
 			state: {
 				source: 'orders',
+				updatedAt: null,
 				snapshotRefreshedAtMs: null,
 				projectedAt: null,
 				rowCount: 0,
@@ -71,6 +74,7 @@
 	selectedTraits={data?.selectedTraits ?? []}
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}
 	bidScope={data?.bidScope ?? 'collection'}
+	traitJoinMode={data?.traitJoinMode ?? 'or'}
 	biddingView={data?.biddingView ?? 'bid_book'}
 	showMuted={data?.showMuted ?? false}
 	mediaMode={data?.mediaMode ?? null}

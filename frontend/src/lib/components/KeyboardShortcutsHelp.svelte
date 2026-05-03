@@ -47,11 +47,11 @@
 			]
 		},
 		{
-			title: 'Traits Panel',
+			title: 'Traits Filtering Panel',
 			entries: [
 				{
-					keys: ['T'],
-					description: 'toggle the traits panel'
+					keys: ['F'],
+					description: 'toggle the traits filtering panel'
 				},
 				{
 					keys: ['R'],

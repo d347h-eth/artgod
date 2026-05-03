@@ -7,6 +7,7 @@ const TRAIT_PANEL_COLLAPSED_ROOT_CLASS = 'trait-facet-panel-collapsed';
 type MaybePromise<T> = T | Promise<T>;
 
 type TraitFacetPanelHotkeys = {
+	onToggle?: () => MaybePromise<void>;
 	onReset?: () => MaybePromise<void>;
 };
 
@@ -44,9 +45,13 @@ export function createTraitFacetPanelController(): TraitFacetPanelController {
 		if (isTypingTarget(event.target)) return;
 
 		const key = event.key.toLowerCase();
-		if (key === 't') {
+		if (key === 'f') {
 			event.preventDefault();
-			toggle();
+			if (hotkeys.onToggle) {
+				void hotkeys.onToggle();
+			} else {
+				toggle();
+			}
 			return;
 		}
 
@@ -89,8 +94,25 @@ function syncCollapsedPreference(collapsed: boolean): void {
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
-	if (!(target instanceof HTMLElement)) return false;
-	if (target.isContentEditable) return true;
-	const tag = target.tagName.toLowerCase();
-	return tag === 'input' || tag === 'textarea' || tag === 'select';
+	const element = asElementLike(target);
+	if (!element) return false;
+	if (element.isContentEditable) return true;
+	const tag = element.tagName.toLowerCase();
+	if (tag === 'input') {
+		return element.type !== 'checkbox' && element.type !== 'radio';
+	}
+	return tag === 'textarea' || tag === 'select';
+}
+
+function asElementLike(
+	target: EventTarget | null
+): { tagName: string; isContentEditable?: boolean; type?: string } | null {
+	if (!target) return null;
+	if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement) {
+		return target as HTMLElement;
+	}
+	const candidate = target as { tagName?: unknown; isContentEditable?: boolean; type?: string };
+	return typeof candidate.tagName === 'string'
+		? (candidate as { tagName: string; isContentEditable?: boolean; type?: string })
+		: null;
 }

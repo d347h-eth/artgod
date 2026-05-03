@@ -723,7 +723,7 @@ describe("backend api routes", () => {
         );
         expect(collectionBidBook.statusCode).toBe(200);
         expect(collectionBidBook.payload.bidBook.state.source).toBe("orders");
-        expect(collectionBidBook.payload.bidBook.state.projectedAt).toEqual(
+        expect(collectionBidBook.payload.bidBook.state.updatedAt).toEqual(
             expect.any(String),
         );
         expect(collectionBidBook.payload.scopeFilter).toBe("collection");
@@ -747,7 +747,7 @@ describe("backend api routes", () => {
                 (bid: { orderId: string }) => bid.orderId,
             );
         expect(filteredOrderIds).not.toContain("bid-book-collection");
-        expect(filteredOrderIds).not.toContain("bid-book-biome-42-terrain");
+        expect(filteredOrderIds).toContain("bid-book-biome-42-terrain");
         const rawTraitBid = filteredCollectionBidBook.payload.bidBook.bids.find(
             (bid: { orderId: string }) =>
                 bid.orderId === "bid-book-raw-biome-42",
@@ -762,9 +762,22 @@ describe("backend api routes", () => {
             priceWei: "310000000000000000",
         });
 
+        const strictTraitBidBook = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids?bid_scope=traits&trait_join=and&traits=Biome:42",
+        );
+        expect(strictTraitBidBook.statusCode).toBe(200);
+        const strictTraitOrderIds = strictTraitBidBook.payload.bidBook.bids.map(
+            (bid: { orderId: string }) => bid.orderId,
+        );
+        expect(strictTraitOrderIds).toContain("bid-book-raw-biome-42");
+        expect(strictTraitOrderIds).not.toContain(
+            "bid-book-biome-42-terrain",
+        );
+
         const exactMultiTraitBidBook = await resolve(
             "GET",
-            "/api/ethereum/milady/bidding/bids?bid_scope=traits&traits=Biome:42&traits=Mode:Terrain",
+            "/api/ethereum/milady/bidding/bids?bid_scope=traits&trait_join=and&traits=Biome:42&traits=Mode:Terrain",
         );
         expect(exactMultiTraitBidBook.statusCode).toBe(200);
         const exactMultiTraitOrderIds =
@@ -772,6 +785,9 @@ describe("backend api routes", () => {
                 (bid: { orderId: string }) => bid.orderId,
             );
         expect(exactMultiTraitOrderIds).toContain("bid-book-biome-42-terrain");
+        expect(exactMultiTraitOrderIds).not.toContain(
+            "bid-book-raw-biome-42",
+        );
 
         const tokenBidBook = await resolve(
             "GET",

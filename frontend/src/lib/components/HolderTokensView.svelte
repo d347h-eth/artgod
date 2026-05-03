@@ -132,6 +132,27 @@
 			noScroll: true
 		});
 	}
+
+	async function applyTraitFilters(
+		nextTraits: ApiTokenAttribute[],
+		nextRanges: ApiTraitRangeFilter[]
+	): Promise<void> {
+		await goto(
+			buildOwnerTokensHref({
+				basePath: browserBasePath,
+				limit: tokens.limit,
+				displayMode,
+				selectedTraits: nextTraits,
+				selectedTraitRanges: nextRanges,
+				mediaMode: media.selectedMode
+			}),
+			{
+				invalidateAll: true,
+				keepFocus: true,
+				noScroll: true
+			}
+		);
+	}
 </script>
 
 <CollectionPageLayout
@@ -185,6 +206,9 @@
 				collapsed={$traitFacetPanelState.collapsed}
 				onToggleCollapsed={traitFacetPanel.toggle}
 				onReset={onResetTraits}
+				{selectedTraits}
+				selectedRanges={selectedTraitRanges}
+				onSelectedFiltersChange={applyTraitFilters}
 			/>
 		</div>
 	{/if}

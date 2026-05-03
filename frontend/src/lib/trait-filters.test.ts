@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { nextSelectedTraits } from '$lib/trait-filters';
+import {
+	nextSelectedTraits,
+	removeSelectedTrait,
+	removeTraitRangeFilter
+} from '$lib/trait-filters';
 
 describe('nextSelectedTraits', () => {
 	it('toggles trait values additively on plain click', () => {
@@ -43,5 +47,38 @@ describe('nextSelectedTraits', () => {
 			{ key: 'Hat', value: 'Cap' },
 			{ key: 'Eyes', value: 'Blue' }
 		]);
+	});
+});
+
+describe('removeSelectedTrait', () => {
+	it('removes only the matching selected key-value pair', () => {
+		const next = removeSelectedTrait(
+			[
+				{ key: 'Hat', value: 'Beanie' },
+				{ key: 'Hat', value: 'Cap' },
+				{ key: 'Eyes', value: 'Blue' }
+			],
+			'Hat',
+			'Beanie'
+		);
+
+		expect(next).toEqual([
+			{ key: 'Hat', value: 'Cap' },
+			{ key: 'Eyes', value: 'Blue' }
+		]);
+	});
+});
+
+describe('removeTraitRangeFilter', () => {
+	it('removes only the matching selected range key', () => {
+		const next = removeTraitRangeFilter(
+			[
+				{ key: 'Level', fromValue: '1', toValue: '10' },
+				{ key: 'Seed', fromValue: '100', toValue: null }
+			],
+			'Level'
+		);
+
+		expect(next).toEqual([{ key: 'Seed', fromValue: '100', toValue: null }]);
 	});
 });

@@ -152,6 +152,14 @@ export function nextSelectedTraits(
 	return next;
 }
 
+export function removeSelectedTrait(
+	sourceTraits: ApiTokenAttribute[],
+	key: string,
+	value: string
+): ApiTokenAttribute[] {
+	return nextSelectedTraits(sourceTraits, key, value, false, false);
+}
+
 export function setTraitRangeFilter(
 	sourceRanges: ApiTraitRangeFilter[],
 	key: string,
@@ -173,4 +181,11 @@ export function setTraitRangeFilter(
 		toValue: normalizedTo
 	});
 	return next.sort((left, right) => left.key.localeCompare(right.key));
+}
+
+export function removeTraitRangeFilter(
+	sourceRanges: ApiTraitRangeFilter[],
+	key: string
+): ApiTraitRangeFilter[] {
+	return setTraitRangeFilter(sourceRanges, key, null, null);
 }

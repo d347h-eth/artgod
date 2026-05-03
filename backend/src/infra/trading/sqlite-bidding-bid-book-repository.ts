@@ -25,11 +25,15 @@ import type { TraitFilter, TraitRangeFilter } from "@artgod/shared/types/browse"
 import type {
     BiddingBidBookRepositoryPort,
     CollectionBiddingBidScopeFilter,
+    CollectionBiddingTraitFilterJoinMode,
     PersistedBiddingBidBook,
     PersistedBiddingBidBookRow,
     PersistedBiddingBidBookState,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
-import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from "../../application/use-cases/trading/bidding-bid-book.js";
+import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+} from "../../application/use-cases/trading/bidding-bid-book.js";
 
 type ProjectedBidBookRow = {
     order_id: string;
@@ -196,6 +200,7 @@ export class SqliteBiddingBidBookRepository
         chainId: number;
         collectionId: number;
         scopeFilter: CollectionBiddingBidScopeFilter;
+        traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
     }): PersistedBiddingBidBook {
@@ -210,6 +215,7 @@ export class SqliteBiddingBidBookRepository
                     collectionBidMatchesFilters(
                         bid,
                         params.scopeFilter,
+                        params.traitFilterJoinMode,
                         params.selectedTraits,
                         params.selectedTraitRanges,
                     ),
@@ -327,7 +333,7 @@ export class SqliteBiddingBidBookRepository
         return {
             state: {
                 ...emptyState(TRADING_BIDDING_BID_BOOK_SOURCE.Orders),
-                projectedAt: updatedAt,
+                updatedAt,
                 rowCount: bids.length,
             },
             bids,
@@ -352,6 +358,7 @@ function mapProjectionStateRow(
 ): PersistedBiddingBidBookState {
     return {
         source: row.source,
+        updatedAt: epochMsToIsoTimestamp(row.snapshot_refreshed_at_ms),
         snapshotRefreshedAtMs: row.snapshot_refreshed_at_ms,
         projectedAt: row.projected_at,
         rowCount: row.row_count,
@@ -365,12 +372,17 @@ function emptyState(
 ): PersistedBiddingBidBookState {
     return {
         source,
+        updatedAt: null,
         snapshotRefreshedAtMs: null,
         projectedAt: null,
         rowCount: 0,
         durationMs: null,
         lastError: null,
     };
+}
+
+function epochMsToIsoTimestamp(value: number | null): string | null {
+    return value === null ? null : new Date(value).toISOString().replace(".000Z", "Z");
 }
 
 function latestIsoTimestamp(values: Array<string | null>): string | null {
@@ -512,6 +524,7 @@ function parseStoredOpenSeaOrderPayload(value: string | null): unknown | null {
 function collectionBidMatchesFilters(
     bid: PersistedBiddingBidBookRow,
     scopeFilter: CollectionBiddingBidScopeFilter,
+    traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode,
     selectedTraits: TraitFilter[],
     selectedTraitRanges: TraitRangeFilter[],
 ): boolean {
@@ -527,11 +540,17 @@ function collectionBidMatchesFilters(
         return true;
     }
 
-    return traitScopeCoveredByFilters(
-        bid.scopeTraits,
-        selectedTraits,
-        selectedTraitRanges,
-    );
+    return traitFilterJoinMode === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
+        ? traitScopeMatchesAnyFilter(
+              bid.scopeTraits,
+              selectedTraits,
+              selectedTraitRanges,
+          )
+        : traitScopeMatchesAllFilters(
+              bid.scopeTraits,
+              selectedTraits,
+              selectedTraitRanges,
+          );
 }
 
 function tokenBidApplies(
@@ -566,7 +585,7 @@ function tokenBidApplies(
     return false;
 }
 
-function traitScopeCoveredByFilters(
+function traitScopeMatchesAllFilters(
     criteria: TradingTraitCriterion[],
     selectedTraits: TraitFilter[],
     selectedTraitRanges: TraitRangeFilter[],
@@ -575,6 +594,25 @@ function traitScopeCoveredByFilters(
         return false;
     }
 
+    return (
+        traitScopeCoveredByFilters(
+            criteria,
+            selectedTraits,
+            selectedTraitRanges,
+        ) &&
+        filtersCoveredByTraitScope(
+            criteria,
+            selectedTraits,
+            selectedTraitRanges,
+        )
+    );
+}
+
+function traitScopeCoveredByFilters(
+    criteria: TradingTraitCriterion[],
+    selectedTraits: TraitFilter[],
+    selectedTraitRanges: TraitRangeFilter[],
+): boolean {
     for (const criterion of criteria) {
         const sameTypeSelectedTraits = selectedTraits.filter(
             (trait) => trait.key === criterion.type,
@@ -606,6 +644,54 @@ function traitScopeCoveredByFilters(
     }
 
     return true;
+}
+
+function filtersCoveredByTraitScope(
+    criteria: TradingTraitCriterion[],
+    selectedTraits: TraitFilter[],
+    selectedTraitRanges: TraitRangeFilter[],
+): boolean {
+    const exactTraitsCovered = selectedTraits.every((trait) =>
+        criteria.some(
+            (criterion) =>
+                criterion.type === trait.key && criterion.value === trait.value,
+        ),
+    );
+    if (!exactTraitsCovered) {
+        return false;
+    }
+
+    return selectedTraitRanges.every((range) =>
+        criteria.some(
+            (criterion) =>
+                criterion.type === range.key &&
+                traitValueWithinRange(criterion.value, range),
+        ),
+    );
+}
+
+function traitScopeMatchesAnyFilter(
+    criteria: TradingTraitCriterion[],
+    selectedTraits: TraitFilter[],
+    selectedTraitRanges: TraitRangeFilter[],
+): boolean {
+    if (criteria.length === 0) {
+        return false;
+    }
+
+    return criteria.some(
+        (criterion) =>
+            selectedTraits.some(
+                (trait) =>
+                    trait.key === criterion.type &&
+                    trait.value === criterion.value,
+            ) ||
+            selectedTraitRanges.some(
+                (range) =>
+                    range.key === criterion.type &&
+                    traitValueWithinRange(criterion.value, range),
+            ),
+    );
 }
 
 function traitValueWithinRange(value: string, range: TraitRangeFilter): boolean {

@@ -37,6 +37,7 @@ describe('BidBookPanel', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {
 				source: 'orders',
+				updatedAt: null,
 				snapshotRefreshedAtMs: null,
 				projectedAt: null,
 				rowCount: 5,
@@ -115,9 +116,15 @@ describe('BidBookPanel', () => {
 			}
 		});
 
-		expect(body.match(/Biome=42 \+ Mode=Terrain/g)).toHaveLength(1);
+		expect(body.match(/bid-book-demand-trait-key">Biome</g)).toHaveLength(1);
+		expect(body.match(/bid-book-demand-trait-key">Mode</g)).toHaveLength(1);
+		expect(body).toContain('bid-book-demand-trait-equals">=</span>');
+		expect(body).toContain('bid-book-demand-trait-value">42</span>');
+		expect(body).toContain('bid-book-demand-trait-value">Terrain</span>');
 		expect(body).not.toContain('Mode=Terrain + Biome=42');
-		expect(body.indexOf('Chroma=Plague')).toBeLessThan(body.indexOf('Biome=42 + Mode=Terrain'));
+		expect(body.indexOf('bid-book-demand-trait-key">Chroma')).toBeLessThan(
+			body.indexOf('bid-book-demand-trait-key">Biome')
+		);
 		expect(body).toContain('0.30');
 		expect(body).toContain('0.29');
 		expect(body).toContain('0.00');
@@ -172,10 +179,11 @@ describe('BidBookPanel', () => {
 		expect(debugBody).not.toMatch(/<tr(?=[^>]*hidden)(?=[^>]*bid-book-muted-demand-group)[^>]*>/);
 	});
 
-	it('ignores collapsed bids when resolving row price precision', () => {
+	it('uses displayed rows only when resolving row price precision', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {
 				source: 'orders',
+				updatedAt: null,
 				snapshotRefreshedAtMs: null,
 				projectedAt: null,
 				rowCount: 3,
@@ -235,5 +243,45 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-price-quantity-empty');
 		expect(body).toContain('expand 1');
 		expect(body).not.toContain('0.000345');
+	});
+
+	it('renders clickable demand trait values and opens the preferred trait tab', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'orders',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			bids: [{ ...BASE_BID, orderId: '0xclickable-trait' }]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				view: 'trait-demand',
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact',
+				preferredDemandTraitKey: 'Mode',
+				traitValueHref: (trait) => `/ethereum/terraforms/bidding?traits=${trait.key}:${trait.value}`
+			}
+		});
+
+		expect(body).toContain('<span class="secondary-tab-active">Mode [1]</span>');
+		expect(body.indexOf('bid-book-demand-trait-key">Mode')).toBeLessThan(
+			body.indexOf('bid-book-demand-trait-key">Biome')
+		);
+		expect(body).toContain('class="bid-book-demand-trait-list"');
+		expect(body.match(/bid-book-demand-trait-entry/g)).toHaveLength(2);
+		expect(body).toContain('class="bid-book-demand-trait-separator">+</span>');
+		expect(body).not.toContain('<span> + </span>');
+		expect(body).toContain('class="bid-book-demand-trait-value-link"');
+		expect(body).toContain('href="/ethereum/terraforms/bidding?traits=Mode:Terrain"');
+		expect(body).toContain('href="/ethereum/terraforms/bidding?traits=Biome:42"');
+		expect(body).toContain('>Terrain</a>');
+		expect(body).toContain('>42</a>');
 	});
 });

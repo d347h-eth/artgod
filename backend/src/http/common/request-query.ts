@@ -19,7 +19,9 @@ import type {
 } from "../../application/use-cases/bootstrap/types.js";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     type CollectionBiddingBidScopeFilter,
+    type CollectionBiddingTraitFilterJoinMode,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 
 const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
@@ -62,6 +64,11 @@ const ALLOWED_COLLECTION_BIDDING_BID_SCOPE_FILTERS =
     new Set<CollectionBiddingBidScopeFilter>([
         COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
         COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+    ]);
+const ALLOWED_COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES =
+    new Set<CollectionBiddingTraitFilterJoinMode>([
+        COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+        COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
     ]);
 
 export function getSearchParams(request: FastifyRequest): URLSearchParams {
@@ -114,6 +121,22 @@ export function parseCollectionBiddingBidScopeFilter(
         throw new ReadModelBadRequestError("Invalid bid scope filter");
     }
     return raw as CollectionBiddingBidScopeFilter;
+}
+
+export function parseCollectionBiddingTraitFilterJoinMode(
+    raw: string | null,
+): CollectionBiddingTraitFilterJoinMode {
+    if (!raw || !raw.trim()) {
+        return COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or;
+    }
+    if (
+        !ALLOWED_COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES.has(
+            raw as CollectionBiddingTraitFilterJoinMode,
+        )
+    ) {
+        throw new ReadModelBadRequestError("Invalid bidding trait join mode");
+    }
+    return raw as CollectionBiddingTraitFilterJoinMode;
 }
 
 export function parseOwner(raw: string | null): string | undefined {

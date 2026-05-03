@@ -3,6 +3,104 @@ import { render } from 'svelte/server';
 import CollectionBiddingView from './CollectionBiddingView.svelte';
 
 describe('CollectionBiddingView', () => {
+	it('omits trait filtering chrome for the collection bid-book scope', () => {
+		const { body } = render(CollectionBiddingView, {
+			props: {
+				chain: {
+					id: 1,
+					type: 'evm',
+					publicChainId: 1,
+					slug: 'ethereum',
+					name: 'Ethereum'
+				},
+				collection: {
+					chainId: 1,
+					collectionId: 1,
+					slug: 'milady',
+					address: '0x1111111111111111111111111111111111111111',
+					standard: 'erc721',
+					status: 'live',
+					deploymentBlock: 1,
+					bootstrapAnchorBlock: null,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T00:00:00Z'
+				},
+				jobs: [],
+				bidBook: {
+					state: {
+						source: 'orders',
+						updatedAt: '2026-01-02T00:00:00Z',
+						snapshotRefreshedAtMs: null,
+						projectedAt: null,
+						rowCount: 1,
+						durationMs: null,
+						lastError: null
+					},
+					bids: [
+						{
+							orderId: '0xcollection-bid',
+							source: 'orders',
+							scope: {
+								kind: 'collection',
+								label: 'collection',
+								tokenId: null,
+								traits: []
+							},
+							maker: {
+								address: '0x9999999999999999999999999999999999999999',
+								label: '0x9999999999999999999999999999999999999999',
+								isOwn: false
+							},
+							priceWei: '100000000000000000',
+							priceEth: '0.1',
+							quantity: '1',
+							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+							currencySymbol: 'WETH',
+							protocolAddress: null,
+							validUntil: 1_900_000_000,
+							placedAt: '2026-01-02T00:00:00Z',
+							snapshotRefreshedAtMs: null,
+							seenAt: '2026-01-02T00:00:00Z'
+						}
+					]
+				},
+				facets: [
+					{
+						key: 'Hat',
+						displayKind: 'set',
+						minValue: null,
+						maxValue: null,
+						values: [{ value: 'Beanie', tokenCount: 1 }]
+					}
+				],
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [{ key: 'artifact', label: 'artifact' }]
+				},
+				included: {
+					tokensById: {},
+					hasTraitSummaryTemplate: false
+				},
+				basePath: '/ethereum/milady',
+				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
+				selectedTraitRanges: [],
+				bidScope: 'collection',
+				traitJoinMode: 'or',
+				biddingView: 'bid_book',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(body).toContain('<span class="secondary-tab-active">collection</span>');
+		expect(body).toContain('bids source');
+		expect(body).not.toContain('facet-panel-controls-row');
+		expect(body).not.toContain('class="facet-column"');
+		expect(body).not.toContain('class="detail-layout"');
+		expect(body).not.toContain('filter [or]');
+		expect(body).not.toContain('>Hat=Beanie<');
+	});
+
 	it('renders bidding jobs with inline token controls', () => {
 		const { body } = render(CollectionBiddingView, {
 			props: {
@@ -74,6 +172,7 @@ describe('CollectionBiddingView', () => {
 				bidBook: {
 					state: {
 						source: 'bot_snapshot',
+						updatedAt: '2025-10-09T08:53:20Z',
 						snapshotRefreshedAtMs: 1_760_000_000_000,
 						projectedAt: '2026-01-02T00:00:00Z',
 						rowCount: 1,
@@ -131,6 +230,7 @@ describe('CollectionBiddingView', () => {
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				selectedTraitRanges: [],
 				bidScope: 'traits',
+				traitJoinMode: 'or',
 				biddingView: 'jobs',
 				mediaMode: 'artifact'
 			}

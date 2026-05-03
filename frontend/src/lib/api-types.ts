@@ -316,6 +316,7 @@ export type ApiBiddingJob = {
 export type ApiBiddingBidBookSource = 'bot_snapshot' | 'orders';
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
 export type ApiCollectionBiddingBidScopeFilter = 'collection' | 'traits';
+export type ApiCollectionBiddingTraitFilterJoinMode = 'or' | 'and';
 
 export type ApiBiddingBidBookRow = {
 	orderId: string;
@@ -346,6 +347,7 @@ export type ApiBiddingBidBookRow = {
 export type ApiBiddingBidBook = {
 	state: {
 		source: ApiBiddingBidBookSource;
+		updatedAt: string | null;
 		snapshotRefreshedAtMs: number | null;
 		projectedAt: string | null;
 		rowCount: number;

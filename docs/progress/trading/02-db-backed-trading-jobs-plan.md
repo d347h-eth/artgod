@@ -237,6 +237,8 @@ Collection bidding page:
 - Lists collection bid-book rows.
 - Query `bid_scope=collection` returns collection-wide bids only.
 - Query `bid_scope=traits` returns trait-scoped bids and applies repeated `traits=key:value` / `trait_ranges=key:from..to` filters.
+- Trait bid-book filtering defaults to `trait_join=or`, where any selected trait key-value or range can match a bid criterion.
+- `trait_join=and` keeps strict matching where the bid's full trait criterion set must exactly match the selected filters.
 - Source selection prefers the bot snapshot projection only when enabled jobs exist, the bidding bot heartbeat is live, and projection metadata is fresh; otherwise it falls back to orders.
 
 Token detail management:
@@ -380,7 +382,8 @@ Display rules:
 - multi-quantity offers display as quantity times unit price
 - token detail always shows scope because multiple bid scopes can apply to one token
 - collection `bid_scope=collection` hides the scope column because all rows are collection-wide
-- collection `bid_scope=traits` shows the scope column and centers scope values
+- collection `bid_scope=collection` does not render trait facet controls because selected traits do not affect collection-wide bids
+- collection `bid_scope=traits` groups rows by exact trait-criteria bucket, then by price within each bucket
 - dates default to compact relative display with RFC 3339 available on hover/toggle
 
 ## Trading Runtime Integration

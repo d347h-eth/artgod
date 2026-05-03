@@ -8,6 +8,7 @@ import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models
 import type {
     BiddingBidBookRepositoryPort,
     CollectionBiddingBidScopeFilter,
+    CollectionBiddingTraitFilterJoinMode,
     ListCollectionBiddingBidBookOutput,
 } from "./bidding-bid-book.js";
 import { mapPersistedBidBookToView } from "./bidding-bid-book.js";
@@ -17,6 +18,7 @@ export type ListCollectionBiddingBidBookInput = {
     chainRef: string;
     collectionRef: string;
     scopeFilter: CollectionBiddingBidScopeFilter;
+    traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
     traits: TraitFilter[];
     traitRanges: TraitRangeFilter[];
 };
@@ -87,6 +89,7 @@ export class ListCollectionBiddingBidBookUseCase {
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             scopeFilter: input.scopeFilter,
+            traitFilterJoinMode: input.traitFilterJoinMode,
             selectedTraits: input.traits,
             selectedTraitRanges: input.traitRanges,
         });

@@ -17,8 +17,16 @@ export const COLLECTION_BIDDING_BID_SCOPE_FILTER = {
     Traits: "traits",
 } as const;
 
+export const COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE = {
+    Or: "or",
+    And: "and",
+} as const;
+
 export type CollectionBiddingBidScopeFilter =
     (typeof COLLECTION_BIDDING_BID_SCOPE_FILTER)[keyof typeof COLLECTION_BIDDING_BID_SCOPE_FILTER];
+
+export type CollectionBiddingTraitFilterJoinMode =
+    (typeof COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE)[keyof typeof COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE];
 
 export type PersistedBiddingBidBookRow = {
     orderId: string;
@@ -43,6 +51,7 @@ export type PersistedBiddingBidBookRow = {
 
 export type PersistedBiddingBidBookState = {
     source: TradingBiddingBidBookSource;
+    updatedAt: string | null;
     snapshotRefreshedAtMs: number | null;
     projectedAt: string | null;
     rowCount: number;
@@ -60,6 +69,7 @@ export interface BiddingBidBookRepositoryPort {
         chainId: number;
         collectionId: number;
         scopeFilter: CollectionBiddingBidScopeFilter;
+        traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
     }): PersistedBiddingBidBook;

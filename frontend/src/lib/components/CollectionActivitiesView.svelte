@@ -35,7 +35,10 @@
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
-	import { nextSelectedTraits, setTraitRangeFilter } from '$lib/trait-filters';
+	import {
+		nextSelectedTraits,
+		setTraitRangeFilter
+	} from '$lib/trait-filters';
 	import { buildOwnerTokensHref, buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
 
 	let {
@@ -360,6 +363,19 @@
 		return new Date(occurredAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
 	}
 
+	async function applyTraitFilters(
+		nextTraits: ApiTokenAttribute[],
+		nextRanges: ApiTraitRangeFilter[]
+	): Promise<void> {
+		activeTraits = nextTraits;
+		activeTraitRanges = nextRanges;
+		await goto(filterHref(filterKind, null, nextTraits, nextRanges), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
 	async function onTraitToggleWithMode(
 		key: string,
 		value: string,
@@ -367,12 +383,7 @@
 		exclusiveMode: boolean
 	): Promise<void> {
 		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, exclusiveMode);
-		activeTraits = nextTraits;
-		await goto(filterHref(filterKind, null, nextTraits, activeTraitRanges), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
+		await applyTraitFilters(nextTraits, activeTraitRanges);
 	}
 
 	async function onApplyTraitRange(
@@ -381,22 +392,11 @@
 		toValue: string | null
 	): Promise<void> {
 		const nextRanges = setTraitRangeFilter(activeTraitRanges, key, fromValue, toValue);
-		activeTraitRanges = nextRanges;
-		await goto(filterHref(filterKind, null, activeTraits, nextRanges), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
+		await applyTraitFilters(activeTraits, nextRanges);
 	}
 
 	async function onResetFilters(): Promise<void> {
-		activeTraits = [];
-		activeTraitRanges = [];
-		await goto(filterHref(filterKind, null, [], []), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
+		await applyTraitFilters([], []);
 	}
 </script>
 
@@ -460,6 +460,9 @@
 				collapsed={$traitFacetPanelState.collapsed}
 				onToggleCollapsed={traitFacetPanel.toggle}
 				onReset={onResetFilters}
+				selectedTraits={activeTraits}
+				selectedRanges={activeTraitRanges}
+				onSelectedFiltersChange={applyTraitFilters}
 			/>
 		</div>
 	{/snippet}

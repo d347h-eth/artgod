@@ -95,8 +95,9 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain(
 			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=snapshot&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('>traits<');
+		expect(body).toContain('>filter<');
 		expect(body).toContain('>reset<');
+		expect(body).toContain('>Hat=Beanie<');
 		expect(body).toContain('1 listed');
 		expect(body).toContain('token 1');
 		expect(body).toContain(

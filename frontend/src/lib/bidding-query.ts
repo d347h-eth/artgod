@@ -4,6 +4,7 @@ import { joinPath, withQuery } from '$lib/route-paths';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 
 export type CollectionBiddingBidScopeFilter = 'collection' | 'traits';
+export type CollectionBiddingTraitFilterJoinMode = 'or' | 'and';
 export type CollectionBiddingViewMode = 'bid_book' | 'jobs';
 
 const BIDDING_VIEW_QUERY_PARAM = 'bidding_view';
@@ -13,6 +14,7 @@ export function buildCollectionBiddingQuery(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	bidScope?: CollectionBiddingBidScopeFilter;
+	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 	viewMode?: CollectionBiddingViewMode;
 	mediaMode?: string | null;
 	showMuted?: boolean;
@@ -24,6 +26,9 @@ export function buildCollectionBiddingQuery(params: {
 	}
 	if (params.bidScope && params.bidScope !== 'collection') {
 		query.set('bid_scope', params.bidScope);
+	}
+	if (params.traitJoinMode && params.traitJoinMode !== 'or') {
+		query.set('trait_join', params.traitJoinMode);
 	}
 	if (params.showMuted) {
 		query.set(SHOW_MUTED_BID_BOOK_QUERY_PARAM, 'true');
@@ -38,6 +43,7 @@ export function buildCollectionBiddingHref(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	bidScope?: CollectionBiddingBidScopeFilter;
+	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 	viewMode?: CollectionBiddingViewMode;
 	mediaMode?: string | null;
 	showMuted?: boolean;
@@ -56,4 +62,10 @@ export function parseCollectionBiddingView(
 	searchParams: URLSearchParams
 ): CollectionBiddingViewMode {
 	return searchParams.get(BIDDING_VIEW_QUERY_PARAM) === 'jobs' ? 'jobs' : 'bid_book';
+}
+
+export function parseCollectionBiddingTraitFilterJoinMode(
+	searchParams: URLSearchParams
+): CollectionBiddingTraitFilterJoinMode {
+	return searchParams.get('trait_join') === 'and' ? 'and' : 'or';
 }

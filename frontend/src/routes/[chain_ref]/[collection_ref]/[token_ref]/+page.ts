@@ -46,6 +46,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			tokenBiddingBidBook: {
 				state: {
 					source: 'orders',
+					updatedAt: null,
 					snapshotRefreshedAtMs: null,
 					projectedAt: null,
 					rowCount: 0,

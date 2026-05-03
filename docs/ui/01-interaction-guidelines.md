@@ -153,19 +153,28 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
 
 - Components:
     - `TraitFacetPanelControls.svelte`
+    - `SelectedTraitFilterSlugs.svelte`
     - `TraitFacetPanel.svelte`
     - `trait-facet-panel-controller.ts`
 - Base action class: `.facet-panel-action-button`
 
 Specific controls:
 
-- `traits`
+- `filter`
     - structural toggle for the sidebar
     - lives in its own top-action row
+- trait join mode
+    - optional compact fixed-width `OR` / `AND` button beside `filter`
+    - changes the current page's trait-filter join mode without clearing selected filters
 - `reset`
     - clears current trait filters in the current page scope
     - default color is pink
     - hover/focus is yellow, aligned with other interactive controls
+- selected trait slugs
+    - render inline after `filter` / `reset`
+    - use compact `key=value` labels clipped to 20 characters
+    - wrap naturally only when viewport width requires it
+    - clicking one slug removes only that applied filter
 
 ## Trait Panel Behavior
 
@@ -176,7 +185,8 @@ The controller owns:
 - collapsed state
 - persisted collapsed preference
 - root-class syncing
-- `T` hotkey for panel toggle
+- `F` hotkey for panel toggle
+    - pages can override this for page-specific shortcut behavior
 - `R` hotkey for trait reset
 
 The split of responsibilities is:
@@ -187,10 +197,13 @@ The split of responsibilities is:
     - checkbox UI for discrete traits
     - inclusive `from` / `to` range UI for scalar traits
 - `TraitFacetPanelControls.svelte`
-    - presentational top-action controls
+    - route-agnostic top-action controls
+    - selected filter slug rendering via `SelectedTraitFilterSlugs.svelte`
+    - selected filter removal as route-agnostic selected-filter state mutation
 - page wrappers
     - URL construction
     - reset navigation behavior
+    - applying changed selected-filter state to the current route
 
 Trait value selection rules:
 

@@ -419,6 +419,7 @@ paths:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/BidScopeFilter"
+                - $ref: "#/components/parameters/BiddingTraitJoinMode"
                 - name: traits
                   in: query
                   required: false
@@ -913,6 +914,15 @@ components:
                 enum: [collection, traits]
                 default: collection
             description: Collection bid-book scope view. `collection` shows collection-wide bids only; `traits` shows trait-scoped bids.
+        BiddingTraitJoinMode:
+            name: trait_join
+            in: query
+            required: false
+            schema:
+                type: string
+                enum: [or, and]
+                default: or
+            description: Bidding trait bid-book matching mode. `or` shows trait bids matching any selected key-value or range; `and` shows trait bids whose full criteria set exactly matches the selected key-values and ranges.
 
     responses:
         BadRequest:
@@ -1462,6 +1472,7 @@ components:
             required:
                 [
                     source,
+                    updatedAt,
                     snapshotRefreshedAtMs,
                     projectedAt,
                     rowCount,
@@ -1472,6 +1483,10 @@ components:
             properties:
                 source:
                     $ref: "#/components/schemas/BiddingBidBookSource"
+                updatedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
                 snapshotRefreshedAtMs:
                     type: integer
                     nullable: true

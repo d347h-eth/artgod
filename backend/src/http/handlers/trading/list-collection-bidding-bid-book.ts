@@ -6,6 +6,7 @@ import type {
 import {
     getSearchParams,
     parseCollectionBiddingBidScopeFilter,
+    parseCollectionBiddingTraitFilterJoinMode,
     parseTraits,
     parseTraitRanges,
 } from "../../common/request-query.js";
@@ -14,6 +15,14 @@ export type ListCollectionBiddingBidBookRoute = {
     Params: {
         chain_ref: string;
         collection_ref: string;
+    };
+    Querystring: {
+        bid_scope?: string;
+        trait_join?: string;
+        traits?: string | string[];
+        trait?: string | string[];
+        trait_ranges?: string | string[];
+        trait_range?: string | string[];
     };
 };
 
@@ -38,6 +47,9 @@ export class ListCollectionBiddingBidBookHttpAdapter {
                 collectionRef: request.params.collection_ref,
                 scopeFilter: parseCollectionBiddingBidScopeFilter(
                     searchParams.get("bid_scope"),
+                ),
+                traitFilterJoinMode: parseCollectionBiddingTraitFilterJoinMode(
+                    searchParams.get("trait_join"),
                 ),
                 traits: parseTraits(searchParams),
                 traitRanges: parseTraitRanges(searchParams),

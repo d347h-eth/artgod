@@ -70,6 +70,7 @@ describe('token detail page', () => {
 						tokenBiddingBidBook: {
 							state: {
 								source: 'orders',
+								updatedAt: null,
 								snapshotRefreshedAtMs: null,
 								projectedAt: null,
 								rowCount: 2,

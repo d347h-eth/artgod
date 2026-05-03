@@ -159,9 +159,15 @@ Token detail bid books show all applicable scopes because a token can receive co
 Collection bidding page scope controls:
 
 - `collection`: show collection-wide bids only
-- `traits`: show trait-scoped bids; selected trait filters must match the bid's full trait criterion set
+- `traits`: show trait-scoped bids
 
 Collection-wide rows are intentionally not mixed into the trait view.
+Trait facet controls render only in the `traits` view because collection-wide bids are unaffected by selected token traits.
+
+The bidding page trait facet panel defaults to OR matching.
+In OR mode, selected trait key-values and ranges match any criterion within a trait-scoped bid, so a user can quickly find all multi-trait combinations involving a given trait.
+The separate `OR` / `AND` control switches join mode without clearing selected filters.
+AND mode keeps the stricter behavior where the bid's full trait criterion set must exactly match the selected filters.
 
 ## Secure Wallet Boundary
 

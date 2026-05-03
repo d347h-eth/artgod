@@ -141,8 +141,9 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('transfers');
 		expect(body).toContain('Beanie');
 		expect(body).toContain('class="activities-traits-col"');
-		expect(body).toContain('>traits<');
+		expect(body).toContain('>filter<');
 		expect(body).toContain('>reset<');
+		expect(body).toContain('>Hat=Beanie<');
 		expect(body).toContain('relative');
 		expect(body).toContain('<span class="secondary-tab-active">sales</span>');
 		expect(body).toContain(

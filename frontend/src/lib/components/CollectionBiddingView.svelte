@@ -7,6 +7,7 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
+		ApiCollectionBiddingTraitFilterJoinMode,
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
 		ApiTokenPresentationSummary,
@@ -29,6 +30,10 @@
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
+	import {
+		runTraitFacetPanelControlAction,
+		type TraitFacetFilterModeOption
+	} from '$lib/components/trait-facet-panel-control-action';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
@@ -37,7 +42,10 @@
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
-	import { nextSelectedTraits, setTraitRangeFilter } from '$lib/trait-filters';
+	import {
+		nextSelectedTraits,
+		setTraitRangeFilter
+	} from '$lib/trait-filters';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
@@ -52,6 +60,7 @@
 		selectedTraits,
 		selectedTraitRanges,
 		bidScope,
+		traitJoinMode,
 		biddingView = 'bid_book',
 		showMuted = false,
 		mediaMode
@@ -70,6 +79,7 @@
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		bidScope: ApiCollectionBiddingBidScopeFilter;
+		traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 		biddingView: CollectionBiddingViewMode;
 		showMuted?: boolean;
 		mediaMode: string | null;
@@ -81,6 +91,10 @@
 	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
+	const biddingTraitFilterModes: TraitFacetFilterModeOption[] = [
+		{ value: 'or', label: 'or' },
+		{ value: 'and', label: 'and' }
+	];
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
@@ -89,6 +103,13 @@
 		collectionJobs.filter((job) => job.target.type === 'token').length
 	);
 	const nonTokenJobCount = $derived(collectionJobs.length - tokenJobCount);
+	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
+	const showBidBookTraitFilters = $derived(biddingView === 'bid_book' && bidScope === 'traits');
+	const preferredBidBookDemandTraitKey = $derived(
+		bidScope === 'traits' && traitJoinMode === 'or' && hasActiveTraitFilters
+			? (activeTraits[0]?.key ?? activeTraitRanges[0]?.key ?? null)
+			: null
+	);
 
 	$effect(() => {
 		collectionJobs = jobs;
@@ -114,8 +135,8 @@
 			limit: DEFAULT_PAGE_LIMIT,
 			displayMode: 'grid',
 			tokenStatus: 'listed',
-			selectedTraits,
-			selectedTraitRanges,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			mediaMode
 		});
 	}
@@ -125,8 +146,8 @@
 			basePath,
 			limit: DEFAULT_PAGE_LIMIT,
 			kind: 'sales',
-			selectedTraits,
-			selectedTraitRanges,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			mediaMode
 		});
 	}
@@ -140,8 +161,8 @@
 	function customizationHref(): string {
 		return buildCollectionCustomizationHref({
 			basePath,
-			selectedTraits,
-			selectedTraitRanges,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			mediaMode
 		});
 	}
@@ -149,8 +170,9 @@
 	function biddingHref(): string {
 		return buildCollectionBiddingHref({
 			basePath,
-			selectedTraits,
-			selectedTraitRanges,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			traitJoinMode,
 			viewMode: biddingView,
 			mediaMode,
 			showMuted
@@ -166,6 +188,7 @@
 			selectedTraits: traits,
 			selectedTraitRanges: ranges,
 			bidScope,
+			traitJoinMode,
 			viewMode: biddingView,
 			mediaMode,
 			showMuted
@@ -175,9 +198,10 @@
 	function bidScopeHref(nextBidScope: ApiCollectionBiddingBidScopeFilter): string {
 		return buildCollectionBiddingHref({
 			basePath,
-			selectedTraits,
-			selectedTraitRanges,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			bidScope: nextBidScope,
+			traitJoinMode,
 			viewMode: 'bid_book',
 			mediaMode,
 			showMuted
@@ -187,17 +211,14 @@
 	function biddingViewHref(nextView: CollectionBiddingViewMode): string {
 		return buildCollectionBiddingHref({
 			basePath,
-			selectedTraits,
-			selectedTraitRanges,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			bidScope,
+			traitJoinMode,
 			viewMode: nextView,
 			mediaMode,
 			showMuted
 		});
-	}
-
-	function resetTraitsHref(): string {
-		return filtersHref([], []);
 	}
 
 	function biddingPath(): string {
@@ -206,9 +227,10 @@
 
 	function biddingReturnQuery(): string {
 		return buildCollectionBiddingQuery({
-			selectedTraits,
-			selectedTraitRanges,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
 			bidScope,
+			traitJoinMode,
 			viewMode: biddingView,
 			mediaMode,
 			showMuted
@@ -233,12 +255,54 @@
 		return included.tokensById[tokenId] ?? null;
 	}
 
-	async function onResetTraits(): Promise<void> {
-		await goto(resetTraitsHref(), {
+	function traitJoinModeHref(nextMode: ApiCollectionBiddingTraitFilterJoinMode): string {
+		return buildCollectionBiddingHref({
+			basePath,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			bidScope,
+			traitJoinMode: nextMode,
+			viewMode: biddingView,
+			mediaMode,
+			showMuted
+		});
+	}
+
+	async function onTraitJoinModeChange(nextMode: string): Promise<void> {
+		await goto(traitJoinModeHref(nextMode as ApiCollectionBiddingTraitFilterJoinMode), {
 			invalidateAll: true,
 			keepFocus: true,
 			noScroll: true
 		});
+	}
+
+	async function onTraitPanelControlAction(): Promise<void> {
+		await runTraitFacetPanelControlAction({
+			hasActiveFilters: hasActiveTraitFilters,
+			collapsed: $traitFacetPanelState.collapsed,
+			onToggleCollapsed: traitFacetPanel.toggle,
+			onSetCollapsed: traitFacetPanel.setCollapsed,
+			filterModes: biddingTraitFilterModes,
+			selectedFilterMode: traitJoinMode,
+			onFilterModeChange: onTraitJoinModeChange
+		});
+	}
+
+	async function applyTraitFilters(
+		nextTraits: ApiTokenAttribute[],
+		nextRanges: ApiTraitRangeFilter[]
+	): Promise<void> {
+		activeTraits = nextTraits;
+		activeTraitRanges = nextRanges;
+		await goto(filtersHref(nextTraits, nextRanges), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onResetTraits(): Promise<void> {
+		await applyTraitFilters([], []);
 	}
 
 	async function onTraitToggleWithMode(
@@ -248,12 +312,12 @@
 		exclusiveMode: boolean
 	): Promise<void> {
 		const nextTraits = nextSelectedTraits(activeTraits, key, value, checked, exclusiveMode);
-		activeTraits = nextTraits;
-		await goto(filtersHref(nextTraits, activeTraitRanges), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
+		await applyTraitFilters(nextTraits, activeTraitRanges);
+	}
+
+	function bidBookTraitValueHref(trait: { key: string; value: string }): string {
+		const nextTraits = nextSelectedTraits(activeTraits, trait.key, trait.value, true, false);
+		return filtersHref(nextTraits, activeTraitRanges);
 	}
 
 	async function onApplyTraitRange(
@@ -262,12 +326,7 @@
 		toValue: string | null
 	): Promise<void> {
 		const nextRanges = setTraitRangeFilter(activeTraitRanges, key, fromValue, toValue);
-		activeTraitRanges = nextRanges;
-		await goto(filtersHref(activeTraits, nextRanges), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
+		await applyTraitFilters(activeTraits, nextRanges);
 	}
 
 	function onWindowKeydown(event: KeyboardEvent): void {
@@ -278,14 +337,28 @@
 		tokenPreview.onWindowKeydown(event);
 		if (previewWasOpen) return;
 
-		if (biddingView !== 'bid_book') return;
+		if (!showBidBookTraitFilters) return;
 		traitFacetPanel.onWindowKeydown(event, {
+			onToggle: onTraitPanelControlAction,
 			onReset: onResetTraits
 		});
 	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
+
+{#snippet bidBookPanel()}
+	<BidBookPanel
+		{bidBook}
+		showScope={bidScope !== 'collection'}
+		view={bidScope === 'traits' ? 'trait-demand' : 'rows'}
+		{showMuted}
+		{basePath}
+		{mediaMode}
+		preferredDemandTraitKey={preferredBidBookDemandTraitKey}
+		traitValueHref={bidBookTraitValueHref}
+	/>
+{/snippet}
 
 <CollectionPageLayout
 	tokensHref={tokensHref()}
@@ -350,40 +423,47 @@
 						{/if}
 					</div>
 				</div>
-				<div class="panel-top-actions-row">
-					<TraitFacetPanelControls
-						hasActiveFilters={activeTraits.length > 0 || activeTraitRanges.length > 0}
-						collapsed={$traitFacetPanelState.collapsed}
-						onToggleCollapsed={traitFacetPanel.toggle}
-						onReset={onResetTraits}
-					/>
-				</div>
+				{#if bidScope === 'traits'}
+					<div class="panel-top-actions-row">
+						<TraitFacetPanelControls
+							hasActiveFilters={hasActiveTraitFilters}
+							collapsed={$traitFacetPanelState.collapsed}
+							onToggleCollapsed={traitFacetPanel.toggle}
+							filterModes={biddingTraitFilterModes}
+							selectedFilterMode={traitJoinMode}
+							onFilterModeChange={onTraitJoinModeChange}
+							onReset={onResetTraits}
+							selectedTraits={activeTraits}
+							selectedRanges={activeTraitRanges}
+							onSelectedFiltersChange={applyTraitFilters}
+						/>
+					</div>
+				{/if}
 			{/if}
 		{/if}
 	{/snippet}
 
 	{#if biddingView === 'bid_book'}
-		<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
-			<TraitFacetPanel
-				{facets}
-				selectedTraits={activeTraits}
-				selectedRanges={activeTraitRanges}
-				collapsed={$traitFacetPanelState.collapsed}
-				onToggleTrait={onTraitToggleWithMode}
-				onApplyTraitRange={onApplyTraitRange}
-			/>
-
-			<div class="token-panel bidding-panel-main">
-				<BidBookPanel
-					{bidBook}
-					showScope={bidScope !== 'collection'}
-					view={bidScope === 'traits' ? 'trait-demand' : 'rows'}
-					{showMuted}
-					{basePath}
-					{mediaMode}
+		{#if bidScope === 'traits'}
+			<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
+				<TraitFacetPanel
+					{facets}
+					selectedTraits={activeTraits}
+					selectedRanges={activeTraitRanges}
+					collapsed={$traitFacetPanelState.collapsed}
+					onToggleTrait={onTraitToggleWithMode}
+					onApplyTraitRange={onApplyTraitRange}
 				/>
+
+				<div class="token-panel bidding-panel-main">
+					{@render bidBookPanel()}
+				</div>
 			</div>
-		</div>
+		{:else}
+			<div class="token-panel bidding-panel-main">
+				{@render bidBookPanel()}
+			</div>
+		{/if}
 	{:else}
 		<div class="token-panel bidding-panel-main bidding-jobs-panel">
 			<section class="runtime-section bid-book-summary-panel">
