@@ -162,6 +162,7 @@ paths:
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/MediaMode"
                 - $ref: "#/components/parameters/ActivityKindFilter"
                 - $ref: "#/components/parameters/MediaMode"
                 - $ref: "#/components/parameters/Limit"
@@ -1583,17 +1584,21 @@ components:
 
         ListCollectionBiddingJobsResponse:
             type: object
-            required: [chain, collection, jobs]
+            required: [chain, collection, media, jobs, included]
             additionalProperties: false
             properties:
                 chain:
                     $ref: "#/components/schemas/ChainRecord"
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
                 jobs:
                     type: array
                     items:
                         $ref: "#/components/schemas/BiddingJob"
+                included:
+                    $ref: "#/components/schemas/ActivityFeedIncludes"
 
         ListCollectionBiddingBidBookResponse:
             type: object

@@ -6,6 +6,8 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
+		ApiCollectionMediaState,
+		ApiTokenPresentationSummary,
 		ApiTokenAttribute,
 		ApiTraitFacet,
 		ApiTraitRangeFilter
@@ -18,6 +20,11 @@
 		jobs: ApiBiddingJob[];
 		bidBook: ApiBiddingBidBook;
 		facets: ApiTraitFacet[];
+		media: ApiCollectionMediaState;
+		included: {
+			tokensById: Record<string, ApiTokenPresentationSummary>;
+			hasTraitSummaryTemplate: boolean;
+		};
 		basePath: string;
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
@@ -42,6 +49,14 @@
 			bids: []
 		};
 	}
+
+	function defaultMedia(): ApiCollectionMediaState {
+		return {
+			selectedMode: 'snapshot',
+			defaultMode: 'snapshot',
+			availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+		};
+	}
 </script>
 
 <CollectionBiddingView
@@ -50,6 +65,8 @@
 	jobs={data?.jobs ?? []}
 	bidBook={data?.bidBook ?? emptyBidBook()}
 	facets={data?.facets ?? []}
+	media={data?.media ?? defaultMedia()}
+	included={data?.included ?? { tokensById: {}, hasTraitSummaryTemplate: false }}
 	basePath={data?.basePath ?? '/'}
 	selectedTraits={data?.selectedTraits ?? []}
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}

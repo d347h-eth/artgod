@@ -1,9 +1,11 @@
 import { formatEther, parseEther } from "viem";
 import type {
     ChainRecord,
+    CollectionMediaState,
     CollectionListItem,
     PersistedBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
+    TokenPresentationSummary,
     TradingJobStatus,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
@@ -51,12 +53,18 @@ export type BiddingJobView = {
 export type ListCollectionBiddingJobsInput = {
     chainRef: string;
     collectionRef: string;
+    mediaMode?: string;
 };
 
 export type ListCollectionBiddingJobsOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
+    media: CollectionMediaState;
     jobs: BiddingJobView[];
+    included: {
+        tokensById: Record<string, TokenPresentationSummary>;
+        hasTraitSummaryTemplate: boolean;
+    };
 };
 
 export type GetTokenBiddingJobInput = {

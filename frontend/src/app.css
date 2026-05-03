@@ -1167,6 +1167,10 @@ th {
 	width: max-content;
 }
 
+.bidding-image-cell {
+	width: 13rem;
+}
+
 .bidding-target-cell {
 	min-width: 15rem;
 }

@@ -109,6 +109,24 @@ describe('CollectionBiddingView', () => {
 					]
 				},
 				facets: [],
+				media: {
+					selectedMode: 'snapshot',
+					defaultMode: 'snapshot',
+					availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+				},
+				included: {
+					tokensById: {
+						'1': {
+							tokenId: '1',
+							name: 'Milady #1',
+							image: 'https://example.com/milady-1.png',
+							traitSummary: 'Hat=Beanie',
+							hasMetadata: true,
+							metadataUpdatedAt: '2026-01-01T00:00:00Z'
+						}
+					},
+					hasTraitSummaryTemplate: true
+				},
 				basePath: '/ethereum/milady',
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				selectedTraitRanges: [],
@@ -126,6 +144,8 @@ describe('CollectionBiddingView', () => {
 			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady%2Fbidding&amp;returnQuery=media_mode%3Dartifact%26bidding_view%3Djobs%26bid_scope%3Dtraits%26traits%3DHat%253ABeanie'
 		);
 		expect(body).toContain('token 1');
+		expect(body).toContain('activity-token-cell');
+		expect(body).toContain('https://example.com/milady-1.png');
 		expect(body).toContain('save');
 		expect(body).toContain('archive');
 		expect(body).toContain('token jobs');

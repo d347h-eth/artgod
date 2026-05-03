@@ -358,7 +358,12 @@ export type ApiBiddingBidBook = {
 export type CollectionBiddingJobsApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
+	media: ApiCollectionMediaState;
 	jobs: ApiBiddingJob[];
+	included: {
+		tokensById: Record<string, ApiTokenPresentationSummary>;
+		hasTraitSummaryTemplate: boolean;
+	};
 };
 
 export type CollectionBiddingBidBookApiResponse = {

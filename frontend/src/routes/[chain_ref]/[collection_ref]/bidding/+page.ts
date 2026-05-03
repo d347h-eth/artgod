@@ -37,6 +37,15 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				bids: []
 			},
 			facets: [],
+			media: {
+				selectedMode: 'snapshot',
+				defaultMode: 'snapshot',
+				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+			},
+			included: {
+				tokensById: {},
+				hasTraitSummaryTemplate: false
+			},
 			basePath: '/',
 			selectedTraits: parseSelectedTraits(url.searchParams),
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
@@ -50,7 +59,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	try {
 		// Load the authoritative jobs and source-selected bid book for this collection.
 		const [response, bidBookResponse] = await Promise.all([
-			getCollectionBiddingJobs(fetch, params.chain_ref, params.collection_ref),
+			getCollectionBiddingJobs(fetch, params.chain_ref, params.collection_ref, url.searchParams),
 			getCollectionBiddingBidBook(fetch, params.chain_ref, params.collection_ref, url.searchParams)
 		]);
 		return {
@@ -59,6 +68,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			jobs: response.jobs,
 			bidBook: bidBookResponse.bidBook,
 			facets: bidBookResponse.traits.facets,
+			media: response.media,
+			included: response.included,
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			selectedTraits: bidBookResponse.traits.selected,
 			selectedTraitRanges: bidBookResponse.traits.selectedRanges,

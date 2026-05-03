@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import type { ApiBiddingJob, ApiBiddingJobStatus, ApiTradingTraitCriterion } from '$lib/api-types';
 	import { archiveTokenBiddingJob, upsertTokenBiddingJob } from '$lib/backend-api';
 	import { buildTokenDetailHref } from '$lib/token-browser-query';
@@ -14,7 +15,8 @@
 		mediaMode,
 		job,
 		onJobUpdated,
-		onJobArchived
+		onJobArchived,
+		imageCell
 	}: {
 		chainRef: string;
 		collectionRef: string;
@@ -25,6 +27,7 @@
 		job: ApiBiddingJob;
 		onJobUpdated: (job: ApiBiddingJob) => void;
 		onJobArchived: (jobId: string) => void;
+		imageCell?: Snippet;
 	} = $props();
 
 	let status = $state<EditableTokenStatus>(editableStatus(job.status));
@@ -180,6 +183,13 @@
 </script>
 
 <tr>
+	<td class="bidding-image-cell">
+		{#if imageCell}
+			{@render imageCell()}
+		{:else}
+			<span class="muted">-</span>
+		{/if}
+	</td>
 	<td class="bidding-target-cell">
 		<div class="bidding-target-label mono">{targetLabel()}</div>
 		{#if job.target.type === 'token'}

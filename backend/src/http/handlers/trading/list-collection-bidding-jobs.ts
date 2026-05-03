@@ -9,6 +9,9 @@ export type ListCollectionBiddingJobsRoute = {
         chain_ref: string;
         collection_ref: string;
     };
+    Querystring: {
+        media_mode?: string;
+    };
 };
 
 type MaybePromise<T> = T | Promise<T>;
@@ -29,6 +32,7 @@ export class ListCollectionBiddingJobsHttpAdapter {
             {
                 chainRef: request.params.chain_ref,
                 collectionRef: request.params.collection_ref,
+                mediaMode: request.query.media_mode,
             },
         );
     };

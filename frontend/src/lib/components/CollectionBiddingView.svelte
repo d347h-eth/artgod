@@ -7,7 +7,9 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
+		ApiCollectionMediaState,
 		ApiTokenAttribute,
+		ApiTokenPresentationSummary,
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
@@ -17,12 +19,14 @@
 		buildCollectionBiddingQuery,
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
+	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import CollectionBiddingJobRow from '$lib/components/CollectionBiddingJobRow.svelte';
+	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
@@ -42,6 +46,8 @@
 		jobs,
 		bidBook,
 		facets,
+		media,
+		included,
 		basePath,
 		selectedTraits,
 		selectedTraitRanges,
@@ -55,6 +61,11 @@
 		jobs: ApiBiddingJob[];
 		bidBook: ApiBiddingBidBook;
 		facets: ApiTraitFacet[];
+		media: ApiCollectionMediaState;
+		included: {
+			tokensById: Record<string, ApiTokenPresentationSummary>;
+			hasTraitSummaryTemplate: boolean;
+		};
 		basePath: string;
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
@@ -64,7 +75,10 @@
 		mediaMode: string | null;
 	} = $props();
 
+	const tokenPreview = getTokenPreviewController();
+	const tokenPreviewState = tokenPreview.state;
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
@@ -209,6 +223,16 @@
 		collectionJobs = collectionJobs.filter((job) => job.jobId !== jobId);
 	}
 
+	function jobTokenId(job: ApiBiddingJob): string | null {
+		return job.target.type === 'token' ? job.target.tokenId : null;
+	}
+
+	function jobTokenSummary(job: ApiBiddingJob): ApiTokenPresentationSummary | null {
+		const tokenId = jobTokenId(job);
+		if (!tokenId) return null;
+		return included.tokensById[tokenId] ?? null;
+	}
+
 	async function onResetTraits(): Promise<void> {
 		await goto(resetTraitsHref(), {
 			invalidateAll: true,
@@ -248,7 +272,12 @@
 
 	function onWindowKeydown(event: KeyboardEvent): void {
 		keyboardShortcutsHelp.onWindowKeydown(event);
-		if (event.defaultPrevented) return;
+		if (event.defaultPrevented || $keyboardShortcutsHelpState.open) return;
+
+		const previewWasOpen = $tokenPreviewState.open;
+		tokenPreview.onWindowKeydown(event);
+		if (previewWasOpen) return;
+
 		if (biddingView !== 'bid_book') return;
 		traitFacetPanel.onWindowKeydown(event, {
 			onReset: onResetTraits
@@ -383,6 +412,7 @@
 					<table class="bidding-jobs-table">
 						<thead>
 							<tr>
+								<th>image</th>
 								<th>target</th>
 								<th>status</th>
 								<th>floor</th>
@@ -394,6 +424,7 @@
 						</thead>
 						<tbody>
 							{#each collectionJobs as job (job.jobId)}
+								{@const tokenId = jobTokenId(job)}
 								<CollectionBiddingJobRow
 									chainRef={chain?.slug ?? ''}
 									collectionRef={collection?.slug ?? ''}
@@ -404,7 +435,23 @@
 									{job}
 									onJobUpdated={handleJobUpdated}
 									onJobArchived={handleJobArchived}
-								/>
+								>
+									{#snippet imageCell()}
+										{#if tokenId}
+											<ActivityTokenCell
+												chainRef={chain?.slug ?? null}
+												collectionRef={collection?.slug ?? null}
+												{tokenId}
+												token={jobTokenSummary(job)}
+												selectedMediaMode={media.selectedMode}
+												availableMediaModes={media.availableModes}
+												tokenPreview={tokenPreview}
+											/>
+										{:else}
+											<span class="muted">-</span>
+										{/if}
+									{/snippet}
+								</CollectionBiddingJobRow>
 							{/each}
 						</tbody>
 					</table>

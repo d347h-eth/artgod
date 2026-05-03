@@ -249,6 +249,7 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             collectionsReadModel,
+            customizationReadModel,
             biddingJobsRepository,
         );
     const listCollectionBiddingBidBookUseCase =
@@ -540,6 +541,8 @@ describe("backend api routes", () => {
         const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
         expect(jobs.statusCode).toBe(200);
         expect(jobs.payload.collection.slug).toBe("milady");
+        expect(jobs.payload.media.selectedMode).toBe("snapshot");
+        expect(jobs.payload.included.tokensById).toEqual({});
         expect(jobs.payload.jobs).toEqual([]);
 
         const tokenJob = await resolve(
@@ -987,6 +990,9 @@ describe("backend api routes", () => {
         const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
         expect(jobs.statusCode).toBe(200);
         expect(jobs.payload.jobs).toHaveLength(1);
+        expect(jobs.payload.included.tokensById["1"]).toMatchObject({
+            tokenId: "1",
+        });
         expect(jobs.payload.jobs[0].target).toEqual({
             type: "token",
             tokenId: "1",

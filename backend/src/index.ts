@@ -231,6 +231,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
             config.defaultChainId,
             chainsReadModel,
             extensionAwareCollectionsReadModel,
+            extensionAwareCollectionCustomization,
             biddingJobsRepository,
         );
     const listCollectionBiddingBidBookUseCase =
