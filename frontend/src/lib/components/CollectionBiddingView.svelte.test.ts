@@ -113,6 +113,7 @@ describe('CollectionBiddingView', () => {
 				selectedTraits: [{ key: 'Hat', value: 'Beanie' }],
 				selectedTraitRanges: [],
 				bidScope: 'traits',
+				biddingView: 'jobs',
 				mediaMode: 'artifact'
 			}
 		});
@@ -122,21 +123,20 @@ describe('CollectionBiddingView', () => {
 			'/ethereum/milady/customization?media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain(
-			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady%2Fbidding&amp;returnQuery=media_mode%3Dartifact%26bid_scope%3Dtraits%26traits%3DHat%253ABeanie'
+			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady%2Fbidding&amp;returnQuery=media_mode%3Dartifact%26bidding_view%3Djobs%26bid_scope%3Dtraits%26traits%3DHat%253ABeanie'
 		);
 		expect(body).toContain('token 1');
 		expect(body).toContain('save');
 		expect(body).toContain('archive');
-		expect(body).toContain('bids source');
-		expect(body).toContain('0.10');
-		expect(body).not.toContain('0.1 WETH');
-		expect(body).toContain('placed');
-		expect(body).not.toContain('placed at');
-		expect(body).toContain('valid');
-		expect(body).not.toContain('valid until');
+		expect(body).toContain('token jobs');
+		expect(body).toContain('other scopes');
+		expect(body).not.toContain('bids source');
+		expect(body).not.toContain('0.10');
 		expect(body).toContain('collection scope');
-		expect(body).toContain('Bid scope filter');
-		expect(body).toContain('<span class="secondary-tab-active">traits</span>');
-		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact&amp;traits=Hat%3ABeanie');
+		expect(body).not.toContain('Bid scope filter');
+		expect(body).toContain('<span class="secondary-tab-active">jobs</span>');
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;traits=Hat%3ABeanie'
+		);
 	});
 });

@@ -316,15 +316,18 @@ export class SqliteBiddingBidBookRepository
         chainId: number,
         collectionId: number,
     ): PersistedBiddingBidBook {
+        // Load active indexed OpenSea buy orders as the passive bid-book source.
         const rows = this.selectActiveIndexedOrders.all({
             chainId,
             collectionId,
             nowSeconds: Math.floor(Date.now() / 1000),
         }) as IndexedOrderRow[];
         const bids = rows.flatMap((row) => mapIndexedOrderRow(row));
+        const updatedAt = latestIsoTimestamp(rows.map((row) => row.updated_at));
         return {
             state: {
                 ...emptyState(TRADING_BIDDING_BID_BOOK_SOURCE.Orders),
+                projectedAt: updatedAt,
                 rowCount: bids.length,
             },
             bids,
@@ -368,6 +371,27 @@ function emptyState(
         durationMs: null,
         lastError: null,
     };
+}
+
+function latestIsoTimestamp(values: Array<string | null>): string | null {
+    let latestValue: string | null = null;
+    let latestMs = Number.NEGATIVE_INFINITY;
+
+    for (const value of values) {
+        if (!value) {
+            continue;
+        }
+
+        const valueMs = Date.parse(value);
+        if (!Number.isFinite(valueMs) || valueMs <= latestMs) {
+            continue;
+        }
+
+        latestValue = new Date(valueMs).toISOString().replace(".000Z", "Z");
+        latestMs = valueMs;
+    }
+
+    return latestValue;
 }
 
 function mapProjectedRow(row: ProjectedBidBookRow): PersistedBiddingBidBookRow[] {

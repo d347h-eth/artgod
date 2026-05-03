@@ -720,6 +720,9 @@ describe("backend api routes", () => {
         );
         expect(collectionBidBook.statusCode).toBe(200);
         expect(collectionBidBook.payload.bidBook.state.source).toBe("orders");
+        expect(collectionBidBook.payload.bidBook.state.projectedAt).toEqual(
+            expect.any(String),
+        );
         expect(collectionBidBook.payload.scopeFilter).toBe("collection");
         const collectionOrderIds = collectionBidBook.payload.bidBook.bids.map(
             (bid: { orderId: string }) => bid.orderId,

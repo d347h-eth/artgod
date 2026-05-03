@@ -244,7 +244,7 @@ describe("OpenSea bidding offer parser", () => {
                 priceWei: "310000000000000000",
                 criteria: undefined,
             }),
-            trait_criteria: null,
+            trait_criteria: { trait_type: "Biome", trait_name: "81" },
             trait_criteria_list: [
                 { trait_type: "Biome", trait_name: "81" },
                 { trait_type: "Mode", trait_name: "Terrain" },

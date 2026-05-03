@@ -72,6 +72,7 @@ function makeOpenSeaOffer(params: {
     remainingQuantity?: number;
     createdDate?: string;
     closingDate?: string;
+    startTime?: string;
 }): unknown {
     return {
         order_hash: params.orderHash,
@@ -104,6 +105,7 @@ function makeOpenSeaOffer(params: {
                     },
                 ],
                 orderType: params.orderType ?? 0,
+                startTime: params.startTime,
             },
         },
         criteria: params.criteria,
@@ -153,6 +155,7 @@ describe("SqliteBiddingBidBookProjection", () => {
                             numeric_traits: null,
                             encoded_token_ids: "*",
                         },
+                        startTime: "1800000000",
                     }),
                     makeOpenSeaOffer({
                         orderHash: "trait-offer",
@@ -229,7 +232,7 @@ describe("SqliteBiddingBidBookProjection", () => {
             price_wei: "832000000000000000",
             quantity: "1",
             valid_until: 4_000_000_000,
-            placed_at: null,
+            placed_at: "2027-01-15T08:00:00Z",
         });
         assert.deepEqual(rowsById.get("trait-offer"), {
             order_id: "trait-offer",

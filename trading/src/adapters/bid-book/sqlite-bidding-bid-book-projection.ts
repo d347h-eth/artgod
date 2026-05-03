@@ -262,8 +262,16 @@ export class SqliteBiddingBidBookProjection
             currencySymbol: "WETH",
             protocolAddress: parsed.protocolAddress ?? null,
             validUntil: parsed.expirationTime ?? null,
-            placedAt: parsed.createdAt,
+            placedAt: parsed.createdAt ?? epochSecondsToRfc3339(parsed.validFrom),
             snapshotRefreshedAtMs: snapshot.refreshedAt,
         };
     }
+}
+
+function epochSecondsToRfc3339(value: number | undefined): string | null {
+    if (value === undefined || !Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+
+    return new Date(Math.floor(value * 1000)).toISOString().replace(".000Z", "Z");
 }

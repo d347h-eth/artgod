@@ -1157,6 +1157,16 @@ th {
 	table-layout: auto;
 }
 
+.bidding-jobs-panel .table-wrap {
+	width: fit-content;
+	max-width: calc(100% - 1.5rem);
+	margin-inline: auto;
+}
+
+.bidding-jobs-panel .bidding-jobs-table {
+	width: max-content;
+}
+
 .bidding-target-cell {
 	min-width: 15rem;
 }
@@ -1271,8 +1281,37 @@ th {
 	background: color-mix(in srgb, var(--c-yellow) 12%, transparent);
 }
 
+.bid-book-muted-row {
+	color: color-mix(in srgb, var(--c-sand) 48%, transparent);
+	opacity: 0.72;
+}
+
+.bid-book-muted-row .bid-book-price,
+.bid-book-muted-row a {
+	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
+}
+
 .bid-book-price {
 	color: var(--c-yellow);
+}
+
+.bid-book-price-value {
+	display: inline-grid;
+	grid-template-columns: minmax(2ch, max-content) auto;
+	column-gap: 1ch;
+	align-items: baseline;
+}
+
+.bid-book-price-quantity {
+	text-align: left;
+}
+
+.bid-book-price-quantity-empty {
+	visibility: hidden;
+}
+
+.bid-book-price-amount {
+	text-align: right;
 }
 
 .bid-book-col-right {
@@ -1292,13 +1331,78 @@ th {
 	width: 42ch;
 }
 
+.bid-book-maker-highlight {
+	background: color-mix(in srgb, var(--c-yellow) 18%, transparent);
+}
+
 .bid-book-time-header {
 	white-space: nowrap;
 }
 
+.bid-book-demand-tabs {
+	justify-content: center;
+	margin-bottom: 0.7rem;
+}
+
+.secondary-tabs.bid-book-demand-tabs button,
+.secondary-tabs.bid-book-demand-tabs span {
+	text-transform: none;
+	min-width: auto;
+}
+
+.bid-book-demand-group-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.55rem 1.35rem;
+	margin-bottom: 0;
+}
+
+.bid-book-demand-group-title {
+	color: var(--c-yellow);
+	font-weight: 700;
+	letter-spacing: 0.08em;
+}
+
+.bid-book-muted-demand-group .bid-book-demand-group-title,
+.bid-book-muted-demand-group .runtime-k,
+.bid-book-muted-demand-group .runtime-v {
+	color: color-mix(in srgb, var(--c-sand) 58%, transparent);
+	opacity: 0.72;
+}
+
+.bid-book-demand-group-row td {
+	padding-top: 0.2rem;
+	padding-bottom: 0;
+}
+
+.bid-book-demand-group-spacer,
+.bid-book-demand-group-spacer td {
+	height: 1.55rem;
+}
+
+.bid-book-demand-group-spacer td {
+	padding: 0;
+	border: 0;
+	background: transparent;
+}
+
+.runtime-kv-grid.bid-book-demand-group-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem 1rem;
+	align-items: center;
+}
+
+.runtime-kv-grid.bid-book-demand-group-meta > div {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.4rem;
+}
+
 .bid-book-bucket-spacer,
 .bid-book-bucket-spacer td {
-	height: 1.15rem;
+	height: 0.41rem;
 }
 
 .bid-book-bucket-spacer td {

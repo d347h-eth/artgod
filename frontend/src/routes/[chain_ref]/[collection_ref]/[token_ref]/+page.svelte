@@ -51,6 +51,7 @@
 		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
 		tokenBiddingJob?: ApiBiddingJob | null;
 		tokenBiddingBidBook?: ApiBiddingBidBook;
+		showMuted?: boolean;
 		backPath: string | null;
 		backQuery: string | null;
 	};
@@ -137,7 +138,8 @@
 			basePath: collectionTokensBasePath(),
 			selectedTraits: [],
 			selectedTraitRanges: [],
-			mediaMode: collectionNavigationMediaMode()
+			mediaMode: collectionNavigationMediaMode(),
+			showMuted: data?.showMuted ?? false
 		});
 	}
 
@@ -457,6 +459,7 @@
 					bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
 					job={data?.tokenBiddingJob ?? null}
 					showScope
+					showMuted={data?.showMuted ?? false}
 					basePath={collectionTokensBasePath()}
 					mediaMode={collectionNavigationMediaMode()}
 				/>

@@ -12,7 +12,11 @@
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
-	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
+	import {
+		buildCollectionBiddingHref,
+		buildCollectionBiddingQuery,
+		type CollectionBiddingViewMode
+	} from '$lib/bidding-query';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
@@ -42,6 +46,8 @@
 		selectedTraits,
 		selectedTraitRanges,
 		bidScope,
+		biddingView = 'bid_book',
+		showMuted = false,
 		mediaMode
 	}: {
 		chain: ApiChain | null;
@@ -53,6 +59,8 @@
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		bidScope: ApiCollectionBiddingBidScopeFilter;
+		biddingView: CollectionBiddingViewMode;
+		showMuted?: boolean;
 		mediaMode: string | null;
 	} = $props();
 
@@ -120,7 +128,6 @@
 			basePath,
 			selectedTraits,
 			selectedTraitRanges,
-			bidScope,
 			mediaMode
 		});
 	}
@@ -130,7 +137,9 @@
 			basePath,
 			selectedTraits,
 			selectedTraitRanges,
-			mediaMode
+			viewMode: biddingView,
+			mediaMode,
+			showMuted
 		});
 	}
 
@@ -143,7 +152,9 @@
 			selectedTraits: traits,
 			selectedTraitRanges: ranges,
 			bidScope,
-			mediaMode
+			viewMode: biddingView,
+			mediaMode,
+			showMuted
 		});
 	}
 
@@ -153,7 +164,21 @@
 			selectedTraits,
 			selectedTraitRanges,
 			bidScope: nextBidScope,
-			mediaMode
+			viewMode: 'bid_book',
+			mediaMode,
+			showMuted
+		});
+	}
+
+	function biddingViewHref(nextView: CollectionBiddingViewMode): string {
+		return buildCollectionBiddingHref({
+			basePath,
+			selectedTraits,
+			selectedTraitRanges,
+			bidScope,
+			viewMode: nextView,
+			mediaMode,
+			showMuted
 		});
 	}
 
@@ -170,7 +195,9 @@
 			selectedTraits,
 			selectedTraitRanges,
 			bidScope,
-			mediaMode
+			viewMode: biddingView,
+			mediaMode,
+			showMuted
 		}).toString();
 	}
 
@@ -222,6 +249,7 @@
 	function onWindowKeydown(event: KeyboardEvent): void {
 		keyboardShortcutsHelp.onWindowKeydown(event);
 		if (event.defaultPrevented) return;
+		if (biddingView !== 'bid_book') return;
 		traitFacetPanel.onWindowKeydown(event, {
 			onReset: onResetTraits
 		});
@@ -265,45 +293,72 @@
 	{#snippet topActions()}
 		{#if collection}
 			<div class="panel-top-actions-row">
-				<div class="secondary-tabs" aria-label="Bid scope filter">
-					{#if bidScope === 'collection'}
-						<span class="secondary-tab-active">collection</span>
+				<div class="secondary-tabs" aria-label="Bidding view">
+					{#if biddingView === 'bid_book'}
+						<span class="secondary-tab-active">bid book</span>
 					{:else}
-						<a href={bidScopeHref('collection')}>collection</a>
+						<a href={biddingViewHref('bid_book')}>bid book</a>
 					{/if}
-					{#if bidScope === 'traits'}
-						<span class="secondary-tab-active">traits</span>
+					{#if biddingView === 'jobs'}
+						<span class="secondary-tab-active">jobs</span>
 					{:else}
-						<a href={bidScopeHref('traits')}>traits</a>
+						<a href={biddingViewHref('jobs')}>jobs</a>
 					{/if}
 				</div>
 			</div>
-			<div class="panel-top-actions-row">
-				<TraitFacetPanelControls
-					hasActiveFilters={activeTraits.length > 0 || activeTraitRanges.length > 0}
-					collapsed={$traitFacetPanelState.collapsed}
-					onToggleCollapsed={traitFacetPanel.toggle}
-					onReset={onResetTraits}
-				/>
-			</div>
+			{#if biddingView === 'bid_book'}
+				<div class="panel-top-actions-row">
+					<div class="secondary-tabs" aria-label="Bid scope filter">
+						{#if bidScope === 'collection'}
+							<span class="secondary-tab-active">collection</span>
+						{:else}
+							<a href={bidScopeHref('collection')}>collection</a>
+						{/if}
+						{#if bidScope === 'traits'}
+							<span class="secondary-tab-active">traits</span>
+						{:else}
+							<a href={bidScopeHref('traits')}>traits</a>
+						{/if}
+					</div>
+				</div>
+				<div class="panel-top-actions-row">
+					<TraitFacetPanelControls
+						hasActiveFilters={activeTraits.length > 0 || activeTraitRanges.length > 0}
+						collapsed={$traitFacetPanelState.collapsed}
+						onToggleCollapsed={traitFacetPanel.toggle}
+						onReset={onResetTraits}
+					/>
+				</div>
+			{/if}
 		{/if}
 	{/snippet}
 
-	<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
-		<TraitFacetPanel
-			{facets}
-			selectedTraits={activeTraits}
-			selectedRanges={activeTraitRanges}
-			collapsed={$traitFacetPanelState.collapsed}
-			onToggleTrait={onTraitToggleWithMode}
-			onApplyTraitRange={onApplyTraitRange}
-		/>
+	{#if biddingView === 'bid_book'}
+		<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
+			<TraitFacetPanel
+				{facets}
+				selectedTraits={activeTraits}
+				selectedRanges={activeTraitRanges}
+				collapsed={$traitFacetPanelState.collapsed}
+				onToggleTrait={onTraitToggleWithMode}
+				onApplyTraitRange={onApplyTraitRange}
+			/>
 
-		<div class="token-panel bidding-panel-main">
-			<BidBookPanel {bidBook} showScope={bidScope !== 'collection'} {basePath} {mediaMode} />
-
-			<section class="runtime-section">
-				<div class="runtime-kv-grid">
+			<div class="token-panel bidding-panel-main">
+				<BidBookPanel
+					{bidBook}
+					showScope={bidScope !== 'collection'}
+					view={bidScope === 'traits' ? 'trait-demand' : 'rows'}
+					{showMuted}
+					{basePath}
+					{mediaMode}
+				/>
+			</div>
+		</div>
+	{:else}
+		<div class="token-panel bidding-panel-main bidding-jobs-panel">
+			<section class="runtime-section bid-book-summary-panel">
+				<div class="runtime-kv-grid bid-book-meta">
 					<div>
 						<span class="runtime-k">jobs</span>
 						<span class="runtime-v">{collectionJobs.length}</span>
@@ -320,8 +375,8 @@
 			</section>
 
 			{#if collectionJobs.length === 0}
-				<section class="runtime-section">
-					<p class="muted">no bidding jobs declared for this collection yet</p>
+				<section class="bid-book-table-panel">
+					<p class="muted bid-book-empty">no jobs</p>
 				</section>
 			{:else}
 				<div class="table-wrap">
@@ -356,5 +411,5 @@
 				</div>
 			{/if}
 		</div>
-	</div>
+	{/if}
 </CollectionPageLayout>

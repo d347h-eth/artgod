@@ -6,6 +6,7 @@ import {
 	getTokenBiddingJob,
 	getTokenDetail
 } from '$lib/backend-api';
+import { parseShowMutedBidBook } from '$lib/bidding-query';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
@@ -53,6 +54,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				},
 				bids: []
 			},
+			showMuted: parseShowMutedBidBook(url.searchParams),
 			backPath,
 			backQuery
 		};
@@ -79,6 +81,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			traitFilterPresentation: response.traitFilterPresentation,
 			tokenBiddingJob: biddingJobResponse.job,
 			tokenBiddingBidBook: biddingBidBookResponse.bidBook,
+			showMuted: parseShowMutedBidBook(url.searchParams),
 			backPath,
 			backQuery
 		};

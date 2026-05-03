@@ -5,7 +5,11 @@ import {
 	getCollectionBiddingBidBook,
 	getCollectionBiddingJobs
 } from '$lib/backend-api';
-import type { CollectionBiddingBidScopeFilter } from '$lib/bidding-query';
+import {
+	parseCollectionBiddingView,
+	parseShowMutedBidBook,
+	type CollectionBiddingBidScopeFilter
+} from '$lib/bidding-query';
 import { normalizeMediaMode } from '$lib/media-mode';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
@@ -37,6 +41,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraits: parseSelectedTraits(url.searchParams),
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
 			bidScope: parseBidScope(url.searchParams),
+			biddingView: parseCollectionBiddingView(url.searchParams),
+			showMuted: parseShowMutedBidBook(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))
 		};
 	}
@@ -57,6 +63,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraits: bidBookResponse.traits.selected,
 			selectedTraitRanges: bidBookResponse.traits.selectedRanges,
 			bidScope: bidBookResponse.scopeFilter,
+			biddingView: parseCollectionBiddingView(url.searchParams),
+			showMuted: parseShowMutedBidBook(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))
 		};
 	} catch (cause) {

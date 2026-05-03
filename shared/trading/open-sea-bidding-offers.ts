@@ -345,8 +345,10 @@ export function normalizeOpenSeaOfferTraitCriteria(
     }
 
     if (Array.isArray(criteria)) {
-        return criteria.flatMap((entry) =>
-            normalizeOpenSeaOfferTraitCriteria(entry),
+        return dedupeTraitCriteria(
+            criteria.flatMap((entry) =>
+                normalizeOpenSeaOfferTraitCriteria(entry),
+            ),
         );
     }
 
@@ -358,7 +360,7 @@ export function normalizeOpenSeaOfferTraitCriteria(
     }
     normalized.push(...normalizeOpenSeaNumericTraitCriteria(candidate.numeric_traits));
     if (normalized.length > 0) {
-        return normalized;
+        return dedupeTraitCriteria(normalized);
     }
 
     if (isOpenSeaCriteriaEnvelope(candidate)) {
@@ -370,30 +372,48 @@ export function normalizeOpenSeaOfferTraitCriteria(
         stringOrUndefined(candidate.trait_type);
     const value = candidate.value ?? candidate.trait_value;
     if (typeof type === "string" && value !== undefined && value !== null) {
-        return [
+        return dedupeTraitCriteria([
             {
                 type: trimTraitText(type),
                 value: trimTraitText(String(value)),
             },
-        ];
+        ]);
     }
 
-    return Object.entries(candidate).flatMap(([key, rawValue]) => {
-        if (
-            rawValue === undefined ||
-            rawValue === null ||
-            typeof rawValue === "object"
-        ) {
-            return [];
-        }
+    return dedupeTraitCriteria(
+        Object.entries(candidate).flatMap(([key, rawValue]) => {
+            if (
+                rawValue === undefined ||
+                rawValue === null ||
+                typeof rawValue === "object"
+            ) {
+                return [];
+            }
 
-        return [
-            {
-                type: trimTraitText(key),
-                value: trimTraitText(String(rawValue)),
-            },
-        ];
-    });
+            return [
+                {
+                    type: trimTraitText(key),
+                    value: trimTraitText(String(rawValue)),
+                },
+            ];
+        }),
+    );
+}
+
+function dedupeTraitCriteria(
+    traits: TradingTraitCriterion[],
+): TradingTraitCriterion[] {
+    const seen = new Set<string>();
+    const deduped: TradingTraitCriterion[] = [];
+    for (const trait of traits) {
+        const key = `${trait.type}\u0000${trait.value}`;
+        if (seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        deduped.push(trait);
+    }
+    return deduped;
 }
 
 // Checks the bidder's collection-wide semantics for OpenSea criteria offers.

@@ -10,6 +10,7 @@
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
+	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 
 	type PageData = {
 		chain: ApiChain | null;
@@ -21,6 +22,8 @@
 		selectedTraits: ApiTokenAttribute[];
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		bidScope: ApiCollectionBiddingBidScopeFilter;
+		biddingView: CollectionBiddingViewMode;
+		showMuted: boolean;
 		mediaMode: string | null;
 	};
 
@@ -51,5 +54,7 @@
 	selectedTraits={data?.selectedTraits ?? []}
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}
 	bidScope={data?.bidScope ?? 'collection'}
+	biddingView={data?.biddingView ?? 'bid_book'}
+	showMuted={data?.showMuted ?? false}
 	mediaMode={data?.mediaMode ?? null}
 />
