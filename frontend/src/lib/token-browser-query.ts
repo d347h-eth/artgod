@@ -10,6 +10,10 @@ import {
 	appendTraitRangeParams
 } from '$lib/trait-filters';
 
+export const TOKEN_STATUS_QUERY_PARAM = 'token_status';
+export const COLLECTION_TOKEN_STATUS_FILTERS = ['listed', 'all'] as const;
+export type CollectionTokenStatus = (typeof COLLECTION_TOKEN_STATUS_FILTERS)[number];
+
 export function normalizeTokenBrowserParams(
 	raw: URLSearchParams,
 	tokenStatus: TokenBrowserStatus
@@ -24,12 +28,34 @@ export function normalizeTokenBrowserParams(
 		params.set('cursor', cursor.trim());
 	}
 
-	params.set('token_status', tokenStatus);
+	params.set(TOKEN_STATUS_QUERY_PARAM, tokenStatus);
 	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
 	appendNormalizedTraitParams(params, raw);
 	appendNormalizedTraitRangeParams(params, raw);
 
 	return params;
+}
+
+export function buildTokenBrowserQuery(params: {
+	limit: number;
+	displayMode: 'grid' | 'table';
+	tokenStatus: TokenBrowserStatus;
+	selectedTraits: ApiTokenAttribute[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
+	mediaMode?: string | null;
+	cursor?: string | null;
+}): URLSearchParams {
+	const query = new URLSearchParams();
+	query.set('limit', String(params.limit));
+	query.set('mode', params.displayMode);
+	query.set(TOKEN_STATUS_QUERY_PARAM, params.tokenStatus);
+	appendMediaModeParam(query, params.mediaMode ?? null);
+	if (params.cursor?.trim()) {
+		query.set('cursor', params.cursor.trim());
+	}
+	appendTraitParams(query, params.selectedTraits);
+	appendTraitRangeParams(query, params.selectedTraitRanges);
+	return query;
 }
 
 export function buildTokenBrowserHref(params: {
@@ -42,17 +68,7 @@ export function buildTokenBrowserHref(params: {
 	mediaMode?: string | null;
 	cursor?: string | null;
 }): string {
-	const query = new URLSearchParams();
-	query.set('limit', String(params.limit));
-	query.set('mode', params.displayMode);
-	query.set('token_status', params.tokenStatus);
-	appendMediaModeParam(query, params.mediaMode ?? null);
-	if (params.cursor?.trim()) {
-		query.set('cursor', params.cursor.trim());
-	}
-	appendTraitParams(query, params.selectedTraits);
-	appendTraitRangeParams(query, params.selectedTraitRanges);
-	return withQuery(normalizeBasePath(params.basePath), query);
+	return withQuery(normalizeBasePath(params.basePath), buildTokenBrowserQuery(params));
 }
 
 export function buildOwnerTokensHref(params: {

@@ -15,7 +15,7 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-	import { buildCollectionBiddingHref } from '$lib/bidding-query';
+	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { joinPath, withQuery } from '$lib/route-paths';
@@ -24,6 +24,7 @@
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
+	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 
 	type TraitFilterPresentationState =
 		CollectionCustomizationApiResponse['customization']['traitFilterPresentation'];
@@ -96,6 +97,16 @@
 		});
 	}
 
+	function tokensQuery(): URLSearchParams {
+		return buildCollectionTokenNavigationQuery({
+			limit: DEFAULT_PAGE_LIMIT,
+			displayMode: 'grid',
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode
+		});
+	}
+
 	function activitiesHref(): string {
 		return buildCollectionActivityHref({
 			basePath,
@@ -125,6 +136,14 @@
 	function biddingHref(): string {
 		return buildCollectionBiddingHref({
 			basePath,
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode
+		});
+	}
+
+	function biddingQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits,
 			selectedTraitRanges,
 			mediaMode
@@ -356,10 +375,14 @@
 
 <CollectionPageLayout
 	tokensHref={tokensHref()}
+	tokensBasePath={basePath}
+	tokensQuery={tokensQuery()}
 	activitiesHref={activitiesHref()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
 	biddingHref={biddingHref()}
+	biddingBasePath={basePath}
+	biddingQuery={biddingQuery()}
 	activeSection="customization"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}

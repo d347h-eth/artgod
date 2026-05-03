@@ -8,6 +8,7 @@
 		type AdminConsoleTab
 	} from '$lib/runtime/lifecycle-ui-policy';
 	import { APP_VERSION } from '$lib/runtime/app-version';
+	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 
 	type FilterOption = string;
 	type ConsoleTab = AdminConsoleTab;
@@ -66,7 +67,7 @@
 			if (!isBacktick) {
 				return;
 			}
-			if (isTypingContext(event.target)) {
+			if (isKeyboardTextEntryTarget(event.target)) {
 				return;
 			}
 			void toggleConsole();
@@ -269,17 +270,6 @@
 	function isNearLogBottom(element: HTMLDivElement): boolean {
 		const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
 		return distanceToBottom <= LOG_FOLLOW_THRESHOLD_PX;
-	}
-
-	function isTypingContext(target: EventTarget | null): boolean {
-		if (!(target instanceof HTMLElement)) {
-			return false;
-		}
-		const tag = target.tagName.toLowerCase();
-		if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-			return true;
-		}
-		return target.isContentEditable;
 	}
 
 	function formatElapsed(diffMs: number): string {

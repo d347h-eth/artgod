@@ -24,7 +24,7 @@
 				}
 			]
 		},
-        {
+		{
 			title: 'Token Browser',
 			entries: [
 				{
@@ -33,7 +33,7 @@
 				}
 			]
 		},
-        {
+		{
 			title: 'Token Browser Preview Navigation',
 			entries: [
 				{
@@ -56,6 +56,19 @@
 				{
 					keys: ['R'],
 					description: 'reset current trait filters'
+				}
+			]
+		},
+		{
+			title: 'Bidding Page',
+			entries: [
+				{
+					keys: ['1'],
+					description: 'cycle bidding view'
+				},
+				{
+					keys: ['2'],
+					description: 'cycle bid scope'
 				}
 			]
 		},
@@ -83,7 +96,7 @@
 					description: 'reset preview height'
 				}
 			]
-		},
+		}
 	];
 
 	let {

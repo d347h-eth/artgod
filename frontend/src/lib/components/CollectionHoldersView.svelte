@@ -18,7 +18,7 @@
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-	import { buildCollectionBiddingHref } from '$lib/bidding-query';
+	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
@@ -26,6 +26,7 @@
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
+	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	let {
@@ -118,6 +119,16 @@
 		return withQuery(normalizeBasePath(basePath), query);
 	}
 
+	function tokensQuery(): URLSearchParams {
+		return buildCollectionTokenNavigationQuery({
+			limit: holders.limit,
+			displayMode: 'grid',
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			mediaMode: selectedMediaMode
+		});
+	}
+
 	function holdersPath(): string {
 		return joinPath(basePath, 'holders');
 	}
@@ -150,6 +161,14 @@
 	function biddingHref(): string {
 		return buildCollectionBiddingHref({
 			basePath,
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			mediaMode: selectedMediaMode
+		});
+	}
+
+	function biddingQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			mediaMode: selectedMediaMode
@@ -216,6 +235,8 @@
 
 <CollectionPageLayout
 	tokensHref={tokensHref()}
+	tokensBasePath={basePath}
+	tokensQuery={tokensQuery()}
 	activitiesHref={buildCollectionActivityHref({
 		basePath,
 		limit: holders.limit,
@@ -227,6 +248,8 @@
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
 	biddingHref={biddingHref()}
+	biddingBasePath={basePath}
+	biddingQuery={biddingQuery()}
 	activeSection="holders"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}

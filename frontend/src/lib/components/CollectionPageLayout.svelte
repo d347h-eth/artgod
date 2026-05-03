@@ -4,10 +4,14 @@
 
 	let {
 		tokensHref,
+		tokensBasePath,
+		tokensQuery = new URLSearchParams(),
 		activitiesHref,
 		holdersHref,
 		customizationHref,
 		biddingHref,
+		biddingBasePath,
+		biddingQuery = new URLSearchParams(),
 		activeSection,
 		collectionAvailable = true,
 		showCustomization = true,
@@ -18,10 +22,14 @@
 		children
 	}: {
 		tokensHref: string;
+		tokensBasePath: string;
+		tokensQuery?: URLSearchParams;
 		activitiesHref: string;
 		holdersHref: string;
 		customizationHref: string;
 		biddingHref: string;
+		biddingBasePath: string;
+		biddingQuery?: URLSearchParams;
 		activeSection: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
 		collectionAvailable?: boolean;
 		showCustomization?: boolean;
@@ -41,12 +49,16 @@
 	<header class="panel-header">
 		<div class="panel-header-main">
 			{#if collectionAvailable}
-				<CollectionSectionTabs
+					<CollectionSectionTabs
 					{tokensHref}
+					{tokensBasePath}
+					{tokensQuery}
 					{activitiesHref}
 					{holdersHref}
 					{customizationHref}
 					{biddingHref}
+					{biddingBasePath}
+					{biddingQuery}
 					active={activeSection}
 					{showCustomization}
 					{showBidding}

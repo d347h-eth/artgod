@@ -3,12 +3,25 @@ import { appendMediaModeParam } from '$lib/media-mode';
 import { joinPath, withQuery } from '$lib/route-paths';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 
-export type CollectionBiddingBidScopeFilter = 'collection' | 'traits';
-export type CollectionBiddingTraitFilterJoinMode = 'or' | 'and';
-export type CollectionBiddingViewMode = 'bid_book' | 'jobs';
+export const COLLECTION_BIDDING_BID_SCOPE_FILTERS = [
+	'collection',
+	'traits'
+] as const;
+export const COLLECTION_BIDDING_VIEW_MODES = [
+	'bid_book',
+	'jobs'
+] as const;
 
-const BIDDING_VIEW_QUERY_PARAM = 'bidding_view';
+export type CollectionBiddingBidScopeFilter =
+	(typeof COLLECTION_BIDDING_BID_SCOPE_FILTERS)[number];
+export type CollectionBiddingTraitFilterJoinMode = 'or' | 'and';
+export type CollectionBiddingViewMode = (typeof COLLECTION_BIDDING_VIEW_MODES)[number];
+
+export const BID_SCOPE_QUERY_PARAM = 'bid_scope';
+export const BIDDING_VIEW_QUERY_PARAM = 'bidding_view';
 const SHOW_MUTED_BID_BOOK_QUERY_PARAM = 'show_muted';
+
+type OrderedQueryControlValues<T extends string> = readonly [T, ...T[]];
 
 export function buildCollectionBiddingQuery(params: {
 	selectedTraits: ApiTokenAttribute[];
@@ -25,7 +38,7 @@ export function buildCollectionBiddingQuery(params: {
 		query.set(BIDDING_VIEW_QUERY_PARAM, params.viewMode);
 	}
 	if (params.bidScope && params.bidScope !== 'collection') {
-		query.set('bid_scope', params.bidScope);
+		query.set(BID_SCOPE_QUERY_PARAM, params.bidScope);
 	}
 	if (params.traitJoinMode && params.traitJoinMode !== 'or') {
 		query.set('trait_join', params.traitJoinMode);
@@ -58,14 +71,54 @@ export function parseShowMutedBidBook(searchParams: URLSearchParams): boolean {
 	return searchParams.get(SHOW_MUTED_BID_BOOK_QUERY_PARAM) === 'true';
 }
 
+export function parseCollectionBiddingBidScopeFilter(
+	searchParams: URLSearchParams
+): CollectionBiddingBidScopeFilter {
+	return parseOrderedQueryControl(
+		COLLECTION_BIDDING_BID_SCOPE_FILTERS,
+		searchParams.get(BID_SCOPE_QUERY_PARAM)
+	);
+}
+
 export function parseCollectionBiddingView(
 	searchParams: URLSearchParams
 ): CollectionBiddingViewMode {
-	return searchParams.get(BIDDING_VIEW_QUERY_PARAM) === 'jobs' ? 'jobs' : 'bid_book';
+	return parseOrderedQueryControl(
+		COLLECTION_BIDDING_VIEW_MODES,
+		searchParams.get(BIDDING_VIEW_QUERY_PARAM)
+	);
 }
 
 export function parseCollectionBiddingTraitFilterJoinMode(
 	searchParams: URLSearchParams
 ): CollectionBiddingTraitFilterJoinMode {
 	return searchParams.get('trait_join') === 'and' ? 'and' : 'or';
+}
+
+export function nextCollectionBiddingBidScopeFilter(
+	current: CollectionBiddingBidScopeFilter
+): CollectionBiddingBidScopeFilter {
+	return nextOrderedQueryControl(COLLECTION_BIDDING_BID_SCOPE_FILTERS, current);
+}
+
+export function nextCollectionBiddingViewMode(
+	current: CollectionBiddingViewMode
+): CollectionBiddingViewMode {
+	return nextOrderedQueryControl(COLLECTION_BIDDING_VIEW_MODES, current);
+}
+
+function parseOrderedQueryControl<T extends string>(
+	values: OrderedQueryControlValues<T>,
+	raw: string | null
+): T {
+	return values.includes(raw as T) ? (raw as T) : values[0];
+}
+
+function nextOrderedQueryControl<T extends string>(
+	values: OrderedQueryControlValues<T>,
+	current: T
+): T {
+	const currentIndex = values.indexOf(current);
+	if (currentIndex < 0) return values[0];
+	return values[(currentIndex + 1) % values.length];
 }

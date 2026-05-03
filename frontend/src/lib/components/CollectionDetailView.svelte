@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -20,7 +21,7 @@
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
-	import { buildCollectionBiddingHref } from '$lib/bidding-query';
+	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -29,6 +30,12 @@
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
+	import {
+		applyCollectionTokenNavigationPreferenceToQuery,
+		buildCollectionTokenNavigationQuery,
+		readCollectionTokenNavigationPreference,
+		writeCollectionTokenNavigationPreference
+	} from '$lib/token-browser-navigation-preferences';
 
 	let {
 		chain,
@@ -60,11 +67,40 @@
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	let tokenNavigationPreferenceReady = $state(false);
 
 	let bootstrapStatus = $state<BootstrapStatusApiResponse | null>(null);
 	let bootstrapLoading = $state(false);
 	let bootstrapError = $state<string | null>(null);
 	let bootstrapRequestInFlight = false;
+
+	onMount(() => {
+		const preferredQuery = applyCollectionTokenNavigationPreferenceToQuery(
+			basePath,
+			new URLSearchParams(window.location.search),
+			readCollectionTokenNavigationPreference(basePath)
+		);
+		const preferredSuffix = preferredQuery.toString();
+		const preferredHref = `${window.location.pathname}${preferredSuffix ? `?${preferredSuffix}` : ''}${window.location.hash}`;
+		const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+		if (preferredHref !== currentHref) {
+			void goto(preferredHref, {
+				replaceState: true,
+				invalidateAll: true,
+				keepFocus: true,
+				noScroll: true
+			}).finally(() => {
+				tokenNavigationPreferenceReady = true;
+			});
+			return;
+		}
+		tokenNavigationPreferenceReady = true;
+	});
+
+	$effect(() => {
+		if (!tokenNavigationPreferenceReady) return;
+		writeCollectionTokenNavigationPreference(basePath, { tokenStatus });
+	});
 
 	$effect(() => {
 		if (!browser || !chain || !collection || collection.status === 'live') {
@@ -96,6 +132,16 @@
 			limit: tokens.limit,
 			displayMode,
 			tokenStatus,
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
+	function tokensSectionQuery(): URLSearchParams {
+		return buildCollectionTokenNavigationQuery({
+			limit: tokens.limit,
+			displayMode,
 			selectedTraits,
 			selectedTraitRanges,
 			mediaMode: media.selectedMode
@@ -143,6 +189,14 @@
 	function biddingSectionHref(): string {
 		return buildCollectionBiddingHref({
 			basePath,
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
+	function biddingSectionQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits,
 			selectedTraitRanges,
 			mediaMode: media.selectedMode
@@ -206,10 +260,14 @@
 
 <CollectionPageLayout
 	tokensHref={tokensSectionHref()}
+	tokensBasePath={basePath}
+	tokensQuery={tokensSectionQuery()}
 	activitiesHref={activitiesSectionHref()}
 	holdersHref={holdersSectionHref()}
 	customizationHref={customizationSectionHref()}
 	biddingHref={biddingSectionHref()}
+	biddingBasePath={basePath}
+	biddingQuery={biddingSectionQuery()}
 	activeSection="tokens"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}

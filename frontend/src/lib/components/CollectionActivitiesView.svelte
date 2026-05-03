@@ -22,7 +22,7 @@
 	import { formatListingPrice } from '$lib/listing-price';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
-	import { buildCollectionBiddingHref } from '$lib/bidding-query';
+	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
@@ -40,6 +40,7 @@
 		setTraitRangeFilter
 	} from '$lib/trait-filters';
 	import { buildOwnerTokensHref, buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
+	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 
 	let {
 		chain,
@@ -131,6 +132,16 @@
 		});
 	}
 
+	function tokensQuery(): URLSearchParams {
+		return buildCollectionTokenNavigationQuery({
+			limit: activities.limit,
+			displayMode: 'grid',
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
 	function activitiesHref(): string {
 		return buildCollectionActivityHref({
 			basePath,
@@ -190,6 +201,14 @@
 	function biddingHref(): string {
 		return buildCollectionBiddingHref({
 			basePath,
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
+	function biddingQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			mediaMode: media.selectedMode
@@ -404,10 +423,14 @@
 
 <CollectionPageLayout
 	tokensHref={tokensHref()}
+	tokensBasePath={basePath}
+	tokensQuery={tokensQuery()}
 	activitiesHref={activitiesHref()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
 	biddingHref={biddingHref()}
+	biddingBasePath={basePath}
+	biddingQuery={biddingQuery()}
 	activeSection="activities"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}

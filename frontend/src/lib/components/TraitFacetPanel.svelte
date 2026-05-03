@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import type {
 		ApiTokenAttribute,
 		ApiTraitFacet,
@@ -45,6 +46,7 @@
 	let traitValueSearch = $state<Record<string, string>>({});
 	let traitValueSortMode = $state<Record<string, TraitFacetValueSortMode>>({});
 	let traitRangeDrafts = $state<Record<string, TraitRangeDraft>>({});
+	const traitSearchInputs = new Map<string, HTMLInputElement>();
 	let activeTraitSet = $derived(new Set(selectedTraits.map((item) => `${item.key}:${item.value}`)));
 	let activeRangeMap = $derived(
 		new Map(selectedRanges.map((item) => [item.key, { fromValue: item.fromValue, toValue: item.toValue }]))
@@ -81,6 +83,28 @@
 
 	function traitSearchValue(key: string): string {
 		return traitValueSearch[key] ?? '';
+	}
+
+	function registerTraitSearchInput(node: HTMLInputElement, key: string): { destroy(): void } {
+		traitSearchInputs.set(key, node);
+		return {
+			destroy() {
+				if (traitSearchInputs.get(key) === node) {
+					traitSearchInputs.delete(key);
+				}
+			}
+		};
+	}
+
+	function onTraitGroupToggle(facet: ApiTraitFacet, event: Event): void {
+		const details = event.currentTarget as HTMLDetailsElement | null;
+		if (!details?.open || facet.displayKind === 'range') return;
+		void focusTraitSearchInput(facet.key);
+	}
+
+	async function focusTraitSearchInput(key: string): Promise<void> {
+		await tick();
+		traitSearchInputs.get(key)?.focus();
 	}
 
 	function traitSortMode(key: string): TraitFacetValueSortMode {
@@ -221,7 +245,7 @@
 				<p class="muted">no trait facets yet</p>
 			{:else}
 				{#each facets as facet}
-					<details class="trait-group">
+					<details class="trait-group" ontoggle={(event) => onTraitGroupToggle(facet, event)}>
 						<summary>
 							<span class:trait-group-active={traitGroupActive(facet.key)}>{facet.key}</span>
 							<span class="muted">{facet.values.length}</span>
@@ -315,6 +339,7 @@
 										type="search"
 										placeholder="search"
 										value={traitSearchValue(facet.key)}
+										use:registerTraitSearchInput={facet.key}
 										oninput={(event) => onTraitSearchInput(facet.key, event)}
 									/>
 									<button

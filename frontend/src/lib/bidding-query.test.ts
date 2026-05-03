@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildCollectionBiddingQuery,
+	nextCollectionBiddingBidScopeFilter,
+	nextCollectionBiddingViewMode,
+	parseCollectionBiddingBidScopeFilter,
+	parseCollectionBiddingView,
 	parseCollectionBiddingTraitFilterJoinMode
 } from '$lib/bidding-query';
 
@@ -22,6 +26,26 @@ describe('buildCollectionBiddingQuery', () => {
 		});
 		expect(strictQuery.get('trait_join')).toBe('and');
 		expect(strictQuery.getAll('traits')).toEqual(['Mode:Terrain']);
+	});
+});
+
+describe('collection bidding ordered query controls', () => {
+	it('parses bid scope and view from the canonical ordered value lists', () => {
+		expect(parseCollectionBiddingBidScopeFilter(new URLSearchParams('bid_scope=traits'))).toBe(
+			'traits'
+		);
+		expect(parseCollectionBiddingBidScopeFilter(new URLSearchParams('bid_scope=nope'))).toBe(
+			'collection'
+		);
+		expect(parseCollectionBiddingView(new URLSearchParams('bidding_view=jobs'))).toBe('jobs');
+		expect(parseCollectionBiddingView(new URLSearchParams('bidding_view=nope'))).toBe('bid_book');
+	});
+
+	it('cycles bid scope and view using their canonical ordered value lists', () => {
+		expect(nextCollectionBiddingBidScopeFilter('collection')).toBe('traits');
+		expect(nextCollectionBiddingBidScopeFilter('traits')).toBe('collection');
+		expect(nextCollectionBiddingViewMode('bid_book')).toBe('jobs');
+		expect(nextCollectionBiddingViewMode('jobs')).toBe('bid_book');
 	});
 });
 

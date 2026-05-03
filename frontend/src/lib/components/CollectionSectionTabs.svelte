@@ -1,30 +1,58 @@
 <script lang="ts">
+	import { preferredCollectionBiddingHref } from '$lib/bidding-navigation-preferences';
+	import { preferredCollectionTokensHref } from '$lib/token-browser-navigation-preferences';
+
 	let {
 		tokensHref,
+		tokensBasePath,
+		tokensQuery = new URLSearchParams(),
 		activitiesHref,
 		holdersHref,
 		customizationHref,
 		biddingHref,
+		biddingBasePath,
+		biddingQuery = new URLSearchParams(),
 		active,
 		showCustomization = true,
 		showBidding = true
 	}: {
 		tokensHref: string;
+		tokensBasePath: string;
+		tokensQuery?: URLSearchParams;
 		activitiesHref: string;
 		holdersHref: string;
 		customizationHref: string;
 		biddingHref: string;
+		biddingBasePath: string;
+		biddingQuery?: URLSearchParams;
 		active: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
 		showCustomization?: boolean;
 		showBidding?: boolean;
 	} = $props();
+
+	let resolvedTokensHref = $state(tokensHref);
+	let resolvedBiddingHref = $state(biddingHref);
+
+	$effect(() => {
+		resolvedTokensHref = preferredCollectionTokensHref({
+			basePath: tokensBasePath,
+			query: tokensQuery
+		});
+	});
+
+	$effect(() => {
+		resolvedBiddingHref = preferredCollectionBiddingHref({
+			basePath: biddingBasePath,
+			query: biddingQuery
+		});
+	});
 </script>
 
 <div class="runtime-tabs" aria-label="Collection sections">
 	{#if active === 'tokens'}
 		<span class="runtime-tab-active">tokens</span>
 	{:else}
-		<a href={tokensHref}>tokens</a>
+		<a href={resolvedTokensHref}>tokens</a>
 	{/if}
 	{#if active === 'activities'}
 		<span class="runtime-tab-active">activities</span>
@@ -47,7 +75,7 @@
 		{#if active === 'bidding'}
 			<span class="runtime-tab-active">bidding</span>
 		{:else}
-			<a href={biddingHref}>bidding</a>
+			<a href={resolvedBiddingHref}>bidding</a>
 		{/if}
 	{/if}
 </div>

@@ -9,6 +9,7 @@
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import TokenBiddingJobForm from '$lib/components/TokenBiddingJobForm.svelte';
+	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingJob,
@@ -313,7 +314,7 @@
 	function onWindowKeydown(event: KeyboardEvent): void {
 		if (event.defaultPrevented) return;
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
-		if (isTypingTarget(event.target)) return;
+		if (isKeyboardTextEntryTarget(event.target)) return;
 		if (event.key !== 'v' && event.key !== 'V') return;
 		if (!hasMediaModeChoices()) return;
 		event.preventDefault();
@@ -335,13 +336,6 @@
 			defaultMode: 'snapshot',
 			availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 		};
-	}
-
-	function isTypingTarget(target: EventTarget | null): boolean {
-		if (!(target instanceof HTMLElement)) return false;
-		if (target.isContentEditable) return true;
-		const tag = target.tagName.toLowerCase();
-		return tag === 'input' || tag === 'textarea' || tag === 'select';
 	}
 
 	function emptyBidBook(): ApiBiddingBidBook {

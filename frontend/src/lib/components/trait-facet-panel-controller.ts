@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { get, writable, type Readable } from 'svelte/store';
+import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 
 const TRAIT_PANEL_COLLAPSED_STORAGE_KEY = 'artgod.traitFacetPanel.collapsed';
 const TRAIT_PANEL_COLLAPSED_ROOT_CLASS = 'trait-facet-panel-collapsed';
@@ -42,7 +43,7 @@ export function createTraitFacetPanelController(): TraitFacetPanelController {
 	function onWindowKeydown(event: KeyboardEvent, hotkeys: TraitFacetPanelHotkeys = {}): void {
 		if (event.defaultPrevented) return;
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
-		if (isTypingTarget(event.target)) return;
+		if (isKeyboardTextEntryTarget(event.target, { allowCheckboxAndRadio: true })) return;
 
 		const key = event.key.toLowerCase();
 		if (key === 'f') {
@@ -91,28 +92,4 @@ function syncCollapsedPreference(collapsed: boolean): void {
 		// Ignore storage failures and keep the in-memory state.
 	}
 	document.documentElement.classList.toggle(TRAIT_PANEL_COLLAPSED_ROOT_CLASS, collapsed);
-}
-
-function isTypingTarget(target: EventTarget | null): boolean {
-	const element = asElementLike(target);
-	if (!element) return false;
-	if (element.isContentEditable) return true;
-	const tag = element.tagName.toLowerCase();
-	if (tag === 'input') {
-		return element.type !== 'checkbox' && element.type !== 'radio';
-	}
-	return tag === 'textarea' || tag === 'select';
-}
-
-function asElementLike(
-	target: EventTarget | null
-): { tagName: string; isContentEditable?: boolean; type?: string } | null {
-	if (!target) return null;
-	if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement) {
-		return target as HTMLElement;
-	}
-	const candidate = target as { tagName?: unknown; isContentEditable?: boolean; type?: string };
-	return typeof candidate.tagName === 'string'
-		? (candidate as { tagName: string; isContentEditable?: boolean; type?: string })
-		: null;
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import type {
 		ApiBiddingBidBook,
@@ -18,14 +19,22 @@
 	import {
 		buildCollectionBiddingHref,
 		buildCollectionBiddingQuery,
+		nextCollectionBiddingBidScopeFilter,
+		nextCollectionBiddingViewMode,
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
+	import {
+		applyCollectionBiddingNavigationPreferenceToQuery,
+		readCollectionBiddingNavigationPreference,
+		writeCollectionBiddingNavigationPreference
+	} from '$lib/bidding-navigation-preferences';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import CollectionBiddingJobRow from '$lib/components/CollectionBiddingJobRow.svelte';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
@@ -47,6 +56,7 @@
 		setTraitRangeFilter
 	} from '$lib/trait-filters';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
+	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 
 	let {
 		chain,
@@ -98,6 +108,7 @@
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
+	let biddingNavigationPreferenceReady = $state(false);
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
@@ -123,6 +134,34 @@
 		activeTraitRanges = selectedTraitRanges;
 	});
 
+	onMount(() => {
+		const preferredQuery = applyCollectionBiddingNavigationPreferenceToQuery(
+			basePath,
+			new URLSearchParams(window.location.search),
+			readCollectionBiddingNavigationPreference(basePath)
+		);
+		const preferredSuffix = preferredQuery.toString();
+		const preferredHref = `${window.location.pathname}${preferredSuffix ? `?${preferredSuffix}` : ''}${window.location.hash}`;
+		const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+		if (preferredHref !== currentHref) {
+			void goto(preferredHref, {
+				replaceState: true,
+				invalidateAll: true,
+				keepFocus: true,
+				noScroll: true
+			}).finally(() => {
+				biddingNavigationPreferenceReady = true;
+			});
+			return;
+		}
+		biddingNavigationPreferenceReady = true;
+	});
+
+	$effect(() => {
+		if (!biddingNavigationPreferenceReady) return;
+		writeCollectionBiddingNavigationPreference(basePath, { biddingView, bidScope });
+	});
+
 	function collectionsHref(): string {
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
 		if (!chain) return '/';
@@ -135,6 +174,16 @@
 			limit: DEFAULT_PAGE_LIMIT,
 			displayMode: 'grid',
 			tokenStatus: 'listed',
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			mediaMode
+		});
+	}
+
+	function tokensQuery(): URLSearchParams {
+		return buildCollectionTokenNavigationQuery({
+			limit: DEFAULT_PAGE_LIMIT,
+			displayMode: 'grid',
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			mediaMode
@@ -195,14 +244,17 @@
 		});
 	}
 
-	function bidScopeHref(nextBidScope: ApiCollectionBiddingBidScopeFilter): string {
+	function bidScopeHref(
+		nextBidScope: ApiCollectionBiddingBidScopeFilter,
+		nextView: CollectionBiddingViewMode = 'bid_book'
+	): string {
 		return buildCollectionBiddingHref({
 			basePath,
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			bidScope: nextBidScope,
 			traitJoinMode,
-			viewMode: 'bid_book',
+			viewMode: nextView,
 			mediaMode,
 			showMuted
 		});
@@ -288,6 +340,22 @@
 		});
 	}
 
+	async function cycleBiddingView(): Promise<void> {
+		await goto(biddingViewHref(nextCollectionBiddingViewMode(biddingView)), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function cycleBidScope(): Promise<void> {
+		await goto(bidScopeHref(nextCollectionBiddingBidScopeFilter(bidScope), biddingView), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
 	async function applyTraitFilters(
 		nextTraits: ApiTokenAttribute[],
 		nextRanges: ApiTraitRangeFilter[]
@@ -337,6 +405,24 @@
 		tokenPreview.onWindowKeydown(event);
 		if (previewWasOpen) return;
 
+		if (
+			!event.metaKey &&
+			!event.ctrlKey &&
+			!event.altKey &&
+			!isKeyboardTextEntryTarget(event.target, { allowCheckboxAndRadio: true })
+		) {
+			if (event.key === '1') {
+				event.preventDefault();
+				void cycleBiddingView();
+				return;
+			}
+			if (event.key === '2') {
+				event.preventDefault();
+				void cycleBidScope();
+				return;
+			}
+		}
+
 		if (!showBidBookTraitFilters) return;
 		traitFacetPanel.onWindowKeydown(event, {
 			onToggle: onTraitPanelControlAction,
@@ -362,10 +448,22 @@
 
 <CollectionPageLayout
 	tokensHref={tokensHref()}
+	tokensBasePath={basePath}
+	tokensQuery={tokensQuery()}
 	activitiesHref={activitiesHref()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
 	biddingHref={biddingHref()}
+	biddingBasePath={basePath}
+	biddingQuery={buildCollectionBiddingQuery({
+		selectedTraits: activeTraits,
+		selectedTraitRanges: activeTraitRanges,
+		bidScope,
+		traitJoinMode,
+		viewMode: biddingView,
+		mediaMode,
+		showMuted
+	})}
 	activeSection="bidding"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}

@@ -14,6 +14,7 @@
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
+	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
@@ -475,7 +476,7 @@
 			!event.metaKey &&
 			!event.ctrlKey &&
 			!event.altKey &&
-			!isTypingTarget(event.target)
+			!isKeyboardTextEntryTarget(event.target)
 		) {
 			const key = event.key.toLowerCase();
 			if (key === 'v') {
@@ -495,13 +496,6 @@
 		traitFacetPanel.onWindowKeydown(event, {
 			onReset: onResetTraits
 		});
-	}
-
-	function isTypingTarget(target: EventTarget | null): boolean {
-		if (!(target instanceof HTMLElement)) return false;
-		if (target.isContentEditable) return true;
-		const tag = target.tagName.toLowerCase();
-		return tag === 'input' || tag === 'textarea' || tag === 'select';
 	}
 
 </script>

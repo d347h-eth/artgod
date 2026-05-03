@@ -15,7 +15,7 @@
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { withQuery } from '$lib/route-paths';
-	import { buildCollectionBiddingHref } from '$lib/bidding-query';
+	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
@@ -25,6 +25,7 @@
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
+	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 	import { buildOwnerTokensHref, buildTokenBrowserHref } from '$lib/token-browser-query';
 
 	let {
@@ -90,6 +91,16 @@
 		});
 	}
 
+	function collectionTokensQuery(): URLSearchParams {
+		return buildCollectionTokenNavigationQuery({
+			limit: tokens.limit,
+			displayMode,
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
 	function collectionActivitiesHref(): string {
 		return buildCollectionActivityHref({
 			basePath: collectionBasePath,
@@ -119,6 +130,14 @@
 	function biddingHref(): string {
 		return buildCollectionBiddingHref({
 			basePath: collectionBasePath,
+			selectedTraits,
+			selectedTraitRanges,
+			mediaMode: media.selectedMode
+		});
+	}
+
+	function biddingQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits,
 			selectedTraitRanges,
 			mediaMode: media.selectedMode
@@ -157,10 +176,14 @@
 
 <CollectionPageLayout
 	tokensHref={collectionTokensHref()}
+	tokensBasePath={collectionBasePath}
+	tokensQuery={collectionTokensQuery()}
 	activitiesHref={collectionActivitiesHref()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
 	biddingHref={biddingHref()}
+	biddingBasePath={collectionBasePath}
+	biddingQuery={biddingQuery()}
 	activeSection={null}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}

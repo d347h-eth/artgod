@@ -205,6 +205,17 @@ The split of responsibilities is:
     - reset navigation behavior
     - applying changed selected-filter state to the current route
 
+### Collection Query-Control Preferences and Shortcuts
+
+- `1` cycles the `bidding_view` query control using the ordered values defined in `bidding-query.ts`.
+- `2` cycles the `bid_scope` query control using the ordered values defined in `bidding-query.ts`.
+- Numeric bidding shortcuts must not fire while a text-entry target is focused.
+- Last selected `bidding_view` and `bid_scope` are local UI navigation preferences stored in `localStorage`, scoped by collection path.
+- Explicit `bidding_view` and `bid_scope` URL params always override stored bidding navigation preferences.
+- Last selected collection `token_status` is also a local UI navigation preference, scoped by collection path.
+- Explicit `token_status` URL params always override stored token navigation preferences.
+- New scoped query-control preferences should use `query-control-preferences.ts` instead of one-off `localStorage` helpers.
+
 Trait value selection rules:
 
 - plain click toggles trait values additively within the same trait key

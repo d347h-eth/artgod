@@ -6,10 +6,10 @@ import {
 	getCollectionBiddingJobs
 } from '$lib/backend-api';
 import {
+	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingView,
 	parseCollectionBiddingTraitFilterJoinMode,
-	parseShowMutedBidBook,
-	type CollectionBiddingBidScopeFilter
+	parseShowMutedBidBook
 } from '$lib/bidding-query';
 import { normalizeMediaMode } from '$lib/media-mode';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
@@ -51,7 +51,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			basePath: '/',
 			selectedTraits: parseSelectedTraits(url.searchParams),
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
-			bidScope: parseBidScope(url.searchParams),
+			bidScope: parseCollectionBiddingBidScopeFilter(url.searchParams),
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
@@ -86,10 +86,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		toKitError(cause);
 	}
 };
-
-function parseBidScope(searchParams: URLSearchParams): CollectionBiddingBidScopeFilter {
-	return searchParams.get('bid_scope') === 'traits' ? 'traits' : 'collection';
-}
 
 function toKitError(cause: unknown): never {
 	if (cause instanceof BackendApiError) {
