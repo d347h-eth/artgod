@@ -3,7 +3,7 @@
 	import LoadingBladeBar from '$lib/components/LoadingBladeBar.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import { resolvePreviewBackdropGesture } from '$lib/preview-backdrop-gesture';
-	import { TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY } from '$lib/token-preview-storage';
+	import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 	import {
 		getTokenPreviewController,
 		tokenPreviewStyle
@@ -180,7 +180,7 @@
 	function readSwipeHintDismissed(): boolean {
 		if (!browser) return false;
 		try {
-			return window.localStorage.getItem(TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY) === '1';
+			return window.localStorage.getItem(LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed) === '1';
 		} catch {
 			return false;
 		}
@@ -191,7 +191,7 @@
 		swipeHintDismissed = true;
 		if (!browser) return;
 		try {
-			window.localStorage.setItem(TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY, '1');
+			window.localStorage.setItem(LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed, '1');
 		} catch {
 			// Ignore storage failures and keep the in-memory dismissal state.
 		}

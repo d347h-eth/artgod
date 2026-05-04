@@ -9,13 +9,11 @@
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
+	import { buildCollectionNavigation } from '$lib/collection-navigation';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-	import { appendMediaModeParam } from '$lib/media-mode';
-	import { withQuery } from '$lib/route-paths';
-	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
@@ -23,10 +21,7 @@
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
-	import { buildCollectionActivityQuery } from '$lib/activity-query';
-	import { buildCollectionCustomizationHref } from '$lib/customization-query';
-	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
-	import { buildOwnerTokensHref, buildTokenBrowserHref } from '$lib/token-browser-query';
+	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -37,7 +32,6 @@
 		selectedTraitRanges,
 		media,
 		collectionBasePath,
-		holdersBasePath,
 		browserBasePath,
 		owner,
 		requestCursor,
@@ -79,58 +73,23 @@
 		});
 	}
 
-	function collectionTokensHref(): string {
-		return buildTokenBrowserHref({
+	function collectionNavigation() {
+		return buildCollectionNavigation({
 			basePath: collectionBasePath,
-			limit: tokens.limit,
-			displayMode,
-			tokenStatus: 'listed',
+			mediaMode: media.selectedMode,
 			selectedTraits,
 			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function collectionTokensQuery(): URLSearchParams {
-		return buildCollectionTokenNavigationQuery({
-			limit: tokens.limit,
-			displayMode,
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function holdersHref(): string {
-		const query = new URLSearchParams();
-		appendMediaModeParam(query, media.selectedMode);
-		return withQuery(holdersBasePath, query);
-	}
-
-	function customizationHref(): string {
-		return buildCollectionCustomizationHref({
-			basePath: collectionBasePath,
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function biddingQuery(): URLSearchParams {
-		return buildCollectionBiddingQuery({
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function activitiesQuery(): URLSearchParams {
-		return buildCollectionActivityQuery({
-			limit: tokens.limit,
-			kind: 'sales',
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
+			token: {
+				limit: tokens.limit,
+				displayMode
+			},
+			activity: {
+				limit: tokens.limit,
+				kind: 'sales'
+			},
+			bidding: {
+				enabled: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			}
 		});
 	}
 
@@ -165,33 +124,25 @@
 </script>
 
 <CollectionPageLayout
-	tokensBasePath={collectionBasePath}
-	tokensQuery={collectionTokensQuery()}
-	activitiesBasePath={collectionBasePath}
-	activitiesQuery={activitiesQuery()}
-	holdersHref={holdersHref()}
-	customizationHref={customizationHref()}
-	biddingBasePath={collectionBasePath}
-	biddingQuery={biddingQuery()}
+	navigation={collectionNavigation()}
 	activeSection={null}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}
 			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-				<a href={collectionTokensHref()}>{collection.slug}</a>
+				<a href={collectionNavigation().hrefs.asks}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
-				<a href={holdersHref()}>holders</a>
+				<a href={collectionNavigation().hrefs.holders}>holders</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">{owner}</span>
 			{:else}
 				<a href={collectionsHref()}>collections</a>
 				<span class="breadcrumbs-separator">/</span>
-				<a href={collectionTokensHref()}>{collection.slug}</a>
+				<a href={collectionNavigation().hrefs.asks}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
-				<a href={holdersHref()}>holders</a>
+				<a href={collectionNavigation().hrefs.holders}>holders</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">{owner}</span>
 			{/if}
@@ -240,15 +191,7 @@
 		onResetTraits={onResetTraits}
 		{traitFacetPanel}
 		{keyboardShortcutsHelp}
-		collectionSectionNavigation={{
-			tokensBasePath: collectionBasePath,
-			tokensQuery: collectionTokensQuery(),
-			activitiesBasePath: collectionBasePath,
-			activitiesQuery: activitiesQuery(),
-			biddingBasePath: collectionBasePath,
-			biddingQuery: biddingQuery(),
-			showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-		}}
+		collectionNavigation={collectionNavigation()}
 		tokenStatus="listed_then_unlisted"
 		displayMode={displayMode}
 	/>

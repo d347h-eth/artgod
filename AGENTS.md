@@ -30,6 +30,8 @@ For implementation details, use:
 - Avoid mixing unrelated concerns in one block; use clear naming and spacing.
 - Follow SOLID principles at component and function level.
 - Follow KISS/DRY at component and function level.
+- Do not add ad-hoc implementations for concerns already isolated behind a dedicated component, module, helper, or service.
+  Extend the existing abstraction instead of duplicating its business logic in a feature-specific file.
 - Tests must fail fast on missing config (no silent skips).
 - Treat config as required where applicable; avoid implicit defaults for critical runtime/test inputs.
 - Centralize env loading in typed config modules; avoid scattered `process.env` reads.

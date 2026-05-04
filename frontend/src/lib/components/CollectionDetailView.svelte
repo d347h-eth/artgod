@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -13,28 +12,20 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
-	import { buildCollectionActivityQuery } from '$lib/activity-query';
+	import { buildCollectionNavigation } from '$lib/collection-navigation';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
-	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
-	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
+	import { normalizeBasePath } from '$lib/route-paths';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
-	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { buildTokenBrowserHref } from '$lib/token-browser-query';
-	import {
-		applyCollectionTokenNavigationPreferenceToQuery,
-		buildCollectionTokenNavigationQuery,
-		readCollectionTokenNavigationPreference,
-		writeCollectionTokenNavigationPreference
-	} from '$lib/token-browser-navigation-preferences';
 
 	let {
 		chain,
@@ -66,40 +57,11 @@
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
-	let tokenNavigationPreferenceReady = $state(false);
 
 	let bootstrapStatus = $state<BootstrapStatusApiResponse | null>(null);
 	let bootstrapLoading = $state(false);
 	let bootstrapError = $state<string | null>(null);
 	let bootstrapRequestInFlight = false;
-
-	onMount(() => {
-		const preferredQuery = applyCollectionTokenNavigationPreferenceToQuery(
-			basePath,
-			new URLSearchParams(window.location.search),
-			readCollectionTokenNavigationPreference(basePath)
-		);
-		const preferredSuffix = preferredQuery.toString();
-		const preferredHref = `${window.location.pathname}${preferredSuffix ? `?${preferredSuffix}` : ''}${window.location.hash}`;
-		const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-		if (preferredHref !== currentHref) {
-			void goto(preferredHref, {
-				replaceState: true,
-				invalidateAll: true,
-				keepFocus: true,
-				noScroll: true
-			}).finally(() => {
-				tokenNavigationPreferenceReady = true;
-			});
-			return;
-		}
-		tokenNavigationPreferenceReady = true;
-	});
-
-	$effect(() => {
-		if (!tokenNavigationPreferenceReady) return;
-		writeCollectionTokenNavigationPreference(basePath, { tokenStatus });
-	});
 
 	$effect(() => {
 		if (!browser || !chain || !collection || collection.status === 'live') {
@@ -125,30 +87,24 @@
 		return collection.slug;
 	}
 
-	function tokensSectionQuery(): URLSearchParams {
-		return buildCollectionTokenNavigationQuery({
-			limit: tokens.limit,
-			displayMode,
+	function collectionNavigation() {
+		return buildCollectionNavigation({
+			basePath,
+			mediaMode: media.selectedMode,
 			selectedTraits,
 			selectedTraitRanges,
-			mediaMode: media.selectedMode
+			token: {
+				limit: tokens.limit,
+				displayMode
+			},
+			activity: {
+				limit: tokens.limit,
+				kind: 'sales'
+			},
+			bidding: {
+				enabled: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			}
 		});
-	}
-
-	function activitiesSectionQuery(): URLSearchParams {
-		return buildCollectionActivityQuery({
-			limit: tokens.limit,
-			kind: 'sales',
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function holdersSectionHref(): string {
-		const query = new URLSearchParams();
-		query.set('media_mode', media.selectedMode);
-		return withQuery(joinPath(basePath, 'holders'), query);
 	}
 
 	function resetTraitsHref(): string {
@@ -159,23 +115,6 @@
 			tokenStatus,
 			selectedTraits: [],
 			selectedTraitRanges: [],
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function customizationSectionHref(): string {
-		return buildCollectionCustomizationHref({
-			basePath,
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function biddingSectionQuery(): URLSearchParams {
-		return buildCollectionBiddingQuery({
-			selectedTraits,
-			selectedTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -236,19 +175,11 @@
 </script>
 
 <CollectionPageLayout
-	tokensBasePath={basePath}
-	tokensQuery={tokensSectionQuery()}
-	activitiesBasePath={basePath}
-	activitiesQuery={activitiesSectionQuery()}
-	holdersHref={holdersSectionHref()}
-	customizationHref={customizationSectionHref()}
-	biddingBasePath={basePath}
-	biddingQuery={biddingSectionQuery()}
+	navigation={collectionNavigation()}
 	activeSection="tokens"
 	activeTokenStatus={tokenStatus}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}
@@ -311,15 +242,7 @@
 		onResetTraits={onResetTraits}
 		{traitFacetPanel}
 		{keyboardShortcutsHelp}
-		collectionSectionNavigation={{
-			tokensBasePath: basePath,
-			tokensQuery: tokensSectionQuery(),
-			activitiesBasePath: basePath,
-			activitiesQuery: activitiesSectionQuery(),
-			biddingBasePath: basePath,
-			biddingQuery: biddingSectionQuery(),
-			showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-		}}
+		collectionNavigation={collectionNavigation()}
 		tokenStatus={tokenStatus}
 		displayMode={displayMode}
 	/>

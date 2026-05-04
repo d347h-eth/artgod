@@ -61,7 +61,9 @@ describe('CollectionHoldersView', () => {
 		expect(body).toContain('4 holders');
 		expect(body).toContain('showing 1-2 of 4');
 		expect(body).toContain('load next');
-		expect(body).toContain('/ethereum/milady?media_mode=artifact');
+		expect(body).toContain(
+			'/ethereum/milady?limit=2&amp;mode=grid&amp;media_mode=artifact&amp;token_status=listed'
+		);
 		expect(body).toContain('/ethereum/milady/activity?limit=2&amp;kind=sales&amp;media_mode=artifact');
 		expect(body).toContain('<span class="runtime-tab-active">holders</span>');
 		expect(body).toContain(
@@ -166,7 +168,9 @@ describe('CollectionHoldersView', () => {
 			}
 		});
 
-		expect(body).toContain('<a href="/ethereum/milady">milady</a>');
+		expect(body).toContain(
+			'<a href="/ethereum/milady?limit=2&amp;mode=grid&amp;token_status=listed">milady</a>'
+		);
 		expect(body).not.toContain('/ethereum/milady?media_mode=snapshot');
 		expect(body).toContain('/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 		expect(body).not.toContain(

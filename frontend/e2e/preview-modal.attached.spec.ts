@@ -6,7 +6,7 @@ import {
 	type Page,
 	type TestInfo
 } from 'playwright/test';
-import { TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY } from '$lib/token-preview-storage';
+import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 
 const TARGET_PATH = process.env.ARTGOD_E2E_TARGET_PATH?.trim() || '/ethereum/terraforms';
 const GEOMETRY_TOLERANCE_PX = 4;
@@ -129,7 +129,7 @@ test('mobile preview hides arrow buttons and persists swipe hint dismissal', asy
 		await assertAttachedAppReachable(request);
 		await page.addInitScript((storageKey) => {
 			window.localStorage.removeItem(storageKey);
-		}, TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY);
+		}, LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed);
 
 		await page.goto(TARGET_PATH, {
 			waitUntil: 'domcontentloaded'
@@ -259,7 +259,7 @@ test('pixel mobile bottom-backdrop swipe navigates with browser touch input', as
 		await assertAttachedAppReachable(request);
 		await page.addInitScript((storageKey) => {
 			window.localStorage.removeItem(storageKey);
-		}, TOKEN_PREVIEW_SWIPE_HINT_DISMISSED_STORAGE_KEY);
+		}, LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed);
 
 		await page.goto(TARGET_PATH, {
 			waitUntil: 'domcontentloaded'

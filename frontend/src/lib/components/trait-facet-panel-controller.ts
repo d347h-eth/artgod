@@ -1,8 +1,8 @@
 import { browser } from '$app/environment';
 import { get, writable, type Readable } from 'svelte/store';
 import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
+import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 
-const TRAIT_PANEL_COLLAPSED_STORAGE_KEY = 'artgod.traitFacetPanel.collapsed';
 const TRAIT_PANEL_COLLAPSED_ROOT_CLASS = 'trait-facet-panel-collapsed';
 
 type MaybePromise<T> = T | Promise<T>;
@@ -76,7 +76,7 @@ function readInitialCollapsed(): boolean {
 		if (document.documentElement.classList.contains(TRAIT_PANEL_COLLAPSED_ROOT_CLASS)) {
 			return true;
 		}
-		const stored = window.localStorage.getItem(TRAIT_PANEL_COLLAPSED_STORAGE_KEY);
+		const stored = window.localStorage.getItem(LOCAL_STORAGE_KEYS.traitFacetPanelCollapsed);
 		if (stored === null) return true;
 		return stored === '1';
 	} catch {
@@ -87,7 +87,10 @@ function readInitialCollapsed(): boolean {
 function syncCollapsedPreference(collapsed: boolean): void {
 	if (!browser) return;
 	try {
-		window.localStorage.setItem(TRAIT_PANEL_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0');
+		window.localStorage.setItem(
+			LOCAL_STORAGE_KEYS.traitFacetPanelCollapsed,
+			collapsed ? '1' : '0'
+		);
 	} catch {
 		// Ignore storage failures and keep the in-memory state.
 	}

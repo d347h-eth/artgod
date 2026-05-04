@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import type {
 		ApiBiddingBidBook,
@@ -15,24 +14,25 @@
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
-	import { buildCollectionActivityQuery } from '$lib/activity-query';
 	import {
+		BID_SCOPE_QUERY_PARAM,
 		buildCollectionBiddingHref,
 		buildCollectionBiddingQuery,
 		nextCollectionBiddingBidScopeFilter,
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
 	import {
-		applyCollectionBiddingNavigationPreferenceToQuery,
-		readCollectionBiddingNavigationPreference,
 		writeCollectionBiddingNavigationPreference
 	} from '$lib/bidding-navigation-preferences';
+	import {
+		buildCollectionNavigation,
+		handleCollectionSectionShortcut
+	} from '$lib/collection-navigation';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
-	import { handleCollectionSectionShortcut } from '$lib/components/collection-section-navigation';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import CollectionBiddingJobRow from '$lib/components/CollectionBiddingJobRow.svelte';
@@ -44,8 +44,6 @@
 		type TraitFacetFilterModeOption
 	} from '$lib/components/trait-facet-panel-control-action';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
-	import { buildCollectionCustomizationHref } from '$lib/customization-query';
-	import { appendMediaModeParam } from '$lib/media-mode';
 	import { joinPath, withQuery } from '$lib/route-paths';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -55,8 +53,6 @@
 		nextSelectedTraits,
 		setTraitRangeFilter
 	} from '$lib/trait-filters';
-	import { buildTokenBrowserHref } from '$lib/token-browser-query';
-	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 
 	let {
 		chain,
@@ -108,7 +104,6 @@
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
-	let biddingNavigationPreferenceReady = $state(false);
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
@@ -134,32 +129,8 @@
 		activeTraitRanges = selectedTraitRanges;
 	});
 
-	onMount(() => {
-		const preferredQuery = applyCollectionBiddingNavigationPreferenceToQuery(
-			basePath,
-			new URLSearchParams(window.location.search),
-			readCollectionBiddingNavigationPreference(basePath)
-		);
-		const preferredSuffix = preferredQuery.toString();
-		const preferredHref = `${window.location.pathname}${preferredSuffix ? `?${preferredSuffix}` : ''}${window.location.hash}`;
-		const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-		if (preferredHref !== currentHref) {
-			void goto(preferredHref, {
-				replaceState: true,
-				invalidateAll: true,
-				keepFocus: true,
-				noScroll: true
-			}).finally(() => {
-				biddingNavigationPreferenceReady = true;
-			});
-			return;
-		}
-		biddingNavigationPreferenceReady = true;
-	});
-
 	$effect(() => {
-		if (!biddingNavigationPreferenceReady) return;
-		writeCollectionBiddingNavigationPreference(basePath, { bidScope });
+		writeCollectionBiddingNavigationPreference({ bidScope });
 	});
 
 	function collectionsHref(): string {
@@ -168,40 +139,27 @@
 		return `/${chain.slug}`;
 	}
 
-	function tokensHref(): string {
-		return buildTokenBrowserHref({
+	function collectionNavigation() {
+		return buildCollectionNavigation({
 			basePath,
-			limit: DEFAULT_PAGE_LIMIT,
-			displayMode: 'grid',
-			tokenStatus: 'listed',
+			mediaMode,
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
-			mediaMode
-		});
-	}
-
-	function tokensQuery(): URLSearchParams {
-		return buildCollectionTokenNavigationQuery({
-			limit: DEFAULT_PAGE_LIMIT,
-			displayMode: 'grid',
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			mediaMode
-		});
-	}
-
-	function holdersHref(): string {
-		const query = new URLSearchParams();
-		appendMediaModeParam(query, mediaMode);
-		return withQuery(joinPath(basePath, 'holders'), query);
-	}
-
-	function customizationHref(): string {
-		return buildCollectionCustomizationHref({
-			basePath,
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			mediaMode
+			token: {
+				limit: DEFAULT_PAGE_LIMIT,
+				displayMode: 'grid'
+			},
+			activity: {
+				limit: DEFAULT_PAGE_LIMIT,
+				kind: 'sales'
+			},
+			bidding: {
+				enabled: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+				bidScope,
+				traitJoinMode,
+				viewMode: biddingView,
+				showMuted
+			}
 		});
 	}
 
@@ -221,22 +179,11 @@
 		});
 	}
 
-	function activitiesQuery(): URLSearchParams {
-		return buildCollectionActivityQuery({
-			limit: DEFAULT_PAGE_LIMIT,
-			kind: 'sales',
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			mediaMode
-		});
-	}
-
 	function bidScopeHref(
 		nextBidScope: ApiCollectionBiddingBidScopeFilter,
 		nextView: CollectionBiddingViewMode = 'bid_book'
 	): string {
-		return buildCollectionBiddingHref({
-			basePath,
+		const query = buildCollectionBiddingQuery({
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			bidScope: nextBidScope,
@@ -245,6 +192,9 @@
 			mediaMode,
 			showMuted
 		});
+		// Keep default collection scope explicit so stored preferences cannot override a scope click.
+		query.set(BID_SCOPE_QUERY_PARAM, nextBidScope);
+		return withQuery(biddingPath(), query);
 	}
 
 	function biddingViewHref(nextView: CollectionBiddingViewMode): string {
@@ -384,25 +334,7 @@
 		tokenPreview.onWindowKeydown(event);
 		if (previewWasOpen) return;
 
-		if (
-			handleCollectionSectionShortcut(event, {
-				tokensBasePath: basePath,
-				tokensQuery: tokensQuery(),
-				activitiesBasePath: basePath,
-				activitiesQuery: activitiesQuery(),
-				biddingBasePath: basePath,
-				biddingQuery: buildCollectionBiddingQuery({
-					selectedTraits: activeTraits,
-					selectedTraitRanges: activeTraitRanges,
-					bidScope,
-					traitJoinMode,
-					viewMode: biddingView,
-					mediaMode,
-					showMuted
-				}),
-				showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-			})
-		) {
+		if (handleCollectionSectionShortcut(event, collectionNavigation())) {
 			return;
 		}
 
@@ -443,38 +375,22 @@
 {/snippet}
 
 <CollectionPageLayout
-	tokensBasePath={basePath}
-	tokensQuery={tokensQuery()}
-	activitiesBasePath={basePath}
-	activitiesQuery={activitiesQuery()}
-	holdersHref={holdersHref()}
-	customizationHref={customizationHref()}
-	biddingBasePath={basePath}
-	biddingQuery={buildCollectionBiddingQuery({
-		selectedTraits: activeTraits,
-		selectedTraitRanges: activeTraitRanges,
-		bidScope,
-		traitJoinMode,
-		viewMode: biddingView,
-		mediaMode,
-		showMuted
-	})}
+	navigation={collectionNavigation()}
 	activeSection="bidding"
 	activeBiddingView={biddingView}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}
 			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-				<a href={tokensHref()}>{collection.slug}</a>
+				<a href={collectionNavigation().hrefs.asks}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">bidding</span>
 			{:else}
 				<a href={collectionsHref()}>collections</a>
 				<span class="breadcrumbs-separator">/</span>
-				<a href={tokensHref()}>{collection.slug}</a>
+				<a href={collectionNavigation().hrefs.asks}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">bidding</span>
 			{/if}
@@ -492,12 +408,12 @@
 				<div class="panel-top-actions-row">
 					<div class="secondary-tabs" aria-label="Bid scope filter">
 						{#if bidScope === 'collection'}
-							<span class="secondary-tab-active">collection</span>
+							<button type="button" class="secondary-tab-active" disabled>collection</button>
 						{:else}
 							<a href={bidScopeHref('collection')}>collection</a>
 						{/if}
 						{#if bidScope === 'traits'}
-							<span class="secondary-tab-active">traits</span>
+							<button type="button" class="secondary-tab-active" disabled>traits</button>
 						{:else}
 							<a href={bidScopeHref('traits')}>traits</a>
 						{/if}

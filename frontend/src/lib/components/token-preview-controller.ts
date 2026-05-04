@@ -10,7 +10,7 @@ import {
 	tokenMediaTitle,
 	type TokenMediaIframeSource
 } from '$lib/token-media';
-import { TOKEN_PREVIEW_SCALE_STORAGE_KEY } from '$lib/token-preview-storage';
+import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 
 const DEFAULT_TOKEN_PREVIEW_SCALE_PERCENT = 100;
 const MIN_TOKEN_PREVIEW_SCALE_PERCENT = 5;
@@ -457,7 +457,7 @@ function previewNavigationStep(event: KeyboardEvent): -1 | 0 | 1 {
 function readInitialTokenPreviewScalePercent(): number {
 	if (!browser) return DEFAULT_TOKEN_PREVIEW_SCALE_PERCENT;
 	try {
-		const raw = window.localStorage.getItem(TOKEN_PREVIEW_SCALE_STORAGE_KEY);
+		const raw = window.localStorage.getItem(LOCAL_STORAGE_KEYS.tokenPreviewScalePercent);
 		if (!raw) return DEFAULT_TOKEN_PREVIEW_SCALE_PERCENT;
 		const parsed = Number(raw);
 		if (!Number.isInteger(parsed)) return DEFAULT_TOKEN_PREVIEW_SCALE_PERCENT;
@@ -474,7 +474,7 @@ function clampTokenPreviewScalePercent(value: number): number {
 function persistScalePercent(value: number): void {
 	if (!browser) return;
 	try {
-		window.localStorage.setItem(TOKEN_PREVIEW_SCALE_STORAGE_KEY, String(value));
+		window.localStorage.setItem(LOCAL_STORAGE_KEYS.tokenPreviewScalePercent, String(value));
 	} catch {
 		// Ignore storage failures and keep the in-memory state.
 	}

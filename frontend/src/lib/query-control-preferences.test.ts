@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
 	applyQueryControlPreferenceToQuery,
-	type QueryControlPreferenceDefinitions
+	readQueryControlPreference,
+	type QueryControlPreferenceDefinitions,
+	writeQueryControlPreference
 } from '$lib/query-control-preferences';
 
 type ExamplePreference = {
@@ -19,6 +21,51 @@ const DEFINITIONS = {
 		values: ['collection', 'traits']
 	}
 } as const satisfies QueryControlPreferenceDefinitions<ExamplePreference>;
+
+function createMemoryStorage(initial: Record<string, string> = {}) {
+	const values = new Map(Object.entries(initial));
+	return {
+		getItem: (key: string) => values.get(key) ?? null,
+		setItem: (key: string, value: string) => {
+			values.set(key, value);
+		},
+		values
+	};
+}
+
+describe('global query-control preference storage', () => {
+	it('normalizes global preference reads and writes through one storage helper', () => {
+		const storage = createMemoryStorage({
+			'example.preference': JSON.stringify({
+				view: 'jobs',
+				scope: 'unknown'
+			})
+		});
+
+		expect(
+			readQueryControlPreference({
+				storageKey: 'example.preference',
+				definitions: DEFINITIONS,
+				storage
+			})
+		).toEqual({ view: 'jobs' });
+
+		writeQueryControlPreference({
+			storageKey: 'example.preference',
+			definitions: DEFINITIONS,
+			preference: {
+				view: 'book',
+				scope: 'traits'
+			},
+			storage
+		});
+
+		expect(JSON.parse(storage.values.get('example.preference') ?? '{}')).toEqual({
+			view: 'book',
+			scope: 'traits'
+		});
+	});
+});
 
 describe('applyQueryControlPreferenceToQuery', () => {
 	it('adds stored query-control values when URL omits them', () => {

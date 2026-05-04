@@ -11,18 +11,59 @@ export type QueryControlPreferenceDefinitions<TPreference extends object> = {
 };
 
 type StoredPreferences = Record<string, Record<string, string>>;
+type QueryControlPreferenceReadStorage = Pick<Storage, 'getItem'>;
+type QueryControlPreferenceWriteStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+export function readQueryControlPreference<TPreference extends object>(params: {
+	storageKey: string;
+	definitions: QueryControlPreferenceDefinitions<TPreference>;
+	storage?: QueryControlPreferenceReadStorage;
+}): Partial<TPreference> | null {
+	const storage = params.storage ?? browserLocalStorage();
+	if (!storage) return null;
+	try {
+		return normalizeQueryControlPreference(
+			readStoredPreference(storage, params.storageKey),
+			params.definitions
+		);
+	} catch {
+		return null;
+	}
+}
+
+export function writeQueryControlPreference<TPreference extends object>(params: {
+	storageKey: string;
+	definitions: QueryControlPreferenceDefinitions<TPreference>;
+	preference: TPreference;
+	storage?: QueryControlPreferenceWriteStorage;
+}): void {
+	const storage = params.storage ?? browserLocalStorage();
+	if (!storage) return;
+	const normalizedPreference = normalizeQueryControlPreference(
+		params.preference as Record<string, string>,
+		params.definitions
+	);
+	if (!normalizedPreference) return;
+	try {
+		storage.setItem(params.storageKey, JSON.stringify(normalizedPreference));
+	} catch {
+		// Ignore storage failures and keep navigation state URL-driven.
+	}
+}
 
 export function readScopedQueryControlPreference<TPreference extends object>(params: {
 	storageKey: string;
 	scopePath: string;
 	definitions: QueryControlPreferenceDefinitions<TPreference>;
+	storage?: QueryControlPreferenceReadStorage;
 }): Partial<TPreference> | null {
-	if (!browser) return null;
+	const storage = params.storage ?? browserLocalStorage();
+	if (!storage) return null;
 	const normalizedScope = normalizeQueryControlScopePath(params.scopePath);
 	if (!normalizedScope) return null;
 	try {
 		return normalizeQueryControlPreference(
-			readStoredPreferences(params.storageKey)[normalizedScope] ?? null,
+			readStoredPreferences(storage, params.storageKey)[normalizedScope] ?? null,
 			params.definitions
 		);
 	} catch {
@@ -35,8 +76,10 @@ export function writeScopedQueryControlPreference<TPreference extends object>(pa
 	scopePath: string;
 	definitions: QueryControlPreferenceDefinitions<TPreference>;
 	preference: TPreference;
+	storage?: QueryControlPreferenceWriteStorage;
 }): void {
-	if (!browser) return;
+	const storage = params.storage ?? browserLocalStorage();
+	if (!storage) return;
 	const normalizedScope = normalizeQueryControlScopePath(params.scopePath);
 	if (!normalizedScope) return;
 	const normalizedPreference = normalizeQueryControlPreference(
@@ -45,9 +88,9 @@ export function writeScopedQueryControlPreference<TPreference extends object>(pa
 	);
 	if (!normalizedPreference) return;
 	try {
-		const stored = readStoredPreferences(params.storageKey);
+		const stored = readStoredPreferences(storage, params.storageKey);
 		stored[normalizedScope] = normalizedPreference as Record<string, string>;
-		window.localStorage.setItem(params.storageKey, JSON.stringify(stored));
+		storage.setItem(params.storageKey, JSON.stringify(stored));
 	} catch {
 		// Ignore storage failures and keep navigation state URL-driven.
 	}
@@ -95,8 +138,17 @@ function setDefaultOmittingParam(
 	params.set(key, value);
 }
 
-function readStoredPreferences(storageKey: string): StoredPreferences {
-	const raw = window.localStorage.getItem(storageKey);
+function readStoredPreference(storage: QueryControlPreferenceReadStorage, storageKey: string): unknown {
+	const raw = storage.getItem(storageKey);
+	if (!raw) return null;
+	return JSON.parse(raw) as unknown;
+}
+
+function readStoredPreferences(
+	storage: QueryControlPreferenceReadStorage,
+	storageKey: string
+): StoredPreferences {
+	const raw = storage.getItem(storageKey);
 	if (!raw) return {};
 	const parsed = JSON.parse(raw) as unknown;
 	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
@@ -104,7 +156,7 @@ function readStoredPreferences(storageKey: string): StoredPreferences {
 }
 
 function normalizeQueryControlPreference<TPreference extends object>(
-	preference: Partial<TPreference> | Record<string, string> | null,
+	preference: unknown,
 	definitions: QueryControlPreferenceDefinitions<TPreference>
 ): Partial<TPreference> | null {
 	if (!preference || typeof preference !== 'object') return null;
@@ -117,6 +169,11 @@ function normalizeQueryControlPreference<TPreference extends object>(
 		}
 	}
 	return Object.keys(normalized).length > 0 ? (normalized as Partial<TPreference>) : null;
+}
+
+function browserLocalStorage(): Storage | null {
+	if (!browser) return null;
+	return window.localStorage;
 }
 
 function normalizeQueryControlScopePath(scopePath: string): string | null {

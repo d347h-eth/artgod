@@ -13,25 +13,26 @@
 		ApiTokenPresentationSummary,
 		ApiTraitFacet
 	} from '$lib/api-types';
-	import { buildCollectionActivityHref, buildCollectionActivityQuery } from '$lib/activity-query';
+	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import {
+		buildCollectionNavigation,
+		handleCollectionSectionShortcut
+	} from '$lib/collection-navigation';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
-	import { handleCollectionSectionShortcut } from '$lib/components/collection-section-navigation';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { formatListingPrice } from '$lib/listing-price';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
-	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
-	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import {
 		etherscanTransactionHref as buildEtherscanTransactionHref,
 		openseaItemHref as buildOpenseaItemHref
 	} from '$lib/marketplace-links';
-	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
+	import { joinPath, normalizeBasePath } from '$lib/route-paths';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
@@ -40,8 +41,7 @@
 		nextSelectedTraits,
 		setTraitRangeFilter
 	} from '$lib/trait-filters';
-	import { buildOwnerTokensHref, buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
-	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
+	import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
 
 	let {
 		chain,
@@ -121,32 +121,24 @@
 		return `/${chain.slug}`;
 	}
 
-	function tokensHref(): string {
-		return buildTokenBrowserHref({
+	function collectionNavigation() {
+		return buildCollectionNavigation({
 			basePath,
-			limit: activities.limit,
-			displayMode: 'grid',
-			tokenStatus: 'listed',
+			mediaMode: media.selectedMode,
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
-			mediaMode: media.selectedMode
+			token: {
+				limit: activities.limit,
+				displayMode: 'grid'
+			},
+			activity: {
+				limit: activities.limit,
+				kind: filterKind
+			},
+			bidding: {
+				enabled: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			}
 		});
-	}
-
-	function tokensQuery(): URLSearchParams {
-		return buildCollectionTokenNavigationQuery({
-			limit: activities.limit,
-			displayMode: 'grid',
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function holdersHref(): string {
-		const query = new URLSearchParams();
-		query.set('media_mode', media.selectedMode);
-		return withQuery(joinPath(basePath, 'holders'), query);
 	}
 
 	function filterHref(
@@ -175,33 +167,6 @@
 			basePath: joinPath(basePath, `holders/${encodeURIComponent(address)}`),
 			selectedTraits: [],
 			selectedTraitRanges: [],
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function customizationHref(): string {
-		return buildCollectionCustomizationHref({
-			basePath,
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function biddingQuery(): URLSearchParams {
-		return buildCollectionBiddingQuery({
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function activitiesQuery(): URLSearchParams {
-		return buildCollectionActivityQuery({
-			limit: activities.limit,
-			kind: filterKind,
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
@@ -308,15 +273,7 @@
 		}
 
 		if (
-			handleCollectionSectionShortcut(event, {
-				tokensBasePath: basePath,
-				tokensQuery: tokensQuery(),
-				activitiesBasePath: basePath,
-				activitiesQuery: activitiesQuery(),
-				biddingBasePath: basePath,
-				biddingQuery: biddingQuery(),
-				showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-			})
+			handleCollectionSectionShortcut(event, collectionNavigation())
 		) {
 			return;
 		}
@@ -427,30 +384,22 @@
 <svelte:window onkeydown={onWindowKeydown} />
 
 <CollectionPageLayout
-	tokensBasePath={basePath}
-	tokensQuery={tokensQuery()}
-	activitiesBasePath={basePath}
-	activitiesQuery={activitiesQuery()}
-	holdersHref={holdersHref()}
-	customizationHref={customizationHref()}
-	biddingBasePath={basePath}
-	biddingQuery={biddingQuery()}
+	navigation={collectionNavigation()}
 	activeSection="activities"
 	activeActivityKind={filterKind}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}
 			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-				<a href={tokensHref()}>{collection.slug}</a>
+				<a href={collectionNavigation().hrefs.asks}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">events</span>
 			{:else}
 				<a href={collectionsHref()}>collections</a>
 				<span class="breadcrumbs-separator">/</span>
-				<a href={tokensHref()}>{collection.slug}</a>
+				<a href={collectionNavigation().hrefs.asks}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">events</span>
 			{/if}

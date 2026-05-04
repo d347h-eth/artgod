@@ -79,7 +79,7 @@ describe('HolderTokensView', () => {
 		expect(body).toContain('tokens currently held by');
 		expect(body).toContain('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 		expect(body).toContain(
-			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=artifact&amp;traits=Hat%3ABeanie&amp;token_status=listed'
 		);
 		expect(body).toContain(
 			'/ethereum/milady/activity?limit=25&amp;kind=sales&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'

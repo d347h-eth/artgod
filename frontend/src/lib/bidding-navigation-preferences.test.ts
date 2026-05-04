@@ -8,7 +8,6 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 	it('adds stored bid scope when URL omits it', () => {
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
-				'/ethereum/terraforms',
 				new URLSearchParams('traits=Mode%3ATerrain'),
 				{
 					bidScope: 'traits'
@@ -18,7 +17,6 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
-				'/ethereum/terraforms',
 				new URLSearchParams(),
 				{
 					bidScope: 'traits'
@@ -30,7 +28,6 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 	it('keeps explicit URL bid scope ahead of stored values', () => {
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
-				'/ethereum/terraforms',
 				new URLSearchParams('bidding_view=bid_book&bid_scope=collection'),
 				{
 					bidScope: 'traits'
@@ -42,7 +39,6 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 	it('omits stored default values from the generated URL', () => {
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
-				'/ethereum/terraforms',
 				new URLSearchParams(),
 				{
 					bidScope: 'collection'
@@ -58,7 +54,6 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
-				'/ethereum/terraforms',
 				new URLSearchParams(),
 				obsoletePreference
 			).toString()

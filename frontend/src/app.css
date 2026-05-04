@@ -2546,6 +2546,7 @@ th {
 	letter-spacing: 0.05em;
 	min-width: 6rem;
 	cursor: pointer;
+	user-select: none;
 }
 
 .runtime-tabs .runtime-tab-group-label {
@@ -2579,6 +2580,7 @@ th {
 	letter-spacing: 0.05em;
 	min-width: 4.5rem;
 	min-height: 20px;
+	user-select: none;
 }
 
 .secondary-tabs button,
@@ -2604,6 +2606,13 @@ th {
 .secondary-tabs span.secondary-tab-active {
 	border-color: var(--c-orange);
 	color: var(--c-orange);
+	cursor: default;
+	opacity: 1;
+}
+
+.secondary-tabs button.secondary-tab-active:disabled {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
 }
 
 .secondary-tabs span.secondary-tab-disabled {
@@ -2617,6 +2626,11 @@ th {
 	opacity: 1;
 	border-color: var(--c-blue);
 	color: var(--c-sand);
+}
+
+.secondary-tabs button:disabled {
+	cursor: default;
+	opacity: 1;
 }
 
 .runtime-tabs button:hover,
@@ -2644,6 +2658,12 @@ th {
 
 .runtime-tabs button.runtime-tab-active:disabled:hover,
 .runtime-tabs button.runtime-tab-active:disabled:focus-visible {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
+.secondary-tabs button.secondary-tab-active:disabled:hover,
+.secondary-tabs button.secondary-tab-active:disabled:focus-visible {
 	border-color: var(--c-orange);
 	color: var(--c-orange);
 }

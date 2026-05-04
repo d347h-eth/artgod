@@ -1,10 +1,15 @@
-import { error } from '@sveltejs/kit';
+import { browser } from '$app/environment';
+import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import {
 	BackendApiError,
 	getCollectionBiddingBidBook,
 	getCollectionBiddingJobs
 } from '$lib/backend-api';
+import {
+	applyCollectionBiddingNavigationPreferenceToQuery,
+	readCollectionBiddingNavigationPreference
+} from '$lib/bidding-navigation-preferences';
 import {
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingView,
@@ -59,6 +64,11 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		};
 	}
 
+	const preferredHref = preferredBiddingNavigationHref(url);
+	if (preferredHref) {
+		throw redirect(307, preferredHref);
+	}
+
 	try {
 		// Load the authoritative jobs and source-selected bid book for this collection.
 		const [response, bidBookResponse] = await Promise.all([
@@ -92,4 +102,15 @@ function toKitError(cause: unknown): never {
 		throw error(cause.status, cause.message);
 	}
 	throw error(500, 'Backend request failed');
+}
+
+function preferredBiddingNavigationHref(url: URL): string | null {
+	if (!browser) return null;
+	const preferredQuery = applyCollectionBiddingNavigationPreferenceToQuery(
+		url.searchParams,
+		readCollectionBiddingNavigationPreference()
+	);
+	const preferredQueryString = preferredQuery.toString();
+	if (preferredQueryString === url.searchParams.toString()) return null;
+	return `${url.pathname}${preferredQueryString ? `?${preferredQueryString}` : ''}`;
 }

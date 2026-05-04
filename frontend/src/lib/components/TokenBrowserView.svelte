@@ -15,8 +15,8 @@
 	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
 	import {
 		handleCollectionSectionShortcut,
-		type CollectionSectionNavigationConfig
-	} from '$lib/components/collection-section-navigation';
+		type CollectionNavigation
+	} from '$lib/collection-navigation';
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
@@ -53,7 +53,7 @@
 		onResetTraits,
 		traitFacetPanel,
 		keyboardShortcutsHelp,
-		collectionSectionNavigation = null,
+		collectionNavigation = null,
 		tokenStatus,
 		displayMode,
 		emptyMessage = 'no tokens match current filters'
@@ -71,7 +71,7 @@
 		onResetTraits: () => MaybePromise<void>;
 		traitFacetPanel: TraitFacetPanelController;
 		keyboardShortcutsHelp: KeyboardShortcutsHelpController;
-		collectionSectionNavigation?: CollectionSectionNavigationConfig | null;
+		collectionNavigation?: CollectionNavigation | null;
 		tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 		displayMode: 'grid' | 'table';
 		emptyMessage?: string;
@@ -477,7 +477,7 @@
 			return;
 		}
 
-		if (collectionSectionNavigation && handleCollectionSectionShortcut(event, collectionSectionNavigation)) {
+		if (collectionNavigation && handleCollectionSectionShortcut(event, collectionNavigation)) {
 			return;
 		}
 

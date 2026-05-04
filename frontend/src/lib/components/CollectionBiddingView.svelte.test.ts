@@ -92,7 +92,9 @@ describe('CollectionBiddingView', () => {
 			}
 		});
 
-		expect(body).toContain('<span class="secondary-tab-active">collection</span>');
+		expect(body).toContain(
+			'<button type="button" class="secondary-tab-active" disabled>collection</button>'
+		);
 		expect(body).toContain('bids source');
 		expect(body).not.toContain('facet-panel-controls-row');
 		expect(body).not.toContain('class="facet-column"');
@@ -259,5 +261,66 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;traits=Hat%3ABeanie'
 		);
+	});
+
+	it('renders explicit collection bid-scope links so stored preferences do not override scope clicks', () => {
+		const { body } = render(CollectionBiddingView, {
+			props: {
+				chain: {
+					id: 1,
+					type: 'evm',
+					publicChainId: 1,
+					slug: 'ethereum',
+					name: 'Ethereum'
+				},
+				collection: {
+					chainId: 1,
+					collectionId: 1,
+					slug: 'milady',
+					address: '0x1111111111111111111111111111111111111111',
+					standard: 'erc721',
+					status: 'live',
+					deploymentBlock: 1,
+					bootstrapAnchorBlock: null,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T00:00:00Z'
+				},
+				jobs: [],
+				bidBook: {
+					state: {
+						source: 'orders',
+						updatedAt: '2026-01-02T00:00:00Z',
+						snapshotRefreshedAtMs: null,
+						projectedAt: null,
+						rowCount: 0,
+						durationMs: null,
+						lastError: null
+					},
+					bids: []
+				},
+				facets: [],
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [{ key: 'artifact', label: 'artifact' }]
+				},
+				included: {
+					tokensById: {},
+					hasTraitSummaryTemplate: false
+				},
+				basePath: '/ethereum/milady',
+				selectedTraits: [],
+				selectedTraitRanges: [],
+				bidScope: 'traits',
+				traitJoinMode: 'or',
+				biddingView: 'bid_book',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(body).toContain(
+			'<button type="button" class="secondary-tab-active" disabled>traits</button>'
+		);
+		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection');
 	});
 });

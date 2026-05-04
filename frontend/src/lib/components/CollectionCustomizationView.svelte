@@ -10,22 +10,18 @@
 		CollectionCustomizationApiResponse
 	} from '$lib/api-types';
 	import { updateCollectionCustomization } from '$lib/backend-api';
-	import { buildCollectionActivityQuery } from '$lib/activity-query';
+	import {
+		buildCollectionNavigation,
+		handleCollectionSectionShortcut
+	} from '$lib/collection-navigation';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
-	import { handleCollectionSectionShortcut } from '$lib/components/collection-section-navigation';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
-	import { buildCollectionCustomizationHref } from '$lib/customization-query';
-	import { appendMediaModeParam } from '$lib/media-mode';
-	import { joinPath, withQuery } from '$lib/route-paths';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
-	import { buildTokenBrowserHref } from '$lib/token-browser-query';
-	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 
 	type TraitFilterPresentationState =
 		CollectionCustomizationApiResponse['customization']['traitFilterPresentation'];
@@ -87,58 +83,23 @@
 		return `/${chain.slug}`;
 	}
 
-	function tokensHref(): string {
-		return buildTokenBrowserHref({
+	function collectionNavigation() {
+		return buildCollectionNavigation({
 			basePath,
-			limit: DEFAULT_PAGE_LIMIT,
-			displayMode: 'grid',
-			tokenStatus: 'listed',
+			mediaMode,
 			selectedTraits,
 			selectedTraitRanges,
-			mediaMode
-		});
-	}
-
-	function tokensQuery(): URLSearchParams {
-		return buildCollectionTokenNavigationQuery({
-			limit: DEFAULT_PAGE_LIMIT,
-			displayMode: 'grid',
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode
-		});
-	}
-
-	function holdersHref(): string {
-		const query = new URLSearchParams();
-		appendMediaModeParam(query, mediaMode);
-		return withQuery(joinPath(basePath, 'holders'), query);
-	}
-
-	function customizationHref(): string {
-		return buildCollectionCustomizationHref({
-			basePath,
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode
-		});
-	}
-
-	function biddingQuery(): URLSearchParams {
-		return buildCollectionBiddingQuery({
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode
-		});
-	}
-
-	function activitiesQuery(): URLSearchParams {
-		return buildCollectionActivityQuery({
-			limit: DEFAULT_PAGE_LIMIT,
-			kind: 'sales',
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode
+			token: {
+				limit: DEFAULT_PAGE_LIMIT,
+				displayMode: 'grid'
+			},
+			activity: {
+				limit: DEFAULT_PAGE_LIMIT,
+				kind: 'sales'
+			},
+			bidding: {
+				enabled: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			}
 		});
 	}
 
@@ -367,44 +328,28 @@
 	function onWindowKeydown(event: KeyboardEvent): void {
 		keyboardShortcutsHelp.onWindowKeydown(event);
 		if (event.defaultPrevented || $keyboardShortcutsHelpState.open) return;
-		handleCollectionSectionShortcut(event, {
-			tokensBasePath: basePath,
-			tokensQuery: tokensQuery(),
-			activitiesBasePath: basePath,
-			activitiesQuery: activitiesQuery(),
-			biddingBasePath: basePath,
-			biddingQuery: biddingQuery(),
-			showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-		});
+		handleCollectionSectionShortcut(event, collectionNavigation());
 	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
 
 <CollectionPageLayout
-	tokensBasePath={basePath}
-	tokensQuery={tokensQuery()}
-	activitiesBasePath={basePath}
-	activitiesQuery={activitiesQuery()}
-	holdersHref={holdersHref()}
-	customizationHref={customizationHref()}
-	biddingBasePath={basePath}
-	biddingQuery={biddingQuery()}
+	navigation={collectionNavigation()}
 	activeSection="customization"
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}
 			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-				<a href={tokensHref()}>{collection.slug}</a>
+				<a href={collectionNavigation().hrefs.asks}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">customization</span>
 			{:else}
 				<a href={collectionsHref()}>collections</a>
 				<span class="breadcrumbs-separator">/</span>
-				<a href={tokensHref()}>{collection.slug}</a>
+				<a href={collectionNavigation().hrefs.asks}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
 				<span class="breadcrumbs-current">customization</span>
 			{/if}

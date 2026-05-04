@@ -5,12 +5,11 @@ import {
 } from '$lib/bidding-query';
 import {
 	applyQueryControlPreferenceToQuery,
-	readScopedQueryControlPreference,
-	writeScopedQueryControlPreference,
-	type QueryControlPreferenceDefinitions
+	readQueryControlPreference,
+	type QueryControlPreferenceDefinitions,
+	writeQueryControlPreference
 } from '$lib/query-control-preferences';
-
-const STORAGE_KEY = 'artgod.collectionBidding.navigationPreferences.v1';
+import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
 
 export type CollectionBiddingNavigationPreference = {
 	bidScope: CollectionBiddingBidScopeFilter;
@@ -23,36 +22,30 @@ const BIDDING_NAVIGATION_DEFINITIONS = {
 	}
 } satisfies QueryControlPreferenceDefinitions<CollectionBiddingNavigationPreference>;
 
-export function readCollectionBiddingNavigationPreference(
-	collectionPath: string
-): Partial<CollectionBiddingNavigationPreference> | null {
-	return readScopedQueryControlPreference({
-		storageKey: STORAGE_KEY,
-		scopePath: collectionPath,
+export function readCollectionBiddingNavigationPreference(): Partial<CollectionBiddingNavigationPreference> | null {
+	return readQueryControlPreference({
+		storageKey: LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences,
 		definitions: BIDDING_NAVIGATION_DEFINITIONS
 	});
 }
 
 export function writeCollectionBiddingNavigationPreference(
-	collectionPath: string,
 	preference: CollectionBiddingNavigationPreference
 ): void {
-	writeScopedQueryControlPreference({
-		storageKey: STORAGE_KEY,
-		scopePath: collectionPath,
+	writeQueryControlPreference({
+		storageKey: LOCAL_STORAGE_KEYS.collectionBiddingNavigationPreferences,
 		definitions: BIDDING_NAVIGATION_DEFINITIONS,
 		preference
 	});
 }
 
 export function applyCollectionBiddingNavigationPreferenceToQuery(
-	basePath: string,
 	query: URLSearchParams,
 	preference: Partial<CollectionBiddingNavigationPreference> | null
 ): URLSearchParams {
 	return applyQueryControlPreferenceToQuery({
 		query,
 		definitions: BIDDING_NAVIGATION_DEFINITIONS,
-		preference: basePath.trim() ? preference : null
+		preference
 	});
 }

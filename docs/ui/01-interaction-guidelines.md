@@ -23,6 +23,9 @@ Primary collection navigation is rendered by `CollectionSectionTabs.svelte` and 
 - `holders`
 - `customization`
 
+Collection cross-page navigation URLs are built by `frontend/src/lib/collection-navigation.ts`.
+Collection views should pass an explicit typed navigation state into `buildCollectionNavigation(...)` and then pass the resulting `CollectionNavigation` to `CollectionPageLayout.svelte`; do not rebuild tokens / activities / bidding / holders / customization hrefs ad hoc in each view.
+
 The active primary tab must be rendered as non-clickable text, not as a live link, and must not use pointer/hover behavior.
 
 ## Default Width Policy
@@ -215,11 +218,38 @@ The split of responsibilities is:
 - `4` opens `bidding`.
 - `S` cycles the `bid_scope` query control using the ordered values defined in `bidding-query.ts`.
 - Collection and bidding shortcuts must not fire while a text-entry target is focused.
-- Last selected `bid_scope` is a local UI navigation preference stored in `localStorage`, scoped by collection path.
+- Last selected `bid_scope` is a global local UI navigation preference stored in `localStorage`.
+- Bidding route load applies stored `bid_scope` before backend fetches during browser-side navigation when the URL omits `bid_scope`.
 - Explicit `bid_scope` URL params always override stored bidding navigation preferences.
-- Last selected collection `token_status` is also a local UI navigation preference, scoped by collection path.
-- Explicit `token_status` URL params always override stored token navigation preferences.
 - New scoped query-control preferences should use `query-control-preferences.ts` instead of one-off `localStorage` helpers.
+
+## Navigation State Ownership
+
+Choose the smallest state ownership model that preserves correct navigation behavior.
+
+URL-owned state:
+
+- Use for filters, scopes, sorts, pagination, sub-pages, and any control that changes fetched data or the semantic content of the page.
+- Benefits: correct SSR, refresh, browser history, copy/paste, and shareable links.
+- Implementation: parse in route load, pass through page data, and preserve through `collection-navigation.ts` when cross-page links should carry it.
+
+Browser preference state:
+
+- Use for local defaults that improve return navigation inside an ongoing browser session but do not need shareable URLs.
+- Benefits: avoids polluting unrelated URLs with page-specific controls.
+- Limitation: not authoritative for hard reload / SSR because `localStorage` is unavailable on the server.
+- Implementation: read in browser-side route load before data fetch when the preference changes backend query inputs; otherwise keep it in component/controller state.
+- Frontend `localStorage` key literals must be defined in `frontend/src/lib/local-storage-keys.ts`, not scattered through feature files.
+
+Cookie preference state:
+
+- Use only when a hidden preference must affect SSR and the same URL rendering differently per user is acceptable.
+- Prefer this for presentation defaults, not data-shaping controls.
+- Avoid cookies for filters/scopes that should be visible, shareable, and easy to debug from the URL.
+
+Component-only state:
+
+- Use for transient interaction state that does not need navigation persistence, such as open menus or in-flight UI affordances.
 
 Trait value selection rules:
 
@@ -256,14 +286,16 @@ Trait-aware pages:
 
 - collection tokens
 - collection activities
+- collection bidding `bid_scope=traits`
 - holder-token page
 
 The collection holders leaderboard is intentionally not trait-aware and acts as the reset boundary.
 
 Navigation rules:
 
-- collection `tokens` <-> collection `activities` preserve trait filters
-- holder-token page -> collection `tokens` / `activities` preserves trait filters
+- primary collection navigation built through `collection-navigation.ts` preserves trait filters for trait-aware destinations
+- collection `tokens` <-> collection `activities` <-> collection bidding preserve trait filters
+- holder-token page -> collection `tokens` / `activities` / bidding preserves trait filters
 - collection `tokens` / `activities` -> holder-token page does not carry trait filters
 - collection `holders` leaderboard does not preserve trait filters
 
