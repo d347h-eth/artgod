@@ -2473,8 +2473,24 @@ th {
 
 .runtime-tabs {
 	display: flex;
+	align-items: flex-end;
 	gap: 0.45rem;
+	flex-wrap: wrap;
 	min-width: 0;
+}
+
+.runtime-tab-group,
+.runtime-tab-standalone {
+	display: inline-flex;
+	flex-direction: column;
+	justify-content: flex-end;
+}
+
+.runtime-tab-group-items {
+	display: inline-flex;
+	gap: 0.25rem;
+	padding-top: 0.18rem;
+	border-top: 1px solid color-mix(in srgb, var(--c-blue) 70%, transparent);
 }
 
 .secondary-tabs {
@@ -2532,6 +2548,20 @@ th {
 	cursor: pointer;
 }
 
+.runtime-tabs .runtime-tab-group-label {
+	display: block;
+	min-width: 0;
+	padding: 0 0.2rem;
+	border: 0;
+	background: transparent;
+	color: var(--c-sand);
+	font-size: 0.62rem;
+	line-height: 1;
+	text-align: center;
+	cursor: default;
+	pointer-events: none;
+}
+
 .secondary-tabs button,
 .secondary-tabs a,
 .secondary-tabs span {
@@ -2561,6 +2591,7 @@ th {
 .runtime-tabs span.runtime-tab-active {
 	border-color: var(--c-orange);
 	color: var(--c-orange);
+	cursor: default;
 }
 
 .runtime-tabs button.runtime-tab-active:disabled {

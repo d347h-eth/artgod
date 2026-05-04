@@ -13,15 +13,14 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
-	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { buildCollectionActivityQuery } from '$lib/activity-query';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
-	import TokenStatusTabs from '$lib/components/TokenStatusTabs.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
-	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
+	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -126,18 +125,6 @@
 		return collection.slug;
 	}
 
-	function tokensSectionHref(): string {
-		return buildTokenBrowserHref({
-			basePath,
-			limit: tokens.limit,
-			displayMode,
-			tokenStatus,
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
 	function tokensSectionQuery(): URLSearchParams {
 		return buildCollectionTokenNavigationQuery({
 			limit: tokens.limit,
@@ -148,9 +135,8 @@
 		});
 	}
 
-	function activitiesSectionHref(): string {
-		return buildCollectionActivityHref({
-			basePath,
+	function activitiesSectionQuery(): URLSearchParams {
+		return buildCollectionActivityQuery({
 			limit: tokens.limit,
 			kind: 'sales',
 			selectedTraits,
@@ -179,15 +165,6 @@
 
 	function customizationSectionHref(): string {
 		return buildCollectionCustomizationHref({
-			basePath,
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
-	function biddingSectionHref(): string {
-		return buildCollectionBiddingHref({
 			basePath,
 			selectedTraits,
 			selectedTraitRanges,
@@ -259,16 +236,16 @@
 </script>
 
 <CollectionPageLayout
-	tokensHref={tokensSectionHref()}
 	tokensBasePath={basePath}
 	tokensQuery={tokensSectionQuery()}
-	activitiesHref={activitiesSectionHref()}
+	activitiesBasePath={basePath}
+	activitiesQuery={activitiesSectionQuery()}
 	holdersHref={holdersSectionHref()}
 	customizationHref={customizationSectionHref()}
-	biddingHref={biddingSectionHref()}
 	biddingBasePath={basePath}
 	biddingQuery={biddingSectionQuery()}
 	activeSection="tokens"
+	activeTokenStatus={tokenStatus}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
@@ -291,30 +268,19 @@
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 	{#snippet topActions()}
-	{#if collection}
-		<div class="panel-top-actions-row">
-			<TokenStatusTabs
-				basePath={basePath}
-				limit={tokens.limit}
-				{displayMode}
-				{tokenStatus}
-				{selectedTraits}
-				{selectedTraitRanges}
-				mediaMode={media.selectedMode}
-			/>
-		</div>
-		<div class="panel-top-actions-row">
-			<TraitFacetPanelControls
-				hasActiveFilters={selectedTraits.length > 0 || selectedTraitRanges.length > 0}
-				collapsed={$traitFacetPanelState.collapsed}
-				onToggleCollapsed={traitFacetPanel.toggle}
-				onReset={onResetTraits}
-				{selectedTraits}
-				selectedRanges={selectedTraitRanges}
-				onSelectedFiltersChange={applyTraitFilters}
-			/>
-		</div>
-	{/if}
+		{#if collection}
+			<div class="panel-top-actions-row">
+				<TraitFacetPanelControls
+					hasActiveFilters={selectedTraits.length > 0 || selectedTraitRanges.length > 0}
+					collapsed={$traitFacetPanelState.collapsed}
+					onToggleCollapsed={traitFacetPanel.toggle}
+					onReset={onResetTraits}
+					{selectedTraits}
+					selectedRanges={selectedTraitRanges}
+					onSelectedFiltersChange={applyTraitFilters}
+				/>
+			</div>
+		{/if}
 	{/snippet}
 	{#if collection && collection.status !== 'live'}
 		<section class="panel-header">
@@ -345,6 +311,15 @@
 		onResetTraits={onResetTraits}
 		{traitFacetPanel}
 		{keyboardShortcutsHelp}
+		collectionSectionNavigation={{
+			tokensBasePath: basePath,
+			tokensQuery: tokensSectionQuery(),
+			activitiesBasePath: basePath,
+			activitiesQuery: activitiesSectionQuery(),
+			biddingBasePath: basePath,
+			biddingQuery: biddingSectionQuery(),
+			showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+		}}
 		tokenStatus={tokenStatus}
 		displayMode={displayMode}
 	/>

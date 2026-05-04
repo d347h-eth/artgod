@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
 	applyCollectionBiddingNavigationPreferenceToQuery,
-	preferredCollectionBiddingHref
+	type CollectionBiddingNavigationPreference
 } from '$lib/bidding-navigation-preferences';
 
 describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
-	it('adds stored bidding navigation values when URL omits them', () => {
+	it('adds stored bid scope when URL omits it', () => {
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
 				'/ethereum/terraforms',
 				new URLSearchParams('traits=Mode%3ATerrain'),
 				{
-					biddingView: 'bid_book',
 					bidScope: 'traits'
 				}
 			).toString()
@@ -22,20 +21,18 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 				'/ethereum/terraforms',
 				new URLSearchParams(),
 				{
-					biddingView: 'jobs',
 					bidScope: 'traits'
 				}
 			).toString()
-		).toBe('bidding_view=jobs&bid_scope=traits');
+		).toBe('bid_scope=traits');
 	});
 
-	it('keeps explicit URL values ahead of stored values', () => {
+	it('keeps explicit URL bid scope ahead of stored values', () => {
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
 				'/ethereum/terraforms',
 				new URLSearchParams('bidding_view=bid_book&bid_scope=collection'),
 				{
-					biddingView: 'jobs',
 					bidScope: 'traits'
 				}
 			).toString()
@@ -48,21 +45,23 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 				'/ethereum/terraforms',
 				new URLSearchParams(),
 				{
-					biddingView: 'bid_book',
 					bidScope: 'collection'
 				}
 			).toString()
 		).toBe('');
 	});
-});
 
-describe('preferredCollectionBiddingHref', () => {
-	it('formats a structured collection bidding href from base path and query', () => {
+	it('ignores obsolete stored bidding view values', () => {
+		const obsoletePreference = JSON.parse(
+			'{"biddingView":"jobs","bidScope":"traits"}'
+		) as Partial<CollectionBiddingNavigationPreference>;
+
 		expect(
-			preferredCollectionBiddingHref({
-				basePath: '/ethereum/terraforms',
-				query: new URLSearchParams('traits=Mode%3ATerrain')
-			})
-		).toBe('/ethereum/terraforms/bidding?traits=Mode%3ATerrain');
+			applyCollectionBiddingNavigationPreferenceToQuery(
+				'/ethereum/terraforms',
+				new URLSearchParams(),
+				obsoletePreference
+			).toString()
+		).toBe('bid_scope=traits');
 	});
 });

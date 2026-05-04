@@ -10,6 +10,9 @@ import {
 	appendTraitRangeParams
 } from '$lib/trait-filters';
 
+export const ACTIVITY_KIND_QUERY_PARAM = 'kind';
+export const COLLECTION_ACTIVITY_FILTER_KINDS = ['sales', 'listings', 'transfers'] as const;
+
 export function normalizeCollectionActivityParams(
 	raw: URLSearchParams,
 	kind: ActivityFeedFilterKind
@@ -24,12 +27,32 @@ export function normalizeCollectionActivityParams(
 		params.set('cursor', cursor.trim());
 	}
 
-	params.set('kind', kind);
+	params.set(ACTIVITY_KIND_QUERY_PARAM, kind);
 	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
 	appendNormalizedTraitParams(params, raw);
 	appendNormalizedTraitRangeParams(params, raw);
 
 	return params;
+}
+
+export function buildCollectionActivityQuery(params: {
+	limit: number;
+	kind: ActivityFeedFilterKind;
+	selectedTraits: ApiTokenAttribute[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
+	mediaMode?: string | null;
+	cursor?: string | null;
+}): URLSearchParams {
+	const query = new URLSearchParams();
+	query.set('limit', String(params.limit));
+	query.set(ACTIVITY_KIND_QUERY_PARAM, params.kind);
+	appendMediaModeParam(query, params.mediaMode ?? null);
+	if (params.cursor?.trim()) {
+		query.set('cursor', params.cursor.trim());
+	}
+	appendTraitParams(query, params.selectedTraits);
+	appendTraitRangeParams(query, params.selectedTraitRanges);
+	return query;
 }
 
 export function buildCollectionActivityHref(params: {
@@ -41,20 +64,19 @@ export function buildCollectionActivityHref(params: {
 	mediaMode?: string | null;
 	cursor?: string | null;
 }): string {
-	const query = new URLSearchParams();
-	query.set('limit', String(params.limit));
-	query.set('kind', params.kind);
-	appendMediaModeParam(query, params.mediaMode ?? null);
-	if (params.cursor?.trim()) {
-		query.set('cursor', params.cursor.trim());
-	}
-	appendTraitParams(query, params.selectedTraits);
-	appendTraitRangeParams(query, params.selectedTraitRanges);
+	const query = buildCollectionActivityQuery({
+		limit: params.limit,
+		kind: params.kind,
+		selectedTraits: params.selectedTraits,
+		selectedTraitRanges: params.selectedTraitRanges,
+		mediaMode: params.mediaMode ?? null,
+		cursor: params.cursor ?? null
+	});
 	return withQuery(joinPath(params.basePath, 'activity'), query);
 }
 
 export function parseCollectionActivityKind(raw: string | null): ActivityFeedFilterKind {
-	if (raw?.trim().toLowerCase() === 'listings') return 'listings';
-	if (raw?.trim().toLowerCase() === 'transfers') return 'transfers';
-	return 'sales';
+	const normalized = raw?.trim().toLowerCase() as ActivityFeedFilterKind | undefined;
+	if (normalized && COLLECTION_ACTIVITY_FILTER_KINDS.includes(normalized)) return normalized;
+	return COLLECTION_ACTIVITY_FILTER_KINDS[0];
 }

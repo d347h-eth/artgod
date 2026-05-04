@@ -254,7 +254,8 @@ describe('CollectionBiddingView', () => {
 		expect(body).not.toContain('0.10');
 		expect(body).toContain('collection scope');
 		expect(body).not.toContain('Bid scope filter');
-		expect(body).toContain('<span class="secondary-tab-active">jobs</span>');
+		expect(body).not.toContain('Bidding view');
+		expect(body).toContain('<span class="runtime-tab-active">bidding</span>');
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;traits=Hat%3ABeanie'
 		);

@@ -60,14 +60,31 @@
 			]
 		},
 		{
-			title: 'Bidding Page',
+			title: 'Collection Navigation',
 			entries: [
 				{
 					keys: ['1'],
-					description: 'cycle bidding view'
+					description: 'open asks'
 				},
 				{
 					keys: ['2'],
+					description: 'open offers'
+				},
+				{
+					keys: ['3'],
+					description: 'open tokens'
+				},
+				{
+					keys: ['4'],
+					description: 'open bidding'
+				}
+			]
+		},
+		{
+			title: 'Bidding Page',
+			entries: [
+				{
+					keys: ['S'],
 					description: 'cycle bid scope'
 				}
 			]

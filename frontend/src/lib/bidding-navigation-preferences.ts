@@ -1,11 +1,7 @@
-import { browser } from '$app/environment';
 import {
 	BID_SCOPE_QUERY_PARAM,
-	BIDDING_VIEW_QUERY_PARAM,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
-	COLLECTION_BIDDING_VIEW_MODES,
-	type CollectionBiddingBidScopeFilter,
-	type CollectionBiddingViewMode
+	type CollectionBiddingBidScopeFilter
 } from '$lib/bidding-query';
 import {
 	applyQueryControlPreferenceToQuery,
@@ -13,20 +9,14 @@ import {
 	writeScopedQueryControlPreference,
 	type QueryControlPreferenceDefinitions
 } from '$lib/query-control-preferences';
-import { joinPath, withQuery } from '$lib/route-paths';
 
 const STORAGE_KEY = 'artgod.collectionBidding.navigationPreferences.v1';
 
 export type CollectionBiddingNavigationPreference = {
-	biddingView: CollectionBiddingViewMode;
 	bidScope: CollectionBiddingBidScopeFilter;
 };
 
 const BIDDING_NAVIGATION_DEFINITIONS = {
-	biddingView: {
-		param: BIDDING_VIEW_QUERY_PARAM,
-		values: COLLECTION_BIDDING_VIEW_MODES
-	},
 	bidScope: {
 		param: BID_SCOPE_QUERY_PARAM,
 		values: COLLECTION_BIDDING_BID_SCOPE_FILTERS
@@ -53,20 +43,6 @@ export function writeCollectionBiddingNavigationPreference(
 		definitions: BIDDING_NAVIGATION_DEFINITIONS,
 		preference
 	});
-}
-
-export function preferredCollectionBiddingHref(params: {
-	basePath: string;
-	query: URLSearchParams;
-}): string {
-	return withQuery(
-		joinPath(params.basePath, 'bidding'),
-		applyCollectionBiddingNavigationPreferenceToQuery(
-			params.basePath,
-			params.query,
-			browser ? readCollectionBiddingNavigationPreference(params.basePath) : null
-		)
-	);
 }
 
 export function applyCollectionBiddingNavigationPreferenceToQuery(

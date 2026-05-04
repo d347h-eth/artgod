@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
 	buildCollectionBiddingQuery,
 	nextCollectionBiddingBidScopeFilter,
-	nextCollectionBiddingViewMode,
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingView,
 	parseCollectionBiddingTraitFilterJoinMode
@@ -41,11 +40,9 @@ describe('collection bidding ordered query controls', () => {
 		expect(parseCollectionBiddingView(new URLSearchParams('bidding_view=nope'))).toBe('bid_book');
 	});
 
-	it('cycles bid scope and view using their canonical ordered value lists', () => {
+	it('cycles bid scope using the canonical ordered value list', () => {
 		expect(nextCollectionBiddingBidScopeFilter('collection')).toBe('traits');
 		expect(nextCollectionBiddingBidScopeFilter('traits')).toBe('collection');
-		expect(nextCollectionBiddingViewMode('bid_book')).toBe('jobs');
-		expect(nextCollectionBiddingViewMode('jobs')).toBe('bid_book');
 	});
 });
 

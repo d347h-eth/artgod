@@ -145,9 +145,10 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('>reset<');
 		expect(body).toContain('>Hat=Beanie<');
 		expect(body).toContain('relative');
-		expect(body).toContain('<span class="secondary-tab-active">sales</span>');
+		expect(body).toContain('<span class="runtime-tab-active">sales</span>');
+		expect(body).not.toContain('Activity type filters');
 		expect(body).toContain(
-			'/ethereum/milady?limit=25&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=artifact&amp;traits=Hat%3ABeanie&amp;token_status=listed'
 		);
 		expect(body).toContain(
 			'/ethereum/milady/activity?limit=25&amp;kind=listings&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'

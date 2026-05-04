@@ -15,12 +15,11 @@
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
-	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { buildCollectionActivityQuery } from '$lib/activity-query';
 	import {
 		buildCollectionBiddingHref,
 		buildCollectionBiddingQuery,
 		nextCollectionBiddingBidScopeFilter,
-		nextCollectionBiddingViewMode,
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
 	import {
@@ -33,6 +32,7 @@
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { handleCollectionSectionShortcut } from '$lib/components/collection-section-navigation';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import CollectionBiddingJobRow from '$lib/components/CollectionBiddingJobRow.svelte';
@@ -159,7 +159,7 @@
 
 	$effect(() => {
 		if (!biddingNavigationPreferenceReady) return;
-		writeCollectionBiddingNavigationPreference(basePath, { biddingView, bidScope });
+		writeCollectionBiddingNavigationPreference(basePath, { bidScope });
 	});
 
 	function collectionsHref(): string {
@@ -190,17 +190,6 @@
 		});
 	}
 
-	function activitiesHref(): string {
-		return buildCollectionActivityHref({
-			basePath,
-			limit: DEFAULT_PAGE_LIMIT,
-			kind: 'sales',
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			mediaMode
-		});
-	}
-
 	function holdersHref(): string {
 		const query = new URLSearchParams();
 		appendMediaModeParam(query, mediaMode);
@@ -213,18 +202,6 @@
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			mediaMode
-		});
-	}
-
-	function biddingHref(): string {
-		return buildCollectionBiddingHref({
-			basePath,
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			traitJoinMode,
-			viewMode: biddingView,
-			mediaMode,
-			showMuted
 		});
 	}
 
@@ -241,6 +218,16 @@
 			viewMode: biddingView,
 			mediaMode,
 			showMuted
+		});
+	}
+
+	function activitiesQuery(): URLSearchParams {
+		return buildCollectionActivityQuery({
+			limit: DEFAULT_PAGE_LIMIT,
+			kind: 'sales',
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			mediaMode
 		});
 	}
 
@@ -340,14 +327,6 @@
 		});
 	}
 
-	async function cycleBiddingView(): Promise<void> {
-		await goto(biddingViewHref(nextCollectionBiddingViewMode(biddingView)), {
-			invalidateAll: true,
-			keepFocus: true,
-			noScroll: true
-		});
-	}
-
 	async function cycleBidScope(): Promise<void> {
 		await goto(bidScopeHref(nextCollectionBiddingBidScopeFilter(bidScope), biddingView), {
 			invalidateAll: true,
@@ -406,17 +385,34 @@
 		if (previewWasOpen) return;
 
 		if (
+			handleCollectionSectionShortcut(event, {
+				tokensBasePath: basePath,
+				tokensQuery: tokensQuery(),
+				activitiesBasePath: basePath,
+				activitiesQuery: activitiesQuery(),
+				biddingBasePath: basePath,
+				biddingQuery: buildCollectionBiddingQuery({
+					selectedTraits: activeTraits,
+					selectedTraitRanges: activeTraitRanges,
+					bidScope,
+					traitJoinMode,
+					viewMode: biddingView,
+					mediaMode,
+					showMuted
+				}),
+				showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			})
+		) {
+			return;
+		}
+
+		if (
 			!event.metaKey &&
 			!event.ctrlKey &&
 			!event.altKey &&
 			!isKeyboardTextEntryTarget(event.target, { allowCheckboxAndRadio: true })
 		) {
-			if (event.key === '1') {
-				event.preventDefault();
-				void cycleBiddingView();
-				return;
-			}
-			if (event.key === '2') {
+			if (event.key.toLowerCase() === 's') {
 				event.preventDefault();
 				void cycleBidScope();
 				return;
@@ -447,13 +443,12 @@
 {/snippet}
 
 <CollectionPageLayout
-	tokensHref={tokensHref()}
 	tokensBasePath={basePath}
 	tokensQuery={tokensQuery()}
-	activitiesHref={activitiesHref()}
+	activitiesBasePath={basePath}
+	activitiesQuery={activitiesQuery()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
-	biddingHref={biddingHref()}
 	biddingBasePath={basePath}
 	biddingQuery={buildCollectionBiddingQuery({
 		selectedTraits: activeTraits,
@@ -465,6 +460,7 @@
 		showMuted
 	})}
 	activeSection="bidding"
+	activeBiddingView={biddingView}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
@@ -492,20 +488,6 @@
 	{/snippet}
 	{#snippet topActions()}
 		{#if collection}
-			<div class="panel-top-actions-row">
-				<div class="secondary-tabs" aria-label="Bidding view">
-					{#if biddingView === 'bid_book'}
-						<span class="secondary-tab-active">bid book</span>
-					{:else}
-						<a href={biddingViewHref('bid_book')}>bid book</a>
-					{/if}
-					{#if biddingView === 'jobs'}
-						<span class="secondary-tab-active">jobs</span>
-					{:else}
-						<a href={biddingViewHref('jobs')}>jobs</a>
-					{/if}
-				</div>
-			</div>
 			{#if biddingView === 'bid_book'}
 				<div class="panel-top-actions-row">
 					<div class="secondary-tabs" aria-label="Bid scope filter">

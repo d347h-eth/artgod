@@ -101,12 +101,6 @@ export function nextCollectionBiddingBidScopeFilter(
 	return nextOrderedQueryControl(COLLECTION_BIDDING_BID_SCOPE_FILTERS, current);
 }
 
-export function nextCollectionBiddingViewMode(
-	current: CollectionBiddingViewMode
-): CollectionBiddingViewMode {
-	return nextOrderedQueryControl(COLLECTION_BIDDING_VIEW_MODES, current);
-}
-
 function parseOrderedQueryControl<T extends string>(
 	values: OrderedQueryControlValues<T>,
 	raw: string | null

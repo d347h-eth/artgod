@@ -13,16 +13,17 @@
 		ApiTokenPresentationSummary,
 		ApiTraitFacet
 	} from '$lib/api-types';
-	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { buildCollectionActivityHref, buildCollectionActivityQuery } from '$lib/activity-query';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { handleCollectionSectionShortcut } from '$lib/components/collection-section-navigation';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { formatListingPrice } from '$lib/listing-price';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
-	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
+	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
@@ -142,17 +143,6 @@
 		});
 	}
 
-	function activitiesHref(): string {
-		return buildCollectionActivityHref({
-			basePath,
-			limit: activities.limit,
-			kind: filterKind,
-			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
 	function holdersHref(): string {
 		const query = new URLSearchParams();
 		query.set('media_mode', media.selectedMode);
@@ -198,17 +188,18 @@
 		});
 	}
 
-	function biddingHref(): string {
-		return buildCollectionBiddingHref({
-			basePath,
+	function biddingQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
 
-	function biddingQuery(): URLSearchParams {
-		return buildCollectionBiddingQuery({
+	function activitiesQuery(): URLSearchParams {
+		return buildCollectionActivityQuery({
+			limit: activities.limit,
+			kind: filterKind,
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			mediaMode: media.selectedMode
@@ -313,6 +304,20 @@
 		const previewWasOpen = $tokenPreviewState.open;
 		tokenPreview.onWindowKeydown(event);
 		if (previewWasOpen) {
+			return;
+		}
+
+		if (
+			handleCollectionSectionShortcut(event, {
+				tokensBasePath: basePath,
+				tokensQuery: tokensQuery(),
+				activitiesBasePath: basePath,
+				activitiesQuery: activitiesQuery(),
+				biddingBasePath: basePath,
+				biddingQuery: biddingQuery(),
+				showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			})
+		) {
 			return;
 		}
 
@@ -422,16 +427,16 @@
 <svelte:window onkeydown={onWindowKeydown} />
 
 <CollectionPageLayout
-	tokensHref={tokensHref()}
 	tokensBasePath={basePath}
 	tokensQuery={tokensQuery()}
-	activitiesHref={activitiesHref()}
+	activitiesBasePath={basePath}
+	activitiesQuery={activitiesQuery()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
-	biddingHref={biddingHref()}
 	biddingBasePath={basePath}
 	biddingQuery={biddingQuery()}
 	activeSection="activities"
+	activeActivityKind={filterKind}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 	showBidding={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
@@ -441,13 +446,13 @@
 			{#if IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 				<a href={tokensHref()}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
-				<span class="breadcrumbs-current">activities</span>
+				<span class="breadcrumbs-current">events</span>
 			{:else}
 				<a href={collectionsHref()}>collections</a>
 				<span class="breadcrumbs-separator">/</span>
 				<a href={tokensHref()}>{collection.slug}</a>
 				<span class="breadcrumbs-separator">/</span>
-				<span class="breadcrumbs-current">activities</span>
+				<span class="breadcrumbs-current">events</span>
 			{/if}
 		{/if}
 	{/snippet}
@@ -458,25 +463,6 @@
 		<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
 	{/snippet}
 	{#snippet topActions()}
-		<div class="panel-top-actions-row">
-			<div class="secondary-tabs" aria-label="Activity type filters">
-				{#if filterKind === 'sales'}
-					<span class="secondary-tab-active">sales</span>
-				{:else}
-					<a href={filterHref('sales')}>sales</a>
-				{/if}
-				{#if filterKind === 'listings'}
-					<span class="secondary-tab-active">listings</span>
-				{:else}
-					<a href={filterHref('listings')}>listings</a>
-				{/if}
-				{#if filterKind === 'transfers'}
-					<span class="secondary-tab-active">transfers</span>
-				{:else}
-					<a href={filterHref('transfers')}>transfers</a>
-				{/if}
-			</div>
-		</div>
 		<div class="panel-top-actions-row">
 			<TraitFacetPanelControls
 				hasActiveFilters={hasActiveFilters}

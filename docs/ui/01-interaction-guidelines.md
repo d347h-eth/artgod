@@ -15,14 +15,15 @@ Shared structure:
 3. stacked top-action rows
 4. page body
 
-Primary section tabs are rendered by `CollectionSectionTabs.svelte` and currently expose:
+Primary collection navigation is rendered by `CollectionSectionTabs.svelte` and currently exposes:
 
-- `tokens`
-- `activities`
+- grouped `explore`: `asks`, `offers`, `tokens`
+- standalone `bidding`
+- grouped `events`: `sales`, `listings`, `transfers`
 - `holders`
 - `customization`
 
-The active primary tab must be rendered as non-clickable text, not as a live link.
+The active primary tab must be rendered as non-clickable text, not as a live link, and must not use pointer/hover behavior.
 
 ## Default Width Policy
 
@@ -53,13 +54,11 @@ If a new control pattern is genuinely needed, get explicit approval first instea
 Collection pages should compose the shared shell like this:
 
 1. `CollectionDetailView.svelte`
-    - row 1: token status filter (`only listed` / `show all`)
-    - row 2: trait panel controls
+    - row 1: trait panel controls
     - body: `TokenBrowserView.svelte`
 
 2. `CollectionActivitiesView.svelte`
-    - row 1: activity kind filter (`sales` / `listings` / `transfers`)
-    - row 2: trait panel controls
+    - row 1: trait panel controls
     - body: activities table
 
 3. `CollectionHoldersView.svelte`
@@ -85,6 +84,9 @@ Collection pages should compose the shared shell like this:
 
 Do not reintroduce page-level action rows inside leaf views once the action belongs to the shared page shell.
 
+Token status, collection activity kind, and bidding view navigation belong to `CollectionSectionTabs.svelte`.
+Do not re-add duplicate secondary controls for those promoted main-navigation choices inside leaf views.
+
 ## Inner Content Toolbars
 
 `TokenBrowserView.svelte` owns an inner `results-toolbar`.
@@ -104,19 +106,19 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
 
 - Component/class family: `CollectionSectionTabs.svelte`, `.runtime-tabs`
 - Scope: top-level collection page navigation
+- Includes grouped collection choices: `explore` (`asks`, `offers`, `tokens`) and `events` (`sales`, `listings`, `transfers`)
 - Visual contract:
     - active/selected: orange
     - hover/focus: yellow
-    - active tab is not clickable
+    - active tab is not clickable and uses default cursor
 
 ### Secondary filter tabs
 
 - Component/class family: `.secondary-tabs`
 - Scope:
-    - token status
     - token display mode
     - token media mode
-    - activity kind filters
+    - bid scope filters
 - Visual contract:
     - active/selected: orange
     - hover/focus: yellow
@@ -207,11 +209,14 @@ The split of responsibilities is:
 
 ### Collection Query-Control Preferences and Shortcuts
 
-- `1` cycles the `bidding_view` query control using the ordered values defined in `bidding-query.ts`.
-- `2` cycles the `bid_scope` query control using the ordered values defined in `bidding-query.ts`.
-- Numeric bidding shortcuts must not fire while a text-entry target is focused.
-- Last selected `bidding_view` and `bid_scope` are local UI navigation preferences stored in `localStorage`, scoped by collection path.
-- Explicit `bidding_view` and `bid_scope` URL params always override stored bidding navigation preferences.
+- `1` opens `asks`.
+- `2` opens `offers`.
+- `3` opens `tokens`.
+- `4` opens `bidding`.
+- `S` cycles the `bid_scope` query control using the ordered values defined in `bidding-query.ts`.
+- Collection and bidding shortcuts must not fire while a text-entry target is focused.
+- Last selected `bid_scope` is a local UI navigation preference stored in `localStorage`, scoped by collection path.
+- Explicit `bid_scope` URL params always override stored bidding navigation preferences.
 - Last selected collection `token_status` is also a local UI navigation preference, scoped by collection path.
 - Explicit `token_status` URL params always override stored token navigation preferences.
 - New scoped query-control preferences should use `query-control-preferences.ts` instead of one-off `localStorage` helpers.

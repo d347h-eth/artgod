@@ -15,7 +15,7 @@
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { withQuery } from '$lib/route-paths';
-	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
+	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import {
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
@@ -23,7 +23,7 @@
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
 	import TokenBrowserView from '$lib/components/TokenBrowserView.svelte';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
-	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { buildCollectionActivityQuery } from '$lib/activity-query';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 	import { buildOwnerTokensHref, buildTokenBrowserHref } from '$lib/token-browser-query';
@@ -101,17 +101,6 @@
 		});
 	}
 
-	function collectionActivitiesHref(): string {
-		return buildCollectionActivityHref({
-			basePath: collectionBasePath,
-			limit: tokens.limit,
-			kind: 'sales',
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode: media.selectedMode
-		});
-	}
-
 	function holdersHref(): string {
 		const query = new URLSearchParams();
 		appendMediaModeParam(query, media.selectedMode);
@@ -127,17 +116,18 @@
 		});
 	}
 
-	function biddingHref(): string {
-		return buildCollectionBiddingHref({
-			basePath: collectionBasePath,
+	function biddingQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits,
 			selectedTraitRanges,
 			mediaMode: media.selectedMode
 		});
 	}
 
-	function biddingQuery(): URLSearchParams {
-		return buildCollectionBiddingQuery({
+	function activitiesQuery(): URLSearchParams {
+		return buildCollectionActivityQuery({
+			limit: tokens.limit,
+			kind: 'sales',
 			selectedTraits,
 			selectedTraitRanges,
 			mediaMode: media.selectedMode
@@ -175,13 +165,12 @@
 </script>
 
 <CollectionPageLayout
-	tokensHref={collectionTokensHref()}
 	tokensBasePath={collectionBasePath}
 	tokensQuery={collectionTokensQuery()}
-	activitiesHref={collectionActivitiesHref()}
+	activitiesBasePath={collectionBasePath}
+	activitiesQuery={activitiesQuery()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
-	biddingHref={biddingHref()}
 	biddingBasePath={collectionBasePath}
 	biddingQuery={biddingQuery()}
 	activeSection={null}
@@ -251,6 +240,15 @@
 		onResetTraits={onResetTraits}
 		{traitFacetPanel}
 		{keyboardShortcutsHelp}
+		collectionSectionNavigation={{
+			tokensBasePath: collectionBasePath,
+			tokensQuery: collectionTokensQuery(),
+			activitiesBasePath: collectionBasePath,
+			activitiesQuery: activitiesQuery(),
+			biddingBasePath: collectionBasePath,
+			biddingQuery: biddingQuery(),
+			showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+		}}
 		tokenStatus="listed_then_unlisted"
 		displayMode={displayMode}
 	/>

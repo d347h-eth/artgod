@@ -10,12 +10,13 @@
 		CollectionCustomizationApiResponse
 	} from '$lib/api-types';
 	import { updateCollectionCustomization } from '$lib/backend-api';
-	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { buildCollectionActivityQuery } from '$lib/activity-query';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { handleCollectionSectionShortcut } from '$lib/components/collection-section-navigation';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
+	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { joinPath, withQuery } from '$lib/route-paths';
@@ -50,6 +51,7 @@
 	} = $props();
 
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 	let traitFilterPresentation = $state<TraitFilterPresentationState>(
 		customization?.traitFilterPresentation ?? fallbackTraitFilterPresentationState()
 	);
@@ -107,17 +109,6 @@
 		});
 	}
 
-	function activitiesHref(): string {
-		return buildCollectionActivityHref({
-			basePath,
-			limit: DEFAULT_PAGE_LIMIT,
-			kind: 'sales',
-			selectedTraits,
-			selectedTraitRanges,
-			mediaMode
-		});
-	}
-
 	function holdersHref(): string {
 		const query = new URLSearchParams();
 		appendMediaModeParam(query, mediaMode);
@@ -133,17 +124,18 @@
 		});
 	}
 
-	function biddingHref(): string {
-		return buildCollectionBiddingHref({
-			basePath,
+	function biddingQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits,
 			selectedTraitRanges,
 			mediaMode
 		});
 	}
 
-	function biddingQuery(): URLSearchParams {
-		return buildCollectionBiddingQuery({
+	function activitiesQuery(): URLSearchParams {
+		return buildCollectionActivityQuery({
+			limit: DEFAULT_PAGE_LIMIT,
+			kind: 'sales',
 			selectedTraits,
 			selectedTraitRanges,
 			mediaMode
@@ -371,16 +363,31 @@
 			}
 		}
 	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		keyboardShortcutsHelp.onWindowKeydown(event);
+		if (event.defaultPrevented || $keyboardShortcutsHelpState.open) return;
+		handleCollectionSectionShortcut(event, {
+			tokensBasePath: basePath,
+			tokensQuery: tokensQuery(),
+			activitiesBasePath: basePath,
+			activitiesQuery: activitiesQuery(),
+			biddingBasePath: basePath,
+			biddingQuery: biddingQuery(),
+			showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+		});
+	}
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} />
+
 <CollectionPageLayout
-	tokensHref={tokensHref()}
 	tokensBasePath={basePath}
 	tokensQuery={tokensQuery()}
-	activitiesHref={activitiesHref()}
+	activitiesBasePath={basePath}
+	activitiesQuery={activitiesQuery()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
-	biddingHref={biddingHref()}
 	biddingBasePath={basePath}
 	biddingQuery={biddingQuery()}
 	activeSection="customization"

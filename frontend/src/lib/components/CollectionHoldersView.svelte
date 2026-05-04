@@ -13,12 +13,13 @@
 		resolveForwardWindowState,
 		writeForwardWindow
 	} from '$lib/components/forward-window-cache';
-	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { buildCollectionActivityQuery } from '$lib/activity-query';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { handleCollectionSectionShortcut } from '$lib/components/collection-section-navigation';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
-	import { buildCollectionBiddingHref, buildCollectionBiddingQuery } from '$lib/bidding-query';
+	import { buildCollectionBiddingQuery } from '$lib/bidding-query';
 	import { buildCollectionCustomizationHref } from '$lib/customization-query';
 	import { appendMediaModeParam } from '$lib/media-mode';
 	import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
@@ -53,6 +54,7 @@
 	let tailNextCursor = $state<string | null>(holders.nextCursor);
 	let loadMoreSentinel: HTMLDivElement | null = $state(null);
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 	let hasNextPage = $derived(tailNextCursor !== null);
 	let remainingItems = $derived(Math.max(holders.totalItems - visibleRangeEnd, 0));
 	let visibleStartPage = $derived(
@@ -158,17 +160,18 @@
 		});
 	}
 
-	function biddingHref(): string {
-		return buildCollectionBiddingHref({
-			basePath,
+	function biddingQuery(): URLSearchParams {
+		return buildCollectionBiddingQuery({
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			mediaMode: selectedMediaMode
 		});
 	}
 
-	function biddingQuery(): URLSearchParams {
-		return buildCollectionBiddingQuery({
+	function activitiesQuery(): URLSearchParams {
+		return buildCollectionActivityQuery({
+			limit: holders.limit,
+			kind: 'sales',
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			mediaMode: selectedMediaMode
@@ -228,26 +231,28 @@
 
 	function onWindowKeydown(event: KeyboardEvent): void {
 		keyboardShortcutsHelp.onWindowKeydown(event);
+		if (event.defaultPrevented || $keyboardShortcutsHelpState.open) return;
+		handleCollectionSectionShortcut(event, {
+			tokensBasePath: basePath,
+			tokensQuery: tokensQuery(),
+			activitiesBasePath: basePath,
+			activitiesQuery: activitiesQuery(),
+			biddingBasePath: basePath,
+			biddingQuery: biddingQuery(),
+			showBidding: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+		});
 	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
 
 <CollectionPageLayout
-	tokensHref={tokensHref()}
 	tokensBasePath={basePath}
 	tokensQuery={tokensQuery()}
-	activitiesHref={buildCollectionActivityHref({
-		basePath,
-		limit: holders.limit,
-		kind: 'sales',
-		selectedTraits: [],
-		selectedTraitRanges: [],
-		mediaMode: selectedMediaMode
-	})}
+	activitiesBasePath={basePath}
+	activitiesQuery={activitiesQuery()}
 	holdersHref={holdersHref()}
 	customizationHref={customizationHref()}
-	biddingHref={biddingHref()}
 	biddingBasePath={basePath}
 	biddingQuery={biddingQuery()}
 	activeSection="holders"

@@ -1,18 +1,23 @@
 <script lang="ts">
+	import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 	import type { Snippet } from 'svelte';
+	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import type { CollectionTokenStatus } from '$lib/token-browser-query';
 
 	let {
-		tokensHref,
 		tokensBasePath,
 		tokensQuery = new URLSearchParams(),
-		activitiesHref,
+		activitiesBasePath,
+		activitiesQuery = new URLSearchParams(),
 		holdersHref,
 		customizationHref,
-		biddingHref,
 		biddingBasePath,
 		biddingQuery = new URLSearchParams(),
 		activeSection,
+		activeTokenStatus = null,
+		activeActivityKind = null,
+		activeBiddingView = null,
 		collectionAvailable = true,
 		showCustomization = true,
 		showBidding = true,
@@ -21,16 +26,18 @@
 		topActions,
 		children
 	}: {
-		tokensHref: string;
 		tokensBasePath: string;
 		tokensQuery?: URLSearchParams;
-		activitiesHref: string;
+		activitiesBasePath: string;
+		activitiesQuery?: URLSearchParams;
 		holdersHref: string;
 		customizationHref: string;
-		biddingHref: string;
 		biddingBasePath: string;
 		biddingQuery?: URLSearchParams;
 		activeSection: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
+		activeTokenStatus?: CollectionTokenStatus | null;
+		activeActivityKind?: ActivityFeedFilterKind | null;
+		activeBiddingView?: CollectionBiddingViewMode | null;
 		collectionAvailable?: boolean;
 		showCustomization?: boolean;
 		showBidding?: boolean;
@@ -49,17 +56,19 @@
 	<header class="panel-header">
 		<div class="panel-header-main">
 			{#if collectionAvailable}
-					<CollectionSectionTabs
-					{tokensHref}
+				<CollectionSectionTabs
 					{tokensBasePath}
 					{tokensQuery}
-					{activitiesHref}
+					{activitiesBasePath}
+					{activitiesQuery}
 					{holdersHref}
 					{customizationHref}
-					{biddingHref}
 					{biddingBasePath}
 					{biddingQuery}
 					active={activeSection}
+					{activeTokenStatus}
+					{activeActivityKind}
+					{activeBiddingView}
 					{showCustomization}
 					{showBidding}
 				/>
