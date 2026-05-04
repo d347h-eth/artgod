@@ -1,4 +1,3 @@
-import { browser } from '$app/environment';
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import {
@@ -6,10 +5,7 @@ import {
 	getCollectionBiddingBidBook,
 	getCollectionBiddingJobs
 } from '$lib/backend-api';
-import {
-	applyCollectionBiddingNavigationPreferenceToQuery,
-	readCollectionBiddingNavigationPreference
-} from '$lib/bidding-navigation-preferences';
+import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingView,
@@ -17,13 +13,25 @@ import {
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
 import { normalizeMediaMode } from '$lib/media-mode';
-import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
+import { withQuery } from '$lib/route-paths';
+import {
+	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+	PUBLIC_COLLECTION_SCOPE,
+	matchesPublicCollectionRoute,
+	publicCollectionBiddingPath
+} from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import { parseSelectedTraitRanges, parseSelectedTraits } from '$lib/trait-filters';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
-		throw error(404, 'Not found');
+		if (!PUBLIC_COLLECTION_SCOPE) {
+			throw error(500, 'Public collection scope is not configured');
+		}
+		if (!matchesPublicCollectionRoute(params.chain_ref, params.collection_ref)) {
+			throw error(404, 'Not found');
+		}
+		throw redirect(307, withQuery(publicCollectionBiddingPath(), url.searchParams));
 	}
 
 	if (IS_ADMIN_FRONTEND_TARGET) {
@@ -64,7 +72,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		};
 	}
 
-	const preferredHref = preferredBiddingNavigationHref(url);
+	const preferredHref = resolvePreferredCollectionBiddingNavigationHref(url);
 	if (preferredHref) {
 		throw redirect(307, preferredHref);
 	}
@@ -102,15 +110,4 @@ function toKitError(cause: unknown): never {
 		throw error(cause.status, cause.message);
 	}
 	throw error(500, 'Backend request failed');
-}
-
-function preferredBiddingNavigationHref(url: URL): string | null {
-	if (!browser) return null;
-	const preferredQuery = applyCollectionBiddingNavigationPreferenceToQuery(
-		url.searchParams,
-		readCollectionBiddingNavigationPreference()
-	);
-	const preferredQueryString = preferredQuery.toString();
-	if (preferredQueryString === url.searchParams.toString()) return null;
-	return `${url.pathname}${preferredQueryString ? `?${preferredQueryString}` : ''}`;
 }

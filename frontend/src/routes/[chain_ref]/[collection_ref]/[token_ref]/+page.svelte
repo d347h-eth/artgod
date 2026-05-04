@@ -144,6 +144,10 @@
 		});
 	}
 
+	function shouldShowTokenBidBook(): boolean {
+		return !!data?.chain && !!data.collection && !!displayedToken;
+	}
+
 	function shouldShowTokenBiddingForm(): boolean {
 		return !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && !!data?.chain && !!data.collection && !!displayedToken;
 	}
@@ -449,15 +453,18 @@
 			{/if}
 		</div>
 
+		{#if shouldShowTokenBidBook()}
+			<BidBookPanel
+				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
+				job={data?.tokenBiddingJob ?? null}
+				showScope
+				showMuted={data?.showMuted ?? false}
+				basePath={collectionTokensBasePath()}
+				mediaMode={collectionNavigationMediaMode()}
+			/>
+		{/if}
+
 		{#if shouldShowTokenBiddingForm()}
-				<BidBookPanel
-					bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
-					job={data?.tokenBiddingJob ?? null}
-					showScope
-					showMuted={data?.showMuted ?? false}
-					basePath={collectionTokensBasePath()}
-					mediaMode={collectionNavigationMediaMode()}
-				/>
 			<TokenBiddingJobForm
 				chain={data?.chain ?? null}
 				collection={data?.collection ?? null}

@@ -188,12 +188,26 @@ export function registerApiRoutes(
         },
         getTokenActivityAdapter.handle,
     );
+    app.get<ListCollectionBiddingBidBookRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/bids",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
+        listCollectionBiddingBidBookAdapter.handle,
+    );
     app.get<GetTokenPreviewRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/preview",
         {
             preHandler: publicCollectionScopeGuard,
         },
         getTokenPreviewAdapter.handle,
+    );
+    app.get<GetTokenBiddingBidBookRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/bidding/bids",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
+        getTokenBiddingBidBookAdapter.handle,
     );
     app.get<GetTokenDetailRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref",
@@ -222,17 +236,9 @@ export function registerApiRoutes(
         "/api/:chain_ref/:collection_ref/bidding/jobs",
         listCollectionBiddingJobsAdapter.handle,
     );
-    app.get<ListCollectionBiddingBidBookRoute>(
-        "/api/:chain_ref/:collection_ref/bidding/bids",
-        listCollectionBiddingBidBookAdapter.handle,
-    );
     app.get<GetTokenBiddingJobRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         getTokenBiddingJobAdapter.handle,
-    );
-    app.get<GetTokenBiddingBidBookRoute>(
-        "/api/:chain_ref/:collection_ref/:token_ref/bidding/bids",
-        getTokenBiddingBidBookAdapter.handle,
     );
     app.post<CreateBootstrapRunRoute>(
         "/api/:chain_ref/collections/bootstrap",

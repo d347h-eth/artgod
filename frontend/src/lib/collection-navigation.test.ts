@@ -94,6 +94,29 @@ describe('resolveCollectionSectionShortcutHref', () => {
 		expect(resolveCollectionSectionShortcutHref(keyEvent('2'), navigation)).toBeNull();
 		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBeNull();
 	});
+
+	it('can expose read-only offers while hiding bidding jobs', () => {
+		const navigation = buildCollectionNavigation({
+			basePath: '/',
+			mediaMode: 'artifact',
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			bidding: {
+				showOffers: true,
+				showJobs: false,
+				bidScope: 'traits'
+			}
+		});
+
+		expect(navigation.showBiddingOffers).toBe(true);
+		expect(navigation.showBiddingJobs).toBe(false);
+		expect(navigation.hrefs.offers).toBe('/bidding?media_mode=artifact&bid_scope=traits');
+		expect(navigation.hrefs.bidding).toBeNull();
+		expect(resolveCollectionSectionShortcutHref(keyEvent('2'), navigation)).toBe(
+			'/bidding?media_mode=artifact&bid_scope=traits'
+		);
+		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBeNull();
+	});
 });
 
 function keyEvent(key: string, target: EventTarget | null = null): KeyboardEvent {

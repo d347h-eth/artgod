@@ -15,6 +15,7 @@
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import {
+		collectionBiddingNavigationVisibilityForDeployment,
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
@@ -88,7 +89,7 @@
 				kind: 'sales'
 			},
 			bidding: {
-				enabled: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+				...collectionBiddingNavigationVisibilityForDeployment()
 			}
 		});
 	}

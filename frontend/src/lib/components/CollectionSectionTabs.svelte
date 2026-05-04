@@ -47,13 +47,13 @@
 		<span class="runtime-tab-group-label">explore</span>
 		<div class="runtime-tab-group-items">
 			{@render navItem('asks', tokenStatusHref('listed'), active === 'tokens' && activeTokenStatus === 'listed')}
-			{#if navigation.showBidding}
+			{#if navigation.showBiddingOffers}
 				{@render navItem('offers', biddingViewHref('bid_book'), active === 'bidding' && activeBiddingView === 'bid_book')}
 			{/if}
 			{@render navItem('tokens', tokenStatusHref('all'), active === 'tokens' && activeTokenStatus === 'all')}
 		</div>
 	</div>
-	{#if navigation.showBidding}
+	{#if navigation.showBiddingJobs}
 		<div class="runtime-tab-standalone">
 			{@render navItem('bidding', biddingViewHref('jobs'), active === 'bidding' && activeBiddingView === 'jobs')}
 		</div>

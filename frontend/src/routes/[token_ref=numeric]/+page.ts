@@ -1,6 +1,11 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { BackendApiError, getTokenDetail } from '$lib/backend-api';
+import {
+	BackendApiError,
+	getTokenBiddingBidBook,
+	getTokenDetail
+} from '$lib/backend-api';
+import { parseShowMutedBidBook } from '$lib/bidding-query';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { defaultTraitFilterPresentationState } from '$lib/trait-filter-presentation';
 import {
@@ -17,19 +22,30 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	const mediaMode = normalizeMediaMode(url.searchParams.get('media_mode'));
 
 	try {
-		const response = await getTokenDetail(
-			fetch,
-			PUBLIC_COLLECTION_SCOPE.chainRef,
-			PUBLIC_COLLECTION_SCOPE.collectionRef,
-			params.token_ref,
-			buildMediaModeQuery(mediaMode)
-		);
+		// Load token media/details and read-only bid book without exposing bidding job controls.
+		const [response, biddingBidBookResponse] = await Promise.all([
+			getTokenDetail(
+				fetch,
+				PUBLIC_COLLECTION_SCOPE.chainRef,
+				PUBLIC_COLLECTION_SCOPE.collectionRef,
+				params.token_ref,
+				buildMediaModeQuery(mediaMode)
+			),
+			getTokenBiddingBidBook(
+				fetch,
+				PUBLIC_COLLECTION_SCOPE.chainRef,
+				PUBLIC_COLLECTION_SCOPE.collectionRef,
+				params.token_ref
+			)
+		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
 			media: response.media,
 			token: response.token,
 			traitFilterPresentation: response.traitFilterPresentation ?? defaultTraitFilterPresentationState(),
+			tokenBiddingBidBook: biddingBidBookResponse.bidBook,
+			showMuted: parseShowMutedBidBook(url.searchParams),
 			backPath,
 			backQuery
 		};

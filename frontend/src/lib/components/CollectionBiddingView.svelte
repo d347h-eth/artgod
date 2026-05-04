@@ -46,6 +46,7 @@
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { joinPath, withQuery } from '$lib/route-paths';
 	import {
+		collectionBiddingNavigationVisibilityForDeployment,
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 		publicCollectionTokensPath
 	} from '$lib/runtime/public-deployment';
@@ -154,7 +155,7 @@
 				kind: 'sales'
 			},
 			bidding: {
-				enabled: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+				...collectionBiddingNavigationVisibilityForDeployment(),
 				bidScope,
 				traitJoinMode,
 				viewMode: biddingView,

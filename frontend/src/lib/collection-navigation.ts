@@ -36,6 +36,8 @@ export type CollectionNavigationState = {
 	};
 	bidding?: {
 		enabled?: boolean;
+		showOffers?: boolean;
+		showJobs?: boolean;
 		bidScope?: CollectionBiddingBidScopeFilter;
 		traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 		viewMode?: CollectionBiddingViewMode;
@@ -45,7 +47,8 @@ export type CollectionNavigationState = {
 
 export type CollectionNavigation = {
 	basePath: string;
-	showBidding: boolean;
+	showBiddingOffers: boolean;
+	showBiddingJobs: boolean;
 	queries: {
 		tokens: URLSearchParams;
 		activities: URLSearchParams;
@@ -71,7 +74,9 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	const tokenDisplayMode = state.token?.displayMode ?? 'grid';
 	const activityLimit = state.activity?.limit ?? tokenLimit;
 	const activityKind = state.activity?.kind ?? COLLECTION_ACTIVITY_FILTER_KINDS[0];
-	const showBidding = state.bidding?.enabled ?? true;
+	const defaultBiddingVisibility = state.bidding?.enabled ?? true;
+	const showBiddingOffers = state.bidding?.showOffers ?? defaultBiddingVisibility;
+	const showBiddingJobs = state.bidding?.showJobs ?? defaultBiddingVisibility;
 
 	const tokenQuery = buildCollectionTokenNavigationQuery({
 		limit: tokenLimit,
@@ -108,7 +113,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		return withQuery(joinPath(normalizedBasePath, 'activity'), query);
 	};
 	const biddingViewHref = (view: CollectionBiddingViewMode): string | null => {
-		if (!showBidding) return null;
+		if (view === 'bid_book' && !showBiddingOffers) return null;
+		if (view === 'jobs' && !showBiddingJobs) return null;
 		const query = new URLSearchParams(biddingQuery);
 		if (view === 'bid_book') {
 			query.delete(BIDDING_VIEW_QUERY_PARAM);
@@ -123,7 +129,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 
 	return {
 		basePath: normalizedBasePath,
-		showBidding,
+		showBiddingOffers,
+		showBiddingJobs,
 		queries: {
 			tokens: tokenQuery,
 			activities: activityQuery,

@@ -52,6 +52,10 @@ export function publicCollectionActivityPath(): string {
 	return '/activity';
 }
 
+export function publicCollectionBiddingPath(): string {
+	return '/bidding';
+}
+
 export function publicCollectionHoldersPath(): string {
 	return '/holders';
 }
@@ -62,6 +66,16 @@ export function publicCollectionOwnerTokensPath(ownerRef: string): string {
 
 export function publicCollectionTokenDetailPath(tokenRef: string): string {
 	return `/${encodeURIComponent(tokenRef)}`;
+}
+
+export function collectionBiddingNavigationVisibilityForDeployment(): {
+	showOffers: boolean;
+	showJobs: boolean;
+} {
+	return {
+		showOffers: true,
+		showJobs: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+	};
 }
 
 function normalizeDeploymentMode(value: string): FrontendDeploymentMode {

@@ -1,3 +1,4 @@
+import { browser } from '$app/environment';
 import {
 	BID_SCOPE_QUERY_PARAM,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
@@ -48,4 +49,15 @@ export function applyCollectionBiddingNavigationPreferenceToQuery(
 		definitions: BIDDING_NAVIGATION_DEFINITIONS,
 		preference
 	});
+}
+
+export function resolvePreferredCollectionBiddingNavigationHref(url: URL): string | null {
+	if (!browser) return null;
+	const preferredQuery = applyCollectionBiddingNavigationPreferenceToQuery(
+		url.searchParams,
+		readCollectionBiddingNavigationPreference()
+	);
+	const preferredQueryString = preferredQuery.toString();
+	if (preferredQueryString === url.searchParams.toString()) return null;
+	return `${url.pathname}${preferredQueryString ? `?${preferredQueryString}` : ''}`;
 }

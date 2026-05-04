@@ -520,7 +520,9 @@ describe("backend api routes", () => {
             "GET",
             "/api/ethereum/terraforms/bidding/bids",
         );
-        expect(biddingBids.statusCode).toBe(404);
+        expect(biddingBids.statusCode).toBe(200);
+        expect(biddingBids.payload.collection.slug).toBe("terraforms");
+        expect(biddingBids.payload.bidBook).toBeDefined();
 
         const tokenBiddingJob = await resolvePublic(
             "GET",
@@ -532,7 +534,15 @@ describe("backend api routes", () => {
             "GET",
             "/api/ethereum/terraforms/7710/bidding/bids",
         );
-        expect(tokenBiddingBids.statusCode).toBe(404);
+        expect(tokenBiddingBids.statusCode).toBe(200);
+        expect(tokenBiddingBids.payload.collection.slug).toBe("terraforms");
+        expect(tokenBiddingBids.payload.bidBook).toBeDefined();
+
+        const nonPublicBiddingBids = await resolvePublic(
+            "GET",
+            "/api/ethereum/milady/bidding/bids",
+        );
+        expect(nonPublicBiddingBids.statusCode).toBe(404);
     });
 
     it("lists empty bidding jobs and returns null for tokens without a job", async () => {
