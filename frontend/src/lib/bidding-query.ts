@@ -20,6 +20,7 @@ export type CollectionBiddingViewMode = (typeof COLLECTION_BIDDING_VIEW_MODES)[n
 
 export const BID_SCOPE_QUERY_PARAM = 'bid_scope';
 export const BIDDING_VIEW_QUERY_PARAM = 'bidding_view';
+export const BID_BOOK_MAKER_QUERY_PARAM = 'maker';
 const SHOW_MUTED_BID_BOOK_QUERY_PARAM = 'show_muted';
 
 type OrderedQueryControlValues<T extends string> = readonly [T, ...T[]];
@@ -31,6 +32,7 @@ export function buildCollectionBiddingQuery(params: {
 	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 	viewMode?: CollectionBiddingViewMode;
 	mediaMode?: string | null;
+	maker?: string | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
@@ -48,6 +50,9 @@ export function buildCollectionBiddingQuery(params: {
 	}
 	if (params.showMuted) {
 		query.set(SHOW_MUTED_BID_BOOK_QUERY_PARAM, 'true');
+	}
+	if (params.maker?.trim()) {
+		query.set(BID_BOOK_MAKER_QUERY_PARAM, params.maker.trim());
 	}
 	if (params.limit && Number.isInteger(params.limit) && params.limit > 0) {
 		query.set('limit', String(params.limit));
@@ -68,6 +73,7 @@ export function buildCollectionBiddingHref(params: {
 	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 	viewMode?: CollectionBiddingViewMode;
 	mediaMode?: string | null;
+	maker?: string | null;
 	showMuted?: boolean;
 	limit?: number | null;
 	cursor?: string | null;
@@ -80,6 +86,11 @@ export function buildCollectionBiddingHref(params: {
 
 export function parseShowMutedBidBook(searchParams: URLSearchParams): boolean {
 	return searchParams.get(SHOW_MUTED_BID_BOOK_QUERY_PARAM) === 'true';
+}
+
+export function parseBidBookMakerFilter(searchParams: URLSearchParams): string | null {
+	const value = searchParams.get(BID_BOOK_MAKER_QUERY_PARAM)?.trim();
+	return value ? value : null;
 }
 
 export function parseCollectionBiddingBidScopeFilter(

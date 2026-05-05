@@ -424,6 +424,12 @@ paths:
                 - $ref: "#/components/parameters/BiddingTraitJoinMode"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
+                - name: maker
+                  in: query
+                  required: false
+                  description: Optional maker address filter. ENS names should be resolved through `/api/{chain_ref}/resolve-owner-ref` before calling this endpoint.
+                  schema:
+                      type: string
                 - name: traits
                   in: query
                   required: false

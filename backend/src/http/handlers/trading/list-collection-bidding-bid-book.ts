@@ -9,6 +9,7 @@ import {
     parseCollectionBiddingTraitFilterJoinMode,
     parseCursor,
     parseLimit,
+    parseMaker,
     parseMediaMode,
     parseTraits,
     parseTraitRanges,
@@ -23,6 +24,7 @@ export type ListCollectionBiddingBidBookRoute = {
         bid_scope?: string;
         cursor?: string;
         limit?: string;
+        maker?: string;
         media_mode?: string;
         trait_join?: string;
         traits?: string | string[];
@@ -59,6 +61,7 @@ export class ListCollectionBiddingBidBookHttpAdapter {
                 ),
                 traits: parseTraits(searchParams),
                 traitRanges: parseTraitRanges(searchParams),
+                makerAddress: parseMaker(searchParams.get("maker")),
                 mediaMode: parseMediaMode(searchParams.get("media_mode")),
                 limit: parseLimit(searchParams.get("limit")),
                 cursor: parseCursor(searchParams.get("cursor")),

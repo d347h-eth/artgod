@@ -165,6 +165,12 @@ describe('token detail page', () => {
 			expect(body).toContain('<th class="bid-book-col-center">scope</th>');
 			expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
 			expect(body).toContain('Hat=Beanie');
+			expect(body).toContain(
+				'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+			);
+			expect(body).toContain(
+				'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
+			);
 			expect(body).toContain('collection bidding page');
 			expect(body).toContain('>create<');
 		});

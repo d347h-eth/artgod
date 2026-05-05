@@ -12,16 +12,22 @@
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingBidBookRow,
 		ApiBiddingJob,
 		ApiChain,
 		ApiCollection,
+		ApiCollectionBiddingBidScopeFilter,
 		ApiCollectionMediaState,
 		ApiTraitFilterPresentationFeatureState,
 		ApiTokenDetail,
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
 	import { getTokenDetail } from '$lib/backend-api';
-	import { buildCollectionBiddingHref } from '$lib/bidding-query';
+	import {
+		BID_SCOPE_QUERY_PARAM,
+		buildCollectionBiddingHref,
+		buildCollectionBiddingQuery
+	} from '$lib/bidding-query';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
@@ -43,6 +49,7 @@
 		parseCollectionTokenStatus,
 		parseDisplayMode
 	} from '$lib/token-browser-query';
+	import { joinPath, withQuery } from '$lib/route-paths';
 
 	type PageData = {
 		chain: ApiChain | null;
@@ -142,6 +149,31 @@
 			mediaMode: collectionNavigationMediaMode(),
 			showMuted: data?.showMuted ?? false
 		});
+	}
+
+	function bidBookMakerHref(bid: ApiBiddingBidBookRow): string {
+		const bidScope = bidBookScopeForBid(bid);
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			bidScope,
+			mediaMode: collectionNavigationMediaMode(),
+			maker: bid.maker.address,
+			showMuted: data?.showMuted ?? false
+		});
+		// Keep the clicked bid scope explicit so stored scope preferences cannot override this jump.
+		query.set(BID_SCOPE_QUERY_PARAM, bidScope);
+		return withQuery(joinPath(collectionTokensBasePath(), 'bidding'), query);
+	}
+
+	function bidBookScopeForBid(bid: ApiBiddingBidBookRow): ApiCollectionBiddingBidScopeFilter {
+		if (bid.scope.kind === 'collection') {
+			return 'collection';
+		}
+		if (bid.scope.kind === 'trait') {
+			return 'traits';
+		}
+		return 'token';
 	}
 
 	function shouldShowTokenBidBook(): boolean {
@@ -461,6 +493,7 @@
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}
+				makerBidHref={bidBookMakerHref}
 			/>
 		{/if}
 

@@ -141,9 +141,20 @@ export function parseCollectionBiddingTraitFilterJoinMode(
 }
 
 export function parseOwner(raw: string | null): string | undefined {
+    return parseOptionalAddressRef(raw, "Invalid owner");
+}
+
+export function parseMaker(raw: string | null): string | undefined {
+    return parseOptionalAddressRef(raw, "Invalid maker");
+}
+
+function parseOptionalAddressRef(
+    raw: string | null,
+    invalidMessage: string,
+): string | undefined {
     if (!raw || !raw.trim()) return undefined;
     if (!isAddressRef(raw)) {
-        throw new ReadModelBadRequestError("Invalid owner");
+        throw new ReadModelBadRequestError(invalidMessage);
     }
     return normalizeAddressRef(raw);
 }

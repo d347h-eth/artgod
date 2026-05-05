@@ -27,7 +27,7 @@ describe('resolveCollectionJumpHref', () => {
 		expect(resolveOwnerRefMock).not.toHaveBeenCalled();
 	});
 
-	it('keeps raw owner jumps local', async () => {
+	it('keeps raw owner jumps local and normalizes casing', async () => {
 		await expect(
 			resolveCollectionJumpHref({
 				fetchFn: fetch,
@@ -37,7 +37,7 @@ describe('resolveCollectionJumpHref', () => {
 				value: '0xAbCDEFabcdefABCDEFabcdefabcdefABCDEFabcd'
 			})
 		).resolves.toBe(
-			'/ethereum/terraforms/holders/0xAbCDEFabcdefABCDEFabcdefabcdefABCDEFabcd?limit=250&mode=grid&token_status=listed_then_unlisted&media_mode=snapshot'
+			'/ethereum/terraforms/holders/0xabcdefabcdefabcdefabcdefabcdefabcdefabcd?limit=250&mode=grid&token_status=listed_then_unlisted&media_mode=snapshot'
 		);
 		expect(resolveOwnerRefMock).not.toHaveBeenCalled();
 	});

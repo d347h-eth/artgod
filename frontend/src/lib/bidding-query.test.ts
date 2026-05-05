@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildCollectionBiddingQuery,
+	parseBidBookMakerFilter,
 	nextCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingView,
@@ -34,6 +35,19 @@ describe('buildCollectionBiddingQuery', () => {
 		});
 		expect(strictQuery.get('trait_join')).toBe('and');
 		expect(strictQuery.getAll('traits')).toEqual(['Mode:Terrain']);
+	});
+
+	it('preserves a maker address filter when present', () => {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			bidScope: 'collection',
+			maker: ' 0x1111111111111111111111111111111111111111 '
+		});
+		expect(query.get('maker')).toBe('0x1111111111111111111111111111111111111111');
+		expect(parseBidBookMakerFilter(query)).toBe(
+			'0x1111111111111111111111111111111111111111'
+		);
 	});
 });
 

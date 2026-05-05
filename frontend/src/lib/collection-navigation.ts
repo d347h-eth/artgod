@@ -41,6 +41,7 @@ export type CollectionNavigationState = {
 		bidScope?: CollectionBiddingBidScopeFilter;
 		traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
 		viewMode?: CollectionBiddingViewMode;
+		maker?: string | null;
 		showMuted?: boolean;
 	};
 };
@@ -99,6 +100,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		traitJoinMode: state.bidding?.traitJoinMode,
 		viewMode: state.bidding?.viewMode,
 		mediaMode,
+		maker: state.bidding?.maker,
 		showMuted: state.bidding?.showMuted
 	});
 

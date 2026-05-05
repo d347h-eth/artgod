@@ -40,6 +40,7 @@ export type ListCollectionBiddingBidBookInput = {
     traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
     traits: TraitFilter[];
     traitRanges: TraitRangeFilter[];
+    makerAddress?: string | null;
     mediaMode?: string;
     limit: number;
     cursor?: string | null;
@@ -129,6 +130,7 @@ export class ListCollectionBiddingBidBookUseCase {
             traitFilterJoinMode: input.traitFilterJoinMode,
             selectedTraits: input.traits,
             selectedTraitRanges: input.traitRanges,
+            makerAddress: input.makerAddress ?? null,
         });
         let tokenOfferCardsPage = emptyTokenOfferCardsPage(input.limit);
         if (input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
@@ -141,6 +143,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     traitFilterJoinMode: input.traitFilterJoinMode,
                     selectedTraits: [],
                     selectedTraitRanges: [],
+                    makerAddress: null,
                 });
             tokenOfferCardsPage = paginateTokenOfferCards({
                 cards: this.buildTokenOfferCards({

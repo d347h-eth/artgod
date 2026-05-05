@@ -74,6 +74,7 @@ export interface BiddingBidBookRepositoryPort {
         traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
+        makerAddress?: string | null;
     }): PersistedBiddingBidBook;
     listTokenBidBook(params: {
         chainId: number;

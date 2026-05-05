@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
-	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 	import { joinPath } from '$lib/route-paths';
+	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
 	type BidBookTimeMode = 'relative' | 'absolute';
 	type BidBookPanelView = 'rows' | 'trait-demand';
@@ -37,7 +37,9 @@
 		basePath = '/',
 		mediaMode = null,
 		preferredDemandTraitKey = null,
-		traitValueHref = null
+		traitValueHref = null,
+		makerFilterHref = null,
+		makerBidHref = null
 	}: {
 		bidBook: ApiBiddingBidBook;
 		job?: ApiBiddingJob | null;
@@ -48,6 +50,8 @@
 		mediaMode?: string | null;
 		preferredDemandTraitKey?: string | null;
 		traitValueHref?: ((trait: TraitFilterValue) => string) | null;
+		makerFilterHref?: ((makerAddress: string) => string) | null;
+		makerBidHref?: ((bid: ApiBiddingBidBookRow) => string) | null;
 	} = $props();
 
 	let placedAtMode = $state<BidBookTimeMode>('relative');
@@ -204,12 +208,16 @@
 	}
 
 	function makerHref(bid: ApiBiddingBidBookRow): string {
-		return buildOwnerTokensHref({
-			basePath: joinPath(basePath, `holders/${encodeURIComponent(bid.maker.address)}`),
-			selectedTraits: [],
-			selectedTraitRanges: [],
-			mediaMode
-		});
+		return (
+			makerBidHref?.(bid) ??
+			makerFilterHref?.(bid.maker.address) ??
+			buildOwnerTokensHref({
+				basePath: joinPath(basePath, `holders/${encodeURIComponent(bid.maker.address)}`),
+				selectedTraits: [],
+				selectedTraitRanges: [],
+				mediaMode
+			})
+		);
 	}
 
 	function makerHighlightKey(bid: ApiBiddingBidBookRow): string {

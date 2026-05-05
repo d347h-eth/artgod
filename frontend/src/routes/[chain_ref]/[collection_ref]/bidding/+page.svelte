@@ -36,6 +36,7 @@
 		traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 		biddingView: CollectionBiddingViewMode;
 		showMuted: boolean;
+		makerFilter: string | null;
 		mediaMode: string | null;
 		requestCursor: string | null;
 	};
@@ -82,6 +83,7 @@
 	traitJoinMode={data?.traitJoinMode ?? 'or'}
 	biddingView={data?.biddingView ?? 'bid_book'}
 	showMuted={data?.showMuted ?? false}
+	makerFilter={data?.makerFilter ?? null}
 	mediaMode={data?.mediaMode ?? null}
 	requestCursor={data?.requestCursor ?? null}
 />

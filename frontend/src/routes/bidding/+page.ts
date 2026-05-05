@@ -9,6 +9,7 @@ import {
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	BIDDING_VIEW_QUERY_PARAM,
+	parseBidBookMakerFilter,
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseCollectionBiddingView,
 	parseShowMutedBidBook
@@ -74,6 +75,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: 'bid_book' as const,
 			showMuted: parseShowMutedBidBook(url.searchParams),
+			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			mediaMode,
 			requestCursor: url.searchParams.get('cursor')
 		};

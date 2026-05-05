@@ -1,5 +1,4 @@
-import { isAddressRef, isEnsNameRef } from '@artgod/shared/utils/ref-resolver';
-import { resolveOwnerRef } from '$lib/backend-api';
+import { resolveOwnerAddressRef } from '$lib/components/owner-ref';
 import { joinPath } from '$lib/route-paths';
 import { buildOwnerTokensHref, buildTokenDetailHref } from '$lib/token-browser-query';
 
@@ -25,18 +24,8 @@ export async function resolveCollectionJumpHref(
 			mediaMode: input.mediaMode
 		});
 	}
-	if (isAddressRef(nextValue)) {
-		return buildOwnerHref(input.basePath, input.mediaMode, nextValue);
-	}
-	if (!isEnsNameRef(nextValue)) {
-		return null;
-	}
-	if (!input.chainRef.trim()) {
-		return null;
-	}
-
-	const resolution = await resolveOwnerRef(input.fetchFn, input.chainRef, nextValue);
-	return buildOwnerHref(input.basePath, input.mediaMode, resolution.resolvedAddress);
+	const ownerAddress = await resolveOwnerAddressRef(input);
+	return ownerAddress ? buildOwnerHref(input.basePath, input.mediaMode, ownerAddress) : null;
 }
 
 function buildOwnerHref(basePath: string, mediaMode: string | null, ownerRef: string): string {

@@ -11,6 +11,7 @@ import {
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingView,
 	parseCollectionBiddingTraitFilterJoinMode,
+	parseBidBookMakerFilter,
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
 import { normalizeMediaMode } from '$lib/media-mode';
@@ -70,6 +71,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
+			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
 			requestCursor: url.searchParams.get('cursor')
 		};
@@ -102,6 +104,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
+			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
 			requestCursor: url.searchParams.get('cursor')
 		};

@@ -32,6 +32,7 @@
 	} from '$lib/collection-navigation';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
+	import BidBookMakerFilterControl from '$lib/components/BidBookMakerFilterControl.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import CursorPaginationControls from '$lib/components/CursorPaginationControls.svelte';
@@ -91,6 +92,7 @@
 		traitJoinMode,
 		biddingView = 'bid_book',
 		showMuted = false,
+		makerFilter = null,
 		mediaMode,
 		requestCursor = null
 	}: {
@@ -112,6 +114,7 @@
 		traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
 		biddingView: CollectionBiddingViewMode;
 		showMuted?: boolean;
+		makerFilter?: string | null;
 		mediaMode: string | null;
 		requestCursor?: string | null;
 	} = $props();
@@ -234,6 +237,7 @@
 				bidScope,
 				traitJoinMode,
 				viewMode: biddingView,
+				maker: makerFilter,
 				showMuted
 			}
 		});
@@ -251,6 +255,7 @@
 			traitJoinMode,
 			viewMode: biddingView,
 			mediaMode,
+			maker: makerFilter,
 			showMuted
 		});
 	}
@@ -266,6 +271,7 @@
 			traitJoinMode,
 			viewMode: nextView,
 			mediaMode,
+			maker: makerFilter,
 			showMuted
 		});
 		// Keep clicked scopes explicit so stored preferences cannot override a scope change.
@@ -282,6 +288,7 @@
 			traitJoinMode,
 			viewMode: nextView,
 			mediaMode,
+			maker: makerFilter,
 			showMuted
 		});
 	}
@@ -298,6 +305,7 @@
 			traitJoinMode,
 			viewMode: biddingView,
 			mediaMode,
+			maker: makerFilter,
 			showMuted
 		});
 		if (bidScope === 'token') {
@@ -323,6 +331,7 @@
 			bidScope: 'token',
 			viewMode: biddingView,
 			mediaMode,
+			maker: makerFilter,
 			limit: tokenOfferCards.limit,
 			cursor
 		});
@@ -348,6 +357,7 @@
 			tokenOfferCards.limit,
 			bidBook.state.source,
 			media.selectedMode,
+			makerFilter ?? 'all-makers',
 			showMuted ? 'show-muted' : 'hide-muted',
 			...traitFilterPaginationSignatureParts({ traits: activeTraits, ranges: activeTraitRanges })
 		]);
@@ -380,7 +390,41 @@
 			traitJoinMode: nextMode,
 			viewMode: biddingView,
 			mediaMode,
+			maker: makerFilter,
 			showMuted
+		});
+	}
+
+	function makerFilterHref(makerAddress: string | null): string {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			bidScope,
+			traitJoinMode,
+			viewMode: biddingView,
+			mediaMode,
+			maker: makerAddress,
+			showMuted
+		});
+		if (bidScope === 'token') {
+			query.set(BID_SCOPE_QUERY_PARAM, 'token');
+		}
+		return withQuery(biddingPath(), query);
+	}
+
+	async function onMakerFilterApply(makerAddress: string): Promise<void> {
+		await goto(makerFilterHref(makerAddress), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onMakerFilterClear(): Promise<void> {
+		await goto(makerFilterHref(null), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
 		});
 	}
 
@@ -594,6 +638,7 @@
 		{mediaMode}
 		preferredDemandTraitKey={preferredBidBookDemandTraitKey}
 		traitValueHref={bidBookTraitValueHref}
+		makerFilterHref={makerFilterHref}
 	/>
 {/snippet}
 
@@ -629,6 +674,15 @@
 		{#if collection}
 			{#if biddingView === 'bid_book'}
 				<div class="panel-top-actions-row">
+					<BidBookMakerFilterControl
+						chainRef={chain?.slug ?? ''}
+						value={makerFilter}
+						onApply={onMakerFilterApply}
+						onClear={onMakerFilterClear}
+					/>
+				</div>
+				<div class="panel-top-actions-row">
+					<span class="panel-top-actions-label">scope:</span>
 					<div class="secondary-tabs" aria-label="Bid scope filter">
 						{#if bidScope === 'token'}
 							<button type="button" class="secondary-tab-active" disabled>token</button>

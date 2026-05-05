@@ -203,22 +203,26 @@ export class SqliteBiddingBidBookRepository
         traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
+        makerAddress?: string | null;
     }): PersistedBiddingBidBook {
         const useProjection = this.shouldUseBotSnapshot(params);
         const bidBook = useProjection
             ? this.loadProjectedBidBook(params.chainId, params.collectionId)
             : this.loadIndexedOrdersBidBook(params.chainId, params.collectionId);
+        const makerAddress = params.makerAddress?.toLowerCase() ?? null;
         return {
             state: bidBook.state,
             bids: sortBidsDesc(
-                bidBook.bids.filter((bid) =>
-                    collectionBidMatchesFilters(
-                        bid,
-                        params.scopeFilter,
-                        params.traitFilterJoinMode,
-                        params.selectedTraits,
-                        params.selectedTraitRanges,
-                    ),
+                bidBook.bids.filter(
+                    (bid) =>
+                        makerMatchesFilter(bid, makerAddress) &&
+                        collectionBidMatchesFilters(
+                            bid,
+                            params.scopeFilter,
+                            params.traitFilterJoinMode,
+                            params.selectedTraits,
+                            params.selectedTraitRanges,
+                        ),
                 ),
             ),
         };
@@ -558,6 +562,13 @@ function collectionBidMatchesFilters(
               selectedTraits,
               selectedTraitRanges,
           );
+}
+
+function makerMatchesFilter(
+    bid: PersistedBiddingBidBookRow,
+    makerAddress: string | null,
+): boolean {
+    return makerAddress === null || bid.maker.toLowerCase() === makerAddress;
 }
 
 function tokenBidApplies(

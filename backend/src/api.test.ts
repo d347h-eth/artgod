@@ -744,6 +744,7 @@ describe("backend api routes", () => {
                 orderId: "bid-book-stream-fallback",
                 contract: MILADY_ADDRESS,
                 priceWei: "150000000000000000",
+                maker: "0x8888888888888888888888888888888888888888",
                 validFrom: 1,
                 validUntil: 4_000_000_000,
             }),
@@ -797,6 +798,17 @@ describe("backend api routes", () => {
         expect(collectionOrderIds).not.toContain("bid-book-token-1");
         expect(collectionOrderIds).not.toContain("bid-book-raw-biome-42");
         expect(collectionOrderIds).not.toContain("bid-book-biome-42-terrain");
+
+        const makerFilteredCollectionBidBook = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids?bid_scope=collection&maker=0x8888888888888888888888888888888888888888",
+        );
+        expect(makerFilteredCollectionBidBook.statusCode).toBe(200);
+        expect(
+            makerFilteredCollectionBidBook.payload.bidBook.bids.map(
+                (bid: { orderId: string }) => bid.orderId,
+            ),
+        ).toEqual(["bid-book-stream-fallback"]);
 
         const filteredCollectionBidBook = await resolve(
             "GET",
@@ -3958,13 +3970,14 @@ function makeOpenSeaBuyOrderPayload(input: {
     orderId: string;
     contract: string;
     priceWei: string;
+    maker?: string;
     tokenId?: string;
     traits?: Array<{ type: string; value: string }>;
     quantity?: number;
     validFrom: number;
     validUntil: number;
 }): unknown {
-    const maker = "0x9999999999999999999999999999999999999999";
+    const maker = input.maker ?? "0x9999999999999999999999999999999999999999";
     const quantity = input.quantity ?? 1;
     const itemType = input.tokenId ? 2 : 4;
     const identifierOrCriteria = input.tokenId ?? "0";

@@ -101,6 +101,10 @@ describe('CollectionBiddingView', () => {
 		expect(body).not.toContain('class="detail-layout"');
 		expect(body).not.toContain('filter [or]');
 		expect(body).not.toContain('>Hat=Beanie<');
+		expect(body).toContain('placeholder="maker address/.eth"');
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
+		);
 	});
 
 	it('renders token-scoped offers as token cards without trait join controls', () => {
@@ -239,6 +243,7 @@ describe('CollectionBiddingView', () => {
 				bidScope: 'token',
 				traitJoinMode: 'or',
 				biddingView: 'bid_book',
+				makerFilter: '0x9999999999999999999999999999999999999999',
 				mediaMode: 'artifact'
 			}
 		});
@@ -478,6 +483,7 @@ describe('CollectionBiddingView', () => {
 				bidScope: 'traits',
 				traitJoinMode: 'or',
 				biddingView: 'bid_book',
+				makerFilter: '0x9999999999999999999999999999999999999999',
 				mediaMode: 'artifact'
 			}
 		});
@@ -486,5 +492,9 @@ describe('CollectionBiddingView', () => {
 			'<button type="button" class="secondary-tab-active" disabled>traits</button>'
 		);
 		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection');
+		expect(body).toContain('value="0x9999999999999999999999999999999999999999"');
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
+		);
 	});
 });

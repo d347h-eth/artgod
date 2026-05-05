@@ -245,6 +245,47 @@ describe('BidBookPanel', () => {
 		expect(body).not.toContain('0.000345');
 	});
 
+	it('uses maker filter links when provided', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'orders',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			bids: [
+				{
+					...BASE_BID,
+					orderId: '0xmaker-filter',
+					scope: {
+						kind: 'collection',
+						label: 'collection',
+						tokenId: null,
+						traits: []
+					}
+				}
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact',
+				makerFilterHref: (makerAddress: string) =>
+					`/ethereum/terraforms/bidding?maker=${makerAddress}`
+			}
+		});
+
+		expect(body).toContain(
+			'href="/ethereum/terraforms/bidding?maker=0x1111111111111111111111111111111111111111"'
+		);
+		expect(body).not.toContain('/holders/');
+	});
+
 	it('renders clickable demand trait values and opens the preferred trait tab', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {
