@@ -413,6 +413,8 @@ paths:
             summary: Get collection bid book
             description: |
                 Returns display-only bid-book rows.
+                `bid_scope=token` also returns `tokenOfferCards`, a paginated token-card page with all non-muted explicit token-scoped offers for each returned token.
+                Token-scoped offers below 10% of the top collection-wide bid are hidden and excluded from offer counts.
                 Source is `bot_snapshot` when enabled collection jobs exist, the bidding bot heartbeat is live, and projection metadata is fresh; otherwise source is `orders`.
             operationId: listCollectionBiddingBidBook
             parameters:
@@ -420,6 +422,8 @@ paths:
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/BidScopeFilter"
                 - $ref: "#/components/parameters/BiddingTraitJoinMode"
+                - $ref: "#/components/parameters/Limit"
+                - $ref: "#/components/parameters/Cursor"
                 - name: traits
                   in: query
                   required: false
@@ -911,9 +915,9 @@ components:
             required: false
             schema:
                 type: string
-                enum: [collection, traits]
-                default: collection
-            description: Collection bid-book scope view. `collection` shows collection-wide bids only; `traits` shows trait-scoped bids.
+                enum: [token, traits, collection]
+                default: token
+            description: Collection bid-book scope view. `token` shows explicit token-scoped offers as token cards; `traits` shows trait-scoped bids; `collection` shows collection-wide bids only.
         BiddingTraitJoinMode:
             name: trait_join
             in: query
@@ -1597,6 +1601,97 @@ components:
                     items:
                         $ref: "#/components/schemas/BiddingBidBookRow"
 
+        BiddingTokenOfferCard:
+            type: object
+            required:
+                [
+                    tokenId,
+                    name,
+                    image,
+                    traitSummary,
+                    listingPrice,
+                    listingCurrency,
+                    attributes,
+                    hasMetadata,
+                    metadataUpdatedAt,
+                    offers,
+                ]
+            additionalProperties: false
+            properties:
+                tokenId:
+                    type: string
+                name:
+                    type: string
+                    nullable: true
+                image:
+                    type: string
+                    nullable: true
+                traitSummary:
+                    type: string
+                    nullable: true
+                listingPrice:
+                    type: string
+                    nullable: true
+                listingCurrency:
+                    type: string
+                    nullable: true
+                attributes:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TokenAttribute"
+                hasMetadata:
+                    type: boolean
+                metadataUpdatedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                offers:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingBidBookRow"
+
+        BiddingTokenOfferCardsPage:
+            type: object
+            required:
+                [
+                    items,
+                    prevCursor,
+                    nextCursor,
+                    limit,
+                    totalItems,
+                    totalOffers,
+                    rangeStart,
+                    rangeEnd,
+                    currentPage,
+                    totalPages,
+                ]
+            additionalProperties: false
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingTokenOfferCard"
+                prevCursor:
+                    type: string
+                    nullable: true
+                nextCursor:
+                    type: string
+                    nullable: true
+                limit:
+                    type: integer
+                totalItems:
+                    type: integer
+                totalOffers:
+                    type: integer
+                rangeStart:
+                    type: integer
+                rangeEnd:
+                    type: integer
+                currentPage:
+                    type: integer
+                totalPages:
+                    type: integer
+
         ListCollectionBiddingJobsResponse:
             type: object
             required: [chain, collection, media, jobs, included]
@@ -1617,7 +1712,8 @@ components:
 
         ListCollectionBiddingBidBookResponse:
             type: object
-            required: [chain, collection, scopeFilter, traits, bidBook]
+            required:
+                [chain, collection, scopeFilter, traits, bidBook, tokenOfferCards]
             additionalProperties: false
             properties:
                 chain:
@@ -1626,7 +1722,7 @@ components:
                     $ref: "#/components/schemas/CollectionListItem"
                 scopeFilter:
                     type: string
-                    enum: [collection, traits]
+                    enum: [token, traits, collection]
                 traits:
                     type: object
                     required: [selected, selectedRanges, facets]
@@ -1646,6 +1742,8 @@ components:
                                 $ref: "#/components/schemas/TraitFacet"
                 bidBook:
                     $ref: "#/components/schemas/BiddingBidBook"
+                tokenOfferCards:
+                    $ref: "#/components/schemas/BiddingTokenOfferCardsPage"
 
         TokenBiddingJobResponse:
             type: object

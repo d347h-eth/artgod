@@ -210,6 +210,7 @@ export type ListCollectionTokenCardsByIdsParams = {
     chainId: number;
     collectionId: number;
     tokenIds: string[];
+    includeListings?: boolean;
 };
 
 export type ListCollectionHoldersParams = {
@@ -1011,11 +1012,30 @@ export class SqliteCollectionsReadModel {
             return [];
         }
 
+        const includeListings = params.includeListings === true;
+        const listingSql = includeListings
+            ? buildCheapestListingSql(this.supportedListingCurrencies.length)
+            : null;
+        const listingValues = includeListings
+            ? buildCheapestListingValues({
+                  chainId: params.chainId,
+                  collectionId: params.collectionId,
+                  supportedCurrencies: this.supportedListingCurrencies,
+                  nowSeconds: Math.floor(Date.now() / 1000),
+              })
+            : [];
         const placeholders = tokenIds.map(() => "?").join(", ");
         const rows = db.raw
             .prepare(
-                "SELECT t.token_id, m.name, m.image, NULL AS listing_price, NULL AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+                "SELECT t.token_id, m.name, m.image, " +
+                    (includeListings
+                        ? "l.price AS listing_price, l.currency AS listing_currency, "
+                        : "NULL AS listing_price, NULL AS listing_currency, ") +
+                    "m.attributes_json, m.updated_at AS metadata_updated_at " +
                     "FROM tokens t " +
+                    (includeListings
+                        ? `LEFT JOIN (${listingSql}) l ON l.collection_id = t.collection_id AND l.token_id = t.token_id `
+                        : "") +
                     "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
                     "AND m.collection_id = t.collection_id " +
                     "AND m.token_id = t.token_id " +
@@ -1023,6 +1043,7 @@ export class SqliteCollectionsReadModel {
                     `AND t.token_id IN (${placeholders})`,
             )
             .all(
+                ...listingValues,
                 params.chainId,
                 params.collectionId,
                 ...tokenIds,

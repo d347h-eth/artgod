@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingTokenOfferCard,
+		ApiBiddingTokenOfferCardsPage,
 		ApiBiddingJob,
 		ApiChain,
 		ApiCollection,
@@ -21,9 +24,8 @@
 		nextCollectionBiddingBidScopeFilter,
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
-	import {
-		writeCollectionBiddingNavigationPreference
-	} from '$lib/bidding-navigation-preferences';
+	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
+	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import {
 		buildCollectionNavigation,
 		handleCollectionSectionShortcut
@@ -32,19 +34,37 @@
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import CursorPaginationControls from '$lib/components/CursorPaginationControls.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
 	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
+	import {
+		buildPaginationWindowSignature,
+		describePaginationWindow,
+		pageToPaginationWindow,
+		readPaginationWindow,
+		resolvePaginationWindow,
+		traitFilterPaginationSignatureParts,
+		writePaginationWindow
+	} from '$lib/components/pagination-window';
 	import CollectionBiddingJobRow from '$lib/components/CollectionBiddingJobRow.svelte';
+	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
+	import {
+		buildAskMarketPrice,
+		buildBidMarketPrice,
+		type MarketPriceItem
+	} from '$lib/market-price';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
+	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import {
 		runTraitFacetPanelControlAction,
 		type TraitFacetFilterModeOption
 	} from '$lib/components/trait-facet-panel-control-action';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import { joinPath, withQuery } from '$lib/route-paths';
+	import { buildTokenDetailHref } from '$lib/token-browser-query';
 	import {
 		collectionBiddingNavigationVisibilityForDeployment,
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -60,6 +80,7 @@
 		collection,
 		jobs,
 		bidBook,
+		tokenOfferCards = emptyBiddingTokenOfferCardsPage(),
 		facets,
 		media,
 		included,
@@ -70,12 +91,14 @@
 		traitJoinMode,
 		biddingView = 'bid_book',
 		showMuted = false,
-		mediaMode
+		mediaMode,
+		requestCursor = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		jobs: ApiBiddingJob[];
 		bidBook: ApiBiddingBidBook;
+		tokenOfferCards?: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
 		media: ApiCollectionMediaState;
 		included: {
@@ -90,6 +113,7 @@
 		biddingView: CollectionBiddingViewMode;
 		showMuted?: boolean;
 		mediaMode: string | null;
+		requestCursor?: string | null;
 	} = $props();
 
 	const tokenPreview = getTokenPreviewController();
@@ -105,17 +129,38 @@
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
+	let visibleTokenOfferCards = $state<ApiBiddingTokenOfferCard[]>(tokenOfferCards.items);
+	let tokenOffersRangeStart = $state(tokenOfferCards.rangeStart);
+	let tokenOffersRangeEnd = $state(tokenOfferCards.rangeEnd);
+	let tokenOffersPagesLoaded = $state(tokenOfferCards.items.length === 0 ? 0 : 1);
+	let tokenOffersHeadPrevCursor = $state<string | null>(tokenOfferCards.prevCursor);
+	let tokenOffersTailNextCursor = $state<string | null>(tokenOfferCards.nextCursor);
+	let tokenOffersPagingPending = $state(false);
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
 	);
 	const nonTokenJobCount = $derived(collectionJobs.length - tokenJobCount);
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
-	const showBidBookTraitFilters = $derived(biddingView === 'bid_book' && bidScope === 'traits');
+	const showBidBookFilters = $derived(
+		biddingView === 'bid_book' && (bidScope === 'token' || bidScope === 'traits')
+	);
+	const showBidBookTraitJoinControls = $derived(
+		biddingView === 'bid_book' && bidScope === 'traits'
+	);
 	const preferredBidBookDemandTraitKey = $derived(
 		bidScope === 'traits' && traitJoinMode === 'or' && hasActiveTraitFilters
 			? (activeTraits[0]?.key ?? activeTraitRanges[0]?.key ?? null)
 			: null
+	);
+	const tokenOfferMetrics = $derived(
+		describePaginationWindow({
+			totalItems: tokenOfferCards.totalItems,
+			rangeStart: tokenOffersRangeStart,
+			rangeEnd: tokenOffersRangeEnd,
+			limit: tokenOfferCards.limit,
+			tailNextCursor: tokenOffersTailNextCursor
+		})
 	);
 
 	$effect(() => {
@@ -128,6 +173,36 @@
 
 	$effect(() => {
 		activeTraitRanges = selectedTraitRanges;
+	});
+
+	$effect(() => {
+		if (bidScope !== 'token') {
+			tokenOffersPagingPending = false;
+			return;
+		}
+
+		const signature = tokenOfferWindowSignature();
+		const incoming = pageToPaginationWindow(tokenOfferCards);
+		const cached = browser ? readPaginationWindow<ApiBiddingTokenOfferCard>(signature) : null;
+		const resolved = resolvePaginationWindow({
+			cached,
+			incoming,
+			requestCursor,
+			itemKey: (token) => token.tokenId
+		});
+
+		visibleTokenOfferCards = resolved.items;
+		tokenOffersRangeStart = resolved.rangeStart;
+		tokenOffersRangeEnd = resolved.rangeEnd;
+		tokenOffersPagesLoaded = resolved.pagesLoaded;
+		tokenOffersHeadPrevCursor = resolved.headPrevCursor;
+		tokenOffersTailNextCursor = resolved.tailNextCursor;
+
+		if (browser) {
+			writePaginationWindow(signature, resolved);
+		}
+
+		tokenOffersPagingPending = false;
 	});
 
 	$effect(() => {
@@ -193,7 +268,7 @@
 			mediaMode,
 			showMuted
 		});
-		// Keep default collection scope explicit so stored preferences cannot override a scope click.
+		// Keep clicked scopes explicit so stored preferences cannot override a scope change.
 		query.set(BID_SCOPE_QUERY_PARAM, nextBidScope);
 		return withQuery(biddingPath(), query);
 	}
@@ -216,7 +291,7 @@
 	}
 
 	function biddingReturnQuery(): string {
-		return buildCollectionBiddingQuery({
+		const query = buildCollectionBiddingQuery({
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
 			bidScope,
@@ -224,7 +299,58 @@
 			viewMode: biddingView,
 			mediaMode,
 			showMuted
-		}).toString();
+		});
+		if (bidScope === 'token') {
+			query.set(BID_SCOPE_QUERY_PARAM, 'token');
+		}
+		return query.toString();
+	}
+
+	function tokenOfferCardHref(tokenId: string): string {
+		return buildTokenDetailHref({
+			basePath,
+			tokenId,
+			mediaMode,
+			returnPath: biddingPath(),
+			returnQuery: biddingReturnQuery()
+		});
+	}
+
+	function tokenOfferCardsHref(cursor: string | null): string {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			bidScope: 'token',
+			viewMode: biddingView,
+			mediaMode,
+			limit: tokenOfferCards.limit,
+			cursor
+		});
+		// Keep token scope explicit on pagination so stored preferences cannot redirect away.
+		query.set(BID_SCOPE_QUERY_PARAM, 'token');
+		return withQuery(biddingPath(), query);
+	}
+
+	function loadPreviousTokenOffersHref(): string {
+		if (!tokenOfferMetrics.hasPreviousPage) return '#';
+		return tokenOfferCardsHref(tokenOffersHeadPrevCursor);
+	}
+
+	function loadNextTokenOffersHref(): string {
+		if (!tokenOffersTailNextCursor) return '#';
+		return tokenOfferCardsHref(tokenOffersTailNextCursor);
+	}
+
+	function tokenOfferWindowSignature(): string {
+		return buildPaginationWindowSignature([
+			basePath,
+			'token-offers',
+			tokenOfferCards.limit,
+			bidBook.state.source,
+			media.selectedMode,
+			showMuted ? 'show-muted' : 'hide-muted',
+			...traitFilterPaginationSignatureParts({ traits: activeTraits, ranges: activeTraitRanges })
+		]);
 	}
 
 	function handleJobUpdated(nextJob: ApiBiddingJob): void {
@@ -267,6 +393,10 @@
 	}
 
 	async function onTraitPanelControlAction(): Promise<void> {
+		if (!showBidBookTraitJoinControls) {
+			await traitFacetPanel.toggle();
+			return;
+		}
 		await runTraitFacetPanelControlAction({
 			hasActiveFilters: hasActiveTraitFilters,
 			collapsed: $traitFacetPanelState.collapsed,
@@ -318,6 +448,98 @@
 		return filtersHref(nextTraits, activeTraitRanges);
 	}
 
+	function resolveAdjacentOfferTokenId(step: -1 | 1, currentTokenId: string): string | null {
+		const currentIndex = visibleTokenOfferCards.findIndex((token) => token.tokenId === currentTokenId);
+		if (currentIndex === -1) {
+			return null;
+		}
+		return visibleTokenOfferCards[currentIndex + step]?.tokenId ?? null;
+	}
+
+	function tokenOfferMarketPrices(card: ApiBiddingTokenOfferCard): MarketPriceItem[] {
+		const prices: MarketPriceItem[] = [];
+		const ask = buildAskMarketPrice({
+			rawPrice: card.listingPrice,
+			currencyAddress: card.listingCurrency,
+			href: openseaItemHref(card),
+			title: 'ask'
+		});
+		if (ask) {
+			prices.push(ask);
+		}
+
+		const topOffer = card.offers[0];
+		if (topOffer) {
+			const bid = buildBidMarketPrice({
+				rawPrice: topOffer.priceWei,
+				currencyAddress: topOffer.currencyAddress,
+				currencySymbol: topOffer.currencySymbol,
+				title: 'offer'
+			});
+			if (bid) prices.push(bid);
+		}
+		return prices;
+	}
+
+	function openseaItemHref(token: ApiBiddingTokenOfferCard): string | null {
+		return buildOpenseaItemHref({
+			chainSlug: chain?.slug ?? null,
+			collectionAddress: collection?.address ?? null,
+			tokenId: token.tokenId
+		});
+	}
+
+	function tokenOfferMetaLabel(card: ApiBiddingTokenOfferCard): string {
+		const count = card.offers.length;
+		return count === 1 ? '1 offer' : `${count} offers`;
+	}
+
+	function tokenOffersResultsSummary(): string {
+		const count = tokenOfferCards.totalItems;
+		return count === 1 ? '1 token' : `${count} tokens`;
+	}
+
+	function tokenOffersUpdatedAt(): string {
+		const updatedAt = bidBook.state.updatedAt;
+		if (updatedAt) return updatedAt;
+		if (bidBook.state.snapshotRefreshedAtMs !== null) {
+			return new Date(bidBook.state.snapshotRefreshedAtMs).toISOString().replace('.000Z', 'Z');
+		}
+		return '-';
+	}
+
+	function tokenOffersSourceLabel(): string {
+		return bidBook.state.source === 'bot_snapshot' ? 'competitive' : 'normal';
+	}
+
+	function tokenOffersSourceTitle(): string {
+		return bidBook.state.source === 'bot_snapshot'
+			? 'The bid book is refreshed at a competitive pace based on dedicated OpenSea offer snapshots with immediate updates from the inbound events stream.'
+			: 'The bid book is refreshed at a normal pace based on periodic orderbook polling with immediate updates from the inbound events stream.';
+	}
+
+	async function onLoadPreviousTokenOffers(event: MouseEvent): Promise<void> {
+		event.preventDefault();
+		if (!tokenOfferMetrics.hasPreviousPage || tokenOffersPagingPending) return;
+		tokenOffersPagingPending = true;
+		await goto(loadPreviousTokenOffersHref(), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	async function onLoadNextTokenOffers(event: MouseEvent): Promise<void> {
+		event.preventDefault();
+		if (!tokenOffersTailNextCursor || tokenOffersPagingPending) return;
+		tokenOffersPagingPending = true;
+		await goto(loadNextTokenOffersHref(), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
 	async function onApplyTraitRange(
 		key: string,
 		fromValue: string | null,
@@ -352,7 +574,7 @@
 			}
 		}
 
-		if (!showBidBookTraitFilters) return;
+		if (!showBidBookFilters) return;
 		traitFacetPanel.onWindowKeydown(event, {
 			onToggle: onTraitPanelControlAction,
 			onReset: onResetTraits
@@ -408,27 +630,32 @@
 			{#if biddingView === 'bid_book'}
 				<div class="panel-top-actions-row">
 					<div class="secondary-tabs" aria-label="Bid scope filter">
-						{#if bidScope === 'collection'}
-							<button type="button" class="secondary-tab-active" disabled>collection</button>
+						{#if bidScope === 'token'}
+							<button type="button" class="secondary-tab-active" disabled>token</button>
 						{:else}
-							<a href={bidScopeHref('collection')}>collection</a>
+							<a href={bidScopeHref('token')}>token</a>
 						{/if}
 						{#if bidScope === 'traits'}
 							<button type="button" class="secondary-tab-active" disabled>traits</button>
 						{:else}
 							<a href={bidScopeHref('traits')}>traits</a>
 						{/if}
+						{#if bidScope === 'collection'}
+							<button type="button" class="secondary-tab-active" disabled>collection</button>
+						{:else}
+							<a href={bidScopeHref('collection')}>collection</a>
+						{/if}
 					</div>
 				</div>
-				{#if bidScope === 'traits'}
+				{#if showBidBookFilters}
 					<div class="panel-top-actions-row">
 						<TraitFacetPanelControls
 							hasActiveFilters={hasActiveTraitFilters}
 							collapsed={$traitFacetPanelState.collapsed}
 							onToggleCollapsed={traitFacetPanel.toggle}
-							filterModes={biddingTraitFilterModes}
-							selectedFilterMode={traitJoinMode}
-							onFilterModeChange={onTraitJoinModeChange}
+							filterModes={showBidBookTraitJoinControls ? biddingTraitFilterModes : []}
+							selectedFilterMode={showBidBookTraitJoinControls ? traitJoinMode : null}
+							onFilterModeChange={showBidBookTraitJoinControls ? onTraitJoinModeChange : null}
 							onReset={onResetTraits}
 							selectedTraits={activeTraits}
 							selectedRanges={activeTraitRanges}
@@ -441,7 +668,7 @@
 	{/snippet}
 
 	{#if biddingView === 'bid_book'}
-		{#if bidScope === 'traits'}
+		{#if bidScope === 'token' || bidScope === 'traits'}
 			<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
 				<TraitFacetPanel
 					{facets}
@@ -453,7 +680,80 @@
 				/>
 
 				<div class="token-panel bidding-panel-main">
-					{@render bidBookPanel()}
+					{#if bidScope === 'token'}
+						<section class="runtime-section bid-book-summary-panel">
+							<div class="runtime-kv-grid bid-book-meta">
+								<div>
+									<span class="runtime-k">bids source</span>
+									<span class="runtime-v" title={tokenOffersSourceTitle()}>{tokenOffersSourceLabel()}</span>
+								</div>
+								<div>
+									<span class="runtime-k">tokens</span>
+									<span class="runtime-v">{tokenOfferCards.totalItems}</span>
+								</div>
+								<div>
+									<span class="runtime-k">offers</span>
+									<span class="runtime-v">{tokenOfferCards.totalOffers}</span>
+								</div>
+								<div>
+									<span class="runtime-k">updated</span>
+									<span class="runtime-v mono">{tokenOffersUpdatedAt()}</span>
+								</div>
+							</div>
+							{#if bidBook.state.lastError}
+								<p class="runtime-error bid-book-error" role="alert">{bidBook.state.lastError}</p>
+							{/if}
+						</section>
+
+						<section class="token-offers-panel">
+							<CursorPaginationControls
+								resultsSummary={tokenOffersResultsSummary()}
+								totalItems={tokenOfferCards.totalItems}
+								rangeStart={tokenOffersRangeStart}
+								rangeEnd={tokenOffersRangeEnd}
+								totalPages={tokenOfferCards.totalPages}
+								visibleStartPage={tokenOfferMetrics.visibleStartPage}
+								visibleEndPage={tokenOfferMetrics.visibleEndPage}
+								remainingItems={tokenOfferMetrics.remainingItems}
+								pagesLoaded={tokenOffersPagesLoaded}
+								hasPreviousPage={tokenOfferMetrics.hasPreviousPage}
+								previousHref={loadPreviousTokenOffersHref()}
+								previousBusy={tokenOffersPagingPending}
+								onPrevious={onLoadPreviousTokenOffers}
+								hasNextPage={tokenOfferMetrics.hasNextPage}
+								nextHref={loadNextTokenOffersHref()}
+								nextBusy={tokenOffersPagingPending}
+								onNext={onLoadNextTokenOffers}
+								endLabel="end of token offers"
+								footerClass="token-offers-footer"
+							>
+								{#if visibleTokenOfferCards.length === 0}
+									<p class="muted bid-book-empty">no token offers</p>
+								{:else}
+									<div class="token-grid-wrap">
+										<div class="token-grid">
+											{#each visibleTokenOfferCards as token}
+												<TokenCardTile
+													{chain}
+													{collection}
+													token={token}
+													href={tokenOfferCardHref(token.tokenId)}
+													selectedMediaMode={media.selectedMode}
+													availableMediaModes={media.availableModes}
+													{tokenPreview}
+													adjacentTokenResolver={resolveAdjacentOfferTokenId}
+													marketPrices={tokenOfferMarketPrices(token)}
+													metaLabel={tokenOfferMetaLabel(token)}
+												/>
+											{/each}
+										</div>
+									</div>
+								{/if}
+							</CursorPaginationControls>
+						</section>
+					{:else}
+						{@render bidBookPanel()}
+					{/if}
 				</div>
 			</div>
 		{:else}

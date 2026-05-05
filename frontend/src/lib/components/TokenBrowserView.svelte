@@ -20,6 +20,8 @@
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import CursorPaginationControls from '$lib/components/CursorPaginationControls.svelte';
+	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
@@ -31,10 +33,15 @@
 	} from '$lib/trait-filters';
 	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
 	import {
-		readTokenWindow,
-		type TokenWindowState,
-		writeTokenWindow
-	} from '$lib/components/token-window-cache';
+		buildPaginationWindowSignature,
+		describePaginationWindow,
+		pageToPaginationWindow,
+		readPaginationWindow,
+		resolvePaginationWindow,
+		traitFilterPaginationSignatureParts,
+		writePaginationWindow
+	} from '$lib/components/pagination-window';
+	import { buildAskMarketPrice, type MarketPriceItem } from '$lib/market-price';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
 
 	type MaybePromise<T> = T | Promise<T>;
@@ -92,14 +99,14 @@
 	let pagingPending = $state(false);
 	let headPrevCursor = $state<string | null>(tokens.prevCursor);
 	let tailNextCursor = $state<string | null>(tokens.nextCursor);
-	let remainingItems = $derived(Math.max(tokens.totalItems - visibleRangeEnd, 0));
-	let hasPreviousPage = $derived(visibleRangeStart > 1);
-	let hasNextPage = $derived(tailNextCursor !== null);
-	let visibleStartPage = $derived(
-		visibleRangeStart === 0 ? 0 : Math.floor((visibleRangeStart - 1) / tokens.limit) + 1
-	);
-	let visibleEndPage = $derived(
-		visibleRangeEnd === 0 ? 0 : Math.floor((visibleRangeEnd - 1) / tokens.limit) + 1
+	let paginationMetrics = $derived(
+		describePaginationWindow({
+			totalItems: tokens.totalItems,
+			rangeStart: visibleRangeStart,
+			rangeEnd: visibleRangeEnd,
+			limit: tokens.limit,
+			tailNextCursor
+		})
 	);
 	let isGridMode = $derived(displayMode === 'grid');
 	let showDisplayModeControls = false;
@@ -124,12 +131,13 @@
 			tokenStatus,
 			media.selectedMode
 		);
-		const incoming = incomingWindowState(tokens);
-		const cached = browser ? readTokenWindow(signature) : null;
-		const resolved = resolveWindowState({
+		const incoming = pageToPaginationWindow(tokens);
+		const cached = browser ? readPaginationWindow<ApiTokenCard>(signature) : null;
+		const resolved = resolvePaginationWindow({
 			cached,
 			incoming,
-			requestCursor
+			requestCursor,
+			itemKey: (token) => token.tokenId
 		});
 
 		visibleTokens = resolved.items;
@@ -140,14 +148,14 @@
 		tailNextCursor = resolved.tailNextCursor;
 
 		if (browser) {
-			writeTokenWindow(signature, resolved);
+			writePaginationWindow(signature, resolved);
 		}
 
 		pagingPending = false;
 	});
 
 	function loadPreviousHref(): string {
-		if (!hasPreviousPage) return '#';
+		if (!paginationMetrics.hasPreviousPage) return '#';
 		return buildFiltersHref(activeTraits, activeTraitRanges, headPrevCursor);
 	}
 
@@ -207,6 +215,16 @@
 		});
 	}
 
+	function tokenMarketPrices(token: ApiTokenCard): MarketPriceItem[] {
+		const ask = buildAskMarketPrice({
+			rawPrice: token.listingPrice,
+			currencyAddress: token.listingCurrency,
+			href: openseaItemHref(token),
+			title: 'ask'
+		});
+		return ask ? [ask] : [];
+	}
+
 	function buildFiltersHref(
 		traits: ApiTokenAttribute[],
 		traitRanges: ApiTraitRangeFilter[] = activeTraitRanges,
@@ -234,103 +252,14 @@
 		activeTokenStatus: 'listed' | 'all' | 'listed_then_unlisted',
 		activeMediaMode: string
 	): string {
-		const normalized = traits
-			.map((item) => `${item.key}:${item.value}`)
-			.sort((a, b) => a.localeCompare(b));
-		const normalizedRanges = traitRanges
-			.map((item) => `${item.key}:${item.fromValue ?? ''}..${item.toValue ?? ''}`)
-			.sort((a, b) => a.localeCompare(b));
-		return `${browserBasePath}|${limit}|${mode}|${activeTokenStatus}|${activeMediaMode}|${normalized.join(',')}|${normalizedRanges.join(',')}`;
-	}
-
-	function appendUniqueTokens(source: ApiTokenCard[], incoming: ApiTokenCard[]): ApiTokenCard[] {
-		if (incoming.length === 0) return source;
-		const seen = new Set(source.map((item) => item.tokenId));
-		const merged = [...source];
-		for (const token of incoming) {
-			if (seen.has(token.tokenId)) continue;
-			seen.add(token.tokenId);
-			merged.push(token);
-		}
-		return merged;
-	}
-
-	function prependUniqueTokens(source: ApiTokenCard[], incoming: ApiTokenCard[]): ApiTokenCard[] {
-		if (incoming.length === 0) return source;
-		const seen = new Set<string>();
-		const merged: ApiTokenCard[] = [];
-		for (const token of [...incoming, ...source]) {
-			if (seen.has(token.tokenId)) continue;
-			seen.add(token.tokenId);
-			merged.push(token);
-		}
-		return merged;
-	}
-
-	function incomingWindowState(page: ApiTokensPage): TokenWindowState {
-		return {
-			items: page.items,
-			rangeStart: page.rangeStart,
-			rangeEnd: page.rangeEnd,
-			pagesLoaded: page.items.length === 0 ? 0 : 1,
-			headPrevCursor: page.prevCursor,
-			tailNextCursor: page.nextCursor
-		};
-	}
-
-	function resolveWindowState(params: {
-		cached: TokenWindowState | null;
-		incoming: TokenWindowState;
-		requestCursor: string | null;
-	}): TokenWindowState {
-		const { cached, incoming, requestCursor } = params;
-		if (!cached) return incoming;
-
-		const isAppend =
-			requestCursor !== null &&
-			cached.tailNextCursor !== null &&
-			requestCursor === cached.tailNextCursor;
-
-		const isPrependByCursor =
-			requestCursor !== null &&
-			cached.headPrevCursor !== null &&
-			requestCursor === cached.headPrevCursor;
-
-		const isPrependFirstPage =
-			requestCursor === null &&
-			cached.rangeStart > 1 &&
-			incoming.rangeStart === 1 &&
-			incoming.rangeEnd > 0 &&
-			incoming.rangeEnd < cached.rangeStart;
-
-		if (isAppend) {
-			return {
-				items: appendUniqueTokens(cached.items, incoming.items),
-				rangeStart: cached.rangeStart || incoming.rangeStart,
-				rangeEnd: Math.max(cached.rangeEnd, incoming.rangeEnd),
-				pagesLoaded: cached.pagesLoaded + (incoming.items.length === 0 ? 0 : 1),
-				headPrevCursor: cached.headPrevCursor ?? incoming.headPrevCursor,
-				tailNextCursor: incoming.tailNextCursor
-			};
-		}
-
-		if (isPrependByCursor || isPrependFirstPage) {
-			return {
-				items: prependUniqueTokens(cached.items, incoming.items),
-				rangeStart:
-					cached.rangeStart === 0
-						? incoming.rangeStart
-						: incoming.rangeStart > 0
-							? Math.min(cached.rangeStart, incoming.rangeStart)
-							: cached.rangeStart,
-				rangeEnd: Math.max(cached.rangeEnd, incoming.rangeEnd),
-				pagesLoaded: cached.pagesLoaded + (incoming.items.length === 0 ? 0 : 1),
-				headPrevCursor: incoming.headPrevCursor,
-				tailNextCursor: cached.tailNextCursor
-			};
-		}
-
-		return incoming;
+		return buildPaginationWindowSignature([
+			browserBasePath,
+			limit,
+			mode,
+			activeTokenStatus,
+			activeMediaMode,
+			...traitFilterPaginationSignatureParts({ traits, ranges: traitRanges })
+		]);
 	}
 
 	function resolveTraitColumns(input: ApiTraitFacet[]): string[] {
@@ -433,9 +362,9 @@
 		});
 	}
 
-	async function onLoadPrevious(event: Event): Promise<void> {
+	async function onLoadPrevious(event: MouseEvent): Promise<void> {
 		event.preventDefault();
-		if (!hasPreviousPage || pagingPending) return;
+		if (!paginationMetrics.hasPreviousPage || pagingPending) return;
 
 		pagingPending = true;
 		await goto(loadPreviousHref(), {
@@ -445,7 +374,7 @@
 		});
 	}
 
-	async function onLoadNext(event: Event): Promise<void> {
+	async function onLoadNext(event: MouseEvent): Promise<void> {
 		event.preventDefault();
 		if (!tailNextCursor || pagingPending) return;
 
@@ -523,17 +452,27 @@
 	/>
 
 	<div class="token-panel">
-		<div class="results-toolbar">
-			<span class="mono token-results-summary">{browserResultsSummary()}</span>
-			<div class="results-toolbar-actions">
-				{#if hasPreviousPage}
-					<a
-						class="button-link"
-						href={loadPreviousHref()}
-						aria-busy={pagingPending}
-						onclick={onLoadPrevious}>load previous</a
-					>
-				{/if}
+		<CursorPaginationControls
+			resultsSummary={browserResultsSummary()}
+			totalItems={tokens.totalItems}
+			rangeStart={visibleRangeStart}
+			rangeEnd={visibleRangeEnd}
+			totalPages={tokens.totalPages}
+			visibleStartPage={paginationMetrics.visibleStartPage}
+			visibleEndPage={paginationMetrics.visibleEndPage}
+			remainingItems={paginationMetrics.remainingItems}
+			{pagesLoaded}
+			hasPreviousPage={paginationMetrics.hasPreviousPage}
+			previousHref={loadPreviousHref()}
+			previousBusy={pagingPending}
+			onPrevious={onLoadPrevious}
+			hasNextPage={paginationMetrics.hasNextPage}
+			nextHref={loadNextHref()}
+			nextBusy={pagingPending}
+			onNext={onLoadNext}
+			endLabel="end of token results"
+		>
+			{#snippet actions()}
 				{#if showDisplayModeControls}
 					<div class="secondary-tabs" aria-label="Token display mode">
 						{#if isGridMode}
@@ -559,178 +498,121 @@
 						{/each}
 					</div>
 				{/if}
-			</div>
-		</div>
+			{/snippet}
 
-		{#if isGridMode}
-			<div class="token-grid-wrap">
-				{#if visibleTokens.length === 0}
-					<div class="empty-cell">{emptyMessage}</div>
-				{:else}
+			{#if isGridMode}
+				<div class="token-grid-wrap">
+					{#if visibleTokens.length === 0}
+						<div class="empty-cell">{emptyMessage}</div>
+					{:else}
 						<div class="token-grid">
 							{#each visibleTokens as token}
-								<article class="token-grid-card">
-									<TokenMediaPreviewTrigger
-										chainRef={chain?.slug ?? null}
-										collectionRef={collection?.slug ?? null}
-										tokenId={token.tokenId}
-										image={token.image}
-										selectedMediaMode={media.selectedMode}
-										availableMediaModes={media.availableModes}
-										{tokenPreview}
-										adjacentTokenResolver={resolveAdjacentPreviewTokenId}
-										mode="grid"
-										containerClass="token-grid-media"
-										imageClass="token-grid-thumb"
-										emptyClass="token-grid-thumb token-grid-thumb-empty token-thumb-empty"
-									/>
-									<div class="token-grid-meta">
-										<a class="mono token-grid-id" href={tokenDetailHref(token.tokenId)}>{token.tokenId}</a>
-									{#if token.traitSummary}
-										<div class="mono token-grid-traits">{token.traitSummary}</div>
-									{/if}
-									{#if tokenListingLabel(token)}
-										<div class="mono token-grid-price">
-											{#if openseaItemHref(token)}
-												<a
-													class="token-price-link"
-													href={openseaItemHref(token)}
-													target="_blank"
-													rel="noreferrer noopener"
-												>
-													{tokenListingLabel(token)}
-												</a>
-											{:else}
-												{tokenListingLabel(token)}
-											{/if}
-										</div>
-									{/if}
-								</div>
-							</article>
-						{/each}
-					</div>
-				{/if}
-			</div>
-		{:else}
-			<div class="table-wrap">
-				<table class="token-table">
-					<thead>
-						<tr>
-							<th class="token-id-col">id</th>
-							<th class="token-image-col">image</th>
-							<th class="token-price-col">price</th>
-							{#if traitColumns.length === 0}
-								<th>traits</th>
+								<TokenCardTile
+									{chain}
+									{collection}
+									{token}
+									href={tokenDetailHref(token.tokenId)}
+									selectedMediaMode={media.selectedMode}
+									availableMediaModes={media.availableModes}
+									{tokenPreview}
+									adjacentTokenResolver={resolveAdjacentPreviewTokenId}
+									marketPrices={tokenMarketPrices(token)}
+								/>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{:else}
+				<div class="table-wrap">
+					<table class="token-table">
+						<thead>
+							<tr>
+								<th class="token-id-col">id</th>
+								<th class="token-image-col">image</th>
+								<th class="token-price-col">price</th>
+								{#if traitColumns.length === 0}
+									<th>traits</th>
+								{:else}
+									{#each traitColumns as traitKey}
+										<th>{traitKey}</th>
+									{/each}
+								{/if}
+							</tr>
+						</thead>
+						<tbody>
+							{#if visibleTokens.length === 0}
+								<tr>
+									<td
+										colspan={traitColumns.length === 0 ? 4 : 3 + traitColumns.length}
+										class="empty-cell">{emptyMessage}</td
+									>
+								</tr>
 							{:else}
-								{#each traitColumns as traitKey}
-									<th>{traitKey}</th>
+								{#each visibleTokens as token}
+									<tr>
+										<td class="mono token-id-cell">
+											<a class="token-table-id-link" href={tokenDetailHref(token.tokenId)}
+												>{token.tokenId}</a
+											>
+										</td>
+										<td class="token-image-cell">
+											<TokenMediaPreviewTrigger
+												chainRef={chain?.slug ?? null}
+												collectionRef={collection?.slug ?? null}
+												tokenId={token.tokenId}
+												image={token.image}
+												selectedMediaMode={media.selectedMode}
+												availableMediaModes={media.availableModes}
+												{tokenPreview}
+												adjacentTokenResolver={resolveAdjacentPreviewTokenId}
+												mode="inline"
+												imageClass="token-thumb"
+												emptyClass="token-thumb token-thumb-empty"
+											/>
+										</td>
+										<td class="mono token-price-cell">
+											{#if tokenListingLabel(token)}
+												{#if openseaItemHref(token)}
+													<a
+														class="token-price-link"
+														href={openseaItemHref(token)}
+														target="_blank"
+														rel="noreferrer noopener"
+													>
+														{tokenListingLabel(token)}
+													</a>
+												{:else}
+													{tokenListingLabel(token)}
+												{/if}
+											{:else}
+												<span class="muted">-</span>
+											{/if}
+										</td>
+										{#if traitColumns.length === 0}
+											<td class="mono">{tokenTraitsLabel(token)}</td>
+										{:else}
+											{#each traitColumns as traitKey}
+												{@const value = tokenTraitValue(token, traitKey)}
+												<td class="token-trait-cell">
+													{#if value}
+														<div class="mono token-trait-primary">{value}</div>
+														{@const stats = traitStatsLabel(traitKey, value)}
+														{#if stats}
+															<div class="muted token-trait-meta">{stats}</div>
+														{/if}
+													{:else}
+														<span class="muted">-</span>
+													{/if}
+												</td>
+											{/each}
+										{/if}
+									</tr>
 								{/each}
 							{/if}
-						</tr>
-					</thead>
-					<tbody>
-						{#if visibleTokens.length === 0}
-							<tr>
-								<td colspan={traitColumns.length === 0 ? 4 : 3 + traitColumns.length} class="empty-cell"
-									>{emptyMessage}</td
-								>
-							</tr>
-						{:else}
-							{#each visibleTokens as token}
-								<tr>
-									<td class="mono token-id-cell">
-										<a class="token-table-id-link" href={tokenDetailHref(token.tokenId)}
-											>{token.tokenId}</a
-										>
-									</td>
-									<td class="token-image-cell">
-										<TokenMediaPreviewTrigger
-											chainRef={chain?.slug ?? null}
-											collectionRef={collection?.slug ?? null}
-											tokenId={token.tokenId}
-											image={token.image}
-											selectedMediaMode={media.selectedMode}
-											availableMediaModes={media.availableModes}
-											{tokenPreview}
-											adjacentTokenResolver={resolveAdjacentPreviewTokenId}
-											mode="inline"
-											imageClass="token-thumb"
-											emptyClass="token-thumb token-thumb-empty"
-										/>
-									</td>
-									<td class="mono token-price-cell">
-										{#if tokenListingLabel(token)}
-											{#if openseaItemHref(token)}
-												<a
-													class="token-price-link"
-													href={openseaItemHref(token)}
-													target="_blank"
-													rel="noreferrer noopener"
-												>
-													{tokenListingLabel(token)}
-												</a>
-											{:else}
-												{tokenListingLabel(token)}
-											{/if}
-										{:else}
-											<span class="muted">-</span>
-										{/if}
-									</td>
-									{#if traitColumns.length === 0}
-										<td class="mono">{tokenTraitsLabel(token)}</td>
-									{:else}
-										{#each traitColumns as traitKey}
-											{@const value = tokenTraitValue(token, traitKey)}
-											<td class="token-trait-cell">
-												{#if value}
-													<div class="mono token-trait-primary">{value}</div>
-													{@const stats = traitStatsLabel(traitKey, value)}
-													{#if stats}
-														<div class="muted token-trait-meta">{stats}</div>
-													{/if}
-												{:else}
-													<span class="muted">-</span>
-												{/if}
-											</td>
-										{/each}
-									{/if}
-								</tr>
-							{/each}
-						{/if}
-					</tbody>
-				</table>
-			</div>
-		{/if}
-
-		<footer class="panel-footer">
-			<div class="pagination-summary">
-				{#if tokens.totalItems === 0}
-					<span class="muted">showing 0 of 0</span>
-				{:else}
-					<span class="mono">showing {visibleRangeStart}-{visibleRangeEnd} of {tokens.totalItems}</span>
-					{#if visibleStartPage > 0 && visibleEndPage > 0}
-						{#if visibleStartPage === visibleEndPage}
-							<span class="muted">page {visibleStartPage} / {tokens.totalPages}</span>
-						{:else}
-							<span class="muted">pages {visibleStartPage}-{visibleEndPage} / {tokens.totalPages}</span>
-						{/if}
-					{/if}
-					<span class="muted">{remainingItems} left</span>
-					{#if pagesLoaded > 1}
-						<span class="muted">loaded {pagesLoaded} pages</span>
-					{/if}
-				{/if}
-			</div>
-			{#if hasNextPage}
-				<a
-					class="button-link"
-					href={loadNextHref()}
-					aria-busy={pagingPending}
-					onclick={onLoadNext}>load next</a
-				>
-			{:else}
-				<span class="muted">end of token results</span>
+						</tbody>
+					</table>
+				</div>
 			{/if}
-		</footer>
+		</CursorPaginationControls>
 	</div>
 </div>

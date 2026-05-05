@@ -567,9 +567,10 @@ describe("backend api routes", () => {
 
     it("reads bid book from indexed orders when a collection has no enabled bidding jobs", async () => {
         clearTradingJobFixtures();
-        db.prepare("DELETE FROM orders WHERE id IN (?, ?, ?, ?, ?)").run(
+        db.prepare("DELETE FROM orders WHERE id IN (?, ?, ?, ?, ?, ?)").run(
             "bid-book-collection",
             "bid-book-token-1",
+            "bid-book-token-1-low",
             "bid-book-raw-biome-42",
             "bid-book-biome-42-terrain",
             "bid-book-stream-fallback",
@@ -611,6 +612,27 @@ describe("backend api routes", () => {
                 contract: MILADY_ADDRESS,
                 tokenId: "1",
                 priceWei: "200000000000000000",
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+        });
+        insertOrderFixture({
+            id: "bid-book-token-1-low",
+            side: "buy",
+            contract: MILADY_ADDRESS,
+            tokenId: "1",
+            sourceScopeKind: "token",
+            price: "9000000000000000",
+            currency: WETH_ADDRESS,
+            sourceStatus: "active",
+            fillabilityStatus: "fillable",
+            validFrom: 1,
+            validUntil: 4_000_000_000,
+            rawRestData: makeOpenSeaBuyOrderPayload({
+                orderId: "bid-book-token-1-low",
+                contract: MILADY_ADDRESS,
+                tokenId: "1",
+                priceWei: "9000000000000000",
                 validFrom: 1,
                 validUntil: 4_000_000_000,
             }),
@@ -727,9 +749,39 @@ describe("backend api routes", () => {
             }),
         });
 
-        const collectionBidBook = await resolve(
+        const tokenScopedBidBook = await resolve(
             "GET",
             "/api/ethereum/milady/bidding/bids",
+        );
+        expect(tokenScopedBidBook.statusCode).toBe(200);
+        expect(tokenScopedBidBook.payload.scopeFilter).toBe("token");
+        const tokenScopedOrderIds =
+            tokenScopedBidBook.payload.bidBook.bids.map(
+                (bid: { orderId: string }) => bid.orderId,
+            );
+        expect(tokenScopedOrderIds).toContain("bid-book-token-1");
+        expect(tokenScopedOrderIds).not.toContain("bid-book-token-1-low");
+        expect(tokenScopedOrderIds).not.toContain("bid-book-collection");
+        expect(tokenScopedOrderIds).not.toContain("bid-book-raw-biome-42");
+        expect(tokenScopedOrderIds).not.toContain(
+            "bid-book-biome-42-terrain",
+        );
+        const tokenOneOfferCard =
+            tokenScopedBidBook.payload.tokenOfferCards.items.find(
+                (card: { tokenId: string }) => card.tokenId === "1",
+            );
+        expect(tokenOneOfferCard).toMatchObject({
+            tokenId: "1",
+            offers: [{ orderId: "bid-book-token-1" }],
+        });
+        expect(tokenOneOfferCard.offers).toHaveLength(1);
+        expect(tokenScopedBidBook.payload.tokenOfferCards.totalOffers).toBe(
+            tokenScopedBidBook.payload.bidBook.bids.length,
+        );
+
+        const collectionBidBook = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids?bid_scope=collection",
         );
         expect(collectionBidBook.statusCode).toBe(200);
         expect(collectionBidBook.payload.bidBook.state.source).toBe("orders");
@@ -885,7 +937,7 @@ describe("backend api routes", () => {
 
         const noRuntimeHeartbeat = await resolve(
             "GET",
-            "/api/ethereum/milady/bidding/bids",
+            "/api/ethereum/milady/bidding/bids?bid_scope=collection",
         );
         expect(noRuntimeHeartbeat.statusCode).toBe(200);
         expect(noRuntimeHeartbeat.payload.bidBook.state.source).toBe("orders");
@@ -909,7 +961,7 @@ describe("backend api routes", () => {
 
         const liveRuntime = await resolve(
             "GET",
-            "/api/ethereum/milady/bidding/bids",
+            "/api/ethereum/milady/bidding/bids?bid_scope=collection",
         );
         expect(liveRuntime.statusCode).toBe(200);
         expect(liveRuntime.payload.bidBook.state.source).toBe("bot_snapshot");
@@ -931,7 +983,7 @@ describe("backend api routes", () => {
 
         const staleHeartbeat = await resolve(
             "GET",
-            "/api/ethereum/milady/bidding/bids",
+            "/api/ethereum/milady/bidding/bids?bid_scope=collection",
         );
         expect(staleHeartbeat.statusCode).toBe(200);
         expect(staleHeartbeat.payload.bidBook.state.source).toBe("orders");
@@ -958,7 +1010,7 @@ describe("backend api routes", () => {
 
         const staleProjection = await resolve(
             "GET",
-            "/api/ethereum/milady/bidding/bids",
+            "/api/ethereum/milady/bidding/bids?bid_scope=collection",
         );
         expect(staleProjection.statusCode).toBe(200);
         expect(staleProjection.payload.bidBook.state.source).toBe("orders");

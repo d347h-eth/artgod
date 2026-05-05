@@ -8,6 +8,15 @@ import {
 } from '$lib/bidding-query';
 
 describe('buildCollectionBiddingQuery', () => {
+	it('omits default token bid scope', () => {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: [],
+			selectedTraitRanges: [],
+			bidScope: 'token'
+		});
+		expect(query.get('bid_scope')).toBeNull();
+	});
+
 	it('omits default OR trait join mode and preserves non-default AND mode', () => {
 		const defaultQuery = buildCollectionBiddingQuery({
 			selectedTraits: [],
@@ -34,15 +43,16 @@ describe('collection bidding ordered query controls', () => {
 			'traits'
 		);
 		expect(parseCollectionBiddingBidScopeFilter(new URLSearchParams('bid_scope=nope'))).toBe(
-			'collection'
+			'token'
 		);
 		expect(parseCollectionBiddingView(new URLSearchParams('bidding_view=jobs'))).toBe('jobs');
 		expect(parseCollectionBiddingView(new URLSearchParams('bidding_view=nope'))).toBe('bid_book');
 	});
 
 	it('cycles bid scope using the canonical ordered value list', () => {
-		expect(nextCollectionBiddingBidScopeFilter('collection')).toBe('traits');
+		expect(nextCollectionBiddingBidScopeFilter('token')).toBe('traits');
 		expect(nextCollectionBiddingBidScopeFilter('traits')).toBe('collection');
+		expect(nextCollectionBiddingBidScopeFilter('collection')).toBe('token');
 	});
 });
 

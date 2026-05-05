@@ -62,6 +62,7 @@ const ALLOWED_ACTIVITY_FILTER_KINDS = new Set<ActivityFeedFilterKind>([
 
 const ALLOWED_COLLECTION_BIDDING_BID_SCOPE_FILTERS =
     new Set<CollectionBiddingBidScopeFilter>([
+        COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
         COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
         COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
     ]);
@@ -111,7 +112,7 @@ export function parseCollectionBiddingBidScopeFilter(
     raw: string | null,
 ): CollectionBiddingBidScopeFilter {
     if (!raw || !raw.trim()) {
-        return COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection;
+        return COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
     }
     if (
         !ALLOWED_COLLECTION_BIDDING_BID_SCOPE_FILTERS.has(

@@ -315,7 +315,7 @@ export type ApiBiddingJob = {
 
 export type ApiBiddingBidBookSource = 'bot_snapshot' | 'orders';
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
-export type ApiCollectionBiddingBidScopeFilter = 'collection' | 'traits';
+export type ApiCollectionBiddingBidScopeFilter = 'token' | 'traits' | 'collection';
 export type ApiCollectionBiddingTraitFilterJoinMode = 'or' | 'and';
 
 export type ApiBiddingBidBookRow = {
@@ -357,6 +357,23 @@ export type ApiBiddingBidBook = {
 	bids: ApiBiddingBidBookRow[];
 };
 
+export type ApiBiddingTokenOfferCard = ApiTokenCard & {
+	offers: ApiBiddingBidBookRow[];
+};
+
+export type ApiBiddingTokenOfferCardsPage = {
+	items: ApiBiddingTokenOfferCard[];
+	prevCursor: string | null;
+	nextCursor: string | null;
+	limit: number;
+	totalItems: number;
+	totalOffers: number;
+	rangeStart: number;
+	rangeEnd: number;
+	currentPage: number;
+	totalPages: number;
+};
+
 export type CollectionBiddingJobsApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
@@ -378,6 +395,7 @@ export type CollectionBiddingBidBookApiResponse = {
 		facets: ApiTraitFacet[];
 	};
 	bidBook: ApiBiddingBidBook;
+	tokenOfferCards: ApiBiddingTokenOfferCardsPage;
 };
 
 export type TokenBiddingJobApiResponse = {

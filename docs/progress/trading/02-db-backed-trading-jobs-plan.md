@@ -235,6 +235,9 @@ Collection bidding page:
 - Default filters should include non-archived jobs.
 - `GET /api/:chain_ref/:collection_ref/bidding/bids`
 - Lists collection bid-book rows.
+- Missing `bid_scope` defaults to `token`, which returns explicit token-scoped offers grouped as paginated token cards in `tokenOfferCards`.
+- Query `bid_scope=token` applies normal token trait filtering and returns all non-muted explicit token-scoped offers for each matching token card.
+- Token-scoped offers below 10% of the current top collection-wide bid are hidden and excluded from token-card offer counts.
 - Query `bid_scope=collection` returns collection-wide bids only.
 - Query `bid_scope=traits` returns trait-scoped bids and applies repeated `traits=key:value` / `trait_ranges=key:from..to` filters.
 - Trait bid-book filtering defaults to `trait_join=or`, where any selected trait key-value or range can match a bid criterion.
@@ -383,6 +386,7 @@ Display rules:
 - token detail always shows scope because multiple bid scopes can apply to one token
 - collection `bid_scope=collection` hides the scope column because all rows are collection-wide
 - collection `bid_scope=collection` does not render trait facet controls because selected traits do not affect collection-wide bids
+- collection `bid_scope=token` shows paginated explicit token-scoped offers as token cards, sorted by each token's highest explicit offer
 - collection `bid_scope=traits` groups rows by exact trait-criteria bucket, then by price within each bucket
 - dates default to compact relative display with RFC 3339 available on hover/toggle
 

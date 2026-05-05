@@ -75,6 +75,7 @@ export class GetTokenActivityUseCase {
                 collectionId: number;
                 tokenIds: string[];
                 mediaMode?: string;
+                includeListings?: boolean;
             }): TokenCard[];
         },
         readonly customizationReadPort: {

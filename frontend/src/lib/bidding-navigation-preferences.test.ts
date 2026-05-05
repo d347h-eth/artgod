@@ -41,10 +41,21 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 			applyCollectionBiddingNavigationPreferenceToQuery(
 				new URLSearchParams(),
 				{
-					bidScope: 'collection'
+					bidScope: 'token'
 				}
 			).toString()
 		).toBe('');
+	});
+
+	it('persists non-default collection scope explicitly', () => {
+		expect(
+			applyCollectionBiddingNavigationPreferenceToQuery(
+				new URLSearchParams(),
+				{
+					bidScope: 'collection'
+				}
+			).toString()
+		).toBe('bid_scope=collection');
 	});
 
 	it('ignores obsolete stored bidding view values', () => {

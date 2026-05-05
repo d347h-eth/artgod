@@ -2,6 +2,7 @@ import { formatEther } from "viem";
 import type {
     ChainRecord,
     CollectionListItem,
+    TokenCard,
     TraitFacet,
     TraitFilter,
     TraitRangeFilter,
@@ -13,8 +14,9 @@ import type {
 } from "@artgod/shared/types";
 
 export const COLLECTION_BIDDING_BID_SCOPE_FILTER = {
-    Collection: "collection",
+    Token: "token",
     Traits: "traits",
+    Collection: "collection",
 } as const;
 
 export const COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE = {
@@ -112,6 +114,23 @@ export type BiddingBidBookView = {
     bids: BiddingBidBookRowView[];
 };
 
+export type BiddingTokenOfferCardView = TokenCard & {
+    offers: BiddingBidBookRowView[];
+};
+
+export type BiddingTokenOfferCardsPage = {
+    items: BiddingTokenOfferCardView[];
+    prevCursor: string | null;
+    nextCursor: string | null;
+    limit: number;
+    totalItems: number;
+    totalOffers: number;
+    rangeStart: number;
+    rangeEnd: number;
+    currentPage: number;
+    totalPages: number;
+};
+
 export type ListCollectionBiddingBidBookOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
@@ -122,6 +141,7 @@ export type ListCollectionBiddingBidBookOutput = {
         facets: TraitFacet[];
     };
     bidBook: BiddingBidBookView;
+    tokenOfferCards: BiddingTokenOfferCardsPage;
 };
 
 export type GetTokenBiddingBidBookOutput = {
@@ -136,30 +156,36 @@ export function mapPersistedBidBookToView(
 ): BiddingBidBookView {
     return {
         state: bidBook.state,
-        bids: bidBook.bids.map((bid) => ({
-            orderId: bid.orderId,
-            source: bid.source,
-            scope: {
-                kind: bid.scopeKind,
-                label: bid.scopeLabel,
-                tokenId: bid.tokenId,
-                traits: bid.scopeTraits,
-            },
-            maker: {
-                address: bid.maker,
-                label: bid.isOwn ? "You" : bid.maker,
-                isOwn: bid.isOwn,
-            },
-            priceWei: bid.priceWei,
-            priceEth: formatEther(BigInt(bid.priceWei)),
-            quantity: bid.quantity,
-            currencyAddress: bid.currencyAddress,
-            currencySymbol: bid.currencySymbol,
-            protocolAddress: bid.protocolAddress,
-            validUntil: bid.validUntil,
-            placedAt: bid.placedAt,
-            snapshotRefreshedAtMs: bid.snapshotRefreshedAtMs,
-            seenAt: bid.seenAt,
-        })),
+        bids: mapPersistedBidRowsToView(bidBook.bids),
     };
+}
+
+export function mapPersistedBidRowsToView(
+    bids: PersistedBiddingBidBookRow[],
+): BiddingBidBookRowView[] {
+    return bids.map((bid) => ({
+        orderId: bid.orderId,
+        source: bid.source,
+        scope: {
+            kind: bid.scopeKind,
+            label: bid.scopeLabel,
+            tokenId: bid.tokenId,
+            traits: bid.scopeTraits,
+        },
+        maker: {
+            address: bid.maker,
+            label: bid.isOwn ? "You" : bid.maker,
+            isOwn: bid.isOwn,
+        },
+        priceWei: bid.priceWei,
+        priceEth: formatEther(BigInt(bid.priceWei)),
+        quantity: bid.quantity,
+        currencyAddress: bid.currencyAddress,
+        currencySymbol: bid.currencySymbol,
+        protocolAddress: bid.protocolAddress,
+        validUntil: bid.validUntil,
+        placedAt: bid.placedAt,
+        snapshotRefreshedAtMs: bid.snapshotRefreshedAtMs,
+        seenAt: bid.seenAt,
+    }));
 }

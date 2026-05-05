@@ -78,6 +78,7 @@ type CollectionDetailReadPort = {
         collectionId: number;
         tokenIds: string[];
         mediaMode?: CollectionMediaMode;
+        includeListings?: boolean;
     }): TokenCard[];
 };
 
@@ -264,6 +265,7 @@ export class ExtensionAwareCollectionDetailRead {
         collectionId: number;
         tokenIds: string[];
         mediaMode?: CollectionMediaMode;
+        includeListings?: boolean;
     }): TokenCard[] {
         const tokens = this.baseReadPort.listCollectionTokenCardsByIds(params);
         const mediaState = this.resolveCollectionMediaState(params);

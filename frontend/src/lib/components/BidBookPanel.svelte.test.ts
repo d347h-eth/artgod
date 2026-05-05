@@ -266,7 +266,8 @@ describe('BidBookPanel', () => {
 				basePath: '/ethereum/terraforms',
 				mediaMode: 'artifact',
 				preferredDemandTraitKey: 'Mode',
-				traitValueHref: (trait) => `/ethereum/terraforms/bidding?traits=${trait.key}:${trait.value}`
+				traitValueHref: (trait: { key: string; value: string }) =>
+					`/ethereum/terraforms/bidding?traits=${trait.key}:${trait.value}`
 			}
 		});
 

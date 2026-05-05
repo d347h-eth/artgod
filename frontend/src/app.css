@@ -1540,6 +1540,15 @@ th {
 	padding: 0.75rem;
 }
 
+.token-offers-panel {
+	width: 100%;
+	max-width: 100%;
+}
+
+.token-offers-footer {
+	padding-inline: 0.75rem;
+}
+
 .token-grid {
 	display: grid;
 	gap: 1rem;
@@ -1939,6 +1948,44 @@ th {
 .token-grid-price {
 	font-size: 0.78rem;
 	color: var(--c-yellow);
+}
+
+.token-grid-market-prices {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	justify-self: center;
+	gap: 2rem;
+	flex-wrap: wrap;
+	font-size: 0.78rem;
+}
+
+.token-grid-market-price {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.2rem;
+	white-space: nowrap;
+}
+
+.market-icon {
+	width: 1em;
+	height: 1em;
+	vertical-align: -0.04em;
+	flex: none;
+	transform: translateY(-0.14em);
+}
+
+.ask-price {
+	color: var(--c-cyan);
+}
+
+.bid-price {
+	color: var(--c-orange);
+}
+
+.token-grid-secondary-meta {
+	font-size: 0.68rem;
+	color: var(--c-sand);
 }
 
 .token-price-link {

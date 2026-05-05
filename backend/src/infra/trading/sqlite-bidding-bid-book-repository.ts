@@ -532,6 +532,13 @@ function collectionBidMatchesFilters(
         return bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Collection;
     }
 
+    if (scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+        return (
+            bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token &&
+            bid.tokenId !== null
+        );
+    }
+
     if (bid.scopeKind !== TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
         return false;
     }

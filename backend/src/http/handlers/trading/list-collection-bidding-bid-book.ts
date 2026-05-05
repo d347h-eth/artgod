@@ -7,6 +7,9 @@ import {
     getSearchParams,
     parseCollectionBiddingBidScopeFilter,
     parseCollectionBiddingTraitFilterJoinMode,
+    parseCursor,
+    parseLimit,
+    parseMediaMode,
     parseTraits,
     parseTraitRanges,
 } from "../../common/request-query.js";
@@ -18,6 +21,9 @@ export type ListCollectionBiddingBidBookRoute = {
     };
     Querystring: {
         bid_scope?: string;
+        cursor?: string;
+        limit?: string;
+        media_mode?: string;
         trait_join?: string;
         traits?: string | string[];
         trait?: string | string[];
@@ -53,6 +59,9 @@ export class ListCollectionBiddingBidBookHttpAdapter {
                 ),
                 traits: parseTraits(searchParams),
                 traitRanges: parseTraitRanges(searchParams),
+                mediaMode: parseMediaMode(searchParams.get("media_mode")),
+                limit: parseLimit(searchParams.get("limit")),
+                cursor: parseCursor(searchParams.get("cursor")),
             },
         );
     };

@@ -2,6 +2,7 @@
 	import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingTokenOfferCardsPage,
 		ApiBiddingJob,
 		ApiChain,
 		ApiCollection,
@@ -13,6 +14,7 @@
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
+	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 
 	type PageData = {
@@ -20,6 +22,7 @@
 		collection: ApiCollection | null;
 		jobs: ApiBiddingJob[];
 		bidBook: ApiBiddingBidBook;
+		tokenOfferCards: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
 		media: ApiCollectionMediaState;
 		included: {
@@ -34,6 +37,7 @@
 		biddingView: CollectionBiddingViewMode;
 		showMuted: boolean;
 		mediaMode: string | null;
+		requestCursor: string | null;
 	};
 
 	let { data }: { data?: PageData } = $props();
@@ -67,15 +71,17 @@
 	collection={data?.collection ?? null}
 	jobs={data?.jobs ?? []}
 	bidBook={data?.bidBook ?? emptyBidBook()}
+	tokenOfferCards={data?.tokenOfferCards ?? emptyBiddingTokenOfferCardsPage()}
 	facets={data?.facets ?? []}
 	media={data?.media ?? defaultMedia()}
 	included={data?.included ?? { tokensById: {}, hasTraitSummaryTemplate: false }}
 	basePath={data?.basePath ?? '/'}
 	selectedTraits={data?.selectedTraits ?? []}
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}
-	bidScope={data?.bidScope ?? 'collection'}
+	bidScope={data?.bidScope ?? 'token'}
 	traitJoinMode={data?.traitJoinMode ?? 'or'}
 	biddingView={data?.biddingView ?? 'bid_book'}
 	showMuted={data?.showMuted ?? false}
 	mediaMode={data?.mediaMode ?? null}
+	requestCursor={data?.requestCursor ?? null}
 />

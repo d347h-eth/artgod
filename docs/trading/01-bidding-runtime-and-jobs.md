@@ -158,16 +158,22 @@ Token detail bid books show all applicable scopes because a token can receive co
 
 Collection bidding page scope controls:
 
-- `collection`: show collection-wide bids only
+- `token`: default view; show explicit token-scoped bids as token cards, one card per token, sorted by the token's highest explicit offer
 - `traits`: show trait-scoped bids
+- `collection`: show collection-wide bids only
 
 Collection-wide rows are intentionally not mixed into the trait view.
-Trait facet controls render only in the `traits` view because collection-wide bids are unaffected by selected token traits.
+Trait facet controls render in the `token` view with normal token-browser semantics and in the `traits` view with demand-bucket semantics.
+The collection view does not render trait facet controls because selected token traits do not affect collection-wide bids.
 
-The bidding page trait facet panel defaults to OR matching.
+The trait-scoped bidding page facet panel defaults to OR matching.
 In OR mode, selected trait key-values and ranges match any criterion within a trait-scoped bid, so a user can quickly find all multi-trait combinations involving a given trait.
 The separate `OR` / `AND` control switches join mode without clearing selected filters.
 AND mode keeps the stricter behavior where the bid's full trait criterion set must exactly match the selected filters.
+
+Token-scoped offer cards are paginated with the same `limit` / `cursor` contract as token browsing.
+For signal quality, token-scoped offers below 10% of the current top collection-wide bid are hidden and excluded from per-card offer counts.
+If no collection-wide bid exists, token-scoped offers are not floor-filtered.
 
 ## Secure Wallet Boundary
 

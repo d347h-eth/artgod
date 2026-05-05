@@ -216,7 +216,7 @@ The split of responsibilities is:
 - `2` opens `offers`.
 - `3` opens `tokens`.
 - `4` opens `bidding`.
-- `S` cycles the `bid_scope` query control using the ordered values defined in `bidding-query.ts`.
+- `S` cycles the `bid_scope` query control using the ordered values defined in `bidding-query.ts` (`token`, `traits`, `collection`).
 - Collection and bidding shortcuts must not fire while a text-entry target is focused.
 - Last selected `bid_scope` is a global local UI navigation preference stored in `localStorage`.
 - Bidding route load applies stored `bid_scope` before backend fetches during browser-side navigation when the URL omits `bid_scope`.
@@ -286,6 +286,7 @@ Trait-aware pages:
 
 - collection tokens
 - collection activities
+- collection bidding `bid_scope=token`
 - collection bidding `bid_scope=traits`
 - holder-token page
 

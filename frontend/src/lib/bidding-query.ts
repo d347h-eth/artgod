@@ -4,8 +4,9 @@ import { joinPath, withQuery } from '$lib/route-paths';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 
 export const COLLECTION_BIDDING_BID_SCOPE_FILTERS = [
-	'collection',
-	'traits'
+	'token',
+	'traits',
+	'collection'
 ] as const;
 export const COLLECTION_BIDDING_VIEW_MODES = [
 	'bid_book',
@@ -31,20 +32,28 @@ export function buildCollectionBiddingQuery(params: {
 	viewMode?: CollectionBiddingViewMode;
 	mediaMode?: string | null;
 	showMuted?: boolean;
+	limit?: number | null;
+	cursor?: string | null;
 }): URLSearchParams {
 	const query = new URLSearchParams();
 	appendMediaModeParam(query, params.mediaMode ?? null);
 	if (params.viewMode && params.viewMode !== 'bid_book') {
 		query.set(BIDDING_VIEW_QUERY_PARAM, params.viewMode);
 	}
-	if (params.bidScope && params.bidScope !== 'collection') {
+	if (params.bidScope && params.bidScope !== 'token') {
 		query.set(BID_SCOPE_QUERY_PARAM, params.bidScope);
 	}
-	if (params.traitJoinMode && params.traitJoinMode !== 'or') {
+	if (params.bidScope === 'traits' && params.traitJoinMode && params.traitJoinMode !== 'or') {
 		query.set('trait_join', params.traitJoinMode);
 	}
 	if (params.showMuted) {
 		query.set(SHOW_MUTED_BID_BOOK_QUERY_PARAM, 'true');
+	}
+	if (params.limit && Number.isInteger(params.limit) && params.limit > 0) {
+		query.set('limit', String(params.limit));
+	}
+	if (params.cursor?.trim()) {
+		query.set('cursor', params.cursor.trim());
 	}
 	appendTraitParams(query, params.selectedTraits);
 	appendTraitRangeParams(query, params.selectedTraitRanges);
@@ -60,6 +69,8 @@ export function buildCollectionBiddingHref(params: {
 	viewMode?: CollectionBiddingViewMode;
 	mediaMode?: string | null;
 	showMuted?: boolean;
+	limit?: number | null;
+	cursor?: string | null;
 }): string {
 	return withQuery(
 		joinPath(params.basePath, 'bidding'),

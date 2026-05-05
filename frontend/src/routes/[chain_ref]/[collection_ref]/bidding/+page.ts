@@ -5,6 +5,7 @@ import {
 	getCollectionBiddingBidBook,
 	getCollectionBiddingJobs
 } from '$lib/backend-api';
+import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	parseCollectionBiddingBidScopeFilter,
@@ -51,6 +52,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				},
 				bids: []
 			},
+			tokenOfferCards: emptyBiddingTokenOfferCardsPage(),
 			facets: [],
 			media: {
 				selectedMode: 'snapshot',
@@ -68,7 +70,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
-			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))
+			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
+			requestCursor: url.searchParams.get('cursor')
 		};
 	}
 
@@ -88,6 +91,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: response.collection,
 			jobs: response.jobs,
 			bidBook: bidBookResponse.bidBook,
+			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,
 			media: response.media,
 			included: response.included,
@@ -98,7 +102,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
-			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode'))
+			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
+			requestCursor: url.searchParams.get('cursor')
 		};
 	} catch (cause) {
 		toKitError(cause);

@@ -60,6 +60,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			collection: bidBookResponse.collection,
 			jobs: [],
 			bidBook: bidBookResponse.bidBook,
+			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,
 			media: collectionResponse.media,
 			included: {
@@ -73,7 +74,8 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
 			biddingView: 'bid_book' as const,
 			showMuted: parseShowMutedBidBook(url.searchParams),
-			mediaMode
+			mediaMode,
+			requestCursor: url.searchParams.get('cursor')
 		};
 	} catch (cause) {
 		toKitError(cause);

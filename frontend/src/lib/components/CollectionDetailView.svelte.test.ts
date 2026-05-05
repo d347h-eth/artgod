@@ -110,6 +110,7 @@ describe('CollectionDetailView', () => {
 			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady&amp;returnQuery=limit%3D25%26mode%3Dgrid%26token_status%3Dlisted%26media_mode%3Dartifact%26traits%3DHat%253ABeanie'
 		);
 		expect(body).toContain('0.5 ETH');
+		expect(body).toContain('ask-price');
 		expect(body).toContain(
 			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
 		);
