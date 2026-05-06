@@ -1,38 +1,7 @@
 import { describe, expect, it } from "vitest";
-import fs from "node:fs/promises";
 import { zeroAddress } from "viem";
-import { decodeSeaportFill } from "../src/application/fills/seaport.js";
-import {
-    decodeErc1155TransferBatch,
-    decodeErc1155TransferSingle,
-    decodeErc721Transfer,
-} from "../src/application/sync.js";
-import type { EnhancedTransaction } from "../src/domain/onchain.js";
-import type { RpcLog } from "../src/ports/rpc.js";
-import type { Hex } from "../src/ports/rpc.js";
-import { resolveFixturePath } from "./helpers/fixture-paths.js";
-
-type TxDump = {
-    tx: {
-        hash: string;
-        from: string;
-        to: string | null;
-        input: Hex;
-        blockNumber: string | number;
-        blockHash: string;
-    };
-    receipt?: {
-        logs?: Array<{
-            address: Hex;
-            data: Hex;
-            topics: Hex[];
-            blockNumber: string | number;
-            blockHash: Hex;
-            transactionHash: Hex;
-            logIndex: number;
-        }>;
-    };
-};
+import { decodeSeaportFills } from "../src/application/fills/seaport.js";
+import { readTxDump, toEnhancedTransaction } from "./helpers/tx-dumps.js";
 
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 
@@ -69,13 +38,13 @@ const CASES = [
 
 describe("seaport fill decoding (no traces)", () => {
     it.each(CASES)("$name", async ({ dumpFile, expected }) => {
-        const dump = await readTxDump(dumpFile);
+        const dump = await readTxDump(import.meta.url, "tx", dumpFile);
         const tx = toEnhancedTransaction(dump);
         const collections = new Set([expected.contract]);
 
-        const fill = decodeSeaportFill(tx, collections);
-        expect(fill).not.toBeNull();
-        if (!fill) return;
+        const fills = decodeSeaportFills(tx, collections);
+        expect(fills).toHaveLength(1);
+        const fill = fills[0]!;
 
         expect(fill.orderSide).toBe(expected.orderSide);
         expect(fill.maker).toBe(expected.maker);
@@ -86,64 +55,6 @@ describe("seaport fill decoding (no traces)", () => {
         expect(fill.price).toBe(parseEther(expected.priceTotal).toString());
     });
 });
-
-async function readTxDump(file: string): Promise<TxDump> {
-    const resolved = resolveFixturePath(import.meta.url, "tx", file);
-    const raw = await fs.readFile(resolved, "utf8");
-    return JSON.parse(raw) as TxDump;
-}
-
-function toEnhancedTransaction(dump: TxDump): EnhancedTransaction {
-    const receiptLogs = toReceiptLogs(dump);
-    return {
-        txHash: dump.tx.hash,
-        transaction: {
-            hash: dump.tx.hash,
-            from: dump.tx.from,
-            to: dump.tx.to,
-            input: dump.tx.input,
-        },
-        events: extractTransferEvents(dump),
-        receiptLogs,
-        blockNumber: Number(dump.tx.blockNumber),
-        blockHash: dump.tx.blockHash,
-    };
-}
-
-function extractTransferEvents(dump: TxDump) {
-    const logs = dump.receipt?.logs ?? [];
-    const events = [];
-    for (const log of logs) {
-        const rpcLog: RpcLog = {
-            address: log.address,
-            data: log.data,
-            topics: log.topics,
-            blockNumber: Number(log.blockNumber),
-            blockHash: log.blockHash,
-            transactionHash: log.transactionHash,
-            logIndex: log.logIndex,
-        };
-        events.push(
-            ...decodeErc721Transfer(rpcLog),
-            ...decodeErc1155TransferSingle(rpcLog),
-            ...decodeErc1155TransferBatch(rpcLog),
-        );
-    }
-    return events;
-}
-
-function toReceiptLogs(dump: TxDump): RpcLog[] {
-    const logs = dump.receipt?.logs ?? [];
-    return logs.map((log) => ({
-        address: log.address,
-        data: log.data,
-        topics: log.topics,
-        blockNumber: Number(log.blockNumber),
-        blockHash: log.blockHash,
-        transactionHash: log.transactionHash,
-        logIndex: log.logIndex,
-    }));
-}
 
 function parseEther(value: string): bigint {
     const [whole, fraction = ""] = value.split(".");

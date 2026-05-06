@@ -1,249 +1,68 @@
-import {
-    decodeEventLog,
-    decodeFunctionData,
-    encodeEventTopics,
-    zeroAddress,
-} from "viem";
+import { logger } from "@artgod/shared/utils";
+import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
 } from "../../domain/onchain.js";
-import type { Hex } from "../../ports/rpc.js";
+import type { Hex, RpcLog } from "../../ports/rpc.js";
 import {
     findTrackedNftItem,
-    hasTrackedNft,
     isCurrencyItem,
     normalizeCurrency,
     sumAmounts,
     type SeaportItem,
 } from "./seaport-shared.js";
+import type { DecodedFillEvent, OrderSide } from "./types.js";
 
-type OrderSide = "sell" | "buy";
-
-type OfferItem = SeaportItem & { endAmount: bigint };
-
-type ConsiderationItem = OfferItem & { recipient: Hex };
-
-type BasicOrderParameters = {
-    considerationToken: Hex;
-    considerationIdentifier: bigint;
-    considerationAmount: bigint;
-    offerer: Hex;
-    zone: Hex;
-    offerToken: Hex;
-    offerIdentifier: bigint;
-    offerAmount: bigint;
-    basicOrderType: number;
-    startTime: bigint;
-    endTime: bigint;
-    zoneHash: Hex;
-    salt: bigint;
-    offererConduitKey: Hex;
-    fulfillerConduitKey: Hex;
-    totalOriginalAdditionalRecipients: bigint;
-    additionalRecipients: { amount: bigint; recipient: Hex }[];
-    signature: Hex;
+type OrderFulfilledItem = {
+    itemType: number;
+    token: Hex;
+    identifier: bigint;
+    amount: bigint;
 };
 
-type AdvancedOrder = {
-    parameters: {
-        offerer: Hex;
-        zone: Hex;
-        offer: OfferItem[];
-        consideration: ConsiderationItem[];
-        orderType: number;
-        startTime: bigint;
-        endTime: bigint;
-        zoneHash: Hex;
-        salt: bigint;
-        conduitKey: Hex;
-        totalOriginalConsiderationItems: bigint;
-    };
-    numerator: bigint;
-    denominator: bigint;
-    signature: Hex;
-    extraData: Hex;
+type OrderFulfilledConsiderationItem = OrderFulfilledItem & {
+    recipient: Hex;
 };
 
-export type DecodedFillEvent = {
-    orderId?: string;
-    kind?: string;
-    orderSide?: "sell" | "buy";
-    maker?: string;
-    taker?: string;
-    contract: string;
-    tokenId: string;
-    amount?: string;
-    price?: string;
-    currency?: string;
-    blockNumber: number;
-    blockHash: string;
-    txHash: string;
-    logIndex: number;
+type SeaportFillCandidate = DecodedFillEvent & {
+    priceValue: bigint;
 };
 
-const SEAPORT_ABI = [
+const SEAPORT_ORDER_FULFILLED_ABI = [
     {
-        type: "function",
-        name: "fulfillBasicOrder",
+        type: "event",
+        name: "OrderFulfilled",
         inputs: [
+            { indexed: false, name: "orderHash", type: "bytes32" },
+            { indexed: true, name: "offerer", type: "address" },
+            { indexed: true, name: "zone", type: "address" },
+            { indexed: false, name: "recipient", type: "address" },
             {
-                name: "",
-                type: "tuple",
-                components: [
-                    { name: "considerationToken", type: "address" },
-                    { name: "considerationIdentifier", type: "uint256" },
-                    { name: "considerationAmount", type: "uint256" },
-                    { name: "offerer", type: "address" },
-                    { name: "zone", type: "address" },
-                    { name: "offerToken", type: "address" },
-                    { name: "offerIdentifier", type: "uint256" },
-                    { name: "offerAmount", type: "uint256" },
-                    { name: "basicOrderType", type: "uint8" },
-                    { name: "startTime", type: "uint256" },
-                    { name: "endTime", type: "uint256" },
-                    { name: "zoneHash", type: "bytes32" },
-                    { name: "salt", type: "uint256" },
-                    { name: "offererConduitKey", type: "bytes32" },
-                    { name: "fulfillerConduitKey", type: "bytes32" },
-                    {
-                        name: "totalOriginalAdditionalRecipients",
-                        type: "uint256",
-                    },
-                    {
-                        name: "additionalRecipients",
-                        type: "tuple[]",
-                        components: [
-                            { name: "amount", type: "uint256" },
-                            { name: "recipient", type: "address" },
-                        ],
-                    },
-                    { name: "signature", type: "bytes" },
-                ],
-            },
-        ],
-        outputs: [{ name: "fulfilled", type: "bool" }],
-        stateMutability: "payable",
-    },
-    {
-        type: "function",
-        name: "fulfillBasicOrder_efficient_6GL6yc",
-        inputs: [
-            {
-                name: "",
-                type: "tuple",
-                components: [
-                    { name: "considerationToken", type: "address" },
-                    { name: "considerationIdentifier", type: "uint256" },
-                    { name: "considerationAmount", type: "uint256" },
-                    { name: "offerer", type: "address" },
-                    { name: "zone", type: "address" },
-                    { name: "offerToken", type: "address" },
-                    { name: "offerIdentifier", type: "uint256" },
-                    { name: "offerAmount", type: "uint256" },
-                    { name: "basicOrderType", type: "uint8" },
-                    { name: "startTime", type: "uint256" },
-                    { name: "endTime", type: "uint256" },
-                    { name: "zoneHash", type: "bytes32" },
-                    { name: "salt", type: "uint256" },
-                    { name: "offererConduitKey", type: "bytes32" },
-                    { name: "fulfillerConduitKey", type: "bytes32" },
-                    {
-                        name: "totalOriginalAdditionalRecipients",
-                        type: "uint256",
-                    },
-                    {
-                        name: "additionalRecipients",
-                        type: "tuple[]",
-                        components: [
-                            { name: "amount", type: "uint256" },
-                            { name: "recipient", type: "address" },
-                        ],
-                    },
-                    { name: "signature", type: "bytes" },
-                ],
-            },
-        ],
-        outputs: [{ name: "fulfilled", type: "bool" }],
-        stateMutability: "payable",
-    },
-    {
-        type: "function",
-        name: "fulfillAdvancedOrder",
-        inputs: [
-            {
-                name: "",
-                type: "tuple",
-                components: [
-                    {
-                        name: "parameters",
-                        type: "tuple",
-                        components: [
-                            { name: "offerer", type: "address" },
-                            { name: "zone", type: "address" },
-                            {
-                                name: "offer",
-                                type: "tuple[]",
-                                components: [
-                                    { name: "itemType", type: "uint8" },
-                                    { name: "token", type: "address" },
-                                    {
-                                        name: "identifierOrCriteria",
-                                        type: "uint256",
-                                    },
-                                    { name: "startAmount", type: "uint256" },
-                                    { name: "endAmount", type: "uint256" },
-                                ],
-                            },
-                            {
-                                name: "consideration",
-                                type: "tuple[]",
-                                components: [
-                                    { name: "itemType", type: "uint8" },
-                                    { name: "token", type: "address" },
-                                    {
-                                        name: "identifierOrCriteria",
-                                        type: "uint256",
-                                    },
-                                    { name: "startAmount", type: "uint256" },
-                                    { name: "endAmount", type: "uint256" },
-                                    { name: "recipient", type: "address" },
-                                ],
-                            },
-                            { name: "orderType", type: "uint8" },
-                            { name: "startTime", type: "uint256" },
-                            { name: "endTime", type: "uint256" },
-                            { name: "zoneHash", type: "bytes32" },
-                            { name: "salt", type: "uint256" },
-                            { name: "conduitKey", type: "bytes32" },
-                            {
-                                name: "totalOriginalConsiderationItems",
-                                type: "uint256",
-                            },
-                        ],
-                    },
-                    { name: "numerator", type: "uint120" },
-                    { name: "denominator", type: "uint120" },
-                    { name: "signature", type: "bytes" },
-                    { name: "extraData", type: "bytes" },
-                ],
-            },
-            {
-                name: "",
+                indexed: false,
+                name: "offer",
                 type: "tuple[]",
                 components: [
-                    { name: "orderIndex", type: "uint256" },
-                    { name: "side", type: "uint8" },
-                    { name: "index", type: "uint256" },
+                    { name: "itemType", type: "uint8" },
+                    { name: "token", type: "address" },
                     { name: "identifier", type: "uint256" },
-                    { name: "criteriaProof", type: "bytes32[]" },
+                    { name: "amount", type: "uint256" },
                 ],
             },
-            { name: "fulfillerConduitKey", type: "bytes32" },
-            { name: "recipient", type: "address" },
+            {
+                indexed: false,
+                name: "consideration",
+                type: "tuple[]",
+                components: [
+                    { name: "itemType", type: "uint8" },
+                    { name: "token", type: "address" },
+                    { name: "identifier", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "recipient", type: "address" },
+                ],
+            },
         ],
-        outputs: [{ name: "fulfilled", type: "bool" }],
-        stateMutability: "payable",
+        anonymous: false,
     },
 ] as const;
 
@@ -256,251 +75,268 @@ export const SEAPORT_EXCHANGE_ADDRESSES = new Set(
     ].map((address) => address.toLowerCase()),
 );
 
-const ERC20_TRANSFER_ABI = [
-    {
-        type: "event",
-        name: "Transfer",
-        inputs: [
-            { indexed: true, name: "from", type: "address" },
-            { indexed: true, name: "to", type: "address" },
-            { indexed: false, name: "value", type: "uint256" },
-        ],
-        anonymous: false,
-    },
-] as const;
-
-const [ERC20_TRANSFER_TOPIC] = encodeEventTopics({
-    abi: ERC20_TRANSFER_ABI,
-    eventName: "Transfer",
+const [ORDER_FULFILLED_TOPIC] = encodeEventTopics({
+    abi: SEAPORT_ORDER_FULFILLED_ABI,
+    eventName: "OrderFulfilled",
 }) as [Hex];
 
-// Decode Seaport fills using calldata only (no traces or Seaport logs).
-export function decodeSeaportFill(
+// Decode Seaport fills from receipt logs so routed calls work without traces.
+export function decodeSeaportFills(
     tx: EnhancedTransaction,
     collections: Set<string>,
-): DecodedFillEvent | null {
-    const to = tx.transaction.to?.toLowerCase();
-    if (!to || !SEAPORT_EXCHANGE_ADDRESSES.has(to)) return null;
+): DecodedFillEvent[] {
+    const candidates: SeaportFillCandidate[] = [];
+    for (const log of tx.receiptLogs) {
+        const candidate = decodeOrderFulfilled(log, tx, collections);
+        if (candidate) candidates.push(candidate);
+    }
+    return dedupeMatchedOrderCandidates(tx, candidates);
+}
 
-    let decoded: ReturnType<typeof decodeFunctionData> | null = null;
+function decodeOrderFulfilled(
+    log: RpcLog,
+    tx: EnhancedTransaction,
+    collections: Set<string>,
+): SeaportFillCandidate | null {
+    if (!SEAPORT_EXCHANGE_ADDRESSES.has(log.address.toLowerCase())) return null;
+    if (log.topics[0] !== ORDER_FULFILLED_TOPIC) return null;
+
     try {
-        decoded = decodeFunctionData({
-            abi: SEAPORT_ABI,
-            data: tx.transaction.input,
+        const decoded = decodeEventLog({
+            abi: SEAPORT_ORDER_FULFILLED_ABI,
+            eventName: "OrderFulfilled",
+            data: log.data,
+            topics: log.topics as [Hex, ...Hex[]],
         });
+
+        const offerer = (decoded.args.offerer as Hex).toLowerCase();
+        const offer = normalizeFulfilledItems(
+            decoded.args.offer as readonly OrderFulfilledItem[],
+        );
+        const consideration = normalizeFulfilledItems(
+            decoded.args
+                .consideration as readonly OrderFulfilledConsiderationItem[],
+        );
+
+        const offeredNft = findTrackedNftItem(offer, collections);
+        const consideredNft = findTrackedNftItem(consideration, collections);
+        if (Boolean(offeredNft) === Boolean(consideredNft)) return null;
+
+        const orderSide: OrderSide = offeredNft ? "sell" : "buy";
+        const nft = offeredNft ?? consideredNft;
+        // Require the Seaport order NFT to appear in the tracked transfer set for this tx.
+        if (!nft || !hasMatchingTransfer(tx.events, nft)) return null;
+
+        const currencyItems =
+            orderSide === "sell"
+                ? consideration.filter((item) => isCurrencyItem(item.itemType))
+                : offer.filter((item) => isCurrencyItem(item.itemType));
+        if (currencyItems.length === 0) return null;
+        const currency = resolveSingleCurrency(log, currencyItems, tx);
+        if (!currency) return null;
+
+        const price = sumAmounts(currencyItems.map((item) => item.startAmount));
+
+        return {
+            kind: "seaport",
+            orderId: decoded.args.orderHash as Hex,
+            orderSide,
+            maker: offerer,
+            taker: resolveSeaportTaker(tx, orderSide, nft, offerer),
+            contract: nft.contract,
+            tokenId: nft.tokenId,
+            amount: nft.amount,
+            price: price.toString(),
+            priceValue: price,
+            currency,
+            blockNumber: tx.blockNumber,
+            blockHash: tx.blockHash,
+            txHash: tx.txHash,
+            logIndex: log.logIndex,
+        };
     } catch {
         return null;
     }
-
-    if (!decoded) return null;
-
-    if (
-        decoded.functionName === "fulfillBasicOrder" ||
-        decoded.functionName === "fulfillBasicOrder_efficient_6GL6yc"
-    ) {
-        const order = decoded.args[0] as BasicOrderParameters | undefined;
-        if (!order) return null;
-        const fill = decodeBasicOrderFill(tx, order, collections);
-        return fill ? enrichFillWithErc20Transfers(tx, fill) : null;
-    }
-
-    if (decoded.functionName === "fulfillAdvancedOrder") {
-        const advanced = decoded.args[0] as AdvancedOrder | undefined;
-        if (!advanced) return null;
-        const fill = decodeAdvancedOrderFill(tx, advanced, collections);
-        return fill ? enrichFillWithErc20Transfers(tx, fill) : null;
-    }
-
-    return null;
 }
 
-function enrichFillWithErc20Transfers(
+function resolveSingleCurrency(
+    log: RpcLog,
+    currencyItems: readonly SeaportItem[],
     tx: EnhancedTransaction,
-    fill: DecodedFillEvent,
-): DecodedFillEvent {
-    // For ERC20-denominated fills, use receipt logs to infer the actual paid
-    // amount (fees included) by summing transfers from the payer address.
-    const currency = fill.currency?.toLowerCase();
-    if (!currency || currency === zeroAddress) return fill;
-    const payer = resolvePayer(fill);
-    if (!payer) return fill;
+): string | null {
+    const currencies = new Set(
+        currencyItems.map((item) => normalizeCurrency(item.token)),
+    );
+    const [currency] = currencies;
+    if (currency && currencies.size === 1) return currency;
 
-    const total = sumErc20Transfers(tx.receiptLogs, currency, payer);
-    if (total === 0n) return fill;
-    return { ...fill, price: total.toString() };
-}
-
-function resolvePayer(fill: DecodedFillEvent): string | null {
-    if (fill.orderSide === "sell") {
-        return fill.taker?.toLowerCase() ?? null;
-    }
-    if (fill.orderSide === "buy") {
-        return fill.maker?.toLowerCase() ?? null;
-    }
+    logger.warn("Mixed-currency Seaport fill skipped", {
+        component: "SeaportFillDecoder",
+        action: "decodeSeaportFills",
+        txHash: tx.txHash,
+        logIndex: log.logIndex,
+        currencies: [...currencies],
+    });
     return null;
 }
 
-function sumErc20Transfers(
-    logs: EnhancedTransaction["receiptLogs"],
-    token: string,
-    payer: string,
-): bigint {
-    let total = 0n;
-    for (const log of logs) {
-        if (log.address.toLowerCase() !== token) continue;
-        if (log.topics[0] !== ERC20_TRANSFER_TOPIC) continue;
-        try {
-            const decoded = decodeEventLog({
-                abi: ERC20_TRANSFER_ABI,
-                eventName: "Transfer",
-                data: log.data,
-                topics: log.topics as [Hex, ...Hex[]],
-            });
-            const from = (decoded.args.from as string).toLowerCase();
-            if (from !== payer) continue;
-            const value = decoded.args.value as bigint;
-            total += value;
-        } catch {
-            continue;
+function normalizeFulfilledItems(
+    items: readonly OrderFulfilledItem[],
+): SeaportItem[] {
+    return items.map((item) => ({
+        itemType: Number(item.itemType),
+        token: item.token,
+        identifierOrCriteria: item.identifier,
+        startAmount: item.amount,
+    }));
+}
+
+function hasMatchingTransfer(
+    events: readonly EnhancedEvent[],
+    nft: { contract: string; tokenId: string },
+): boolean {
+    return getMatchingTransfers(events, nft).length > 0;
+}
+
+function getMatchingTransfers(
+    events: readonly EnhancedEvent[],
+    nft: { contract: string; tokenId: string },
+): EnhancedEvent[] {
+    const contract = nft.contract.toLowerCase();
+    return events.filter(
+        (event) =>
+            event.base.contract.toLowerCase() === contract &&
+            event.decoded.tokenId === nft.tokenId,
+    );
+}
+
+function resolveSeaportTaker(
+    tx: EnhancedTransaction,
+    orderSide: OrderSide,
+    nft: { contract: string; tokenId: string },
+    maker: string,
+): string {
+    return orderSide === "sell"
+        ? resolveSellTaker(tx, nft, maker)
+        : resolveBuyTaker(tx, nft);
+}
+
+function resolveSellTaker(
+    tx: EnhancedTransaction,
+    nft: { contract: string; tokenId: string },
+    maker: string,
+): string {
+    const txFrom = tx.transaction.from.toLowerCase();
+    const transfers = getMatchingTransfers(tx.events, nft);
+    if (transfers.some((event) => event.decoded.to.toLowerCase() === txFrom)) {
+        return txFrom;
+    }
+
+    const makerTransfer = transfers.find(
+        (event) => event.decoded.from.toLowerCase() === maker,
+    );
+    return makerTransfer?.decoded.to.toLowerCase() ?? txFrom;
+}
+
+function resolveBuyTaker(
+    tx: EnhancedTransaction,
+    nft: { contract: string; tokenId: string },
+): string {
+    const txFrom = tx.transaction.from.toLowerCase();
+    const transfers = getMatchingTransfers(tx.events, nft);
+    if (
+        transfers.some((event) => event.decoded.from.toLowerCase() === txFrom)
+    ) {
+        return txFrom;
+    }
+
+    const makerTransfer = transfers.find(
+        (event) => event.decoded.to.toLowerCase() !== zeroAddress,
+    );
+    return makerTransfer?.decoded.from.toLowerCase() ?? txFrom;
+}
+
+function dedupeMatchedOrderCandidates(
+    tx: EnhancedTransaction,
+    candidates: SeaportFillCandidate[],
+): DecodedFillEvent[] {
+    const groups = new Map<string, SeaportFillCandidate[]>();
+    for (const candidate of candidates) {
+        const key = `${candidate.contract}:${candidate.tokenId}`;
+        const existing = groups.get(key);
+        if (existing) {
+            existing.push(candidate);
+        } else {
+            groups.set(key, [candidate]);
         }
     }
-    return total;
+
+    const fills: DecodedFillEvent[] = [];
+    for (const group of groups.values()) {
+        for (const candidate of chooseCanonicalCandidates(tx, group)) {
+            fills.push(stripCandidateMetadata(candidate));
+        }
+    }
+    return fills.sort((a, b) => a.logIndex - b.logIndex);
 }
 
-function decodeBasicOrderFill(
+function chooseCanonicalCandidates(
     tx: EnhancedTransaction,
-    order: BasicOrderParameters,
-    collections: Set<string>,
-): DecodedFillEvent | null {
-    const offerToken = order.offerToken.toLowerCase();
-    const considerationToken = order.considerationToken.toLowerCase();
-    const offerIsTracked = collections.has(offerToken);
-    const considerationIsTracked = collections.has(considerationToken);
-    if (offerIsTracked === considerationIsTracked) return null;
+    group: SeaportFillCandidate[],
+): SeaportFillCandidate[] {
+    const hasBuy = group.some((candidate) => candidate.orderSide === "buy");
+    const hasSell = group.some((candidate) => candidate.orderSide === "sell");
+    if (group.length <= 1 || !hasBuy || !hasSell) return group;
 
-    const orderSide: OrderSide = offerIsTracked ? "sell" : "buy";
-    const maker = order.offerer.toLowerCase();
-    const taker = tx.transaction.from.toLowerCase();
-    const logIndex = firstTransferLogIndex(tx.events);
-
-    const nft = offerIsTracked
-        ? {
-              contract: offerToken,
-              tokenId: order.offerIdentifier.toString(),
-              amount: order.offerAmount.toString(),
-          }
-        : {
-              contract: considerationToken,
-              tokenId: order.considerationIdentifier.toString(),
-              amount: order.considerationAmount.toString(),
-          };
-
-    const price =
-        orderSide === "sell"
-            ? sumAmounts([
-                  order.considerationAmount,
-                  ...order.additionalRecipients.map((item) => item.amount),
-              ])
-            : order.offerAmount;
-
-    const currency =
-        orderSide === "sell" ? order.considerationToken : order.offerToken;
-
-    return {
-        kind: "seaport",
-        orderSide,
-        maker,
-        taker,
-        contract: nft.contract,
-        tokenId: nft.tokenId,
-        amount: nft.amount,
-        price: price.toString(),
-        currency: normalizeCurrency(currency),
-        blockNumber: tx.blockNumber,
-        blockHash: tx.blockHash,
-        txHash: tx.txHash,
-        logIndex,
-    };
-}
-
-function decodeAdvancedOrderFill(
-    tx: EnhancedTransaction,
-    order: AdvancedOrder,
-    collections: Set<string>,
-): DecodedFillEvent | null {
-    const maker = order.parameters.offerer.toLowerCase();
-    const taker = tx.transaction.from.toLowerCase();
-    const logIndex = firstTransferLogIndex(tx.events);
-
-    const offer = order.parameters.offer;
-    const consideration = order.parameters.consideration;
-
-    const offerHasTrackedNft = hasTrackedNft(offer, collections);
-    const considerationHasTrackedNft = hasTrackedNft(
-        consideration,
-        collections,
-    );
-
-    const orderSide: OrderSide | null = offerHasTrackedNft
-        ? "sell"
-        : considerationHasTrackedNft
-          ? "buy"
-          : null;
-
-    if (!orderSide) {
-        return null;
+    // Routed wrappers may emit their own mirror order; keep the external marketplace order.
+    const outerTo = tx.transaction.to?.toLowerCase();
+    if (outerTo && !SEAPORT_EXCHANGE_ADDRESSES.has(outerTo)) {
+        const nonWrapperCandidates = group.filter(
+            (candidate) => candidate.maker?.toLowerCase() !== outerTo,
+        );
+        if (nonWrapperCandidates.length === 1) return nonWrapperCandidates;
     }
 
-    const nft =
-        orderSide === "sell"
-            ? (findTrackedNftItem(offer, collections) ??
-              resolveNftFromTransfers(tx.events, collections))
-            : (findTrackedNftItem(consideration, collections) ??
-              resolveNftFromTransfers(tx.events, collections));
-    if (!nft) return null;
+    // Direct matched orders are canonicalized by the taker's NFT transfer direction.
+    const txFromDirection = resolveTxFromFirstTransferDirection(tx, group[0]!);
+    if (txFromDirection) {
+        const expectedSide = txFromDirection === "from" ? "buy" : "sell";
+        const matching = group.filter(
+            (candidate) => candidate.orderSide === expectedSide,
+        );
+        if (matching.length === 1) return matching;
+    }
 
-    const currencyItems =
-        orderSide === "sell"
-            ? consideration.filter((item) => isCurrencyItem(item.itemType))
-            : offer.filter((item) => isCurrencyItem(item.itemType));
-    if (currencyItems.length === 0) return null;
-
-    const price = sumAmounts(currencyItems.map((item) => item.startAmount));
-    const currency = normalizeCurrency(currencyItems[0]?.token ?? zeroAddress);
-
-    return {
-        kind: "seaport",
-        orderSide,
-        maker,
-        taker,
-        contract: nft.contract,
-        tokenId: nft.tokenId,
-        amount: nft.amount,
-        price: price.toString(),
-        currency,
-        blockNumber: tx.blockNumber,
-        blockHash: tx.blockHash,
+    logger.warn("Ambiguous matched Seaport fill skipped", {
+        component: "SeaportFillDecoder",
+        action: "decodeSeaportFills",
         txHash: tx.txHash,
-        logIndex,
-    };
+        candidates: group.length,
+        contract: group[0]?.contract,
+        tokenId: group[0]?.tokenId,
+    });
+    return [];
 }
 
-function resolveNftFromTransfers(
-    events: EnhancedEvent[],
-    collections: Set<string>,
-): { contract: string; tokenId: string; amount: string } | null {
-    for (const event of events) {
-        const contract = event.base.contract.toLowerCase();
-        if (!collections.has(contract)) continue;
-        return {
-            contract,
-            tokenId: event.decoded.tokenId,
-            amount: event.decoded.amount,
-        };
+function resolveTxFromFirstTransferDirection(
+    tx: EnhancedTransaction,
+    candidate: SeaportFillCandidate,
+): "from" | "to" | null {
+    const txFrom = tx.transaction.from.toLowerCase();
+    const transfers = getMatchingTransfers(tx.events, candidate).sort(
+        (a, b) => a.base.logIndex - b.base.logIndex,
+    );
+
+    for (const transfer of transfers) {
+        if (transfer.decoded.from.toLowerCase() === txFrom) return "from";
+        if (transfer.decoded.to.toLowerCase() === txFrom) return "to";
     }
     return null;
 }
 
-function firstTransferLogIndex(events: EnhancedEvent[]): number {
-    return events[0]?.base.logIndex ?? 0;
+function stripCandidateMetadata(
+    candidate: SeaportFillCandidate,
+): DecodedFillEvent {
+    const { priceValue: _priceValue, ...fill } = candidate;
+    return fill;
 }

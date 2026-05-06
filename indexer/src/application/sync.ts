@@ -11,7 +11,9 @@ import type {
 } from "../domain/onchain.js";
 import type { CollectionScopeResolverPort } from "../ports/collections.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../ports/rpc.js";
-import { decodeSeaportFill, type DecodedFillEvent } from "./fills/seaport.js";
+import { decodeBlurFills } from "./fills/blur.js";
+import { decodeSeaportFills } from "./fills/seaport.js";
+import type { DecodedFillEvent } from "./fills/types.js";
 import type { CollectionExtensionSyncWatchSpec } from "./collection-extensions/types.js";
 import {
     decodeMetadataRefreshLog,
@@ -424,9 +426,12 @@ function accumulateOnChainData(
             data.collectionScoped.nftTransferEvents.push(transfer);
             pushBalanceDeltas(data, transfer);
         }
-        // Seaport fills are decoded from calldata (no traces) and attached per tx.
-        const fill = decodeSeaportFill(tx, resolutionContext.trackedContracts);
-        if (fill) {
+        // Fill decoders use tx calldata plus receipt logs; no trace namespace required.
+        const fills = [
+            ...decodeSeaportFills(tx, resolutionContext.trackedContracts),
+            ...decodeBlurFills(tx, resolutionContext.trackedContracts),
+        ];
+        for (const fill of fills) {
             const resolved = resolveFillEvent(fill, resolutionContext);
             if (resolved) {
                 data.collectionScoped.fillEvents.push(resolved);
