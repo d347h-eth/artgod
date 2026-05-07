@@ -78,9 +78,9 @@ Before accumulating `OnChainData`, decoded events are grouped by transaction has
 
 Transactions associated with transfer events are persisted into SQLite so downstream order-fill logic can reuse calldata without re-fetching.
 
-Each transaction is also paired with its receipt logs. The receipt logs are not persisted, but they are used during fill decoding to enrich prices for ERC20-denominated fills (by summing ERC20 `Transfer` logs from the payer within the same transaction).
+Each transaction is also paired with its receipt logs. The receipt logs are not persisted, but they are used during fill decoding to read protocol fill events and to correlate those events with tracked NFT transfer hops.
 
-Seaport fills are decoded from transaction calldata (no traces) and emitted as collection-scoped `fillEvents` when the tx calls a Seaport exchange and references a tracked collection. ERC20-denominated fills are enriched with prices inferred from receipt logs. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `global.cancelEvents` / collection-scoped `orderInfos` (criteria-based orders are skipped for now). Counter increments emit global maker triggers (`order-counter`).
+Seaport fills are decoded from receipt `OrderFulfilled` logs (no traces) and emitted as collection-scoped `fillEvents` when the protocol fill contains a tracked NFT and maps to a tracked NFT transfer in the same transaction. Matched buy/sell mirror logs for one NFT transfer are canonicalized to one fill; multi-hop bundles can emit multiple fills. Blur fills are decoded from supported calldata methods. See `docs/indexer/15-fill-decoding.md` for the full fill-decoding policy and edge cases. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `global.cancelEvents` / collection-scoped `orderInfos` (criteria-based orders are skipped for now). Counter increments emit global maker triggers (`order-counter`).
 
 WETH transfer/approval logs are decoded into global maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the bidder index is ready and non-empty (quiet default). When the index is empty or not yet loaded, WETH logs are skipped and no maker triggers are emitted.
 

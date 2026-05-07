@@ -17,7 +17,7 @@ Before making substantial changes, read these sections in `README.md`:
 
 For implementation details, use:
 
-- `docs/indexer/00-overview.md` through `docs/indexer/14-collection-bootstrap.md`
+- `docs/indexer/00-overview.md` through `docs/indexer/15-fill-decoding.md`
 - `docs/progress/indexer/15-unified-backlog.md`
 
 ## Agent-Only Rules

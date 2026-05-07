@@ -156,7 +156,115 @@ const SEAPORT_CASES: Array<{
         ],
     },
     {
-        name: "Gondi buy wrapper keeps marketplace listing sale only",
+        name: "bot flip keeps both external ask and bid fills",
+        dumpFile:
+            "0x56a35192a95b9a30a699cf01ff0fbd30a0433484545870179228b45c0c5f34d3.json",
+        expected: [
+            {
+                tokenId: "5199",
+                orderSide: "sell",
+                price: "0.239",
+                currency: zeroAddress,
+            },
+            {
+                tokenId: "5199",
+                orderSide: "buy",
+                price: "0.27",
+                currency: WETH_ADDRESS,
+            },
+        ],
+    },
+    {
+        name: "bot flip keeps both external ask and bid fills with wrapper mirror",
+        dumpFile:
+            "0x0e1ea484c1ea7b02c82d64b7a8bdc46d15de6442524e4a54970a72bff9a49678.json",
+        expected: [
+            {
+                tokenId: "373",
+                orderSide: "sell",
+                price: "0.268999",
+                currency: zeroAddress,
+            },
+            {
+                tokenId: "373",
+                orderSide: "buy",
+                price: "0.28",
+                currency: WETH_ADDRESS,
+            },
+        ],
+    },
+    {
+        name: "bot flip without wrapper mirror keeps ask then bid",
+        dumpFile:
+            "0xe710043105976c45a157cd6b2005e827491fe311b2aaf8b40460ed5f30f91638.json",
+        expected: [
+            {
+                tokenId: "9052",
+                orderSide: "sell",
+                price: "0.222",
+                currency: zeroAddress,
+            },
+            {
+                tokenId: "9052",
+                orderSide: "buy",
+                price: "0.231",
+                currency: WETH_ADDRESS,
+            },
+        ],
+    },
+    {
+        name: "delegated custodian bid settlement keeps gross buy fill",
+        dumpFile:
+            "0x11c0f7a4c2c2d27156b7faa9c243d32a94cae0c90f099f97d9780579be60192e.json",
+        expected: [
+            {
+                tokenId: "430",
+                orderSide: "buy",
+                price: "0.37",
+                currency: WETH_ADDRESS,
+            },
+        ],
+    },
+    {
+        name: "multi-token Seaport sale emits one fill per tracked NFT",
+        dumpFile:
+            "0xf2581f8779cb451f662ea3bbc5f6051121c68e3ed653270505cee26315a4e478.json",
+        expected: [
+            {
+                tokenId: "8314",
+                orderSide: "sell",
+                price: "0.0000001",
+                currency: zeroAddress,
+            },
+            {
+                tokenId: "1546",
+                orderSide: "sell",
+                price: "0.0000001",
+                currency: zeroAddress,
+            },
+        ],
+    },
+    {
+        name: "Gondi purchase bundler emits listing fill and private buy fill",
+        dumpFile:
+            "0x63bc418aba6101800257ed659efc4b82b825b6bd25d98d799c7fc5f7aed3308c.json",
+        expected: [
+            {
+                tokenId: "2258",
+                orderSide: "sell",
+                price: "0.204999",
+                currency: zeroAddress,
+            },
+            {
+                tokenId: "2258",
+                orderSide: "buy",
+                price: "0.20909898",
+                currency: zeroAddress,
+            },
+        ],
+    },
+    {
+        name: "Gondi buy wrapper emits listing fill and private buy fill",
         dumpFile:
             "0xbaf62d4821e341ec0d59ba39ad2fd83136c03c6cfba4937c43ccad0c62c1216c.json",
         expected: [
@@ -164,6 +272,12 @@ const SEAPORT_CASES: Array<{
                 tokenId: "7254",
                 orderSide: "sell",
                 price: "0.256219",
+                currency: zeroAddress,
+            },
+            {
+                tokenId: "7254",
+                orderSide: "buy",
+                price: "0.26134338",
                 currency: zeroAddress,
             },
         ],

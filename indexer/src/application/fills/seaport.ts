@@ -1,12 +1,12 @@
 import { logger } from "@artgod/shared/utils";
-import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
+import { decodeEventLog, encodeEventTopics } from "viem";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
 } from "../../domain/onchain.js";
 import type { Hex, RpcLog } from "../../ports/rpc.js";
 import {
-    findTrackedNftItem,
+    findTrackedNftItems,
     isCurrencyItem,
     normalizeCurrency,
     sumAmounts,
@@ -25,8 +25,12 @@ type OrderFulfilledConsiderationItem = OrderFulfilledItem & {
     recipient: Hex;
 };
 
-type SeaportFillCandidate = DecodedFillEvent & {
-    priceValue: bigint;
+type SeaportFillCandidate = DecodedFillEvent;
+
+type CandidateTransferMatch = {
+    fill: SeaportFillCandidate;
+    transfer: EnhancedEvent;
+    score: number;
 };
 
 const SEAPORT_ORDER_FULFILLED_ABI = [
@@ -85,21 +89,20 @@ export function decodeSeaportFills(
     tx: EnhancedTransaction,
     collections: Set<string>,
 ): DecodedFillEvent[] {
-    const candidates: SeaportFillCandidate[] = [];
+    const fills: SeaportFillCandidate[] = [];
     for (const log of tx.receiptLogs) {
-        const candidate = decodeOrderFulfilled(log, tx, collections);
-        if (candidate) candidates.push(candidate);
+        fills.push(...decodeOrderFulfilled(log, tx, collections));
     }
-    return dedupeMatchedOrderCandidates(tx, candidates);
+    return canonicalizeProtocolFills(tx, fills);
 }
 
 function decodeOrderFulfilled(
     log: RpcLog,
     tx: EnhancedTransaction,
     collections: Set<string>,
-): SeaportFillCandidate | null {
-    if (!SEAPORT_EXCHANGE_ADDRESSES.has(log.address.toLowerCase())) return null;
-    if (log.topics[0] !== ORDER_FULFILLED_TOPIC) return null;
+): SeaportFillCandidate[] {
+    if (!SEAPORT_EXCHANGE_ADDRESSES.has(log.address.toLowerCase())) return [];
+    if (log.topics[0] !== ORDER_FULFILLED_TOPIC) return [];
 
     try {
         const decoded = decodeEventLog({
@@ -118,44 +121,46 @@ function decodeOrderFulfilled(
                 .consideration as readonly OrderFulfilledConsiderationItem[],
         );
 
-        const offeredNft = findTrackedNftItem(offer, collections);
-        const consideredNft = findTrackedNftItem(consideration, collections);
-        if (Boolean(offeredNft) === Boolean(consideredNft)) return null;
+        const offeredNfts = findTrackedNftItems(offer, collections);
+        const consideredNfts = findTrackedNftItems(consideration, collections);
+        if (offeredNfts.length > 0 && consideredNfts.length > 0) return [];
+        if (offeredNfts.length === 0 && consideredNfts.length === 0) return [];
 
-        const orderSide: OrderSide = offeredNft ? "sell" : "buy";
-        const nft = offeredNft ?? consideredNft;
-        // Require the Seaport order NFT to appear in the tracked transfer set for this tx.
-        if (!nft || !hasMatchingTransfer(tx.events, nft)) return null;
+        const orderSide: OrderSide = offeredNfts.length > 0 ? "sell" : "buy";
+        const nfts = orderSide === "sell" ? offeredNfts : consideredNfts;
 
         const currencyItems =
             orderSide === "sell"
                 ? consideration.filter((item) => isCurrencyItem(item.itemType))
                 : offer.filter((item) => isCurrencyItem(item.itemType));
-        if (currencyItems.length === 0) return null;
+        if (currencyItems.length === 0) return [];
         const currency = resolveSingleCurrency(log, currencyItems, tx);
-        if (!currency) return null;
+        if (!currency) return [];
 
         const price = sumAmounts(currencyItems.map((item) => item.startAmount));
 
-        return {
-            kind: "seaport",
-            orderId: decoded.args.orderHash as Hex,
-            orderSide,
-            maker: offerer,
-            taker: resolveSeaportTaker(tx, orderSide, nft, offerer),
-            contract: nft.contract,
-            tokenId: nft.tokenId,
-            amount: nft.amount,
-            price: price.toString(),
-            priceValue: price,
-            currency,
-            blockNumber: tx.blockNumber,
-            blockHash: tx.blockHash,
-            txHash: tx.txHash,
-            logIndex: log.logIndex,
-        };
+        return nfts.flatMap((nft) => {
+            return [
+                {
+                    kind: "seaport",
+                    orderId: decoded.args.orderHash as Hex,
+                    orderSide,
+                    maker: offerer,
+                    taker: tx.transaction.from.toLowerCase(),
+                    contract: nft.contract,
+                    tokenId: nft.tokenId,
+                    amount: nft.amount,
+                    price: price.toString(),
+                    currency,
+                    blockNumber: tx.blockNumber,
+                    blockHash: tx.blockHash,
+                    txHash: tx.txHash,
+                    logIndex: log.logIndex,
+                },
+            ];
+        });
     } catch {
-        return null;
+        return [];
     }
 }
 
@@ -191,13 +196,6 @@ function normalizeFulfilledItems(
     }));
 }
 
-function hasMatchingTransfer(
-    events: readonly EnhancedEvent[],
-    nft: { contract: string; tokenId: string },
-): boolean {
-    return getMatchingTransfers(events, nft).length > 0;
-}
-
 function getMatchingTransfers(
     events: readonly EnhancedEvent[],
     nft: { contract: string; tokenId: string },
@@ -210,102 +208,220 @@ function getMatchingTransfers(
     );
 }
 
-function resolveSeaportTaker(
+function canonicalizeProtocolFills(
     tx: EnhancedTransaction,
-    orderSide: OrderSide,
-    nft: { contract: string; tokenId: string },
-    maker: string,
-): string {
-    return orderSide === "sell"
-        ? resolveSellTaker(tx, nft, maker)
-        : resolveBuyTaker(tx, nft);
-}
-
-function resolveSellTaker(
-    tx: EnhancedTransaction,
-    nft: { contract: string; tokenId: string },
-    maker: string,
-): string {
-    const txFrom = tx.transaction.from.toLowerCase();
-    const transfers = getMatchingTransfers(tx.events, nft);
-    if (transfers.some((event) => event.decoded.to.toLowerCase() === txFrom)) {
-        return txFrom;
-    }
-
-    const makerTransfer = transfers.find(
-        (event) => event.decoded.from.toLowerCase() === maker,
-    );
-    return makerTransfer?.decoded.to.toLowerCase() ?? txFrom;
-}
-
-function resolveBuyTaker(
-    tx: EnhancedTransaction,
-    nft: { contract: string; tokenId: string },
-): string {
-    const txFrom = tx.transaction.from.toLowerCase();
-    const transfers = getMatchingTransfers(tx.events, nft);
-    if (
-        transfers.some((event) => event.decoded.from.toLowerCase() === txFrom)
-    ) {
-        return txFrom;
-    }
-
-    const makerTransfer = transfers.find(
-        (event) => event.decoded.to.toLowerCase() !== zeroAddress,
-    );
-    return makerTransfer?.decoded.from.toLowerCase() ?? txFrom;
-}
-
-function dedupeMatchedOrderCandidates(
-    tx: EnhancedTransaction,
-    candidates: SeaportFillCandidate[],
+    fills: SeaportFillCandidate[],
 ): DecodedFillEvent[] {
-    const groups = new Map<string, SeaportFillCandidate[]>();
-    for (const candidate of candidates) {
-        const key = `${candidate.contract}:${candidate.tokenId}`;
+    const groups = new Map<string, DecodedFillEvent[]>();
+    for (const fill of fills) {
+        const key = `${fill.contract}:${fill.tokenId}`;
         const existing = groups.get(key);
         if (existing) {
-            existing.push(candidate);
+            existing.push(fill);
         } else {
-            groups.set(key, [candidate]);
+            groups.set(key, [fill]);
         }
     }
 
-    const fills: DecodedFillEvent[] = [];
+    const canonical: DecodedFillEvent[] = [];
     for (const group of groups.values()) {
-        for (const candidate of chooseCanonicalCandidates(tx, group)) {
-            fills.push(stripCandidateMetadata(candidate));
+        for (const fill of matchAndCanonicalizeTokenFills(tx, group)) {
+            canonical.push(fill);
         }
     }
-    return fills.sort((a, b) => a.logIndex - b.logIndex);
+    return canonical.sort((a, b) => a.logIndex - b.logIndex);
 }
 
-function chooseCanonicalCandidates(
+function matchAndCanonicalizeTokenFills(
     tx: EnhancedTransaction,
     group: SeaportFillCandidate[],
-): SeaportFillCandidate[] {
-    const hasBuy = group.some((candidate) => candidate.orderSide === "buy");
-    const hasSell = group.some((candidate) => candidate.orderSide === "sell");
-    if (group.length <= 1 || !hasBuy || !hasSell) return group;
+): DecodedFillEvent[] {
+    const [first] = group;
+    if (!first) return [];
 
-    // Routed wrappers may emit their own mirror order; keep the external marketplace order.
-    const outerTo = tx.transaction.to?.toLowerCase();
-    if (outerTo && !SEAPORT_EXCHANGE_ADDRESSES.has(outerTo)) {
-        const nonWrapperCandidates = group.filter(
-            (candidate) => candidate.maker?.toLowerCase() !== outerTo,
-        );
-        if (nonWrapperCandidates.length === 1) return nonWrapperCandidates;
+    const transfers = getMatchingTransfers(tx.events, first).sort(
+        (a, b) => a.base.logIndex - b.base.logIndex,
+    );
+    const matches = chooseBestTransferMatches(tx, group, transfers);
+    if (matches.length === 0) return [];
+
+    const byTransfer = new Map<number, CandidateTransferMatch[]>();
+    for (const match of matches) {
+        const existing = byTransfer.get(match.transfer.base.logIndex);
+        if (existing) {
+            existing.push(match);
+        } else {
+            byTransfer.set(match.transfer.base.logIndex, [match]);
+        }
     }
 
-    // Direct matched orders are canonicalized by the taker's NFT transfer direction.
-    const txFromDirection = resolveTxFromFirstTransferDirection(tx, group[0]!);
+    const out: DecodedFillEvent[] = [];
+    for (const transferMatches of byTransfer.values()) {
+        out.push(...chooseCanonicalTransferFills(tx, transferMatches));
+    }
+    return out;
+}
+
+function chooseBestTransferMatches(
+    tx: EnhancedTransaction,
+    fills: SeaportFillCandidate[],
+    transfers: EnhancedEvent[],
+): CandidateTransferMatch[] {
+    const options = fills.map((fill) =>
+        transfers
+            .flatMap((transfer) => {
+                const score = scoreCandidateTransfer(tx, fill, transfer);
+                return score === null ? [] : [{ fill, transfer, score }];
+            })
+            .sort((a, b) => b.score - a.score),
+    );
+
+    let best: CandidateTransferMatch[] = [];
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    function walk(
+        index: number,
+        usedTransfers: Set<number>,
+        picked: CandidateTransferMatch[],
+        score: number,
+    ) {
+        if (index >= fills.length) {
+            if (
+                picked.length > best.length ||
+                (picked.length === best.length &&
+                    (score > bestScore ||
+                        (score === bestScore &&
+                            compareTransferMatchSets(picked, best) > 0)))
+            ) {
+                best = [...picked];
+                bestScore = score;
+            }
+            return;
+        }
+
+        // Skipping a candidate lets matched-order mirror logs lose to the real transfer hop.
+        walk(index + 1, usedTransfers, picked, score);
+
+        for (const option of options[index] ?? []) {
+            const transferKey = option.transfer.base.logIndex;
+            if (usedTransfers.has(transferKey)) continue;
+
+            usedTransfers.add(transferKey);
+            picked.push(option);
+            walk(index + 1, usedTransfers, picked, score + option.score);
+            picked.pop();
+            usedTransfers.delete(transferKey);
+        }
+    }
+
+    walk(0, new Set(), [], 0);
+    return best.map(({ fill, transfer, score }) => ({
+        fill: applyTransferTaker(tx, fill, transfer),
+        transfer,
+        score,
+    }));
+}
+
+function compareTransferMatchSets(
+    left: readonly CandidateTransferMatch[],
+    right: readonly CandidateTransferMatch[],
+): number {
+    let score = 0;
+    for (const leftMatch of left) {
+        const rightMatch = right.find(
+            (match) =>
+                match.transfer.base.logIndex ===
+                leftMatch.transfer.base.logIndex,
+        );
+        if (!rightMatch) continue;
+        score += compareGrossBidCandidate(leftMatch.fill, rightMatch.fill);
+    }
+    return score;
+}
+
+function compareGrossBidCandidate(
+    left: DecodedFillEvent,
+    right: DecodedFillEvent,
+): number {
+    if (left.orderSide === right.orderSide) return 0;
+    if (left.currency !== right.currency) return 0;
+
+    const buy = left.orderSide === "buy" ? left : right;
+    const sell = left.orderSide === "sell" ? left : right;
+    if (!isGrossBidCandidate(buy, sell)) return 0;
+
+    // Same-transfer bid settlements expose gross bid and net seller proceeds as peers.
+    return left.orderSide === "buy" ? 1 : -1;
+}
+
+function scoreCandidateTransfer(
+    tx: EnhancedTransaction,
+    fill: SeaportFillCandidate,
+    transfer: EnhancedEvent,
+): number | null {
+    const maker = fill.maker?.toLowerCase();
+    if (!maker) return null;
+
+    const from = transfer.decoded.from.toLowerCase();
+    const to = transfer.decoded.to.toLowerCase();
+    const txFrom = tx.transaction.from.toLowerCase();
+    let score: number | null = null;
+
+    if (fill.orderSide === "sell" && from === maker) {
+        score = 100;
+    } else if (fill.orderSide === "buy" && to === maker) {
+        score = 100;
+    } else if (fill.orderSide === "buy" && from === maker) {
+        score = 90;
+    }
+    if (score === null) return null;
+
+    // When one transfer has matched buy/sell logs, tx.from direction selects the taker side.
+    if (fill.orderSide === "buy" && from === txFrom) score += 25;
+    if (fill.orderSide === "sell" && to === txFrom) score += 25;
+    if (fill.orderSide === "sell" && from === txFrom) score -= 25;
+    return score;
+}
+
+function applyTransferTaker(
+    tx: EnhancedTransaction,
+    fill: SeaportFillCandidate,
+    transfer: EnhancedEvent,
+): SeaportFillCandidate {
+    const from = transfer.decoded.from.toLowerCase();
+    const to = transfer.decoded.to.toLowerCase();
+    const maker = fill.maker?.toLowerCase();
+    const taker =
+        fill.orderSide === "sell"
+            ? to
+            : from === maker
+              ? tx.transaction.from.toLowerCase()
+              : from;
+
+    return { ...fill, taker };
+}
+
+function chooseCanonicalTransferFills(
+    tx: EnhancedTransaction,
+    matches: CandidateTransferMatch[],
+): DecodedFillEvent[] {
+    const group = matches.map((match) => match.fill);
+    const hasBuy = group.some((fill) => fill.orderSide === "buy");
+    const hasSell = group.some((fill) => fill.orderSide === "sell");
+    if (group.length <= 1 || !hasBuy || !hasSell) return group;
+
+    // Matched Seaport orders can emit buy and sell logs for one NFT transfer; keep one fill.
+    const txFromDirection = resolveTxFromTransferDirection(tx, matches[0]!);
     if (txFromDirection) {
         const expectedSide = txFromDirection === "from" ? "buy" : "sell";
         const matching = group.filter(
-            (candidate) => candidate.orderSide === expectedSide,
+            (fill) => fill.orderSide === expectedSide,
         );
         if (matching.length === 1) return matching;
     }
+
+    const grossBid = resolveGrossBidTieBreak(group);
+    if (grossBid) return [grossBid];
 
     logger.warn("Ambiguous matched Seaport fill skipped", {
         component: "SeaportFillDecoder",
@@ -318,25 +434,37 @@ function chooseCanonicalCandidates(
     return [];
 }
 
-function resolveTxFromFirstTransferDirection(
-    tx: EnhancedTransaction,
-    candidate: SeaportFillCandidate,
-): "from" | "to" | null {
-    const txFrom = tx.transaction.from.toLowerCase();
-    const transfers = getMatchingTransfers(tx.events, candidate).sort(
-        (a, b) => a.base.logIndex - b.base.logIndex,
-    );
+function resolveGrossBidTieBreak(
+    group: DecodedFillEvent[],
+): DecodedFillEvent | null {
+    const buys = group.filter((fill) => fill.orderSide === "buy");
+    const sells = group.filter((fill) => fill.orderSide === "sell");
+    if (buys.length !== 1 || sells.length !== 1) return null;
 
-    for (const transfer of transfers) {
-        if (transfer.decoded.from.toLowerCase() === txFrom) return "from";
-        if (transfer.decoded.to.toLowerCase() === txFrom) return "to";
-    }
-    return null;
+    const [buy] = buys;
+    const [sell] = sells;
+    if (!buy || !sell) return null;
+    if (buy.currency !== sell.currency) return null;
+
+    // Delegated custodian bid settlements expose gross bid and seller proceeds in one transfer.
+    return isGrossBidCandidate(buy, sell) ? buy : null;
 }
 
-function stripCandidateMetadata(
-    candidate: SeaportFillCandidate,
-): DecodedFillEvent {
-    const { priceValue: _priceValue, ...fill } = candidate;
-    return fill;
+function isGrossBidCandidate(
+    buy: DecodedFillEvent,
+    sell: DecodedFillEvent,
+): boolean {
+    if (!buy.price || !sell.price) return false;
+    return BigInt(buy.price) > BigInt(sell.price);
+}
+
+function resolveTxFromTransferDirection(
+    tx: EnhancedTransaction,
+    match: CandidateTransferMatch,
+): "from" | "to" | null {
+    const txFrom = tx.transaction.from.toLowerCase();
+    const transfer = match.transfer;
+    if (transfer.decoded.from.toLowerCase() === txFrom) return "from";
+    if (transfer.decoded.to.toLowerCase() === txFrom) return "to";
+    return null;
 }

@@ -26,18 +26,28 @@ export function findTrackedNftItem(
     items: readonly SeaportItem[],
     collections: Set<string>,
 ): { contract: string; tokenId: string; amount: string } | null {
+    return findTrackedNftItems(items, collections)[0] ?? null;
+}
+
+// Return every concrete tracked NFT item represented by a Seaport item list.
+export function findTrackedNftItems(
+    items: readonly SeaportItem[],
+    collections: Set<string>,
+): Array<{ contract: string; tokenId: string; amount: string }> {
+    const out: Array<{ contract: string; tokenId: string; amount: string }> =
+        [];
     for (const item of items) {
         if (!isNftItem(item.itemType)) continue;
         if (item.itemType >= 4) continue;
         const token = item.token.toLowerCase();
         if (!collections.has(token)) continue;
-        return {
+        out.push({
             contract: token,
             tokenId: item.identifierOrCriteria.toString(),
             amount: item.startAmount.toString(),
-        };
+        });
     }
-    return null;
+    return out;
 }
 
 export function isCurrencyItem(itemType: number): boolean {

@@ -359,7 +359,7 @@ Reference docs:
 
 Use these as primary references for design and implementation details:
 
-- `docs/indexer/00-overview.md` through `docs/indexer/14-collection-bootstrap.md`
+- `docs/indexer/00-overview.md` through `docs/indexer/15-fill-decoding.md`
 - `docs/extensions/01-collection-extensions.md`
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
