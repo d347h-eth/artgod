@@ -31,6 +31,14 @@ export type ApiCollectionMediaState = {
 	availableModes: ApiCollectionMediaMode[];
 };
 
+export type ApiActivityEventMedia = {
+	image: string | null;
+	animationUrl: string | null;
+	htmlContent?: string | null;
+	mediaRef: string;
+	renderModes?: ApiCollectionMediaMode[];
+};
+
 export type OwnerRefResolutionApiResponse = {
 	input: string;
 	resolvedAddress: string;
@@ -272,6 +280,7 @@ export type CollectionActivitiesApiResponse = {
 	activities: ApiActivitiesPage;
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 		hasTraitSummaryTemplate: boolean;
 	};
 };
@@ -396,6 +405,7 @@ export type CollectionBiddingJobsApiResponse = {
 	jobs: ApiBiddingJob[];
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 		hasTraitSummaryTemplate: boolean;
 	};
 };
@@ -455,6 +465,7 @@ export type TokenActivitiesApiResponse = {
 	activities: ApiActivitiesPage;
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 		hasTraitSummaryTemplate: boolean;
 	};
 };

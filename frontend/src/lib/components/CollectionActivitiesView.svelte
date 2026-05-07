@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import type {
 		ApiActivitiesPage,
+		ApiActivityEventMedia,
 		ApiActivityExtensionEventRef,
 		ApiActivityFeedFilterKind,
 		ApiActivityFeedItem,
@@ -14,6 +15,7 @@
 		ApiTokenPresentationSummary,
 		ApiTraitFacet
 	} from '$lib/api-types';
+	import { resolveActivityEventRenderMode } from '$lib/activity-event-render-mode';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import {
 		buildCollectionNavigation,
@@ -68,6 +70,7 @@
 		media: ApiCollectionMediaState;
 		included: {
 			tokensById: Record<string, ApiTokenPresentationSummary>;
+			eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 			hasTraitSummaryTemplate: boolean;
 		};
 		basePath: string;
@@ -296,6 +299,26 @@
 	function activityContentHash(activity: ApiActivityFeedItem): string | null {
 		const value = activity.payload?.contentHash;
 		return typeof value === 'string' && value.trim() ? value : null;
+	}
+
+	function activityEventMedia(activity: ApiActivityFeedItem): ApiActivityEventMedia | null {
+		return included.eventMediaByActivityId?.[String(activity.id)] ?? null;
+	}
+
+	function activityPreviewImage(activity: ApiActivityFeedItem): string | null {
+		return activityEventMedia(activity)?.image ?? null;
+	}
+
+	function activityPreviewMode(activity: ApiActivityFeedItem): string {
+		return resolveActivityEventRenderMode(media.selectedMode, activityEventMedia(activity)?.renderModes);
+	}
+
+	function activityPreviewModes(activity: ApiActivityFeedItem): ApiCollectionMediaState['availableModes'] {
+		return activityEventMedia(activity)?.renderModes ?? media.availableModes;
+	}
+
+	function activityPreviewContext(activity: ApiActivityFeedItem) {
+		return activityEventMedia(activity) ? { kind: 'activity-event' as const, activityId: activity.id } : null;
 	}
 
 	function columnLabel(column: ActivityColumnId): string {
@@ -682,8 +705,10 @@
 													collectionRef={collection?.slug ?? null}
 													tokenId={activity.tokenId}
 													token={tokenSummary(activity)}
-													selectedMediaMode={media.selectedMode}
-													availableMediaModes={media.availableModes}
+													imageOverride={activityPreviewImage(activity)}
+													selectedMediaMode={activityPreviewMode(activity)}
+													availableMediaModes={activityPreviewModes(activity)}
+													previewContext={activityPreviewContext(activity)}
 													tokenPreview={tokenPreview}
 												/>
 											{:else if column === 'name'}

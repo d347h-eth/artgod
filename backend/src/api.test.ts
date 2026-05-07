@@ -76,12 +76,18 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/get-collection-detail.js");
     const collectionActivityUseCaseModule =
         await import("./application/use-cases/activities/get-collection-activity.js");
+    const activityEventPreviewUseCaseModule =
+        await import(
+            "./application/use-cases/activities/get-activity-event-preview.js"
+        );
     const collectionHoldersUseCaseModule =
         await import("./application/use-cases/collections/get-collection-holders.js");
     const tokenDetailUseCaseModule =
         await import("./application/use-cases/collections/get-token-detail.js");
     const tokenPreviewUseCaseModule =
         await import("./application/use-cases/collections/get-token-preview.js");
+    const tokenUriUseCaseModule =
+        await import("./application/use-cases/collections/get-token-uri.js");
     const tokenActivityUseCaseModule =
         await import("./application/use-cases/activities/get-token-activity.js");
     const runtimeHealthUseCaseModule =
@@ -161,6 +167,17 @@ beforeAll(async () => {
             collectionsReadModel,
             customizationReadModel,
         );
+    const getActivityEventPreviewUseCase =
+        new activityEventPreviewUseCaseModule.GetActivityEventPreviewUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            {
+                async getActivityEventPreview() {
+                    throw new Error("Unexpected activity event preview");
+                },
+            },
+        );
     const getCollectionCustomizationUseCase =
         new getCollectionCustomizationUseCaseModule.GetCollectionCustomizationUseCase(
             1,
@@ -187,6 +204,16 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
         );
+    const getTokenUriUseCase = new tokenUriUseCaseModule.GetTokenUriUseCase(
+        1,
+        chainsReadModel,
+        collectionsReadModel,
+        {
+            async getTokenUri() {
+                return "data:application/json;base64,e30=";
+            },
+        },
+    );
     const getTokenActivityUseCase =
         new tokenActivityUseCaseModule.GetTokenActivityUseCase(
             1,
@@ -361,12 +388,14 @@ beforeAll(async () => {
         listCollectionsUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
+        getActivityEventPreviewUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
+        getTokenUriUseCase,
         updateCollectionCustomizationUseCase,
         listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,
@@ -392,12 +421,14 @@ beforeAll(async () => {
         listCollectionsUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
+        getActivityEventPreviewUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
         getTokenPreviewUseCase,
+        getTokenUriUseCase,
         updateCollectionCustomizationUseCase,
         listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,
@@ -2223,6 +2254,77 @@ describe("backend api routes", () => {
         expect(snapshot.payload.included.tokensById["7710"].image).toBe(
             "https://example.com/terraforms-default.png",
         );
+    });
+
+    it("returns extension event media includes for Terraforms activity rows", async () => {
+        const txHash =
+            "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        insertActivityFixture({
+            collectionAddress: TERRAFORMS_ADDRESS,
+            scopeKind: ACTIVITY_SCOPE_KIND.Token,
+            kind: ACTIVITY_KIND.Custom,
+            tokenId: "7710",
+            occurredAt: 1_726_100_100,
+            sourceKind: ACTIVITY_SOURCE_KIND.Extension,
+            sourceName: TERRAFORMS_EXTENSION_KEY,
+            blockNumber: 22_010_001,
+            txHash,
+            logIndex: 8,
+            maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            payload: {
+                eventKey: "terraformed",
+                contentHash:
+                    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
+            dedupeKey: `extension:terraforms:terraformed:7710:${txHash}:8`,
+        });
+        const collection = getCollectionFixtureByAddress(TERRAFORMS_ADDRESS);
+        db.prepare(
+            "INSERT INTO collection_extension_event_media " +
+                "(chain_id, collection_id, extension_key, event_key, contract_address, token_id, media_ref, block_number, block_hash, block_timestamp, tx_hash, log_index, image, render_modes_json) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(
+            1,
+            collection.collection_id,
+            TERRAFORMS_EXTENSION_KEY,
+            "terraformed",
+            TERRAFORMS_ADDRESS,
+            "7710",
+            "terraformed-preview",
+            22_010_001,
+            `0x${"44".repeat(32)}`,
+            1_726_100_100,
+            txHash,
+            8,
+            "data:image/svg+xml;base64,event-canvas",
+            JSON.stringify([
+                { key: "artifact", label: "artifact" },
+                { key: "network", label: "network" },
+            ]),
+        );
+
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/activity?limit=10&extension_event=terraforms:terraformed",
+        );
+
+        expect(result.statusCode).toBe(200);
+        const activity = result.payload.activities.items.find(
+            (item: { txHash: string }) => item.txHash === txHash,
+        );
+        expect(activity).toBeDefined();
+        expect(
+            result.payload.included.eventMediaByActivityId[
+                String(activity.id)
+            ],
+        ).toMatchObject({
+            image: "data:image/svg+xml;base64,event-canvas",
+            mediaRef: "terraformed-preview",
+            renderModes: [
+                { key: "artifact", label: "artifact" },
+                { key: "network", label: "network" },
+            ],
+        });
     });
 
     it("returns collection holders as a forward cursor page", async () => {

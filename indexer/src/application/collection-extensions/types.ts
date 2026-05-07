@@ -4,6 +4,7 @@ import type {
 } from "@artgod/shared/extensions";
 import type {
     CollectionExtensionEvent,
+    CollectionExtensionEventMedia,
     MetadataRefreshEvent,
     MetadataRefreshRangeEvent,
 } from "../../domain/onchain.js";
@@ -18,6 +19,7 @@ export type CollectionExtensionSyncDecodeResult = {
     metadataRefreshEvents: MetadataRefreshEvent[];
     metadataRefreshRangeEvents: MetadataRefreshRangeEvent[];
     collectionExtensionEvents: CollectionExtensionEvent[];
+    collectionExtensionEventMedia: CollectionExtensionEventMedia[];
 };
 
 export type CollectionExtensionSyncDecodeContext = {

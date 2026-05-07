@@ -3,12 +3,14 @@ import {
     MAX_PAGE_LIMIT,
 } from "../config/pagination.js";
 import { db } from "../database/db.js";
-import type {
-    ActivityFeedCursor,
-    ActivityExtensionEventFilter,
-    ActivityFeedFilterKind,
-    ActivityFeedItem,
-    ActivityFeedPage,
+import {
+    ACTIVITY_SOURCE_KIND,
+    type ActivityEventMedia,
+    type ActivityFeedCursor,
+    type ActivityExtensionEventFilter,
+    type ActivityFeedFilterKind,
+    type ActivityFeedItem,
+    type ActivityFeedPage,
 } from "../types/activity-feed.js";
 import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
@@ -61,6 +63,15 @@ type ActivityQuerySource = {
     cteSql: string;
     relationSql: string;
     selectColumnsSql: string;
+};
+
+type ActivityEventMediaRow = {
+    activity_id: number;
+    media_ref: string;
+    image: string | null;
+    animation_url: string | null;
+    html_content: string | null;
+    render_modes_json: string | null;
 };
 
 const RAW_ACTIVITY_SELECT_COLUMNS =
@@ -127,6 +138,49 @@ export class SqliteActivitiesReadModel {
             cursor: params.cursor,
             kind: params.kind,
         });
+    }
+
+    listCollectionActivityEventMedia(params: {
+        chainId: number;
+        collectionId: number;
+        activityIds: number[];
+    }): Record<string, ActivityEventMedia> {
+        const activityIds = params.activityIds.filter((id) =>
+            Number.isInteger(id),
+        );
+        if (activityIds.length === 0) return {};
+
+        const placeholders = activityIds.map(() => "?").join(", ");
+        const rows = db.raw
+            .prepare(
+                "SELECT a.id AS activity_id, m.media_ref, m.image, m.animation_url, m.html_content, m.render_modes_json " +
+                    "FROM activities a " +
+                    "INNER JOIN collection_extension_event_media m ON " +
+                    "m.chain_id = a.chain_id AND m.collection_id = a.collection_id AND " +
+                    "m.extension_key = a.source_name AND " +
+                    "m.event_key = json_extract(a.payload_json, '$.eventKey') AND " +
+                    "m.tx_hash = a.tx_hash AND m.log_index = a.log_index AND " +
+                    "m.token_id = COALESCE(a.token_id, '') " +
+                    "WHERE a.chain_id = ? AND a.collection_id = ? AND a.id IN (" +
+                    placeholders +
+                    ") " +
+                    "ORDER BY a.id ASC, m.media_ref ASC",
+            )
+            .all(params.chainId, params.collectionId, ...activityIds) as
+            ActivityEventMediaRow[];
+        const byActivityId: Record<string, ActivityEventMedia> = {};
+        for (const row of rows) {
+            const key = String(row.activity_id);
+            if (byActivityId[key]) continue;
+            byActivityId[key] = {
+                mediaRef: row.media_ref,
+                image: row.image,
+                animationUrl: row.animation_url,
+                htmlContent: row.html_content,
+                renderModes: parseRenderModes(row.render_modes_json),
+            };
+        }
+        return byActivityId;
     }
 
     private listActivities(params: {
@@ -228,6 +282,37 @@ export class SqliteActivitiesReadModel {
     }
 }
 
+function parseRenderModes(
+    value: string | null,
+): ActivityEventMedia["renderModes"] {
+    if (!value) return undefined;
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        if (!Array.isArray(parsed)) return undefined;
+        const modes = parsed
+            .map((mode) => {
+                if (!mode || typeof mode !== "object") return null;
+                const record = mode as Record<string, unknown>;
+                if (
+                    typeof record.key !== "string" ||
+                    typeof record.label !== "string"
+                ) {
+                    return null;
+                }
+                return {
+                    key: record.key,
+                    label: record.label,
+                };
+            })
+            .filter((mode): mode is { key: string; label: string } =>
+                Boolean(mode),
+            );
+        return modes.length > 0 ? modes : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 function buildActivityWhereClauses(params: {
     chainId: number;
     collectionId: number;
@@ -285,7 +370,7 @@ function buildActivityWhereClauses(params: {
             "json_extract(payload_json, '$.eventKey') = ?",
         );
         values.push(
-            "extension",
+            ACTIVITY_SOURCE_KIND.Extension,
             params.extensionEvent.extensionKey.toLowerCase(),
             params.extensionEvent.eventKey,
         );

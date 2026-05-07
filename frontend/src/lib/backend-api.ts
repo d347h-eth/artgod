@@ -273,6 +273,23 @@ export async function getTokenPreview(
 	);
 }
 
+export async function getActivityEventPreview(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	activityId: number,
+	params?: URLSearchParams
+): Promise<TokenPreviewApiResponse> {
+	const query = params?.toString() ?? '';
+	const suffix = query ? `?${query}` : '';
+	return requestJson<TokenPreviewApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/activity/${encodeURIComponent(
+			String(activityId)
+		)}/preview${suffix}`
+	);
+}
+
 export async function getBootstrapStatus(
 	fetchFn: typeof fetch,
 	chainRef: string,

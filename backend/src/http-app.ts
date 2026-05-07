@@ -6,12 +6,14 @@ import type { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap
 import type { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import type { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import type { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
+import type { GetActivityEventPreviewUseCase } from "./application/use-cases/activities/get-activity-event-preview.js";
 import type { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
 import type { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
 import type { GetCollectionDetailPort } from "./application/use-cases/collections/get-collection-detail.js";
 import type { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
 import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import type { GetTokenPreviewPort } from "./application/use-cases/collections/get-token-preview.js";
+import type { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
@@ -29,12 +31,14 @@ import { ListBootstrapRunsHttpAdapter } from "./http/handlers/bootstrap/list-boo
 import { RetryBootstrapRunFailedTasksHttpAdapter } from "./http/handlers/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import { GetCollectionActivityHttpAdapter } from "./http/handlers/activities/get-collection-activity.js";
+import { GetActivityEventPreviewHttpAdapter } from "./http/handlers/activities/get-activity-event-preview.js";
 import { GetTokenActivityHttpAdapter } from "./http/handlers/activities/get-token-activity.js";
 import { GetCollectionCustomizationHttpAdapter } from "./http/handlers/collections/get-collection-customization.js";
 import { GetCollectionDetailHttpAdapter } from "./http/handlers/collections/get-collection-detail.js";
 import { GetCollectionHoldersHttpAdapter } from "./http/handlers/collections/get-collection-holders.js";
 import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token-detail.js";
 import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-token-preview.js";
+import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-uri.js";
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
@@ -69,12 +73,14 @@ export function createApiApp(
     listCollectionsUseCase: ListCollectionsUseCase,
     resolveOwnerRefUseCase: ResolveOwnerRefUseCase,
     getCollectionActivityUseCase: GetCollectionActivityUseCase,
+    getActivityEventPreviewUseCase: GetActivityEventPreviewUseCase,
     getTokenActivityUseCase: GetTokenActivityUseCase,
     getCollectionCustomizationUseCase: GetCollectionCustomizationUseCase,
     getCollectionDetailUseCase: GetCollectionDetailPort,
     getCollectionHoldersUseCase: GetCollectionHoldersUseCase,
     getTokenDetailUseCase: GetTokenDetailUseCase,
     getTokenPreviewUseCase: GetTokenPreviewPort,
+    getTokenUriUseCase: GetTokenUriUseCase,
     updateCollectionCustomizationUseCase: UpdateCollectionCustomizationUseCase,
     listCollectionBiddingJobsUseCase: ListCollectionBiddingJobsUseCase,
     listCollectionBiddingBidBookUseCase: ListCollectionBiddingBidBookUseCase,
@@ -120,6 +126,8 @@ export function createApiApp(
     const getCollectionActivityAdapter = new GetCollectionActivityHttpAdapter(
         getCollectionActivityUseCase,
     );
+    const getActivityEventPreviewAdapter =
+        new GetActivityEventPreviewHttpAdapter(getActivityEventPreviewUseCase);
     const getTokenActivityAdapter = new GetTokenActivityHttpAdapter(
         getTokenActivityUseCase,
     );
@@ -139,6 +147,7 @@ export function createApiApp(
     const getTokenPreviewAdapter = new GetTokenPreviewHttpAdapter(
         getTokenPreviewUseCase,
     );
+    const getTokenUriAdapter = new GetTokenUriHttpAdapter(getTokenUriUseCase);
     const updateCollectionCustomizationAdapter =
         new UpdateCollectionCustomizationHttpAdapter(
             updateCollectionCustomizationUseCase,
@@ -185,12 +194,14 @@ export function createApiApp(
         listCollectionsAdapter,
         resolveOwnerRefAdapter,
         getCollectionActivityAdapter,
+        getActivityEventPreviewAdapter,
         getTokenActivityAdapter,
         getCollectionCustomizationAdapter,
         getCollectionDetailAdapter,
         getCollectionHoldersAdapter,
         getTokenDetailAdapter,
         getTokenPreviewAdapter,
+        getTokenUriAdapter,
         updateCollectionCustomizationAdapter,
         listCollectionBiddingJobsAdapter,
         listCollectionBiddingBidBookAdapter,

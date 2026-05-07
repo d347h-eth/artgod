@@ -113,6 +113,7 @@ describe("terraforms collection extension", () => {
             functionName: string;
             blockNumber?: number;
         }> = [];
+        const tokenSvgArgs: unknown[][] = [];
 
         const decoded = await specs[0]!.decode(
             {
@@ -136,6 +137,16 @@ describe("terraforms collection extension", () => {
                         blockScopedCalls.push({ functionName, blockNumber });
                         if (functionName === "tokenToCanvasData") {
                             return (args?.[1] as bigint) + 1n;
+                        }
+                        if (functionName === "tokenToPlacement") {
+                            return 42n;
+                        }
+                        if (functionName === "tokenToStatus") {
+                            return 4n;
+                        }
+                        if (functionName === "tokenSVG") {
+                            tokenSvgArgs.push([...(args ?? [])]);
+                            return "<svg>terraformed</svg>";
                         }
                         throw new Error(
                             `Unexpected contract call: ${functionName}`,
@@ -166,12 +177,40 @@ describe("terraforms collection extension", () => {
         expect((event.payload?.canvasRows as string[] | undefined)?.length).toBe(
             16,
         );
+        expect(decoded.collectionExtensionEventMedia).toEqual([
+            expect.objectContaining({
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                eventKey: "terraformed",
+                tokenId: "7710",
+                image: expect.stringMatching(/^data:image\/svg\+xml;base64,/),
+            }),
+        ]);
+        expect(
+            blockScopedCalls.filter(
+                (call) => call.functionName === "tokenToCanvasData",
+            ),
+        ).toHaveLength(16);
+        expect(
+            blockScopedCalls
+                .filter(
+                    (call) =>
+                        call.functionName !== "tokenSVG" &&
+                        call.functionName !== "tokenToStatus",
+                )
+                .every((call) => call.blockNumber === 101),
+        ).toBe(true);
+        expect(
+            blockScopedCalls.find((call) => call.functionName === "tokenSVG")
+                ?.blockNumber,
+        ).toBeUndefined();
         expect(blockScopedCalls.map((call) => call.functionName)).toEqual(
-            Array.from({ length: 16 }, () => "tokenToCanvasData"),
+            expect.arrayContaining([
+                "tokenToPlacement",
+                "tokenToStatus",
+                "tokenSVG",
+            ]),
         );
-        expect(blockScopedCalls.every((call) => call.blockNumber === 101)).toBe(
-            true,
-        );
+        expect(tokenSvgArgs[0]?.[0]).toBe(4n);
     });
 
 
@@ -186,9 +225,6 @@ describe("terraforms collection extension", () => {
         const canvasReads: bigint[] = [];
         const rpc = createRpcStub({
             onReadContract({ functionName, args }) {
-                if (functionName === "seed") {
-                    return 10196n;
-                }
                 if (functionName === "tokenToPlacement") {
                     return 42n;
                 }
@@ -295,9 +331,6 @@ describe("terraforms collection extension", () => {
         let canvasReads = 0;
         const rpc = createRpcStub({
             onReadContract({ functionName, args }) {
-                if (functionName === "seed") {
-                    return 10196n;
-                }
                 if (functionName === "tokenToPlacement") {
                     return 77n;
                 }
@@ -376,9 +409,6 @@ describe("terraforms collection extension", () => {
         const tokenUriArgs: unknown[][] = [];
         const rpc = createRpcStub({
             onReadContract({ functionName, args }) {
-                if (functionName === "seed") {
-                    return 10196n;
-                }
                 if (functionName === "tokenToPlacement") {
                     return 88n;
                 }

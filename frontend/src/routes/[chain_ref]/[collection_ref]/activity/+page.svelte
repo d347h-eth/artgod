@@ -8,6 +8,7 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionMediaState,
+		ApiActivityEventMedia,
 		ApiTokenAttribute,
 		ApiTraitRangeFilter,
 		ApiTokenPresentationSummary
@@ -24,6 +25,7 @@
 		selectedTraitRanges: ApiTraitRangeFilter[];
 		included: {
 			tokensById: Record<string, ApiTokenPresentationSummary>;
+			eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 			hasTraitSummaryTemplate: boolean;
 		};
 		basePath: string;
@@ -65,7 +67,7 @@
 	facets={data?.facets ?? []}
 	selectedTraits={data?.selectedTraits ?? []}
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}
-	included={data?.included ?? { tokensById: {}, hasTraitSummaryTemplate: false }}
+	included={data?.included ?? { tokensById: {}, eventMediaByActivityId: {}, hasTraitSummaryTemplate: false }}
 	basePath={data?.basePath ?? '/'}
 	filterKind={data?.filterKind ?? (data?.extensionEvent ? null : 'sales')}
 	extensionEvent={data?.extensionEvent ?? null}

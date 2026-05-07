@@ -23,6 +23,10 @@ import type {
 import type { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import type { GetDefaultChainRoute } from "./http/handlers/chains/get-default-chain.js";
 import type {
+    GetActivityEventPreviewHttpAdapter,
+    GetActivityEventPreviewRoute,
+} from "./http/handlers/activities/get-activity-event-preview.js";
+import type {
     GetCollectionActivityHttpAdapter,
     GetCollectionActivityRoute,
 } from "./http/handlers/activities/get-collection-activity.js";
@@ -50,6 +54,10 @@ import type {
     GetTokenPreviewHttpAdapter,
     GetTokenPreviewRoute,
 } from "./http/handlers/collections/get-token-preview.js";
+import type {
+    GetTokenUriHttpAdapter,
+    GetTokenUriRoute,
+} from "./http/handlers/collections/get-token-uri.js";
 import type {
     UpdateCollectionCustomizationHttpAdapter,
     UpdateCollectionCustomizationRoute,
@@ -120,12 +128,14 @@ export function registerApiRoutes(
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
+    getActivityEventPreviewAdapter: GetActivityEventPreviewHttpAdapter,
     getTokenActivityAdapter: GetTokenActivityHttpAdapter,
     getCollectionCustomizationAdapter: GetCollectionCustomizationHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
     getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
+    getTokenUriAdapter: GetTokenUriHttpAdapter,
     updateCollectionCustomizationAdapter: UpdateCollectionCustomizationHttpAdapter,
     listCollectionBiddingJobsAdapter: ListCollectionBiddingJobsHttpAdapter,
     listCollectionBiddingBidBookAdapter: ListCollectionBiddingBidBookHttpAdapter,
@@ -167,6 +177,13 @@ export function registerApiRoutes(
         },
         getCollectionActivityAdapter.handle,
     );
+    app.get<GetActivityEventPreviewRoute>(
+        "/api/:chain_ref/:collection_ref/activity/:activity_id/preview",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
+        getActivityEventPreviewAdapter.handle,
+    );
     app.get<GetCollectionDetailRoute>(
         "/api/:chain_ref/:collection_ref",
         {
@@ -201,6 +218,13 @@ export function registerApiRoutes(
             preHandler: publicCollectionScopeGuard,
         },
         getTokenPreviewAdapter.handle,
+    );
+    app.get<GetTokenUriRoute>(
+        "/api/:chain_ref/:collection_ref/:token_ref/token-uri",
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
+        getTokenUriAdapter.handle,
     );
     app.get<GetTokenBiddingBidBookRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/bids",

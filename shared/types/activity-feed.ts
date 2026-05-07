@@ -80,7 +80,16 @@ export type ActivityFeedPage = ForwardCursorPage<ActivityFeedItem> & {
 
 export type ActivityFeedIncludes = {
     tokensById: Record<string, TokenPresentationSummary>;
+    eventMediaByActivityId: Record<string, ActivityEventMedia>;
     hasTraitSummaryTemplate: boolean;
+};
+
+export type ActivityEventMedia = {
+    image: string | null;
+    animationUrl: string | null;
+    htmlContent?: string | null;
+    mediaRef: string;
+    renderModes?: { key: string; label: string }[];
 };
 
 export type ActivityExtensionEventRef = {

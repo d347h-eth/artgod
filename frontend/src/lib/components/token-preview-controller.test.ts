@@ -1,11 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 
-const { getTokenPreviewMock } = vi.hoisted(() => ({
+const { getActivityEventPreviewMock, getTokenPreviewMock } = vi.hoisted(() => ({
+	getActivityEventPreviewMock: vi.fn(),
 	getTokenPreviewMock: vi.fn()
 }));
 
 vi.mock('$lib/backend-api', () => ({
+	getActivityEventPreview: getActivityEventPreviewMock,
 	getTokenPreview: getTokenPreviewMock
 }));
 
@@ -13,6 +15,7 @@ import { createTokenPreviewController, tokenPreviewStyle } from './token-preview
 
 describe('token-preview-controller', () => {
 	beforeEach(() => {
+		getActivityEventPreviewMock.mockReset();
 		getTokenPreviewMock.mockReset();
 	});
 

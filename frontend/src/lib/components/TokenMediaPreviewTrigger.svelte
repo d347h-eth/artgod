@@ -2,6 +2,7 @@
 	import type { ApiCollectionMediaMode } from '$lib/api-types';
 	import type {
 		TokenPreviewAdjacentResolver,
+		TokenPreviewContext,
 		TokenPreviewController
 	} from '$lib/components/token-preview-controller';
 
@@ -13,6 +14,7 @@
 		selectedMediaMode,
 		availableMediaModes,
 		tokenPreview,
+		previewContext = null,
 		adjacentTokenResolver = null,
 		mode = 'grid',
 		containerClass,
@@ -26,6 +28,7 @@
 		selectedMediaMode: string;
 		availableMediaModes: ApiCollectionMediaMode[];
 		tokenPreview: TokenPreviewController;
+		previewContext?: TokenPreviewContext | null;
 		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
 		mode?: 'grid' | 'inline';
 		containerClass?: string;
@@ -43,6 +46,7 @@
 			tokenId,
 			selectedMediaMode,
 			availableMediaModes,
+			previewContext,
 			previewAspectRatio: tokenAspectRatio,
 			adjacentTokenResolver
 		});

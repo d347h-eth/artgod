@@ -53,6 +53,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraitRanges: [],
 			included: {
 				tokensById: {},
+				eventMediaByActivityId: {},
 				hasTraitSummaryTemplate: false
 			},
 			basePath: '/',

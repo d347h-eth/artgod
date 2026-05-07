@@ -11,13 +11,55 @@ export const TERRAFORMS_EXTENSION_ARTIFACT_REFS = {
     LostTerrain: "terraforms-v2-lost-terrain",
 } as const;
 
+export const TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS = {
+    TerraformedPreview: "terraformed-preview",
+} as const;
+
 export const TERRAFORMS_EXTENSION_EVENT_KEYS = {
     Terraformed: "terraformed",
 } as const;
 
+export const TERRAFORMS_EVENT_RENDER_MODES = {
+    Network: "network",
+    Artifact: "artifact",
+} as const;
+
+export const TERRAFORMS_EVENT_RENDER_MODE_OPTIONS = [
+    { key: TERRAFORMS_EVENT_RENDER_MODES.Artifact, label: "artifact" },
+    { key: TERRAFORMS_EVENT_RENDER_MODES.Network, label: "network" },
+] as const;
+
 export const TERRAFORMS_MEDIA_MODES = {
     LostTerrain: "lost-terrain",
 } as const;
+
+export const TERRAFORMS_KNOWN_TOKEN_URI_ADDRESSES_BY_INDEX: Readonly<
+    Record<string, string>
+> = {
+    "0": normalizeAddressRef("0xA5aFC9fE76a28fB12C60954Ed6e2e5f8ceF64Ff2"),
+    "1": normalizeAddressRef("0xB51A3bB80d50A3153C1b63B0E38FC200676f5bA5"),
+    "2": normalizeAddressRef("0x8aF860C8F157F4E3B6A54913BFA6Bb96ab2605C2"),
+};
+
+// Immutable seed value from the deployed Terraforms main contract.
+export const TERRAFORMS_SEED = 10196n;
+
+// Normal committed canvases render with the Terraformed enum value.
+export const TERRAFORMS_TERRAFORMED_STATUS = 2n;
+
+// Origin parcels keep their origin lineage when rendered as committed canvases.
+export const TERRAFORMS_ORIGIN_DAYDREAM_STATUS = 3n;
+export const TERRAFORMS_ORIGIN_TERRAFORMED_STATUS = 4n;
+
+export const TERRAFORMS_TOKEN_TO_URI_ADDRESS_INDEX_STORAGE_SLOT = 11128n;
+
+export function resolveTerraformsCommittedCanvasStatus(
+    tokenStatus: bigint | number,
+): bigint {
+    return BigInt(tokenStatus) >= TERRAFORMS_ORIGIN_DAYDREAM_STATUS
+        ? TERRAFORMS_ORIGIN_TERRAFORMED_STATUS
+        : TERRAFORMS_TERRAFORMED_STATUS;
+}
 
 export type TerraformsExtensionConfig = {
     mainContractAddress: string;

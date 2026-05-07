@@ -1,8 +1,12 @@
 import {
     parseTerraformsExtensionConfig,
+    resolveTerraformsCommittedCanvasStatus,
+    TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
+    TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_SEED,
 } from "@artgod/shared/extensions/terraforms";
 import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
 import { logger } from "@artgod/shared/utils";
@@ -14,6 +18,7 @@ import {
 } from "viem";
 import type {
     CollectionExtensionEvent,
+    CollectionExtensionEventMedia,
     MetadataRefreshEvent,
     MetadataRefreshRangeEvent,
 } from "../../domain/onchain.js";
@@ -48,11 +53,11 @@ const TERRAFORMS_MAIN_ABI = [
         outputs: [{ type: "uint256" }],
     },
     {
-        name: "seed",
+        name: "tokenToStatus",
         type: "function",
         stateMutability: "view",
-        inputs: [],
-        outputs: [{ type: "uint256" }],
+        inputs: [{ type: "uint256", name: "tokenId" }],
+        outputs: [{ type: "uint8" }],
     },
     {
         name: "Daydreaming",
@@ -88,6 +93,19 @@ const TERRAFORMS_RENDERER_ABI = [
     },
     {
         name: "tokenHTML",
+        type: "function",
+        stateMutability: "view",
+        inputs: [
+            { type: "uint256", name: "status" },
+            { type: "uint256", name: "placement" },
+            { type: "uint256", name: "seed" },
+            { type: "uint256", name: "decay" },
+            { type: "uint256[]", name: "canvas" },
+        ],
+        outputs: [{ type: "string" }],
+    },
+    {
+        name: "tokenSVG",
         type: "function",
         stateMutability: "view",
         inputs: [
@@ -214,14 +232,14 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                 sourceId: "terraforms-main",
                 address: config.mainContractAddress as Hex,
                 events: [
-                    TERRAFORMS_MAIN_ABI[3],
                     TERRAFORMS_MAIN_ABI[4],
+                    TERRAFORMS_MAIN_ABI[3],
                 ] as const,
                 decode: (log, context) =>
                     decodeTokenRefreshLog(
                         log,
                         install.collectionId,
-                        config.mainContractAddress,
+                        config,
                         context.rpc,
                     ),
             },
@@ -234,7 +252,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                     decodeTokenRefreshLog(
                         log,
                         install.collectionId,
-                        config.mainContractAddress,
+                        config,
                         context.rpc,
                     ),
             },
@@ -247,7 +265,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                     decodeTokenRefreshLog(
                         log,
                         install.collectionId,
-                        config.mainContractAddress,
+                        config,
                         context.rpc,
                     ),
             },
@@ -272,11 +290,6 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
         }
 
         const status = resolveStatusFromMode(tokenMode);
-        const seed = await context.rpc.readContract<bigint>({
-            address: config.mainContractAddress as Hex,
-            abi: TERRAFORMS_MAIN_ABI,
-            functionName: "seed",
-        });
         const placement = await context.rpc.readContract<bigint>({
             address: config.mainContractAddress as Hex,
             abi: TERRAFORMS_MAIN_ABI,
@@ -289,7 +302,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             rendererV2ContractAddress: config.rendererV2ContractAddress,
             tokenId: BigInt(tokenId),
             placement,
-            seed,
+            seed: TERRAFORMS_SEED,
             status,
         });
         await upsertRenderedArtifact(context, {
@@ -314,7 +327,10 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                 tokenId,
                 artifactRef:
                     TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
-                renderArgs: resolveTerrainRendererArgs({ placement, seed }),
+                renderArgs: resolveTerrainRendererArgs({
+                    placement,
+                    seed: TERRAFORMS_SEED,
+                }),
                 metadataFetchFailureMessage: `Terraforms lost terrain metadata fetch failed for token ${contract}:${tokenId}`,
                 htmlFetchFailureMessage: `Terraforms lost terrain HTML fetch failed for token ${contract}:${tokenId}`,
             });
@@ -339,7 +355,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
 async function decodeTokenRefreshLog(
     log: RpcLog,
     collectionId: number,
-    targetContract: string,
+    config: ReturnType<typeof parseTerraformsExtensionConfig>,
     rpc: RpcProviderPort,
 ): Promise<CollectionExtensionSyncDecodeResult> {
     const topic0 = log.topics[0];
@@ -394,11 +410,12 @@ async function decodeTokenRefreshLog(
 
     const extensionEvent =
         terraformer !== null
-            ? await buildTerraformedEventFact({
+            ? await buildTerraformedEventArtifacts({
                   rpc,
                   log,
                   collectionId,
-                  contract: targetContract.toLowerCase(),
+                  mainContractAddress: config.mainContractAddress,
+                  rendererV2ContractAddress: config.rendererV2ContractAddress,
                   tokenId,
                   maker: terraformer,
               })
@@ -406,7 +423,7 @@ async function decodeTokenRefreshLog(
 
     const event: MetadataRefreshEvent = {
         collectionId,
-        contract: targetContract.toLowerCase(),
+        contract: config.mainContractAddress.toLowerCase(),
         tokenId,
         reason: "collection-extension",
         trigger: "terraforms.extension-event",
@@ -418,7 +435,10 @@ async function decodeTokenRefreshLog(
     return {
         metadataRefreshEvents: [event],
         metadataRefreshRangeEvents: [],
-        collectionExtensionEvents: extensionEvent ? [extensionEvent] : [],
+        collectionExtensionEvents: extensionEvent ? [extensionEvent.event] : [],
+        collectionExtensionEventMedia: extensionEvent
+            ? [extensionEvent.media]
+            : [],
     };
 }
 
@@ -427,46 +447,130 @@ function emptyDecodeResult(): CollectionExtensionSyncDecodeResult {
         metadataRefreshEvents: [],
         metadataRefreshRangeEvents: [],
         collectionExtensionEvents: [],
+        collectionExtensionEventMedia: [],
     };
 }
 
-async function buildTerraformedEventFact(params: {
+async function buildTerraformedEventArtifacts(params: {
     rpc: RpcProviderPort;
     log: RpcLog;
     collectionId: number;
-    contract: string;
+    mainContractAddress: string;
+    rendererV2ContractAddress: string;
     tokenId: string;
     maker: string;
-}): Promise<CollectionExtensionEvent> {
+}): Promise<{
+    event: CollectionExtensionEvent;
+    media: CollectionExtensionEventMedia;
+}> {
     // Read the post-write block state so the immutable event carries its canvas.
     const canvas = await readCanvasRowsAtBlock(
         params.rpc,
-        params.contract,
+        params.mainContractAddress,
         BigInt(params.tokenId),
         params.log.blockNumber,
     );
     const canvasRows = normalizeCanvas(canvas);
     const canvasHash = hashCanvasRows(canvasRows);
+    const renderArgs = await readTerraformedRenderArgsAtBlock({
+        rpc: params.rpc,
+        mainContractAddress: params.mainContractAddress,
+        tokenId: BigInt(params.tokenId),
+        blockNumber: params.log.blockNumber,
+        canvas: canvasRows,
+    });
+    const svg = await params.rpc.readContract<string>({
+        address: params.rendererV2ContractAddress as Hex,
+        abi: TERRAFORMS_RENDERER_ABI,
+        functionName: "tokenSVG",
+        args: [
+            renderArgs.status,
+            renderArgs.placement,
+            renderArgs.seed,
+            renderArgs.decay,
+            renderArgs.canvas,
+        ],
+    });
 
-    return {
+    const base = {
         collectionId: params.collectionId,
-        contract: params.contract,
+        contract: params.mainContractAddress.toLowerCase(),
         tokenId: params.tokenId,
         extensionKey: TERRAFORMS_EXTENSION_KEY,
         eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
-        maker: params.maker,
-        contentHash: canvasHash,
-        payload: {
-            eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
-            contentHash: canvasHash,
-            canvasHash,
-            canvasRows: canvasRows.map((row) => row.toString()),
-        },
         blockNumber: params.log.blockNumber,
         blockHash: params.log.blockHash,
         txHash: params.log.transactionHash,
         logIndex: params.log.logIndex,
     };
+    return {
+        event: {
+            ...base,
+            maker: params.maker,
+            contentHash: canvasHash,
+            payload: {
+                eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+                contentHash: canvasHash,
+                canvasHash,
+                canvasRows: canvasRows.map((row) => row.toString()),
+            },
+        },
+        media: {
+            ...base,
+            mediaRef: TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS.TerraformedPreview,
+            image: buildSvgDataUrl(svg),
+            animationUrl: null,
+            htmlContent: null,
+            renderModes: TERRAFORMS_EVENT_RENDER_MODE_OPTIONS.map((mode) => ({
+                ...mode,
+            })),
+        },
+    };
+}
+
+async function readTerraformedRenderArgsAtBlock(params: {
+    rpc: RpcProviderPort;
+    mainContractAddress: string;
+    tokenId: bigint;
+    blockNumber: number;
+    canvas: bigint[];
+}): Promise<{
+    status: bigint;
+    placement: bigint;
+    seed: bigint;
+    decay: bigint;
+    canvas: bigint[];
+}> {
+    // Read current status only to preserve origin lineage in renderer args.
+    const [placement, tokenStatus] = await Promise.all([
+        params.rpc.readContract<bigint>({
+            address: params.mainContractAddress as Hex,
+            abi: TERRAFORMS_MAIN_ABI,
+            functionName: "tokenToPlacement",
+            args: [params.tokenId],
+            blockNumber: params.blockNumber,
+        }),
+        params.rpc.readContract<bigint | number>({
+            address: params.mainContractAddress as Hex,
+            abi: TERRAFORMS_MAIN_ABI,
+            functionName: "tokenToStatus",
+            args: [params.tokenId],
+        }),
+    ]);
+
+    return {
+        status: resolveTerraformsCommittedCanvasStatus(tokenStatus),
+        placement,
+        seed: TERRAFORMS_SEED,
+        decay: DEFAULT_DECAY,
+        canvas: normalizeCanvas(params.canvas),
+    };
+}
+
+function buildSvgDataUrl(svg: string): string {
+    return `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString(
+        "base64",
+    )}`;
 }
 
 async function readCanvasRowsAtBlock(

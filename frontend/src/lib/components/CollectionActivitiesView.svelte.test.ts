@@ -112,6 +112,7 @@ describe('CollectionActivitiesView', () => {
 				selectedTraitRanges: [],
 				included: {
 					hasTraitSummaryTemplate: true,
+					eventMediaByActivityId: {},
 					tokensById: {
 						'1': {
 							tokenId: '1',
@@ -292,6 +293,7 @@ describe('CollectionActivitiesView', () => {
 				selectedTraitRanges: [],
 				included: {
 					hasTraitSummaryTemplate: false,
+					eventMediaByActivityId: {},
 					tokensById: {
 						'1': {
 							tokenId: '1',

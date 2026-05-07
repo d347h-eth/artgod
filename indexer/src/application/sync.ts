@@ -78,6 +78,7 @@ export async function syncRange(
                 metadataRefreshEvents: [],
                 metadataRefreshRangeEvents: [],
                 collectionExtensionEvents: [],
+                collectionExtensionEventMedia: [],
             },
             global: {
                 cancelEvents: [],
@@ -122,6 +123,8 @@ export async function syncRange(
         [];
     const collectionExtensionEvents: OnChainData["collectionScoped"]["collectionExtensionEvents"] =
         [];
+    const collectionExtensionEventMedia: OnChainData["collectionScoped"]["collectionExtensionEventMedia"] =
+        [];
     for (const log of metadataRefreshLogs) {
         const decoded = decodeMetadataRefreshLog(log);
         metadataRefreshEvents.push(...decoded.tokenEvents);
@@ -145,6 +148,9 @@ export async function syncRange(
             );
             collectionExtensionEvents.push(
                 ...decoded.collectionExtensionEvents,
+            );
+            collectionExtensionEventMedia.push(
+                ...decoded.collectionExtensionEventMedia,
             );
         }
     }
@@ -176,6 +182,9 @@ export async function syncRange(
     ];
     data.collectionScoped.collectionExtensionEvents.push(
         ...collectionExtensionEvents,
+    );
+    data.collectionScoped.collectionExtensionEventMedia.push(
+        ...collectionExtensionEventMedia,
     );
     const seaportEvents = decodeSeaportOrderEvents(
         seaportLogs,
@@ -420,6 +429,7 @@ function accumulateOnChainData(
             metadataRefreshEvents: [],
             metadataRefreshRangeEvents: [],
             collectionExtensionEvents: [],
+            collectionExtensionEventMedia: [],
         },
         global: {
             cancelEvents: [],

@@ -1,4 +1,5 @@
 import type {
+    ActivityEventMedia,
     ActivityFeedIncludes,
     ActivityExtensionEventFilter,
     ActivityFeedPage,
@@ -83,6 +84,11 @@ export class GetCollectionActivityUseCase {
                 traitFilters?: TraitFilter[];
                 traitRangeFilters?: TraitRangeFilter[];
             }): ActivityFeedPage;
+            listCollectionActivityEventMedia(params: {
+                chainId: number;
+                collectionId: number;
+                activityIds: number[];
+            }): Record<string, ActivityEventMedia>;
         },
         readonly tokenPresentationReadPort: {
             listCollectionTokenCardsByIds(params: {
@@ -170,6 +176,11 @@ export class GetCollectionActivityUseCase {
                 mediaMode: media.selectedMode,
             }),
             activityRowTraitSummaryTemplate.effectiveConfig.template,
+            this.activityReadPort.listCollectionActivityEventMedia({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                activityIds: activities.items.map((activity) => activity.id),
+            }),
         );
 
         return {
