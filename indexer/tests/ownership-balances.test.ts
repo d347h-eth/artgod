@@ -116,6 +116,7 @@ describe("ownership balance persistence", () => {
                     makerTriggers: [],
                     metadataRefreshEvents: [],
                     metadataRefreshRangeEvents: [],
+                    collectionExtensionEvents: [],
                 },
                 global: {
                     cancelEvents: [],
@@ -200,6 +201,7 @@ describe("ownership balance persistence", () => {
                     makerTriggers: [],
                     metadataRefreshEvents: [],
                     metadataRefreshRangeEvents: [],
+                    collectionExtensionEvents: [],
                 },
                 global: {
                     cancelEvents: [],
@@ -305,6 +307,7 @@ describe("ownership balance persistence", () => {
                     makerTriggers: [],
                     metadataRefreshEvents: [],
                     metadataRefreshRangeEvents: [],
+                    collectionExtensionEvents: [],
                 },
                 global: {
                     cancelEvents: [],

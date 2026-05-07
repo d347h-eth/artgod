@@ -1,4 +1,5 @@
 import type { Hex, RpcLog } from "../ports/rpc.js";
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type {
     GlobalMakerTriggerReason,
     TokenScopedMakerTriggerReason,
@@ -88,6 +89,15 @@ export type MetadataRefreshRangeEvent = CollectionScopedChainAttribution & {
     trigger: string;
 };
 
+// Collection extension facts are immutable domain events emitted by installed extensions.
+export type CollectionExtensionEvent = CollectionScopedTokenAttribution & {
+    extensionKey: CollectionExtensionKey;
+    eventKey: string;
+    maker?: string | null;
+    contentHash?: string | null;
+    payload?: Record<string, unknown> | null;
+};
+
 export type TransactionRecord = {
     hash: string;
     from: string;
@@ -105,6 +115,7 @@ export type CollectionScopedOnChainData = {
     makerTriggers: TokenScopedMakerTrigger[];
     metadataRefreshEvents: MetadataRefreshEvent[];
     metadataRefreshRangeEvents: MetadataRefreshRangeEvent[];
+    collectionExtensionEvents: CollectionExtensionEvent[];
 };
 
 export type GlobalOnChainTriggers = {

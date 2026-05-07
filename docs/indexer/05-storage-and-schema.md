@@ -70,6 +70,19 @@ nft_transfer_events(chain_id, collection_id, contract_address, from_address, to_
 - Indexed by `(chain_id, collection_id, token_id)`, `(chain_id, contract_address, token_id)`, and `(chain_id, tx_hash)`
 - `amount` stored as `TEXT` to preserve integer precision
 
+### `collection_extension_events`
+
+```sql
+collection_extension_events(chain_id, collection_id, extension_key, event_key, contract_address,
+                            token_id, maker, content_hash, block_number, block_hash,
+                            block_timestamp, tx_hash, log_index, payload_json)
+```
+
+- Generic immutable fact table for extension-owned onchain events
+- Unique constraint on `(chain_id, collection_id, extension_key, event_key, tx_hash, log_index, token_id)`
+- Indexed by feed key, token id, maker, content hash, and block number
+- `payload_json` remains extension-owned; generic consumers only depend on the extension/event keys and common columns
+
 ### `nft_balances`
 
 ```sql
@@ -243,6 +256,7 @@ The storage/runtime contract is intentionally split:
     - `transactions`
     - `nft_transfer_events`
     - `fills`
+    - `collection_extension_events`
 - current-state/materialized tables are anchor-gated
     - `nft_balances`
     - metadata/materialized token state written downstream from sync
@@ -395,13 +409,13 @@ Key operations:
 
 - `persistSyncResult()`
     - writes blocks
-    - inserts transfer events and fills idempotently
+    - inserts transfer events, fills, and collection-extension events idempotently
     - applies balance updates only for newly inserted transfers
 - `getBlockHash()`
     - reads block hash for reorg verification
 - `rollbackFromBlock()`
     - reverses balances from orphaned transfers
-    - deletes transfers, fills, activities, transactions, and blocks from the rollback point onward
+    - deletes transfers, fills, collection-extension events, activities, transactions, and blocks from the rollback point onward
 
 ### Collection registry (`indexer/src/infra/collections/sqlite.ts`)
 

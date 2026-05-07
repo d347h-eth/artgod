@@ -3,6 +3,7 @@
 	import CollectionActivitiesView from '$lib/components/CollectionActivitiesView.svelte';
 	import type {
 		ApiActivitiesPage,
+		ApiActivityExtensionEventRef,
 		ApiActivityFeedFilterKind,
 		ApiChain,
 		ApiCollection,
@@ -26,7 +27,13 @@
 			hasTraitSummaryTemplate: boolean;
 		};
 		basePath: string;
-		filterKind: ApiActivityFeedFilterKind;
+		filterKind: ApiActivityFeedFilterKind | null;
+		extensionEvent: ApiActivityExtensionEventRef | null;
+		activityFilters: {
+			tokenId: string | null;
+			maker: string | null;
+			contentHash: string | null;
+		};
 	};
 
 	const fallbackActivities: ApiActivitiesPage = {
@@ -60,5 +67,7 @@
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}
 	included={data?.included ?? { tokensById: {}, hasTraitSummaryTemplate: false }}
 	basePath={data?.basePath ?? '/'}
-	filterKind={data?.filterKind ?? 'sales'}
+	filterKind={data?.filterKind ?? (data?.extensionEvent ? null : 'sales')}
+	extensionEvent={data?.extensionEvent ?? null}
+	activityFilters={data?.activityFilters ?? { tokenId: null, maker: null, contentHash: null }}
 />

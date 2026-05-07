@@ -77,6 +77,7 @@ export async function syncRange(
                 makerTriggers: [],
                 metadataRefreshEvents: [],
                 metadataRefreshRangeEvents: [],
+                collectionExtensionEvents: [],
             },
             global: {
                 cancelEvents: [],
@@ -119,6 +120,8 @@ export async function syncRange(
         [];
     const extensionMetadataRefreshRangeEvents: OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] =
         [];
+    const collectionExtensionEvents: OnChainData["collectionScoped"]["collectionExtensionEvents"] =
+        [];
     for (const log of metadataRefreshLogs) {
         const decoded = decodeMetadataRefreshLog(log);
         metadataRefreshEvents.push(...decoded.tokenEvents);
@@ -132,12 +135,16 @@ export async function syncRange(
             events: spec.events,
         });
         for (const log of logs) {
-            const decoded = spec.decode(log);
+            // Let the extension enrich logs with any block-scoped reads it owns.
+            const decoded = await spec.decode(log, { rpc });
             extensionMetadataRefreshEvents.push(
                 ...decoded.metadataRefreshEvents,
             );
             extensionMetadataRefreshRangeEvents.push(
                 ...decoded.metadataRefreshRangeEvents,
+            );
+            collectionExtensionEvents.push(
+                ...decoded.collectionExtensionEvents,
             );
         }
     }
@@ -167,6 +174,9 @@ export async function syncRange(
         ),
         ...extensionMetadataRefreshRangeEvents,
     ];
+    data.collectionScoped.collectionExtensionEvents.push(
+        ...collectionExtensionEvents,
+    );
     const seaportEvents = decodeSeaportOrderEvents(
         seaportLogs,
         trackedContracts,
@@ -409,6 +419,7 @@ function accumulateOnChainData(
             makerTriggers: [],
             metadataRefreshEvents: [],
             metadataRefreshRangeEvents: [],
+            collectionExtensionEvents: [],
         },
         global: {
             cancelEvents: [],

@@ -1,5 +1,6 @@
 import type {
     ActivityFeedIncludes,
+    ActivityExtensionEventFilter,
     ActivityFeedPage,
     ActivityFeedFilterKind,
     ChainRecord,
@@ -25,6 +26,10 @@ export type GetCollectionActivityInput = {
     traits: TraitFilter[];
     traitRanges: TraitRangeFilter[];
     mediaMode?: string;
+    tokenId?: string;
+    maker?: string;
+    contentHash?: string;
+    extensionEvent?: ActivityExtensionEventFilter;
 };
 
 export type GetCollectionActivityOutput = {
@@ -71,6 +76,10 @@ export class GetCollectionActivityUseCase {
                 limit: number;
                 cursor?: string;
                 kind?: ActivityFeedFilterKind;
+                extensionEvent?: ActivityExtensionEventFilter;
+                tokenId?: string;
+                maker?: string;
+                contentHash?: string;
                 traitFilters?: TraitFilter[];
                 traitRangeFilters?: TraitRangeFilter[];
             }): ActivityFeedPage;
@@ -127,6 +136,10 @@ export class GetCollectionActivityUseCase {
             limit: input.limit,
             cursor: input.cursor,
             kind: input.kind,
+            extensionEvent: input.extensionEvent,
+            tokenId: input.tokenId,
+            maker: input.maker,
+            contentHash: input.contentHash,
             traitFilters: input.traits,
             traitRangeFilters: input.traitRanges,
         });

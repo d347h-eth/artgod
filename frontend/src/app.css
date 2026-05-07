@@ -2084,6 +2084,47 @@ th {
 	--activity-col-narrow: 7.5rem;
 }
 
+.activity-extension-filters {
+	display: flex;
+	align-items: flex-end;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+	width: fit-content;
+	max-width: 100%;
+}
+
+.activity-extension-filter-field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.2rem;
+	color: var(--c-muted);
+	font-size: 0.72rem;
+	text-transform: uppercase;
+}
+
+.activity-extension-filter-input {
+	width: 12rem;
+	max-width: min(72vw, 18rem);
+	height: 1.75rem;
+	border: 1px solid var(--c-blue);
+	background: var(--c-panel);
+	color: var(--c-text);
+	font: inherit;
+	padding: 0 0.45rem;
+}
+
+.activity-extension-filter-input-token {
+	width: 5.5rem;
+}
+
+.activity-extension-filter-input-hash {
+	width: 20rem;
+}
+
+.activity-extension-filter-clear {
+	height: 1.75rem;
+}
+
 .holders-table th,
 .holders-table td {
 	border-top: 0;
@@ -2171,7 +2212,8 @@ th {
 }
 
 .activities-from-col,
-.activities-to-col {
+.activities-to-col,
+.activities-content-col {
 	width: var(--activity-col-narrow);
 }
 
@@ -2184,6 +2226,7 @@ th {
 .activities-traits-cell,
 .activities-from-cell,
 .activities-to-cell,
+.activities-content-cell,
 .activities-time-cell {
 	white-space: nowrap;
 }

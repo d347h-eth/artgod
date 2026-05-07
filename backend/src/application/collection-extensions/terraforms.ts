@@ -1,10 +1,13 @@
 import {
-    COLLECTION_EXTENSION_KEYS,
     COLLECTION_MEDIA_MODES,
-    TERRAFORMS_EXTENSION_ARTIFACT_REFS,
-    TERRAFORMS_MEDIA_MODES,
     type CollectionExtensionInstall,
 } from "@artgod/shared/extensions";
+import {
+    TERRAFORMS_EXTENSION_ARTIFACT_REFS,
+    TERRAFORMS_EXTENSION_EVENT_KEYS,
+    TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_MEDIA_MODES,
+} from "@artgod/shared/extensions/terraforms";
 import type { BackendCollectionExtension } from "./types.js";
 import type {
     TokenCard,
@@ -14,7 +17,7 @@ import type {
 
 export const terraformsBackendCollectionExtension: BackendCollectionExtension =
     {
-        key: COLLECTION_EXTENSION_KEYS.Terraforms,
+        key: TERRAFORMS_EXTENSION_KEY,
         resolveTraitFilterPresentationConfig() {
             return {
                 rangeKeys: ["???"],
@@ -29,6 +32,20 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
             return {
                 template: "L{Level}/B{Biome}/{Zone}",
             };
+        },
+        listActivityEventFeeds() {
+            return [
+                {
+                    extensionKey: TERRAFORMS_EXTENSION_KEY,
+                    eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+                    label: "terraformed",
+                    filters: {
+                        tokenId: { label: "token" },
+                        maker: { label: "maker" },
+                        contentHash: { label: "canvas hash" },
+                    },
+                },
+            ];
         },
         listMediaModes() {
             return [
@@ -93,7 +110,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
             context,
         ): TokenCard {
             if (
-                install.extensionKey !== COLLECTION_EXTENSION_KEYS.Terraforms ||
+                install.extensionKey !== TERRAFORMS_EXTENSION_KEY ||
                 !isTerraformsArtifact(context.artifact)
             ) {
                 return token;
@@ -110,7 +127,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
             context,
         ): TokenMediaPreview {
             if (
-                install.extensionKey !== COLLECTION_EXTENSION_KEYS.Terraforms ||
+                install.extensionKey !== TERRAFORMS_EXTENSION_KEY ||
                 !isTerraformsArtifact(context.artifact)
             ) {
                 return token;
@@ -130,7 +147,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
             context,
         ): TokenDetail {
             if (
-                install.extensionKey !== COLLECTION_EXTENSION_KEYS.Terraforms ||
+                install.extensionKey !== TERRAFORMS_EXTENSION_KEY ||
                 !isTerraformsArtifact(context.artifact)
             ) {
                 return token;

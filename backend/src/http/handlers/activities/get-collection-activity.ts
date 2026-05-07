@@ -5,9 +5,13 @@ import type {
 } from "../../../application/use-cases/activities/get-collection-activity.js";
 import {
     parseActivityFilterKind,
+    parseActivityTokenId,
     getSearchParams,
+    parseContentHash,
     parseCursor,
+    parseExtensionEventRef,
     parseLimit,
+    parseMaker,
     parseMediaMode,
     parseTraits,
     parseTraitRanges,
@@ -46,10 +50,18 @@ export class GetCollectionActivityHttpAdapter {
         const searchParams = getSearchParams(request);
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
-        const kind = parseActivityFilterKind(searchParams.get("kind"));
+        const extensionEvent = parseExtensionEventRef(
+            searchParams.get("extension_event"),
+        );
+        const kind = extensionEvent
+            ? undefined
+            : parseActivityFilterKind(searchParams.get("kind"));
         const traits = parseTraits(searchParams);
         const traitRanges = parseTraitRanges(searchParams);
         const mediaMode = parseMediaMode(searchParams.get("media_mode"));
+        const tokenId = parseActivityTokenId(searchParams.get("token_id"));
+        const maker = parseMaker(searchParams.get("maker"));
+        const contentHash = parseContentHash(searchParams.get("content_hash"));
 
         return {
             chainRef: request.params.chain_ref,
@@ -60,6 +72,10 @@ export class GetCollectionActivityHttpAdapter {
             traits,
             traitRanges,
             mediaMode,
+            tokenId,
+            maker,
+            contentHash,
+            extensionEvent,
         };
     }
 

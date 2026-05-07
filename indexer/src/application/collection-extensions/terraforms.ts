@@ -1,12 +1,19 @@
 import {
-    COLLECTION_EXTENSION_KEYS,
     parseTerraformsExtensionConfig,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
-    type CollectionExtensionInstall,
-} from "@artgod/shared/extensions";
+    TERRAFORMS_EXTENSION_EVENT_KEYS,
+    TERRAFORMS_EXTENSION_KEY,
+} from "@artgod/shared/extensions/terraforms";
+import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
 import { logger } from "@artgod/shared/utils";
-import { decodeEventLog, encodeEventTopics } from "viem";
+import {
+    decodeEventLog,
+    encodeAbiParameters,
+    encodeEventTopics,
+    keccak256,
+} from "viem";
 import type {
+    CollectionExtensionEvent,
     MetadataRefreshEvent,
     MetadataRefreshRangeEvent,
 } from "../../domain/onchain.js";
@@ -16,10 +23,11 @@ import type {
     CollectionExtensionSyncWatchSpec,
     IndexerCollectionExtension,
 } from "./types.js";
-import type { Hex, RpcLog } from "../../ports/rpc.js";
+import type { Hex, RpcLog, RpcProviderPort } from "../../ports/rpc.js";
 
 const MODE_ATTRIBUTE_KEY = "Mode";
 const DEFAULT_DECAY = 0n;
+const TERRAFORMS_CANVAS_ROW_COUNT = 16;
 
 const TERRAFORMS_MAIN_ABI = [
     {
@@ -163,6 +171,25 @@ type TerraformsStatus = {
     value: bigint;
 };
 
+type TerraformsCanvasTuple = readonly [
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+];
+
 const MODE_TO_STATUS: Record<string, TerraformsStatus> = {
     Terrain: { slug: TERRAFORMS_STATUS_SLUG.Terrain, value: 0n },
     Daydream: { slug: TERRAFORMS_STATUS_SLUG.Daydream, value: 1n },
@@ -178,7 +205,7 @@ const MODE_TO_STATUS: Record<string, TerraformsStatus> = {
 };
 
 export const terraformsIndexerExtension: IndexerCollectionExtension = {
-    key: COLLECTION_EXTENSION_KEYS.Terraforms,
+    key: TERRAFORMS_EXTENSION_KEY,
     buildSyncWatchSpecs(install: CollectionExtensionInstall) {
         const config = parseTerraformsExtensionConfig(install.configJson);
         return [
@@ -190,11 +217,12 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                     TERRAFORMS_MAIN_ABI[3],
                     TERRAFORMS_MAIN_ABI[4],
                 ] as const,
-                decode: (log) =>
+                decode: (log, context) =>
                     decodeTokenRefreshLog(
                         log,
                         install.collectionId,
                         config.mainContractAddress,
+                        context.rpc,
                     ),
             },
             {
@@ -202,11 +230,12 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                 sourceId: "terraforms-token-uri-v2",
                 address: config.tokenUriV2ContractAddress as Hex,
                 events: [TERRAFORMS_TOKEN_URI_V2_ABI[0]] as const,
-                decode: (log) =>
+                decode: (log, context) =>
                     decodeTokenRefreshLog(
                         log,
                         install.collectionId,
                         config.mainContractAddress,
+                        context.rpc,
                     ),
             },
             {
@@ -214,11 +243,12 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                 sourceId: "terraforms-beacon-v2",
                 address: config.beaconV2ContractAddress as Hex,
                 events: [TERRAFORMS_BEACON_V2_ABI[0]] as const,
-                decode: (log) =>
+                decode: (log, context) =>
                     decodeTokenRefreshLog(
                         log,
                         install.collectionId,
                         config.mainContractAddress,
+                        context.rpc,
                     ),
             },
         ];
@@ -306,17 +336,19 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
     },
 };
 
-function decodeTokenRefreshLog(
+async function decodeTokenRefreshLog(
     log: RpcLog,
     collectionId: number,
     targetContract: string,
-): CollectionExtensionSyncDecodeResult {
+    rpc: RpcProviderPort,
+): Promise<CollectionExtensionSyncDecodeResult> {
     const topic0 = log.topics[0];
     if (!topic0) {
         return emptyDecodeResult();
     }
 
     let tokenId: string | null = null;
+    let terraformer: string | null = null;
     try {
         if (topic0 === DAYDREAMING_TOPIC) {
             const decoded = decodeEventLog({
@@ -334,6 +366,7 @@ function decodeTokenRefreshLog(
                 topics: log.topics as [Hex, ...Hex[]],
             });
             tokenId = decoded.args.tokenId.toString();
+            terraformer = decoded.args.terraformer.toLowerCase();
         } else if (topic0 === ATTUNEMENT_SET_TOPIC) {
             const decoded = decodeEventLog({
                 abi: TERRAFORMS_TOKEN_URI_V2_ABI,
@@ -359,6 +392,18 @@ function decodeTokenRefreshLog(
         return emptyDecodeResult();
     }
 
+    const extensionEvent =
+        terraformer !== null
+            ? await buildTerraformedEventFact({
+                  rpc,
+                  log,
+                  collectionId,
+                  contract: targetContract.toLowerCase(),
+                  tokenId,
+                  maker: terraformer,
+              })
+            : null;
+
     const event: MetadataRefreshEvent = {
         collectionId,
         contract: targetContract.toLowerCase(),
@@ -373,6 +418,7 @@ function decodeTokenRefreshLog(
     return {
         metadataRefreshEvents: [event],
         metadataRefreshRangeEvents: [],
+        collectionExtensionEvents: extensionEvent ? [extensionEvent] : [],
     };
 }
 
@@ -380,7 +426,77 @@ function emptyDecodeResult(): CollectionExtensionSyncDecodeResult {
     return {
         metadataRefreshEvents: [],
         metadataRefreshRangeEvents: [],
+        collectionExtensionEvents: [],
     };
+}
+
+async function buildTerraformedEventFact(params: {
+    rpc: RpcProviderPort;
+    log: RpcLog;
+    collectionId: number;
+    contract: string;
+    tokenId: string;
+    maker: string;
+}): Promise<CollectionExtensionEvent> {
+    // Read the post-write block state so the immutable event carries its canvas.
+    const canvas = await readCanvasRowsAtBlock(
+        params.rpc,
+        params.contract,
+        BigInt(params.tokenId),
+        params.log.blockNumber,
+    );
+    const canvasRows = normalizeCanvas(canvas);
+    const canvasHash = hashCanvasRows(canvasRows);
+
+    return {
+        collectionId: params.collectionId,
+        contract: params.contract,
+        tokenId: params.tokenId,
+        extensionKey: TERRAFORMS_EXTENSION_KEY,
+        eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+        maker: params.maker,
+        contentHash: canvasHash,
+        payload: {
+            eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+            contentHash: canvasHash,
+            canvasHash,
+            canvasRows: canvasRows.map((row) => row.toString()),
+        },
+        blockNumber: params.log.blockNumber,
+        blockHash: params.log.blockHash,
+        txHash: params.log.transactionHash,
+        logIndex: params.log.logIndex,
+    };
+}
+
+async function readCanvasRowsAtBlock(
+    rpc: RpcProviderPort,
+    mainContractAddress: string,
+    tokenId: bigint,
+    blockNumber: number,
+): Promise<bigint[]> {
+    const rows: bigint[] = [];
+    for (let index = 0; index < TERRAFORMS_CANVAS_ROW_COUNT; index += 1) {
+        const value = await rpc.readContract<bigint>({
+            address: mainContractAddress as Hex,
+            abi: TERRAFORMS_MAIN_ABI,
+            functionName: "tokenToCanvasData",
+            args: [tokenId, BigInt(index)],
+            blockNumber,
+        });
+        rows.push(value);
+    }
+    return rows;
+}
+
+function hashCanvasRows(rows: bigint[]): string {
+    const canvas = normalizeCanvas(rows);
+    return keccak256(
+        encodeAbiParameters(
+            [{ type: "uint256[16]", name: "canvas" }],
+            [canvas as unknown as TerraformsCanvasTuple],
+        ),
+    );
 }
 
 function resolveStatusFromMode(mode: string): TerraformsStatus {
@@ -450,7 +566,7 @@ async function upsertRenderedArtifact(
         collectionId: params.collectionId,
         contractAddress: params.contract,
         tokenId: params.tokenId,
-        extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+        extensionKey: TERRAFORMS_EXTENSION_KEY,
         artifactRef: params.artifactRef,
         uri,
         rawJson: metadata.rawJson,
@@ -483,7 +599,10 @@ async function resolveRendererArgs(
         params.status.slug === TERRAFORMS_STATUS_SLUG.OriginDaydream;
 
     if (isDaydream) {
-        const zeroCanvas = Array.from({ length: 16 }, () => 0n);
+        const zeroCanvas = Array.from(
+            { length: TERRAFORMS_CANVAS_ROW_COUNT },
+            () => 0n,
+        );
         const indices = (await context.rpc.readContract<
             readonly (readonly bigint[])[]
         >({
@@ -548,7 +667,10 @@ function resolveTerrainRendererArgs(params: {
         placement: params.placement,
         seed: params.seed,
         decay: DEFAULT_DECAY,
-        canvas: Array.from({ length: 16 }, () => 0n),
+        canvas: Array.from(
+            { length: TERRAFORMS_CANVAS_ROW_COUNT },
+            () => 0n,
+        ),
     };
 }
 
@@ -558,7 +680,7 @@ async function readCanvasRows(
     tokenId: bigint,
 ): Promise<bigint[]> {
     const rows: bigint[] = [];
-    for (let index = 0; index < 16; index += 1) {
+    for (let index = 0; index < TERRAFORMS_CANVAS_ROW_COUNT; index += 1) {
         try {
             const value = await context.rpc.readContract<bigint>({
                 address: mainContractAddress as Hex,
@@ -576,10 +698,10 @@ async function readCanvasRows(
 
 function normalizeCanvas(rows: bigint[]): bigint[] {
     const output = [...rows];
-    while (output.length < 16) {
+    while (output.length < TERRAFORMS_CANVAS_ROW_COUNT) {
         output.push(0n);
     }
-    return output.slice(0, 16);
+    return output.slice(0, TERRAFORMS_CANVAS_ROW_COUNT);
 }
 
 function packHeightmapIndices(
@@ -587,7 +709,7 @@ function packHeightmapIndices(
 ): bigint[] {
     const rows: bigint[] = [];
     const numRows = indices.length;
-    for (let pair = 0; pair < 16; pair += 1) {
+    for (let pair = 0; pair < TERRAFORMS_CANVAS_ROW_COUNT; pair += 1) {
         const rowA = indices[pair * 2] ?? [];
         const rowB = indices[pair * 2 + 1] ?? [];
         let packed = 0n;
@@ -600,7 +722,10 @@ function packHeightmapIndices(
         rows.push(packed);
     }
     if (numRows === 0) {
-        return Array.from({ length: 16 }, () => 0n);
+        return Array.from(
+            { length: TERRAFORMS_CANVAS_ROW_COUNT },
+            () => 0n,
+        );
     }
     return rows;
 }

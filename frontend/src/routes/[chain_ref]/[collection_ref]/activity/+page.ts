@@ -2,7 +2,9 @@ import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { BackendApiError, getCollectionActivities } from '$lib/backend-api';
 import {
+	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
 	normalizeCollectionActivityParams,
+	parseCollectionActivityExtensionEvent,
 	parseCollectionActivityKind
 } from '$lib/activity-query';
 import { withQuery } from '$lib/route-paths';
@@ -54,12 +56,21 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				hasTraitSummaryTemplate: false
 			},
 			basePath: '/',
-			filterKind: 'sales' as const
+			filterKind: 'sales' as const,
+			extensionEvent: null,
+			activityFilters: emptyActivityFilters()
 		};
 	}
 
-	const filterKind = parseCollectionActivityKind(url.searchParams.get('kind'));
-	const query = normalizeCollectionActivityParams(url.searchParams, filterKind);
+	const extensionEvent = parseCollectionActivityExtensionEvent(
+		url.searchParams.get(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM)
+	);
+	const parsedFilterKind = parseCollectionActivityKind(url.searchParams.get('kind'));
+	const filterKind = extensionEvent ? null : parsedFilterKind;
+	const query = normalizeCollectionActivityParams(
+		url.searchParams,
+		extensionEvent ? { extensionEvent } : { kind: parsedFilterKind }
+	);
 
 	try {
 		const response = await getCollectionActivities(
@@ -78,7 +89,9 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			selectedTraitRanges: response.traits.selectedRanges,
 			included: response.included,
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
-			filterKind
+			filterKind,
+			extensionEvent,
+			activityFilters: readActivityFilters(url.searchParams)
 		};
 	} catch (cause) {
 		toKitError(cause);
@@ -90,4 +103,24 @@ function toKitError(cause: unknown): never {
 		throw error(cause.status, cause.message);
 	}
 	throw error(500, 'Backend request failed');
+}
+
+function readActivityFilters(searchParams: URLSearchParams) {
+	return {
+		tokenId: nonEmpty(searchParams.get('token_id')),
+		maker: nonEmpty(searchParams.get('maker')),
+		contentHash: nonEmpty(searchParams.get('content_hash'))
+	};
+}
+
+function emptyActivityFilters() {
+	return {
+		tokenId: null,
+		maker: null,
+		contentHash: null
+	};
+}
+
+function nonEmpty(value: string | null): string | null {
+	return value?.trim() || null;
 }

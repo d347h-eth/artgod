@@ -1,4 +1,5 @@
 import type { CollectionMediaPresentation } from "../extensions/index.js";
+import type { ActivityExtensionEventFeed } from "./activity-feed.js";
 import type { TraitFilterDisplayKind } from "./customization.js";
 
 export type CollectionStandard = "erc721" | "erc1155";
@@ -24,6 +25,7 @@ export type CollectionListItem = {
     bootstrapAnchorBlock: number | null;
     createdAt: string;
     updatedAt: string;
+    activityEventFeeds?: ActivityExtensionEventFeed[];
 };
 
 export type CollectionListCursor = {

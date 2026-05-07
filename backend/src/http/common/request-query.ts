@@ -148,6 +148,40 @@ export function parseMaker(raw: string | null): string | undefined {
     return parseOptionalAddressRef(raw, "Invalid maker");
 }
 
+export function parseActivityTokenId(raw: string | null): string | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    return parseUnsignedInteger(raw.trim(), "Invalid token_id");
+}
+
+export function parseContentHash(raw: string | null): string | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+        throw new ReadModelBadRequestError("Invalid content_hash");
+    }
+    return normalized;
+}
+
+export function parseExtensionEventRef(
+    raw: string | null,
+): { extensionKey: string; eventKey: string } | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    const [extensionKey, eventKey, extra] = raw.trim().split(":");
+    if (
+        extra !== undefined ||
+        !extensionKey ||
+        !eventKey ||
+        !/^[a-z0-9_-]+$/.test(extensionKey) ||
+        !/^[a-z0-9_.-]+$/.test(eventKey)
+    ) {
+        throw new ReadModelBadRequestError("Invalid extension_event");
+    }
+    return {
+        extensionKey,
+        eventKey,
+    };
+}
+
 function parseOptionalAddressRef(
     raw: string | null,
     invalidMessage: string,
@@ -292,9 +326,12 @@ export function parseMediaMode(
     return normalized;
 }
 
-function parseUnsignedInteger(value: string): string {
+function parseUnsignedInteger(
+    value: string,
+    invalidMessage = "Invalid trait range filter",
+): string {
     if (!/^\d+$/.test(value)) {
-        throw new ReadModelBadRequestError("Invalid trait range filter");
+        throw new ReadModelBadRequestError(invalidMessage);
     }
     return value;
 }

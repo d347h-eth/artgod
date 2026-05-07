@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-    COLLECTION_EXTENSION_KEYS,
-    EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
     resolveEmbeddedCollectionExtensionInstall,
     resolveEmbeddedCollectionExtensionInstallByKey,
-} from "@artgod/shared/extensions";
+} from "@artgod/shared/extensions/built-ins";
+import { EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND } from "@artgod/shared/extensions";
+import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 
 const EMBEDDED_TERRAFORMS_MAIN_ADDRESS =
     "0x4e1f41613c9084fdb9e34e11fae9412427480e56";
@@ -20,7 +20,7 @@ describe("embedded collection extension resolution", () => {
         });
 
         expect(install?.extensionKey).toBe(
-            COLLECTION_EXTENSION_KEYS.Terraforms,
+            TERRAFORMS_EXTENSION_KEY,
         );
     });
 
@@ -50,11 +50,11 @@ describe("embedded collection extension resolution", () => {
     it("resolves embedded extension install config by key for bootstrap worker", () => {
         const install = resolveEmbeddedCollectionExtensionInstallByKey({
             chainId: 1,
-            extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
         });
 
         expect(install?.extensionKey).toBe(
-            COLLECTION_EXTENSION_KEYS.Terraforms,
+            TERRAFORMS_EXTENSION_KEY,
         );
         expect(install?.configJson).toContain("mainContractAddress");
     });

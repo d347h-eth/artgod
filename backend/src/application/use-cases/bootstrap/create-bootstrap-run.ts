@@ -6,7 +6,6 @@ import {
 } from "./types.js";
 import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
-    resolveEmbeddedCollectionExtensionInstall,
     type CollectionExtensionKey,
     type EmbeddedCollectionExtensionScope,
 } from "@artgod/shared/extensions";
@@ -16,11 +15,25 @@ import type {
     ChainRefResolverPort,
 } from "./ports.js";
 
+export type EmbeddedCollectionExtensionResolveInput = {
+    chainId: number;
+    contractAddress: string;
+    scope: EmbeddedCollectionExtensionScope;
+};
+
+export interface EmbeddedCollectionExtensionResolverPort {
+    resolveExtensionKey(
+        input: EmbeddedCollectionExtensionResolveInput,
+    ): CollectionExtensionKey | null;
+}
+
 export class CreateBootstrapRunUseCase {
     constructor(
         private readonly defaultChainId: number,
         private readonly chainRefResolverPort: ChainRefResolverPort,
         private readonly bootstrapRunsPort: BootstrapRunsWritePort,
+        private readonly embeddedExtensionResolverPort:
+            EmbeddedCollectionExtensionResolverPort,
         private readonly bootstrapQueuePort: BootstrapCommandQueuePort,
     ) {}
 
@@ -48,6 +61,7 @@ export class CreateBootstrapRunUseCase {
             input.manualInput,
         );
         const requestExtensionKey = resolveRequestedExtensionKey(
+            this.embeddedExtensionResolverPort,
             chain.publicChainId,
             address,
             enumeration,
@@ -164,6 +178,7 @@ export class CreateBootstrapRunUseCase {
 }
 
 function resolveRequestedExtensionKey(
+    embeddedExtensionResolverPort: EmbeddedCollectionExtensionResolverPort,
     chainId: number,
     address: string,
     enumeration: {
@@ -176,12 +191,11 @@ function resolveRequestedExtensionKey(
         explicitTokenIds: string[];
     },
 ): CollectionExtensionKey | null {
-    const install = resolveEmbeddedCollectionExtensionInstall({
+    return embeddedExtensionResolverPort.resolveExtensionKey({
         chainId,
         contractAddress: address,
         scope: toEmbeddedCollectionExtensionScope(enumeration),
     });
-    return install?.extensionKey ?? null;
 }
 
 function toEmbeddedCollectionExtensionScope(input: {

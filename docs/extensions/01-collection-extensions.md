@@ -55,7 +55,7 @@ Current matching is intentionally explicit rather than open-ended.
 
 Indexer extensions can contribute additional onchain watch specs during sync.
 
-Those watch specs can currently normalize only into collection-scoped metadata refresh events/ranges. They do not yet emit arbitrary new domain actions.
+Those watch specs can normalize into collection-scoped metadata refresh events/ranges and immutable extension event facts. Extension event facts are generic at the storage/feed boundary; collection-specific payload semantics stay inside the concrete extension.
 
 Indexer extension contract lives in:
 
@@ -328,7 +328,7 @@ Current system assumes a single enabled extension install per collection.
 
 ### 2. Arbitrary sync-time domain actions
 
-Current sync hooks are limited to metadata refresh enrichment.
+Current sync hooks support metadata refresh enrichment and facts-only extension events. They do not yet support arbitrary stateful domain actions.
 
 ### 3. Remote or dynamically loaded extensions
 

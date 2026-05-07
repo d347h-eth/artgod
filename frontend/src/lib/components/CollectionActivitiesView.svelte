@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import type {
 		ApiActivitiesPage,
+		ApiActivityExtensionEventRef,
 		ApiActivityFeedFilterKind,
 		ApiActivityFeedItem,
 		ApiChain,
@@ -54,7 +55,9 @@
 		media,
 		included,
 		basePath,
-		filterKind
+		filterKind,
+		extensionEvent = null,
+		activityFilters = { tokenId: null, maker: null, contentHash: null }
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -68,7 +71,13 @@
 			hasTraitSummaryTemplate: boolean;
 		};
 		basePath: string;
-		filterKind: ApiActivityFeedFilterKind;
+		filterKind: ApiActivityFeedFilterKind | null;
+		extensionEvent?: ApiActivityExtensionEventRef | null;
+		activityFilters?: {
+			tokenId: string | null;
+			maker: string | null;
+			contentHash: string | null;
+		};
 	} = $props();
 
 	const tokenPreview = getTokenPreviewController();
@@ -80,22 +89,52 @@
 	const RELATIVE_TIME_REFRESH_MS = 60_000;
 
 	type TimeDisplayMode = 'relative' | 'system' | 'utc';
-	type ActivityColumnId = 'id' | 'price' | 'image' | 'name' | 'traits' | 'from' | 'to' | 'time';
+	type ActivityColumnId =
+		| 'id'
+		| 'price'
+		| 'image'
+		| 'name'
+		| 'traits'
+		| 'from'
+		| 'to'
+		| 'content'
+		| 'time';
 
 	const ACTIVITY_COLUMNS_BY_FILTER: Record<ApiActivityFeedFilterKind, ActivityColumnId[]> = {
 		sales: ['image', 'price', 'id', 'name', 'traits', 'from', 'to', 'time'],
 		listings: ['image', 'price', 'id', 'name', 'traits', 'from', 'time'],
 		transfers: ['image', 'id', 'name', 'traits', 'from', 'to', 'time']
 	};
+	const EXTENSION_ACTIVITY_COLUMNS: ActivityColumnId[] = [
+		'image',
+		'id',
+		'name',
+		'traits',
+		'from',
+		'content',
+		'time'
+	];
 
 	let timeDisplayMode = $state<TimeDisplayMode>('relative');
 	let relativeNowMs = $state(Date.now());
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
+	let tokenIdFilterDraft = $state(activityFilters.tokenId ?? '');
+	let makerFilterDraft = $state(activityFilters.maker ?? '');
+	let contentHashFilterDraft = $state(activityFilters.contentHash ?? '');
 	let hasActiveFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
+	let hasActiveActivityFilters = $derived(
+		Boolean(activityFilters.tokenId || activityFilters.maker || activityFilters.contentHash)
+	);
 	let hasActivityTraitSummaryColumn = $derived(included.hasTraitSummaryTemplate);
+	let activeExtensionEventFeed = $derived(
+		collection?.activityEventFeeds?.find(
+			(feed) =>
+				feed.extensionKey === extensionEvent?.extensionKey && feed.eventKey === extensionEvent?.eventKey
+		) ?? null
+	);
 	let visibleColumns = $derived(
-		ACTIVITY_COLUMNS_BY_FILTER[filterKind].filter(
+		(filterKind ? ACTIVITY_COLUMNS_BY_FILTER[filterKind] : EXTENSION_ACTIVITY_COLUMNS).filter(
 			(column) => column !== 'traits' || hasActivityTraitSummaryColumn
 		)
 	);
@@ -116,6 +155,12 @@
 		activeTraitRanges = selectedTraitRanges;
 	});
 
+	$effect(() => {
+		tokenIdFilterDraft = activityFilters.tokenId ?? '';
+		makerFilterDraft = activityFilters.maker ?? '';
+		contentHashFilterDraft = activityFilters.contentHash ?? '';
+	});
+
 	function collectionsHref(): string {
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
 		if (!chain) return '/';
@@ -134,8 +179,10 @@
 			},
 			activity: {
 				limit: activities.limit,
-				kind: filterKind
+				kind: filterKind ?? undefined,
+				extensionEvent
 			},
+			activityEventFeeds: collection?.activityEventFeeds ?? [],
 			bidding: {
 				...collectionBiddingNavigationVisibilityForDeployment()
 			}
@@ -143,19 +190,28 @@
 	}
 
 	function filterHref(
-		nextKind: ApiActivityFeedFilterKind,
+		nextKind: ApiActivityFeedFilterKind | null,
 		cursor: string | null = null,
 		traits: ApiTokenAttribute[] = activeTraits,
-		traitRanges: ApiTraitRangeFilter[] = activeTraitRanges
+		traitRanges: ApiTraitRangeFilter[] = activeTraitRanges,
+		filters: {
+			tokenId: string | null;
+			maker: string | null;
+			contentHash: string | null;
+		} = activityFilters
 	): string {
 		return buildCollectionActivityHref({
 			basePath,
 			limit: activities.limit,
 			kind: nextKind,
+			extensionEvent: nextKind ? null : extensionEvent,
 			selectedTraits: traits,
 			selectedTraitRanges: traitRanges,
 			mediaMode: media.selectedMode,
-			cursor
+			cursor,
+			tokenId: filters.tokenId,
+			maker: filters.maker,
+			contentHash: filters.contentHash
 		});
 	}
 
@@ -231,7 +287,15 @@
 		if (filterKind === 'listings') {
 			return activity.maker;
 		}
+		if (!filterKind) {
+			return activity.maker ?? activity.from;
+		}
 		return activity.from;
+	}
+
+	function activityContentHash(activity: ApiActivityFeedItem): string | null {
+		const value = activity.payload?.contentHash;
+		return typeof value === 'string' && value.trim() ? value : null;
 	}
 
 	function columnLabel(column: ActivityColumnId): string {
@@ -250,6 +314,8 @@
 				return 'from';
 			case 'to':
 				return 'to';
+			case 'content':
+				return 'content';
 			case 'time':
 				return 'time';
 		}
@@ -280,7 +346,7 @@
 		}
 
 		traitFacetPanel.onWindowKeydown(event, {
-			onReset: onResetFilters
+			onReset: onResetAllFilters
 		});
 	}
 
@@ -380,6 +446,60 @@
 	async function onResetFilters(): Promise<void> {
 		await applyTraitFilters([], []);
 	}
+
+	async function onResetAllFilters(): Promise<void> {
+		activeTraits = [];
+		activeTraitRanges = [];
+		tokenIdFilterDraft = '';
+		makerFilterDraft = '';
+		contentHashFilterDraft = '';
+		await goto(
+			filterHref(filterKind, null, [], [], {
+				tokenId: null,
+				maker: null,
+				contentHash: null
+			}),
+			{
+				invalidateAll: true,
+				keepFocus: true,
+				noScroll: true
+			}
+		);
+	}
+
+	async function onApplyActivityFilters(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		await goto(
+			filterHref(filterKind, null, activeTraits, activeTraitRanges, {
+				tokenId: tokenIdFilterDraft.trim() || null,
+				maker: makerFilterDraft.trim() || null,
+				contentHash: contentHashFilterDraft.trim() || null
+			}),
+			{
+				invalidateAll: true,
+				keepFocus: true,
+				noScroll: true
+			}
+		);
+	}
+
+	async function onClearActivityFilters(): Promise<void> {
+		tokenIdFilterDraft = '';
+		makerFilterDraft = '';
+		contentHashFilterDraft = '';
+		await goto(
+			filterHref(filterKind, null, activeTraits, activeTraitRanges, {
+				tokenId: null,
+				maker: null,
+				contentHash: null
+			}),
+			{
+				invalidateAll: true,
+				keepFocus: true,
+				noScroll: true
+			}
+		);
+	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -388,6 +508,7 @@
 	navigation={collectionNavigation()}
 	activeSection="activities"
 	activeActivityKind={filterKind}
+	activeActivityExtensionEvent={extensionEvent}
 	collectionAvailable={collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 >
@@ -415,15 +536,66 @@
 	{#snippet topActions()}
 		<div class="panel-top-actions-row">
 			<TraitFacetPanelControls
-				hasActiveFilters={hasActiveFilters}
+				hasActiveFilters={hasActiveFilters || hasActiveActivityFilters}
 				collapsed={$traitFacetPanelState.collapsed}
 				onToggleCollapsed={traitFacetPanel.toggle}
-				onReset={onResetFilters}
+				onReset={onResetAllFilters}
 				selectedTraits={activeTraits}
 				selectedRanges={activeTraitRanges}
 				onSelectedFiltersChange={applyTraitFilters}
 			/>
 		</div>
+		{#if activeExtensionEventFeed?.filters}
+			<form class="activity-extension-filters" onsubmit={onApplyActivityFilters}>
+				{#if activeExtensionEventFeed.filters.tokenId}
+					<label class="activity-extension-filter-field">
+						<span>{activeExtensionEventFeed.filters.tokenId.label}</span>
+						<input
+							class="activity-extension-filter-input activity-extension-filter-input-token"
+							type="text"
+							inputmode="numeric"
+							bind:value={tokenIdFilterDraft}
+							autocomplete="off"
+						/>
+					</label>
+				{/if}
+				{#if activeExtensionEventFeed.filters.maker}
+					<label class="activity-extension-filter-field">
+						<span>{activeExtensionEventFeed.filters.maker.label}</span>
+						<input
+							class="activity-extension-filter-input activity-extension-filter-input-maker"
+							type="text"
+							bind:value={makerFilterDraft}
+							autocomplete="off"
+							autocapitalize="off"
+							spellcheck="false"
+						/>
+					</label>
+				{/if}
+				{#if activeExtensionEventFeed.filters.contentHash}
+					<label class="activity-extension-filter-field">
+						<span>{activeExtensionEventFeed.filters.contentHash.label}</span>
+						<input
+							class="activity-extension-filter-input activity-extension-filter-input-hash"
+							type="text"
+							bind:value={contentHashFilterDraft}
+							autocomplete="off"
+							autocapitalize="off"
+							spellcheck="false"
+						/>
+					</label>
+				{/if}
+				{#if hasActiveActivityFilters || tokenIdFilterDraft.trim() || makerFilterDraft.trim() || contentHashFilterDraft.trim()}
+					<button
+						class="facet-panel-action-button facet-reset-button activity-extension-filter-clear"
+						type="button"
+						onclick={onClearActivityFilters}
+					>
+						clear
+					</button>
+				{/if}
+			</form>
+		{/if}
 	{/snippet}
 
 	<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
@@ -481,7 +653,7 @@
 								{/if}
 								<tr>
 									{#each visibleColumns as column}
-										<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'time' || column === 'traits' ? ' mono' : ''}`}>
+										<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'content' || column === 'time' || column === 'traits' ? ' mono' : ''}`}>
 											{#if column === 'id'}
 												{#if activity.tokenId}
 													<a href={tokenDetailHref(activity.tokenId)}>{activity.tokenId}</a>
@@ -546,6 +718,14 @@
 													<a href={holderHref(activity.to)} title={activity.to}>
 														{maskAddress(activity.to)}
 													</a>
+												{:else}
+													<span class="muted">-</span>
+												{/if}
+											{:else if column === 'content'}
+												{#if activityContentHash(activity)}
+													<span title={activityContentHash(activity) ?? undefined}>
+														{maskAddress(activityContentHash(activity))}
+													</span>
 												{:else}
 													<span class="muted">-</span>
 												{/if}

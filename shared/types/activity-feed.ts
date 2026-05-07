@@ -69,6 +69,7 @@ export type ActivityFeedItem = {
 
 export type ActivityFeedCursor = {
     filterKind: ActivityFeedFilterKind | null;
+    extensionEvent: ActivityExtensionEventRef | null;
     occurredAt: number;
     id: number;
 };
@@ -80,4 +81,24 @@ export type ActivityFeedPage = ForwardCursorPage<ActivityFeedItem> & {
 export type ActivityFeedIncludes = {
     tokensById: Record<string, TokenPresentationSummary>;
     hasTraitSummaryTemplate: boolean;
+};
+
+export type ActivityExtensionEventRef = {
+    extensionKey: string;
+    eventKey: string;
+};
+
+export type ActivityExtensionEventFeed = ActivityExtensionEventRef & {
+    label: string;
+    filters?: {
+        tokenId?: { label: string };
+        maker?: { label: string };
+        contentHash?: { label: string };
+    };
+};
+
+export type ActivityExtensionEventFilter = ActivityExtensionEventRef & {
+    tokenId?: string;
+    maker?: string;
+    contentHash?: string;
 };

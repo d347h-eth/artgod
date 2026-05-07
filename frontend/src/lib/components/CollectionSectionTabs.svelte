@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 	import { COLLECTION_ACTIVITY_FILTER_KINDS } from '$lib/activity-query';
+	import type { ApiActivityExtensionEventRef } from '$lib/api-types';
 	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 	import type { CollectionNavigation } from '$lib/collection-navigation';
 	import type { CollectionTokenStatus } from '$lib/token-browser-query';
@@ -10,6 +11,7 @@
 		active,
 		activeTokenStatus = null,
 		activeActivityKind = null,
+		activeActivityExtensionEvent = null,
 		activeBiddingView = null,
 		showCustomization = true
 	}: {
@@ -17,6 +19,7 @@
 		active: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
 		activeTokenStatus?: CollectionTokenStatus | null;
 		activeActivityKind?: ActivityFeedFilterKind | null;
+		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
 		activeBiddingView?: CollectionBiddingViewMode | null;
 		showCustomization?: boolean;
 	} = $props();
@@ -27,6 +30,10 @@
 
 	function activityKindHref(kind: ActivityFeedFilterKind): string {
 		return navigation.hrefs.activityKind(kind);
+	}
+
+	function activityExtensionEventHref(event: ApiActivityExtensionEventRef): string {
+		return navigation.hrefs.activityExtensionEvent(event);
 	}
 
 	function biddingViewHref(view: CollectionBiddingViewMode): string {
@@ -63,6 +70,15 @@
 		<div class="runtime-tab-group-items">
 			{#each COLLECTION_ACTIVITY_FILTER_KINDS as kind}
 				{@render navItem(kind, activityKindHref(kind), active === 'activities' && activeActivityKind === kind)}
+			{/each}
+			{#each navigation.activityEventFeeds as eventFeed}
+				{@render navItem(
+					eventFeed.label,
+					activityExtensionEventHref(eventFeed),
+					active === 'activities' &&
+						activeActivityExtensionEvent?.extensionKey === eventFeed.extensionKey &&
+						activeActivityExtensionEvent?.eventKey === eventFeed.eventKey
+				)}
 			{/each}
 		</div>
 	</div>

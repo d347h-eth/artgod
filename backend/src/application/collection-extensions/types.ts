@@ -6,6 +6,7 @@ import type {
     CollectionMediaModeOption,
 } from "@artgod/shared/extensions";
 import type {
+    ActivityExtensionEventFeed,
     TraitFilterPresentationConfig,
     TraitSummaryTemplateConfig,
 } from "@artgod/shared/types";
@@ -46,6 +47,9 @@ export interface BackendCollectionExtension {
     resolveActivityRowTraitSummaryTemplateConfig(
         install: CollectionExtensionInstall,
     ): TraitSummaryTemplateConfig | null;
+    listActivityEventFeeds(
+        install: CollectionExtensionInstall,
+    ): ActivityExtensionEventFeed[];
     listMediaModes(
         install: CollectionExtensionInstall,
     ): CollectionMediaModeOption[];

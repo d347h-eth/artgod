@@ -17,6 +17,7 @@ export type ApiCollection = {
 	bootstrapAnchorBlock: number | null;
 	createdAt: string;
 	updatedAt: string;
+	activityEventFeeds?: ApiActivityExtensionEventFeed[];
 };
 
 export type ApiCollectionMediaMode = {
@@ -47,6 +48,20 @@ export type ApiCollectionHolder = {
 };
 
 export type ApiActivityFeedFilterKind = 'sales' | 'listings' | 'transfers';
+
+export type ApiActivityExtensionEventRef = {
+	extensionKey: string;
+	eventKey: string;
+};
+
+export type ApiActivityExtensionEventFeed = ApiActivityExtensionEventRef & {
+	label: string;
+	filters?: {
+		tokenId?: { label: string };
+		maker?: { label: string };
+		contentHash?: { label: string };
+	};
+};
 
 export type ApiActivityKind =
 	| 'transfer'

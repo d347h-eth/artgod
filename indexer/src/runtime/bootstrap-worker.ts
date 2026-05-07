@@ -1,10 +1,8 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
-import {
-    resolveEmbeddedCollectionExtensionInstallByKey,
-    type CollectionExtensionKey,
-} from "@artgod/shared/extensions";
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import { runWorker } from "../application/worker-runner.js";

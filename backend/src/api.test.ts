@@ -5,9 +5,9 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
-    COLLECTION_EXTENSION_KEYS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
-} from "@artgod/shared/extensions";
+    TERRAFORMS_EXTENSION_KEY,
+} from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     ACTIVITY_KIND,
@@ -295,6 +295,9 @@ beforeAll(async () => {
         );
     const bootstrapRepositoryModule =
         await import("./infra/bootstrap/sqlite-bootstrap-runs.js");
+    const collectionExtensionResolverModule = await import(
+        "./infra/collection-extensions/built-in-collection-extension-resolver.js"
+    );
     const createBootstrapUseCaseModule =
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
     const getBootstrapStatusUseCaseModule =
@@ -312,11 +315,14 @@ beforeAll(async () => {
         async publishBootstrapStart() {},
         async publishBootstrapMetadataProcess() {},
     };
+    const builtInCollectionExtensionResolver =
+        new collectionExtensionResolverModule.BuiltInCollectionExtensionResolver();
     const createBootstrapRunUseCase =
         new createBootstrapUseCaseModule.CreateBootstrapRunUseCase(
             1,
             chainsReadModel,
             bootstrapRepository,
+            builtInCollectionExtensionResolver,
             bootstrapQueueMock,
         );
     const getBootstrapStatusUseCase =
@@ -2833,7 +2839,7 @@ describe("backend api routes", () => {
             | { request_extension_key: string | null }
             | undefined;
         expect(row?.request_extension_key).toBe(
-            COLLECTION_EXTENSION_KEYS.Terraforms,
+            TERRAFORMS_EXTENSION_KEY,
         );
     });
 
@@ -3383,7 +3389,7 @@ function seedData(): void {
     ).run(
         1,
         terraformsCollectionId,
-        COLLECTION_EXTENSION_KEYS.Terraforms,
+        TERRAFORMS_EXTENSION_KEY,
         1,
         JSON.stringify({
             mainContractAddress: TERRAFORMS_ADDRESS.toLowerCase(),
@@ -3404,7 +3410,7 @@ function seedData(): void {
         terraformsCollectionId,
         TERRAFORMS_ADDRESS.toLowerCase(),
         "7710",
-        COLLECTION_EXTENSION_KEYS.Terraforms,
+        TERRAFORMS_EXTENSION_KEY,
         TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
         "data:image/svg+xml;base64,terraforms-v2-image",
         "https://example.com/terraforms-v2-animation.json",
@@ -3419,7 +3425,7 @@ function seedData(): void {
         terraformsCollectionId,
         TERRAFORMS_ADDRESS.toLowerCase(),
         "7710",
-        COLLECTION_EXTENSION_KEYS.Terraforms,
+        TERRAFORMS_EXTENSION_KEY,
         TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
         "data:image/svg+xml;base64,terraforms-lost-image",
         "https://example.com/terraforms-lost-animation.json",
@@ -3434,7 +3440,7 @@ function seedData(): void {
         terraformsCollectionId,
         TERRAFORMS_ADDRESS.toLowerCase(),
         "7711",
-        COLLECTION_EXTENSION_KEYS.Terraforms,
+        TERRAFORMS_EXTENSION_KEY,
         TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
         "data:image/svg+xml;base64,terraforms-terrain-v2-image",
         "https://example.com/terraforms-terrain-v2-animation.json",

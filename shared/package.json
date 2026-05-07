@@ -11,6 +11,8 @@
         "./config/pagination": "./config/pagination.ts",
         "./evm/transactions": "./evm/transactions.ts",
         "./extensions": "./extensions/index.ts",
+        "./extensions/built-ins": "./extensions/built-ins.ts",
+        "./extensions/terraforms": "./extensions/terraforms.ts",
         "./types": "./types/index.ts",
         "./types/browse": "./types/browse.ts",
         "./types/customization": "./types/customization.ts",

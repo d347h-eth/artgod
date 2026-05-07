@@ -1,7 +1,5 @@
-import {
-    COLLECTION_EXTENSION_KEYS,
-    type CollectionExtensionInstall,
-} from "@artgod/shared/extensions";
+import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
+import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 import type { IndexerCollectionExtension } from "./types.js";
 import { terraformsIndexerExtension } from "./terraforms.js";
 
@@ -9,7 +7,7 @@ const INDEXER_COLLECTION_EXTENSIONS: Record<
     string,
     IndexerCollectionExtension | undefined
 > = {
-    [COLLECTION_EXTENSION_KEYS.Terraforms]: terraformsIndexerExtension,
+    [TERRAFORMS_EXTENSION_KEY]: terraformsIndexerExtension,
 };
 
 export function resolveIndexerCollectionExtension(

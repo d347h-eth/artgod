@@ -785,6 +785,10 @@ function filterCurrentStateOnChainData(
                 collectionsById,
                 data.collectionScoped.metadataRefreshRangeEvents,
             ),
+            collectionExtensionEvents: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.collectionExtensionEvents,
+            ),
         },
         global: {
             cancelEvents: data.global.cancelEvents.filter((event) =>

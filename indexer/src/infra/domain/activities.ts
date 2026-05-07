@@ -45,6 +45,21 @@ type FillRow = {
     log_index: number;
 };
 
+type CollectionExtensionEventRow = {
+    collection_id: number;
+    extension_key: string;
+    event_key: string;
+    contract: string;
+    token_id: string;
+    maker: string | null;
+    content_hash: string | null;
+    block_number: number;
+    block_timestamp: number;
+    tx_hash: string;
+    log_index: number;
+    payload_json: string | null;
+};
+
 type ActivityIdRow = {
     id: number;
 };
@@ -102,6 +117,25 @@ export class SqliteActivityDomain implements ActivityDomainPort {
     private selectFillsForCollection = db.prepare<[number, number, number, number]>(
         "SELECT collection_id, kind AS fill_kind, order_id, order_side, maker, taker, contract_address AS contract, token_id, amount, price, currency, block_number, block_timestamp, tx_hash, log_index " +
             "FROM fills WHERE chain_id = ? AND collection_id = ? AND block_number >= ? AND block_number <= ?",
+    );
+    private selectCollectionExtensionEvents = db.prepare<{
+        chainId: number;
+        fromBlock: number;
+        toBlock: number;
+    }>(
+        "SELECT collection_id, extension_key, event_key, contract_address AS contract, token_id, maker, content_hash, block_number, block_timestamp, tx_hash, log_index, payload_json " +
+            "FROM collection_extension_events WHERE chain_id = @chainId AND block_number >= @fromBlock AND block_number <= @toBlock",
+    );
+    private selectCollectionExtensionEventsForCollection = db.prepare<
+        {
+            chainId: number;
+            collectionId: number;
+            fromBlock: number;
+            toBlock: number;
+        }
+    >(
+        "SELECT collection_id, extension_key, event_key, contract_address AS contract, token_id, maker, content_hash, block_number, block_timestamp, tx_hash, log_index, payload_json " +
+            "FROM collection_extension_events WHERE chain_id = @chainId AND collection_id = @collectionId AND block_number >= @fromBlock AND block_number <= @toBlock",
     );
     private insertActivity = db.prepare<{
         chainId: number;
@@ -219,6 +253,12 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             fromBlock,
             toBlock,
         );
+        const extensionResult = this.persistCollectionExtensionActivities(
+            chainId,
+            collectionId,
+            fromBlock,
+            toBlock,
+        );
 
         logger.debug("Activity domain sync applied", {
             component: "ActivityDomain",
@@ -228,6 +268,7 @@ export class SqliteActivityDomain implements ActivityDomainPort {
             toBlock,
             transfers: transferResult,
             sales: saleResult,
+            extensions: extensionResult,
         });
     }
 
@@ -500,6 +541,71 @@ export class SqliteActivityDomain implements ActivityDomainPort {
         };
     }
 
+    private persistCollectionExtensionActivities(
+        chainId: number,
+        collectionId: number | null,
+        fromBlock: number,
+        toBlock: number,
+    ): { rows: number; inserted: number } {
+        const rows =
+            collectionId === null
+                ? (this.selectCollectionExtensionEvents.all({
+                      chainId,
+                      fromBlock,
+                      toBlock,
+                  }) as CollectionExtensionEventRow[])
+                : (this.selectCollectionExtensionEventsForCollection.all({
+                      chainId,
+                      collectionId,
+                      fromBlock,
+                      toBlock,
+                  }) as CollectionExtensionEventRow[]);
+        let inserted = 0;
+
+        for (const row of rows) {
+            const payload = parseActivityPayloadJson(row.payload_json);
+            const result = this.insertActivity.run({
+                chainId,
+                collectionId: row.collection_id,
+                scopeKind: ACTIVITY_SCOPE_KIND.Token,
+                kind: ACTIVITY_KIND.Custom,
+                contract: row.contract.toLowerCase(),
+                tokenId: row.token_id,
+                occurredAt: row.block_timestamp,
+                sourceKind: ACTIVITY_SOURCE_KIND.Extension,
+                sourceName: row.extension_key,
+                orderId: null,
+                blockNumber: row.block_number,
+                txHash: row.tx_hash,
+                logIndex: row.log_index,
+                fromAddress: row.maker?.toLowerCase() ?? null,
+                toAddress: null,
+                maker: row.maker?.toLowerCase() ?? null,
+                taker: null,
+                side: null,
+                amount: null,
+                price: null,
+                currency: null,
+                payloadJson: JSON.stringify({
+                    ...payload,
+                    extensionKey: row.extension_key,
+                    eventKey: row.event_key,
+                    contentHash: row.content_hash?.toLowerCase() ?? null,
+                }),
+                dedupeKey: buildCollectionExtensionDedupeKey(row),
+                isOpen: toStoredActivityOpenFlag(
+                    ACTIVITY_PROJECTION_STATE.Closed,
+                ),
+            });
+            inserted += result.changes;
+        }
+
+        return {
+            rows: rows.length,
+            inserted,
+        };
+    }
+
     private closeOpenCreateForSale(
         chainId: number,
         row: FillRow,
@@ -577,12 +683,33 @@ function buildOnchainDedupeKey(
     return `${ACTIVITY_SOURCE_KIND.Onchain}:${kind}:${collectionId}:${txHash}:${logIndex}:${tokenId}`;
 }
 
+function buildCollectionExtensionDedupeKey(
+    row: CollectionExtensionEventRow,
+): string {
+    return `${ACTIVITY_SOURCE_KIND.Extension}:${row.extension_key}:${row.event_key}:${row.collection_id}:${row.tx_hash}:${row.log_index}:${row.token_id}`;
+}
+
 function buildActivityDedupeKey(
     sourceKind: string,
     sourceName: string,
     sourceEventKey: string,
 ): string {
     return `${sourceKind}:${sourceName}:${sourceEventKey}`;
+}
+
+function parseActivityPayloadJson(
+    payloadJson: string | null,
+): Record<string, unknown> {
+    if (!payloadJson) return {};
+    try {
+        const parsed = JSON.parse(payloadJson) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return {};
+        }
+        return parsed as Record<string, unknown>;
+    } catch {
+        return {};
+    }
 }
 
 function isCoalescibleCreateKind(kind: string): boolean {
