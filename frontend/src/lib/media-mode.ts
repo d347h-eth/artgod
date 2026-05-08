@@ -1,5 +1,10 @@
-import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import {
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_QUERY_PARAMS
+} from '@artgod/shared/extensions';
 import type { ApiCollectionMediaMode } from '$lib/api-types';
+
+export const MEDIA_MODE_QUERY_PARAM = COLLECTION_MEDIA_QUERY_PARAMS.MediaMode;
 
 export function normalizeMediaMode(raw: string | null): string | null {
 	if (!raw) return null;
@@ -15,7 +20,7 @@ export function appendMediaModeParam(params: URLSearchParams, mediaMode: string 
 	if (!normalized) {
 		return;
 	}
-	params.set('media_mode', normalized);
+	params.set(MEDIA_MODE_QUERY_PARAM, normalized);
 }
 
 export function resolveInitialMediaMode(params: {

@@ -2,6 +2,7 @@ import { goto } from '$app/navigation';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 import {
+	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
 	ACTIVITY_KIND_QUERY_PARAM,
 	formatActivityExtensionEventRef,
 	buildCollectionActivityQuery,
@@ -124,14 +125,14 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	};
 	const activityKindHref = (kind: ActivityFeedFilterKind): string => {
 		const query = new URLSearchParams(activityQuery);
-		query.delete('extension_event');
+		query.delete(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM);
 		query.set(ACTIVITY_KIND_QUERY_PARAM, kind);
 		return withQuery(joinPath(normalizedBasePath, 'activity'), query);
 	};
 	const activityExtensionEventHref = (event: ApiActivityExtensionEventRef): string => {
 		const query = new URLSearchParams(activityQuery);
 		query.delete(ACTIVITY_KIND_QUERY_PARAM);
-		query.set('extension_event', formatActivityExtensionEventRef(event));
+		query.set(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM, formatActivityExtensionEventRef(event));
 		return withQuery(joinPath(normalizedBasePath, 'activity'), query);
 	};
 	const biddingViewHref = (view: CollectionBiddingViewMode): string | null => {

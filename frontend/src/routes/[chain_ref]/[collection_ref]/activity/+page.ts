@@ -1,8 +1,13 @@
 import { error, redirect } from '@sveltejs/kit';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { BackendApiError, getCollectionActivities } from '$lib/backend-api';
 import {
+	ACTIVITY_CONTENT_HASH_QUERY_PARAM,
 	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
+	ACTIVITY_KIND_QUERY_PARAM,
+	ACTIVITY_MAKER_QUERY_PARAM,
+	ACTIVITY_TOKEN_ID_QUERY_PARAM,
 	normalizeCollectionActivityParams,
 	parseCollectionActivityExtensionEvent,
 	parseCollectionActivityKind
@@ -44,9 +49,11 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				totalPages: 0
 			},
 			media: {
-				selectedMode: 'snapshot',
-				defaultMode: 'snapshot',
-				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+				selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+				defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+				availableModes: [
+					{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
+				]
 			},
 			facets: [],
 			selectedTraits: [],
@@ -66,7 +73,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	const extensionEvent = parseCollectionActivityExtensionEvent(
 		url.searchParams.get(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM)
 	);
-	const parsedFilterKind = parseCollectionActivityKind(url.searchParams.get('kind'));
+	const parsedFilterKind = parseCollectionActivityKind(url.searchParams.get(ACTIVITY_KIND_QUERY_PARAM));
 	const filterKind = extensionEvent ? null : parsedFilterKind;
 	const query = normalizeCollectionActivityParams(
 		url.searchParams,
@@ -108,9 +115,9 @@ function toKitError(cause: unknown): never {
 
 function readActivityFilters(searchParams: URLSearchParams) {
 	return {
-		tokenId: nonEmpty(searchParams.get('token_id')),
-		maker: nonEmpty(searchParams.get('maker')),
-		contentHash: nonEmpty(searchParams.get('content_hash'))
+		tokenId: nonEmpty(searchParams.get(ACTIVITY_TOKEN_ID_QUERY_PARAM)),
+		maker: nonEmpty(searchParams.get(ACTIVITY_MAKER_QUERY_PARAM)),
+		contentHash: nonEmpty(searchParams.get(ACTIVITY_CONTENT_HASH_QUERY_PARAM))
 	};
 }
 

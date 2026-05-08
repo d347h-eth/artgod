@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+	import { ACTIVITY_FEED_FILTER_KIND } from '@artgod/shared/types';
 	import CollectionActivitiesView from '$lib/components/CollectionActivitiesView.svelte';
 	import type {
 		ApiActivitiesPage,
@@ -58,9 +60,11 @@
 	collection={data?.collection ?? null}
 	media={
 		data?.media ?? {
-			selectedMode: 'snapshot',
-			defaultMode: 'snapshot',
-			availableModes: [{ key: 'snapshot', label: 'snapshot' }]
+			selectedMode: COLLECTION_MEDIA_MODES.Snapshot,
+			defaultMode: COLLECTION_MEDIA_MODES.Snapshot,
+			availableModes: [
+				{ key: COLLECTION_MEDIA_MODES.Snapshot, label: COLLECTION_MEDIA_MODES.Snapshot }
+			]
 		}
 	}
 	activities={data?.activities ?? fallbackActivities}
@@ -69,7 +73,7 @@
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}
 	included={data?.included ?? { tokensById: {}, eventMediaByActivityId: {}, hasTraitSummaryTemplate: false }}
 	basePath={data?.basePath ?? '/'}
-	filterKind={data?.filterKind ?? (data?.extensionEvent ? null : 'sales')}
+	filterKind={data?.filterKind ?? (data?.extensionEvent ? null : ACTIVITY_FEED_FILTER_KIND.Sales)}
 	extensionEvent={data?.extensionEvent ?? null}
 	activityFilters={data?.activityFilters ?? { tokenId: null, maker: null, contentHash: null }}
 />

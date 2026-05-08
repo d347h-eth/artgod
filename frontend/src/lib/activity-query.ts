@@ -1,11 +1,19 @@
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import type { ActivityFeedFilterKind } from '@artgod/shared/types';
+import {
+	ACTIVITY_FEED_FILTER_KIND,
+	ACTIVITY_FEED_QUERY_PARAMS,
+	type ActivityFeedFilterKind
+} from '@artgod/shared/types';
 import type {
 	ApiActivityExtensionEventRef,
 	ApiTokenAttribute,
 	ApiTraitRangeFilter
 } from '$lib/api-types';
-import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
+import {
+	appendMediaModeParam,
+	MEDIA_MODE_QUERY_PARAM,
+	normalizeMediaMode
+} from '$lib/media-mode';
 import { joinPath, withQuery } from '$lib/route-paths';
 import {
 	appendNormalizedTraitParams,
@@ -14,12 +22,16 @@ import {
 	appendTraitRangeParams
 } from '$lib/trait-filters';
 
-export const ACTIVITY_KIND_QUERY_PARAM = 'kind';
-export const ACTIVITY_EXTENSION_EVENT_QUERY_PARAM = 'extension_event';
-export const ACTIVITY_TOKEN_ID_QUERY_PARAM = 'token_id';
-export const ACTIVITY_MAKER_QUERY_PARAM = 'maker';
-export const ACTIVITY_CONTENT_HASH_QUERY_PARAM = 'content_hash';
-export const COLLECTION_ACTIVITY_FILTER_KINDS = ['sales', 'listings', 'transfers'] as const;
+export const ACTIVITY_KIND_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.Kind;
+export const ACTIVITY_EXTENSION_EVENT_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.ExtensionEvent;
+export const ACTIVITY_TOKEN_ID_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.TokenId;
+export const ACTIVITY_MAKER_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.Maker;
+export const ACTIVITY_CONTENT_HASH_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.ContentHash;
+export const COLLECTION_ACTIVITY_FILTER_KINDS = [
+	ACTIVITY_FEED_FILTER_KIND.Sales,
+	ACTIVITY_FEED_FILTER_KIND.Listings,
+	ACTIVITY_FEED_FILTER_KIND.Transfers
+] as const;
 
 export type CollectionActivitySelection =
 	| { kind: ActivityFeedFilterKind; extensionEvent?: null }
@@ -44,7 +56,7 @@ export function normalizeCollectionActivityParams(
 	} else {
 		params.set(ACTIVITY_KIND_QUERY_PARAM, selection.kind);
 	}
-	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
+	appendMediaModeParam(params, normalizeMediaMode(raw.get(MEDIA_MODE_QUERY_PARAM)));
 	appendNormalizedTraitParams(params, raw);
 	appendNormalizedTraitRangeParams(params, raw);
 	appendOptionalActivityFilter(params, ACTIVITY_TOKEN_ID_QUERY_PARAM, raw.get(ACTIVITY_TOKEN_ID_QUERY_PARAM));

@@ -6,7 +6,10 @@ import {
     isAddressRef,
     normalizeAddressRef,
 } from "@artgod/shared/utils/ref-resolver";
-import type { ActivityFeedFilterKind } from "@artgod/shared/types";
+import {
+    ACTIVITY_FEED_FILTER_KIND,
+    type ActivityFeedFilterKind,
+} from "@artgod/shared/types";
 import type {
     CollectionStatus,
     TokenBrowserStatus,
@@ -55,9 +58,9 @@ const ALLOWED_BOOTSTRAP_RUN_STATUSES = new Set<BootstrapRunStatus>([
 ]);
 
 const ALLOWED_ACTIVITY_FILTER_KINDS = new Set<ActivityFeedFilterKind>([
-    "sales",
-    "listings",
-    "transfers",
+    ACTIVITY_FEED_FILTER_KIND.Sales,
+    ACTIVITY_FEED_FILTER_KIND.Listings,
+    ACTIVITY_FEED_FILTER_KIND.Transfers,
 ]);
 
 const ALLOWED_COLLECTION_BIDDING_BID_SCOPE_FILTERS =

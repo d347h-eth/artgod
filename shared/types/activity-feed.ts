@@ -9,6 +9,18 @@ export const ACTIVITY_FEED_FILTER_KIND = {
 export type ActivityFeedFilterKind =
     (typeof ACTIVITY_FEED_FILTER_KIND)[keyof typeof ACTIVITY_FEED_FILTER_KIND];
 
+export const ACTIVITY_FEED_QUERY_PARAMS = {
+    Kind: "kind",
+    ExtensionEvent: "extension_event",
+    TokenId: "token_id",
+    Maker: "maker",
+    ContentHash: "content_hash",
+} as const;
+
+export const ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS = {
+    RenderMode: "render_mode",
+} as const;
+
 export const ACTIVITY_SCOPE_KIND = {
     Token: "token",
     Collection: "collection",

@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from "@artgod/shared/types";
 import type {
     GetActivityEventPreviewInput,
     GetActivityEventPreviewOutput,
@@ -39,7 +40,9 @@ export class GetActivityEventPreviewHttpAdapter {
     ): GetActivityEventPreviewInput {
         const activityId = Number(request.params.activity_id);
         const renderMode =
-            getSearchParams(request).get("render_mode")?.trim() || undefined;
+            getSearchParams(request)
+                .get(ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS.RenderMode)
+                ?.trim() || undefined;
         return {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,

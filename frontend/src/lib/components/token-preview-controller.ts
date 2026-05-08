@@ -1,4 +1,6 @@
 import { browser } from '$app/environment';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from '@artgod/shared/types';
 import { getContext, setContext } from 'svelte';
 import { get, writable, type Readable } from 'svelte/store';
 import type { ApiCollectionMediaMode, TokenPreviewApiResponse } from '$lib/api-types';
@@ -17,6 +19,12 @@ const MIN_TOKEN_PREVIEW_SCALE_PERCENT = 5;
 const MAX_TOKEN_PREVIEW_SCALE_PERCENT = 100;
 const TOKEN_PREVIEW_SCALE_STEP_PERCENT = 5;
 const TOKEN_PREVIEW_CONTEXT_KEY = Symbol('token-preview-controller');
+const TOKEN_PREVIEW_CACHE_CONTEXT_KIND = {
+	Token: 'token'
+} as const;
+export const TOKEN_PREVIEW_CONTEXT_KIND = {
+	ActivityEvent: 'activity-event'
+} as const;
 let fallbackTokenPreviewController: TokenPreviewController | null = null;
 
 type TokenPreviewRequest = {
@@ -28,7 +36,7 @@ type TokenPreviewRequest = {
 };
 
 export type TokenPreviewContext = {
-	kind: 'activity-event';
+	kind: typeof TOKEN_PREVIEW_CONTEXT_KIND.ActivityEvent;
 	activityId: number;
 };
 
@@ -87,7 +95,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		tokenId: null,
 		chainRef: null,
 		collectionRef: null,
-		selectedMediaMode: 'snapshot',
+		selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 		availableMediaModes: [],
 		previewContext: null,
 		scalePercent: readInitialTokenPreviewScalePercent(),
@@ -231,7 +239,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 			tokenId: null,
 			chainRef: null,
 			collectionRef: null,
-			selectedMediaMode: 'snapshot',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 			availableMediaModes: [],
 			previewContext: null,
 			aspectRatio: null,
@@ -432,7 +440,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 }
 
 function loadPreviewResponse(request: TokenPreviewRequest): Promise<TokenPreviewApiResponse> {
-	if (request.previewContext?.kind === 'activity-event') {
+	if (request.previewContext?.kind === TOKEN_PREVIEW_CONTEXT_KIND.ActivityEvent) {
 		return getActivityEventPreview(
 			globalThis.fetch,
 			request.chainRef,
@@ -520,7 +528,7 @@ function buildMediaModeQuery(mediaMode: string): URLSearchParams {
 
 function buildRenderModeQuery(renderMode: string): URLSearchParams {
 	const params = new URLSearchParams();
-	params.set('render_mode', renderMode);
+	params.set(ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS.RenderMode, renderMode);
 	return params;
 }
 
@@ -532,6 +540,6 @@ function buildTokenPreviewCacheKey(request: TokenPreviewRequest): string {
 		request.mediaMode.trim().toLowerCase(),
 		request.previewContext
 			? `${request.previewContext.kind}:${request.previewContext.activityId}`
-			: 'token'
+			: TOKEN_PREVIEW_CACHE_CONTEXT_KIND.Token
 	].join('|');
 }

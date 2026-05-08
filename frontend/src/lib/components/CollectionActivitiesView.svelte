@@ -29,7 +29,10 @@
 	import { formatListingPrice } from '$lib/listing-price';
 	import TraitFacetPanel from '$lib/components/TraitFacetPanel.svelte';
 	import TraitFacetPanelControls from '$lib/components/TraitFacetPanelControls.svelte';
-	import { getTokenPreviewController } from '$lib/components/token-preview-controller';
+	import {
+		getTokenPreviewController,
+		TOKEN_PREVIEW_CONTEXT_KIND
+	} from '$lib/components/token-preview-controller';
 	import { createTraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
 	import {
 		etherscanTransactionHref as buildEtherscanTransactionHref,
@@ -318,7 +321,9 @@
 	}
 
 	function activityPreviewContext(activity: ApiActivityFeedItem) {
-		return activityEventMedia(activity) ? { kind: 'activity-event' as const, activityId: activity.id } : null;
+		return activityEventMedia(activity)
+			? { kind: TOKEN_PREVIEW_CONTEXT_KIND.ActivityEvent, activityId: activity.id }
+			: null;
 	}
 
 	function columnLabel(column: ActivityColumnId): string {

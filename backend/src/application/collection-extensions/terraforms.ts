@@ -30,6 +30,9 @@ import { concatHex, hexToBigInt, keccak256, padHex, toHex } from "viem";
 
 const DEFAULT_DECAY = 0n;
 const TERRAFORMS_CANVAS_ROW_COUNT = 16;
+const TERRAFORMS_ACTIVITY_EVENT_FEED_LABELS = {
+    Dreams: "dreams",
+} as const;
 
 const TERRAFORMS_MAIN_ABI = [
     {
@@ -115,7 +118,7 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                 {
                     extensionKey: TERRAFORMS_EXTENSION_KEY,
                     eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
-                    label: "terraformed",
+                    label: TERRAFORMS_ACTIVITY_EVENT_FEED_LABELS.Dreams,
                     filters: {
                         tokenId: { label: "token" },
                         maker: { label: "maker" },

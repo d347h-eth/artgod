@@ -5,12 +5,16 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
+    TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
+    TERRAFORMS_EXTENSION_EVENT_KEYS,
+    TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
     TERRAFORMS_EXTENSION_KEY,
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     ACTIVITY_KIND,
+    ACTIVITY_FEED_QUERY_PARAMS,
     ACTIVITY_SCOPE_KIND,
     ACTIVITY_SOURCE_KIND,
     TRADING_BIDDING_BID_BOOK_SOURCE,
@@ -2259,6 +2263,9 @@ describe("backend api routes", () => {
     it("returns extension event media includes for Terraforms activity rows", async () => {
         const txHash =
             "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        const maker = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const contentHash =
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         insertActivityFixture({
             collectionAddress: TERRAFORMS_ADDRESS,
             scopeKind: ACTIVITY_SCOPE_KIND.Token,
@@ -2270,13 +2277,12 @@ describe("backend api routes", () => {
             blockNumber: 22_010_001,
             txHash,
             logIndex: 8,
-            maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            maker,
             payload: {
-                eventKey: "terraformed",
-                contentHash:
-                    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+                contentHash,
             },
-            dedupeKey: `extension:terraforms:terraformed:7710:${txHash}:8`,
+            dedupeKey: `${ACTIVITY_SOURCE_KIND.Extension}:${TERRAFORMS_EXTENSION_KEY}:${TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed}:7710:${txHash}:8`,
         });
         const collection = getCollectionFixtureByAddress(TERRAFORMS_ADDRESS);
         db.prepare(
@@ -2287,25 +2293,26 @@ describe("backend api routes", () => {
             1,
             collection.collection_id,
             TERRAFORMS_EXTENSION_KEY,
-            "terraformed",
+            TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
             TERRAFORMS_ADDRESS,
             "7710",
-            "terraformed-preview",
+            TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS.TerraformedPreview,
             22_010_001,
             `0x${"44".repeat(32)}`,
             1_726_100_100,
             txHash,
             8,
             "data:image/svg+xml;base64,event-canvas",
-            JSON.stringify([
-                { key: "artifact", label: "artifact" },
-                { key: "network", label: "network" },
-            ]),
+            JSON.stringify(TERRAFORMS_EVENT_RENDER_MODE_OPTIONS),
         );
 
+        const query = new URLSearchParams({
+            limit: "10",
+            [ACTIVITY_FEED_QUERY_PARAMS.ExtensionEvent]: `${TERRAFORMS_EXTENSION_KEY}:${TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed}`,
+        });
         const result = await resolve(
             "GET",
-            "/api/ethereum/terraforms/activity?limit=10&extension_event=terraforms:terraformed",
+            `/api/ethereum/terraforms/activity?${query.toString()}`,
         );
 
         expect(result.statusCode).toBe(200);
@@ -2319,12 +2326,28 @@ describe("backend api routes", () => {
             ],
         ).toMatchObject({
             image: "data:image/svg+xml;base64,event-canvas",
-            mediaRef: "terraformed-preview",
-            renderModes: [
-                { key: "artifact", label: "artifact" },
-                { key: "network", label: "network" },
-            ],
+            mediaRef: TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS.TerraformedPreview,
+            renderModes: TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
         });
+
+        for (const [key, value] of [
+            [ACTIVITY_FEED_QUERY_PARAMS.TokenId, "7710"],
+            [ACTIVITY_FEED_QUERY_PARAMS.Maker, maker],
+            [ACTIVITY_FEED_QUERY_PARAMS.ContentHash, contentHash],
+        ] as const) {
+            const filteredQuery = new URLSearchParams(query);
+            filteredQuery.set(key, value);
+            const filtered = await resolve(
+                "GET",
+                `/api/ethereum/terraforms/activity?${filteredQuery.toString()}`,
+            );
+            expect(filtered.statusCode).toBe(200);
+            expect(
+                filtered.payload.activities.items.some(
+                    (item: { txHash: string }) => item.txHash === txHash,
+                ),
+            ).toBe(true);
+        }
     });
 
     it("returns collection holders as a forward cursor page", async () => {

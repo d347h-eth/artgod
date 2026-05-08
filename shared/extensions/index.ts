@@ -5,6 +5,10 @@ export const COLLECTION_MEDIA_MODES = {
     Artifact: "artifact",
 } as const;
 
+export const COLLECTION_MEDIA_QUERY_PARAMS = {
+    MediaMode: "media_mode",
+} as const;
+
 export type CollectionExtensionKey = string;
 
 export type CoreCollectionMediaMode =
