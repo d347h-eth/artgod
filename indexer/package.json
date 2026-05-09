@@ -1,6 +1,6 @@
 {
     "name": "@artgod/indexer",
-    "version": "0.0.1-pre-alpha.15",
+    "version": "0.0.1-pre-alpha.16",
     "private": true,
     "type": "module",
     "scripts": {
