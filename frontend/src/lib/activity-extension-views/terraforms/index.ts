@@ -7,6 +7,16 @@ import {
 	type ActivityExtensionEventView,
 	type ActivityExtensionEventViewRegistrar
 } from '$lib/activity-extension-views/types';
+import {
+	COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND,
+	type CollectionExtensionNavigationRegistrar
+} from '$lib/collection-extension-navigation';
+import {
+	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_IDS,
+	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_LABELS,
+	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS,
+	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_LABELS
+} from '$lib/activity-extension-views/terraforms/constants';
 import TerraformsDreamsFilters from '$lib/activity-extension-views/terraforms/TerraformsDreamsFilters.svelte';
 import TerraformsHeightmapCell from '$lib/activity-extension-views/terraforms/TerraformsHeightmapCell.svelte';
 import TerraformsMakerCell from '$lib/activity-extension-views/terraforms/TerraformsMakerCell.svelte';
@@ -43,5 +53,28 @@ export function registerTerraformsActivityExtensionViews(
 		extensionKey: TERRAFORMS_EXTENSION_KEY,
 		eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
 		view: TERRAFORMS_DREAMS_ACTIVITY_VIEW
+	});
+}
+
+// Registers Terraforms collection navigation groups through the generic frontend extension port.
+export function registerTerraformsCollectionNavigation(
+	registrar: CollectionExtensionNavigationRegistrar
+): void {
+	registrar.registerCollectionNavigationGroup({
+		id: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_IDS.CollectionEvents,
+		label: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_LABELS.CollectionEvents,
+		tabs: [
+			{
+				id: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS.Dreams,
+				label: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_LABELS.Dreams,
+				target: {
+					kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ActivityExtensionEvent,
+					event: {
+						extensionKey: TERRAFORMS_EXTENSION_KEY,
+						eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed
+					}
+				}
+			}
+		]
 	});
 }

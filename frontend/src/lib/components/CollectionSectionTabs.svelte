@@ -3,6 +3,11 @@
 	import { COLLECTION_ACTIVITY_FILTER_KINDS } from '$lib/activity-query';
 	import type { ApiActivityExtensionEventRef } from '$lib/api-types';
 	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
+	import {
+		collectionExtensionNavigationTabActivityEvent,
+		resolveCollectionExtensionNavigationGroups,
+		type CollectionExtensionNavigationTab
+	} from '$lib/collection-extension-navigation';
 	import type { CollectionNavigation } from '$lib/collection-navigation';
 	import type { CollectionTokenStatus } from '$lib/token-browser-query';
 
@@ -39,6 +44,37 @@
 	function biddingViewHref(view: CollectionBiddingViewMode): string {
 		return navigation.hrefs.biddingView(view) ?? '#';
 	}
+
+	// Core tab group labels stay generic while extension feeds may provide their own group.
+	const COLLECTION_SECTION_TAB_GROUP_LABELS = {
+		Explore: 'explore',
+		AssetEvents: 'asset events'
+	} as const;
+
+	let extensionNavigationGroups = $derived(
+		resolveCollectionExtensionNavigationGroups({
+			activityEventFeeds: navigation.activityEventFeeds
+		})
+	);
+
+	function extensionNavigationTabHref(tab: CollectionExtensionNavigationTab): string {
+		const event = collectionExtensionNavigationTabActivityEvent(tab);
+		return event ? activityExtensionEventHref(event) : '#';
+	}
+
+	function extensionNavigationTabIsSelected(tab: CollectionExtensionNavigationTab): boolean {
+		const event = collectionExtensionNavigationTabActivityEvent(tab);
+		if (!event) return false;
+		return activityExtensionEventIsSelected(event);
+	}
+
+	function activityExtensionEventIsSelected(event: ApiActivityExtensionEventRef): boolean {
+		return (
+			active === 'activities' &&
+			activeActivityExtensionEvent?.extensionKey === event.extensionKey &&
+			activeActivityExtensionEvent?.eventKey === event.eventKey
+		);
+	}
 </script>
 
 {#snippet navItem(label: string, href: string, selected: boolean)}
@@ -51,7 +87,7 @@
 
 <div class="runtime-tabs collection-section-tabs" aria-label="Collection sections">
 	<div class="runtime-tab-group">
-		<span class="runtime-tab-group-label">explore</span>
+		<span class="runtime-tab-group-label">{COLLECTION_SECTION_TAB_GROUP_LABELS.Explore}</span>
 		<div class="runtime-tab-group-items">
 			{@render navItem('asks', tokenStatusHref('listed'), active === 'tokens' && activeTokenStatus === 'listed')}
 			{#if navigation.showBiddingOffers}
@@ -66,22 +102,27 @@
 		</div>
 	{/if}
 	<div class="runtime-tab-group">
-		<span class="runtime-tab-group-label">events</span>
+		<span class="runtime-tab-group-label">{COLLECTION_SECTION_TAB_GROUP_LABELS.AssetEvents}</span>
 		<div class="runtime-tab-group-items">
 			{#each COLLECTION_ACTIVITY_FILTER_KINDS as kind}
 				{@render navItem(kind, activityKindHref(kind), active === 'activities' && activeActivityKind === kind)}
 			{/each}
-			{#each navigation.activityEventFeeds as eventFeed}
-				{@render navItem(
-					eventFeed.label,
-					activityExtensionEventHref(eventFeed),
-					active === 'activities' &&
-						activeActivityExtensionEvent?.extensionKey === eventFeed.extensionKey &&
-						activeActivityExtensionEvent?.eventKey === eventFeed.eventKey
-				)}
-			{/each}
 		</div>
 	</div>
+	{#each extensionNavigationGroups as eventFeedGroup}
+		<div class="runtime-tab-group">
+			<span class="runtime-tab-group-label">{eventFeedGroup.label}</span>
+			<div class="runtime-tab-group-items">
+				{#each eventFeedGroup.tabs as tab}
+					{@render navItem(
+						tab.label,
+						extensionNavigationTabHref(tab),
+						extensionNavigationTabIsSelected(tab)
+					)}
+				{/each}
+			</div>
+		</div>
+	{/each}
 	{#if active === 'holders'}
 		<span class="runtime-tab-active">holders</span>
 	{:else}

@@ -2669,6 +2669,7 @@ th {
 
 .runtime-tab-group-items {
 	display: inline-flex;
+	justify-content: center;
 	gap: 0.25rem;
 	padding-top: 0.18rem;
 	border-top: 1px solid color-mix(in srgb, var(--c-blue) 70%, transparent);

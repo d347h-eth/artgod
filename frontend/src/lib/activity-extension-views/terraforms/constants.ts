@@ -5,6 +5,26 @@ export const TERRAFORMS_DREAMS_FILTER_LABELS = {
 	Heightmap: 'heightmap'
 } as const;
 
+// Navigation group labels owned by Terraforms activity event views.
+export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_LABELS = {
+	CollectionEvents: 'collection events'
+} as const;
+
+// Navigation group ids owned by Terraforms activity event views.
+export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_IDS = {
+	CollectionEvents: 'terraforms-collection-events'
+} as const;
+
+// Navigation tab labels owned by Terraforms activity event views.
+export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_LABELS = {
+	Dreams: 'dreams'
+} as const;
+
+// Navigation tab ids owned by Terraforms activity event views.
+export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS = {
+	Dreams: 'terraforms-dreams'
+} as const;
+
 // Accessible labels for Terraforms token id row actions.
 export const TERRAFORMS_TOKEN_ID_CELL_LABELS = {
 	FilterToken: 'filter token'

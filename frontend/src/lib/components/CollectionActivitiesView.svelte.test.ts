@@ -6,10 +6,10 @@ import {
 	TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
 	TERRAFORMS_EXTENSION_KEY
 } from '@artgod/shared/extensions/terraforms';
-import { installBuiltInActivityExtensionViews } from '$lib/activity-extension-views/built-ins';
+import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
 import CollectionActivitiesView from './CollectionActivitiesView.svelte';
 
-installBuiltInActivityExtensionViews();
+installBuiltInCollectionExtensions();
 
 describe('CollectionActivitiesView', () => {
 	it('renders collection activity rows with grouped filter navigation', () => {
@@ -146,6 +146,7 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('from');
 		expect(body).toContain('to');
 		expect(body).toContain('time');
+		expect(body).toContain('asset events');
 		expect(body).toContain('sales');
 		expect(body).toContain('listings');
 		expect(body).toContain('transfers');
@@ -453,6 +454,9 @@ describe('CollectionActivitiesView', () => {
 		});
 
 		expect(body).toContain('<span class="runtime-tab-active">dreams</span>');
+		expect(body).toContain('asset events');
+		expect(body).toContain('collection events');
+		expect(body).not.toContain('extension events');
 		expect(body).toContain('<th class="activities-media-col"><!--[!-->media');
 		expect(body).toContain('<th class="activities-content-col"><!--[!-->heightmap');
 		expect(body).toContain('/ethereum/terraforms/7710?media_mode=artifact');

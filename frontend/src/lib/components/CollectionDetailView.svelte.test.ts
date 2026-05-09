@@ -85,7 +85,7 @@ describe('CollectionDetailView', () => {
 			'/ethereum/milady/bidding?media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).toContain('explore');
-		expect(body).toContain('events');
+		expect(body).toContain('asset events');
 		expect(body).toContain('<span class="runtime-tab-active">asks</span>');
 		expect(body).toContain('>offers<');
 		expect(body).toContain('>tokens<');

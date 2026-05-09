@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import '../app.css';
-	import { installBuiltInActivityExtensionViews } from '$lib/activity-extension-views/built-ins';
+	import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
 	import AdminShell from '$lib/admin/components/AdminShell.svelte';
 	import TokenPreviewOverlay from '$lib/components/TokenPreviewOverlay.svelte';
 	import {
@@ -12,8 +12,8 @@
 
 	let { children } = $props();
 
-	// Register bundled extension views before route components resolve activity feed views.
-	installBuiltInActivityExtensionViews();
+	// Register bundled collection extensions before route components resolve extension views.
+	installBuiltInCollectionExtensions();
 
 	if (!IS_ADMIN_FRONTEND_TARGET) {
 		setTokenPreviewControllerContext(createTokenPreviewController());
