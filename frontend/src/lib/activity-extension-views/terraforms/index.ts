@@ -10,6 +10,7 @@ import {
 import TerraformsDreamsFilters from '$lib/activity-extension-views/terraforms/TerraformsDreamsFilters.svelte';
 import TerraformsHeightmapCell from '$lib/activity-extension-views/terraforms/TerraformsHeightmapCell.svelte';
 import TerraformsMakerCell from '$lib/activity-extension-views/terraforms/TerraformsMakerCell.svelte';
+import TerraformsTokenIdCell from '$lib/activity-extension-views/terraforms/TerraformsTokenIdCell.svelte';
 
 // Terraforms owns only the event-specific heightmap column label.
 const TERRAFORMS_DREAMS_COLUMN_LABELS = {
@@ -20,7 +21,7 @@ const TERRAFORMS_DREAMS_COLUMN_LABELS = {
 const TERRAFORMS_DREAMS_ACTIVITY_VIEW: ActivityExtensionEventView = {
 	columns: [
 		{ id: ACTIVITY_TABLE_COLUMN_IDS.Media },
-		{ id: ACTIVITY_TABLE_COLUMN_IDS.Id },
+		{ id: ACTIVITY_TABLE_COLUMN_IDS.Id, Cell: TerraformsTokenIdCell },
 		{ id: ACTIVITY_TABLE_COLUMN_IDS.Name },
 		{ id: ACTIVITY_TABLE_COLUMN_IDS.Traits },
 		{ id: ACTIVITY_TABLE_COLUMN_IDS.From, Cell: TerraformsMakerCell },
