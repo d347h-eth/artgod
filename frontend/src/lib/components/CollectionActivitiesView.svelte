@@ -15,6 +15,16 @@
 		ApiTokenPresentationSummary,
 		ApiTraitFacet
 	} from '$lib/api-types';
+	import { resolveActivityExtensionEventView } from '$lib/activity-extension-views';
+	import ActivityExtensionCellOutlet from '$lib/activity-extension-views/ActivityExtensionCellOutlet.svelte';
+	import ActivityExtensionFiltersOutlet from '$lib/activity-extension-views/ActivityExtensionFiltersOutlet.svelte';
+	import {
+		ACTIVITY_TABLE_COLUMN_IDS,
+		type ActivityExtensionFilterPatch,
+		type ActivityExtensionFilterValues,
+		type ActivityTableColumn,
+		type ActivityTableColumnId
+	} from '$lib/activity-extension-views/types';
 	import { resolveActivityEventRenderMode } from '$lib/activity-event-render-mode';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import {
@@ -79,11 +89,7 @@
 		basePath: string;
 		filterKind: ApiActivityFeedFilterKind | null;
 		extensionEvent?: ApiActivityExtensionEventRef | null;
-		activityFilters?: {
-			tokenId: string | null;
-			maker: string | null;
-			contentHash: string | null;
-		};
+		activityFilters?: ActivityExtensionFilterValues;
 	} = $props();
 
 	const tokenPreview = getTokenPreviewController();
@@ -95,31 +101,55 @@
 	const RELATIVE_TIME_REFRESH_MS = 60_000;
 
 	type TimeDisplayMode = 'relative' | 'system' | 'utc';
-	type ActivityColumnId =
-		| 'id'
-		| 'price'
-		| 'image'
-		| 'name'
-		| 'traits'
-		| 'from'
-		| 'to'
-		| 'content'
-		| 'time';
 
-	const ACTIVITY_COLUMNS_BY_FILTER: Record<ApiActivityFeedFilterKind, ActivityColumnId[]> = {
-		sales: ['image', 'price', 'id', 'name', 'traits', 'from', 'to', 'time'],
-		listings: ['image', 'price', 'id', 'name', 'traits', 'from', 'time'],
-		transfers: ['image', 'id', 'name', 'traits', 'from', 'to', 'time']
+	const ACTIVITY_COLUMNS_BY_FILTER: Record<ApiActivityFeedFilterKind, readonly ActivityTableColumn[]> = {
+		sales: [
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Media),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Price),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Id),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Name),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Traits),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.From),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.To),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Time)
+		],
+		listings: [
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Media),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Price),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Id),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Name),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Traits),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.From),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Time)
+		],
+		transfers: [
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Media),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Id),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Name),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Traits),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.From),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.To),
+			standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Time)
+		]
 	};
-	const EXTENSION_ACTIVITY_COLUMNS: ActivityColumnId[] = [
-		'image',
-		'id',
-		'name',
-		'traits',
-		'from',
-		'content',
-		'time'
+	const EXTENSION_ACTIVITY_COLUMNS: readonly ActivityTableColumn[] = [
+		standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Media),
+		standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Id),
+		standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Name),
+		standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Traits),
+		standardColumn(ACTIVITY_TABLE_COLUMN_IDS.From),
+		standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Content),
+		standardColumn(ACTIVITY_TABLE_COLUMN_IDS.Time)
 	];
+	const MONO_ACTIVITY_COLUMN_IDS = new Set<ActivityTableColumnId>([
+		ACTIVITY_TABLE_COLUMN_IDS.Id,
+		ACTIVITY_TABLE_COLUMN_IDS.Price,
+		ACTIVITY_TABLE_COLUMN_IDS.From,
+		ACTIVITY_TABLE_COLUMN_IDS.To,
+		ACTIVITY_TABLE_COLUMN_IDS.Content,
+		ACTIVITY_TABLE_COLUMN_IDS.Time,
+		ACTIVITY_TABLE_COLUMN_IDS.Traits
+	]);
 
 	let timeDisplayMode = $state<TimeDisplayMode>('relative');
 	let relativeNowMs = $state(Date.now());
@@ -139,9 +169,12 @@
 				feed.extensionKey === extensionEvent?.extensionKey && feed.eventKey === extensionEvent?.eventKey
 		) ?? null
 	);
+	let activeActivityExtensionEventView = $derived(
+		extensionEvent ? resolveActivityExtensionEventView(extensionEvent) : null
+	);
 	let visibleColumns = $derived(
-		(filterKind ? ACTIVITY_COLUMNS_BY_FILTER[filterKind] : EXTENSION_ACTIVITY_COLUMNS).filter(
-			(column) => column !== 'traits' || hasActivityTraitSummaryColumn
+		activityColumns().filter(
+			(column) => column.id !== ACTIVITY_TABLE_COLUMN_IDS.Traits || hasActivityTraitSummaryColumn
 		)
 	);
 
@@ -200,11 +233,7 @@
 		cursor: string | null = null,
 		traits: ApiTokenAttribute[] = activeTraits,
 		traitRanges: ApiTraitRangeFilter[] = activeTraitRanges,
-		filters: {
-			tokenId: string | null;
-			maker: string | null;
-			contentHash: string | null;
-		} = activityFilters
+		filters: ActivityExtensionFilterValues = activityFilters
 	): string {
 		return buildCollectionActivityHref({
 			basePath,
@@ -240,6 +269,42 @@
 			tokenId,
 			mediaMode: media.selectedMode
 		});
+	}
+
+	function activityColumns(): readonly ActivityTableColumn[] {
+		if (filterKind) return ACTIVITY_COLUMNS_BY_FILTER[filterKind];
+		return activeActivityExtensionEventView?.columns ?? EXTENSION_ACTIVITY_COLUMNS;
+	}
+
+	function standardColumn(id: ActivityTableColumnId): ActivityTableColumn {
+		return { id };
+	}
+
+	function mergeActivityFilterPatch(filters: ActivityExtensionFilterPatch): ActivityExtensionFilterValues {
+		return {
+			tokenId: filters.tokenId !== undefined ? filters.tokenId : activityFilters.tokenId,
+			maker: filters.maker !== undefined ? filters.maker : activityFilters.maker,
+			contentHash:
+				filters.contentHash !== undefined ? filters.contentHash : activityFilters.contentHash
+		};
+	}
+
+	function activityFilterHref(filters: ActivityExtensionFilterPatch): string {
+		return filterHref(
+			filterKind,
+			null,
+			activeTraits,
+			activeTraitRanges,
+			mergeActivityFilterPatch(filters)
+		);
+	}
+
+	function activityCellHrefs() {
+		return {
+			filter: activityFilterHref,
+			holder: holderHref,
+			tokenDetail: tokenDetailHref
+		};
 	}
 
 	function occurredAtLabel(occurredAt: number): string {
@@ -326,27 +391,34 @@
 			: null;
 	}
 
-	function columnLabel(column: ActivityColumnId): string {
-		switch (column) {
-			case 'id':
+	function columnLabel(column: ActivityTableColumn): string {
+		if (column.label) return column.label;
+		switch (column.id) {
+			case ACTIVITY_TABLE_COLUMN_IDS.Id:
 				return 'id';
-			case 'price':
+			case ACTIVITY_TABLE_COLUMN_IDS.Price:
 				return 'price';
-			case 'image':
-				return 'image';
-			case 'name':
+			case ACTIVITY_TABLE_COLUMN_IDS.Media:
+				return 'media';
+			case ACTIVITY_TABLE_COLUMN_IDS.Name:
 				return 'name';
-			case 'traits':
+			case ACTIVITY_TABLE_COLUMN_IDS.Traits:
 				return 'traits';
-			case 'from':
+			case ACTIVITY_TABLE_COLUMN_IDS.From:
 				return 'from';
-			case 'to':
+			case ACTIVITY_TABLE_COLUMN_IDS.To:
 				return 'to';
-			case 'content':
+			case ACTIVITY_TABLE_COLUMN_IDS.Content:
 				return 'content';
-			case 'time':
+			case ACTIVITY_TABLE_COLUMN_IDS.Time:
 				return 'time';
+			default:
+				return column.id;
 		}
+	}
+
+	function columnIsMono(column: ActivityTableColumn): boolean {
+		return column.mono ?? MONO_ACTIVITY_COLUMN_IDS.has(column.id as ActivityTableColumnId);
 	}
 
 	function maskAddress(address: string | null): string | null {
@@ -511,6 +583,14 @@
 		);
 	}
 
+	async function onApplyActivityFilterPatch(filters: ActivityExtensionFilterPatch): Promise<void> {
+		await goto(activityFilterHref(filters), {
+			invalidateAll: true,
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
 	async function onClearActivityFilters(): Promise<void> {
 		tokenIdFilterDraft = '';
 		makerFilterDraft = '';
@@ -573,7 +653,15 @@
 				onSelectedFiltersChange={applyTraitFilters}
 			/>
 		</div>
-		{#if activeExtensionEventFeed?.filters}
+		{#if activeExtensionEventFeed && activeActivityExtensionEventView?.Filters}
+			<ActivityExtensionFiltersOutlet
+				Filters={activeActivityExtensionEventView.Filters}
+				chainRef={chain?.slug ?? ''}
+				feed={activeExtensionEventFeed}
+				filters={activityFilters}
+				onApply={onApplyActivityFilterPatch}
+			/>
+		{:else if activeExtensionEventFeed?.filters}
 			<form class="activity-extension-filters" onsubmit={onApplyActivityFilters}>
 				{#if activeExtensionEventFeed.filters.tokenId}
 					<label class="activity-extension-filter-field">
@@ -638,19 +726,19 @@
 
 		<div class="activity-panel">
 			<div class="table-wrap activities-table-wrap">
-				<table class="activities-table">
-					<colgroup>
-						{#each visibleColumns as column}
-							<col class={`activities-${column}-col`} />
-						{/each}
-					</colgroup>
-					<thead>
-						<tr>
+					<table class="activities-table">
+						<colgroup>
 							{#each visibleColumns as column}
-								<th class={`activities-${column}-col`}>
-									{#if column === 'time'}
-										<span>{columnLabel(column)}</span>
-										<button
+								<col class={`activities-${column.id}-col`} />
+							{/each}
+						</colgroup>
+						<thead>
+							<tr>
+								{#each visibleColumns as column}
+									<th class={`activities-${column.id}-col`}>
+										{#if column.id === ACTIVITY_TABLE_COLUMN_IDS.Time}
+											<span>{columnLabel(column)}</span>
+											<button
 											type="button"
 											class="activities-time-mode-button"
 											aria-label="cycle time display mode"
@@ -681,14 +769,22 @@
 								{/if}
 								<tr>
 									{#each visibleColumns as column}
-										<td class={`activities-${column}-cell${column === 'id' || column === 'price' || column === 'from' || column === 'to' || column === 'content' || column === 'time' || column === 'traits' ? ' mono' : ''}`}>
-											{#if column === 'id'}
+										<td class={`activities-${column.id}-cell${columnIsMono(column) ? ' mono' : ''}`}>
+											{#if column.Cell}
+												<ActivityExtensionCellOutlet
+													Cell={column.Cell}
+													{activity}
+													token={tokenSummary(activity)}
+													eventMedia={activityEventMedia(activity)}
+													hrefs={activityCellHrefs()}
+												/>
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.Id}
 												{#if activity.tokenId}
 													<a href={tokenDetailHref(activity.tokenId)}>{activity.tokenId}</a>
 												{:else}
 													<span class="muted">-</span>
 												{/if}
-											{:else if column === 'price'}
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.Price}
 												{#if activityPriceLabel(activity)}
 													{#if marketplaceItemHref(activity)}
 														<a
@@ -704,7 +800,7 @@
 												{:else}
 													<span class="muted">-</span>
 												{/if}
-											{:else if column === 'image'}
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.Media}
 												<ActivityTokenCell
 													chainRef={chain?.slug ?? null}
 													collectionRef={collection?.slug ?? null}
@@ -716,7 +812,7 @@
 													previewContext={activityPreviewContext(activity)}
 													tokenPreview={tokenPreview}
 												/>
-											{:else if column === 'name'}
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.Name}
 												{#if tokenName(activity)}
 													<span class="activities-name-text" title={tokenName(activity) ?? undefined}>
 														{tokenName(activity)}
@@ -724,7 +820,7 @@
 												{:else}
 													<span class="muted">-</span>
 												{/if}
-											{:else if column === 'traits'}
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.Traits}
 												{#if activityTraitSummary(activity)}
 													<span title={activityTraitSummary(activity) ?? undefined}>
 														{activityTraitSummary(activity)}
@@ -732,7 +828,7 @@
 												{:else}
 													<span class="muted">-</span>
 												{/if}
-											{:else if column === 'from'}
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.From}
 												{#if activityFromAddress(activity)}
 													<a
 														href={holderHref(activityFromAddress(activity) ?? '')}
@@ -743,7 +839,7 @@
 												{:else}
 													<span class="muted">-</span>
 												{/if}
-											{:else if column === 'to'}
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.To}
 												{#if activity.to}
 													<a href={holderHref(activity.to)} title={activity.to}>
 														{maskAddress(activity.to)}
@@ -751,7 +847,7 @@
 												{:else}
 													<span class="muted">-</span>
 												{/if}
-											{:else if column === 'content'}
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.Content}
 												{#if activityContentHash(activity)}
 													<span title={activityContentHash(activity) ?? undefined}>
 														{maskAddress(activityContentHash(activity))}
@@ -759,7 +855,7 @@
 												{:else}
 													<span class="muted">-</span>
 												{/if}
-											{:else if column === 'time'}
+											{:else if column.id === ACTIVITY_TABLE_COLUMN_IDS.Time}
 												{#if transactionHref(activity)}
 													<a
 														href={transactionHref(activity) ?? '#'}

@@ -67,6 +67,7 @@ For implementation details, use:
 - Use collection token scope as the reference example for this rule:
   raw values like `contract_all_tokens` should stay internal to the collection domain module, while callers should use explicit APIs such as scope predicates, token membership checks, and range intersection helpers.
 - Leave short one-line comments on important literals, exported/public functions, and domain boundary helpers, especially inside `indexer/src/domain/*` and other core runtime packages.
+- Add a short purpose comment for exported literals, types, and functions that wire separate components, modules, or concerns together.
 - Keep comments simple and plain; explain the purpose, not the whole design.
 
 ## Backend Hexagonal Guide

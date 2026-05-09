@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import {
+	TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
+	TERRAFORMS_EXTENSION_EVENT_KEYS,
+	TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
+	TERRAFORMS_EXTENSION_KEY
+} from '@artgod/shared/extensions/terraforms';
+import { installBuiltInActivityExtensionViews } from '$lib/activity-extension-views/built-ins';
 import CollectionActivitiesView from './CollectionActivitiesView.svelte';
+
+installBuiltInActivityExtensionViews();
 
 describe('CollectionActivitiesView', () => {
 	it('renders collection activity rows with grouped filter navigation', () => {
@@ -132,7 +141,7 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('activities');
 		expect(body).toContain('id');
 		expect(body).toContain('price');
-		expect(body).toContain('image');
+		expect(body).toContain('media');
 		expect(body).toContain('name');
 		expect(body).toContain('from');
 		expect(body).toContain('to');
@@ -316,5 +325,147 @@ describe('CollectionActivitiesView', () => {
 		expect(body).not.toContain('>to<');
 		expect(body).toContain('0x9999...9999');
 		expect(body).toContain('class="activities-day-break-label">2024-09-10 UTC</span>');
+	});
+
+	it('renders Terraforms dreams rows with extension-owned maker and heightmap cells', () => {
+		const maker = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+		const contentHash = '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
+		const { body } = render(CollectionActivitiesView, {
+			props: {
+				chain: {
+					id: 1,
+					type: 'evm',
+					publicChainId: 1,
+					slug: 'ethereum',
+					name: 'Ethereum'
+				},
+				collection: {
+					chainId: 1,
+					collectionId: 7,
+					slug: 'terraforms',
+					address: '0x4e1f41613c9084fdb9e34e11fae9412427480e56',
+					standard: 'erc721',
+					status: 'live',
+					deploymentBlock: 1,
+					bootstrapAnchorBlock: null,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T00:00:00Z',
+					activityEventFeeds: [
+						{
+							extensionKey: TERRAFORMS_EXTENSION_KEY,
+							eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+							label: 'dreams',
+							filters: {
+								tokenId: { label: 'token' },
+								maker: { label: 'maker' },
+								contentHash: { label: 'canvas hash' }
+							}
+						}
+					]
+				},
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'snapshot', label: 'snapshot' }
+					]
+				},
+				activities: {
+					items: [
+						{
+							id: 33,
+							scopeKind: 'token',
+							kind: 'custom',
+							contract: '0x4e1f41613c9084fdb9e34e11fae9412427480e56',
+							tokenId: '7710',
+							occurredAt: 1726100100,
+							sourceKind: 'extension',
+							sourceName: TERRAFORMS_EXTENSION_KEY,
+							orderId: null,
+							blockNumber: 22010001,
+							txHash: '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+							logIndex: 8,
+							from: null,
+							to: null,
+							maker,
+							taker: null,
+							side: null,
+							amount: null,
+							price: null,
+							currency: null,
+							payload: {
+								eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+								contentHash,
+								canvasRows: Array.from({ length: 16 }, (_, index) => String(index + 1))
+							},
+							isCollapsed: false,
+							collapsedEventCount: null,
+							collapsedWindowStartUtc: null,
+							collapsedWindowEndUtc: null
+						}
+					],
+					prevCursor: null,
+					nextCursor: null,
+					limit: 25,
+					totalItems: 1,
+					rangeStart: 1,
+					rangeEnd: 1,
+					currentPage: 1,
+					totalPages: 1
+				},
+				facets: [],
+				selectedTraits: [],
+				selectedTraitRanges: [],
+				included: {
+					hasTraitSummaryTemplate: true,
+					eventMediaByActivityId: {
+						'33': {
+							image: 'data:image/svg+xml;base64,event-canvas',
+							animationUrl: null,
+							mediaRef: TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS.TerraformedPreview,
+							renderModes: [...TERRAFORMS_EVENT_RENDER_MODE_OPTIONS]
+						}
+					},
+					tokensById: {
+						'7710': {
+							tokenId: '7710',
+							name: 'Terraform #7710',
+							image: 'https://example.com/7710.png',
+							traitSummary: 'L7/B12/Zone',
+							hasMetadata: true,
+							metadataUpdatedAt: '2026-01-01T00:00:00Z'
+						}
+					}
+				},
+				basePath: '/ethereum/terraforms',
+				filterKind: null,
+				extensionEvent: {
+					extensionKey: TERRAFORMS_EXTENSION_KEY,
+					eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed
+				},
+				activityFilters: {
+					tokenId: null,
+					maker: null,
+					contentHash
+				}
+			}
+		});
+
+		expect(body).toContain('<span class="runtime-tab-active">dreams</span>');
+		expect(body).toContain('<th class="activities-media-col"><!--[!-->media');
+		expect(body).toContain('<th class="activities-content-col"><!--[!-->heightmap');
+		expect(body).toContain('Terraform #7710');
+		expect(body).toContain('L7/B12/Zone');
+		expect(body).toContain('data:image/svg+xml;base64,event-canvas');
+		expect(body).toContain('0xbbbb...bbbb');
+		expect(body).toContain(`maker=${maker}`);
+		expect(body).toContain('abcdef12');
+		expect(body).toContain(`content_hash=${contentHash}`);
+		expect(body).toContain('copy heightmap');
+		expect(body).toContain('terraforms-heightmap-copy-icon');
+		expect(body).toContain('activity-extension-filter-row');
+		expect(body).not.toContain('canvas hash');
+		expect(body).not.toContain('activity-extension-filter-input-hash');
 	});
 });

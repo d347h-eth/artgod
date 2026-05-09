@@ -2093,6 +2093,12 @@ th {
 	max-width: 100%;
 }
 
+.activity-extension-filters-stack {
+	display: grid;
+	align-items: start;
+	gap: 0.35rem;
+}
+
 .activity-extension-filter-field {
 	display: flex;
 	flex-direction: column;
@@ -2102,15 +2108,37 @@ th {
 	text-transform: uppercase;
 }
 
+.activity-extension-filter-row {
+	display: grid;
+	grid-template-columns: 5.5rem auto;
+	align-items: center;
+	gap: 0.45rem;
+}
+
+.activity-extension-filter-control {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+}
+
 .activity-extension-filter-input {
 	width: 12rem;
 	max-width: min(72vw, 18rem);
-	height: 1.75rem;
+	height: 20px;
+	min-height: 20px;
 	border: 1px solid var(--c-blue);
-	background: var(--c-panel);
-	color: var(--c-text);
-	font: inherit;
+	background: var(--c-bg);
+	color: var(--c-ice);
+	font-family: inherit;
+	font-size: 0.68rem;
+	letter-spacing: 0.04em;
+	line-height: 1;
 	padding: 0 0.45rem;
+}
+
+.activity-extension-filter-input[aria-invalid='true'] {
+	border-color: var(--c-pink);
+	color: var(--c-pink);
 }
 
 .activity-extension-filter-input-token {
@@ -2122,7 +2150,22 @@ th {
 }
 
 .activity-extension-filter-clear {
-	height: 1.75rem;
+	width: 20px;
+	min-width: 20px;
+	height: 20px;
+	padding: 0;
+}
+
+.activity-extension-filter-clear[disabled] {
+	opacity: 0.55;
+	pointer-events: none;
+}
+
+.activity-extension-filter-active-value {
+	color: var(--c-ice);
+	font-size: 0.68rem;
+	letter-spacing: 0.04em;
+	text-transform: none;
 }
 
 .holders-table th,
@@ -2199,7 +2242,7 @@ th {
 	width: var(--activity-col-narrow);
 }
 
-.activities-image-col {
+.activities-media-col {
 	width: 13rem;
 }
 
@@ -2273,7 +2316,7 @@ th {
 	flex: 0 0 auto;
 }
 
-.activities-image-cell {
+.activities-media-cell {
 	text-align: left;
 }
 
