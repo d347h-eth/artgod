@@ -72,7 +72,7 @@
 		basePath,
 		filterKind,
 		extensionEvent = null,
-		activityFilters = { tokenId: null, maker: null, contentHash: null }
+		activityFilters = { tokenId: null, maker: null, contentHash: null, eventGroup: null }
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -158,9 +158,15 @@
 	let tokenIdFilterDraft = $state(activityFilters.tokenId ?? '');
 	let makerFilterDraft = $state(activityFilters.maker ?? '');
 	let contentHashFilterDraft = $state(activityFilters.contentHash ?? '');
+	let eventGroupFilterDraft = $state(activityFilters.eventGroup ?? '');
 	let hasActiveFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
 	let hasActiveActivityFilters = $derived(
-		Boolean(activityFilters.tokenId || activityFilters.maker || activityFilters.contentHash)
+		Boolean(
+			activityFilters.tokenId ||
+				activityFilters.maker ||
+				activityFilters.contentHash ||
+				activityFilters.eventGroup
+		)
 	);
 	let hasActivityTraitSummaryColumn = $derived(included.hasTraitSummaryTemplate);
 	let activeExtensionEventFeed = $derived(
@@ -198,6 +204,7 @@
 		tokenIdFilterDraft = activityFilters.tokenId ?? '';
 		makerFilterDraft = activityFilters.maker ?? '';
 		contentHashFilterDraft = activityFilters.contentHash ?? '';
+		eventGroupFilterDraft = activityFilters.eventGroup ?? '';
 	});
 
 	function collectionsHref(): string {
@@ -246,7 +253,8 @@
 			cursor,
 			tokenId: filters.tokenId,
 			maker: filters.maker,
-			contentHash: filters.contentHash
+			contentHash: filters.contentHash,
+			eventGroup: filters.eventGroup
 		});
 	}
 
@@ -285,7 +293,9 @@
 			tokenId: filters.tokenId !== undefined ? filters.tokenId : activityFilters.tokenId,
 			maker: filters.maker !== undefined ? filters.maker : activityFilters.maker,
 			contentHash:
-				filters.contentHash !== undefined ? filters.contentHash : activityFilters.contentHash
+				filters.contentHash !== undefined ? filters.contentHash : activityFilters.contentHash,
+			eventGroup:
+				filters.eventGroup !== undefined ? filters.eventGroup : activityFilters.eventGroup
 		};
 	}
 
@@ -553,11 +563,13 @@
 		tokenIdFilterDraft = '';
 		makerFilterDraft = '';
 		contentHashFilterDraft = '';
+		eventGroupFilterDraft = '';
 		await goto(
 			filterHref(filterKind, null, [], [], {
 				tokenId: null,
 				maker: null,
-				contentHash: null
+				contentHash: null,
+				eventGroup: null
 			}),
 			{
 				invalidateAll: true,
@@ -573,7 +585,8 @@
 			filterHref(filterKind, null, activeTraits, activeTraitRanges, {
 				tokenId: tokenIdFilterDraft.trim() || null,
 				maker: makerFilterDraft.trim() || null,
-				contentHash: contentHashFilterDraft.trim() || null
+				contentHash: contentHashFilterDraft.trim() || null,
+				eventGroup: eventGroupFilterDraft.trim() || null
 			}),
 			{
 				invalidateAll: true,
@@ -595,11 +608,13 @@
 		tokenIdFilterDraft = '';
 		makerFilterDraft = '';
 		contentHashFilterDraft = '';
+		eventGroupFilterDraft = '';
 		await goto(
 			filterHref(filterKind, null, activeTraits, activeTraitRanges, {
 				tokenId: null,
 				maker: null,
-				contentHash: null
+				contentHash: null,
+				eventGroup: null
 			}),
 			{
 				invalidateAll: true,
@@ -701,7 +716,21 @@
 						/>
 					</label>
 				{/if}
-				{#if hasActiveActivityFilters || tokenIdFilterDraft.trim() || makerFilterDraft.trim() || contentHashFilterDraft.trim()}
+				{#if activeExtensionEventFeed.filters.eventGroup}
+					<label class="activity-extension-filter-field">
+						<span>{activeExtensionEventFeed.filters.eventGroup.label}</span>
+						<select
+							class="activity-extension-filter-input activity-extension-filter-input-event-group"
+							bind:value={eventGroupFilterDraft}
+						>
+							<option value=""></option>
+							{#each activeExtensionEventFeed.filters.eventGroup.options as option}
+								<option value={option.key}>{option.label}</option>
+							{/each}
+						</select>
+					</label>
+				{/if}
+				{#if hasActiveActivityFilters || tokenIdFilterDraft.trim() || makerFilterDraft.trim() || contentHashFilterDraft.trim() || eventGroupFilterDraft.trim()}
 					<button
 						class="facet-panel-action-button facet-reset-button activity-extension-filter-clear"
 						type="button"

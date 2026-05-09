@@ -32,6 +32,7 @@ export type ActivityExtensionFilterValues = {
 	tokenId: string | null;
 	maker: string | null;
 	contentHash: string | null;
+	eventGroup: string | null;
 };
 
 // Partial filter patches let extension controls update one filter without owning route state.

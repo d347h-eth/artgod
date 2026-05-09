@@ -5,7 +5,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
+    TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS,
+    TERRAFORMS_BEACON_EVENT_GROUPS,
+    TERRAFORMS_BEACON_EVENT_TYPES,
+    TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
+    TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_KEY,
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
@@ -211,6 +216,207 @@ describe("terraforms collection extension", () => {
             ]),
         );
         expect(tokenSvgArgs[0]?.[0]).toBe(4n);
+    });
+
+    it("decodes ParcelModified logs into beacon event facts and metadata refresh triggers", async () => {
+        const specs = terraformsIndexerExtension.buildSyncWatchSpecs(
+            buildInstall(1),
+        );
+        const [parcelModifiedTopic] = encodeEventTopics({
+            abi: [
+                {
+                    name: "ParcelModified",
+                    type: "event",
+                    anonymous: false,
+                    inputs: [
+                        { indexed: false, name: "tokenId", type: "uint256" },
+                        { indexed: false, name: "modification", type: "uint8" },
+                    ],
+                },
+            ],
+            eventName: "ParcelModified",
+        }) as [`0x${string}`];
+
+        const decoded = await specs[2]!.decode(
+            {
+                address: TERRAFORMS_BEACON_V2_ADDRESS as `0x${string}`,
+                topics: [parcelModifiedTopic],
+                data: encodeAbiParameters(
+                    [{ type: "uint256" }, { type: "uint8" }],
+                    [7710n, 1],
+                ),
+                blockNumber: 101,
+                blockHash: `0x${"11".repeat(32)}`,
+                transactionHash: `0x${"22".repeat(32)}`,
+                logIndex: 4,
+            },
+            {
+                rpc: createRpcStub({
+                    onReadContract: unexpectedReadContract,
+                    onGetTransaction: () => ({
+                        from: "0x8888888888888888888888888888888888888888",
+                    }),
+                }),
+            },
+        );
+
+        expect(decoded.metadataRefreshEvents).toEqual([
+            expect.objectContaining({
+                contract: TERRAFORMS_ADDRESS,
+                tokenId: "7710",
+                trigger: "terraforms.extension-event",
+            }),
+        ]);
+        expect(decoded.collectionExtensionEvents).toEqual([
+            expect.objectContaining({
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+                contract: TERRAFORMS_BEACON_V2_ADDRESS,
+                tokenId: "7710",
+                maker: "0x8888888888888888888888888888888888888888",
+            }),
+        ]);
+        expect(decoded.collectionExtensionEvents[0]!.payload).toMatchObject({
+            eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+            eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.ParcelModified,
+            eventType: TERRAFORMS_BEACON_EVENT_TYPES.ParcelModified,
+            tokenId: "7710",
+            modification: 1,
+            modificationLabel: TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS[1],
+        });
+        expect(decoded.collectionExtensionEventMedia).toEqual([]);
+    });
+
+    it("decodes Mathcastles beacon admin logs into collection-scoped event facts", async () => {
+        const specs = terraformsIndexerExtension.buildSyncWatchSpecs(
+            buildInstall(1),
+        );
+        const cases = [
+            {
+                eventName: "BroadcastAdded",
+                inputs: [
+                    { indexed: false, name: "satellite", type: "address" },
+                    { indexed: false, name: "duration", type: "uint256" },
+                ],
+                values: [
+                    "0x7777777777777777777777777777777777777777",
+                    3600n,
+                ],
+                expectedPayload: {
+                    eventType: TERRAFORMS_BEACON_EVENT_TYPES.BroadcastAdded,
+                    satellite: "0x7777777777777777777777777777777777777777",
+                    duration: "3600",
+                },
+            },
+            {
+                eventName: "BroadcastRemoved",
+                inputs: [
+                    { indexed: false, name: "satellite", type: "address" },
+                ],
+                values: ["0x7777777777777777777777777777777777777777"],
+                expectedPayload: {
+                    eventType: TERRAFORMS_BEACON_EVENT_TYPES.BroadcastRemoved,
+                    satellite: "0x7777777777777777777777777777777777777777",
+                },
+            },
+            {
+                eventName: "BroadcastModified",
+                inputs: [
+                    { indexed: false, name: "satellite", type: "address" },
+                    { indexed: false, name: "duration", type: "uint256" },
+                ],
+                values: [
+                    "0x7777777777777777777777777777777777777777",
+                    7200n,
+                ],
+                expectedPayload: {
+                    eventType: TERRAFORMS_BEACON_EVENT_TYPES.BroadcastModified,
+                    satellite: "0x7777777777777777777777777777777777777777",
+                    duration: "7200",
+                },
+            },
+            {
+                eventName: "BroadcastOrderModified",
+                inputs: [{ indexed: false, name: "order", type: "uint256[]" }],
+                values: [[2n, 0n, 1n]],
+                expectedPayload: {
+                    eventType:
+                        TERRAFORMS_BEACON_EVENT_TYPES.BroadcastOrderModified,
+                    order: ["2", "0", "1"],
+                },
+            },
+            {
+                eventName: "ScriptComponentModified",
+                inputs: [
+                    { indexed: false, name: "componentType", type: "uint8" },
+                    { indexed: false, name: "index", type: "uint256" },
+                ],
+                values: [3, 9n],
+                expectedPayload: {
+                    eventType:
+                        TERRAFORMS_BEACON_EVENT_TYPES.ScriptComponentModified,
+                    componentType: 3,
+                    componentLabel: TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS[3],
+                    index: "9",
+                },
+            },
+        ] as const;
+
+        for (const [index, testCase] of cases.entries()) {
+            const abi = [
+                {
+                    name: testCase.eventName,
+                    type: "event",
+                    anonymous: false,
+                    inputs: testCase.inputs,
+                },
+            ] as const;
+            const [topic] = encodeEventTopics({
+                abi,
+                eventName: testCase.eventName,
+            }) as [`0x${string}`];
+
+            const decoded = await specs[2]!.decode(
+                {
+                    address: TERRAFORMS_BEACON_V2_ADDRESS as `0x${string}`,
+                    topics: [topic],
+                    data: encodeAbiParameters(
+                        testCase.inputs.map((input) => ({
+                            type: input.type,
+                        })),
+                        testCase.values,
+                    ),
+                    blockNumber: 101 + index,
+                    blockHash: `0x${"11".repeat(32)}`,
+                    transactionHash: `0x${"22".repeat(32)}`,
+                    logIndex: 5 + index,
+                },
+                {
+                    rpc: createRpcStub({
+                        onReadContract: unexpectedReadContract,
+                        onGetTransaction: () => ({
+                            from: "0x9999999999999999999999999999999999999999",
+                        }),
+                    }),
+                },
+            );
+
+            expect(decoded.metadataRefreshEvents).toEqual([]);
+            expect(decoded.collectionExtensionEvents).toEqual([
+                expect.objectContaining({
+                    extensionKey: TERRAFORMS_EXTENSION_KEY,
+                    eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+                    contract: TERRAFORMS_BEACON_V2_ADDRESS,
+                    tokenId: null,
+                    maker: "0x9999999999999999999999999999999999999999",
+                }),
+            ]);
+            expect(decoded.collectionExtensionEvents[0]!.payload).toMatchObject({
+                eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+                eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+                ...testCase.expectedPayload,
+            });
+        }
     });
 
 
@@ -560,6 +766,9 @@ function createRpcStub(input: {
         args?: readonly unknown[];
         blockNumber?: number;
     }): unknown;
+    onGetTransaction?: (txHash: string) => {
+        from: `0x${string}`;
+    };
 }): RpcProviderPort {
     return {
         async getBlockNumber() {
@@ -571,8 +780,17 @@ function createRpcStub(input: {
         async getLogs() {
             throw new Error("Unexpected getLogs");
         },
-        async getTransaction() {
-            throw new Error("Unexpected getTransaction");
+        async getTransaction(txHash) {
+            const tx = input.onGetTransaction?.(txHash);
+            if (!tx) {
+                throw new Error("Unexpected getTransaction");
+            }
+            return {
+                hash: txHash as `0x${string}`,
+                from: tx.from,
+                to: null,
+                input: "0x",
+            };
         },
         async getTransactionReceipt() {
             throw new Error("Unexpected getTransactionReceipt");

@@ -37,6 +37,7 @@
 			tokenId: string | null;
 			maker: string | null;
 			contentHash: string | null;
+			eventGroup: string | null;
 		};
 	};
 
@@ -75,5 +76,5 @@
 	basePath={data?.basePath ?? '/'}
 	filterKind={data?.filterKind ?? (data?.extensionEvent ? null : ACTIVITY_FEED_FILTER_KIND.Sales)}
 	extensionEvent={data?.extensionEvent ?? null}
-	activityFilters={data?.activityFilters ?? { tokenId: null, maker: null, contentHash: null }}
+	activityFilters={data?.activityFilters ?? { tokenId: null, maker: null, contentHash: null, eventGroup: null }}
 />

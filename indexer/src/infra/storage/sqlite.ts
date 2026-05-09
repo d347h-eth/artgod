@@ -406,7 +406,7 @@ export class SqliteStorage implements StoragePort {
                 extensionKey: event.extensionKey,
                 eventKey: event.eventKey,
                 contractAddress: event.contract.toLowerCase(),
-                tokenId: event.tokenId,
+                tokenId: event.tokenId ?? "",
                 maker: event.maker?.toLowerCase() ?? null,
                 contentHash: event.contentHash?.toLowerCase() ?? null,
                 blockNumber: event.blockNumber,

@@ -564,13 +564,16 @@ export class SqliteActivityDomain implements ActivityDomainPort {
 
         for (const row of rows) {
             const payload = parseActivityPayloadJson(row.payload_json);
+            const tokenId = row.token_id || null;
             const result = this.insertActivity.run({
                 chainId,
                 collectionId: row.collection_id,
-                scopeKind: ACTIVITY_SCOPE_KIND.Token,
+                scopeKind: tokenId
+                    ? ACTIVITY_SCOPE_KIND.Token
+                    : ACTIVITY_SCOPE_KIND.Collection,
                 kind: ACTIVITY_KIND.Custom,
                 contract: row.contract.toLowerCase(),
-                tokenId: row.token_id,
+                tokenId,
                 occurredAt: row.block_timestamp,
                 sourceKind: ACTIVITY_SOURCE_KIND.Extension,
                 sourceName: row.extension_key,

@@ -30,6 +30,7 @@ export type GetCollectionActivityInput = {
     tokenId?: string;
     maker?: string;
     contentHash?: string;
+    eventGroup?: string;
     extensionEvent?: ActivityExtensionEventFilter;
 };
 
@@ -81,6 +82,7 @@ export class GetCollectionActivityUseCase {
                 tokenId?: string;
                 maker?: string;
                 contentHash?: string;
+                eventGroup?: string;
                 traitFilters?: TraitFilter[];
                 traitRangeFilters?: TraitRangeFilter[];
             }): ActivityFeedPage;
@@ -146,6 +148,7 @@ export class GetCollectionActivityUseCase {
             tokenId: input.tokenId,
             maker: input.maker,
             contentHash: input.contentHash,
+            eventGroup: input.eventGroup,
             traitFilters: input.traits,
             traitRangeFilters: input.traitRanges,
         });
