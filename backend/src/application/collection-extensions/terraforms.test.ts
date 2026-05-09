@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_EVENT_RENDER_MODES,
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_KEY,
@@ -26,6 +27,25 @@ describe("terraformsBackendCollectionExtension", () => {
             eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
             label: "dreams",
         });
+        expect(
+            terraformsBackendCollectionExtension.listActivityEventFeeds(
+                buildTerraformsInstall(),
+            ),
+        ).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    extensionKey: TERRAFORMS_EXTENSION_KEY,
+                    eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+                    label: "beacon",
+                    filters: expect.objectContaining({
+                        eventGroup: {
+                            label: "type",
+                            options: TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
+                        },
+                    }),
+                }),
+            ]),
+        );
     });
 
     it("renders Terraformed activity previews through tokenHTML without fetching SVG", async () => {

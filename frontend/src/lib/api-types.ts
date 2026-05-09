@@ -74,6 +74,10 @@ export type ApiActivityExtensionEventFeed = ApiActivityExtensionEventRef & {
 		tokenId?: { label: string };
 		maker?: { label: string };
 		contentHash?: { label: string };
+		eventGroup?: {
+			label: string;
+			options: { key: string; label: string }[];
+		};
 	};
 };
 

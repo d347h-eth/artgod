@@ -27,6 +27,7 @@ export const ACTIVITY_EXTENSION_EVENT_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.E
 export const ACTIVITY_TOKEN_ID_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.TokenId;
 export const ACTIVITY_MAKER_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.Maker;
 export const ACTIVITY_CONTENT_HASH_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.ContentHash;
+export const ACTIVITY_EVENT_GROUP_QUERY_PARAM = ACTIVITY_FEED_QUERY_PARAMS.EventGroup;
 export const COLLECTION_ACTIVITY_FILTER_KINDS = [
 	ACTIVITY_FEED_FILTER_KIND.Sales,
 	ACTIVITY_FEED_FILTER_KIND.Listings,
@@ -62,6 +63,7 @@ export function normalizeCollectionActivityParams(
 	appendOptionalActivityFilter(params, ACTIVITY_TOKEN_ID_QUERY_PARAM, raw.get(ACTIVITY_TOKEN_ID_QUERY_PARAM));
 	appendOptionalActivityFilter(params, ACTIVITY_MAKER_QUERY_PARAM, raw.get(ACTIVITY_MAKER_QUERY_PARAM));
 	appendOptionalActivityFilter(params, ACTIVITY_CONTENT_HASH_QUERY_PARAM, raw.get(ACTIVITY_CONTENT_HASH_QUERY_PARAM));
+	appendOptionalActivityFilter(params, ACTIVITY_EVENT_GROUP_QUERY_PARAM, raw.get(ACTIVITY_EVENT_GROUP_QUERY_PARAM));
 
 	return params;
 }
@@ -77,6 +79,7 @@ export function buildCollectionActivityQuery(params: {
 	tokenId?: string | null;
 	maker?: string | null;
 	contentHash?: string | null;
+	eventGroup?: string | null;
 }): URLSearchParams {
 	const query = new URLSearchParams();
 	query.set('limit', String(params.limit));
@@ -92,6 +95,7 @@ export function buildCollectionActivityQuery(params: {
 	appendOptionalActivityFilter(query, ACTIVITY_TOKEN_ID_QUERY_PARAM, params.tokenId);
 	appendOptionalActivityFilter(query, ACTIVITY_MAKER_QUERY_PARAM, params.maker);
 	appendOptionalActivityFilter(query, ACTIVITY_CONTENT_HASH_QUERY_PARAM, params.contentHash);
+	appendOptionalActivityFilter(query, ACTIVITY_EVENT_GROUP_QUERY_PARAM, params.eventGroup);
 	appendTraitParams(query, params.selectedTraits);
 	appendTraitRangeParams(query, params.selectedTraitRanges);
 	return query;
@@ -109,6 +113,7 @@ export function buildCollectionActivityHref(params: {
 	tokenId?: string | null;
 	maker?: string | null;
 	contentHash?: string | null;
+	eventGroup?: string | null;
 }): string {
 	const query = buildCollectionActivityQuery({
 		limit: params.limit,
@@ -120,7 +125,8 @@ export function buildCollectionActivityHref(params: {
 		cursor: params.cursor ?? null,
 		tokenId: params.tokenId ?? null,
 		maker: params.maker ?? null,
-		contentHash: params.contentHash ?? null
+		contentHash: params.contentHash ?? null,
+		eventGroup: params.eventGroup ?? null
 	});
 	return withQuery(joinPath(params.basePath, 'activity'), query);
 }

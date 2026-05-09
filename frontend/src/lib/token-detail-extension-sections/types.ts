@@ -12,6 +12,7 @@ export type TokenDetailExtensionActivityFilters = {
 	tokenId?: string | null;
 	maker?: string | null;
 	contentHash?: string | null;
+	eventGroup?: string | null;
 };
 
 // Link builders let token detail sections navigate without importing route construction details.

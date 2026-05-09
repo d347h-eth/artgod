@@ -90,7 +90,9 @@ export type MetadataRefreshRangeEvent = CollectionScopedChainAttribution & {
 };
 
 // Collection extension facts are immutable domain events emitted by installed extensions.
-export type CollectionExtensionEvent = CollectionScopedTokenAttribution & {
+export type CollectionExtensionEvent = CollectionScopedChainAttribution & {
+    contract: string;
+    tokenId?: string | null;
     extensionKey: CollectionExtensionKey;
     eventKey: string;
     maker?: string | null;

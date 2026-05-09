@@ -4,6 +4,7 @@ import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import { BackendApiError, getCollectionActivities } from '$lib/backend-api';
 import {
 	ACTIVITY_CONTENT_HASH_QUERY_PARAM,
+	ACTIVITY_EVENT_GROUP_QUERY_PARAM,
 	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
 	ACTIVITY_KIND_QUERY_PARAM,
 	ACTIVITY_MAKER_QUERY_PARAM,
@@ -117,7 +118,8 @@ function readActivityFilters(searchParams: URLSearchParams) {
 	return {
 		tokenId: nonEmpty(searchParams.get(ACTIVITY_TOKEN_ID_QUERY_PARAM)),
 		maker: nonEmpty(searchParams.get(ACTIVITY_MAKER_QUERY_PARAM)),
-		contentHash: nonEmpty(searchParams.get(ACTIVITY_CONTENT_HASH_QUERY_PARAM))
+		contentHash: nonEmpty(searchParams.get(ACTIVITY_CONTENT_HASH_QUERY_PARAM)),
+		eventGroup: nonEmpty(searchParams.get(ACTIVITY_EVENT_GROUP_QUERY_PARAM))
 	};
 }
 
@@ -125,7 +127,8 @@ function emptyActivityFilters() {
 	return {
 		tokenId: null,
 		maker: null,
-		contentHash: null
+		contentHash: null,
+		eventGroup: null
 	};
 }
 

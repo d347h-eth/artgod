@@ -6,6 +6,7 @@ import {
     normalizeTerraformsCanvasRows,
     parseTerraformsExtensionConfig,
     resolveTerraformsCommittedCanvasStatus,
+    TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
     TERRAFORMS_EVENT_RENDER_MODES,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
@@ -33,6 +34,13 @@ import { concatHex, hexToBigInt, keccak256, padHex, toHex } from "viem";
 const DEFAULT_DECAY = 0n;
 const TERRAFORMS_ACTIVITY_EVENT_FEED_LABELS = {
     Dreams: "dreams",
+    Beacon: "beacon",
+} as const;
+
+const TERRAFORMS_BEACON_ACTIVITY_FILTER_LABELS = {
+    Token: "token",
+    Maker: "maker",
+    EventGroup: "type",
 } as const;
 
 const TERRAFORMS_MAIN_ABI = [
@@ -124,6 +132,25 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                         tokenId: { label: "token" },
                         maker: { label: "maker" },
                         contentHash: { label: "canvas hash" },
+                    },
+                },
+                {
+                    extensionKey: TERRAFORMS_EXTENSION_KEY,
+                    eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+                    label: TERRAFORMS_ACTIVITY_EVENT_FEED_LABELS.Beacon,
+                    filters: {
+                        tokenId: {
+                            label: TERRAFORMS_BEACON_ACTIVITY_FILTER_LABELS.Token,
+                        },
+                        maker: {
+                            label: TERRAFORMS_BEACON_ACTIVITY_FILTER_LABELS.Maker,
+                        },
+                        eventGroup: {
+                            label: TERRAFORMS_BEACON_ACTIVITY_FILTER_LABELS.EventGroup,
+                            options: TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS.map(
+                                (option) => ({ ...option }),
+                            ),
+                        },
                     },
                 },
             ];
@@ -285,8 +312,11 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                 animationUrl: buildHtmlDataUrl(html),
             };
         },
-        listActivityEventPreviewModes() {
-            return listTerraformsEventRenderModes();
+        listActivityEventPreviewModes(_install, event) {
+            return event.payload?.eventKey ===
+                TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed
+                ? listTerraformsEventRenderModes()
+                : [];
         },
         defaultActivityEventPreviewMode() {
             return TERRAFORMS_EVENT_RENDER_MODES.Artifact;

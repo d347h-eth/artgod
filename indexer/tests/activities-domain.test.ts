@@ -102,6 +102,67 @@ describe("activity domain", () => {
         });
     });
 
+    it("projects tokenless collection extension facts into collection-scoped activity rows", async () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection(chainId, "alpha", contract);
+        insertCollectionExtensionEvent({
+            chainId,
+            collectionId,
+            extensionKey: "example-extension",
+            eventKey: "system-event",
+            contract,
+            tokenId: "",
+            maker: "0x3000000000000000000000000000000000000000",
+            contentHash: null,
+            blockNumber: 111,
+            blockTimestamp: 1_700_000_111,
+            txHash: "0xtx-extension-system",
+            logIndex: 10,
+            payload: {
+                eventKey: "system-event",
+                eventGroup: "system",
+                value: "example",
+            },
+        });
+
+        const domain = new SqliteActivityDomain();
+        await domain.handleDomainSync({
+            chainId,
+            collectionId: null,
+            fromBlock: 111,
+            toBlock: 111,
+            mode: "backfill",
+            projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
+            sourceJobId: "test-job",
+            sourceKind: "test",
+        });
+
+        const row = db
+            .prepare<{ chainId: number }>(
+                "SELECT scope_kind, token_id, maker, payload_json FROM activities WHERE chain_id = @chainId LIMIT 1",
+            )
+            .get({ chainId }) as {
+            scope_kind: string;
+            token_id: string | null;
+            maker: string | null;
+            payload_json: string | null;
+        };
+
+        expect(row).toEqual({
+            scope_kind: "collection",
+            token_id: null,
+            maker: "0x3000000000000000000000000000000000000000",
+            payload_json: JSON.stringify({
+                eventKey: "system-event",
+                eventGroup: "system",
+                value: "example",
+                extensionKey: "example-extension",
+                contentHash: null,
+            }),
+        });
+    });
+
     it("projects transfer and sale feed rows from onchain source tables", async () => {
         const chainId = 1;
         const contract = "0xabc0000000000000000000000000000000000000";
@@ -510,7 +571,7 @@ function insertCollectionExtensionEvent(input: {
     contract: string;
     tokenId: string;
     maker: string;
-    contentHash: string;
+    contentHash: string | null;
     blockNumber: number;
     blockTimestamp: number;
     txHash: string;
@@ -525,7 +586,7 @@ function insertCollectionExtensionEvent(input: {
         contractAddress: string;
         tokenId: string;
         maker: string;
-        contentHash: string;
+        contentHash: string | null;
         blockNumber: number;
         blockHash: string;
         blockTimestamp: number;
@@ -544,7 +605,7 @@ function insertCollectionExtensionEvent(input: {
         contractAddress: input.contract.toLowerCase(),
         tokenId: input.tokenId,
         maker: input.maker.toLowerCase(),
-        contentHash: input.contentHash.toLowerCase(),
+        contentHash: input.contentHash?.toLowerCase() ?? null,
         blockNumber: input.blockNumber,
         blockHash: `0xblock-${input.blockNumber}`,
         blockTimestamp: input.blockTimestamp,

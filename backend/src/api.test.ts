@@ -5,6 +5,9 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
+    TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
+    TERRAFORMS_BEACON_EVENT_GROUPS,
+    TERRAFORMS_BEACON_EVENT_TYPES,
     TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
     TERRAFORMS_EXTENSION_EVENT_KEYS,
@@ -2133,6 +2136,26 @@ describe("backend api routes", () => {
         expect(result.payload.collection.extensions).toEqual([
             { key: TERRAFORMS_EXTENSION_KEY },
         ]);
+        expect(result.payload.collection.activityEventFeeds).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    extensionKey: TERRAFORMS_EXTENSION_KEY,
+                    eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+                    label: "dreams",
+                }),
+                expect.objectContaining({
+                    extensionKey: TERRAFORMS_EXTENSION_KEY,
+                    eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+                    label: "beacon",
+                    filters: expect.objectContaining({
+                        eventGroup: {
+                            label: "type",
+                            options: TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
+                        },
+                    }),
+                }),
+            ]),
+        );
         expect(result.payload.media.selectedMode).toBe("artifact");
         expect(result.payload.media.defaultMode).toBe("artifact");
         expect(result.payload.media.availableModes).toEqual([
@@ -2352,6 +2375,55 @@ describe("backend api routes", () => {
                 ),
             ).toBe(true);
         }
+    });
+
+    it("filters Terraforms beacon extension activity rows by event group", async () => {
+        const txHash =
+            "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        const maker = "0xcccccccccccccccccccccccccccccccccccccccc";
+        insertActivityFixture({
+            collectionAddress: TERRAFORMS_ADDRESS,
+            scopeKind: ACTIVITY_SCOPE_KIND.Collection,
+            kind: ACTIVITY_KIND.Custom,
+            tokenId: null,
+            occurredAt: 1_726_100_200,
+            sourceKind: ACTIVITY_SOURCE_KIND.Extension,
+            sourceName: TERRAFORMS_EXTENSION_KEY,
+            blockNumber: 22_010_002,
+            txHash,
+            logIndex: 9,
+            maker,
+            payload: {
+                eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+                eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+                eventType: TERRAFORMS_BEACON_EVENT_TYPES.BroadcastAdded,
+            },
+            dedupeKey: `${ACTIVITY_SOURCE_KIND.Extension}:${TERRAFORMS_EXTENSION_KEY}:${TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon}:7:${txHash}:9:`,
+        });
+
+        const query = new URLSearchParams({
+            limit: "10",
+            [ACTIVITY_FEED_QUERY_PARAMS.ExtensionEvent]: `${TERRAFORMS_EXTENSION_KEY}:${TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon}`,
+            [ACTIVITY_FEED_QUERY_PARAMS.EventGroup]:
+                TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+        });
+        const result = await resolve(
+            "GET",
+            `/api/ethereum/terraforms/activity?${query.toString()}`,
+        );
+
+        expect(result.statusCode).toBe(200);
+        const activity = result.payload.activities.items.find(
+            (item: { txHash: string }) => item.txHash === txHash,
+        );
+        expect(activity).toMatchObject({
+            scopeKind: ACTIVITY_SCOPE_KIND.Collection,
+            tokenId: null,
+            maker,
+            payload: expect.objectContaining({
+                eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+            }),
+        });
     });
 
     it("returns collection holders as a forward cursor page", async () => {

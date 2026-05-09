@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import {
+	TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
+	TERRAFORMS_BEACON_EVENT_GROUPS,
+	TERRAFORMS_BEACON_EVENT_TYPES,
 	TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
 	TERRAFORMS_EXTENSION_EVENT_KEYS,
 	TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
@@ -448,14 +451,15 @@ describe('CollectionActivitiesView', () => {
 				activityFilters: {
 					tokenId: null,
 					maker: null,
-					contentHash
+					contentHash,
+					eventGroup: null
 				}
 			}
 		});
 
 		expect(body).toContain('<span class="runtime-tab-active">dreams</span>');
 		expect(body).toContain('asset events');
-		expect(body).toContain('collection events');
+		expect(body).toContain('Hypercastle events');
 		expect(body).not.toContain('extension events');
 		expect(body).toContain('<th class="activities-media-col"><!--[!-->media');
 		expect(body).toContain('<th class="activities-content-col"><!--[!-->heightmap');
@@ -478,5 +482,186 @@ describe('CollectionActivitiesView', () => {
 		expect(body).not.toContain('terraforms-heightmap-filter-button');
 		expect(body).not.toContain('canvas hash');
 		expect(body).not.toContain('activity-extension-filter-input-hash');
+	});
+
+	it('renders Terraforms beacon rows with extension-owned action and group filters', () => {
+		const maker = '0xcccccccccccccccccccccccccccccccccccccccc';
+		const { body } = render(CollectionActivitiesView, {
+			props: {
+				chain: {
+					id: 1,
+					type: 'evm',
+					publicChainId: 1,
+					slug: 'ethereum',
+					name: 'Ethereum'
+				},
+				collection: {
+					chainId: 1,
+					collectionId: 7,
+					slug: 'terraforms',
+					address: '0x4e1f41613c9084fdb9e34e11fae9412427480e56',
+					standard: 'erc721',
+					status: 'live',
+					deploymentBlock: 1,
+					bootstrapAnchorBlock: null,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T00:00:00Z',
+					activityEventFeeds: [
+						{
+							extensionKey: TERRAFORMS_EXTENSION_KEY,
+							eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+							label: 'dreams',
+							filters: {}
+						},
+						{
+							extensionKey: TERRAFORMS_EXTENSION_KEY,
+							eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+							label: 'beacon',
+							filters: {
+								tokenId: { label: 'token' },
+								maker: { label: 'maker' },
+								eventGroup: {
+									label: 'type',
+									options: [...TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS]
+								}
+							}
+						}
+					]
+				},
+				media: {
+					selectedMode: 'artifact',
+					defaultMode: 'artifact',
+					availableModes: [
+						{ key: 'artifact', label: 'artifact' },
+						{ key: 'snapshot', label: 'snapshot' }
+					]
+				},
+				activities: {
+					items: [
+						{
+							id: 44,
+							scopeKind: 'token',
+							kind: 'custom',
+							contract: '0x331512a28a4cf80221af949b5d43041ff0fc7f01',
+							tokenId: '7710',
+							occurredAt: 1726100200,
+							sourceKind: 'extension',
+							sourceName: TERRAFORMS_EXTENSION_KEY,
+							orderId: null,
+							blockNumber: 22010002,
+							txHash: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+							logIndex: 9,
+							from: null,
+							to: null,
+							maker,
+							taker: null,
+							side: null,
+							amount: null,
+							price: null,
+							currency: null,
+							payload: {
+								eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+								eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.ParcelModified,
+								eventType: TERRAFORMS_BEACON_EVENT_TYPES.ParcelModified,
+								modification: 1,
+								modificationLabel: 'antenna on'
+							},
+							isCollapsed: false,
+							collapsedEventCount: null,
+							collapsedWindowStartUtc: null,
+							collapsedWindowEndUtc: null
+						},
+						{
+							id: 45,
+							scopeKind: 'collection',
+							kind: 'custom',
+							contract: '0x331512a28a4cf80221af949b5d43041ff0fc7f01',
+							tokenId: null,
+							occurredAt: 1726100100,
+							sourceKind: 'extension',
+							sourceName: TERRAFORMS_EXTENSION_KEY,
+							orderId: null,
+							blockNumber: 22010001,
+							txHash: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+							logIndex: 8,
+							from: null,
+							to: null,
+							maker,
+							taker: null,
+							side: null,
+							amount: null,
+							price: null,
+							currency: null,
+							payload: {
+								eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+								eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+								eventType: TERRAFORMS_BEACON_EVENT_TYPES.BroadcastAdded,
+								eventLabel: 'Broadcast Added',
+								satellite: '0x7777777777777777777777777777777777777777',
+								duration: '3600'
+							},
+							isCollapsed: false,
+							collapsedEventCount: null,
+							collapsedWindowStartUtc: null,
+							collapsedWindowEndUtc: null
+						}
+					],
+					prevCursor: null,
+					nextCursor: null,
+					limit: 25,
+					totalItems: 2,
+					rangeStart: 1,
+					rangeEnd: 2,
+					currentPage: 1,
+					totalPages: 1
+				},
+				facets: [],
+				selectedTraits: [],
+				selectedTraitRanges: [],
+				included: {
+					hasTraitSummaryTemplate: true,
+					eventMediaByActivityId: {},
+					tokensById: {
+						'7710': {
+							tokenId: '7710',
+							name: 'Terraform #7710',
+							image: 'https://example.com/7710.png',
+							traitSummary: 'L7/B12/Zone',
+							hasMetadata: true,
+							metadataUpdatedAt: '2026-01-01T00:00:00Z'
+						}
+					}
+				},
+				basePath: '/ethereum/terraforms',
+				filterKind: null,
+				extensionEvent: {
+					extensionKey: TERRAFORMS_EXTENSION_KEY,
+					eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon
+				},
+				activityFilters: {
+					tokenId: null,
+					maker: null,
+					contentHash: null,
+					eventGroup: null
+				}
+			}
+		});
+
+		expect(body).toContain('<span class="runtime-tab-active">beacon</span>');
+		expect(body).toContain('<th class="activities-terraforms-beacon-action-col"><!--[!-->action');
+		expect(body).toContain('antenna on');
+		expect(body).toContain('Broadcast Added');
+		expect(body).toContain('<th class="activities-content-col"><!--[!-->details');
+		expect(body).toContain('satellite <a href=');
+		expect(body).toContain('0x7777...7777</a>');
+		expect(body).toContain('/ duration 3600');
+		expect(body).toContain(
+			'https://etherscan.io/address/0x7777777777777777777777777777777777777777'
+		);
+		expect(body).not.toContain('enum 1');
+		expect(body).toContain(`maker=${maker}`);
+		expect(body).toContain('terraforms-beacon-filter-input');
+		expect(body).toContain('Parcel Modified');
+		expect(body).toContain(`value="${TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles}"`);
 	});
 });

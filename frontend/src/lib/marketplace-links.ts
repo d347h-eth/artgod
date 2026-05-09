@@ -15,3 +15,10 @@ export function etherscanTransactionHref(txHash: string | null): string | null {
 	}
 	return `https://etherscan.io/tx/${encodeURIComponent(txHash)}`;
 }
+
+export function etherscanAddressHref(address: string | null): string | null {
+	if (!address) {
+		return null;
+	}
+	return `https://etherscan.io/address/${encodeURIComponent(address)}`;
+}

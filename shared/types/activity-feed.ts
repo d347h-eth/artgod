@@ -15,6 +15,7 @@ export const ACTIVITY_FEED_QUERY_PARAMS = {
     TokenId: "token_id",
     Maker: "maker",
     ContentHash: "content_hash",
+    EventGroup: "event_group",
 } as const;
 
 export const ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS = {
@@ -115,6 +116,10 @@ export type ActivityExtensionEventFeed = ActivityExtensionEventRef & {
         tokenId?: { label: string };
         maker?: { label: string };
         contentHash?: { label: string };
+        eventGroup?: {
+            label: string;
+            options: { key: string; label: string }[];
+        };
     };
 };
 
@@ -122,4 +127,5 @@ export type ActivityExtensionEventFilter = ActivityExtensionEventRef & {
     tokenId?: string;
     maker?: string;
     contentHash?: string;
+    eventGroup?: string;
 };

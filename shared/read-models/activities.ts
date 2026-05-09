@@ -99,6 +99,7 @@ export class SqliteActivitiesReadModel {
         tokenId?: string;
         maker?: string;
         contentHash?: string;
+        eventGroup?: string;
         traitFilters?: TraitFilter[];
         traitRangeFilters?: TraitRangeFilter[];
     }): ActivityFeedPage {
@@ -112,6 +113,7 @@ export class SqliteActivitiesReadModel {
             tokenId: params.tokenId,
             maker: params.maker,
             contentHash: params.contentHash,
+            eventGroup: params.eventGroup,
             traitFilters: params.traitFilters,
             traitRangeFilters: params.traitRangeFilters,
         });
@@ -193,6 +195,7 @@ export class SqliteActivitiesReadModel {
         extensionEvent?: ActivityExtensionEventFilter;
         maker?: string;
         contentHash?: string;
+        eventGroup?: string;
         traitFilters?: TraitFilter[];
         traitRangeFilters?: TraitRangeFilter[];
     }): ActivityFeedPage {
@@ -219,6 +222,7 @@ export class SqliteActivitiesReadModel {
                 params.extensionEvent,
                 params.maker,
                 params.contentHash,
+                params.eventGroup,
             )
         ) {
             const {
@@ -266,6 +270,7 @@ export class SqliteActivitiesReadModel {
                 extensionEvent: params.extensionEvent,
                 maker: params.maker,
                 contentHash: params.contentHash,
+                eventGroup: params.eventGroup,
                 traitFilterGroups,
                 traitRangeFilterGroups,
             });
@@ -321,6 +326,7 @@ function buildActivityWhereClauses(params: {
     extensionEvent?: ActivityExtensionEventFilter;
     maker?: string;
     contentHash?: string;
+    eventGroup?: string;
     traitFilterGroups: TraitFilterGroup[];
     traitRangeFilterGroups: TraitRangeFilterGroup[];
 }): {
@@ -400,6 +406,13 @@ function buildActivityWhereClauses(params: {
         values.push(params.contentHash.toLowerCase());
     }
 
+    if (params.eventGroup) {
+        whereClauses.push(
+            "LOWER(COALESCE(json_extract(payload_json, '$.eventGroup'), '')) = ?",
+        );
+        values.push(params.eventGroup.toLowerCase());
+    }
+
     return {
         whereClauses,
         values,
@@ -424,12 +437,14 @@ function shouldCollapseCollectionListings(
     extensionEvent: ActivityExtensionEventFilter | undefined,
     maker: string | undefined,
     contentHash: string | undefined,
+    eventGroup: string | undefined,
 ): boolean {
     return (
         !tokenId &&
         !extensionEvent &&
         !maker &&
         !contentHash &&
+        !eventGroup &&
         filterKind === "listings"
     );
 }

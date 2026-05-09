@@ -213,7 +213,8 @@
 					mediaMode: collectionNavigationMediaMode(),
 					tokenId: filters.tokenId ?? null,
 					maker: filters.maker ?? null,
-					contentHash: filters.contentHash ?? null
+					contentHash: filters.contentHash ?? null,
+					eventGroup: filters.eventGroup ?? null
 				})
 		};
 	}

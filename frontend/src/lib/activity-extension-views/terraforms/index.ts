@@ -15,8 +15,13 @@ import {
 	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_IDS,
 	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_LABELS,
 	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS,
-	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_LABELS
+	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_LABELS,
+	TERRAFORMS_BEACON_COLUMN_IDS,
+	TERRAFORMS_BEACON_COLUMN_LABELS
 } from '$lib/activity-extension-views/terraforms/constants';
+import TerraformsBeaconActionCell from '$lib/activity-extension-views/terraforms/TerraformsBeaconActionCell.svelte';
+import TerraformsBeaconContentCell from '$lib/activity-extension-views/terraforms/TerraformsBeaconContentCell.svelte';
+import TerraformsBeaconFilters from '$lib/activity-extension-views/terraforms/TerraformsBeaconFilters.svelte';
 import TerraformsDreamsFilters from '$lib/activity-extension-views/terraforms/TerraformsDreamsFilters.svelte';
 import TerraformsHeightmapCell from '$lib/activity-extension-views/terraforms/TerraformsHeightmapCell.svelte';
 import TerraformsMakerCell from '$lib/activity-extension-views/terraforms/TerraformsMakerCell.svelte';
@@ -45,6 +50,31 @@ const TERRAFORMS_DREAMS_ACTIVITY_VIEW: ActivityExtensionEventView = {
 	Filters: TerraformsDreamsFilters
 };
 
+// Terraforms beacon view handles mixed token-scoped and Mathcastles admin rows.
+const TERRAFORMS_BEACON_ACTIVITY_VIEW: ActivityExtensionEventView = {
+	columns: [
+		{ id: ACTIVITY_TABLE_COLUMN_IDS.Media },
+		{ id: ACTIVITY_TABLE_COLUMN_IDS.Id, Cell: TerraformsTokenIdCell },
+		{ id: ACTIVITY_TABLE_COLUMN_IDS.Name },
+		{ id: ACTIVITY_TABLE_COLUMN_IDS.Traits },
+		{ id: ACTIVITY_TABLE_COLUMN_IDS.From, Cell: TerraformsMakerCell },
+		{
+			id: TERRAFORMS_BEACON_COLUMN_IDS.Action,
+			label: TERRAFORMS_BEACON_COLUMN_LABELS.Action,
+			Cell: TerraformsBeaconActionCell,
+			mono: true
+		},
+		{
+			id: ACTIVITY_TABLE_COLUMN_IDS.Content,
+			label: TERRAFORMS_BEACON_COLUMN_LABELS.Details,
+			Cell: TerraformsBeaconContentCell,
+			mono: true
+		},
+		{ id: ACTIVITY_TABLE_COLUMN_IDS.Time }
+	],
+	Filters: TerraformsBeaconFilters
+};
+
 // Registers Terraforms activity feed views through the generic frontend extension port.
 export function registerTerraformsActivityExtensionViews(
 	registrar: ActivityExtensionEventViewRegistrar
@@ -53,6 +83,11 @@ export function registerTerraformsActivityExtensionViews(
 		extensionKey: TERRAFORMS_EXTENSION_KEY,
 		eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
 		view: TERRAFORMS_DREAMS_ACTIVITY_VIEW
+	});
+	registrar.registerActivityExtensionEventView({
+		extensionKey: TERRAFORMS_EXTENSION_KEY,
+		eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+		view: TERRAFORMS_BEACON_ACTIVITY_VIEW
 	});
 }
 
@@ -72,6 +107,17 @@ export function registerTerraformsCollectionNavigation(
 					event: {
 						extensionKey: TERRAFORMS_EXTENSION_KEY,
 						eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed
+					}
+				}
+			},
+			{
+				id: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS.Beacon,
+				label: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_LABELS.Beacon,
+				target: {
+					kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ActivityExtensionEvent,
+					event: {
+						extensionKey: TERRAFORMS_EXTENSION_KEY,
+						eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon
 					}
 				}
 			}

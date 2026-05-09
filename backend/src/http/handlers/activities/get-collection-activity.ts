@@ -7,6 +7,7 @@ import type {
 } from "../../../application/use-cases/activities/get-collection-activity.js";
 import {
     parseActivityFilterKind,
+    parseActivityEventGroup,
     parseActivityTokenId,
     getSearchParams,
     parseContentHash,
@@ -74,6 +75,9 @@ export class GetCollectionActivityHttpAdapter {
         const contentHash = parseContentHash(
             searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.ContentHash),
         );
+        const eventGroup = parseActivityEventGroup(
+            searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.EventGroup),
+        );
 
         return {
             chainRef: request.params.chain_ref,
@@ -87,6 +91,7 @@ export class GetCollectionActivityHttpAdapter {
             tokenId,
             maker,
             contentHash,
+            eventGroup,
             extensionEvent,
         };
     }

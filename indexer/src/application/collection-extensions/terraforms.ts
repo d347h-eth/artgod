@@ -3,6 +3,11 @@ import {
     normalizeTerraformsCanvasRows,
     parseTerraformsExtensionConfig,
     resolveTerraformsCommittedCanvasStatus,
+    TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS,
+    TERRAFORMS_BEACON_EVENT_GROUPS,
+    TERRAFORMS_BEACON_EVENT_TYPE_LABELS,
+    TERRAFORMS_BEACON_EVENT_TYPES,
+    TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS,
     TERRAFORMS_CANVAS_ROW_COUNT,
     TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
@@ -152,6 +157,45 @@ const TERRAFORMS_BEACON_V2_ABI = [
             { indexed: false, name: "modification", type: "uint8" },
         ],
     },
+    {
+        name: "BroadcastAdded",
+        type: "event",
+        anonymous: false,
+        inputs: [
+            { indexed: false, name: "satellite", type: "address" },
+            { indexed: false, name: "duration", type: "uint256" },
+        ],
+    },
+    {
+        name: "BroadcastRemoved",
+        type: "event",
+        anonymous: false,
+        inputs: [{ indexed: false, name: "satellite", type: "address" }],
+    },
+    {
+        name: "BroadcastModified",
+        type: "event",
+        anonymous: false,
+        inputs: [
+            { indexed: false, name: "satellite", type: "address" },
+            { indexed: false, name: "duration", type: "uint256" },
+        ],
+    },
+    {
+        name: "BroadcastOrderModified",
+        type: "event",
+        anonymous: false,
+        inputs: [{ indexed: false, name: "order", type: "uint256[]" }],
+    },
+    {
+        name: "ScriptComponentModified",
+        type: "event",
+        anonymous: false,
+        inputs: [
+            { indexed: false, name: "componentType", type: "uint8" },
+            { indexed: false, name: "index", type: "uint256" },
+        ],
+    },
 ] as const;
 
 const [DAYDREAMING_TOPIC] = encodeEventTopics({
@@ -170,6 +214,35 @@ const [PARCEL_MODIFIED_TOPIC] = encodeEventTopics({
     abi: TERRAFORMS_BEACON_V2_ABI,
     eventName: "ParcelModified",
 }) as [Hex];
+const [BROADCAST_ADDED_TOPIC] = encodeEventTopics({
+    abi: TERRAFORMS_BEACON_V2_ABI,
+    eventName: "BroadcastAdded",
+}) as [Hex];
+const [BROADCAST_REMOVED_TOPIC] = encodeEventTopics({
+    abi: TERRAFORMS_BEACON_V2_ABI,
+    eventName: "BroadcastRemoved",
+}) as [Hex];
+const [BROADCAST_MODIFIED_TOPIC] = encodeEventTopics({
+    abi: TERRAFORMS_BEACON_V2_ABI,
+    eventName: "BroadcastModified",
+}) as [Hex];
+const [BROADCAST_ORDER_MODIFIED_TOPIC] = encodeEventTopics({
+    abi: TERRAFORMS_BEACON_V2_ABI,
+    eventName: "BroadcastOrderModified",
+}) as [Hex];
+const [SCRIPT_COMPONENT_MODIFIED_TOPIC] = encodeEventTopics({
+    abi: TERRAFORMS_BEACON_V2_ABI,
+    eventName: "ScriptComponentModified",
+}) as [Hex];
+
+const BEACON_EVENT_TOPICS = new Set<Hex>([
+    PARCEL_MODIFIED_TOPIC,
+    BROADCAST_ADDED_TOPIC,
+    BROADCAST_REMOVED_TOPIC,
+    BROADCAST_MODIFIED_TOPIC,
+    BROADCAST_ORDER_MODIFIED_TOPIC,
+    SCRIPT_COMPONENT_MODIFIED_TOPIC,
+]);
 
 const TERRAFORMS_STATUS_SLUG = {
     Terrain: "terrain",
@@ -248,7 +321,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
                 collectionId: install.collectionId,
                 sourceId: "terraforms-beacon-v2",
                 address: config.beaconV2ContractAddress as Hex,
-                events: [TERRAFORMS_BEACON_V2_ABI[0]] as const,
+                events: TERRAFORMS_BEACON_V2_ABI,
                 decode: (log, context) =>
                     decodeTokenRefreshLog(
                         log,
@@ -351,8 +424,11 @@ async function decodeTokenRefreshLog(
         return emptyDecodeResult();
     }
 
-    let tokenId: string | null = null;
-    let terraformer: string | null = null;
+    let metadataRefreshTokenId: string | null = null;
+    let extensionEvent: CollectionExtensionEvent | null = null;
+    let extensionEventMedia: CollectionExtensionEventMedia | null = null;
+    let terraformedMaker: string | null = null;
+    let isBeaconEvent = false;
     try {
         if (topic0 === DAYDREAMING_TOPIC) {
             const decoded = decodeEventLog({
@@ -361,7 +437,7 @@ async function decodeTokenRefreshLog(
                 data: log.data,
                 topics: log.topics as [Hex, ...Hex[]],
             });
-            tokenId = decoded.args.tokenId.toString();
+            metadataRefreshTokenId = decoded.args.tokenId.toString();
         } else if (topic0 === TERRAFORMED_TOPIC) {
             const decoded = decodeEventLog({
                 abi: TERRAFORMS_MAIN_ABI,
@@ -369,8 +445,8 @@ async function decodeTokenRefreshLog(
                 data: log.data,
                 topics: log.topics as [Hex, ...Hex[]],
             });
-            tokenId = decoded.args.tokenId.toString();
-            terraformer = decoded.args.terraformer.toLowerCase();
+            metadataRefreshTokenId = decoded.args.tokenId.toString();
+            terraformedMaker = decoded.args.terraformer.toLowerCase();
         } else if (topic0 === ATTUNEMENT_SET_TOPIC) {
             const decoded = decodeEventLog({
                 abi: TERRAFORMS_TOKEN_URI_V2_ABI,
@@ -378,54 +454,55 @@ async function decodeTokenRefreshLog(
                 data: log.data,
                 topics: log.topics as [Hex, ...Hex[]],
             });
-            tokenId = decoded.args.tokenId.toString();
-        } else if (topic0 === PARCEL_MODIFIED_TOPIC) {
-            const decoded = decodeEventLog({
-                abi: TERRAFORMS_BEACON_V2_ABI,
-                eventName: "ParcelModified",
-                data: log.data,
-                topics: log.topics as [Hex, ...Hex[]],
-            });
-            tokenId = decoded.args.tokenId.toString();
+            metadataRefreshTokenId = decoded.args.tokenId.toString();
+        } else if (BEACON_EVENT_TOPICS.has(topic0)) {
+            isBeaconEvent = true;
         }
     } catch {
         return emptyDecodeResult();
     }
 
-    if (!tokenId) {
-        return emptyDecodeResult();
+    if (terraformedMaker && metadataRefreshTokenId) {
+        const terraformed = await buildTerraformedEventArtifacts({
+            rpc,
+            log,
+            collectionId,
+            mainContractAddress: config.mainContractAddress,
+            rendererV2ContractAddress: config.rendererV2ContractAddress,
+            tokenId: metadataRefreshTokenId,
+            maker: terraformedMaker,
+        });
+        extensionEvent = terraformed.event;
+        extensionEventMedia = terraformed.media;
+    } else if (isBeaconEvent) {
+        extensionEvent = await buildBeaconEvent({
+            rpc,
+            log,
+            collectionId,
+            beaconV2ContractAddress: config.beaconV2ContractAddress,
+        });
+        metadataRefreshTokenId = extensionEvent.tokenId ?? null;
     }
 
-    const extensionEvent =
-        terraformer !== null
-            ? await buildTerraformedEventArtifacts({
-                  rpc,
+    if (!metadataRefreshTokenId && !extensionEvent) {
+        return emptyDecodeResult();
+    }
+    const metadataRefreshEvents = metadataRefreshTokenId
+        ? [
+              buildMetadataRefreshEvent({
                   log,
                   collectionId,
                   mainContractAddress: config.mainContractAddress,
-                  rendererV2ContractAddress: config.rendererV2ContractAddress,
-                  tokenId,
-                  maker: terraformer,
-              })
-            : null;
-
-    const event: MetadataRefreshEvent = {
-        collectionId,
-        contract: config.mainContractAddress.toLowerCase(),
-        tokenId,
-        reason: "collection-extension",
-        trigger: "terraforms.extension-event",
-        blockNumber: log.blockNumber,
-        blockHash: log.blockHash,
-        txHash: log.transactionHash,
-        logIndex: log.logIndex,
-    };
+                  tokenId: metadataRefreshTokenId,
+              }),
+          ]
+        : [];
     return {
-        metadataRefreshEvents: [event],
+        metadataRefreshEvents,
         metadataRefreshRangeEvents: [],
-        collectionExtensionEvents: extensionEvent ? [extensionEvent.event] : [],
-        collectionExtensionEventMedia: extensionEvent
-            ? [extensionEvent.media]
+        collectionExtensionEvents: extensionEvent ? [extensionEvent] : [],
+        collectionExtensionEventMedia: extensionEventMedia
+            ? [extensionEventMedia]
             : [],
     };
 }
@@ -437,6 +514,230 @@ function emptyDecodeResult(): CollectionExtensionSyncDecodeResult {
         collectionExtensionEvents: [],
         collectionExtensionEventMedia: [],
     };
+}
+
+function buildMetadataRefreshEvent(params: {
+    log: RpcLog;
+    collectionId: number;
+    mainContractAddress: string;
+    tokenId: string;
+}): MetadataRefreshEvent {
+    return {
+        collectionId: params.collectionId,
+        contract: params.mainContractAddress.toLowerCase(),
+        tokenId: params.tokenId,
+        reason: "collection-extension",
+        trigger: "terraforms.extension-event",
+        blockNumber: params.log.blockNumber,
+        blockHash: params.log.blockHash,
+        txHash: params.log.transactionHash,
+        logIndex: params.log.logIndex,
+    };
+}
+
+async function buildBeaconEvent(params: {
+    rpc: RpcProviderPort;
+    log: RpcLog;
+    collectionId: number;
+    beaconV2ContractAddress: string;
+}): Promise<CollectionExtensionEvent> {
+    const topic0 = params.log.topics[0];
+    if (!topic0) {
+        throw new Error("Missing Terraforms beacon event topic");
+    }
+
+    // Beacon events do not include caller address, so we attribute via tx sender.
+    const maker = (
+        await params.rpc.getTransaction(params.log.transactionHash)
+    ).from.toLowerCase();
+    const base = buildBeaconEventBase({
+        log: params.log,
+        collectionId: params.collectionId,
+        beaconV2ContractAddress: params.beaconV2ContractAddress,
+        maker,
+    });
+
+    if (topic0 === PARCEL_MODIFIED_TOPIC) {
+        const decoded = decodeEventLog({
+            abi: TERRAFORMS_BEACON_V2_ABI,
+            eventName: "ParcelModified",
+            data: params.log.data,
+            topics: params.log.topics as [Hex, ...Hex[]],
+        });
+        const modification = Number(decoded.args.modification);
+        const eventType = TERRAFORMS_BEACON_EVENT_TYPES.ParcelModified;
+        return {
+            ...base,
+            tokenId: decoded.args.tokenId.toString(),
+            payload: {
+                ...beaconPayloadBase({
+                    eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.ParcelModified,
+                    eventType,
+                }),
+                tokenId: decoded.args.tokenId.toString(),
+                modification,
+                modificationLabel: resolveAntennaModificationLabel(modification),
+            },
+        };
+    }
+
+    if (topic0 === BROADCAST_ADDED_TOPIC) {
+        const decoded = decodeEventLog({
+            abi: TERRAFORMS_BEACON_V2_ABI,
+            eventName: "BroadcastAdded",
+            data: params.log.data,
+            topics: params.log.topics as [Hex, ...Hex[]],
+        });
+        const eventType = TERRAFORMS_BEACON_EVENT_TYPES.BroadcastAdded;
+        return {
+            ...base,
+            tokenId: null,
+            payload: {
+                ...beaconPayloadBase({
+                    eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+                    eventType,
+                }),
+                satellite: decoded.args.satellite.toLowerCase(),
+                duration: decoded.args.duration.toString(),
+            },
+        };
+    }
+
+    if (topic0 === BROADCAST_REMOVED_TOPIC) {
+        const decoded = decodeEventLog({
+            abi: TERRAFORMS_BEACON_V2_ABI,
+            eventName: "BroadcastRemoved",
+            data: params.log.data,
+            topics: params.log.topics as [Hex, ...Hex[]],
+        });
+        const eventType = TERRAFORMS_BEACON_EVENT_TYPES.BroadcastRemoved;
+        return {
+            ...base,
+            tokenId: null,
+            payload: {
+                ...beaconPayloadBase({
+                    eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+                    eventType,
+                }),
+                satellite: decoded.args.satellite.toLowerCase(),
+            },
+        };
+    }
+
+    if (topic0 === BROADCAST_MODIFIED_TOPIC) {
+        const decoded = decodeEventLog({
+            abi: TERRAFORMS_BEACON_V2_ABI,
+            eventName: "BroadcastModified",
+            data: params.log.data,
+            topics: params.log.topics as [Hex, ...Hex[]],
+        });
+        const eventType = TERRAFORMS_BEACON_EVENT_TYPES.BroadcastModified;
+        return {
+            ...base,
+            tokenId: null,
+            payload: {
+                ...beaconPayloadBase({
+                    eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+                    eventType,
+                }),
+                satellite: decoded.args.satellite.toLowerCase(),
+                duration: decoded.args.duration.toString(),
+            },
+        };
+    }
+
+    if (topic0 === BROADCAST_ORDER_MODIFIED_TOPIC) {
+        const decoded = decodeEventLog({
+            abi: TERRAFORMS_BEACON_V2_ABI,
+            eventName: "BroadcastOrderModified",
+            data: params.log.data,
+            topics: params.log.topics as [Hex, ...Hex[]],
+        });
+        const eventType = TERRAFORMS_BEACON_EVENT_TYPES.BroadcastOrderModified;
+        return {
+            ...base,
+            tokenId: null,
+            payload: {
+                ...beaconPayloadBase({
+                    eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+                    eventType,
+                }),
+                order: decoded.args.order.map((value) => value.toString()),
+            },
+        };
+    }
+
+    if (topic0 === SCRIPT_COMPONENT_MODIFIED_TOPIC) {
+        const decoded = decodeEventLog({
+            abi: TERRAFORMS_BEACON_V2_ABI,
+            eventName: "ScriptComponentModified",
+            data: params.log.data,
+            topics: params.log.topics as [Hex, ...Hex[]],
+        });
+        const componentType = Number(decoded.args.componentType);
+        const eventType = TERRAFORMS_BEACON_EVENT_TYPES.ScriptComponentModified;
+        return {
+            ...base,
+            tokenId: null,
+            payload: {
+                ...beaconPayloadBase({
+                    eventGroup: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles,
+                    eventType,
+                }),
+                componentType,
+                componentLabel: resolveScriptComponentLabel(componentType),
+                index: decoded.args.index.toString(),
+            },
+        };
+    }
+
+    throw new Error("Unsupported Terraforms beacon event");
+}
+
+function buildBeaconEventBase(params: {
+    log: RpcLog;
+    collectionId: number;
+    beaconV2ContractAddress: string;
+    maker: string;
+}): Omit<CollectionExtensionEvent, "tokenId" | "payload"> {
+    return {
+        collectionId: params.collectionId,
+        contract: params.beaconV2ContractAddress.toLowerCase(),
+        extensionKey: TERRAFORMS_EXTENSION_KEY,
+        eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+        maker: params.maker,
+        contentHash: null,
+        blockNumber: params.log.blockNumber,
+        blockHash: params.log.blockHash,
+        txHash: params.log.transactionHash,
+        logIndex: params.log.logIndex,
+    };
+}
+
+function beaconPayloadBase(params: {
+    eventGroup: string;
+    eventType: string;
+}): Record<string, unknown> {
+    return {
+        eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+        eventGroup: params.eventGroup,
+        eventType: params.eventType,
+        eventLabel: TERRAFORMS_BEACON_EVENT_TYPE_LABELS[params.eventType],
+    };
+}
+
+function resolveAntennaModificationLabel(value: number): string {
+    return (
+        TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS[value] ??
+        `modification ${value}`
+    );
+}
+
+function resolveScriptComponentLabel(value: number): string {
+    return (
+        TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS[value] ??
+        `component ${value}`
+    );
 }
 
 async function buildTerraformedEventArtifacts(params: {

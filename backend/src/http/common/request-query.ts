@@ -165,6 +165,17 @@ export function parseContentHash(raw: string | null): string | undefined {
     return normalized;
 }
 
+export function parseActivityEventGroup(
+    raw: string | null,
+): string | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (!/^[a-z0-9_.-]+$/.test(normalized)) {
+        throw new ReadModelBadRequestError("Invalid event_group");
+    }
+    return normalized;
+}
+
 export function parseExtensionEventRef(
     raw: string | null,
 ): { extensionKey: string; eventKey: string } | undefined {

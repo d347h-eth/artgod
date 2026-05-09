@@ -18,7 +18,93 @@ export const TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS = {
 
 export const TERRAFORMS_EXTENSION_EVENT_KEYS = {
     Terraformed: "terraformed",
+    Beacon: "beacon",
 } as const;
+
+// Terraforms beacon rows use one feed with token-owner and Mathcastles admin groups.
+export const TERRAFORMS_BEACON_EVENT_GROUPS = {
+    ParcelModified: "parcel_modified",
+    Mathcastles: "mathcastles",
+} as const;
+
+// User-facing filter options for Terraforms beacon event groups.
+export const TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS = [
+    {
+        key: TERRAFORMS_BEACON_EVENT_GROUPS.ParcelModified,
+        label: "Parcel Modified",
+    },
+    { key: TERRAFORMS_BEACON_EVENT_GROUPS.Mathcastles, label: "Mathcastles" },
+] as const;
+
+// Concrete Terraforms beacon contract events stored in beacon activity payloads.
+export const TERRAFORMS_BEACON_EVENT_TYPES = {
+    ParcelModified: "parcel_modified",
+    BroadcastAdded: "broadcast_added",
+    BroadcastRemoved: "broadcast_removed",
+    BroadcastModified: "broadcast_modified",
+    BroadcastOrderModified: "broadcast_order_modified",
+    ScriptComponentModified: "script_component_modified",
+} as const;
+
+// Compact labels for concrete Terraforms beacon event types.
+export const TERRAFORMS_BEACON_EVENT_TYPE_LABELS: Readonly<
+    Record<string, string>
+> = {
+    [TERRAFORMS_BEACON_EVENT_TYPES.ParcelModified]: "Parcel Modified",
+    [TERRAFORMS_BEACON_EVENT_TYPES.BroadcastAdded]: "Broadcast Added",
+    [TERRAFORMS_BEACON_EVENT_TYPES.BroadcastRemoved]: "Broadcast Removed",
+    [TERRAFORMS_BEACON_EVENT_TYPES.BroadcastModified]: "Broadcast Modified",
+    [TERRAFORMS_BEACON_EVENT_TYPES.BroadcastOrderModified]:
+        "Broadcast Order Modified",
+    [TERRAFORMS_BEACON_EVENT_TYPES.ScriptComponentModified]:
+        "Script Component Modified",
+};
+
+// Terraforms beacon AntennaModification enum values from Types.sol.
+export const TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS = {
+    TurnedAntennaOff: 0,
+    TurnedAntennaOn: 1,
+    TunedToCapturedSatelliteConnection: 2,
+    CapturedSatelliteConnection: 3,
+} as const;
+
+// Compact labels for Terraforms beacon AntennaModification values.
+export const TERRAFORMS_BEACON_ANTENNA_MODIFICATION_LABELS: Readonly<
+    Record<string, string>
+> = {
+    [TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TurnedAntennaOff]: "antenna off",
+    [TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TurnedAntennaOn]: "antenna on",
+    [TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.TunedToCapturedSatelliteConnection]:
+        "tuned to captured satellite",
+    [TERRAFORMS_BEACON_ANTENNA_MODIFICATIONS.CapturedSatelliteConnection]:
+        "captured satellite connection",
+};
+
+// Terraforms beacon ScriptComponent enum values from TerraformsBeacon_v2_0.sol.
+export const TERRAFORMS_BEACON_SCRIPT_COMPONENTS = {
+    Library: 0,
+    Font: 1,
+    Extra1: 2,
+    Body: 3,
+    UI: 4,
+    Extra2: 5,
+    LoopStart: 6,
+    LoopEnd: 7,
+} as const;
+
+// Compact labels for Terraforms beacon ScriptComponent values.
+export const TERRAFORMS_BEACON_SCRIPT_COMPONENT_LABELS: Readonly<
+    Record<string, string>
+> = {
+    [TERRAFORMS_BEACON_SCRIPT_COMPONENTS.Library]: "library",
+    [TERRAFORMS_BEACON_SCRIPT_COMPONENTS.Font]: "font",
+    [TERRAFORMS_BEACON_SCRIPT_COMPONENTS.Extra1]: "extra1",
+    [TERRAFORMS_BEACON_SCRIPT_COMPONENTS.Body]: "body",
+    [TERRAFORMS_BEACON_SCRIPT_COMPONENTS.UI]: "ui",
+    [TERRAFORMS_BEACON_SCRIPT_COMPONENTS.Extra2]: "extra2",
+    [TERRAFORMS_BEACON_SCRIPT_COMPONENTS.LoopStart]: "loop start",
+    [TERRAFORMS_BEACON_SCRIPT_COMPONENTS.LoopEnd]: "loop end",
+};
 
 // Terraforms stores the token state in metadata under this trait key.
 export const TERRAFORMS_MODE_ATTRIBUTE_KEY = "Mode";
