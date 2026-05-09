@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ActivityExtensionCellProps } from '$lib/activity-extension-views/types';
 	import { TERRAFORMS_TOKEN_ID_CELL_LABELS } from '$lib/activity-extension-views/terraforms/constants';
-	import TokenFilterIcon from '$lib/activity-extension-views/terraforms/TokenFilterIcon.svelte';
+	import FilterIcon from '$lib/components/FilterIcon.svelte';
 
 	let { activity, hrefs }: ActivityExtensionCellProps = $props();
 	let tokenId = $derived(activity.tokenId?.trim() || null);
@@ -20,7 +20,7 @@
 			title={filterLabel(tokenId)}
 			aria-label={filterLabel(tokenId)}
 		>
-			<TokenFilterIcon />
+			<FilterIcon />
 		</a>
 	</span>
 {:else}

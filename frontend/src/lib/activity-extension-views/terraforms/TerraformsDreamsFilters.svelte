@@ -1,4 +1,8 @@
 <script lang="ts">
+	import {
+		hashTerraformsCanvasRows,
+		parseTerraformsCanvasRowsText
+	} from '@artgod/shared/extensions/terraforms';
 	import { resolveOwnerAddressRef } from '$lib/components/owner-ref';
 	import type { ActivityExtensionFiltersProps } from '$lib/activity-extension-views/types';
 	import {
@@ -10,19 +14,31 @@
 
 	let tokenDraft = $state(filters.tokenId ?? '');
 	let makerDraft = $state(filters.maker ?? '');
+	let heightmapDraft = $state('');
 	let makerInvalid = $state(false);
+	let heightmapInvalid = $state(false);
 	let pending = $state(false);
 
 	$effect(() => {
 		tokenDraft = filters.tokenId ?? '';
 		makerDraft = filters.maker ?? '';
 		makerInvalid = false;
+		heightmapInvalid = false;
 	});
 
 	async function onSubmit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		pending = true;
 		makerInvalid = false;
+		heightmapInvalid = false;
+		let heightmapHash: string | null = null;
+		try {
+			heightmapHash = resolveHeightmapHash();
+		} catch {
+			heightmapInvalid = true;
+			pending = false;
+			return;
+		}
 		try {
 			const makerInput = makerDraft.trim();
 			const maker = makerInput
@@ -38,13 +54,23 @@
 			}
 			await onApply({
 				tokenId: tokenDraft.trim() || null,
-				maker
+				maker,
+				...(heightmapHash ? { contentHash: heightmapHash } : {})
 			});
+			if (heightmapHash) {
+				heightmapDraft = '';
+			}
 		} catch {
 			makerInvalid = true;
 		} finally {
 			pending = false;
 		}
+	}
+
+	function resolveHeightmapHash(): string | null {
+		if (!heightmapDraft.trim()) return null;
+		const canvasRows = parseTerraformsCanvasRowsText(heightmapDraft);
+		return hashTerraformsCanvasRows(canvasRows);
 	}
 
 	function visibleHash(hash: string): string {
@@ -68,12 +94,16 @@
 	}
 </script>
 
-<form class="activity-extension-filters activity-extension-filters-stack" onsubmit={onSubmit}>
+<form
+	class="activity-extension-filters activity-extension-filters-stack terraforms-dreams-filters"
+	onsubmit={onSubmit}
+>
+	<button class="terraforms-dreams-submit-button" type="submit" tabindex="-1">filter</button>
 	<label class="activity-extension-filter-field activity-extension-filter-row">
-		<span>{TERRAFORMS_DREAMS_FILTER_LABELS.Token}</span>
+		<span>{TERRAFORMS_DREAMS_FILTER_LABELS.Token}:</span>
 		<span class="activity-extension-filter-control">
 			<input
-				class="activity-extension-filter-input activity-extension-filter-input-token"
+				class="activity-extension-filter-input terraforms-dreams-filter-input"
 				type="text"
 				inputmode="numeric"
 				bind:value={tokenDraft}
@@ -95,10 +125,10 @@
 		</span>
 	</label>
 	<label class="activity-extension-filter-field activity-extension-filter-row">
-		<span>{TERRAFORMS_DREAMS_FILTER_LABELS.Maker}</span>
+		<span>{TERRAFORMS_DREAMS_FILTER_LABELS.Maker}:</span>
 		<span class="activity-extension-filter-control">
 			<input
-				class="activity-extension-filter-input activity-extension-filter-input-maker"
+				class="activity-extension-filter-input terraforms-dreams-filter-input"
 				type="text"
 				bind:value={makerDraft}
 				aria-invalid={makerInvalid}
@@ -121,9 +151,25 @@
 			{/if}
 		</span>
 	</label>
+	<label class="activity-extension-filter-field activity-extension-filter-row">
+		<span>{TERRAFORMS_DREAMS_FILTER_LABELS.Heightmap}:</span>
+		<span class="activity-extension-filter-control">
+			<input
+				class="activity-extension-filter-input terraforms-dreams-filter-input"
+				type="text"
+				bind:value={heightmapDraft}
+				aria-invalid={heightmapInvalid}
+				autocomplete="off"
+				autocapitalize="off"
+				spellcheck="false"
+				disabled={pending}
+				oninput={() => (heightmapInvalid = false)}
+			/>
+		</span>
+	</label>
 	{#if filters.contentHash}
 		<div class="activity-extension-filter-field activity-extension-filter-row">
-			<span>{TERRAFORMS_DREAMS_FILTER_LABELS.Heightmap}</span>
+			<span>{TERRAFORMS_DREAMS_FILTER_LABELS.Heightmap}:</span>
 			<span class="activity-extension-filter-control">
 				<span class="activity-extension-filter-active-value" title={filters.contentHash}>
 					{visibleHash(filters.contentHash)}
@@ -142,3 +188,32 @@
 		</div>
 	{/if}
 </form>
+
+<style>
+	.terraforms-dreams-filters .activity-extension-filter-row {
+		grid-template-columns: max-content auto;
+		gap: 0.1rem;
+	}
+
+	.terraforms-dreams-filters .activity-extension-filter-row > span:first-child {
+		min-width: 5.4rem;
+		text-align: right;
+	}
+
+	.terraforms-dreams-filter-input {
+		width: 20rem;
+		max-width: min(72vw, 20rem);
+	}
+
+	.terraforms-dreams-submit-button {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		border: 0;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+	}
+</style>

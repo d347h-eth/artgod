@@ -1,3 +1,4 @@
+import { encodeAbiParameters, keccak256 } from "viem";
 import {
     EMBEDDED_COLLECTION_EXTENSION_SCOPE_KIND,
     type EmbeddedCollectionExtensionMatch,
@@ -53,12 +54,63 @@ export const TERRAFORMS_ORIGIN_TERRAFORMED_STATUS = 4n;
 
 export const TERRAFORMS_TOKEN_TO_URI_ADDRESS_INDEX_STORAGE_SLOT = 11128n;
 
+// Terraforms canvases are stored and rendered as exactly sixteen uint256 rows.
+export const TERRAFORMS_CANVAS_ROW_COUNT = 16;
+
+type TerraformsCanvasTuple = readonly [
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+];
+
 export function resolveTerraformsCommittedCanvasStatus(
     tokenStatus: bigint | number,
 ): bigint {
     return BigInt(tokenStatus) >= TERRAFORMS_ORIGIN_DAYDREAM_STATUS
         ? TERRAFORMS_ORIGIN_TERRAFORMED_STATUS
         : TERRAFORMS_TERRAFORMED_STATUS;
+}
+
+// Parses user-pasted Terraforms heightmaps into the same rows stored by the contract.
+export function parseTerraformsCanvasRowsText(input: string): bigint[] {
+    const rows = input.trim().split(/\s+/).filter(Boolean);
+    if (rows.length !== TERRAFORMS_CANVAS_ROW_COUNT) {
+        throw new Error("Terraforms heightmap must contain exactly 16 rows");
+    }
+    return rows.map(parseTerraformsCanvasRow);
+}
+
+// Normalizes canvas rows before hashing or renderer calls.
+export function normalizeTerraformsCanvasRows(rows: readonly bigint[]): bigint[] {
+    const output = [...rows];
+    while (output.length < TERRAFORMS_CANVAS_ROW_COUNT) {
+        output.push(0n);
+    }
+    return output.slice(0, TERRAFORMS_CANVAS_ROW_COUNT);
+}
+
+// Computes the canonical Terraforms canvas content hash used by extension event feeds.
+export function hashTerraformsCanvasRows(rows: readonly bigint[]): string {
+    const canvas = normalizeTerraformsCanvasRows(rows);
+    return keccak256(
+        encodeAbiParameters(
+            [{ type: "uint256[16]", name: "canvas" }],
+            [canvas as unknown as TerraformsCanvasTuple],
+        ),
+    );
 }
 
 export type TerraformsExtensionConfig = {
@@ -138,4 +190,15 @@ function asAddress(value: unknown, field: string): string {
         throw new Error(`Invalid Terraforms extension config field: ${field}`);
     }
     return normalizeAddressRef(value);
+}
+
+function parseTerraformsCanvasRow(row: string): bigint {
+    if (!/^(0x[0-9a-fA-F]+|\d+)$/.test(row)) {
+        throw new Error("Invalid Terraforms heightmap row");
+    }
+    const value = BigInt(row);
+    if (value < 0n || value > (1n << 256n) - 1n) {
+        throw new Error("Terraforms heightmap row is outside uint256 range");
+    }
+    return value;
 }

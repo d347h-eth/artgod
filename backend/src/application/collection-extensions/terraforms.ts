@@ -3,6 +3,7 @@ import {
     type CollectionExtensionInstall,
 } from "@artgod/shared/extensions";
 import {
+    normalizeTerraformsCanvasRows,
     parseTerraformsExtensionConfig,
     resolveTerraformsCommittedCanvasStatus,
     TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
@@ -29,7 +30,6 @@ import type {
 import { concatHex, hexToBigInt, keccak256, padHex, toHex } from "viem";
 
 const DEFAULT_DECAY = 0n;
-const TERRAFORMS_CANVAS_ROW_COUNT = 16;
 const TERRAFORMS_ACTIVITY_EVENT_FEED_LABELS = {
     Dreams: "dreams",
 } as const;
@@ -380,11 +380,7 @@ function readCanvasRowsFromPayload(
 }
 
 function normalizeCanvas(rows: bigint[]): bigint[] {
-    const output = [...rows];
-    while (output.length < TERRAFORMS_CANVAS_ROW_COUNT) {
-        output.push(0n);
-    }
-    return output.slice(0, TERRAFORMS_CANVAS_ROW_COUNT);
+    return normalizeTerraformsCanvasRows(rows);
 }
 
 async function resolveNetworkRendererAddress(

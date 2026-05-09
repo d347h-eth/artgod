@@ -35,7 +35,8 @@
         "./trading/runtime-state": "./trading/runtime-state.ts"
     },
     "dependencies": {
-        "better-sqlite3": "^v12.2.0"
+        "better-sqlite3": "^v12.2.0",
+        "viem": "2.41.2"
     },
     "devDependencies": {
         "@types/better-sqlite3": "^7.6.12",

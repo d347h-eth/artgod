@@ -1,6 +1,9 @@
 import {
+    hashTerraformsCanvasRows,
+    normalizeTerraformsCanvasRows,
     parseTerraformsExtensionConfig,
     resolveTerraformsCommittedCanvasStatus,
+    TERRAFORMS_CANVAS_ROW_COUNT,
     TERRAFORMS_EVENT_RENDER_MODE_OPTIONS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
     TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
@@ -10,12 +13,7 @@ import {
 } from "@artgod/shared/extensions/terraforms";
 import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
 import { logger } from "@artgod/shared/utils";
-import {
-    decodeEventLog,
-    encodeAbiParameters,
-    encodeEventTopics,
-    keccak256,
-} from "viem";
+import { decodeEventLog, encodeEventTopics } from "viem";
 import type {
     CollectionExtensionEvent,
     CollectionExtensionEventMedia,
@@ -32,7 +30,6 @@ import type { Hex, RpcLog, RpcProviderPort } from "../../ports/rpc.js";
 
 const MODE_ATTRIBUTE_KEY = "Mode";
 const DEFAULT_DECAY = 0n;
-const TERRAFORMS_CANVAS_ROW_COUNT = 16;
 
 const TERRAFORMS_MAIN_ABI = [
     {
@@ -188,25 +185,6 @@ type TerraformsStatus = {
     slug: TerraformsStatusSlug;
     value: bigint;
 };
-
-type TerraformsCanvasTuple = readonly [
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-];
 
 const MODE_TO_STATUS: Record<string, TerraformsStatus> = {
     Terrain: { slug: TERRAFORMS_STATUS_SLUG.Terrain, value: 0n },
@@ -471,7 +449,7 @@ async function buildTerraformedEventArtifacts(params: {
         params.log.blockNumber,
     );
     const canvasRows = normalizeCanvas(canvas);
-    const canvasHash = hashCanvasRows(canvasRows);
+    const canvasHash = hashTerraformsCanvasRows(canvasRows);
     const renderArgs = await readTerraformedRenderArgsAtBlock({
         rpc: params.rpc,
         mainContractAddress: params.mainContractAddress,
@@ -591,16 +569,6 @@ async function readCanvasRowsAtBlock(
         rows.push(value);
     }
     return rows;
-}
-
-function hashCanvasRows(rows: bigint[]): string {
-    const canvas = normalizeCanvas(rows);
-    return keccak256(
-        encodeAbiParameters(
-            [{ type: "uint256[16]", name: "canvas" }],
-            [canvas as unknown as TerraformsCanvasTuple],
-        ),
-    );
 }
 
 function resolveStatusFromMode(mode: string): TerraformsStatus {
@@ -801,11 +769,7 @@ async function readCanvasRows(
 }
 
 function normalizeCanvas(rows: bigint[]): bigint[] {
-    const output = [...rows];
-    while (output.length < TERRAFORMS_CANVAS_ROW_COUNT) {
-        output.push(0n);
-    }
-    return output.slice(0, TERRAFORMS_CANVAS_ROW_COUNT);
+    return normalizeTerraformsCanvasRows(rows);
 }
 
 function packHeightmapIndices(

@@ -1,11 +1,20 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { onDestroy } from 'svelte';
 	import type { ActivityExtensionCellProps } from '$lib/activity-extension-views/types';
 	import { TERRAFORMS_HEIGHTMAP_HASH_VISIBLE_CHARS } from '$lib/activity-extension-views/terraforms/constants';
-	import HeightmapCopyIcon from '$lib/activity-extension-views/terraforms/HeightmapCopyIcon.svelte';
+	import CheckIcon from '$lib/components/CheckIcon.svelte';
+	import CopyIcon from '$lib/components/CopyIcon.svelte';
 
 	let { activity, hrefs }: ActivityExtensionCellProps = $props();
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
+	let copyFeedbackTimer: number | null = null;
+
+	onDestroy(() => {
+		if (copyFeedbackTimer !== null) {
+			window.clearTimeout(copyFeedbackTimer);
+		}
+	});
 
 	function contentHash(): string | null {
 		const value = activity.payload?.contentHash;
@@ -31,9 +40,27 @@
 		try {
 			await navigator.clipboard.writeText(rows.join('\n'));
 			copyState = 'copied';
+			resetCopyFeedbackLater();
 		} catch {
 			copyState = 'failed';
+			resetCopyFeedbackLater();
 		}
+	}
+
+	function resetCopyFeedbackLater(): void {
+		if (copyFeedbackTimer !== null) {
+			window.clearTimeout(copyFeedbackTimer);
+		}
+		copyFeedbackTimer = window.setTimeout(() => {
+			copyState = 'idle';
+			copyFeedbackTimer = null;
+		}, 1400);
+	}
+
+	function copyButtonLabel(): string {
+		if (copyState === 'copied') return 'copied heightmap';
+		if (copyState === 'failed') return 'heightmap copy failed';
+		return 'copy heightmap';
 	}
 </script>
 
@@ -49,12 +76,18 @@
 		{#if canvasRows()}
 			<button
 				class="terraforms-heightmap-copy-button"
+				class:terraforms-heightmap-copy-button-copied={copyState === 'copied'}
+				class:terraforms-heightmap-copy-button-failed={copyState === 'failed'}
 				type="button"
-				title={copyState === 'copied' ? 'copied heightmap' : 'copy heightmap'}
-				aria-label={copyState === 'copied' ? 'copied heightmap' : 'copy heightmap'}
+				title={copyButtonLabel()}
+				aria-label={copyButtonLabel()}
 				onclick={copyHeightmap}
 			>
-				<HeightmapCopyIcon />
+				{#if copyState === 'copied'}
+					<CheckIcon />
+				{:else}
+					<CopyIcon />
+				{/if}
 			</button>
 		{/if}
 	</span>
@@ -89,5 +122,13 @@
 	.terraforms-heightmap-copy-button:hover,
 	.terraforms-heightmap-copy-button:focus-visible {
 		color: var(--c-yellow);
+	}
+
+	.terraforms-heightmap-copy-button-copied {
+		color: var(--c-cyan);
+	}
+
+	.terraforms-heightmap-copy-button-failed {
+		color: var(--c-pink);
 	}
 </style>

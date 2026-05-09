@@ -458,7 +458,7 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('/ethereum/terraforms/7710?media_mode=artifact');
 		expect(body).toContain('filter token 7710');
 		expect(body).toContain('token_id=7710');
-		expect(body).toContain('terraforms-token-filter-icon');
+		expect(body).toContain('filter-icon');
 		expect(body).toContain('Terraform #7710');
 		expect(body).toContain('L7/B12/Zone');
 		expect(body).toContain('data:image/svg+xml;base64,event-canvas');
@@ -467,8 +467,11 @@ describe('CollectionActivitiesView', () => {
 		expect(body).toContain('abcdef12');
 		expect(body).toContain(`content_hash=${contentHash}`);
 		expect(body).toContain('copy heightmap');
-		expect(body).toContain('terraforms-heightmap-copy-icon');
+		expect(body).toContain('copy-icon');
 		expect(body).toContain('activity-extension-filter-row');
+		expect(body).toContain('terraforms-dreams-filter-input');
+		expect(body).toContain('terraforms-dreams-submit-button');
+		expect(body).not.toContain('terraforms-heightmap-filter-button');
 		expect(body).not.toContain('canvas hash');
 		expect(body).not.toContain('activity-extension-filter-input-hash');
 	});
