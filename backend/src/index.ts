@@ -16,6 +16,7 @@ import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/boo
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
 import { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
+import { GetActivityEventPreviewUseCase } from "./application/use-cases/activities/get-activity-event-preview.js";
 import { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
 import { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
 import {
@@ -37,6 +38,7 @@ import {
     GetTokenPreviewUseCase,
     type GetTokenPreviewPort,
 } from "./application/use-cases/collections/get-token-preview.js";
+import { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
@@ -53,8 +55,11 @@ import { createApiApp } from "./http-app.js";
 import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
 import { MemoryQueryCache } from "./infra/cache/memory.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
+import { BuiltInCollectionExtensionResolver } from "./infra/collection-extensions/built-in-collection-extension-resolver.js";
 import { ExtensionAwareCollectionCustomization } from "./infra/collections/extension-aware-collection-customization.js";
 import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extension-aware-collection-detail-read.js";
+import { ExtensionActivityEventPreviewRead } from "./infra/collections/extension-activity-event-preview.js";
+import { ExtensionAwareTokenUriRead } from "./infra/collections/extension-aware-token-uri-read.js";
 import { SqliteCollectionCustomizationRecords } from "./infra/collections/sqlite-collection-customization-records.js";
 import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
@@ -106,6 +111,15 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
             collectionExtensionRecords,
             collectionCustomizationRecords,
         );
+    const extensionActivityEventPreviewRead =
+        new ExtensionActivityEventPreviewRead(
+            collectionExtensionRecords,
+            backendRpcClient,
+        );
+    const extensionAwareTokenUriRead = new ExtensionAwareTokenUriRead(
+        collectionExtensionRecords,
+        backendRpcClient,
+    );
     const biddingJobsRepository = new SqliteBiddingJobsRepository();
     const biddingBidBookRepository = new SqliteBiddingBidBookRepository();
     const tradingJobCommandSignalPublisher =
@@ -118,10 +132,13 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.natsUrl,
         config.natsStreamPrefix,
     );
+    const builtInCollectionExtensionResolver =
+        new BuiltInCollectionExtensionResolver();
     const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
         config.defaultChainId,
         chainsReadModel,
         bootstrapRunsRepository,
+        builtInCollectionExtensionResolver,
         bootstrapCommandQueue,
     );
     const getBootstrapStatusUseCase = new GetBootstrapStatusUseCase(
@@ -193,6 +210,13 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         extensionAwareCollectionsReadModel,
         extensionAwareCollectionCustomization,
     );
+    const getActivityEventPreviewUseCase =
+        new GetActivityEventPreviewUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            extensionActivityEventPreviewRead,
+        );
     const getCollectionCustomizationUseCase =
         new GetCollectionCustomizationUseCase(
             config.defaultChainId,
@@ -218,6 +242,12 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         activitiesReadModel,
         extensionAwareCollectionsReadModel,
         extensionAwareCollectionCustomization,
+    );
+    const getTokenUriUseCase = new GetTokenUriUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        extensionAwareTokenUriRead,
     );
     const updateCollectionCustomizationUseCase =
         new UpdateCollectionCustomizationUseCase(
@@ -283,12 +313,14 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         listCollectionsUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
+        getActivityEventPreviewUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
         collectionDetail.port,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
         tokenPreview.port,
+        getTokenUriUseCase,
         updateCollectionCustomizationUseCase,
         listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,

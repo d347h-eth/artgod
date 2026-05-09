@@ -96,6 +96,52 @@ export class SqliteStorage implements StoragePort {
             "(chain_id, collection_id, kind, order_id, order_side, maker, taker, contract_address, token_id, amount, price, currency, block_number, block_hash, block_timestamp, tx_hash, log_index) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
+    private insertCollectionExtensionEvent = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        extensionKey: string;
+        eventKey: string;
+        contractAddress: string;
+        tokenId: string;
+        maker: string | null;
+        contentHash: string | null;
+        blockNumber: number;
+        blockHash: string;
+        blockTimestamp: number;
+        txHash: string;
+        logIndex: number;
+        payloadJson: string | null;
+    }>(
+        "INSERT OR IGNORE INTO collection_extension_events " +
+            "(chain_id, collection_id, extension_key, event_key, contract_address, token_id, maker, content_hash, block_number, block_hash, block_timestamp, tx_hash, log_index, payload_json) " +
+            "VALUES (@chainId, @collectionId, @extensionKey, @eventKey, @contractAddress, @tokenId, @maker, @contentHash, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex, @payloadJson)",
+    );
+    private upsertCollectionExtensionEventMedia = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        extensionKey: string;
+        eventKey: string;
+        contractAddress: string;
+        tokenId: string;
+        mediaRef: string;
+        blockNumber: number;
+        blockHash: string;
+        blockTimestamp: number;
+        txHash: string;
+        logIndex: number;
+        image: string | null;
+        animationUrl: string | null;
+        htmlContent: string | null;
+        renderModesJson: string | null;
+    }>(
+        "INSERT INTO collection_extension_event_media " +
+            "(chain_id, collection_id, extension_key, event_key, contract_address, token_id, media_ref, block_number, block_hash, block_timestamp, tx_hash, log_index, image, animation_url, html_content, render_modes_json) " +
+            "VALUES (@chainId, @collectionId, @extensionKey, @eventKey, @contractAddress, @tokenId, @mediaRef, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex, @image, @animationUrl, @htmlContent, @renderModesJson) " +
+            "ON CONFLICT(chain_id, collection_id, extension_key, event_key, tx_hash, log_index, token_id, media_ref) DO UPDATE SET " +
+            "contract_address = excluded.contract_address, block_number = excluded.block_number, block_hash = excluded.block_hash, " +
+            "block_timestamp = excluded.block_timestamp, image = excluded.image, animation_url = excluded.animation_url, " +
+            "html_content = excluded.html_content, render_modes_json = excluded.render_modes_json, updated_at = CURRENT_TIMESTAMP",
+    );
     private selectBalance = db.prepare<[number, number, string, string]>(
         "SELECT amount FROM nft_balances WHERE chain_id = ? AND collection_id = ? AND token_id = ? AND owner = ?",
     );
@@ -145,6 +191,18 @@ export class SqliteStorage implements StoragePort {
     private deleteFillsFromBlock = db.prepare<[number, number]>(
         "DELETE FROM fills WHERE chain_id = ? AND block_number >= ?",
     );
+    private deleteCollectionExtensionEventsFromBlock = db.prepare<{
+        chainId: number;
+        fromBlock: number;
+    }>(
+        "DELETE FROM collection_extension_events WHERE chain_id = @chainId AND block_number >= @fromBlock",
+    );
+    private deleteCollectionExtensionEventMediaFromBlock = db.prepare<{
+        chainId: number;
+        fromBlock: number;
+    }>(
+        "DELETE FROM collection_extension_event_media WHERE chain_id = @chainId AND block_number >= @fromBlock",
+    );
     private deleteActivitiesFromBlock = db.prepare<[number, number]>(
         "DELETE FROM activities WHERE chain_id = ? AND block_number >= ?",
     );
@@ -180,6 +238,8 @@ export class SqliteStorage implements StoragePort {
             this.persistTransactions(chainId, data.transactions, blockMeta);
             const inserted = this.persistTransfers(chainId, data, blockMeta);
             this.persistFills(chainId, data, blockMeta);
+            this.persistCollectionExtensionEvents(chainId, data, blockMeta);
+            this.persistCollectionExtensionEventMedia(chainId, data, blockMeta);
             const currentStateTransfers = inserted.filter((event) => {
                 const collection = currentStateCollections.get(
                     event.collectionId,
@@ -230,6 +290,14 @@ export class SqliteStorage implements StoragePort {
             }
             this.deleteTransfersFromBlock.run(chainId, fromBlock);
             this.deleteFillsFromBlock.run(chainId, fromBlock);
+            this.deleteCollectionExtensionEventsFromBlock.run({
+                chainId,
+                fromBlock,
+            });
+            this.deleteCollectionExtensionEventMediaFromBlock.run({
+                chainId,
+                fromBlock,
+            });
             this.deleteActivitiesFromBlock.run(chainId, fromBlock);
             this.deleteMetadataFromBlock.run(chainId, fromBlock);
             this.deleteOrdersFromBlock.run(chainId, fromBlock);
@@ -318,6 +386,72 @@ export class SqliteStorage implements StoragePort {
                 fill.txHash,
                 fill.logIndex,
             );
+        }
+    }
+
+    private persistCollectionExtensionEvents(
+        chainId: number,
+        data: OnChainData,
+        blockMeta: Map<number, BlockMeta>,
+    ): void {
+        // Extension facts are immutable and remain available to facts-only feeds.
+        for (const event of data.collectionScoped.collectionExtensionEvents) {
+            const blockTimestamp = resolveBlockTimestamp(
+                blockMeta,
+                event.blockNumber,
+            );
+            this.insertCollectionExtensionEvent.run({
+                chainId,
+                collectionId: event.collectionId,
+                extensionKey: event.extensionKey,
+                eventKey: event.eventKey,
+                contractAddress: event.contract.toLowerCase(),
+                tokenId: event.tokenId,
+                maker: event.maker?.toLowerCase() ?? null,
+                contentHash: event.contentHash?.toLowerCase() ?? null,
+                blockNumber: event.blockNumber,
+                blockHash: event.blockHash,
+                blockTimestamp,
+                txHash: event.txHash,
+                logIndex: event.logIndex,
+                payloadJson: event.payload
+                    ? JSON.stringify(event.payload)
+                    : null,
+            });
+        }
+    }
+
+    private persistCollectionExtensionEventMedia(
+        chainId: number,
+        data: OnChainData,
+        blockMeta: Map<number, BlockMeta>,
+    ): void {
+        // Event media is extension-owned and keyed to immutable event identity.
+        for (const media of data.collectionScoped.collectionExtensionEventMedia) {
+            const blockTimestamp = resolveBlockTimestamp(
+                blockMeta,
+                media.blockNumber,
+            );
+            this.upsertCollectionExtensionEventMedia.run({
+                chainId,
+                collectionId: media.collectionId,
+                extensionKey: media.extensionKey,
+                eventKey: media.eventKey,
+                contractAddress: media.contract.toLowerCase(),
+                tokenId: media.tokenId,
+                mediaRef: media.mediaRef,
+                blockNumber: media.blockNumber,
+                blockHash: media.blockHash,
+                blockTimestamp,
+                txHash: media.txHash,
+                logIndex: media.logIndex,
+                image: media.image ?? null,
+                animationUrl: media.animationUrl ?? null,
+                htmlContent: media.htmlContent ?? null,
+                renderModesJson: media.renderModes
+                    ? JSON.stringify(media.renderModes)
+                    : null,
+            });
         }
     }
 

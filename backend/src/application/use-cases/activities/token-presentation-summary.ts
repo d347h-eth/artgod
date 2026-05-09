@@ -1,4 +1,5 @@
 import type {
+    ActivityEventMedia,
     ActivityFeedIncludes,
     ActivityFeedItem,
     TokenCard,
@@ -25,6 +26,10 @@ export function collectActivityTokenIds(
 export function buildActivityFeedIncludes(
     tokens: TokenCard[],
     traitSummaryTemplate: string,
+    eventMediaByActivityId: Record<string, ActivityEventMedia> = {},
 ): ActivityFeedIncludes {
-    return buildTokenPresentationIncludes(tokens, traitSummaryTemplate);
+    return {
+        ...buildTokenPresentationIncludes(tokens, traitSummaryTemplate),
+        eventMediaByActivityId,
+    };
 }

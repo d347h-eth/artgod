@@ -3,6 +3,8 @@ import type {
     CollectionExtensionKey,
 } from "@artgod/shared/extensions";
 import type {
+    CollectionExtensionEvent,
+    CollectionExtensionEventMedia,
     MetadataRefreshEvent,
     MetadataRefreshRangeEvent,
 } from "../../domain/onchain.js";
@@ -16,6 +18,12 @@ import type { MetadataFetcherPort } from "../../ports/metadata.js";
 export type CollectionExtensionSyncDecodeResult = {
     metadataRefreshEvents: MetadataRefreshEvent[];
     metadataRefreshRangeEvents: MetadataRefreshRangeEvent[];
+    collectionExtensionEvents: CollectionExtensionEvent[];
+    collectionExtensionEventMedia: CollectionExtensionEventMedia[];
+};
+
+export type CollectionExtensionSyncDecodeContext = {
+    rpc: RpcProviderPort;
 };
 
 export type CollectionExtensionSyncWatchSpec = {
@@ -23,7 +31,10 @@ export type CollectionExtensionSyncWatchSpec = {
     sourceId: string;
     address: `0x${string}` | `0x${string}`[];
     events: readonly RpcEvent[];
-    decode(log: RpcLog): CollectionExtensionSyncDecodeResult;
+    decode(
+        log: RpcLog,
+        context: CollectionExtensionSyncDecodeContext,
+    ): CollectionExtensionSyncDecodeResult | Promise<CollectionExtensionSyncDecodeResult>;
 };
 
 export type CollectionExtensionArtifactRefreshContext = {

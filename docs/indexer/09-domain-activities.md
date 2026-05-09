@@ -67,7 +67,7 @@ Current core activity kinds are:
 - `bid_created`
 - `bid_cancelled`
 
-Custom extension activity is reserved in the domain model but not emitted yet.
+Custom extension activity is emitted from persisted `collection_extension_events` rows. The generic activity row keeps `kind = "custom"`, `source_kind = "extension"`, `source_name = <extension key>`, and extension-owned payload JSON.
 
 ## Onchain Projection
 
@@ -76,6 +76,7 @@ projects:
 
 - `transfer` from `nft_transfer_events`
 - `sale` from `fills`
+- `custom` extension activity from `collection_extension_events`
 
 Important behavior:
 

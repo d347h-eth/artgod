@@ -9,6 +9,18 @@ export const ACTIVITY_FEED_FILTER_KIND = {
 export type ActivityFeedFilterKind =
     (typeof ACTIVITY_FEED_FILTER_KIND)[keyof typeof ACTIVITY_FEED_FILTER_KIND];
 
+export const ACTIVITY_FEED_QUERY_PARAMS = {
+    Kind: "kind",
+    ExtensionEvent: "extension_event",
+    TokenId: "token_id",
+    Maker: "maker",
+    ContentHash: "content_hash",
+} as const;
+
+export const ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS = {
+    RenderMode: "render_mode",
+} as const;
+
 export const ACTIVITY_SCOPE_KIND = {
     Token: "token",
     Collection: "collection",
@@ -69,6 +81,7 @@ export type ActivityFeedItem = {
 
 export type ActivityFeedCursor = {
     filterKind: ActivityFeedFilterKind | null;
+    extensionEvent: ActivityExtensionEventRef | null;
     occurredAt: number;
     id: number;
 };
@@ -79,5 +92,34 @@ export type ActivityFeedPage = ForwardCursorPage<ActivityFeedItem> & {
 
 export type ActivityFeedIncludes = {
     tokensById: Record<string, TokenPresentationSummary>;
+    eventMediaByActivityId: Record<string, ActivityEventMedia>;
     hasTraitSummaryTemplate: boolean;
+};
+
+export type ActivityEventMedia = {
+    image: string | null;
+    animationUrl: string | null;
+    htmlContent?: string | null;
+    mediaRef: string;
+    renderModes?: { key: string; label: string }[];
+};
+
+export type ActivityExtensionEventRef = {
+    extensionKey: string;
+    eventKey: string;
+};
+
+export type ActivityExtensionEventFeed = ActivityExtensionEventRef & {
+    label: string;
+    filters?: {
+        tokenId?: { label: string };
+        maker?: { label: string };
+        contentHash?: { label: string };
+    };
+};
+
+export type ActivityExtensionEventFilter = ActivityExtensionEventRef & {
+    tokenId?: string;
+    maker?: string;
+    contentHash?: string;
 };

@@ -23,11 +23,83 @@ describe("activity domain", () => {
             [
                 "DELETE FROM activity_sources;",
                 "DELETE FROM activities;",
+                "DELETE FROM collection_extension_events;",
                 "DELETE FROM fills;",
                 "DELETE FROM nft_transfer_events;",
                 "DELETE FROM collections;",
             ].join("\n"),
         );
+    });
+
+    it("projects collection extension event facts into custom activity rows", async () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection(chainId, "alpha", contract);
+        const contentHash = `0x${"ab".repeat(32)}`;
+        insertCollectionExtensionEvent({
+            chainId,
+            collectionId,
+            extensionKey: "example-extension",
+            eventKey: "custom-event",
+            contract,
+            tokenId: "1",
+            maker: "0x3000000000000000000000000000000000000000",
+            contentHash,
+            blockNumber: 110,
+            blockTimestamp: 1_700_000_110,
+            txHash: "0xtx-extension",
+            logIndex: 9,
+            payload: {
+                eventKey: "custom-event",
+                contentHash,
+                value: "example",
+            },
+        });
+
+        const domain = new SqliteActivityDomain();
+        await domain.handleDomainSync({
+            chainId,
+            collectionId: null,
+            fromBlock: 110,
+            toBlock: 110,
+            mode: "backfill",
+            projection: DOMAIN_SYNC_PROJECTION.FactsOnly,
+            sourceJobId: "test-job",
+            sourceKind: "test",
+        });
+
+        const row = db
+            .prepare<{
+                chainId: number;
+            }>(
+                "SELECT kind, source_kind, source_name, token_id, maker, payload_json, dedupe_key " +
+                    "FROM activities WHERE chain_id = @chainId LIMIT 1",
+            )
+            .get({ chainId }) as {
+            kind: string;
+            source_kind: string;
+            source_name: string;
+            token_id: string | null;
+            maker: string | null;
+            payload_json: string | null;
+            dedupe_key: string;
+        };
+
+        expect(row).toEqual({
+            kind: "custom",
+            source_kind: "extension",
+            source_name: "example-extension",
+            token_id: "1",
+            maker: "0x3000000000000000000000000000000000000000",
+            payload_json: JSON.stringify({
+                eventKey: "custom-event",
+                contentHash,
+                value: "example",
+                extensionKey: "example-extension",
+            }),
+            dedupe_key:
+                "extension:example-extension:custom-event:1:0xtx-extension:9:1",
+        });
     });
 
     it("projects transfer and sale feed rows from onchain source tables", async () => {
@@ -428,6 +500,58 @@ function insertCollection(
         .run(chainId, slug, address.toLowerCase());
 
     return Number(result.lastInsertRowid);
+}
+
+function insertCollectionExtensionEvent(input: {
+    chainId: number;
+    collectionId: number;
+    extensionKey: string;
+    eventKey: string;
+    contract: string;
+    tokenId: string;
+    maker: string;
+    contentHash: string;
+    blockNumber: number;
+    blockTimestamp: number;
+    txHash: string;
+    logIndex: number;
+    payload: Record<string, unknown>;
+}): void {
+    db.prepare<{
+        chainId: number;
+        collectionId: number;
+        extensionKey: string;
+        eventKey: string;
+        contractAddress: string;
+        tokenId: string;
+        maker: string;
+        contentHash: string;
+        blockNumber: number;
+        blockHash: string;
+        blockTimestamp: number;
+        txHash: string;
+        logIndex: number;
+        payloadJson: string;
+    }>(
+        "INSERT INTO collection_extension_events " +
+            "(chain_id, collection_id, extension_key, event_key, contract_address, token_id, maker, content_hash, block_number, block_hash, block_timestamp, tx_hash, log_index, payload_json) " +
+            "VALUES (@chainId, @collectionId, @extensionKey, @eventKey, @contractAddress, @tokenId, @maker, @contentHash, @blockNumber, @blockHash, @blockTimestamp, @txHash, @logIndex, @payloadJson)",
+    ).run({
+        chainId: input.chainId,
+        collectionId: input.collectionId,
+        extensionKey: input.extensionKey,
+        eventKey: input.eventKey,
+        contractAddress: input.contract.toLowerCase(),
+        tokenId: input.tokenId,
+        maker: input.maker.toLowerCase(),
+        contentHash: input.contentHash.toLowerCase(),
+        blockNumber: input.blockNumber,
+        blockHash: `0xblock-${input.blockNumber}`,
+        blockTimestamp: input.blockTimestamp,
+        txHash: input.txHash,
+        logIndex: input.logIndex,
+        payloadJson: JSON.stringify(input.payload),
+    });
 }
 
 function insertTransfer(input: {

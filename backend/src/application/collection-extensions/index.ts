@@ -1,7 +1,5 @@
-import {
-    COLLECTION_EXTENSION_KEYS,
-    type CollectionExtensionInstall,
-} from "@artgod/shared/extensions";
+import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
+import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 import { terraformsBackendCollectionExtension } from "./terraforms.js";
 import type { BackendCollectionExtension } from "./types.js";
 
@@ -9,8 +7,7 @@ const BACKEND_COLLECTION_EXTENSIONS: Record<
     string,
     BackendCollectionExtension | undefined
 > = {
-    [COLLECTION_EXTENSION_KEYS.Terraforms]:
-        terraformsBackendCollectionExtension,
+    [TERRAFORMS_EXTENSION_KEY]: terraformsBackendCollectionExtension,
 };
 
 export function resolveBackendCollectionExtension(

@@ -232,6 +232,7 @@
 				limit: DEFAULT_PAGE_LIMIT,
 				kind: 'sales'
 			},
+			activityEventFeeds: collection?.activityEventFeeds ?? [],
 			bidding: {
 				...collectionBiddingNavigationVisibilityForDeployment(),
 				bidScope,

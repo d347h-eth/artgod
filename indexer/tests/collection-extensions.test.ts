@@ -5,9 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
-    COLLECTION_EXTENSION_KEYS,
     TERRAFORMS_EXTENSION_ARTIFACT_REFS,
-} from "@artgod/shared/extensions";
+    TERRAFORMS_EXTENSION_KEY,
+} from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { terraformsIndexerExtension } from "../src/application/collection-extensions/terraforms.js";
 import { SqliteCollectionExtensions } from "../src/infra/collection-extensions/sqlite.js";
@@ -42,7 +42,7 @@ afterAll(async () => {
 });
 
 describe("terraforms collection extension", () => {
-    it("decodes sync watch logs into token metadata refresh triggers", () => {
+    it("decodes sync watch logs into token metadata refresh triggers", async () => {
         const specs = terraformsIndexerExtension.buildSyncWatchSpecs(
             buildInstall(1),
         );
@@ -66,15 +66,18 @@ describe("terraforms collection extension", () => {
             "terraforms-beacon-v2",
         ]);
 
-        const decoded = specs[0]!.decode({
-            address: TERRAFORMS_ADDRESS as `0x${string}`,
-            topics: [daydreamingTopic],
-            data: encodeAbiParameters([{ type: "uint256" }], [7710n]),
-            blockNumber: 101,
-            blockHash: `0x${"11".repeat(32)}`,
-            transactionHash: `0x${"22".repeat(32)}`,
-            logIndex: 3,
-        });
+        const decoded = await specs[0]!.decode(
+            {
+                address: TERRAFORMS_ADDRESS as `0x${string}`,
+                topics: [daydreamingTopic],
+                data: encodeAbiParameters([{ type: "uint256" }], [7710n]),
+                blockNumber: 101,
+                blockHash: `0x${"11".repeat(32)}`,
+                transactionHash: `0x${"22".repeat(32)}`,
+                logIndex: 3,
+            },
+            { rpc: createRpcStub({ onReadContract: unexpectedReadContract }) },
+        );
 
         expect(decoded.metadataRefreshEvents).toEqual([
             expect.objectContaining({
@@ -85,7 +88,131 @@ describe("terraforms collection extension", () => {
             }),
         ]);
         expect(decoded.metadataRefreshRangeEvents).toEqual([]);
+        expect(decoded.collectionExtensionEvents).toEqual([]);
     });
+
+    it("decodes Terraformed logs into extension event facts", async () => {
+        const specs = terraformsIndexerExtension.buildSyncWatchSpecs(
+            buildInstall(1),
+        );
+        const [terraformedTopic] = encodeEventTopics({
+            abi: [
+                {
+                    name: "Terraformed",
+                    type: "event",
+                    anonymous: false,
+                    inputs: [
+                        { indexed: false, name: "tokenId", type: "uint256" },
+                        { indexed: false, name: "terraformer", type: "address" },
+                    ],
+                },
+            ],
+            eventName: "Terraformed",
+        }) as [`0x${string}`];
+        const blockScopedCalls: Array<{
+            functionName: string;
+            blockNumber?: number;
+        }> = [];
+        const tokenSvgArgs: unknown[][] = [];
+
+        const decoded = await specs[0]!.decode(
+            {
+                address: TERRAFORMS_ADDRESS as `0x${string}`,
+                topics: [terraformedTopic],
+                data: encodeAbiParameters(
+                    [{ type: "uint256" }, { type: "address" }],
+                    [
+                        7710n,
+                        "0x9999999999999999999999999999999999999999",
+                    ],
+                ),
+                blockNumber: 101,
+                blockHash: `0x${"11".repeat(32)}`,
+                transactionHash: `0x${"22".repeat(32)}`,
+                logIndex: 3,
+            },
+            {
+                rpc: createRpcStub({
+                    onReadContract({ functionName, args, blockNumber }) {
+                        blockScopedCalls.push({ functionName, blockNumber });
+                        if (functionName === "tokenToCanvasData") {
+                            return (args?.[1] as bigint) + 1n;
+                        }
+                        if (functionName === "tokenToPlacement") {
+                            return 42n;
+                        }
+                        if (functionName === "tokenToStatus") {
+                            return 4n;
+                        }
+                        if (functionName === "tokenSVG") {
+                            tokenSvgArgs.push([...(args ?? [])]);
+                            return "<svg>terraformed</svg>";
+                        }
+                        throw new Error(
+                            `Unexpected contract call: ${functionName}`,
+                        );
+                    },
+                }),
+            },
+        );
+
+        expect(decoded.collectionExtensionEvents).toEqual([
+            expect.objectContaining({
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                eventKey: "terraformed",
+                contract: TERRAFORMS_ADDRESS,
+                tokenId: "7710",
+                maker: "0x9999999999999999999999999999999999999999",
+                blockNumber: 101,
+            }),
+        ]);
+        const event = decoded.collectionExtensionEvents[0]!;
+        expect(event.contentHash).toMatch(/^0x[0-9a-f]{64}$/);
+        expect(event.payload).toMatchObject({
+            eventKey: "terraformed",
+            contentHash: event.contentHash,
+            canvasHash: event.contentHash,
+        });
+        expect(event.payload).not.toHaveProperty("status");
+        expect((event.payload?.canvasRows as string[] | undefined)?.length).toBe(
+            16,
+        );
+        expect(decoded.collectionExtensionEventMedia).toEqual([
+            expect.objectContaining({
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                eventKey: "terraformed",
+                tokenId: "7710",
+                image: expect.stringMatching(/^data:image\/svg\+xml;base64,/),
+            }),
+        ]);
+        expect(
+            blockScopedCalls.filter(
+                (call) => call.functionName === "tokenToCanvasData",
+            ),
+        ).toHaveLength(16);
+        expect(
+            blockScopedCalls
+                .filter(
+                    (call) =>
+                        call.functionName !== "tokenSVG" &&
+                        call.functionName !== "tokenToStatus",
+                )
+                .every((call) => call.blockNumber === 101),
+        ).toBe(true);
+        expect(
+            blockScopedCalls.find((call) => call.functionName === "tokenSVG")
+                ?.blockNumber,
+        ).toBeUndefined();
+        expect(blockScopedCalls.map((call) => call.functionName)).toEqual(
+            expect.arrayContaining([
+                "tokenToPlacement",
+                "tokenToStatus",
+                "tokenSVG",
+            ]),
+        );
+        expect(tokenSvgArgs[0]?.[0]).toBe(4n);
+    });
+
 
     it("persists current and lost-terrain v2 artifacts for terraform mode", async () => {
         resetExtensionTables();
@@ -98,9 +225,6 @@ describe("terraforms collection extension", () => {
         const canvasReads: bigint[] = [];
         const rpc = createRpcStub({
             onReadContract({ functionName, args }) {
-                if (functionName === "seed") {
-                    return 10196n;
-                }
                 if (functionName === "tokenToPlacement") {
                     return 42n;
                 }
@@ -163,7 +287,7 @@ describe("terraforms collection extension", () => {
             chainId: 1,
             collectionId,
             tokenId: "7710",
-            extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
             artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
         });
 
@@ -179,7 +303,7 @@ describe("terraforms collection extension", () => {
             chainId: 1,
             collectionId,
             tokenId: "7710",
-            extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
             artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
         });
         expect(lostArtifact?.image).toBe(
@@ -207,9 +331,6 @@ describe("terraforms collection extension", () => {
         let canvasReads = 0;
         const rpc = createRpcStub({
             onReadContract({ functionName, args }) {
-                if (functionName === "seed") {
-                    return 10196n;
-                }
                 if (functionName === "tokenToPlacement") {
                     return 77n;
                 }
@@ -262,7 +383,7 @@ describe("terraforms collection extension", () => {
             chainId: 1,
             collectionId,
             tokenId: "7711",
-            extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+            extensionKey: TERRAFORMS_EXTENSION_KEY,
             artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media,
         });
 
@@ -288,9 +409,6 @@ describe("terraforms collection extension", () => {
         const tokenUriArgs: unknown[][] = [];
         const rpc = createRpcStub({
             onReadContract({ functionName, args }) {
-                if (functionName === "seed") {
-                    return 10196n;
-                }
                 if (functionName === "tokenToPlacement") {
                     return 88n;
                 }
@@ -339,7 +457,7 @@ describe("terraforms collection extension", () => {
                 chainId: 1,
                 collectionId,
                 tokenId: "7712",
-                extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
                 artifactRef: TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain,
             }),
         ).toBeNull();
@@ -350,7 +468,7 @@ function buildInstall(collectionId: number) {
     return {
         chainId: 1,
         collectionId,
-        extensionKey: COLLECTION_EXTENSION_KEYS.Terraforms,
+        extensionKey: TERRAFORMS_EXTENSION_KEY,
         enabled: true,
         configJson: JSON.stringify({
             mainContractAddress: TERRAFORMS_ADDRESS,
@@ -397,7 +515,7 @@ function seedCollectionToken(tokenId: string, mode: string): number {
     ).run(
         1,
         collectionId,
-        COLLECTION_EXTENSION_KEYS.Terraforms,
+        TERRAFORMS_EXTENSION_KEY,
         1,
         buildInstall(collectionId).configJson,
     );
@@ -440,6 +558,7 @@ function createRpcStub(input: {
         address: string;
         functionName: string;
         args?: readonly unknown[];
+        blockNumber?: number;
     }): unknown;
 }): RpcProviderPort {
     return {
@@ -463,10 +582,19 @@ function createRpcStub(input: {
                 address: params.address,
                 functionName: params.functionName,
                 args: params.args,
+                blockNumber: params.blockNumber,
             }) as T;
         },
         async getBalance() {
             throw new Error("Unexpected getBalance");
         },
     };
+}
+
+function unexpectedReadContract(params: {
+    address: string;
+    functionName: string;
+    args?: readonly unknown[];
+}): unknown {
+    throw new Error(`Unexpected contract call: ${params.functionName}`);
 }

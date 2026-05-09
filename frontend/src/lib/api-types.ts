@@ -17,6 +17,13 @@ export type ApiCollection = {
 	bootstrapAnchorBlock: number | null;
 	createdAt: string;
 	updatedAt: string;
+	extensions?: ApiCollectionExtensionSummary[];
+	activityEventFeeds?: ApiActivityExtensionEventFeed[];
+};
+
+// Enabled collection extension summary exposed to frontend extension registries.
+export type ApiCollectionExtensionSummary = {
+	key: string;
 };
 
 export type ApiCollectionMediaMode = {
@@ -28,6 +35,14 @@ export type ApiCollectionMediaState = {
 	selectedMode: string;
 	defaultMode: string;
 	availableModes: ApiCollectionMediaMode[];
+};
+
+export type ApiActivityEventMedia = {
+	image: string | null;
+	animationUrl: string | null;
+	htmlContent?: string | null;
+	mediaRef: string;
+	renderModes?: ApiCollectionMediaMode[];
 };
 
 export type OwnerRefResolutionApiResponse = {
@@ -47,6 +62,20 @@ export type ApiCollectionHolder = {
 };
 
 export type ApiActivityFeedFilterKind = 'sales' | 'listings' | 'transfers';
+
+export type ApiActivityExtensionEventRef = {
+	extensionKey: string;
+	eventKey: string;
+};
+
+export type ApiActivityExtensionEventFeed = ApiActivityExtensionEventRef & {
+	label: string;
+	filters?: {
+		tokenId?: { label: string };
+		maker?: { label: string };
+		contentHash?: { label: string };
+	};
+};
 
 export type ApiActivityKind =
 	| 'transfer'
@@ -257,6 +286,7 @@ export type CollectionActivitiesApiResponse = {
 	activities: ApiActivitiesPage;
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 		hasTraitSummaryTemplate: boolean;
 	};
 };
@@ -381,6 +411,7 @@ export type CollectionBiddingJobsApiResponse = {
 	jobs: ApiBiddingJob[];
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 		hasTraitSummaryTemplate: boolean;
 	};
 };
@@ -440,6 +471,7 @@ export type TokenActivitiesApiResponse = {
 	activities: ApiActivitiesPage;
 	included: {
 		tokensById: Record<string, ApiTokenPresentationSummary>;
+		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 		hasTraitSummaryTemplate: boolean;
 	};
 };

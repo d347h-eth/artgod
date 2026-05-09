@@ -77,6 +77,8 @@ export async function syncRange(
                 makerTriggers: [],
                 metadataRefreshEvents: [],
                 metadataRefreshRangeEvents: [],
+                collectionExtensionEvents: [],
+                collectionExtensionEventMedia: [],
             },
             global: {
                 cancelEvents: [],
@@ -119,6 +121,10 @@ export async function syncRange(
         [];
     const extensionMetadataRefreshRangeEvents: OnChainData["collectionScoped"]["metadataRefreshRangeEvents"] =
         [];
+    const collectionExtensionEvents: OnChainData["collectionScoped"]["collectionExtensionEvents"] =
+        [];
+    const collectionExtensionEventMedia: OnChainData["collectionScoped"]["collectionExtensionEventMedia"] =
+        [];
     for (const log of metadataRefreshLogs) {
         const decoded = decodeMetadataRefreshLog(log);
         metadataRefreshEvents.push(...decoded.tokenEvents);
@@ -132,12 +138,19 @@ export async function syncRange(
             events: spec.events,
         });
         for (const log of logs) {
-            const decoded = spec.decode(log);
+            // Let the extension enrich logs with any block-scoped reads it owns.
+            const decoded = await spec.decode(log, { rpc });
             extensionMetadataRefreshEvents.push(
                 ...decoded.metadataRefreshEvents,
             );
             extensionMetadataRefreshRangeEvents.push(
                 ...decoded.metadataRefreshRangeEvents,
+            );
+            collectionExtensionEvents.push(
+                ...decoded.collectionExtensionEvents,
+            );
+            collectionExtensionEventMedia.push(
+                ...decoded.collectionExtensionEventMedia,
             );
         }
     }
@@ -167,6 +180,12 @@ export async function syncRange(
         ),
         ...extensionMetadataRefreshRangeEvents,
     ];
+    data.collectionScoped.collectionExtensionEvents.push(
+        ...collectionExtensionEvents,
+    );
+    data.collectionScoped.collectionExtensionEventMedia.push(
+        ...collectionExtensionEventMedia,
+    );
     const seaportEvents = decodeSeaportOrderEvents(
         seaportLogs,
         trackedContracts,
@@ -409,6 +428,8 @@ function accumulateOnChainData(
             makerTriggers: [],
             metadataRefreshEvents: [],
             metadataRefreshRangeEvents: [],
+            collectionExtensionEvents: [],
+            collectionExtensionEventMedia: [],
         },
         global: {
             cancelEvents: [],

@@ -4,6 +4,7 @@
 	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 	import type { CollectionNavigation } from '$lib/collection-navigation';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
+	import type { ApiActivityExtensionEventRef } from '$lib/api-types';
 	import type { CollectionTokenStatus } from '$lib/token-browser-query';
 
 	let {
@@ -11,6 +12,7 @@
 		activeSection,
 		activeTokenStatus = null,
 		activeActivityKind = null,
+		activeActivityExtensionEvent = null,
 		activeBiddingView = null,
 		collectionAvailable = true,
 		showCustomization = true,
@@ -23,6 +25,7 @@
 		activeSection: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
 		activeTokenStatus?: CollectionTokenStatus | null;
 		activeActivityKind?: ActivityFeedFilterKind | null;
+		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
 		activeBiddingView?: CollectionBiddingViewMode | null;
 		collectionAvailable?: boolean;
 		showCustomization?: boolean;
@@ -46,6 +49,7 @@
 					active={activeSection}
 					{activeTokenStatus}
 					{activeActivityKind}
+					{activeActivityExtensionEvent}
 					{activeBiddingView}
 					{showCustomization}
 				/>

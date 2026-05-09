@@ -6,6 +6,7 @@ import type {
     CollectionMediaModeOption,
 } from "@artgod/shared/extensions";
 import type {
+    ActivityExtensionEventFeed,
     TraitFilterPresentationConfig,
     TraitSummaryTemplateConfig,
 } from "@artgod/shared/types";
@@ -14,6 +15,8 @@ import type {
     TokenDetail,
     TokenMediaPreview,
 } from "@artgod/shared/types/browse";
+
+export type BackendRpcHex = `0x${string}`;
 
 export type BackendCollectionExtensionArtifactRecord = {
     extensionKey: CollectionExtensionKey;
@@ -35,6 +38,39 @@ export type BackendCollectionExtensionTokenMediaContext = {
     ): BackendCollectionExtensionArtifactRecord | null;
 };
 
+export type BackendCollectionExtensionActivityEventContext = {
+    activityId: number;
+    chainId: number;
+    collectionId: number;
+    contract: string;
+    tokenId: string;
+    blockNumber: number | null;
+    txHash: string | null;
+    logIndex: number | null;
+    payload: Record<string, unknown> | null;
+};
+
+export type BackendCollectionExtensionRenderContext = {
+    renderMode?: string;
+    rpc: {
+        readContract<T = unknown>(params: {
+            address: BackendRpcHex;
+            abi: readonly unknown[];
+            functionName: string;
+            args?: readonly unknown[];
+            blockNumber?: number;
+        }): Promise<T>;
+        getStorageAt(params: {
+            address: BackendRpcHex;
+            slot: BackendRpcHex;
+            blockNumber?: number;
+        }): Promise<BackendRpcHex | null>;
+    };
+};
+
+export type BackendCollectionExtensionTokenUriContext =
+    BackendCollectionExtensionRenderContext;
+
 export interface BackendCollectionExtension {
     key: CollectionExtensionKey;
     resolveTraitFilterPresentationConfig(
@@ -46,6 +82,9 @@ export interface BackendCollectionExtension {
     resolveActivityRowTraitSummaryTemplateConfig(
         install: CollectionExtensionInstall,
     ): TraitSummaryTemplateConfig | null;
+    listActivityEventFeeds(
+        install: CollectionExtensionInstall,
+    ): ActivityExtensionEventFeed[];
     listMediaModes(
         install: CollectionExtensionInstall,
     ): CollectionMediaModeOption[];
@@ -73,4 +112,27 @@ export interface BackendCollectionExtension {
         token: TokenDetail,
         context: BackendCollectionExtensionMediaContext,
     ): TokenDetail;
+    resolveActivityEventPreview?(
+        install: CollectionExtensionInstall,
+        event: BackendCollectionExtensionActivityEventContext,
+        context: BackendCollectionExtensionRenderContext,
+    ): Promise<TokenMediaPreview | null>;
+    listActivityEventPreviewModes?(
+        install: CollectionExtensionInstall,
+        event: BackendCollectionExtensionActivityEventContext,
+    ): CollectionMediaModeOption[];
+    defaultActivityEventPreviewMode?(
+        install: CollectionExtensionInstall,
+        event: BackendCollectionExtensionActivityEventContext,
+    ): string;
+    resolveTokenUri?(
+        install: CollectionExtensionInstall,
+        input: {
+            chainId: number;
+            collectionId: number;
+            contract: string;
+            tokenId: string;
+        },
+        context: BackendCollectionExtensionTokenUriContext,
+    ): Promise<string | null>;
 }

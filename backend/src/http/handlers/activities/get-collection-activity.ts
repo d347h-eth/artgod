@@ -1,13 +1,19 @@
 import type { FastifyRequest } from "fastify";
+import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
+import { ACTIVITY_FEED_QUERY_PARAMS } from "@artgod/shared/types";
 import type {
     GetCollectionActivityInput,
     GetCollectionActivityOutput,
 } from "../../../application/use-cases/activities/get-collection-activity.js";
 import {
     parseActivityFilterKind,
+    parseActivityTokenId,
     getSearchParams,
+    parseContentHash,
     parseCursor,
+    parseExtensionEventRef,
     parseLimit,
+    parseMaker,
     parseMediaMode,
     parseTraits,
     parseTraitRanges,
@@ -46,10 +52,28 @@ export class GetCollectionActivityHttpAdapter {
         const searchParams = getSearchParams(request);
         const limit = parseLimit(searchParams.get("limit"));
         const cursor = parseCursor(searchParams.get("cursor"));
-        const kind = parseActivityFilterKind(searchParams.get("kind"));
+        const extensionEvent = parseExtensionEventRef(
+            searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.ExtensionEvent),
+        );
+        const kind = extensionEvent
+            ? undefined
+            : parseActivityFilterKind(
+                  searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.Kind),
+              );
         const traits = parseTraits(searchParams);
         const traitRanges = parseTraitRanges(searchParams);
-        const mediaMode = parseMediaMode(searchParams.get("media_mode"));
+        const mediaMode = parseMediaMode(
+            searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode),
+        );
+        const tokenId = parseActivityTokenId(
+            searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.TokenId),
+        );
+        const maker = parseMaker(
+            searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.Maker),
+        );
+        const contentHash = parseContentHash(
+            searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.ContentHash),
+        );
 
         return {
             chainRef: request.params.chain_ref,
@@ -60,6 +84,10 @@ export class GetCollectionActivityHttpAdapter {
             traits,
             traitRanges,
             mediaMode,
+            tokenId,
+            maker,
+            contentHash,
+            extensionEvent,
         };
     }
 

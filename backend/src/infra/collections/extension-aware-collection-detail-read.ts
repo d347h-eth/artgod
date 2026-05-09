@@ -92,7 +92,11 @@ export class ExtensionAwareCollectionDetailRead {
         chainId: number,
         collectionRef: string,
     ): CollectionListItem {
-        return this.baseReadPort.resolveCollectionRef(chainId, collectionRef);
+        const collection = this.baseReadPort.resolveCollectionRef(
+            chainId,
+            collectionRef,
+        );
+        return this.resolveCollectionExtensionPresentation(collection);
     }
 
     getCollectionMediaState(params: {
@@ -350,6 +354,27 @@ export class ExtensionAwareCollectionDetailRead {
             selectedMode,
             defaultMode,
             availableModes,
+        };
+    }
+
+    private resolveCollectionExtensionPresentation(
+        collection: CollectionListItem,
+    ): CollectionListItem {
+        const install = this.extensionRecords.getInstallByCollectionId(
+            collection.chainId,
+            collection.collectionId,
+        );
+        if (!install?.enabled) {
+            return collection;
+        }
+
+        const extension = resolveBackendCollectionExtension(install);
+        return {
+            ...collection,
+            extensions: [{ key: install.extensionKey }],
+            activityEventFeeds:
+                extension?.listActivityEventFeeds(install) ??
+                collection.activityEventFeeds,
         };
     }
 

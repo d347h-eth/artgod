@@ -88,6 +88,7 @@
 				limit: tokens.limit,
 				kind: 'sales'
 			},
+			activityEventFeeds: collection?.activityEventFeeds ?? [],
 			bidding: {
 				...collectionBiddingNavigationVisibilityForDeployment()
 			}

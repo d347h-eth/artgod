@@ -3,11 +3,14 @@ import {
     MAX_PAGE_LIMIT,
 } from "../config/pagination.js";
 import { db } from "../database/db.js";
-import type {
-    ActivityFeedCursor,
-    ActivityFeedFilterKind,
-    ActivityFeedItem,
-    ActivityFeedPage,
+import {
+    ACTIVITY_SOURCE_KIND,
+    type ActivityEventMedia,
+    type ActivityFeedCursor,
+    type ActivityExtensionEventFilter,
+    type ActivityFeedFilterKind,
+    type ActivityFeedItem,
+    type ActivityFeedPage,
 } from "../types/activity-feed.js";
 import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
@@ -62,6 +65,15 @@ type ActivityQuerySource = {
     selectColumnsSql: string;
 };
 
+type ActivityEventMediaRow = {
+    activity_id: number;
+    media_ref: string;
+    image: string | null;
+    animation_url: string | null;
+    html_content: string | null;
+    render_modes_json: string | null;
+};
+
 const RAW_ACTIVITY_SELECT_COLUMNS =
     "id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
     "0 AS is_collapsed, NULL AS collapsed_event_count, NULL AS collapsed_window_start_utc, NULL AS collapsed_window_end_utc";
@@ -83,6 +95,10 @@ export class SqliteActivitiesReadModel {
         limit: number;
         cursor?: string;
         kind?: ActivityFeedFilterKind;
+        extensionEvent?: ActivityExtensionEventFilter;
+        tokenId?: string;
+        maker?: string;
+        contentHash?: string;
         traitFilters?: TraitFilter[];
         traitRangeFilters?: TraitRangeFilter[];
     }): ActivityFeedPage {
@@ -92,6 +108,10 @@ export class SqliteActivitiesReadModel {
             limit: params.limit,
             cursor: params.cursor,
             kind: params.kind,
+            extensionEvent: params.extensionEvent,
+            tokenId: params.tokenId,
+            maker: params.maker,
+            contentHash: params.contentHash,
             traitFilters: params.traitFilters,
             traitRangeFilters: params.traitRangeFilters,
         });
@@ -120,6 +140,49 @@ export class SqliteActivitiesReadModel {
         });
     }
 
+    listCollectionActivityEventMedia(params: {
+        chainId: number;
+        collectionId: number;
+        activityIds: number[];
+    }): Record<string, ActivityEventMedia> {
+        const activityIds = params.activityIds.filter((id) =>
+            Number.isInteger(id),
+        );
+        if (activityIds.length === 0) return {};
+
+        const placeholders = activityIds.map(() => "?").join(", ");
+        const rows = db.raw
+            .prepare(
+                "SELECT a.id AS activity_id, m.media_ref, m.image, m.animation_url, m.html_content, m.render_modes_json " +
+                    "FROM activities a " +
+                    "INNER JOIN collection_extension_event_media m ON " +
+                    "m.chain_id = a.chain_id AND m.collection_id = a.collection_id AND " +
+                    "m.extension_key = a.source_name AND " +
+                    "m.event_key = json_extract(a.payload_json, '$.eventKey') AND " +
+                    "m.tx_hash = a.tx_hash AND m.log_index = a.log_index AND " +
+                    "m.token_id = COALESCE(a.token_id, '') " +
+                    "WHERE a.chain_id = ? AND a.collection_id = ? AND a.id IN (" +
+                    placeholders +
+                    ") " +
+                    "ORDER BY a.id ASC, m.media_ref ASC",
+            )
+            .all(params.chainId, params.collectionId, ...activityIds) as
+            ActivityEventMediaRow[];
+        const byActivityId: Record<string, ActivityEventMedia> = {};
+        for (const row of rows) {
+            const key = String(row.activity_id);
+            if (byActivityId[key]) continue;
+            byActivityId[key] = {
+                mediaRef: row.media_ref,
+                image: row.image,
+                animationUrl: row.animation_url,
+                htmlContent: row.html_content,
+                renderModes: parseRenderModes(row.render_modes_json),
+            };
+        }
+        return byActivityId;
+    }
+
     private listActivities(params: {
         chainId: number;
         collectionId: number;
@@ -127,6 +190,9 @@ export class SqliteActivitiesReadModel {
         limit: number;
         cursor?: string;
         kind?: ActivityFeedFilterKind;
+        extensionEvent?: ActivityExtensionEventFilter;
+        maker?: string;
+        contentHash?: string;
         traitFilters?: TraitFilter[];
         traitRangeFilters?: TraitRangeFilter[];
     }): ActivityFeedPage {
@@ -140,9 +206,21 @@ export class SqliteActivitiesReadModel {
         );
         const cursor =
             params.cursor !== undefined
-                ? decodeActivityCursor(params.cursor, filterKind)
+                ? decodeActivityCursor(
+                      params.cursor,
+                      filterKind,
+                      params.extensionEvent,
+                  )
                 : null;
-        if (shouldCollapseCollectionListings(params.tokenId, filterKind)) {
+        if (
+            shouldCollapseCollectionListings(
+                params.tokenId,
+                filterKind,
+                params.extensionEvent,
+                params.maker,
+                params.contentHash,
+            )
+        ) {
             const {
                 whereClauses: traitWhereClauses,
                 values: traitValues,
@@ -185,6 +263,9 @@ export class SqliteActivitiesReadModel {
                 collectionId: params.collectionId,
                 tokenId: params.tokenId,
                 kind: filterKind,
+                extensionEvent: params.extensionEvent,
+                maker: params.maker,
+                contentHash: params.contentHash,
                 traitFilterGroups,
                 traitRangeFilterGroups,
             });
@@ -196,7 +277,39 @@ export class SqliteActivitiesReadModel {
             limit,
             cursor,
             filterKind,
+            extensionEvent: params.extensionEvent,
         });
+    }
+}
+
+function parseRenderModes(
+    value: string | null,
+): ActivityEventMedia["renderModes"] {
+    if (!value) return undefined;
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        if (!Array.isArray(parsed)) return undefined;
+        const modes = parsed
+            .map((mode) => {
+                if (!mode || typeof mode !== "object") return null;
+                const record = mode as Record<string, unknown>;
+                if (
+                    typeof record.key !== "string" ||
+                    typeof record.label !== "string"
+                ) {
+                    return null;
+                }
+                return {
+                    key: record.key,
+                    label: record.label,
+                };
+            })
+            .filter((mode): mode is { key: string; label: string } =>
+                Boolean(mode),
+            );
+        return modes.length > 0 ? modes : undefined;
+    } catch {
+        return undefined;
     }
 }
 
@@ -205,6 +318,9 @@ function buildActivityWhereClauses(params: {
     collectionId: number;
     tokenId?: string;
     kind: ActivityFeedFilterKind | null;
+    extensionEvent?: ActivityExtensionEventFilter;
+    maker?: string;
+    contentHash?: string;
     traitFilterGroups: TraitFilterGroup[];
     traitRangeFilterGroups: TraitRangeFilterGroup[];
 }): {
@@ -246,16 +362,42 @@ function buildActivityWhereClauses(params: {
     whereClauses.push(...traitRangeWhereClauses);
     values.push(...traitRangeValues);
 
-    switch (params.kind) {
-        case "sales":
-            whereClauses.push("kind = 'sale'");
-            break;
-        case "listings":
-            whereClauses.push("kind = 'listing_created'");
-            break;
-        case "transfers":
-            whereClauses.push("kind = 'transfer'");
-            break;
+    if (params.extensionEvent) {
+        whereClauses.push(
+            "kind = 'custom'",
+            "source_kind = ?",
+            "source_name = ?",
+            "json_extract(payload_json, '$.eventKey') = ?",
+        );
+        values.push(
+            ACTIVITY_SOURCE_KIND.Extension,
+            params.extensionEvent.extensionKey.toLowerCase(),
+            params.extensionEvent.eventKey,
+        );
+    } else {
+        switch (params.kind) {
+            case "sales":
+                whereClauses.push("kind = 'sale'");
+                break;
+            case "listings":
+                whereClauses.push("kind = 'listing_created'");
+                break;
+            case "transfers":
+                whereClauses.push("kind = 'transfer'");
+                break;
+        }
+    }
+
+    if (params.maker) {
+        whereClauses.push("maker = ?");
+        values.push(params.maker.toLowerCase());
+    }
+
+    if (params.contentHash) {
+        whereClauses.push(
+            "LOWER(COALESCE(json_extract(payload_json, '$.contentHash'), '')) = ?",
+        );
+        values.push(params.contentHash.toLowerCase());
     }
 
     return {
@@ -279,8 +421,17 @@ function buildActivityBeforeOrAtCursorWhereClause(): string {
 function shouldCollapseCollectionListings(
     tokenId: string | undefined,
     filterKind: ActivityFeedFilterKind | null,
+    extensionEvent: ActivityExtensionEventFilter | undefined,
+    maker: string | undefined,
+    contentHash: string | undefined,
 ): boolean {
-    return !tokenId && filterKind === "listings";
+    return (
+        !tokenId &&
+        !extensionEvent &&
+        !maker &&
+        !contentHash &&
+        filterKind === "listings"
+    );
 }
 
 function buildCollapsedCollectionListingsSource(
@@ -322,9 +473,17 @@ function listActivitiesFromSource(params: {
     limit: number;
     cursor: ActivityFeedCursor | null;
     filterKind: ActivityFeedFilterKind | null;
+    extensionEvent?: ActivityExtensionEventFilter;
 }): ActivityFeedPage {
-    const { source, baseWhereClauses, baseValues, limit, cursor, filterKind } =
-        params;
+    const {
+        source,
+        baseWhereClauses,
+        baseValues,
+        limit,
+        cursor,
+        filterKind,
+        extensionEvent,
+    } = params;
     const whereClauses = [...baseWhereClauses];
     const values: unknown[] = [...baseValues];
 
@@ -345,6 +504,7 @@ function listActivitiesFromSource(params: {
         pageRows,
         limit,
         filterKind,
+        extensionEvent,
     });
     const totalItems = countMatchingActivities(source, baseWhereClauses, baseValues);
     const beforeItems = cursor
@@ -361,6 +521,9 @@ function listActivitiesFromSource(params: {
     const nextCursor = hasNext
         ? encodeActivityCursor({
               filterKind,
+              extensionEvent: normalizeExtensionEventForCursor(
+                  params.extensionEvent,
+              ),
               occurredAt: pageRows[pageRows.length - 1]!.occurred_at,
               id: pageRows[pageRows.length - 1]!.id,
           })
@@ -414,6 +577,7 @@ function deriveActivityPrevCursor(params: {
     pageRows: ActivityRow[];
     limit: number;
     filterKind: ActivityFeedFilterKind | null;
+    extensionEvent?: ActivityExtensionEventFilter;
 }): string | null {
     const {
         source,
@@ -448,6 +612,7 @@ function deriveActivityPrevCursor(params: {
 
     return encodeActivityCursor({
         filterKind,
+        extensionEvent: normalizeExtensionEventForCursor(params.extensionEvent),
         occurredAt: previousRows[limit]!.occurred_at,
         id: previousRows[limit]!.id,
     });
@@ -482,6 +647,7 @@ function normalizeLimit(limit: number): number {
 function decodeActivityCursor(
     cursor: string,
     expectedFilterKind: ActivityFeedFilterKind | null,
+    expectedExtensionEvent: ActivityExtensionEventFilter | undefined,
 ): ActivityFeedCursor {
     try {
         const decoded = decodeOpaqueCursor<ActivityFeedCursor>(cursor);
@@ -494,13 +660,25 @@ function decodeActivityCursor(
             throw new Error("Invalid cursor");
         }
         const cursorFilterKind = normalizeFilterKind(decoded.filterKind);
+        const cursorExtensionEvent = normalizeCursorExtensionEvent(
+            decoded.extensionEvent,
+        );
         if (cursorFilterKind !== expectedFilterKind) {
             throw new Error("Cursor filter mismatch");
+        }
+        if (
+            !sameExtensionEvent(
+                cursorExtensionEvent,
+                normalizeExtensionEventForCursor(expectedExtensionEvent),
+            )
+        ) {
+            throw new Error("Cursor extension event mismatch");
         }
         return {
             occurredAt: decoded.occurredAt,
             id: decoded.id,
             filterKind: cursorFilterKind,
+            extensionEvent: cursorExtensionEvent,
         };
     } catch {
         throw new ReadModelBadRequestError("Invalid cursor");
@@ -513,6 +691,42 @@ function normalizeFilterKind(
     return value === "sales" || value === "listings" || value === "transfers"
         ? value
         : null;
+}
+
+function normalizeExtensionEventForCursor(
+    value: ActivityExtensionEventFilter | undefined,
+): ActivityFeedCursor["extensionEvent"] {
+    if (!value) return null;
+    return {
+        extensionKey: value.extensionKey.toLowerCase(),
+        eventKey: value.eventKey,
+    };
+}
+
+function normalizeCursorExtensionEvent(
+    value: ActivityFeedCursor["extensionEvent"] | undefined,
+): ActivityFeedCursor["extensionEvent"] {
+    if (
+        !value ||
+        typeof value.extensionKey !== "string" ||
+        typeof value.eventKey !== "string"
+    ) {
+        return null;
+    }
+    return {
+        extensionKey: value.extensionKey.toLowerCase(),
+        eventKey: value.eventKey,
+    };
+}
+
+function sameExtensionEvent(
+    left: ActivityFeedCursor["extensionEvent"],
+    right: ActivityFeedCursor["extensionEvent"],
+): boolean {
+    return (
+        left?.extensionKey === right?.extensionKey &&
+        left?.eventKey === right?.eventKey
+    );
 }
 
 function encodeActivityCursor(cursor: ActivityFeedCursor): string {

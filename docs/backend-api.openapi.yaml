@@ -164,6 +164,10 @@ paths:
                 - $ref: "#/components/parameters/CollectionRef"
                 - $ref: "#/components/parameters/MediaMode"
                 - $ref: "#/components/parameters/ActivityKindFilter"
+                - $ref: "#/components/parameters/ExtensionEventFilter"
+                - $ref: "#/components/parameters/ActivityTokenIdFilter"
+                - $ref: "#/components/parameters/ActivityMakerFilter"
+                - $ref: "#/components/parameters/ActivityContentHashFilter"
                 - $ref: "#/components/parameters/MediaMode"
                 - $ref: "#/components/parameters/Limit"
                 - $ref: "#/components/parameters/Cursor"
@@ -904,6 +908,37 @@ components:
                 `listings` returns only `listing_created`.
                 On the collection activity endpoint, `listings` is collapsed by `tokenId + maker + currency + UTC day` and surfaces the latest raw listing in each group.
                 `transfers` returns only `transfer`.
+        ExtensionEventFilter:
+            name: extension_event
+            in: query
+            required: false
+            schema:
+                type: string
+                pattern: "^[a-z0-9_-]+:[a-z0-9_.-]+$"
+            description: Extension-provided event feed reference as `extension_key:event_key`. When present, this selects `custom` activity rows produced by that extension event.
+        ActivityTokenIdFilter:
+            name: token_id
+            in: query
+            required: false
+            schema:
+                type: string
+                pattern: "^\\d+$"
+            description: Optional token id filter for collection activity feeds.
+        ActivityMakerFilter:
+            name: maker
+            in: query
+            required: false
+            schema:
+                type: string
+            description: Optional maker/actor address or ENS reference for collection activity feeds.
+        ActivityContentHashFilter:
+            name: content_hash
+            in: query
+            required: false
+            schema:
+                type: string
+                pattern: "^0x[0-9a-fA-F]{64}$"
+            description: Optional extension event content hash filter.
         MediaMode:
             name: media_mode
             in: query
@@ -1064,6 +1099,40 @@ components:
                 updatedAt:
                     type: string
                     format: date-time
+                activityEventFeeds:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/ActivityExtensionEventFeed"
+
+        ActivityExtensionEventFeed:
+            type: object
+            required: [extensionKey, eventKey, label]
+            additionalProperties: false
+            properties:
+                extensionKey:
+                    type: string
+                eventKey:
+                    type: string
+                label:
+                    type: string
+                filters:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                        tokenId:
+                            $ref: "#/components/schemas/ActivityExtensionEventFeedFilter"
+                        maker:
+                            $ref: "#/components/schemas/ActivityExtensionEventFeedFilter"
+                        contentHash:
+                            $ref: "#/components/schemas/ActivityExtensionEventFeedFilter"
+
+        ActivityExtensionEventFeedFilter:
+            type: object
+            required: [label]
+            additionalProperties: false
+            properties:
+                label:
+                    type: string
 
         CursorPageCollection:
             type: object

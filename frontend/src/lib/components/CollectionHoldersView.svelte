@@ -128,6 +128,7 @@
 				limit: holders.limit,
 				kind: 'sales'
 			},
+			activityEventFeeds: collection?.activityEventFeeds ?? [],
 			bidding: {
 				...collectionBiddingNavigationVisibilityForDeployment()
 			}

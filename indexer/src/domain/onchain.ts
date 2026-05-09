@@ -1,4 +1,5 @@
 import type { Hex, RpcLog } from "../ports/rpc.js";
+import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type {
     GlobalMakerTriggerReason,
     TokenScopedMakerTriggerReason,
@@ -88,6 +89,26 @@ export type MetadataRefreshRangeEvent = CollectionScopedChainAttribution & {
     trigger: string;
 };
 
+// Collection extension facts are immutable domain events emitted by installed extensions.
+export type CollectionExtensionEvent = CollectionScopedTokenAttribution & {
+    extensionKey: CollectionExtensionKey;
+    eventKey: string;
+    maker?: string | null;
+    contentHash?: string | null;
+    payload?: Record<string, unknown> | null;
+};
+
+// Extension event media is an immutable, event-scoped preview artifact.
+export type CollectionExtensionEventMedia = CollectionScopedTokenAttribution & {
+    extensionKey: CollectionExtensionKey;
+    eventKey: string;
+    mediaRef: string;
+    image?: string | null;
+    animationUrl?: string | null;
+    htmlContent?: string | null;
+    renderModes?: { key: string; label: string }[];
+};
+
 export type TransactionRecord = {
     hash: string;
     from: string;
@@ -105,6 +126,8 @@ export type CollectionScopedOnChainData = {
     makerTriggers: TokenScopedMakerTrigger[];
     metadataRefreshEvents: MetadataRefreshEvent[];
     metadataRefreshRangeEvents: MetadataRefreshRangeEvent[];
+    collectionExtensionEvents: CollectionExtensionEvent[];
+    collectionExtensionEventMedia: CollectionExtensionEventMedia[];
 };
 
 export type GlobalOnChainTriggers = {

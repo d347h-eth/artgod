@@ -1,9 +1,18 @@
-import type { CollectionMediaPresentation } from "../extensions/index.js";
+import type {
+    CollectionExtensionKey,
+    CollectionMediaPresentation,
+} from "../extensions/index.js";
+import type { ActivityExtensionEventFeed } from "./activity-feed.js";
 import type { TraitFilterDisplayKind } from "./customization.js";
 
 export type CollectionStandard = "erc721" | "erc1155";
 
 export type CollectionStatus = "bootstrapping" | "live" | "paused" | "disabled";
+
+// Public collection extension summaries expose enabled extension identity without install config.
+export type CollectionExtensionSummary = {
+    key: CollectionExtensionKey;
+};
 
 export type ChainRecord = {
     id: number;
@@ -24,6 +33,8 @@ export type CollectionListItem = {
     bootstrapAnchorBlock: number | null;
     createdAt: string;
     updatedAt: string;
+    extensions?: CollectionExtensionSummary[];
+    activityEventFeeds?: ActivityExtensionEventFeed[];
 };
 
 export type CollectionListCursor = {

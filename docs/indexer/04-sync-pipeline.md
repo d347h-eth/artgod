@@ -95,9 +95,9 @@ Each watch spec defines:
 - `sourceId`
 - one address or an address set
 - event filters
-- a decode function that normalizes raw logs into internal metadata refresh events/ranges
+- a decode function that normalizes raw logs into internal metadata refresh events/ranges and optional immutable extension event facts
 
-The sync pipeline executes those extra `getLogs()` calls separately from the core transfer / ERC-4906 / Seaport queries and merges the normalized outputs into the same collection-scoped metadata refresh fanout path used by the rest of the system.
+The sync pipeline executes those extra `getLogs()` calls separately from the core transfer / ERC-4906 / Seaport queries. Metadata refresh outputs merge into the collection-scoped metadata refresh fanout path; extension event facts persist to `collection_extension_events` and can be projected into facts-only activity rows.
 
 Current Terraforms watch specs:
 
@@ -113,6 +113,8 @@ All of these normalize to token-level metadata refresh events with:
 - `collectionId` already resolved from the install
 - `reason = "collection-extension"`
 - `trigger = "terraforms.extension-event"`
+
+The `Terraformed` log also emits an extension event fact. The Terraforms extension owns the block-scoped contract reads needed to attach the committed canvas rows, maker address, and content hash to that fact.
 
 ## Gap Check
 

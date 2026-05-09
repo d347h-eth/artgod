@@ -1,5 +1,7 @@
 import type {
+    ActivityEventMedia,
     ActivityFeedIncludes,
+    ActivityExtensionEventFilter,
     ActivityFeedPage,
     ActivityFeedFilterKind,
     ChainRecord,
@@ -25,6 +27,10 @@ export type GetCollectionActivityInput = {
     traits: TraitFilter[];
     traitRanges: TraitRangeFilter[];
     mediaMode?: string;
+    tokenId?: string;
+    maker?: string;
+    contentHash?: string;
+    extensionEvent?: ActivityExtensionEventFilter;
 };
 
 export type GetCollectionActivityOutput = {
@@ -71,9 +77,18 @@ export class GetCollectionActivityUseCase {
                 limit: number;
                 cursor?: string;
                 kind?: ActivityFeedFilterKind;
+                extensionEvent?: ActivityExtensionEventFilter;
+                tokenId?: string;
+                maker?: string;
+                contentHash?: string;
                 traitFilters?: TraitFilter[];
                 traitRangeFilters?: TraitRangeFilter[];
             }): ActivityFeedPage;
+            listCollectionActivityEventMedia(params: {
+                chainId: number;
+                collectionId: number;
+                activityIds: number[];
+            }): Record<string, ActivityEventMedia>;
         },
         readonly tokenPresentationReadPort: {
             listCollectionTokenCardsByIds(params: {
@@ -127,6 +142,10 @@ export class GetCollectionActivityUseCase {
             limit: input.limit,
             cursor: input.cursor,
             kind: input.kind,
+            extensionEvent: input.extensionEvent,
+            tokenId: input.tokenId,
+            maker: input.maker,
+            contentHash: input.contentHash,
             traitFilters: input.traits,
             traitRangeFilters: input.traitRanges,
         });
@@ -157,6 +176,11 @@ export class GetCollectionActivityUseCase {
                 mediaMode: media.selectedMode,
             }),
             activityRowTraitSummaryTemplate.effectiveConfig.template,
+            this.activityReadPort.listCollectionActivityEventMedia({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                activityIds: activities.items.map((activity) => activity.id),
+            }),
         );
 
         return {

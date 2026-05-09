@@ -273,7 +273,7 @@ Trait summary template rules:
 - empty template means “render no summary”
 - token browser no longer falls back to dumping all trait values on split lines when the template is empty
 - activities page shows the `traits` column only when the activity-row template feature is enabled for the current collection
-- template syntax is placeholder substitution mixed with literal text, for example `L{Level}/B{Biome}/{Zone}`
+- template syntax is placeholder substitution mixed with literal text, for example `{Zone}/B{Biome}/{Chroma}/L{Level}`
 - missing placeholders render as empty strings
 
 ## Trait Filter State

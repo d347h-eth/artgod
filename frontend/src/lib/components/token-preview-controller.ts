@@ -1,8 +1,10 @@
 import { browser } from '$app/environment';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from '@artgod/shared/types';
 import { getContext, setContext } from 'svelte';
 import { get, writable, type Readable } from 'svelte/store';
 import type { ApiCollectionMediaMode, TokenPreviewApiResponse } from '$lib/api-types';
-import { getTokenPreview } from '$lib/backend-api';
+import { getActivityEventPreview, getTokenPreview } from '$lib/backend-api';
 import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
 import {
 	resolveTokenMediaAspectRatio,
@@ -17,6 +19,12 @@ const MIN_TOKEN_PREVIEW_SCALE_PERCENT = 5;
 const MAX_TOKEN_PREVIEW_SCALE_PERCENT = 100;
 const TOKEN_PREVIEW_SCALE_STEP_PERCENT = 5;
 const TOKEN_PREVIEW_CONTEXT_KEY = Symbol('token-preview-controller');
+const TOKEN_PREVIEW_CACHE_CONTEXT_KIND = {
+	Token: 'token'
+} as const;
+export const TOKEN_PREVIEW_CONTEXT_KIND = {
+	ActivityEvent: 'activity-event'
+} as const;
 let fallbackTokenPreviewController: TokenPreviewController | null = null;
 
 type TokenPreviewRequest = {
@@ -24,6 +32,12 @@ type TokenPreviewRequest = {
 	collectionRef: string;
 	tokenId: string;
 	mediaMode: string;
+	previewContext: TokenPreviewContext | null;
+};
+
+export type TokenPreviewContext = {
+	kind: typeof TOKEN_PREVIEW_CONTEXT_KIND.ActivityEvent;
+	activityId: number;
 };
 
 type CachedTokenPreview = {
@@ -31,10 +45,7 @@ type CachedTokenPreview = {
 	iframeSource: TokenPreviewIframeSource;
 };
 
-export type TokenPreviewAdjacentResolver = (
-	step: -1 | 1,
-	currentTokenId: string
-) => string | null;
+export type TokenPreviewAdjacentResolver = (step: -1 | 1, currentTokenId: string) => string | null;
 
 export type TokenPreviewIframeSource = TokenMediaIframeSource;
 
@@ -47,6 +58,7 @@ export type TokenPreviewState = {
 	collectionRef: string | null;
 	selectedMediaMode: string;
 	availableMediaModes: ApiCollectionMediaMode[];
+	previewContext: TokenPreviewContext | null;
 	scalePercent: number;
 	aspectRatio: number | null;
 	errorMessage: string | null;
@@ -62,6 +74,7 @@ export type TokenPreviewController = {
 		tokenId: string;
 		selectedMediaMode: string;
 		availableMediaModes: ApiCollectionMediaMode[];
+		previewContext?: TokenPreviewContext | null;
 		previewAspectRatio?: number | null;
 		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
 	}): Promise<void>;
@@ -82,8 +95,9 @@ export function createTokenPreviewController(): TokenPreviewController {
 		tokenId: null,
 		chainRef: null,
 		collectionRef: null,
-		selectedMediaMode: 'snapshot',
+		selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 		availableMediaModes: [],
+		previewContext: null,
 		scalePercent: readInitialTokenPreviewScalePercent(),
 		aspectRatio: null,
 		errorMessage: null,
@@ -101,6 +115,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		tokenId: string;
 		selectedMediaMode: string;
 		availableMediaModes: ApiCollectionMediaMode[];
+		previewContext?: TokenPreviewContext | null;
 		previewAspectRatio?: number | null;
 		adjacentTokenResolver?: TokenPreviewAdjacentResolver | null;
 	}): Promise<void> {
@@ -110,6 +125,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 		if (!chainRef || !collectionRef || !tokenId) return;
 
 		adjacentTokenResolver = params.adjacentTokenResolver ?? null;
+		const previewContext = params.previewContext ?? null;
 		const activeRequestId = ++requestId;
 		state.update((current) => {
 			const keepDisplayedMedia = current.iframeSource !== null && current.status !== 'error';
@@ -127,6 +143,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 				availableMediaModes: keepDisplayedMedia
 					? current.availableMediaModes
 					: params.availableMediaModes,
+				previewContext,
 				aspectRatio: resolveTokenMediaAspectRatio(
 					params.previewAspectRatio ?? null,
 					current.aspectRatio
@@ -142,7 +159,8 @@ export function createTokenPreviewController(): TokenPreviewController {
 				chainRef,
 				collectionRef,
 				tokenId,
-				mediaMode: params.selectedMediaMode
+				mediaMode: params.selectedMediaMode,
+				previewContext
 			});
 			if (activeRequestId !== requestId) return;
 			if (!preview) {
@@ -158,6 +176,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 				tokenId: preview.response.token.tokenId,
 				selectedMediaMode: preview.response.media.selectedMode,
 				availableMediaModes: preview.response.media.availableModes,
+				previewContext,
 				...resolveAdjacentAvailability(preview.response.token.tokenId),
 				errorMessage: null
 			}));
@@ -165,7 +184,8 @@ export function createTokenPreviewController(): TokenPreviewController {
 				chainRef,
 				collectionRef,
 				tokenId: preview.response.token.tokenId,
-				mediaMode: preview.response.media.selectedMode
+				mediaMode: preview.response.media.selectedMode,
+				previewContext
 			});
 		} catch {
 			if (activeRequestId !== requestId) return;
@@ -202,6 +222,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 			tokenId: current.tokenId,
 			selectedMediaMode: nextMode,
 			availableMediaModes: current.availableMediaModes,
+			previewContext: current.previewContext,
 			previewAspectRatio: current.aspectRatio,
 			adjacentTokenResolver
 		});
@@ -218,8 +239,9 @@ export function createTokenPreviewController(): TokenPreviewController {
 			tokenId: null,
 			chainRef: null,
 			collectionRef: null,
-			selectedMediaMode: 'snapshot',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Snapshot,
 			availableMediaModes: [],
+			previewContext: null,
 			aspectRatio: null,
 			errorMessage: null,
 			canNavigatePrevious: false,
@@ -302,6 +324,7 @@ export function createTokenPreviewController(): TokenPreviewController {
 			tokenId: nextTokenId,
 			selectedMediaMode: current.selectedMediaMode,
 			availableMediaModes: current.availableMediaModes,
+			previewContext: current.previewContext,
 			previewAspectRatio: current.aspectRatio,
 			adjacentTokenResolver
 		});
@@ -371,19 +394,13 @@ export function createTokenPreviewController(): TokenPreviewController {
 			return inFlight;
 		}
 
-		const promise = getTokenPreview(
-			globalThis.fetch,
-			request.chainRef,
-			request.collectionRef,
-			request.tokenId,
-			buildMediaModeQuery(request.mediaMode)
-		)
-				.then((response) => {
-					const iframeSource = resolveTokenMediaIframeSource(
-						response.token.animationUrl,
-						response.token.image,
-						tokenMediaTitle(response.token.tokenId)
-					);
+		const promise = loadPreviewResponse(request)
+			.then((response) => {
+				const iframeSource = resolveTokenMediaIframeSource(
+					response.token.animationUrl,
+					response.token.image,
+					tokenMediaTitle(response.token.tokenId)
+				);
 				if (!iframeSource) {
 					return null;
 				}
@@ -415,10 +432,30 @@ export function createTokenPreviewController(): TokenPreviewController {
 				chainRef: request.chainRef,
 				collectionRef: request.collectionRef,
 				tokenId: adjacentTokenId,
-				mediaMode: request.mediaMode
+				mediaMode: request.mediaMode,
+				previewContext: request.previewContext
 			}).catch(() => undefined);
 		}
 	}
+}
+
+function loadPreviewResponse(request: TokenPreviewRequest): Promise<TokenPreviewApiResponse> {
+	if (request.previewContext?.kind === TOKEN_PREVIEW_CONTEXT_KIND.ActivityEvent) {
+		return getActivityEventPreview(
+			globalThis.fetch,
+			request.chainRef,
+			request.collectionRef,
+			request.previewContext.activityId,
+			buildRenderModeQuery(request.mediaMode)
+		);
+	}
+	return getTokenPreview(
+		globalThis.fetch,
+		request.chainRef,
+		request.collectionRef,
+		request.tokenId,
+		buildMediaModeQuery(request.mediaMode)
+	);
 }
 
 export function setTokenPreviewControllerContext(
@@ -468,7 +505,10 @@ function readInitialTokenPreviewScalePercent(): number {
 }
 
 function clampTokenPreviewScalePercent(value: number): number {
-	return Math.min(MAX_TOKEN_PREVIEW_SCALE_PERCENT, Math.max(MIN_TOKEN_PREVIEW_SCALE_PERCENT, value));
+	return Math.min(
+		MAX_TOKEN_PREVIEW_SCALE_PERCENT,
+		Math.max(MIN_TOKEN_PREVIEW_SCALE_PERCENT, value)
+	);
 }
 
 function persistScalePercent(value: number): void {
@@ -486,11 +526,20 @@ function buildMediaModeQuery(mediaMode: string): URLSearchParams {
 	return params;
 }
 
+function buildRenderModeQuery(renderMode: string): URLSearchParams {
+	const params = new URLSearchParams();
+	params.set(ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS.RenderMode, renderMode);
+	return params;
+}
+
 function buildTokenPreviewCacheKey(request: TokenPreviewRequest): string {
 	return [
 		request.chainRef.trim().toLowerCase(),
 		request.collectionRef.trim().toLowerCase(),
 		request.tokenId.trim(),
-		request.mediaMode.trim().toLowerCase()
+		request.mediaMode.trim().toLowerCase(),
+		request.previewContext
+			? `${request.previewContext.kind}:${request.previewContext.activityId}`
+			: TOKEN_PREVIEW_CACHE_CONTEXT_KIND.Token
 	].join('|');
 }

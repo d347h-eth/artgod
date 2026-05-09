@@ -6,7 +6,10 @@ import {
     isAddressRef,
     normalizeAddressRef,
 } from "@artgod/shared/utils/ref-resolver";
-import type { ActivityFeedFilterKind } from "@artgod/shared/types";
+import {
+    ACTIVITY_FEED_FILTER_KIND,
+    type ActivityFeedFilterKind,
+} from "@artgod/shared/types";
 import type {
     CollectionStatus,
     TokenBrowserStatus,
@@ -55,9 +58,9 @@ const ALLOWED_BOOTSTRAP_RUN_STATUSES = new Set<BootstrapRunStatus>([
 ]);
 
 const ALLOWED_ACTIVITY_FILTER_KINDS = new Set<ActivityFeedFilterKind>([
-    "sales",
-    "listings",
-    "transfers",
+    ACTIVITY_FEED_FILTER_KIND.Sales,
+    ACTIVITY_FEED_FILTER_KIND.Listings,
+    ACTIVITY_FEED_FILTER_KIND.Transfers,
 ]);
 
 const ALLOWED_COLLECTION_BIDDING_BID_SCOPE_FILTERS =
@@ -146,6 +149,40 @@ export function parseOwner(raw: string | null): string | undefined {
 
 export function parseMaker(raw: string | null): string | undefined {
     return parseOptionalAddressRef(raw, "Invalid maker");
+}
+
+export function parseActivityTokenId(raw: string | null): string | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    return parseUnsignedInteger(raw.trim(), "Invalid token_id");
+}
+
+export function parseContentHash(raw: string | null): string | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+        throw new ReadModelBadRequestError("Invalid content_hash");
+    }
+    return normalized;
+}
+
+export function parseExtensionEventRef(
+    raw: string | null,
+): { extensionKey: string; eventKey: string } | undefined {
+    if (!raw || !raw.trim()) return undefined;
+    const [extensionKey, eventKey, extra] = raw.trim().split(":");
+    if (
+        extra !== undefined ||
+        !extensionKey ||
+        !eventKey ||
+        !/^[a-z0-9_-]+$/.test(extensionKey) ||
+        !/^[a-z0-9_.-]+$/.test(eventKey)
+    ) {
+        throw new ReadModelBadRequestError("Invalid extension_event");
+    }
+    return {
+        extensionKey,
+        eventKey,
+    };
 }
 
 function parseOptionalAddressRef(
@@ -292,9 +329,12 @@ export function parseMediaMode(
     return normalized;
 }
 
-function parseUnsignedInteger(value: string): string {
+function parseUnsignedInteger(
+    value: string,
+    invalidMessage = "Invalid trait range filter",
+): string {
     if (!/^\d+$/.test(value)) {
-        throw new ReadModelBadRequestError("Invalid trait range filter");
+        throw new ReadModelBadRequestError(invalidMessage);
     }
     return value;
 }

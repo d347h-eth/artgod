@@ -10,6 +10,7 @@
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import TokenBiddingJobForm from '$lib/components/TokenBiddingJobForm.svelte';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
+	import TokenDetailExtensionSectionOutlet from '$lib/token-detail-extension-sections/TokenDetailExtensionSectionOutlet.svelte';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
@@ -22,6 +23,7 @@
 		ApiTokenDetail,
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
+	import { buildCollectionActivityHref } from '$lib/activity-query';
 	import { getTokenDetail } from '$lib/backend-api';
 	import {
 		BID_SCOPE_QUERY_PARAM,
@@ -50,6 +52,11 @@
 		parseDisplayMode
 	} from '$lib/token-browser-query';
 	import { joinPath, withQuery } from '$lib/route-paths';
+	import {
+		resolveTokenDetailExtensionSections,
+		type TokenDetailExtensionSection
+	} from '$lib/token-detail-extension-sections';
+	import type { TokenDetailExtensionSectionHrefs } from '$lib/token-detail-extension-sections/types';
 
 	type PageData = {
 		chain: ApiChain | null;
@@ -182,6 +189,33 @@
 
 	function shouldShowTokenBiddingForm(): boolean {
 		return !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && !!data?.chain && !!data.collection && !!displayedToken;
+	}
+
+	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
+		if (!data?.chain || !data.collection || !displayedToken) return [];
+		return resolveTokenDetailExtensionSections({
+			chain: data.chain,
+			collection: data.collection,
+			token: displayedToken,
+			media: displayedMedia
+		});
+	}
+
+	function tokenDetailExtensionHrefs(): TokenDetailExtensionSectionHrefs {
+		return {
+			activityExtensionEvent: (event, filters = {}) =>
+				buildCollectionActivityHref({
+					basePath: collectionTokensBasePath(),
+					limit: DEFAULT_PAGE_LIMIT,
+					extensionEvent: event,
+					selectedTraits: [],
+					selectedTraitRanges: [],
+					mediaMode: collectionNavigationMediaMode(),
+					tokenId: filters.tokenId ?? null,
+					maker: filters.maker ?? null,
+					contentHash: filters.contentHash ?? null
+				})
+		};
 	}
 
 	function sortedTraits(): ApiTokenDetailTrait[] {
@@ -450,6 +484,22 @@
 				{/if}
 			</div>
 		</section>
+
+		{@const extensionSections = tokenDetailExtensionSections()}
+		{#if data?.chain && data.collection && extensionSections.length > 0}
+			<div class="token-detail-extension-sections">
+				{#each extensionSections as section (`${section.extensionKey}:${section.sectionId}`)}
+					<TokenDetailExtensionSectionOutlet
+						Section={section.Section}
+						chain={data.chain}
+						collection={data.collection}
+						token={displayedToken}
+						media={displayedMedia}
+						hrefs={tokenDetailExtensionHrefs()}
+					/>
+				{/each}
+			</div>
+		{/if}
 
 		<div class="token-detail-traits-wrap">
 			{#if sortedTraits().length === 0}

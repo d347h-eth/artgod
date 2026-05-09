@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import {
+	TERRAFORMS_EXTENSION_KEY,
+	TERRAFORMS_EXTENSION_EVENT_KEYS,
+	TERRAFORMS_MODE_ATTRIBUTE_KEY,
+	TERRAFORMS_MODE_ATTRIBUTE_VALUES
+} from '@artgod/shared/extensions/terraforms';
+import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
+import { TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS } from '$lib/activity-extension-views/terraforms/constants';
 import TokenDetailPage from '../../routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte';
+
+installBuiltInCollectionExtensions();
 
 describe('token detail page', () => {
 	it('renders centered media with fallback title and traits table', () => {
@@ -304,7 +314,8 @@ describe('token detail page', () => {
 						deploymentBlock: 1,
 						bootstrapAnchorBlock: null,
 						createdAt: '2026-01-01T00:00:00Z',
-						updatedAt: '2026-01-01T00:00:00Z'
+						updatedAt: '2026-01-01T00:00:00Z',
+						extensions: [{ key: TERRAFORMS_EXTENSION_KEY }]
 					},
 					media: {
 						selectedMode: 'lost-terrain',
@@ -332,8 +343,8 @@ describe('token detail page', () => {
 						currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 						attributes: [
 							{
-								key: 'Mode',
-								value: 'Terraform',
+								key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+								value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform,
 								tokenCount: 1,
 								rarityPercent: 100
 							}
@@ -355,9 +366,84 @@ describe('token detail page', () => {
 			'/ethereum/terraforms/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
 		);
 		expect(body).toContain(
-			'/ethereum/terraforms?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Mode%3ATerraform'
+			`/ethereum/terraforms?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=${encodeURIComponent(
+				`${TERRAFORMS_MODE_ATTRIBUTE_KEY}:${TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform}`
+			)}`
+		);
+		expect(body).toContain(`${TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS.Dreams}:`);
+		expect(body).toContain(TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS.FilterByToken);
+		expect(body).toContain(
+			`/ethereum/terraforms/activity?limit=250&amp;extension_event=${encodeURIComponent(
+				`${TERRAFORMS_EXTENSION_KEY}:${TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed}`
+			)}&amp;media_mode=artifact&amp;token_id=7710`
 		);
 		expect(body).not.toContain('media_mode=lost-terrain');
+	});
+
+	it('hides Terraforms dreams section for terrain tokens', () => {
+		const { body } = render(TokenDetailPage, {
+			props: {
+				data: {
+					chain: {
+						id: 1,
+						type: 'evm',
+						publicChainId: 1,
+						slug: 'ethereum',
+						name: 'Ethereum'
+					},
+					collection: {
+						chainId: 1,
+						collectionId: 1,
+						slug: 'terraforms',
+						address: '0x1111111111111111111111111111111111111111',
+						standard: 'erc721',
+						status: 'live',
+						deploymentBlock: 1,
+						bootstrapAnchorBlock: null,
+						createdAt: '2026-01-01T00:00:00Z',
+						updatedAt: '2026-01-01T00:00:00Z',
+						extensions: [{ key: TERRAFORMS_EXTENSION_KEY }]
+					},
+					media: {
+						selectedMode: 'artifact',
+						defaultMode: 'artifact',
+						availableModes: [{ key: 'artifact', label: 'artifact' }]
+					},
+					traitFilterPresentation: {
+						selectedSource: 'user',
+						userConfig: { rangeKeys: [] },
+						extensionConfig: null,
+						effectiveConfig: { rangeKeys: [] },
+						availableTraitKeys: [TERRAFORMS_MODE_ATTRIBUTE_KEY]
+					},
+					token: {
+						tokenId: '1',
+						name: 'Terraform #1',
+						image: 'https://example.com/1.png',
+						animationUrl: null,
+						listingPrice: null,
+						listingCurrency: null,
+						currentHolder: null,
+						attributes: [
+							{
+								key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
+								value: TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain,
+								tokenCount: 1,
+								rarityPercent: 100
+							}
+						],
+						hasMetadata: true,
+						metadataUpdatedAt: '2026-01-01T00:00:00Z'
+					},
+					tokenBiddingJob: null,
+					backPath: null,
+					backQuery: null
+				}
+			}
+		});
+
+		expect(body).not.toContain(`${TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS.Dreams}:`);
+		expect(body).not.toContain(TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS.FilterByToken);
 	});
 
 	it('uses bidding return path when opened from the collection bidding page', () => {

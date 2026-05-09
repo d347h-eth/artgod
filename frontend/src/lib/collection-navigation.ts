@@ -2,11 +2,18 @@ import { goto } from '$app/navigation';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 import {
+	ACTIVITY_EXTENSION_EVENT_QUERY_PARAM,
 	ACTIVITY_KIND_QUERY_PARAM,
+	formatActivityExtensionEventRef,
 	buildCollectionActivityQuery,
 	COLLECTION_ACTIVITY_FILTER_KINDS
 } from '$lib/activity-query';
-import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
+import type {
+	ApiActivityExtensionEventFeed,
+	ApiActivityExtensionEventRef,
+	ApiTokenAttribute,
+	ApiTraitRangeFilter
+} from '$lib/api-types';
 import {
 	BIDDING_VIEW_QUERY_PARAM,
 	buildCollectionBiddingQuery,
@@ -24,6 +31,7 @@ import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigati
 export type CollectionNavigationState = {
 	basePath: string;
 	mediaMode?: string | null;
+	activityEventFeeds?: ApiActivityExtensionEventFeed[];
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	token?: {
@@ -33,6 +41,7 @@ export type CollectionNavigationState = {
 	activity?: {
 		limit?: number;
 		kind?: ActivityFeedFilterKind;
+		extensionEvent?: ApiActivityExtensionEventRef | null;
 	};
 	bidding?: {
 		enabled?: boolean;
@@ -50,6 +59,7 @@ export type CollectionNavigation = {
 	basePath: string;
 	showBiddingOffers: boolean;
 	showBiddingJobs: boolean;
+	activityEventFeeds: ApiActivityExtensionEventFeed[];
 	queries: {
 		tokens: URLSearchParams;
 		activities: URLSearchParams;
@@ -64,6 +74,7 @@ export type CollectionNavigation = {
 		customization: string;
 		tokenStatus: (tokenStatus: CollectionTokenStatus) => string;
 		activityKind: (kind: ActivityFeedFilterKind) => string;
+		activityExtensionEvent: (event: ApiActivityExtensionEventRef) => string;
 		biddingView: (view: CollectionBiddingViewMode) => string | null;
 	};
 };
@@ -75,6 +86,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	const tokenDisplayMode = state.token?.displayMode ?? 'grid';
 	const activityLimit = state.activity?.limit ?? tokenLimit;
 	const activityKind = state.activity?.kind ?? COLLECTION_ACTIVITY_FILTER_KINDS[0];
+	const activityExtensionEvent = state.activity?.extensionEvent ?? null;
+	const activityEventFeeds = state.activityEventFeeds ?? [];
 	const defaultBiddingVisibility = state.bidding?.enabled ?? true;
 	const showBiddingOffers = state.bidding?.showOffers ?? defaultBiddingVisibility;
 	const showBiddingJobs = state.bidding?.showJobs ?? defaultBiddingVisibility;
@@ -88,7 +101,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	});
 	const activityQuery = buildCollectionActivityQuery({
 		limit: activityLimit,
-		kind: activityKind,
+		kind: activityExtensionEvent ? null : activityKind,
+		extensionEvent: activityExtensionEvent,
 		selectedTraits: state.selectedTraits,
 		selectedTraitRanges: state.selectedTraitRanges,
 		mediaMode
@@ -111,7 +125,14 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	};
 	const activityKindHref = (kind: ActivityFeedFilterKind): string => {
 		const query = new URLSearchParams(activityQuery);
+		query.delete(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM);
 		query.set(ACTIVITY_KIND_QUERY_PARAM, kind);
+		return withQuery(joinPath(normalizedBasePath, 'activity'), query);
+	};
+	const activityExtensionEventHref = (event: ApiActivityExtensionEventRef): string => {
+		const query = new URLSearchParams(activityQuery);
+		query.delete(ACTIVITY_KIND_QUERY_PARAM);
+		query.set(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM, formatActivityExtensionEventRef(event));
 		return withQuery(joinPath(normalizedBasePath, 'activity'), query);
 	};
 	const biddingViewHref = (view: CollectionBiddingViewMode): string | null => {
@@ -133,6 +154,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		basePath: normalizedBasePath,
 		showBiddingOffers,
 		showBiddingJobs,
+		activityEventFeeds,
 		queries: {
 			tokens: tokenQuery,
 			activities: activityQuery,
@@ -152,6 +174,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			}),
 			tokenStatus: tokenStatusHref,
 			activityKind: activityKindHref,
+			activityExtensionEvent: activityExtensionEventHref,
 			biddingView: biddingViewHref
 		}
 	};

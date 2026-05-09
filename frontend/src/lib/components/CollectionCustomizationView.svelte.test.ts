@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { TERRAFORMS_TRAIT_SUMMARY_TEMPLATE } from '@artgod/shared/extensions/terraforms';
 import CollectionCustomizationView from './CollectionCustomizationView.svelte';
 
 describe('CollectionCustomizationView', () => {
@@ -36,14 +37,14 @@ describe('CollectionCustomizationView', () => {
 					tokenCardTraitSummaryTemplate: {
 						selectedSource: 'extension',
 						userConfig: { template: '' },
-						extensionConfig: { template: 'L{Level}/B{Biome}/{Zone}' },
-						effectiveConfig: { template: 'L{Level}/B{Biome}/{Zone}' }
+						extensionConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
+						effectiveConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE }
 					},
 					activityRowTraitSummaryTemplate: {
 						selectedSource: 'extension',
 						userConfig: { template: '' },
-						extensionConfig: { template: 'L{Level}/B{Biome}/{Zone}' },
-						effectiveConfig: { template: 'L{Level}/B{Biome}/{Zone}' }
+						extensionConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
+						effectiveConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE }
 					}
 				},
 				basePath: '/ethereum/terraforms',
@@ -58,7 +59,7 @@ describe('CollectionCustomizationView', () => {
 		expect(body).toContain('activity row trait summary template');
 		expect(body).toContain('user-defined');
 		expect(body).toContain('extension-defined');
-		expect(body).toContain('L{Level}/B{Biome}/{Zone}');
+		expect(body).toContain(TERRAFORMS_TRAIT_SUMMARY_TEMPLATE);
 		expect(body).toContain('placeholder="empty = hidden"');
 		expect(body).toContain('>save<');
 	});

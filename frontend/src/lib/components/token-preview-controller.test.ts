@@ -1,18 +1,27 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
+import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from '@artgod/shared/types';
 import { get } from 'svelte/store';
 
-const { getTokenPreviewMock } = vi.hoisted(() => ({
+const { getActivityEventPreviewMock, getTokenPreviewMock } = vi.hoisted(() => ({
+	getActivityEventPreviewMock: vi.fn(),
 	getTokenPreviewMock: vi.fn()
 }));
 
 vi.mock('$lib/backend-api', () => ({
+	getActivityEventPreview: getActivityEventPreviewMock,
 	getTokenPreview: getTokenPreviewMock
 }));
 
-import { createTokenPreviewController, tokenPreviewStyle } from './token-preview-controller';
+import {
+	createTokenPreviewController,
+	TOKEN_PREVIEW_CONTEXT_KIND,
+	tokenPreviewStyle
+} from './token-preview-controller';
 
 describe('token-preview-controller', () => {
 	beforeEach(() => {
+		getActivityEventPreviewMock.mockReset();
 		getTokenPreviewMock.mockReset();
 	});
 
@@ -300,6 +309,51 @@ describe('token-preview-controller', () => {
 		const state = get(controller.state);
 		expect(state.aspectRatio).toBe(0.6933333333333334);
 		expect(tokenPreviewStyle(state)).toContain('--token-preview-ar:0.6933333333333334;');
+	});
+
+	it('loads activity event previews through the activity event preview endpoint', async () => {
+		getActivityEventPreviewMock.mockResolvedValueOnce({
+			token: {
+				tokenId: '7710',
+				image: null,
+				animationUrl: 'data:text/html;base64,ZXZlbnQ='
+			},
+			media: {
+				selectedMode: COLLECTION_MEDIA_MODES.Artifact,
+				defaultMode: COLLECTION_MEDIA_MODES.Artifact,
+				availableModes: [{ key: COLLECTION_MEDIA_MODES.Artifact, label: COLLECTION_MEDIA_MODES.Artifact }]
+			}
+		});
+
+		const controller = createTokenPreviewController();
+
+		await controller.openTokenPreview({
+			chainRef: 'ethereum',
+			collectionRef: 'terraforms',
+			tokenId: '7710',
+			selectedMediaMode: COLLECTION_MEDIA_MODES.Artifact,
+			availableMediaModes: [
+				{ key: COLLECTION_MEDIA_MODES.Artifact, label: COLLECTION_MEDIA_MODES.Artifact }
+			],
+			previewContext: {
+				kind: TOKEN_PREVIEW_CONTEXT_KIND.ActivityEvent,
+				activityId: 42
+			}
+		});
+
+		const query = getActivityEventPreviewMock.mock.calls[0]?.[4] as URLSearchParams;
+		expect(getActivityEventPreviewMock).toHaveBeenCalledWith(
+			globalThis.fetch,
+			'ethereum',
+			'terraforms',
+			42,
+			expect.any(URLSearchParams)
+		);
+		expect(query.get(ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS.RenderMode)).toBe(
+			COLLECTION_MEDIA_MODES.Artifact
+		);
+		expect(getTokenPreviewMock).not.toHaveBeenCalled();
+		expect(get(controller.state).iframeSource?.kind).toBe('src');
 	});
 });
 
