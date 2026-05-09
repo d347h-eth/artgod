@@ -369,13 +369,12 @@ export class ExtensionAwareCollectionDetailRead {
         }
 
         const extension = resolveBackendCollectionExtension(install);
-        if (!extension) {
-            return collection;
-        }
-
         return {
             ...collection,
-            activityEventFeeds: extension.listActivityEventFeeds(install),
+            extensions: [{ key: install.extensionKey }],
+            activityEventFeeds:
+                extension?.listActivityEventFeeds(install) ??
+                collection.activityEventFeeds,
         };
     }
 

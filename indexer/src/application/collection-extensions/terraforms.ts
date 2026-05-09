@@ -9,6 +9,8 @@ import {
     TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_MODE_ATTRIBUTE_KEY,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES,
     TERRAFORMS_SEED,
 } from "@artgod/shared/extensions/terraforms";
 import type { CollectionExtensionInstall } from "@artgod/shared/extensions";
@@ -28,7 +30,6 @@ import type {
 } from "./types.js";
 import type { Hex, RpcLog, RpcProviderPort } from "../../ports/rpc.js";
 
-const MODE_ATTRIBUTE_KEY = "Mode";
 const DEFAULT_DECAY = 0n;
 
 const TERRAFORMS_MAIN_ABI = [
@@ -187,14 +188,23 @@ type TerraformsStatus = {
 };
 
 const MODE_TO_STATUS: Record<string, TerraformsStatus> = {
-    Terrain: { slug: TERRAFORMS_STATUS_SLUG.Terrain, value: 0n },
-    Daydream: { slug: TERRAFORMS_STATUS_SLUG.Daydream, value: 1n },
-    Terraform: { slug: TERRAFORMS_STATUS_SLUG.Terraform, value: 2n },
-    "Origin Daydream": {
+    [TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain]: {
+        slug: TERRAFORMS_STATUS_SLUG.Terrain,
+        value: 0n,
+    },
+    [TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream]: {
+        slug: TERRAFORMS_STATUS_SLUG.Daydream,
+        value: 1n,
+    },
+    [TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform]: {
+        slug: TERRAFORMS_STATUS_SLUG.Terraform,
+        value: 2n,
+    },
+    [TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream]: {
         slug: TERRAFORMS_STATUS_SLUG.OriginDaydream,
         value: 3n,
     },
-    "Origin Terraform": {
+    [TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform]: {
         slug: TERRAFORMS_STATUS_SLUG.OriginTerraform,
         value: 4n,
     },
@@ -259,7 +269,7 @@ export const terraformsIndexerExtension: IndexerCollectionExtension = {
             chainId: context.payload.chainId,
             collectionId: context.payload.collectionId,
             tokenId,
-            key: MODE_ATTRIBUTE_KEY,
+            key: TERRAFORMS_MODE_ATTRIBUTE_KEY,
         });
         if (!tokenMode) {
             throw new Error(

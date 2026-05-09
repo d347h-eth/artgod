@@ -20,6 +20,30 @@ export const TERRAFORMS_EXTENSION_EVENT_KEYS = {
     Terraformed: "terraformed",
 } as const;
 
+// Terraforms stores the token state in metadata under this trait key.
+export const TERRAFORMS_MODE_ATTRIBUTE_KEY = "Mode";
+
+// Metadata Mode trait values mirror Terraforms onchain state names.
+export const TERRAFORMS_MODE_ATTRIBUTE_VALUES = {
+    Terrain: "Terrain",
+    Daydream: "Daydream",
+    Terraform: "Terraform",
+    OriginDaydream: "Origin Daydream",
+    OriginTerraform: "Origin Terraform",
+} as const;
+
+// Tokens in these Mode states can have or receive owner-written dream canvases.
+export const TERRAFORMS_DREAM_MODE_ATTRIBUTE_VALUES = [
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform,
+] as const;
+
+// Default Terraforms trait summary shown on token cards and activity rows.
+export const TERRAFORMS_TRAIT_SUMMARY_TEMPLATE =
+    "{Zone}/B{Biome}/{Chroma}/L{Level}";
+
 export const TERRAFORMS_EVENT_RENDER_MODES = {
     Network: "network",
     Artifact: "artifact",
@@ -82,6 +106,13 @@ export function resolveTerraformsCommittedCanvasStatus(
     return BigInt(tokenStatus) >= TERRAFORMS_ORIGIN_DAYDREAM_STATUS
         ? TERRAFORMS_ORIGIN_TERRAFORMED_STATUS
         : TERRAFORMS_TERRAFORMED_STATUS;
+}
+
+// Checks whether a token Mode trait should expose dream-specific UI affordances.
+export function isTerraformsDreamMode(value: string | null | undefined): boolean {
+    return TERRAFORMS_DREAM_MODE_ATTRIBUTE_VALUES.includes(
+        value as (typeof TERRAFORMS_DREAM_MODE_ATTRIBUTE_VALUES)[number],
+    );
 }
 
 // Parses user-pasted Terraforms heightmaps into the same rows stored by the contract.

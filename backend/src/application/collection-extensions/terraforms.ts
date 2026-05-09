@@ -15,6 +15,7 @@ import {
     TERRAFORMS_MEDIA_MODES,
     TERRAFORMS_SEED,
     TERRAFORMS_TOKEN_TO_URI_ADDRESS_INDEX_STORAGE_SLOT,
+    TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
 } from "@artgod/shared/extensions/terraforms";
 import type {
     BackendCollectionExtension,
@@ -105,12 +106,12 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
         },
         resolveTokenCardTraitSummaryTemplateConfig() {
             return {
-                template: "L{Level}/B{Biome}/{Zone}",
+                template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
             };
         },
         resolveActivityRowTraitSummaryTemplateConfig() {
             return {
-                template: "L{Level}/B{Biome}/{Zone}",
+                template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
             };
         },
         listActivityEventFeeds() {

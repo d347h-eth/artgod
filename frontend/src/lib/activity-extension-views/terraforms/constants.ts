@@ -25,6 +25,17 @@ export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS = {
 	Dreams: 'terraforms-dreams'
 } as const;
 
+// Token detail section ids owned by the Terraforms frontend extension.
+export const TERRAFORMS_TOKEN_DETAIL_SECTION_IDS = {
+	Dreams: 'terraforms-dreams'
+} as const;
+
+// Labels used by Terraforms token detail extension sections.
+export const TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS = {
+	Dreams: 'dreams',
+	FilterByToken: 'filter by token'
+} as const;
+
 // Accessible labels for Terraforms token id row actions.
 export const TERRAFORMS_TOKEN_ID_CELL_LABELS = {
 	FilterToken: 'filter token'

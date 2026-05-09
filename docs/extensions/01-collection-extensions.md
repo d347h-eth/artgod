@@ -208,7 +208,7 @@ Current Terraforms overrides:
 
 Current template string for both summary features:
 
-- `L{Level}/B{Biome}/{Zone}`
+- `{Zone}/B{Biome}/{Chroma}/L{Level}`
 
 This is important because it demonstrates that extension-owned collection customization is not limited to media.
 

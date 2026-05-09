@@ -10,6 +10,7 @@ import {
     TERRAFORMS_EXTENSION_EVENT_KEYS,
     TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS,
     TERRAFORMS_EXTENSION_KEY,
+    TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,
 } from "@artgod/shared/extensions/terraforms";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
@@ -2129,6 +2130,9 @@ describe("backend api routes", () => {
         const result = await resolve("GET", "/api/ethereum/terraforms/7710");
         expect(result.statusCode).toBe(200);
         expect(result.payload.collection.address).toBe(TERRAFORMS_ADDRESS);
+        expect(result.payload.collection.extensions).toEqual([
+            { key: TERRAFORMS_EXTENSION_KEY },
+        ]);
         expect(result.payload.media.selectedMode).toBe("artifact");
         expect(result.payload.media.defaultMode).toBe("artifact");
         expect(result.payload.media.availableModes).toEqual([
@@ -2194,7 +2198,7 @@ describe("backend api routes", () => {
         expect(result.payload.tokens.items[0].image).toBe(
             "data:image/svg+xml;base64,terraforms-v2-image",
         );
-        expect(result.payload.tokens.items[0].traitSummary).toBe("L/B/");
+        expect(result.payload.tokens.items[0].traitSummary).toBe("/B//L");
     });
 
     it("returns Terraforms collection tokens with canonical images in snapshot mode", async () => {
@@ -2245,7 +2249,7 @@ describe("backend api routes", () => {
             "data:image/svg+xml;base64,terraforms-v2-image",
         );
         expect(artifact.payload.included.tokensById["7710"].traitSummary).toBe(
-            "L/B/",
+            "/B//L",
         );
 
         const snapshot = await resolve(
@@ -2570,15 +2574,15 @@ describe("backend api routes", () => {
             terraforms.payload.customization.tokenCardTraitSummaryTemplate,
         ).toMatchObject({
             selectedSource: "extension",
-            extensionConfig: { template: "L{Level}/B{Biome}/{Zone}" },
-            effectiveConfig: { template: "L{Level}/B{Biome}/{Zone}" },
+            extensionConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
+            effectiveConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
         });
         expect(
             terraforms.payload.customization.activityRowTraitSummaryTemplate,
         ).toMatchObject({
             selectedSource: "extension",
-            extensionConfig: { template: "L{Level}/B{Biome}/{Zone}" },
-            effectiveConfig: { template: "L{Level}/B{Biome}/{Zone}" },
+            extensionConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
+            effectiveConfig: { template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE },
         });
     });
 

@@ -17,7 +17,13 @@ export type ApiCollection = {
 	bootstrapAnchorBlock: number | null;
 	createdAt: string;
 	updatedAt: string;
+	extensions?: ApiCollectionExtensionSummary[];
 	activityEventFeeds?: ApiActivityExtensionEventFeed[];
+};
+
+// Enabled collection extension summary exposed to frontend extension registries.
+export type ApiCollectionExtensionSummary = {
+	key: string;
 };
 
 export type ApiCollectionMediaMode = {

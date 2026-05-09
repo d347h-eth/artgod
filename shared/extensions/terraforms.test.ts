@@ -2,7 +2,9 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
     hashTerraformsCanvasRows,
+    isTerraformsDreamMode,
     parseTerraformsCanvasRowsText,
+    TERRAFORMS_MODE_ATTRIBUTE_VALUES,
 } from "./terraforms.js";
 
 describe("Terraforms canvas helpers", () => {
@@ -36,5 +38,32 @@ describe("Terraforms canvas helpers", () => {
         assert.throws(() => parseTerraformsCanvasRowsText("1\n2\n3"), {
             message: "Terraforms heightmap must contain exactly 16 rows",
         });
+    });
+
+    it("marks only dream-capable Terraforms modes as dream modes", () => {
+        assert.equal(
+            isTerraformsDreamMode(TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terrain),
+            false,
+        );
+        assert.equal(
+            isTerraformsDreamMode(TERRAFORMS_MODE_ATTRIBUTE_VALUES.Daydream),
+            true,
+        );
+        assert.equal(
+            isTerraformsDreamMode(TERRAFORMS_MODE_ATTRIBUTE_VALUES.Terraform),
+            true,
+        );
+        assert.equal(
+            isTerraformsDreamMode(
+                TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginDaydream,
+            ),
+            true,
+        );
+        assert.equal(
+            isTerraformsDreamMode(
+                TERRAFORMS_MODE_ATTRIBUTE_VALUES.OriginTerraform,
+            ),
+            true,
+        );
     });
 });

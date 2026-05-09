@@ -4,6 +4,8 @@ import {
 	registerTerraformsCollectionNavigation
 } from '$lib/activity-extension-views/terraforms';
 import { collectionExtensionNavigationRegistrar } from '$lib/collection-extension-navigation';
+import { registerTerraformsTokenDetailExtensionSections } from '$lib/token-detail-extension-sections/terraforms';
+import { tokenDetailExtensionSectionRegistrar } from '$lib/token-detail-extension-sections';
 
 let builtInCollectionExtensionsInstalled = false;
 
@@ -14,4 +16,5 @@ export function installBuiltInCollectionExtensions(): void {
 
 	registerTerraformsActivityExtensionViews(activityExtensionEventViewRegistrar);
 	registerTerraformsCollectionNavigation(collectionExtensionNavigationRegistrar);
+	registerTerraformsTokenDetailExtensionSections(tokenDetailExtensionSectionRegistrar);
 }
