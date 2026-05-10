@@ -1,0 +1,25 @@
+apiVersion: 1
+
+datasources:
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo:3200
+      isDefault: false
+      editable: true
+      jsonData:
+          tracesToProfiles:
+              # Must match the provisioned Pyroscope datasource UID.
+              datasourceUid: pyroscope
+              # Map span/resource attributes to Pyroscope labels.
+              # service.name is usually emitted by OpenTelemetry, while
+              # Pyroscope profile labels commonly use service_name.
+              tags:
+                  - key: service.name
+                    value: service_name
+                  - key: worker
+                    value: worker
+                  - key: chainId
+                    value: chain_id
+              profileTypeId: wall:cpu:nanoseconds:wall:nanoseconds

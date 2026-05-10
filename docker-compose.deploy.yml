@@ -9,10 +9,14 @@ x-artgod-image: &artgod-image
             PUBLIC_APP_CHAIN_REF: ${PUBLIC_APP_CHAIN_REF:-}
             PUBLIC_APP_COLLECTION_REF: ${PUBLIC_APP_COLLECTION_REF:-}
 
+x-artgod-log-labels: &artgod-log-labels
+    com.artgod.observability.logs: "true"
+
 x-artgod-service: &artgod-service
     <<: *artgod-image
     init: true
     restart: unless-stopped
+    labels: *artgod-log-labels
     env_file:
         - .env.deploy
     environment:
@@ -27,6 +31,7 @@ services:
         restart: unless-stopped
         profiles:
             - bundled-caddy
+        labels: *artgod-log-labels
         depends_on:
             - frontend-web
             - backend
@@ -45,6 +50,7 @@ services:
         image: nats:2.10
         init: true
         restart: unless-stopped
+        labels: *artgod-log-labels
         command: ["-js", "-sd", "/data", "-m", "8222"]
         volumes:
             - nats-data:/data
@@ -186,11 +192,118 @@ services:
         command:
             ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/dead-letter-worker.mjs"]
 
+    loki:
+        image: grafana/loki:3.0.0
+        init: true
+        restart: unless-stopped
+        profiles:
+            - observability
+        command: ["-config.file=/etc/loki/config.yaml"]
+        expose:
+            - "3100"
+        volumes:
+            - ./observability/loki/loki-config.yaml:/etc/loki/config.yaml:ro
+            - loki-data:/loki
+
+    tempo:
+        image: grafana/tempo:2.7.1
+        init: true
+        restart: unless-stopped
+        profiles:
+            - observability
+        command: ["-config.file=/etc/tempo/config.yaml"]
+        expose:
+            - "3200"
+            - "4318"
+        volumes:
+            - ./observability/tempo/tempo-config.yaml:/etc/tempo/config.yaml:ro
+            - tempo-data:/var/tempo
+
+    pyroscope:
+        image: grafana/pyroscope:latest
+        init: true
+        restart: unless-stopped
+        profiles:
+            - observability
+        expose:
+            - "4040"
+        volumes:
+            - pyroscope-data:/var/lib/pyroscope
+
+    alloy:
+        image: grafana/alloy:latest
+        init: true
+        restart: unless-stopped
+        profiles:
+            - observability
+        command:
+            [
+                "run",
+                "--server.http.listen-addr=0.0.0.0:12345",
+                "/etc/alloy/config.alloy",
+            ]
+        depends_on:
+            - loki
+        volumes:
+            - ./observability/alloy/deploy-config.alloy:/etc/alloy/config.alloy:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    prometheus:
+        image: prom/prometheus:v2.54.1
+        init: true
+        restart: unless-stopped
+        profiles:
+            - observability
+        command:
+            [
+                "--config.file=/etc/prometheus/prometheus.yml",
+                "--web.listen-address=0.0.0.0:9090",
+            ]
+        expose:
+            - "9090"
+        volumes:
+            - ./observability/prometheus/deploy-prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - prometheus-data:/prometheus
+
+    grafana:
+        image: grafana/grafana:latest
+        init: true
+        restart: unless-stopped
+        profiles:
+            - observability
+        depends_on:
+            - loki
+            - prometheus
+            - tempo
+            - pyroscope
+        expose:
+            - "3000"
+        networks:
+            default:
+            public-edge:
+                aliases:
+                    - artgod-grafana
+        environment:
+            GF_SERVER_HTTP_ADDR: 0.0.0.0
+            GF_SERVER_HTTP_PORT: "3000"
+            GF_SECURITY_ADMIN_USER: ${OBSERVABILITY_GRAFANA_ADMIN_USER:-admin}
+            GF_SECURITY_ADMIN_PASSWORD: ${OBSERVABILITY_GRAFANA_ADMIN_PASSWORD:-change-me}
+            GF_USERS_ALLOW_SIGN_UP: "false"
+        volumes:
+            - grafana-data:/var/lib/grafana
+            - ./observability/grafana/provisioning-deploy/datasources:/etc/grafana/provisioning/datasources:ro
+            - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+
 volumes:
     artgod-data:
     nats-data:
     caddy-data:
     caddy-config:
+    loki-data:
+    tempo-data:
+    pyroscope-data:
+    prometheus-data:
+    grafana-data:
 
 networks:
     public-edge:

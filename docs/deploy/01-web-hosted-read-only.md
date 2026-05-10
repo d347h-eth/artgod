@@ -47,6 +47,7 @@ ArtGod joins that network with stable aliases:
 
 - `artgod-backend`
 - `artgod-frontend`
+- `artgod-grafana` when the `observability` profile is enabled
 
 If you want a different network name, set `PUBLIC_EDGE_NETWORK` in `.env.deploy` and use the same name from the other compose project.
 
@@ -69,6 +70,15 @@ terraforms.artgod.network {
   reverse_proxy @backend artgod-backend:3000
 
   reverse_proxy artgod-frontend:4173
+}
+```
+
+For an observability subdomain, route that site to Grafana inside the same Docker edge network:
+
+```caddy
+observability.artgod.network {
+  encode zstd gzip
+  reverse_proxy artgod-grafana:3000
 }
 ```
 
@@ -122,16 +132,36 @@ cp .env.deploy.example .env.deploy
 - `RPC_URL`
 - `OPENSEA_API_KEY`
 
+If enabling deploy observability, also set:
+
+- `METRICS_ENABLED=true`
+- `APM_ENABLED=true`
+- `APM_OTLP_HTTP_URL=http://tempo:4318/v1/traces`
+- `APM_PYROSCOPE_URL=http://pyroscope:4040`
+- `OBSERVABILITY_GRAFANA_ADMIN_PASSWORD` to a non-default value before routing Grafana from a public subdomain
+
 3. Build and start the stack:
 
 ```sh
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml up --build -d
 ```
 
+To start the same stack with Loki, Alloy, Prometheus, Tempo, Pyroscope, and Grafana:
+
+```sh
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml --profile observability up --build -d
+```
+
 If you want to use the bundled Caddy instead of an existing VPS proxy:
 
 ```sh
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml --profile bundled-caddy up --build -d
+```
+
+Profiles can be combined:
+
+```sh
+docker compose --env-file .env.deploy -f docker-compose.deploy.yml --profile bundled-caddy --profile observability up --build -d
 ```
 
 If you need temporary direct host access to backend/frontend for debugging, use a one-off compose override or `docker exec`/`docker compose exec` inside the stack rather than permanent host port bindings.
@@ -143,6 +173,21 @@ docker compose --env-file .env.deploy -f docker-compose.deploy.yml logs -f caddy
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml logs -f backend
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml logs -f indexer-sync-worker
 ```
+
+## Observability
+
+The deploy compose defines an `observability` profile with:
+
+- Loki for log storage.
+- Alloy for Docker log discovery and forwarding to Loki.
+- Prometheus scraping indexer worker `/metrics` endpoints over the compose network.
+- Tempo receiving OTLP HTTP traces at `http://tempo:4318/v1/traces`.
+- Pyroscope receiving profiles at `http://pyroscope:4040`.
+- Grafana exposed only inside `public-edge` as `artgod-grafana:3000`.
+
+Alloy reads Docker logs through a read-only `/var/run/docker.sock` mount and keeps only containers labeled with `com.artgod.observability.logs=true`. The app, NATS, and bundled Caddy services carry that label; observability service logs are intentionally not scraped by default.
+
+Grafana uses deploy-specific datasource provisioning under `observability/grafana/provisioning-deploy/datasources` because deploy containers talk to each other by compose service name instead of localhost.
 
 ## Manual Admin
 
@@ -156,13 +201,17 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `INTERNAL_BACKEND_ORIGIN` is the runtime-only backend origin used by the SSR frontend server process itself; in the default compose setup it should stay `http://backend:3000`.
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
+- When the deploy observability profile is enabled, the same shared network also exposes `artgod-grafana:3000` for a reverse proxy managed outside this compose file.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
 - `BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, and `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.
 - `BACKEND_QUERY_CACHE_PROVIDER=memory` enables the backend in-memory query cache for the public VPS deployment.
 - `BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS` controls how often the backend refreshes the cached public collection page (`listed`, first page, no filters) in the background.
 - `BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS` controls how often those background collection refreshes also trigger preview warmup for the current 250 visible tokens.
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` controls the preview-modal cache itself. That cache stores only default-media token previews, serves stale responses during the grace window, and refreshes them in the background when an individual preview entry goes stale.
+- `METRICS_ENABLED=true` starts per-worker Prometheus HTTP endpoints; `METRICS_HOST=0.0.0.0` is required so Prometheus can scrape them across the compose network.
+- `APM_ENABLED=true` starts trace/profile exporters; in deploy mode the endpoints must be the service-name URLs `http://tempo:4318/v1/traces` and `http://pyroscope:4040`, not localhost.
 - The deploy image relies on the repo’s Yarn allowlist policy during `yarn install --immutable --inline-builds`: `enableScripts: false` stays in effect globally, while allowlisted packages such as `esbuild` are still built through `dependenciesMeta.built: true`. `better-sqlite3` is then built explicitly and narrowly by invoking its trusted package-local `install` script from inside the unplugged package directory, and the image hard-fails if the native SQLite binding is still missing from `.yarn/unplugged`.
 - The deploy image reuses the same backend/indexer runtime artifacts and Yarn PnP Node launch shape as the desktop supervisor.
 - SQLite is persisted in the named Docker volume mounted at `/data`.
 - Bundled Caddy certificates and config state are persisted in the named Docker volumes `caddy-data` and `caddy-config`.
+- Deploy observability data is persisted in the named Docker volumes `loki-data`, `tempo-data`, `pyroscope-data`, `prometheus-data`, and `grafana-data`.

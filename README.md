@@ -350,6 +350,8 @@ Signal paths:
 - Traces: OTLP -> Tempo -> Grafana
 - Profiles: Pyroscope -> Grafana
 
+The public deploy compose exposes the same stack behind its `observability` profile, with Grafana reachable inside the shared Docker edge network as `artgod-grafana:3000`.
+
 Reference docs:
 
 - `docs/indexer/10-observability-and-metrics.md`

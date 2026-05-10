@@ -1,0 +1,75 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+discovery.docker "artgod_deploy" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "artgod_deploy_logs" {
+  targets = discovery.docker.artgod_deploy.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_artgod_observability_logs"]
+    regex         = "true"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "artgod_deploy" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.artgod_deploy_logs.output
+  labels     = { app = "artgod", deployment = "public-web" }
+  forward_to = [loki.process.artgod_deploy.receiver]
+}
+
+loki.process "artgod_deploy" {
+  // Parse ArtGod JSON logs when present; non-JSON container lines still pass through.
+  stage.json {
+    expressions = {
+      timestamp = "t",
+      level     = "level",
+      component = "component",
+      action    = "action",
+    }
+  }
+
+  // Keep labels intentionally low-cardinality for efficient Loki queries.
+  stage.labels {
+    values = {
+      level     = "level",
+      component = "component",
+      action    = "action",
+    }
+  }
+
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

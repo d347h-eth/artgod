@@ -1,0 +1,44 @@
+global:
+    scrape_interval: 5s
+    evaluation_interval: 5s
+
+scrape_configs:
+    - job_name: "artgod-indexer"
+      metrics_path: /metrics
+      static_configs:
+          - targets: ["indexer-scheduler-worker:9464"]
+            labels:
+                runtime: "scheduler-worker"
+          - targets: ["indexer-sync-worker:9465"]
+            labels:
+                runtime: "sync-worker"
+          - targets: ["indexer-reorg-worker:9466"]
+            labels:
+                runtime: "reorg-worker"
+          - targets: ["indexer-domain-worker:9467"]
+            labels:
+                runtime: "domain-worker"
+          - targets: ["indexer-offchain-ingest-worker:9468"]
+            labels:
+                runtime: "offchain-ingest-worker"
+          - targets: ["indexer-opensea-stream-worker:9469"]
+            labels:
+                runtime: "opensea-stream-worker"
+          - targets: ["indexer-bootstrap-worker:9470"]
+            labels:
+                runtime: "bootstrap-worker"
+          - targets: ["indexer-dead-letter-worker:9471"]
+            labels:
+                runtime: "dead-letter-worker"
+          - targets: ["indexer-opensea-bootstrap-worker:9472"]
+            labels:
+                runtime: "opensea-bootstrap-worker"
+          - targets: ["indexer-opensea-reconcile-worker:9473"]
+            labels:
+                runtime: "opensea-reconcile-worker"
+          - targets: ["indexer-opensea-reconcile-scheduler-worker:9474"]
+            labels:
+                runtime: "opensea-reconcile-scheduler-worker"
+          - targets: ["indexer-collection-extension-worker:9475"]
+            labels:
+                runtime: "collection-extension-worker"

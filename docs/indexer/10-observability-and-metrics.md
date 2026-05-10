@@ -18,7 +18,7 @@ Current setup is local-first and split by signal type:
 - Traces: runtimes send OTLP traces directly to Tempo (`:4318`), Grafana reads Tempo.
 - Profiles: runtimes send profiles directly to Pyroscope (`:4040`), Grafana reads Pyroscope.
 
-Observability containers run behind the `observability` compose profile in `docker-compose.yml`.
+Observability containers run behind the `observability` compose profile in `docker-compose.yml` for local dev and `docker-compose.deploy.yml` for the public deploy stack.
 
 ## Components and Wiring
 
@@ -32,6 +32,13 @@ Observability containers run behind the `observability` compose profile in `dock
 - `tempo` (trace ingest/query), OTLP HTTP on `127.0.0.1:4318`, API on `127.0.0.1:3200`.
 - `pyroscope` (profiles), bound to `127.0.0.1:4040`.
 - `grafana` (UI), host network mode, bound to `127.0.0.1:42701`.
+
+`docker-compose.deploy.yml` defines the same signal stores behind its own `observability` profile, but uses deploy-specific wiring:
+
+- `grafana` joins the external `public-edge` network with alias `artgod-grafana` and listens on container port `3000`.
+- Prometheus scrapes indexer worker service names such as `indexer-sync-worker:9465` using `observability/prometheus/deploy-prometheus.yml`.
+- Grafana datasources use compose service names from `observability/grafana/provisioning-deploy/datasources`.
+- Alloy uses Docker discovery through a read-only Docker socket and keeps only containers labeled `com.artgod.observability.logs=true`.
 
 ### Log Pipeline
 
