@@ -20,6 +20,7 @@
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
+	import BiddingSelectionControls from '$lib/components/BiddingSelectionControls.svelte';
 	import CursorPaginationControls from '$lib/components/CursorPaginationControls.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import { formatListingPrice } from '$lib/listing-price';
@@ -486,7 +487,7 @@
 			onNext={onLoadNext}
 			endLabel="end of token results"
 		>
-			{#snippet actions()}
+			{#snippet leftActions()}
 				{#if showDisplayModeControls}
 					<div class="secondary-tabs" aria-label="Token display mode">
 						{#if isGridMode}
@@ -501,6 +502,16 @@
 						{/if}
 					</div>
 				{/if}
+				{#if selection}
+					<BiddingSelectionControls
+						totalItems={tokens.totalItems}
+						summary={selection.summary}
+						onSelectAll={selection.onSelectAll}
+						onClear={selection.onClear}
+					/>
+				{/if}
+			{/snippet}
+			{#snippet rightActions()}
 				{#if hasMediaModeChoices}
 					<div class="secondary-tabs" aria-label="Token media mode">
 						{#each media.availableModes as mode}
@@ -510,17 +521,6 @@
 								<a href={mediaModeHref(mode.key)}>{mode.label}</a>
 							{/if}
 						{/each}
-					</div>
-				{/if}
-				{#if selection}
-					<div class="secondary-tabs" aria-label="Token bidding selection">
-						<button type="button" class="button-link" disabled={tokens.totalItems === 0} onclick={selection.onSelectAll}>
-							select all tokens
-						</button>
-						{#if selection.summary}
-							<span class="mono bidding-selection-summary">{selection.summary}</span>
-							<button type="button" class="button-link" onclick={selection.onClear}>clear</button>
-						{/if}
 					</div>
 				{/if}
 			{/snippet}

@@ -106,7 +106,7 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain('>Hat=Beanie<');
 		expect(body).toContain('1 listed');
 		expect(body).toContain('aria-label="Token bidding selection"');
-		expect(body).toContain('select all tokens');
+		expect(body).toContain('select all');
 		expect(body).toContain('token 1');
 		expect(body).toContain(
 			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady&amp;returnQuery=limit%3D25%26mode%3Dgrid%26token_status%3Dlisted%26media_mode%3Dartifact%26traits%3DHat%253ABeanie'

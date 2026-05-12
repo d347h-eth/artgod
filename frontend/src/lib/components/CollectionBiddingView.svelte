@@ -47,6 +47,7 @@
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
+	import BiddingSelectionControls from '$lib/components/BiddingSelectionControls.svelte';
 	import BidBookMakerFilterControl from '$lib/components/BidBookMakerFilterControl.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
@@ -826,21 +827,13 @@
 					</div>
 				{/if}
 				{#if bidScope === 'token'}
-					<div class="panel-top-actions-row bidding-selection-controls">
-						<button
-							type="button"
-							class="button-link"
-							disabled={tokenOfferCards.totalItems === 0}
-							onclick={selectAllFilteredTokenOffers}>select all tokens</button
-						>
-						{#if $biddingAutomationState.selection}
-							<span class="mono bidding-selection-summary">{biddingSelectionSummary}</span>
-							<button
-								type="button"
-								class="button-link"
-								onclick={clearBiddingSelection}>clear</button
-							>
-						{/if}
+					<div class="panel-top-actions-row">
+						<BiddingSelectionControls
+							totalItems={tokenOfferCards.totalItems}
+							summary={biddingSelectionSummary}
+							onSelectAll={selectAllFilteredTokenOffers}
+							onClear={clearBiddingSelection}
+						/>
 					</div>
 				{/if}
 			{/if}

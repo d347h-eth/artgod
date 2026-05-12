@@ -24,6 +24,8 @@
 		endLabel,
 		footerClass = '',
 		actions,
+		leftActions,
+		rightActions,
 		children
 	}: {
 		resultsSummary: string;
@@ -46,6 +48,8 @@
 		endLabel: string;
 		footerClass?: string;
 		actions?: Snippet;
+		leftActions?: Snippet;
+		rightActions?: Snippet;
 		children: Snippet;
 	} = $props();
 
@@ -63,8 +67,8 @@
 </script>
 
 <div class="results-toolbar">
-	<span class="mono token-results-summary">{resultsSummary}</span>
-	<div class="results-toolbar-actions">
+	<div class="results-toolbar-left">
+		<span class="mono token-results-summary">{resultsSummary}</span>
 		{#if hasPreviousPage}
 			<a
 				class="button-link"
@@ -73,10 +77,17 @@
 				onclick={handlePrevious}>load previous</a
 			>
 		{/if}
-		{#if actions}
+		{#if leftActions}
+			{@render leftActions()}
+		{:else if actions}
 			{@render actions()}
 		{/if}
 	</div>
+	{#if rightActions}
+		<div class="results-toolbar-actions">
+			{@render rightActions()}
+		</div>
+	{/if}
 </div>
 
 {@render children()}
