@@ -210,12 +210,14 @@
 	const canBidOnTraits = $derived(
 		canDraftTraitJobFromFilters({
 			selectedTraits: activeTraits,
-			selectedTraitRanges: activeTraitRanges,
-			traitJoinMode
+			selectedTraitRanges: activeTraitRanges
 		})
 	);
+	const canRefineTokenSelectionToVisiblePage = $derived(tokenOfferCards.totalPages > 1);
 	const tokenActionLabel = $derived(
-		isAllFilteredTokenSelectionActive() ? 'bid on tokens [this page]' : 'bid on tokens'
+		isAllFilteredTokenSelectionActive() && canRefineTokenSelectionToVisiblePage
+			? 'bid on tokens [this page]'
+			: 'bid on tokens'
 	);
 
 	$effect(() => {
@@ -649,7 +651,9 @@
 	function bidOnFilteredTokenOffers(): void {
 		selectedBidDraft = null;
 		if (isAllFilteredTokenSelectionActive()) {
-			biddingAutomation.selectExplicitTokens(visibleTokenOfferCardIds);
+			if (canRefineTokenSelectionToVisiblePage) {
+				biddingAutomation.selectExplicitTokens(visibleTokenOfferCardIds);
+			}
 			return;
 		}
 		biddingAutomation.selectFilteredTokens({

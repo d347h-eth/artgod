@@ -81,8 +81,8 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 		});
 		expect(draft?.pricing).toEqual({
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: '0.303',
-			ceilingEth: '0.303',
+			floorEth: '0.301',
+			ceilingEth: '0.301',
 			deltaEth: '0.01'
 		});
 		expect(biddingAutomationDraftTokenId(draft)).toBe('42');
@@ -123,6 +123,29 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 		});
 		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
 	});
+
+	it('uses price-magnitude steps for default bid deltas', () => {
+		const cases = [
+			{ priceWei: '4000000000000000000', priceEth: '4', deltaEth: '0.01', nextEth: '4.01' },
+			{ priceWei: '20000000000000000000', priceEth: '20', deltaEth: '0.1', nextEth: '20.1' },
+			{ priceWei: '230000000000000000', priceEth: '0.23', deltaEth: '0.001', nextEth: '0.231' },
+			{ priceWei: '50000000000000000', priceEth: '0.05', deltaEth: '0.0001', nextEth: '0.0501' }
+		];
+
+		for (const item of cases) {
+			const draft = buildBiddingAutomationDraftFromBid({
+				...BASE_BID,
+				priceWei: item.priceWei,
+				priceEth: item.priceEth
+			});
+			expect(draft?.pricing).toMatchObject({
+				mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+				floorEth: item.nextEth,
+				ceilingEth: item.nextEth,
+				deltaEth: item.deltaEth
+			});
+		}
+	});
 });
 
 describe('buildBiddingAutomationDraftFromSelection', () => {
@@ -156,6 +179,37 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 			traitJoinMode: 'and'
 		});
 		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
+	});
+
+	it('projects OR-filtered exact traits into one AND trait job target when explicitly requested', () => {
+		const draft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+				selectedTraits: [
+					{ key: 'Biome', value: '42' },
+					{ key: 'Mode', value: 'Terrain' }
+				],
+				selectedTraitRanges: [],
+				traitJoinMode: 'or',
+				tokenStatus: null,
+				makerAddress: null
+			},
+			tokenCount: 12,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		});
+
+		expect(draft?.target).toEqual({
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: [
+				{ key: 'Biome', value: '42' },
+				{ key: 'Mode', value: 'Terrain' }
+			],
+			traitJoinMode: 'and'
+		});
 	});
 
 	it('keeps visible token adjustments as an explicit token batch draft', () => {

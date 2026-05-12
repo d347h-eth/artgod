@@ -272,14 +272,13 @@ function resolveDraftTargetFromSelection(
 		selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob &&
 		canDraftTraitJobFromFilters({
 			selectedTraits: selection.filter.selectedTraits,
-			selectedTraitRanges: selection.filter.selectedTraitRanges,
-			traitJoinMode: selection.filter.traitJoinMode
+			selectedTraitRanges: selection.filter.selectedTraitRanges
 		})
 	) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
 			traits: selection.filter.selectedTraits,
-			traitJoinMode: selection.filter.traitJoinMode
+			traitJoinMode: 'and'
 		};
 	}
 
@@ -298,16 +297,12 @@ export function canSubmitFilteredTokenBatch(draft: BiddingAutomationDraft): bool
 	);
 }
 
-// Allows trait-job drafting only for exact AND-compatible trait criteria.
+// Allows trait-job drafting only for exact trait criteria that OpenSea can target directly.
 export function canDraftTraitJobFromFilters(params: {
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
-	traitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
 }): boolean {
 	if (params.selectedTraits.length === 0 || params.selectedTraitRanges.length > 0) {
-		return false;
-	}
-	if (params.selectedTraits.length > 1 && params.traitJoinMode && params.traitJoinMode !== 'and') {
 		return false;
 	}
 	return new Set(params.selectedTraits.map((trait) => trait.key)).size === params.selectedTraits.length;
@@ -325,8 +320,21 @@ function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
 
 function minimalBidDeltaWei(bid: ApiBiddingBidBookRow): bigint {
 	const priceWei = BigInt(bid.priceWei);
-	const deltaWei = priceWei / 100n;
-	return deltaWei > 0n ? deltaWei : 1n;
+	if (priceWei <= 0n) {
+		return 1n;
+	}
+	const priceMagnitude = ethOrderOfMagnitude(priceWei);
+	const deltaWeiPower = 16 + priceMagnitude;
+	return deltaWeiPower >= 0 ? 10n ** BigInt(deltaWeiPower) : 1n;
+}
+
+function ethOrderOfMagnitude(priceWei: bigint): number {
+	if (priceWei >= WEI_PER_ETH) {
+		return (priceWei / WEI_PER_ETH).toString().length - 1;
+	}
+	const fractionText = priceWei.toString().padStart(18, '0');
+	const firstSignificantIndex = fractionText.search(/[1-9]/);
+	return firstSignificantIndex === -1 ? -18 : -(firstSignificantIndex + 1);
 }
 
 function formatWeiAsEth(value: bigint): string {

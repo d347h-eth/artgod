@@ -1400,11 +1400,19 @@ th {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
+	align-self: flex-end;
 	width: 1.25rem;
 	height: 1.25rem;
 	min-height: 1.25rem;
+	border: 0;
 	padding: 0;
 	color: var(--c-cyan);
+	transform: translateY(0.12rem);
+}
+
+.bid-book-place-bid-icon-button:hover,
+.bid-book-place-bid-icon-button:focus-visible {
+	border: 0;
 }
 
 .bid-book-place-bid-icon {
@@ -1676,7 +1684,7 @@ th {
 }
 
 .token-grid-card-selected {
-	border-color: var(--c-orange);
+	border-color: transparent;
 	background: color-mix(in srgb, var(--c-orange) 14%, transparent);
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-orange) 42%, transparent);
 }
