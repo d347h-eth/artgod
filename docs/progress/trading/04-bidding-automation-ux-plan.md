@@ -319,6 +319,17 @@ Artifacts:
 - Add backend use cases for tier list/upsert/archive.
 - Add tests for one-child invariant, cycle rejection, Ether parsing, and resolved scalar output.
 
+Artifacts:
+
+- `database/migrations/026_trading_bidding_price_tiers.sql`
+- `shared/types/trading.ts`
+- `backend/src/application/use-cases/trading/bidding-price-tier-ports.ts`
+- `backend/src/application/use-cases/trading/bidding-price-tiers.ts`
+- `backend/src/application/use-cases/trading/list-collection-bidding-price-tiers.ts`
+- `backend/src/application/use-cases/trading/upsert-collection-bidding-price-tier.ts`
+- `backend/src/application/use-cases/trading/archive-collection-bidding-price-tier.ts`
+- `backend/src/infra/trading/sqlite-bidding-price-tiers-repository.ts`
+
 ### Slice 3: Selection Controller and Token Card Opt-In
 
 - Add route-local collection bidding selection state.

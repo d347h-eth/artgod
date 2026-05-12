@@ -91,6 +91,83 @@ export type TradingTraitCriterion = {
     value: string;
 };
 
+// Reuses the enabled/paused/archived lifecycle for collection bidding price tiers.
+export type TradingBiddingPriceTierStatus = TradingJobStatus;
+
+export const TRADING_BIDDING_PRICE_TIER_DELTA_KIND = {
+    Absolute: "absolute",
+    Percent: "percent",
+} as const;
+
+export type TradingBiddingPriceTierDeltaKind =
+    (typeof TRADING_BIDDING_PRICE_TIER_DELTA_KIND)[keyof typeof TRADING_BIDDING_PRICE_TIER_DELTA_KIND];
+
+export const TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND = {
+    Fixed: "fixed",
+    ParentDelta: "parent_delta",
+} as const;
+
+export type TradingBiddingPriceTierFloorConfigKind =
+    (typeof TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND)[keyof typeof TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND];
+
+export const TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND = {
+    Fixed: "fixed",
+    FloorDelta: "floor_delta",
+    ParentDelta: "parent_delta",
+} as const;
+
+export type TradingBiddingPriceTierCeilingConfigKind =
+    (typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND)[keyof typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND];
+
+// Stores the original human-entered floor rule for a collection bidding tier.
+export type TradingBiddingPriceTierFloorConfig =
+    | {
+          kind: typeof TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed;
+          valueEth: string;
+      }
+    | {
+          kind: typeof TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.ParentDelta;
+          deltaKind: TradingBiddingPriceTierDeltaKind;
+          deltaEth?: string;
+          percent?: string;
+      };
+
+// Stores the original human-entered ceiling rule for a collection bidding tier.
+export type TradingBiddingPriceTierCeilingConfig =
+    | {
+          kind: typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed;
+          valueEth: string;
+      }
+    | {
+          kind:
+              | typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.FloorDelta
+              | typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.ParentDelta;
+          deltaKind: TradingBiddingPriceTierDeltaKind;
+          deltaEth?: string;
+          percent?: string;
+      };
+
+// Persisted price tier plus its latest resolved scalar values.
+export type PersistedBiddingPriceTierRecord = {
+    tierId: string;
+    chainId: number;
+    collectionId: number;
+    name: string;
+    status: TradingBiddingPriceTierStatus;
+    sortOrder: number;
+    parentTierId: string | null;
+    floorConfig: TradingBiddingPriceTierFloorConfig;
+    ceilingConfig: TradingBiddingPriceTierCeilingConfig;
+    resolvedFloorWei: string | null;
+    resolvedCeilingWei: string | null;
+    resolvedAt: string | null;
+    lastError: string | null;
+    revision: number;
+    createdAt: string;
+    updatedAt: string;
+    archivedAt: string | null;
+};
+
 export const TRADING_BIDDING_BID_BOOK_SOURCE = {
     BotSnapshot: "bot_snapshot",
     Orders: "orders",
