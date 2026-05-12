@@ -60,6 +60,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			chain: bidBookResponse.chain,
 			collection: bidBookResponse.collection,
 			jobs: [],
+			priceTiers: [],
 			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,

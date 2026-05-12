@@ -29,7 +29,9 @@
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import {
+		biddingAutomationTokenSelectionState,
 		createBiddingAutomationController,
+		describeBiddingAutomationSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
 	import {
@@ -184,7 +186,10 @@
 		})
 	);
 	const visibleTokenOfferCardIds = $derived(visibleTokenOfferCards.map((token) => token.tokenId));
-	const biddingSelectionSummary = $derived(biddingAutomation.selectionSummary());
+	const currentBiddingSelection = $derived($biddingAutomationState.selection);
+	const biddingSelectionSummary = $derived(
+		describeBiddingAutomationSelection(currentBiddingSelection)
+	);
 	const ownMakerAddress = $derived(bidBook.ownMakerAddress);
 
 	$effect(() => {
@@ -234,7 +239,7 @@
 	});
 
 	$effect(() => {
-		const selection = $biddingAutomationState.selection;
+		const selection = currentBiddingSelection;
 		if (!selection) {
 			return;
 		}
@@ -618,6 +623,10 @@
 		});
 	}
 
+	function biddingTokenSelectionState(tokenId: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId);
+	}
+
 	function tokenOffersUpdatedAt(): string {
 		const updatedAt = bidBook.state.updatedAt;
 		if (updatedAt) return updatedAt;
@@ -645,6 +654,12 @@
 	}
 
 	function closeBiddingAutomationPanel(): void {
+		selectedBiddingDraft = null;
+		biddingAutomation.clearSelection();
+		biddingAutomationPanelOpen = false;
+	}
+
+	function clearBiddingSelection(): void {
 		selectedBiddingDraft = null;
 		biddingAutomation.clearSelection();
 		biddingAutomationPanelOpen = false;
@@ -828,7 +843,7 @@
 							<button
 								type="button"
 								class="button-link"
-								onclick={biddingAutomation.clearSelection}>clear</button
+								onclick={clearBiddingSelection}>clear</button
 							>
 						{/if}
 					</div>
@@ -915,7 +930,7 @@
 													marketPrices={tokenOfferMarketPrices(token)}
 													metaLabel={tokenOfferMetaLabel(token)}
 													selection={{
-														state: biddingAutomation.tokenSelectionState(token.tokenId),
+														state: biddingTokenSelectionState(token.tokenId),
 														onToggle: toggleVisibleTokenSelection
 													}}
 												/>

@@ -63,30 +63,15 @@ export function createBiddingAutomationController(): BiddingAutomationController
 	}
 
 	function isTokenSelected(tokenId: string): boolean {
-		return selectedTokenIds(get(state).selection).has(tokenId);
+		return isBiddingAutomationTokenSelected(get(state).selection, tokenId);
 	}
 
 	function tokenSelectionState(tokenId: string): TokenCardSelectionState {
-		return {
-			selected: isTokenSelected(tokenId)
-		};
+		return biddingAutomationTokenSelectionState(get(state).selection, tokenId);
 	}
 
 	function selectionSummary(): string | null {
-		const selection = get(state).selection;
-		if (!selection) return null;
-		if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
-			if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
-				return `${selection.tokenCount} selected`;
-			}
-			const count = selection.state.visibleTokenIds.length;
-			return count === 1 ? '1 selected' : `${count} selected`;
-		}
-		if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
-			const count = selection.tokenIds.length;
-			return count === 1 ? '1 selected' : `${count} selected`;
-		}
-		return 'bid selected';
+		return describeBiddingAutomationSelection(get(state).selection);
 	}
 
 	return {
@@ -98,6 +83,53 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		tokenSelectionState,
 		selectionSummary
 	};
+}
+
+// Describes the current selection without reading from a Svelte store.
+export function describeBiddingAutomationSelection(
+	selection: BiddingAutomationSelection | null
+): string | null {
+	if (!selection) return null;
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
+		if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
+			return `${selection.tokenCount} selected`;
+		}
+		const count = selection.state.visibleTokenIds.length;
+		return count === 1 ? '1 selected' : `${count} selected`;
+	}
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
+		const count = selection.tokenIds.length;
+		return count === 1 ? '1 selected' : `${count} selected`;
+	}
+	return 'bid selected';
+}
+
+// Resolves one token's selected state from an explicit selection snapshot.
+export function biddingAutomationTokenSelectionState(
+	selection: BiddingAutomationSelection | null,
+	tokenId: string
+): TokenCardSelectionState {
+	return {
+		selected: isBiddingAutomationTokenSelected(selection, tokenId)
+	};
+}
+
+// Treats clean filtered selections as selecting every visible card in the active view.
+export function isBiddingAutomationTokenSelected(
+	selection: BiddingAutomationSelection | null,
+	tokenId: string
+): boolean {
+	if (!selection) return false;
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
+		return selection.tokenIds.includes(tokenId);
+	}
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
+		if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
+			return true;
+		}
+		return selection.state.visibleTokenIds.includes(tokenId);
+	}
+	return false;
 }
 
 function nextSelectionAfterTokenToggle(

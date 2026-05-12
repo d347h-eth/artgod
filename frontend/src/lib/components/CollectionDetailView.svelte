@@ -20,7 +20,9 @@
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
 	import {
+		biddingAutomationTokenSelectionState,
 		createBiddingAutomationController,
+		describeBiddingAutomationSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
 	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
@@ -83,7 +85,10 @@
 	let selectedBiddingDraft = $state<BiddingAutomationDraft | null>(null);
 	let biddingAutomationPanelOpen = $state(false);
 	let changedBiddingJobs = $state<ApiBiddingJob[]>([]);
-	const biddingSelectionSummary = $derived(biddingAutomation.selectionSummary());
+	const currentBiddingSelection = $derived($biddingAutomationState.selection);
+	const biddingSelectionSummary = $derived(
+		describeBiddingAutomationSelection(currentBiddingSelection)
+	);
 
 	$effect(() => {
 		if (!browser || !chain || !collection || collection.status === 'live') {
@@ -99,7 +104,7 @@
 	});
 
 	$effect(() => {
-		const selection = $biddingAutomationState.selection;
+		const selection = currentBiddingSelection;
 		if (!selection) {
 			return;
 		}
@@ -226,6 +231,16 @@
 		biddingAutomation.toggleToken(request);
 	}
 
+	function biddingTokenSelectionState(tokenId: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId);
+	}
+
+	function clearBiddingSelection(): void {
+		selectedBiddingDraft = null;
+		biddingAutomation.clearSelection();
+		biddingAutomationPanelOpen = false;
+	}
+
 	function closeBiddingAutomationPanel(): void {
 		selectedBiddingDraft = null;
 		biddingAutomation.clearSelection();
@@ -315,9 +330,9 @@
 		selection={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
 			? {
 					summary: biddingSelectionSummary,
-					state: biddingAutomation.tokenSelectionState,
+					state: biddingTokenSelectionState,
 					onSelectAll: selectAllFilteredTokens,
-					onClear: biddingAutomation.clearSelection,
+					onClear: clearBiddingSelection,
 					onToggle: toggleVisibleTokenSelection
 				}
 			: null}
