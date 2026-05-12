@@ -1,6 +1,6 @@
 # Bidding Automation UX Plan
 
-Status: WIP plan
+Status: First implementation pass complete
 Branch: `feature/bidding-automation-ux`
 
 This document plans the next bidding UX layer on top of the current DB-backed bidding jobs and bid-book display.
