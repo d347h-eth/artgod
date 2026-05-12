@@ -926,7 +926,7 @@
 									{#if onSelectBid}
 										<button
 											type="button"
-											class="button-link bid-book-place-bid-icon-button"
+											class="bid-book-place-bid-icon-button"
 											aria-label={placeBidLabel(group.label)}
 											title={placeBidLabel(group.label)}
 											onclick={() => selectBid(group.bestBid)}

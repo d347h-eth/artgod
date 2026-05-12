@@ -1396,30 +1396,6 @@ th {
 	vertical-align: 0.08rem;
 }
 
-.bid-book-place-bid-icon-button {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	align-self: baseline;
-	width: 3.4ch;
-	height: 14px;
-	min-height: 14px;
-	border: 1px solid var(--c-blue);
-	padding: 0 0.35rem;
-	color: var(--c-cyan);
-	font-size: 0.58rem;
-	line-height: 12px;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	vertical-align: baseline;
-}
-
-.bid-book-place-bid-icon-button:hover,
-.bid-book-place-bid-icon-button:focus-visible {
-	border-color: var(--c-cyan);
-	color: var(--c-cyan);
-}
-
 .bid-book-col-right {
 	text-align: right;
 	font-variant-numeric: tabular-nums;
@@ -2934,7 +2910,8 @@ th {
 
 .secondary-tabs button,
 .secondary-tabs a,
-.secondary-tabs span {
+.secondary-tabs span,
+.bid-book-place-bid-icon-button {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -2953,7 +2930,8 @@ th {
 }
 
 .secondary-tabs button,
-.secondary-tabs a {
+.secondary-tabs a,
+.bid-book-place-bid-icon-button {
 	cursor: pointer;
 }
 
@@ -3013,10 +2991,22 @@ th {
 .secondary-tabs button:hover,
 .secondary-tabs a:hover,
 .secondary-tabs button:focus-visible,
-.secondary-tabs a:focus-visible {
+.secondary-tabs a:focus-visible,
+.bid-book-place-bid-icon-button:hover,
+.bid-book-place-bid-icon-button:focus-visible {
 	border-color: var(--c-yellow);
 	color: var(--c-yellow);
 	outline: none;
+}
+
+.bid-book-place-bid-icon-button {
+	align-self: baseline;
+	min-width: 3.8ch;
+	min-height: 14px;
+	height: 14px;
+	padding: 0 0.45rem;
+	line-height: 12px;
+	vertical-align: baseline;
 }
 
 .runtime-tabs button:disabled:hover,
