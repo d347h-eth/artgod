@@ -337,6 +337,13 @@ Artifacts:
 - Add `select all filtered tokens` as a draft action, using a filter snapshot.
 - Treat clean filter selections as collection-wide filtered intent, not visible-page selection.
 
+Artifacts:
+
+- `frontend/src/lib/bidding-automation-controller.ts`
+- `frontend/src/lib/bidding-automation-controller.test.ts`
+- `frontend/src/lib/components/TokenCardTile.svelte`
+- `frontend/src/lib/components/CollectionBiddingView.svelte`
+
 ### Slice 4: Shared Automation Panel for Token Jobs
 
 - Implement the bottom-right panel for existing token-scoped create/update/archive only.

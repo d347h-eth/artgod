@@ -12,6 +12,10 @@
 		TokenPreviewAdjacentResolver,
 		TokenPreviewController
 	} from '$lib/components/token-preview-controller';
+	import {
+		resolveTokenCardSelectionGesture
+	} from '$lib/bidding-automation-controller';
+	import type { TokenCardSelectionProps } from '$lib/token-card-selection';
 
 	let {
 		chain,
@@ -26,7 +30,8 @@
 		priceHref = null,
 		priceTitle = null,
 		marketPrices = [],
-		metaLabel = null
+		metaLabel = null,
+		selection = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -41,10 +46,40 @@
 		priceTitle?: string | null;
 		marketPrices?: MarketPriceItem[];
 		metaLabel?: string | null;
+		selection?: TokenCardSelectionProps | null;
 	} = $props();
+
+	function cardClasses(): string {
+		return [
+			'token-grid-card',
+			selection?.state.selected ? 'token-grid-card-selected' : '',
+			selection?.state.disabled ? 'token-grid-card-selection-disabled' : ''
+		]
+			.filter(Boolean)
+			.join(' ');
+	}
+
+	function onCardSelectionMouseEvent(event: MouseEvent): void {
+		if (!selection || selection.state.disabled) return;
+		const gesture = resolveTokenCardSelectionGesture(event);
+		if (!gesture) return;
+		event.preventDefault();
+		event.stopPropagation();
+		selection.onToggle({
+			tokenId: token.tokenId,
+			gesture,
+			selected: !selection.state.selected
+		});
+	}
 </script>
 
-<article class="token-grid-card">
+<article
+	class={cardClasses()}
+	data-selected={selection ? String(selection.state.selected) : undefined}
+	title={selection?.state.title ?? undefined}
+	onclickcapture={onCardSelectionMouseEvent}
+	onauxclickcapture={onCardSelectionMouseEvent}
+>
 	<TokenMediaPreviewTrigger
 		chainRef={chain?.slug ?? null}
 		collectionRef={collection?.slug ?? null}
@@ -59,6 +94,9 @@
 		imageClass="token-grid-thumb"
 		emptyClass="token-grid-thumb token-grid-thumb-empty token-thumb-empty"
 	/>
+	{#if selection?.state.selected}
+		<div class="mono token-grid-selection-marker">selected</div>
+	{/if}
 	<div class="token-grid-meta">
 		<a class="mono token-grid-id" href={href}>{token.tokenId}</a>
 		{#if token.traitSummary}

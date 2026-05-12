@@ -27,6 +27,10 @@
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import {
+		createBiddingAutomationController,
+		type ToggleBiddingTokenInput
+	} from '$lib/bidding-automation-controller';
+	import {
 		buildCollectionNavigation,
 		handleCollectionSectionShortcut
 	} from '$lib/collection-navigation';
@@ -121,6 +125,8 @@
 
 	const tokenPreview = getTokenPreviewController();
 	const tokenPreviewState = tokenPreview.state;
+	const biddingAutomation = createBiddingAutomationController();
+	const biddingAutomationState = biddingAutomation.state;
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 	const keyboardShortcutsHelpState = keyboardShortcutsHelp.state;
 	const traitFacetPanel = createTraitFacetPanelController();
@@ -165,6 +171,8 @@
 			tailNextCursor: tokenOffersTailNextCursor
 		})
 	);
+	const visibleTokenOfferCardIds = $derived(visibleTokenOfferCards.map((token) => token.tokenId));
+	const biddingSelectionSummary = $derived(biddingAutomation.selectionSummary());
 
 	$effect(() => {
 		collectionJobs = jobs;
@@ -544,6 +552,26 @@
 		return count === 1 ? '1 token' : `${count} tokens`;
 	}
 
+	function selectAllFilteredTokenOffers(): void {
+		biddingAutomation.selectFilteredTokens({
+			tokenCount: tokenOfferCards.totalItems,
+			filter: {
+				selectedTraits: activeTraits,
+				selectedTraitRanges: activeTraitRanges,
+				traitJoinMode: 'and',
+				tokenStatus: null,
+				makerAddress: makerFilter
+			}
+		});
+	}
+
+	function toggleVisibleTokenSelection(request: Omit<ToggleBiddingTokenInput, 'visibleTokenIds'>): void {
+		biddingAutomation.toggleToken({
+			...request,
+			visibleTokenIds: visibleTokenOfferCardIds
+		});
+	}
+
 	function tokenOffersUpdatedAt(): string {
 		const updatedAt = bidBook.state.updatedAt;
 		if (updatedAt) return updatedAt;
@@ -718,6 +746,24 @@
 						/>
 					</div>
 				{/if}
+				{#if bidScope === 'token'}
+					<div class="panel-top-actions-row bidding-selection-controls">
+						<button
+							type="button"
+							class="button-link"
+							disabled={tokenOfferCards.totalItems === 0}
+							onclick={selectAllFilteredTokenOffers}>select all tokens</button
+						>
+						{#if $biddingAutomationState.selection}
+							<span class="mono bidding-selection-summary">{biddingSelectionSummary}</span>
+							<button
+								type="button"
+								class="button-link"
+								onclick={biddingAutomation.clearSelection}>clear</button
+							>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		{/if}
 	{/snippet}
@@ -799,6 +845,10 @@
 													adjacentTokenResolver={resolveAdjacentOfferTokenId}
 													marketPrices={tokenOfferMarketPrices(token)}
 													metaLabel={tokenOfferMetaLabel(token)}
+													selection={{
+														state: biddingAutomation.tokenSelectionState(token.tokenId),
+														onToggle: toggleVisibleTokenSelection
+													}}
 												/>
 											{/each}
 										</div>

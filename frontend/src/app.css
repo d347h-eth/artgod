@@ -1606,6 +1606,26 @@ th {
 .token-grid-card {
 	display: grid;
 	gap: 0.55rem;
+	position: relative;
+	border: 1px solid transparent;
+	padding: 0.25rem;
+}
+
+.token-grid-card-selected {
+	border-color: var(--c-orange);
+	background: color-mix(in srgb, var(--c-orange) 8%, transparent);
+}
+
+.token-grid-selection-marker {
+	position: absolute;
+	top: 0.55rem;
+	right: 0.55rem;
+	padding: 0.12rem 0.3rem;
+	background: var(--c-orange);
+	color: var(--c-bg);
+	font-size: 0.58rem;
+	text-transform: uppercase;
+	pointer-events: none;
 }
 
 .token-grid-media {
@@ -2039,6 +2059,15 @@ th {
 
 .bid-price {
 	color: var(--c-orange);
+}
+
+.bidding-selection-controls {
+	gap: 0.75rem;
+}
+
+.bidding-selection-summary {
+	color: var(--c-sand);
+	font-size: 0.76rem;
 }
 
 .token-grid-secondary-meta {
