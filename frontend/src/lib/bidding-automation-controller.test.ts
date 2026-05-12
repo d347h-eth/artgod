@@ -6,6 +6,7 @@ import {
 	type BiddingAutomationSelection
 } from '$lib/bidding-automation';
 import {
+	biddingAutomationSelectionStateKey,
 	biddingAutomationTokenSelectionState,
 	createBiddingAutomationController,
 	describeBiddingAutomationSelection
@@ -53,7 +54,9 @@ describe('createBiddingAutomationController', () => {
 		};
 
 		expect(describeBiddingAutomationSelection(selection)).toBe('69 selected');
-		expect(biddingAutomationTokenSelectionState(selection, '123').selected).toBe(true);
+		const stateKey = biddingAutomationSelectionStateKey(selection);
+		expect(stateKey).toContain('filter-clean');
+		expect(biddingAutomationTokenSelectionState(selection, '123', stateKey).selected).toBe(true);
 		expect(biddingAutomationTokenSelectionState(null, '123').selected).toBe(false);
 	});
 
@@ -80,6 +83,37 @@ describe('createBiddingAutomationController', () => {
 		}
 		expect(selection.tokenIds).toEqual(['1', '2']);
 		expect(controller.selectionSummary()).toBe('2 selected');
+	});
+
+	it('removes explicit token selections one by one', () => {
+		const controller = createBiddingAutomationController();
+
+		controller.toggleToken({
+			tokenId: '1',
+			gesture: 'ctrl_left_click',
+			selected: true,
+			visibleTokenIds: ['1', '2', '3']
+		});
+		controller.toggleToken({
+			tokenId: '2',
+			gesture: 'ctrl_left_click',
+			selected: true,
+			visibleTokenIds: ['1', '2', '3']
+		});
+		controller.toggleToken({
+			tokenId: '1',
+			gesture: 'ctrl_left_click',
+			selected: false,
+			visibleTokenIds: ['1', '2', '3']
+		});
+
+		const selection = get(controller.state).selection;
+		expect(selection?.type).toBe(BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens);
+		if (selection?.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
+			throw new Error('expected explicit token selection');
+		}
+		expect(selection.tokenIds).toEqual(['2']);
+		expect(controller.selectionSummary()).toBe('1 selected');
 	});
 
 	it('allows a later select-all action to replace an explicit token selection', () => {

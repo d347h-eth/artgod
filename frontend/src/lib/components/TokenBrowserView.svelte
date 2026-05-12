@@ -89,7 +89,8 @@
 		emptyMessage?: string;
 		selection?: {
 			summary: string | null;
-			state: (tokenId: string) => TokenCardSelectionState;
+			stateKey: string;
+			state: (tokenId: string, stateKey: string) => TokenCardSelectionState;
 			onSelectAll: () => void;
 			onClear: () => void;
 			onToggle: (request: TokenCardSelectionToggleRequest & { visibleTokenIds: string[] }) => void;
@@ -543,7 +544,7 @@
 									marketPrices={tokenMarketPrices(token)}
 									selection={selection
 										? {
-												state: selection.state(token.tokenId),
+												state: selection.state(token.tokenId, selection.stateKey),
 												onToggle: (request) =>
 													selection.onToggle({
 														...request,

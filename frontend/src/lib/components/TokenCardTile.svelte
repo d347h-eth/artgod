@@ -12,6 +12,7 @@
 		TokenPreviewAdjacentResolver,
 		TokenPreviewController
 	} from '$lib/components/token-preview-controller';
+	import { modifierKeyState } from '$lib/components/modifier-key-state';
 	import {
 		resolveTokenCardSelectionGesture
 	} from '$lib/bidding-automation-controller';
@@ -49,10 +50,16 @@
 		selection?: TokenCardSelectionProps | null;
 	} = $props();
 
+	const selectionShortcutActive = $derived(
+		!!selection && !selection.state.disabled && $modifierKeyState.control
+	);
+
 	function cardClasses(): string {
 		return [
 			'token-grid-card',
+			selection ? 'token-grid-card-selectable' : '',
 			selection?.state.selected ? 'token-grid-card-selected' : '',
+			selectionShortcutActive ? 'token-grid-card-selection-shortcut' : '',
 			selection?.state.disabled ? 'token-grid-card-selection-disabled' : ''
 		]
 			.filter(Boolean)
@@ -69,6 +76,17 @@
 			tokenId: token.tokenId,
 			gesture,
 			selected: !selection.state.selected
+		});
+	}
+
+	function onSelectionRemoveClick(event: MouseEvent): void {
+		if (!selection || selection.state.disabled) return;
+		event.preventDefault();
+		event.stopPropagation();
+		selection.onToggle({
+			tokenId: token.tokenId,
+			gesture: 'remove_button',
+			selected: false
 		});
 	}
 </script>
@@ -95,7 +113,13 @@
 		emptyClass="token-grid-thumb token-grid-thumb-empty token-thumb-empty"
 	/>
 	{#if selection?.state.selected}
-		<div class="mono token-grid-selection-marker">selected</div>
+		<button
+			type="button"
+			class="mono token-grid-selection-marker"
+			aria-label={`unselect token ${token.tokenId}`}
+			title="unselect"
+			onclick={onSelectionRemoveClick}>x</button
+		>
 	{/if}
 	<div class="token-grid-meta">
 		<a class="mono token-grid-id" href={href}>{token.tokenId}</a>

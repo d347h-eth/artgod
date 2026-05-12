@@ -15,11 +15,9 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
+	import { buildBiddingAutomationDraftFromSelection } from '$lib/bidding-automation';
 	import {
-		buildBiddingAutomationDraftFromSelection,
-		type BiddingAutomationDraft
-	} from '$lib/bidding-automation';
-	import {
+		biddingAutomationSelectionStateKey,
 		biddingAutomationTokenSelectionState,
 		createBiddingAutomationController,
 		describeBiddingAutomationSelection,
@@ -82,10 +80,15 @@
 	let bootstrapLoading = $state(false);
 	let bootstrapError = $state<string | null>(null);
 	let bootstrapRequestInFlight = false;
-	let selectedBiddingDraft = $state<BiddingAutomationDraft | null>(null);
-	let biddingAutomationPanelOpen = $state(false);
 	let changedBiddingJobs = $state<ApiBiddingJob[]>([]);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
+	const selectedBiddingDraft = $derived(
+		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
+	);
+	const biddingAutomationPanelOpen = $derived(selectedBiddingDraft !== null);
+	const biddingSelectionStateKey = $derived(
+		biddingAutomationSelectionStateKey(currentBiddingSelection)
+	);
 	const biddingSelectionSummary = $derived(
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
@@ -101,19 +104,6 @@
 			void refreshBootstrapStatus();
 		}, BOOTSTRAP_POLL_INTERVAL_MS);
 		return () => clearInterval(timer);
-	});
-
-	$effect(() => {
-		const selection = currentBiddingSelection;
-		if (!selection) {
-			return;
-		}
-		const draft = buildBiddingAutomationDraftFromSelection(selection);
-		if (!draft) {
-			return;
-		}
-		selectedBiddingDraft = draft;
-		biddingAutomationPanelOpen = true;
 	});
 
 	function collectionsHref(): string {
@@ -231,20 +221,16 @@
 		biddingAutomation.toggleToken(request);
 	}
 
-	function biddingTokenSelectionState(tokenId: string) {
-		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId);
+	function biddingTokenSelectionState(tokenId: string, stateKey: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId, stateKey);
 	}
 
 	function clearBiddingSelection(): void {
-		selectedBiddingDraft = null;
 		biddingAutomation.clearSelection();
-		biddingAutomationPanelOpen = false;
 	}
 
 	function closeBiddingAutomationPanel(): void {
-		selectedBiddingDraft = null;
 		biddingAutomation.clearSelection();
-		biddingAutomationPanelOpen = false;
 	}
 
 	function handleBiddingJobsChanged(jobs: ApiBiddingJob[]): void {
@@ -330,6 +316,7 @@
 		selection={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
 			? {
 					summary: biddingSelectionSummary,
+					stateKey: biddingSelectionStateKey,
 					state: biddingTokenSelectionState,
 					onSelectAll: selectAllFilteredTokens,
 					onClear: clearBiddingSelection,

@@ -29,6 +29,7 @@
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import {
+		biddingAutomationSelectionStateKey,
 		biddingAutomationTokenSelectionState,
 		createBiddingAutomationController,
 		describeBiddingAutomationSelection,
@@ -157,8 +158,7 @@
 	let tokenOffersHeadPrevCursor = $state<string | null>(tokenOfferCards.prevCursor);
 	let tokenOffersTailNextCursor = $state<string | null>(tokenOfferCards.nextCursor);
 	let tokenOffersPagingPending = $state(false);
-	let selectedBiddingDraft = $state<BiddingAutomationDraft | null>(null);
-	let biddingAutomationPanelOpen = $state(false);
+	let selectedBidDraft = $state<BiddingAutomationDraft | null>(null);
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
@@ -187,6 +187,14 @@
 	);
 	const visibleTokenOfferCardIds = $derived(visibleTokenOfferCards.map((token) => token.tokenId));
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
+	const selectionBiddingDraft = $derived(
+		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
+	);
+	const selectedBiddingDraft = $derived(selectionBiddingDraft ?? selectedBidDraft);
+	const biddingAutomationPanelOpen = $derived(selectedBiddingDraft !== null);
+	const biddingSelectionStateKey = $derived(
+		biddingAutomationSelectionStateKey(currentBiddingSelection)
+	);
 	const biddingSelectionSummary = $derived(
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
@@ -236,19 +244,6 @@
 
 	$effect(() => {
 		writeCollectionBiddingNavigationPreference({ bidScope });
-	});
-
-	$effect(() => {
-		const selection = currentBiddingSelection;
-		if (!selection) {
-			return;
-		}
-		const draft = buildBiddingAutomationDraftFromSelection(selection);
-		if (!draft) {
-			return;
-		}
-		selectedBiddingDraft = draft;
-		biddingAutomationPanelOpen = true;
 	});
 
 	function collectionsHref(): string {
@@ -604,6 +599,7 @@
 	}
 
 	function selectAllFilteredTokenOffers(): void {
+		selectedBidDraft = null;
 		biddingAutomation.selectFilteredTokens({
 			tokenCount: tokenOfferCards.totalItems,
 			filter: {
@@ -617,14 +613,15 @@
 	}
 
 	function toggleVisibleTokenSelection(request: Omit<ToggleBiddingTokenInput, 'visibleTokenIds'>): void {
+		selectedBidDraft = null;
 		biddingAutomation.toggleToken({
 			...request,
 			visibleTokenIds: visibleTokenOfferCardIds
 		});
 	}
 
-	function biddingTokenSelectionState(tokenId: string) {
-		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId);
+	function biddingTokenSelectionState(tokenId: string, stateKey: string) {
+		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId, stateKey);
 	}
 
 	function tokenOffersUpdatedAt(): string {
@@ -649,20 +646,18 @@
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
 		const draft = buildBiddingAutomationDraftFromBid(bid);
 		if (!draft) return;
-		selectedBiddingDraft = draft;
-		biddingAutomationPanelOpen = true;
+		biddingAutomation.clearSelection();
+		selectedBidDraft = draft;
 	}
 
 	function closeBiddingAutomationPanel(): void {
-		selectedBiddingDraft = null;
+		selectedBidDraft = null;
 		biddingAutomation.clearSelection();
-		biddingAutomationPanelOpen = false;
 	}
 
 	function clearBiddingSelection(): void {
-		selectedBiddingDraft = null;
+		selectedBidDraft = null;
 		biddingAutomation.clearSelection();
-		biddingAutomationPanelOpen = false;
 	}
 
 	async function onLoadPreviousTokenOffers(event: MouseEvent): Promise<void> {
@@ -930,7 +925,7 @@
 													marketPrices={tokenOfferMarketPrices(token)}
 													metaLabel={tokenOfferMetaLabel(token)}
 													selection={{
-														state: biddingTokenSelectionState(token.tokenId),
+														state: biddingTokenSelectionState(token.tokenId, biddingSelectionStateKey),
 														onToggle: toggleVisibleTokenSelection
 													}}
 												/>

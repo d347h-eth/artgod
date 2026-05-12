@@ -1642,21 +1642,40 @@ th {
 	padding: 0.25rem;
 }
 
+.token-grid-card-selection-shortcut {
+	cursor: pointer;
+}
+
 .token-grid-card-selected {
 	border-color: var(--c-orange);
-	background: color-mix(in srgb, var(--c-orange) 8%, transparent);
+	background: color-mix(in srgb, var(--c-orange) 14%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-orange) 42%, transparent);
 }
 
 .token-grid-selection-marker {
 	position: absolute;
 	top: 0.55rem;
 	right: 0.55rem;
-	padding: 0.12rem 0.3rem;
+	z-index: 2;
+	width: 1.35rem;
+	height: 1.35rem;
+	padding: 0;
+	border: 1px solid var(--c-orange);
 	background: var(--c-orange);
 	color: var(--c-bg);
-	font-size: 0.58rem;
+	font-size: 0.74rem;
+	line-height: 1;
 	text-transform: uppercase;
-	pointer-events: none;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.token-grid-selection-marker:hover,
+.token-grid-selection-marker:focus-visible {
+	background: var(--c-bg);
+	color: var(--c-orange);
 }
 
 .token-grid-media {

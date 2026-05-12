@@ -104,10 +104,38 @@ export function describeBiddingAutomationSelection(
 	return 'bid selected';
 }
 
+// Provides a stable render dependency for selection-state functions passed through component props.
+export function biddingAutomationSelectionStateKey(
+	selection: BiddingAutomationSelection | null
+): string {
+	if (!selection) return 'none';
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
+		return `explicit:${selection.tokenIds.join('\u0000')}`;
+	}
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
+		return `bid:${selection.bid.orderId}`;
+	}
+	if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
+		return [
+			'filter-clean',
+			selection.tokenCount,
+			selection.filter.tokenStatus ?? 'any-status',
+			selection.filter.makerAddress ?? 'any-maker',
+			selection.filter.traitJoinMode,
+			...selection.filter.selectedTraits.map((trait) => `${trait.key}=${trait.value}`),
+			...selection.filter.selectedTraitRanges.map(
+				(range) => `${range.key}:${range.fromValue ?? ''}:${range.toValue ?? ''}`
+			)
+		].join('|');
+	}
+	return `filter-visible:${selection.state.visibleTokenIds.join('\u0000')}`;
+}
+
 // Resolves one token's selected state from an explicit selection snapshot.
 export function biddingAutomationTokenSelectionState(
 	selection: BiddingAutomationSelection | null,
-	tokenId: string
+	tokenId: string,
+	_stateKey: string = biddingAutomationSelectionStateKey(selection)
 ): TokenCardSelectionState {
 	return {
 		selected: isBiddingAutomationTokenSelected(selection, tokenId)
