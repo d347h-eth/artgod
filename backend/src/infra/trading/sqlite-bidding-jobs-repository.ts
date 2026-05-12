@@ -8,6 +8,7 @@ import {
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
     type PersistedBiddingJobRecord,
+    type PersistedCollectionBiddingJobRecord,
     type PersistedBiddingJobRuntimeState,
     type PersistedTokenBiddingJobRecord,
     type TradingJobCommandKind,
@@ -16,6 +17,7 @@ import {
 } from "@artgod/shared/types";
 import type {
     BiddingJobsRepositoryPort,
+    UpsertCollectionBiddingJobInput,
     UpsertTokenBiddingJobInput,
 } from "../../application/use-cases/trading/ports.js";
 
@@ -107,8 +109,10 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         chainId: number;
         collectionId: number;
         status: Exclude<(typeof TRADING_JOB_STATUS)[keyof typeof TRADING_JOB_STATUS], "archived">;
-        targetKind: typeof TRADING_JOB_TARGET_KIND.Token;
-        tokenId: string;
+        targetKind:
+            | typeof TRADING_JOB_TARGET_KIND.Token
+            | typeof TRADING_JOB_TARGET_KIND.Collection;
+        tokenId: string | null;
     }>;
 
     private readonly updateTradingJobById: BetterSqlite3NamedStatement<{
@@ -125,6 +129,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         floorWei: string;
         ceilingWei: string;
         deltaWei: string;
+        quantity: number | null;
+        targetTraitsJson: string | null;
+        competitorTraitsJson: string | null;
     }>;
 
     private readonly updateBiddingSpecById: BetterSqlite3NamedStatement<{
@@ -132,6 +139,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         floorWei: string;
         ceilingWei: string;
         deltaWei: string;
+        quantity: number | null;
+        targetTraitsJson: string | null;
+        competitorTraitsJson: string | null;
     }>;
 
     private readonly insertCommand: BetterSqlite3NamedStatement<{
@@ -203,8 +213,10 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             chainId: number;
             collectionId: number;
             status: Exclude<(typeof TRADING_JOB_STATUS)[keyof typeof TRADING_JOB_STATUS], "archived">;
-            targetKind: typeof TRADING_JOB_TARGET_KIND.Token;
-            tokenId: string;
+            targetKind:
+                | typeof TRADING_JOB_TARGET_KIND.Token
+                | typeof TRADING_JOB_TARGET_KIND.Collection;
+            tokenId: string | null;
         }>(
             "INSERT INTO trading_jobs " +
                 "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id) " +
@@ -215,8 +227,10 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             chainId: number;
             collectionId: number;
             status: Exclude<(typeof TRADING_JOB_STATUS)[keyof typeof TRADING_JOB_STATUS], "archived">;
-            targetKind: typeof TRADING_JOB_TARGET_KIND.Token;
-            tokenId: string;
+            targetKind:
+                | typeof TRADING_JOB_TARGET_KIND.Token
+                | typeof TRADING_JOB_TARGET_KIND.Collection;
+            tokenId: string | null;
         }>;
 
         this.updateTradingJobById = db.prepare<{
@@ -242,15 +256,21 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             floorWei: string;
             ceilingWei: string;
             deltaWei: string;
+            quantity: number | null;
+            targetTraitsJson: string | null;
+            competitorTraitsJson: string | null;
         }>(
             "INSERT INTO trading_bidding_job_specs " +
                 "(job_id, floor_wei, ceiling_wei, delta_wei, quantity, target_traits_json, competitor_traits_json) " +
-                "VALUES (@jobId, @floorWei, @ceilingWei, @deltaWei, NULL, NULL, NULL)",
+                "VALUES (@jobId, @floorWei, @ceilingWei, @deltaWei, @quantity, @targetTraitsJson, @competitorTraitsJson)",
         ) as BetterSqlite3NamedStatement<{
             jobId: string;
             floorWei: string;
             ceilingWei: string;
             deltaWei: string;
+            quantity: number | null;
+            targetTraitsJson: string | null;
+            competitorTraitsJson: string | null;
         }>;
 
         this.updateBiddingSpecById = db.prepare<{
@@ -258,15 +278,23 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             floorWei: string;
             ceilingWei: string;
             deltaWei: string;
+            quantity: number | null;
+            targetTraitsJson: string | null;
+            competitorTraitsJson: string | null;
         }>(
             "UPDATE trading_bidding_job_specs SET " +
-                "floor_wei = @floorWei, ceiling_wei = @ceilingWei, delta_wei = @deltaWei, updated_at = CURRENT_TIMESTAMP " +
+                "floor_wei = @floorWei, ceiling_wei = @ceilingWei, delta_wei = @deltaWei, " +
+                "quantity = @quantity, target_traits_json = @targetTraitsJson, competitor_traits_json = @competitorTraitsJson, " +
+                "updated_at = CURRENT_TIMESTAMP " +
                 "WHERE job_id = @jobId",
         ) as BetterSqlite3NamedStatement<{
             jobId: string;
             floorWei: string;
             ceilingWei: string;
             deltaWei: string;
+            quantity: number | null;
+            targetTraitsJson: string | null;
+            competitorTraitsJson: string | null;
         }>;
 
         this.insertCommand = db.prepare<{
@@ -370,6 +398,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                         floorWei: transactionInput.floorWei,
                         ceilingWei: transactionInput.ceilingWei,
                         deltaWei: transactionInput.deltaWei,
+                        quantity: null,
+                        targetTraitsJson: null,
+                        competitorTraitsJson: null,
                     });
 
                     const job = this.requireTokenJobById(existing.jobId);
@@ -426,6 +457,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                     floorWei: transactionInput.floorWei,
                     ceilingWei: transactionInput.ceilingWei,
                     deltaWei: transactionInput.deltaWei,
+                    quantity: null,
+                    targetTraitsJson: null,
+                    competitorTraitsJson: null,
                 });
 
                 const job = this.requireTokenJobById(jobId);
@@ -441,6 +475,102 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                         tokenId: job.tokenId,
                         jobId: job.jobId,
                     },
+                );
+                return {
+                    job,
+                    commands: [command],
+                };
+            },
+        )(input);
+    }
+
+    upsertCollectionJob(
+        input: UpsertCollectionBiddingJobInput,
+    ): {
+        job: PersistedCollectionBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    } {
+        return db.raw.transaction(
+            (transactionInput: UpsertCollectionBiddingJobInput) => {
+                const targetTraits = this.normalizeTraitCriteria(
+                    transactionInput.targetTraits,
+                );
+                const existing = this.findActiveCollectionJob({
+                    chainId: transactionInput.chainId,
+                    collectionId: transactionInput.collectionId,
+                    quantity: transactionInput.quantity,
+                    targetTraits,
+                });
+
+                if (existing) {
+                    this.updateTradingJobById.run({
+                        jobId: existing.jobId,
+                        status: transactionInput.status,
+                    });
+                    this.updateBiddingSpecById.run({
+                        jobId: existing.jobId,
+                        floorWei: transactionInput.floorWei,
+                        ceilingWei: transactionInput.ceilingWei,
+                        deltaWei: transactionInput.deltaWei,
+                        quantity: transactionInput.quantity,
+                        targetTraitsJson: JSON.stringify(targetTraits),
+                        competitorTraitsJson: null,
+                    });
+
+                    const job = this.requireCollectionJobById(existing.jobId);
+                    const commandKind =
+                        job.status === TRADING_JOB_STATUS.Paused
+                            ? TRADING_JOB_COMMAND_KIND.JobPaused
+                            : TRADING_JOB_COMMAND_KIND.JobUpdated;
+                    const commands = [
+                        this.insertCommandRecord(
+                            job.jobId,
+                            commandKind,
+                            job.revision,
+                            this.collectionJobCommandPayload(job),
+                        ),
+                    ];
+                    if (job.status === TRADING_JOB_STATUS.Paused) {
+                        commands.push(
+                            this.insertCommandRecord(
+                                job.jobId,
+                                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                                job.revision,
+                                this.collectionJobCommandPayload(job),
+                            ),
+                        );
+                    }
+                    return { job, commands };
+                }
+
+                const jobId = randomUUID();
+                this.insertTradingJob.run({
+                    jobId,
+                    botKind: TRADING_BOT_KIND.Bidding,
+                    chainId: transactionInput.chainId,
+                    collectionId: transactionInput.collectionId,
+                    status: transactionInput.status,
+                    targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                    tokenId: null,
+                });
+                this.insertBiddingSpec.run({
+                    jobId,
+                    floorWei: transactionInput.floorWei,
+                    ceilingWei: transactionInput.ceilingWei,
+                    deltaWei: transactionInput.deltaWei,
+                    quantity: transactionInput.quantity,
+                    targetTraitsJson: JSON.stringify(targetTraits),
+                    competitorTraitsJson: null,
+                });
+
+                const job = this.requireCollectionJobById(jobId);
+                const command = this.insertCommandRecord(
+                    job.jobId,
+                    job.status === TRADING_JOB_STATUS.Paused
+                        ? TRADING_JOB_COMMAND_KIND.JobPaused
+                        : TRADING_JOB_COMMAND_KIND.JobCreated,
+                    job.revision,
+                    this.collectionJobCommandPayload(job),
                 );
                 return {
                     job,
@@ -523,6 +653,69 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             );
         }
         return job;
+    }
+
+    private requireCollectionJobById(
+        jobId: string,
+    ): PersistedCollectionBiddingJobRecord {
+        const job = this.getJobById(jobId);
+        if (!job || job.targetKind !== TRADING_JOB_TARGET_KIND.Collection) {
+            throw new Error(
+                `Expected persisted collection bidding job to exist for jobId=${jobId}`,
+            );
+        }
+        return job;
+    }
+
+    private findActiveCollectionJob(params: {
+        chainId: number;
+        collectionId: number;
+        quantity: number;
+        targetTraits: TradingTraitCriterion[];
+    }): PersistedCollectionBiddingJobRecord | null {
+        const targetTraitsKey = this.traitCriteriaKey(params.targetTraits);
+        for (const job of this.listCollectionJobs({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+        })) {
+            if (
+                job.targetKind === TRADING_JOB_TARGET_KIND.Collection &&
+                job.quantity === params.quantity &&
+                this.traitCriteriaKey(job.targetTraits) === targetTraitsKey
+            ) {
+                return job;
+            }
+        }
+        return null;
+    }
+
+    private collectionJobCommandPayload(
+        job: PersistedCollectionBiddingJobRecord,
+    ): Record<string, unknown> {
+        return {
+            chainId: job.chainId,
+            collectionId: job.collectionId,
+            quantity: job.quantity,
+            targetTraits: job.targetTraits,
+            jobId: job.jobId,
+        };
+    }
+
+    private normalizeTraitCriteria(
+        traits: TradingTraitCriterion[],
+    ): TradingTraitCriterion[] {
+        return [...traits].sort((left, right) => {
+            const typeCompare = left.type.localeCompare(right.type);
+            return typeCompare === 0
+                ? left.value.localeCompare(right.value)
+                : typeCompare;
+        });
+    }
+
+    private traitCriteriaKey(traits: TradingTraitCriterion[]): string {
+        return this.normalizeTraitCriteria(traits)
+            .map((trait) => `${trait.type}\u0000${trait.value}`)
+            .join("\u0001");
     }
 
     private insertCommandRecord(

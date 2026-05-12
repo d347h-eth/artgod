@@ -375,6 +375,13 @@ Artifacts:
 - Preserve the exact trait filter snapshot that produced the job.
 - Keep manually adjusted selections out of this path.
 
+Artifacts:
+
+- `backend/src/application/use-cases/trading/upsert-trait-bidding-job.ts`
+- `backend/src/http/handlers/trading/upsert-trait-bidding-job.ts`
+- `backend/src/infra/trading/sqlite-bidding-jobs-repository.ts`
+- `frontend/src/lib/backend-api.ts`
+
 ### Slice 7: Batch Token Job Mutations
 
 - Add backend batch token job use case.

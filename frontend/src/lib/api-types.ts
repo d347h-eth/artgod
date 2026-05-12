@@ -454,6 +454,12 @@ export type TokenBiddingJobMutationApiResponse = {
 	job: ApiBiddingJob;
 };
 
+export type TraitBiddingJobMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	job: ApiBiddingJob;
+};
+
 export type TokenDetailApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;

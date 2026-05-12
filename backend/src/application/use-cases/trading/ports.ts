@@ -1,8 +1,10 @@
 import type {
     PersistedBiddingJobRecord,
+    PersistedCollectionBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
     TradingJobCommandRecord,
     TradingJobStatus,
+    TradingTraitCriterion,
 } from "@artgod/shared/types";
 
 export type UpsertTokenBiddingJobInput = {
@@ -13,6 +15,17 @@ export type UpsertTokenBiddingJobInput = {
     floorWei: string;
     ceilingWei: string;
     deltaWei: string;
+};
+
+export type UpsertCollectionBiddingJobInput = {
+    chainId: number;
+    collectionId: number;
+    status: Exclude<TradingJobStatus, "archived">;
+    floorWei: string;
+    ceilingWei: string;
+    deltaWei: string;
+    quantity: number;
+    targetTraits: TradingTraitCriterion[];
 };
 
 export interface BiddingJobsRepositoryPort {
@@ -32,6 +45,12 @@ export interface BiddingJobsRepositoryPort {
         input: UpsertTokenBiddingJobInput,
     ): {
         job: PersistedTokenBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    };
+    upsertCollectionJob(
+        input: UpsertCollectionBiddingJobInput,
+    ): {
+        job: PersistedCollectionBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     };
     archiveTokenJob(params: {

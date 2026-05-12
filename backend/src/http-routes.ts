@@ -95,6 +95,10 @@ import type {
     UpsertTokenBiddingJobRoute,
 } from "./http/handlers/trading/upsert-token-bidding-job.js";
 import type {
+    UpsertTraitBiddingJobHttpAdapter,
+    UpsertTraitBiddingJobRoute,
+} from "./http/handlers/trading/upsert-trait-bidding-job.js";
+import type {
     ArchiveTokenBiddingJobHttpAdapter,
     ArchiveTokenBiddingJobRoute,
 } from "./http/handlers/trading/archive-token-bidding-job.js";
@@ -142,6 +146,7 @@ export function registerApiRoutes(
     getTokenBiddingJobAdapter: GetTokenBiddingJobHttpAdapter,
     getTokenBiddingBidBookAdapter: GetTokenBiddingBidBookHttpAdapter,
     upsertTokenBiddingJobAdapter: UpsertTokenBiddingJobHttpAdapter,
+    upsertTraitBiddingJobAdapter: UpsertTraitBiddingJobHttpAdapter,
     archiveTokenBiddingJobAdapter: ArchiveTokenBiddingJobHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
     options: ApiRouteRegistrationOptions,
@@ -287,6 +292,10 @@ export function registerApiRoutes(
     app.put<UpsertTokenBiddingJobRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         upsertTokenBiddingJobAdapter.handle,
+    );
+    app.put<UpsertTraitBiddingJobRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/jobs/traits",
+        upsertTraitBiddingJobAdapter.handle,
     );
     app.delete<ArchiveTokenBiddingJobRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",

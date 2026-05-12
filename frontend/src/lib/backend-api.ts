@@ -17,7 +17,8 @@ import type {
 	TokenBiddingJobApiResponse,
 	TokenBiddingJobMutationApiResponse,
 	TokenDetailApiResponse,
-	TokenPreviewApiResponse
+	TokenPreviewApiResponse,
+	TraitBiddingJobMutationApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { browser } from '$app/environment';
@@ -206,6 +207,28 @@ export async function archiveTokenBiddingJob(
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
 		'DELETE',
 		{}
+	);
+}
+
+export async function upsertTraitBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		status: 'enabled' | 'paused';
+		floorEth: string;
+		ceilingEth: string;
+		deltaEth: string;
+		quantity?: number;
+		targetTraits: { type: string; value: string }[];
+	}
+): Promise<TraitBiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<TraitBiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/traits`,
+		'PUT',
+		body
 	);
 }
 

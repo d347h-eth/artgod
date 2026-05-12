@@ -10,7 +10,8 @@ import type {
     TradingTraitCriterion,
 } from "@artgod/shared/types";
 
-export type TokenBiddingJobMutationStatus = Exclude<TradingJobStatus, "archived">;
+export type BiddingJobMutationStatus = Exclude<TradingJobStatus, "archived">;
+export type TokenBiddingJobMutationStatus = BiddingJobMutationStatus;
 
 export type BiddingJobView = {
     jobId: string;
@@ -94,6 +95,23 @@ export type UpsertTokenBiddingJobOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
     tokenId: string;
+    job: BiddingJobView;
+};
+
+export type UpsertTraitBiddingJobInput = {
+    chainRef: string;
+    collectionRef: string;
+    status: BiddingJobMutationStatus;
+    floorEth: string;
+    ceilingEth: string;
+    deltaEth: string;
+    quantity?: number;
+    targetTraits: TradingTraitCriterion[];
+};
+
+export type UpsertTraitBiddingJobOutput = {
+    chain: ChainRecord;
+    collection: CollectionListItem;
     job: BiddingJobView;
 };
 

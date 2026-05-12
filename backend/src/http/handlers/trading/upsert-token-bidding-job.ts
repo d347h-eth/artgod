@@ -1,10 +1,12 @@
 import type { FastifyRequest } from "fastify";
-import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
-import { TRADING_JOB_STATUS } from "@artgod/shared/types";
 import type {
     UpsertTokenBiddingJobInput,
     UpsertTokenBiddingJobOutput,
 } from "../../../application/use-cases/trading/upsert-token-bidding-job.js";
+import {
+    parseEditableBiddingJobStatus,
+    parseRequiredString,
+} from "./trading-job-http.js";
 
 export type UpsertTokenBiddingJobRoute = {
     Params: {
@@ -45,7 +47,7 @@ export class UpsertTokenBiddingJobHttpAdapter {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,
-            status: parseJobStatus(request.body?.status),
+            status: parseEditableBiddingJobStatus(request.body?.status),
             floorEth: parseRequiredString(request.body?.floorEth, "floorEth"),
             ceilingEth: parseRequiredString(
                 request.body?.ceilingEth,
@@ -54,23 +56,4 @@ export class UpsertTokenBiddingJobHttpAdapter {
             deltaEth: parseRequiredString(request.body?.deltaEth, "deltaEth"),
         };
     }
-}
-
-function parseJobStatus(
-    value: unknown,
-): typeof TRADING_JOB_STATUS.Enabled | typeof TRADING_JOB_STATUS.Paused {
-    if (
-        value === TRADING_JOB_STATUS.Enabled ||
-        value === TRADING_JOB_STATUS.Paused
-    ) {
-        return value;
-    }
-    throw new ReadModelBadRequestError("status is invalid");
-}
-
-function parseRequiredString(value: unknown, field: string): string {
-    if (typeof value !== "string") {
-        throw new ReadModelBadRequestError(`${field} must be a string`);
-    }
-    return value;
 }

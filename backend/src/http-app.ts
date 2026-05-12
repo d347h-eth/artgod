@@ -23,6 +23,7 @@ import type { ListCollectionBiddingBidBookUseCase } from "./application/use-case
 import type { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
 import type { GetTokenBiddingBidBookUseCase } from "./application/use-cases/trading/get-token-bidding-bid-book.js";
 import type { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
+import type { UpsertTraitBiddingJobUseCase } from "./application/use-cases/trading/upsert-trait-bidding-job.js";
 import type { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/archive-token-bidding-job.js";
 import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-bootstrap-run.js";
 import { GetBootstrapRunDetailHttpAdapter } from "./http/handlers/bootstrap/get-bootstrap-run-detail.js";
@@ -48,6 +49,7 @@ import { ListCollectionBiddingBidBookHttpAdapter } from "./http/handlers/trading
 import { GetTokenBiddingJobHttpAdapter } from "./http/handlers/trading/get-token-bidding-job.js";
 import { GetTokenBiddingBidBookHttpAdapter } from "./http/handlers/trading/get-token-bidding-bid-book.js";
 import { UpsertTokenBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-token-bidding-job.js";
+import { UpsertTraitBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-trait-bidding-job.js";
 import { ArchiveTokenBiddingJobHttpAdapter } from "./http/handlers/trading/archive-token-bidding-job.js";
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
 import { registerApiErrorHandlers } from "./http/common/error-handlers.js";
@@ -87,6 +89,7 @@ export function createApiApp(
     getTokenBiddingJobUseCase: GetTokenBiddingJobUseCase,
     getTokenBiddingBidBookUseCase: GetTokenBiddingBidBookUseCase,
     upsertTokenBiddingJobUseCase: UpsertTokenBiddingJobUseCase,
+    upsertTraitBiddingJobUseCase: UpsertTraitBiddingJobUseCase,
     archiveTokenBiddingJobUseCase: ArchiveTokenBiddingJobUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
     userlandUiDistDir: string | null,
@@ -170,6 +173,9 @@ export function createApiApp(
     const upsertTokenBiddingJobAdapter = new UpsertTokenBiddingJobHttpAdapter(
         upsertTokenBiddingJobUseCase,
     );
+    const upsertTraitBiddingJobAdapter = new UpsertTraitBiddingJobHttpAdapter(
+        upsertTraitBiddingJobUseCase,
+    );
     const archiveTokenBiddingJobAdapter =
         new ArchiveTokenBiddingJobHttpAdapter(
             archiveTokenBiddingJobUseCase,
@@ -208,6 +214,7 @@ export function createApiApp(
         getTokenBiddingJobAdapter,
         getTokenBiddingBidBookAdapter,
         upsertTokenBiddingJobAdapter,
+        upsertTraitBiddingJobAdapter,
         archiveTokenBiddingJobAdapter,
         getRuntimeHealthAdapter,
         {
