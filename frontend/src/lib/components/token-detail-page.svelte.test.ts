@@ -172,7 +172,6 @@ describe('token detail page', () => {
 			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
 		expect(body).not.toContain('traits=Power%3A7');
-		expect(body).toContain('create bid');
 		expect(body).toContain('<th class="bid-book-col-center">scope</th>');
 		expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
 		expect(body).toContain('Hat=Beanie');
@@ -182,6 +181,12 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
 		);
+		expect(body).toContain('role="region" aria-label="bidding automation"');
+		expect(body).toContain('token bidding');
+		expect(body).toContain('value="0.101"');
+		expect(body).toContain('value="0.001"');
+		expect(body).toContain('>create<');
+		expect(body).not.toContain('>use<');
 	});
 
 	it('uses holder return path when provided', () => {
@@ -285,7 +290,11 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('edit bid');
+		expect(body).toContain('token bidding');
+		expect(body).toContain('value="0.1"');
+		expect(body).toContain('value="0.2"');
+		expect(body).toContain('value="0.01"');
+		expect(body).toContain('>save<');
 	});
 
 	it('keeps token-local lost mode out of collection navigation links', () => {

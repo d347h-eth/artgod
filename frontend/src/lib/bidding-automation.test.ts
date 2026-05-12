@@ -7,11 +7,13 @@ import {
 	BIDDING_AUTOMATION_PRICING_MODE,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+	bestBiddingAutomationBid,
 	biddingAutomationDraftTokenId,
 	biddingTraitCriteriaToTokenAttributes,
 	buildBiddingAutomationTokenFilterSnapshot,
 	buildBiddingAutomationDraftFromBid,
 	buildBiddingAutomationDraftFromSelection,
+	buildTokenBiddingAutomationDraftFromBid,
 	isBiddingAutomationDraftSubmittable
 } from '$lib/bidding-automation';
 
@@ -147,6 +149,44 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 				deltaEth: item.deltaEth
 			});
 		}
+	});
+});
+
+describe('buildTokenBiddingAutomationDraftFromBid', () => {
+	it('uses the selected bid price but keeps the token detail target token-scoped', () => {
+		const draft = buildTokenBiddingAutomationDraftFromBid(
+			{
+				...BASE_BID,
+				scope: {
+					kind: 'trait',
+					label: 'Hat=Beanie',
+					tokenId: null,
+					traits: [{ type: 'Hat', value: 'Beanie' }]
+				}
+			},
+			'42'
+		);
+
+		expect(draft?.target).toEqual({
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
+			tokenIds: ['42']
+		});
+		expect(draft?.pricing).toEqual({
+			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+			floorEth: '0.301',
+			ceilingEth: '0.301',
+			deltaEth: '0.001'
+		});
+		expect(biddingAutomationDraftTokenId(draft)).toBe('42');
+	});
+});
+
+describe('bestBiddingAutomationBid', () => {
+	it('selects the highest bid for draft pricing', () => {
+		const lower = { ...BASE_BID, orderId: '0xlower', priceWei: '100000000000000000' };
+		const higher = { ...BASE_BID, orderId: '0xhigher', priceWei: '200000000000000000' };
+
+		expect(bestBiddingAutomationBid([lower, higher])?.orderId).toBe('0xhigher');
 	});
 });
 

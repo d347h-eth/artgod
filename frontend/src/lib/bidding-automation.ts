@@ -194,6 +194,42 @@ export function buildBiddingAutomationDraftFromBid(
 	};
 }
 
+// Builds a token-scoped draft from the best applicable bid on a token detail page.
+export function buildTokenBiddingAutomationDraftFromBid(
+	bid: ApiBiddingBidBookRow,
+	tokenId: string,
+	existingJob: ApiBiddingJob | null = null
+): BiddingAutomationDraft | null {
+	const trimmedTokenId = tokenId.trim();
+	if (!trimmedTokenId) {
+		return null;
+	}
+	return {
+		source: {
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid,
+			bid
+		},
+		target: {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
+			tokenIds: [trimmedTokenId]
+		},
+		pricing: {
+			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+			floorEth: nextWinningBidEth(bid),
+			ceilingEth: nextWinningBidEth(bid),
+			deltaEth: existingJob?.config.deltaEth ?? minimalBidDeltaEth(bid)
+		},
+		existingJob
+	};
+}
+
+// Picks the highest bid row for pricing a new bidding draft.
+export function bestBiddingAutomationBid(
+	bids: ApiBiddingBidBookRow[]
+): ApiBiddingBidBookRow | null {
+	return [...bids].sort(compareBiddingAutomationBidRows)[0] ?? null;
+}
+
 // Builds a draft from token-card/filter selection without materializing large clean filters in the UI.
 export function buildBiddingAutomationDraftFromSelection(
 	selection: BiddingAutomationSelection,
@@ -275,6 +311,18 @@ function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomation
 		};
 	}
 	return null;
+}
+
+function compareBiddingAutomationBidRows(
+	left: ApiBiddingBidBookRow,
+	right: ApiBiddingBidBookRow
+): number {
+	const leftPrice = BigInt(left.priceWei);
+	const rightPrice = BigInt(right.priceWei);
+	if (leftPrice === rightPrice) {
+		return left.orderId.localeCompare(right.orderId);
+	}
+	return leftPrice > rightPrice ? -1 : 1;
 }
 
 function resolveDraftTargetFromSelection(

@@ -30,6 +30,7 @@
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 
 	type EditableTokenJobStatus = 'enabled' | 'paused';
+	type BiddingAutomationPanelVariant = 'floating' | 'inline';
 
 	let {
 		open,
@@ -41,7 +42,8 @@
 		bidBook = null,
 		priceTiers = [],
 		expandSignal = 0,
-		onClose,
+		variant = 'floating',
+		onClose = null,
 		onJobChange = null,
 		onJobsChange = null
 	}: {
@@ -54,7 +56,8 @@
 		bidBook?: ApiBiddingBidBook | null;
 		priceTiers?: ApiBiddingPriceTier[];
 		expandSignal?: number;
-		onClose: () => void;
+		variant?: BiddingAutomationPanelVariant;
+		onClose?: (() => void) | null;
 		onJobChange?: ((job: ApiBiddingJob | null) => void) | null;
 		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
 	} = $props();
@@ -299,7 +302,7 @@
 			togglePanelCollapsed();
 			return;
 		}
-		if (key === 'c') {
+		if (key === 'c' && onClose) {
 			event.preventDefault();
 			onClose();
 		}
@@ -628,6 +631,7 @@
 	<button
 		type="button"
 		class="bidding-automation-panel-collapsed"
+		class:bidding-automation-panel-collapsed-inline={variant === 'inline'}
 		aria-label="show bidding panel"
 		title="show bidding panel"
 		onclick={showPanel}
@@ -635,7 +639,12 @@
 		<PlaceBidIcon className="bidding-automation-panel-collapsed-icon" />
 	</button>
 {:else if open}
-	<div class="runtime-section bidding-automation-panel" role="dialog" aria-label="bidding automation">
+	<div
+		class="runtime-section bidding-automation-panel"
+		class:bidding-automation-panel-inline={variant === 'inline'}
+		role={variant === 'inline' ? 'region' : 'dialog'}
+		aria-label="bidding automation"
+	>
 		<header class="panel-header bidding-automation-panel-header">
 			<h2 class="panel-title">token bidding</h2>
 			<button type="button" class="button-link" onclick={hidePanel}>hide</button>

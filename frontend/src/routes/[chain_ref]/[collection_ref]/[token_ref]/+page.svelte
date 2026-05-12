@@ -32,7 +32,8 @@
 		buildCollectionBiddingQuery
 	} from '$lib/bidding-query';
 	import {
-		buildBiddingAutomationDraftFromBid,
+		bestBiddingAutomationBid,
+		buildTokenBiddingAutomationDraftFromBid,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
 	import { formatListingPrice } from '$lib/listing-price';
@@ -82,18 +83,14 @@
 	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
 	let displayedMediaAspectRatio = $state<number | null>(null);
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
-	let selectedBiddingDraft = $state<BiddingAutomationDraft | null>(null);
-	let biddingAutomationPanelOpen = $state(false);
-	let biddingPanelExpandSignal = $state(0);
 	let tokenDetailRequestId = 0;
+	const tokenBiddingDraft = $derived(resolveTokenBiddingDraft());
 
 	$effect(() => {
 		displayedToken = data?.token ?? null;
 		displayedMedia = resolveInitialMediaState(data?.media);
 		displayedMediaAspectRatio = null;
 		tokenBiddingJob = data?.tokenBiddingJob ?? null;
-		selectedBiddingDraft = null;
-		biddingAutomationPanelOpen = false;
 		tokenDetailRequestId += 1;
 	});
 
@@ -194,37 +191,19 @@
 		return !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && !!data?.chain && !!data.collection && !!displayedToken;
 	}
 
-	function tokenBiddingActionLabel(): string {
-		return tokenBiddingJob ? 'edit bid' : 'create bid';
-	}
-
 	function onTokenBiddingJobChange(nextJob: ApiBiddingJob | null): void {
 		tokenBiddingJob = nextJob;
-		selectedBiddingDraft = null;
 	}
 
-	function openTokenBiddingAutomation(draft: BiddingAutomationDraft | null = null): void {
-		selectedBiddingDraft = draft;
-		biddingAutomationPanelOpen = true;
-		expandBiddingAutomationPanel();
-	}
-
-	function closeTokenBiddingAutomation(): void {
-		selectedBiddingDraft = null;
-		biddingAutomationPanelOpen = false;
-	}
-
-	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
-		const draft = buildBiddingAutomationDraftFromBid(
-			bid,
-			bid.scope.kind === 'token' ? tokenBiddingJob : null
-		);
-		if (!draft) return;
-		openTokenBiddingAutomation(draft);
-	}
-
-	function expandBiddingAutomationPanel(): void {
-		biddingPanelExpandSignal += 1;
+	function resolveTokenBiddingDraft(): BiddingAutomationDraft | null {
+		if (tokenBiddingJob || !displayedToken) {
+			return null;
+		}
+		const topBid = bestBiddingAutomationBid(data?.tokenBiddingBidBook?.bids ?? []);
+		if (!topBid) {
+			return null;
+		}
+		return buildTokenBiddingAutomationDraftFromBid(topBid, displayedToken.tokenId);
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -567,27 +546,21 @@
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}
 				makerBidHref={bidBookMakerHref}
-				onSelectBid={shouldShowTokenBiddingAutomation() ? onBidBookSelectBid : null}
+				showRowActions={false}
 			/>
 		{/if}
 
 		{#if shouldShowTokenBiddingAutomation()}
-			<div class="panel-top-actions-row token-bidding-action-row">
-				<button type="button" class="button-link" onclick={() => openTokenBiddingAutomation()}>
-					{tokenBiddingActionLabel()}
-				</button>
-			</div>
 			<BiddingAutomationPanel
-				open={biddingAutomationPanelOpen}
+				open
+				variant="inline"
 				chain={data?.chain ?? null}
 				collection={data?.collection ?? null}
 				token={displayedToken}
 				job={tokenBiddingJob}
-				draft={selectedBiddingDraft}
+				draft={tokenBiddingDraft}
 				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
 				priceTiers={data?.priceTiers ?? []}
-				expandSignal={biddingPanelExpandSignal}
-				onClose={closeTokenBiddingAutomation}
 				onJobChange={onTokenBiddingJobChange}
 			/>
 		{/if}
