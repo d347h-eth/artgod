@@ -1654,6 +1654,10 @@ th {
 	cursor: pointer;
 }
 
+.token-grid-card-selection-shortcut .token-preview-trigger {
+	cursor: pointer;
+}
+
 .token-grid-card-selected {
 	border-color: transparent;
 	background: color-mix(in srgb, var(--c-orange) 14%, transparent);

@@ -166,6 +166,7 @@
 	let tokenOffersPagingPending = $state(false);
 	let selectedBidDraft = $state<BiddingAutomationDraft | null>(null);
 	let lastBiddingFilterKey = $state('');
+	let biddingPanelExpandSignal = $state(0);
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
@@ -646,6 +647,7 @@
 				makerAddress: makerFilter
 			}
 		});
+		expandBiddingAutomationPanel();
 	}
 
 	function bidOnFilteredTokenOffers(): void {
@@ -654,6 +656,7 @@
 			if (canRefineTokenSelectionToVisiblePage) {
 				biddingAutomation.selectExplicitTokens(visibleTokenOfferCardIds);
 			}
+			expandBiddingAutomationPanel();
 			return;
 		}
 		biddingAutomation.selectFilteredTokens({
@@ -668,6 +671,7 @@
 				makerAddress: makerFilter
 			}
 		});
+		expandBiddingAutomationPanel();
 	}
 
 	function toggleVisibleTokenSelection(request: Omit<ToggleBiddingTokenInput, 'visibleTokenIds'>): void {
@@ -724,6 +728,7 @@
 		if (!draft) return;
 		biddingAutomation.clearSelection();
 		selectedBidDraft = draft;
+		expandBiddingAutomationPanel();
 	}
 
 	function placeCollectionBid(): void {
@@ -740,6 +745,10 @@
 	function clearBiddingSelection(): void {
 		selectedBidDraft = null;
 		biddingAutomation.clearSelection();
+	}
+
+	function expandBiddingAutomationPanel(): void {
+		biddingPanelExpandSignal += 1;
 	}
 
 	async function onLoadPreviousTokenOffers(event: MouseEvent): Promise<void> {
@@ -1120,6 +1129,7 @@
 			draft={selectedBiddingDraft}
 			{bidBook}
 			{priceTiers}
+			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}
 			onJobsChange={handleJobsChanged}
 		/>

@@ -26,6 +26,7 @@
 		isBiddingAutomationDraftSubmittable,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
+	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 
 	type EditableTokenJobStatus = 'enabled' | 'paused';
@@ -39,6 +40,7 @@
 		draft = null,
 		bidBook = null,
 		priceTiers = [],
+		expandSignal = 0,
 		onClose,
 		onJobChange = null,
 		onJobsChange = null
@@ -51,6 +53,7 @@
 		draft?: BiddingAutomationDraft | null;
 		bidBook?: ApiBiddingBidBook | null;
 		priceTiers?: ApiBiddingPriceTier[];
+		expandSignal?: number;
 		onClose: () => void;
 		onJobChange?: ((job: ApiBiddingJob | null) => void) | null;
 		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
@@ -70,6 +73,7 @@
 	let saveMessage = $state<string | null>(null);
 	let saveError = $state<string | null>(null);
 	let panelCollapsed = $state(false);
+	let lastExpandSignal = $state(expandSignal);
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
@@ -116,6 +120,16 @@
 		archiving = false;
 		saveMessage = null;
 		saveError = null;
+	});
+
+	$effect(() => {
+		if (expandSignal === lastExpandSignal) {
+			return;
+		}
+		lastExpandSignal = expandSignal;
+		if (open) {
+			panelCollapsed = false;
+		}
 	});
 
 	function resolvePanelJob(
@@ -268,6 +282,27 @@
 
 	function showPanel(): void {
 		panelCollapsed = false;
+	}
+
+	function togglePanelCollapsed(): void {
+		panelCollapsed = !panelCollapsed;
+	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		if (!open || event.defaultPrevented) return;
+		if (event.metaKey || event.ctrlKey || event.altKey) return;
+		if (isKeyboardTextEntryTarget(event.target)) return;
+
+		const key = event.key.toLowerCase();
+		if (key === 'b') {
+			event.preventDefault();
+			togglePanelCollapsed();
+			return;
+		}
+		if (key === 'c') {
+			event.preventDefault();
+			onClose();
+		}
 	}
 
 	function applyLoadedPanel(
@@ -586,6 +621,8 @@
 		}
 	}
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 {#if open && panelCollapsed}
 	<button

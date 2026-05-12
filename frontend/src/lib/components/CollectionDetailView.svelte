@@ -89,6 +89,7 @@
 	let bootstrapRequestInFlight = false;
 	let changedBiddingJobs = $state<ApiBiddingJob[]>([]);
 	let lastBiddingFilterKey = $state('');
+	let biddingPanelExpandSignal = $state(0);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
 	const selectedBiddingDraft = $derived(
 		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
@@ -249,6 +250,7 @@
 				makerAddress: null
 			}
 		});
+		expandBiddingAutomationPanel();
 	}
 
 	function bidOnFilteredTokens(nextVisibleTokenIds: string[]): void {
@@ -256,6 +258,7 @@
 			if (canRefineTokenSelectionToVisiblePage) {
 				biddingAutomation.selectExplicitTokens(nextVisibleTokenIds);
 			}
+			expandBiddingAutomationPanel();
 			return;
 		}
 		biddingAutomation.selectFilteredTokens({
@@ -270,6 +273,7 @@
 				makerAddress: null
 			}
 		});
+		expandBiddingAutomationPanel();
 	}
 
 	function toggleVisibleTokenSelection(request: ToggleBiddingTokenInput): void {
@@ -298,6 +302,10 @@
 
 	function clearBiddingSelection(): void {
 		biddingAutomation.clearSelection();
+	}
+
+	function expandBiddingAutomationPanel(): void {
+		biddingPanelExpandSignal += 1;
 	}
 
 	function closeBiddingAutomationPanel(): void {
@@ -408,6 +416,7 @@
 			draft={selectedBiddingDraft}
 			bidBook={emptyBidBook()}
 			{priceTiers}
+			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}
 			onJobsChange={handleBiddingJobsChanged}
 		/>

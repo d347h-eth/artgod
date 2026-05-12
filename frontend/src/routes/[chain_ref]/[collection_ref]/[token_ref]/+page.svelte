@@ -84,6 +84,7 @@
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
 	let selectedBiddingDraft = $state<BiddingAutomationDraft | null>(null);
 	let biddingAutomationPanelOpen = $state(false);
+	let biddingPanelExpandSignal = $state(0);
 	let tokenDetailRequestId = 0;
 
 	$effect(() => {
@@ -205,6 +206,7 @@
 	function openTokenBiddingAutomation(draft: BiddingAutomationDraft | null = null): void {
 		selectedBiddingDraft = draft;
 		biddingAutomationPanelOpen = true;
+		expandBiddingAutomationPanel();
 	}
 
 	function closeTokenBiddingAutomation(): void {
@@ -219,6 +221,10 @@
 		);
 		if (!draft) return;
 		openTokenBiddingAutomation(draft);
+	}
+
+	function expandBiddingAutomationPanel(): void {
+		biddingPanelExpandSignal += 1;
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -580,6 +586,7 @@
 				draft={selectedBiddingDraft}
 				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
 				priceTiers={data?.priceTiers ?? []}
+				expandSignal={biddingPanelExpandSignal}
 				onClose={closeTokenBiddingAutomation}
 				onJobChange={onTokenBiddingJobChange}
 			/>
