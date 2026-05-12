@@ -1,6 +1,6 @@
 # Bidding Automation UX Plan
 
-Status: First implementation pass complete
+Status: First implementation pass complete; next slices drafted
 Branch: `feature/bidding-automation-ux`
 
 This document plans the next bidding UX layer on top of the current DB-backed bidding jobs and bid-book display.
@@ -30,7 +30,7 @@ The user should be able to start a bidding action from three sources:
 
 1. Filtered token selection:
    - User filters a collection through existing trait/token controls.
-   - User clicks `select all tokens` for the current filter.
+   - User clicks `select all` for the current filter.
    - The selection records the filter snapshot and targets all matching tokens across the collection, not only the visible page.
 2. Explicit token selection:
    - User toggles individual token cards in asks, offers, or tokens exploration.
@@ -96,7 +96,7 @@ It should use compact labels and existing control families.
 
 The panel should be opened by:
 
-- `select all tokens` from token exploration
+- `select all` from token exploration
 - token-card selection gestures
 - bid-book row action
 - token detail bid-book action
@@ -247,8 +247,8 @@ For selected tokens:
 For selected bids:
 
 - token bid rows can create token jobs
-- trait bid rows can initially prefill a draft, but durable trait job creation should wait until trait/collection target APIs are implemented end to end
-- collection bid rows can initially prefill a draft, but collection-scoped creation should remain explicit and guarded
+- trait bid rows can create trait jobs through the collection-job target path
+- collection bid rows can create collection jobs through an explicit guarded submit path
 
 For clean trait-filter selections:
 
@@ -348,7 +348,7 @@ Artifacts:
 Current implementation notes:
 
 - Token-card selection is opt-in through reusable `TokenCardTile` / `TokenBrowserView` props.
-- The offers token-card view and regular asks/tokens browser both expose `select all tokens` plus `Ctrl` + click / middle-click selection.
+- The offers token-card view and regular asks/tokens browser both expose `select all` plus `Ctrl` + click / middle-click selection.
 - Holders continues to reuse `TokenBrowserView` without passing selection props, so it does not inherit bidding behavior.
 
 ### Slice 4: Shared Automation Panel for Token Jobs
@@ -372,7 +372,7 @@ Current implementation notes:
 
 - Add bid-book row action to open the automation panel.
 - Token-scoped bid rows create token-job drafts.
-- Trait and collection bid rows can prefill draft state but should not submit unsupported target kinds yet.
+- Trait and collection bid rows create drafts that submit through the trait and collection job mutation paths.
 
 Artifacts:
 
@@ -463,6 +463,120 @@ Current implementation notes:
 - Trait bid drafts submit through the existing trait-job route instead of fanning out into token IDs.
 - Explicit token batches submit through the batch token route; single-token batches still use the token route.
 - Filtered-token drafts are only submittable when the backend can resolve the filter selection directly.
+
+### Slice 11: Selection State Hardening and Shared Controls
+
+- Make active selection the single source of truth for selected-card state, selection summary, and automation-panel draft.
+- Avoid latching panel drafts from token-card selection as a side effect; selected bid rows remain their own explicit draft source.
+- Add selected-card visual feedback and an inline unselect shortcut.
+- Keep `Ctrl` + left click and middle-click as token-card toggle gestures.
+- Unify `select all`, `X selected`, and `clear` controls between asks, tokens, and offers.
+- Keep only media-mode controls on the far right of token-browser toolbars; bidding selection controls stay left-aligned.
+
+Artifacts:
+
+- `frontend/src/lib/bidding-automation-controller.ts`
+- `frontend/src/lib/components/BiddingSelectionControls.svelte`
+- `frontend/src/lib/components/TokenCardTile.svelte`
+- `frontend/src/lib/components/TokenBrowserView.svelte`
+- `frontend/src/lib/components/CollectionBiddingView.svelte`
+- `frontend/src/lib/components/CursorPaginationControls.svelte`
+
+Current implementation notes:
+
+- Clean filtered selections still represent all matching tokens across the collection.
+- Once a user manually toggles visible token cards, the draft becomes an explicit visible-token batch for this first pass.
+- The selected-card `x` control removes a card without requiring the selection modifier key.
+
+## Remaining Work
+
+The next slices should improve bidding operations rather than adding more static CRUD forms.
+The bid book and token browser should remain the main surfaces, while the automation panel becomes the common edit/apply surface.
+
+### Slice 12: Job Association and Edit Existing Targets
+
+- Resolve whether a bid-book row or token selection maps to an existing declared bidding job.
+- Pass the matching existing job into the automation panel so selected own bids edit instead of blindly creating/upserting by target.
+- Support archive/disable for trait and collection jobs from the automation panel, not only token jobs.
+- Surface job identity and revision in the panel without adding redundant helper prose.
+- Keep DB writes and `trading_job_commands` Outbox writes atomic through the existing repository path.
+
+Expected artifacts:
+
+- `backend/src/application/use-cases/trading/bidding-job-target-lookup.ts`
+- `backend/src/infra/trading/sqlite-bidding-jobs-repository.ts`
+- `frontend/src/lib/bidding-automation.ts`
+- `frontend/src/lib/components/BiddingAutomationPanel.svelte`
+- `frontend/src/lib/components/BidBookPanel.svelte`
+
+### Slice 13: Price Tier Management UI
+
+- Add a compact collection-scoped tier management surface reachable from bidding operations.
+- Let users create, edit, pause, archive, and order tiers.
+- Show resolved floor/ceiling values and last resolution errors.
+- Preserve the current first-pass rule that root tiers are user-entered scalar values only.
+- Keep tier graph validation in backend use cases; frontend only previews and submits typed configs.
+
+Expected artifacts:
+
+- `frontend/src/lib/components/BiddingPriceTierPanel.svelte`
+- `frontend/src/lib/components/BiddingPriceTierRow.svelte`
+- `backend/src/application/use-cases/trading/upsert-collection-bidding-price-tier.ts`
+- `backend/src/application/use-cases/trading/archive-collection-bidding-price-tier.ts`
+
+### Slice 14: Staged Tier Reapply
+
+- List existing tier-backed jobs affected by a tier edit.
+- Show a staged before/after preview for resolved floor, ceiling, and delta.
+- Apply selected staged changes only after explicit user confirmation.
+- Emit normal job update commands for every affected job; do not introduce a hidden cascade path.
+- Keep automatic cascade as a future user preference, not the default behavior.
+
+Expected artifacts:
+
+- `backend/src/application/use-cases/trading/preview-bidding-price-tier-reapply.ts`
+- `backend/src/application/use-cases/trading/apply-bidding-price-tier-reapply.ts`
+- `frontend/src/lib/components/BiddingPriceTierReapplyPreview.svelte`
+
+### Slice 15: Own-Bid Runtime State and Constraint Signals
+
+- Enrich own bid rows with job-linked status: winning, draw, losing, ceiling hit, floor hit, balance limited, and allowance limited.
+- Add compact icons or labels directly on own bid rows.
+- Use the existing maker filter for `my bids`; do not create a separate filtering mechanism.
+- Source own maker identity from bot/runtime state when available, and keep orders fallback honest when it cannot know the wallet.
+- Keep all bot decision semantics inside the runtime; UI consumes read models only.
+
+Expected artifacts:
+
+- `backend/src/application/use-cases/trading/bidding-bid-book.ts`
+- `backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts`
+- `frontend/src/lib/components/BidBookPanel.svelte`
+
+### Slice 16: Offer-Filtered Selection Resolution
+
+- Decide whether offers-page token selections with maker/offer filters should become backend-resolvable filtered batches.
+- If yes, add a SQL-backed resolver that uses normalized bid-book/order data instead of frontend-visible cards.
+- Preserve the invariant that `select all` means all matching tokens across all pages.
+- Keep visible manual adjustments downgraded to visible token IDs until an explicit exclusion target model exists.
+- Do not make canonical orders a bot decision source; this resolver only creates declared UI-selected jobs.
+
+Expected artifacts:
+
+- `docs/progress/trading/03-sql-backed-offer-pagination-plan.md`
+- `backend/src/application/use-cases/trading/upsert-batch-token-bidding-jobs.ts`
+- `backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts`
+
+### Slice 17: Bidding Jobs Page Cleanup
+
+- Reassess whether the dedicated jobs subpage should remain once bid-book operations can create, edit, and archive all target kinds.
+- If retained, make it a compact diagnostics/overview page instead of the primary editing surface.
+- If removed, preserve any useful runtime counters in the bid-book operations UI.
+- Keep token previews reusable; do not fork token-card or activity-token preview components.
+
+Expected artifacts:
+
+- `frontend/src/lib/components/CollectionBiddingView.svelte`
+- `frontend/src/lib/components/CollectionBiddingJobRow.svelte`
 
 ## Resolved Decisions
 
