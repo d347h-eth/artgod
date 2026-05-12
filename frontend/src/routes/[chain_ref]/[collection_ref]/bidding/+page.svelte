@@ -15,7 +15,7 @@
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
-	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
+	import { emptyBiddingBidBook, emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 
 	type PageData = {
@@ -45,22 +45,6 @@
 
 	let { data }: { data?: PageData } = $props();
 
-	function emptyBidBook(): ApiBiddingBidBook {
-		return {
-			state: {
-				source: 'orders',
-				updatedAt: null,
-				snapshotRefreshedAtMs: null,
-				projectedAt: null,
-				rowCount: 0,
-				durationMs: null,
-				lastError: null
-			},
-			ownMakerAddress: null,
-			bids: []
-		};
-	}
-
 	function defaultMedia(): ApiCollectionMediaState {
 		return {
 			selectedMode: 'snapshot',
@@ -75,7 +59,7 @@
 	collection={data?.collection ?? null}
 	jobs={data?.jobs ?? []}
 	priceTiers={data?.priceTiers ?? []}
-	bidBook={data?.bidBook ?? emptyBidBook()}
+	bidBook={data?.bidBook ?? emptyBiddingBidBook()}
 	tokenOfferCards={data?.tokenOfferCards ?? emptyBiddingTokenOfferCardsPage()}
 	facets={data?.facets ?? []}
 	media={data?.media ?? defaultMedia()}

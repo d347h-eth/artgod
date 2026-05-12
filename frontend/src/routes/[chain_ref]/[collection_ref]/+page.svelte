@@ -5,6 +5,7 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionMediaState,
+		ApiBiddingPriceTier,
 		ApiTokenAttribute,
 		ApiTraitRangeFilter,
 		ApiTokensPage,
@@ -23,6 +24,7 @@
 		requestCursor: string | null;
 		tokenStatus: 'listed' | 'all';
 		displayMode: 'grid' | 'table';
+		priceTiers: ApiBiddingPriceTier[];
 	};
 
 	let { data }: { data?: PageData } = $props();
@@ -58,4 +60,5 @@
 	requestCursor={data?.requestCursor ?? null}
 	tokenStatus={data?.tokenStatus ?? 'listed'}
 	displayMode={data?.displayMode ?? 'grid'}
+	priceTiers={data?.priceTiers ?? []}
 />

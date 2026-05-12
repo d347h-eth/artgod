@@ -342,7 +342,14 @@ Artifacts:
 - `frontend/src/lib/bidding-automation-controller.ts`
 - `frontend/src/lib/bidding-automation-controller.test.ts`
 - `frontend/src/lib/components/TokenCardTile.svelte`
+- `frontend/src/lib/components/TokenBrowserView.svelte`
 - `frontend/src/lib/components/CollectionBiddingView.svelte`
+
+Current implementation notes:
+
+- Token-card selection is opt-in through reusable `TokenCardTile` / `TokenBrowserView` props.
+- The offers token-card view and regular asks/tokens browser both expose `select all tokens` plus `Ctrl` + click / middle-click selection.
+- Holders continues to reuse `TokenBrowserView` without passing selection props, so it does not inherit bidding behavior.
 
 ### Slice 4: Shared Automation Panel for Token Jobs
 
@@ -353,7 +360,13 @@ Artifacts:
 Artifacts:
 
 - `frontend/src/lib/components/BiddingAutomationPanel.svelte`
+- `frontend/src/lib/components/CollectionDetailView.svelte`
 - `frontend/src/routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte`
+
+Current implementation notes:
+
+- The shared panel is used from token detail, collection offers, and collection token browsing.
+- Token detail still passes the exact token job context; collection-level surfaces pass draft state from selection or bid-book rows.
 
 ### Slice 5: Selected Bid Drafts
 

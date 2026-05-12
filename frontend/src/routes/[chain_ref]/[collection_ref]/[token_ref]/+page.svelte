@@ -25,6 +25,7 @@
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { getTokenDetail } from '$lib/backend-api';
 	import {
 		BID_SCOPE_QUERY_PARAM,
@@ -438,21 +439,6 @@
 		};
 	}
 
-	function emptyBidBook(): ApiBiddingBidBook {
-		return {
-			state: {
-				source: 'orders',
-				updatedAt: null,
-				snapshotRefreshedAtMs: null,
-				projectedAt: null,
-				rowCount: 0,
-				durationMs: null,
-				lastError: null
-			},
-			ownMakerAddress: null,
-			bids: []
-		};
-	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -568,7 +554,7 @@
 
 		{#if shouldShowTokenBidBook()}
 			<BidBookPanel
-				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
+				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
 				job={tokenBiddingJob}
 				showScope
 				showMuted={data?.showMuted ?? false}
@@ -592,7 +578,7 @@
 				token={displayedToken}
 				job={tokenBiddingJob}
 				draft={selectedBiddingDraft}
-				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
+				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
 				priceTiers={data?.priceTiers ?? []}
 				onClose={closeTokenBiddingAutomation}
 				onJobChange={onTokenBiddingJobChange}

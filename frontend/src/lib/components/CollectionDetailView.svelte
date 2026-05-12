@@ -3,6 +3,9 @@
 	import { goto } from '$app/navigation';
 	import type {
 		ApiChain,
+		ApiBiddingBidBook,
+		ApiBiddingJob,
+		ApiBiddingPriceTier,
 		ApiCollection,
 		ApiCollectionMediaState,
 		ApiTokenAttribute,
@@ -12,7 +15,17 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
+	import {
+		buildBiddingAutomationDraftFromSelection,
+		type BiddingAutomationDraft
+	} from '$lib/bidding-automation';
+	import {
+		createBiddingAutomationController,
+		type ToggleBiddingTokenInput
+	} from '$lib/bidding-automation-controller';
+	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
+	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
@@ -39,7 +52,8 @@
 		basePath,
 		requestCursor,
 		tokenStatus,
-		displayMode
+		displayMode,
+		priceTiers = []
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -52,17 +66,24 @@
 		requestCursor: string | null;
 		tokenStatus: 'listed' | 'all';
 		displayMode: 'grid' | 'table';
+		priceTiers?: ApiBiddingPriceTier[];
 	} = $props();
 
 	const BOOTSTRAP_POLL_INTERVAL_MS = 5_000;
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
 	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
+	const biddingAutomation = createBiddingAutomationController();
+	const biddingAutomationState = biddingAutomation.state;
 
 	let bootstrapStatus = $state<BootstrapStatusApiResponse | null>(null);
 	let bootstrapLoading = $state(false);
 	let bootstrapError = $state<string | null>(null);
 	let bootstrapRequestInFlight = false;
+	let selectedBiddingDraft = $state<BiddingAutomationDraft | null>(null);
+	let biddingAutomationPanelOpen = $state(false);
+	let changedBiddingJobs = $state<ApiBiddingJob[]>([]);
+	const biddingSelectionSummary = $derived(biddingAutomation.selectionSummary());
 
 	$effect(() => {
 		if (!browser || !chain || !collection || collection.status === 'live') {
@@ -75,6 +96,19 @@
 			void refreshBootstrapStatus();
 		}, BOOTSTRAP_POLL_INTERVAL_MS);
 		return () => clearInterval(timer);
+	});
+
+	$effect(() => {
+		const selection = $biddingAutomationState.selection;
+		if (!selection) {
+			return;
+		}
+		const draft = buildBiddingAutomationDraftFromSelection(selection);
+		if (!draft) {
+			return;
+		}
+		selectedBiddingDraft = draft;
+		biddingAutomationPanelOpen = true;
 	});
 
 	function collectionsHref(): string {
@@ -174,6 +208,37 @@
 			}
 		);
 	}
+
+	function selectAllFilteredTokens(): void {
+		biddingAutomation.selectFilteredTokens({
+			tokenCount: tokens.totalItems,
+			filter: {
+				selectedTraits,
+				selectedTraitRanges,
+				traitJoinMode: 'and',
+				tokenStatus,
+				makerAddress: null
+			}
+		});
+	}
+
+	function toggleVisibleTokenSelection(request: ToggleBiddingTokenInput): void {
+		biddingAutomation.toggleToken(request);
+	}
+
+	function closeBiddingAutomationPanel(): void {
+		selectedBiddingDraft = null;
+		biddingAutomation.clearSelection();
+		biddingAutomationPanelOpen = false;
+	}
+
+	function handleBiddingJobsChanged(jobs: ApiBiddingJob[]): void {
+		changedBiddingJobs = jobs;
+	}
+
+	function emptyBidBook(): ApiBiddingBidBook {
+		return emptyBiddingBidBook();
+	}
 </script>
 
 <CollectionPageLayout
@@ -247,5 +312,28 @@
 		collectionNavigation={collectionNavigation()}
 		tokenStatus={tokenStatus}
 		displayMode={displayMode}
+		selection={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+			? {
+					summary: biddingSelectionSummary,
+					state: biddingAutomation.tokenSelectionState,
+					onSelectAll: selectAllFilteredTokens,
+					onClear: biddingAutomation.clearSelection,
+					onToggle: toggleVisibleTokenSelection
+				}
+			: null}
 	/>
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
+		<BiddingAutomationPanel
+			open={biddingAutomationPanelOpen}
+			{chain}
+			{collection}
+			token={null}
+			job={changedBiddingJobs.length === 1 ? changedBiddingJobs[0] : null}
+			draft={selectedBiddingDraft}
+			bidBook={emptyBidBook()}
+			{priceTiers}
+			onClose={closeBiddingAutomationPanel}
+			onJobsChange={handleBiddingJobsChanged}
+		/>
+	{/if}
 </CollectionPageLayout>

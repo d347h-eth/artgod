@@ -25,6 +25,10 @@
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
+	import type {
+		TokenCardSelectionState,
+		TokenCardSelectionToggleRequest
+	} from '$lib/token-card-selection';
 	import {
 		appendTraitParams,
 		appendTraitRangeParams,
@@ -63,7 +67,8 @@
 		collectionNavigation = null,
 		tokenStatus,
 		displayMode,
-		emptyMessage = 'no tokens match current filters'
+		emptyMessage = 'no tokens match current filters',
+		selection = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -82,6 +87,13 @@
 		tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 		displayMode: 'grid' | 'table';
 		emptyMessage?: string;
+		selection?: {
+			summary: string | null;
+			state: (tokenId: string) => TokenCardSelectionState;
+			onSelectAll: () => void;
+			onClear: () => void;
+			onToggle: (request: TokenCardSelectionToggleRequest & { visibleTokenIds: string[] }) => void;
+		} | null;
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
@@ -113,6 +125,7 @@
 	let hasMediaModeChoices = $derived(media.availableModes.length > 1);
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
+	let visibleTokenIds = $derived(visibleTokens.map((token) => token.tokenId));
 
 	$effect(() => {
 		activeTraits = selectedTraits;
@@ -498,6 +511,17 @@
 						{/each}
 					</div>
 				{/if}
+				{#if selection}
+					<div class="secondary-tabs" aria-label="Token bidding selection">
+						<button type="button" class="button-link" disabled={tokens.totalItems === 0} onclick={selection.onSelectAll}>
+							select all tokens
+						</button>
+						{#if selection.summary}
+							<span class="mono bidding-selection-summary">{selection.summary}</span>
+							<button type="button" class="button-link" onclick={selection.onClear}>clear</button>
+						{/if}
+					</div>
+				{/if}
 			{/snippet}
 
 			{#if isGridMode}
@@ -517,6 +541,16 @@
 									{tokenPreview}
 									adjacentTokenResolver={resolveAdjacentPreviewTokenId}
 									marketPrices={tokenMarketPrices(token)}
+									selection={selection
+										? {
+												state: selection.state(token.tokenId),
+												onToggle: (request) =>
+													selection.onToggle({
+														...request,
+														visibleTokenIds
+													})
+											}
+										: null}
 								/>
 							{/each}
 						</div>
