@@ -7,8 +7,8 @@
 		TRAIT_FILTER_DISPLAY_KIND
 	} from '@artgod/shared/types';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
+	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
-	import TokenBiddingJobForm from '$lib/components/TokenBiddingJobForm.svelte';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import TokenDetailExtensionSectionOutlet from '$lib/token-detail-extension-sections/TokenDetailExtensionSectionOutlet.svelte';
 	import type {
@@ -27,7 +27,6 @@
 	import { getTokenDetail } from '$lib/backend-api';
 	import {
 		BID_SCOPE_QUERY_PARAM,
-		buildCollectionBiddingHref,
 		buildCollectionBiddingQuery
 	} from '$lib/bidding-query';
 	import { formatListingPrice } from '$lib/listing-price';
@@ -75,12 +74,16 @@
 	let displayedToken = $state<ApiTokenDetail | null>(data?.token ?? null);
 	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
 	let displayedMediaAspectRatio = $state<number | null>(null);
+	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
+	let biddingAutomationPanelOpen = $state(false);
 	let tokenDetailRequestId = 0;
 
 	$effect(() => {
 		displayedToken = data?.token ?? null;
 		displayedMedia = resolveInitialMediaState(data?.media);
 		displayedMediaAspectRatio = null;
+		tokenBiddingJob = data?.tokenBiddingJob ?? null;
+		biddingAutomationPanelOpen = false;
 		tokenDetailRequestId += 1;
 	});
 
@@ -148,16 +151,6 @@
 		return data.backPath && data.backPath !== collectionPath ? 'back to holder' : 'back to collection';
 	}
 
-	function collectionBiddingHref(): string {
-		return buildCollectionBiddingHref({
-			basePath: collectionTokensBasePath(),
-			selectedTraits: [],
-			selectedTraitRanges: [],
-			mediaMode: collectionNavigationMediaMode(),
-			showMuted: data?.showMuted ?? false
-		});
-	}
-
 	function bidBookMakerHref(bid: ApiBiddingBidBookRow): string {
 		const bidScope = bidBookScopeForBid(bid);
 		const query = buildCollectionBiddingQuery({
@@ -187,8 +180,16 @@
 		return !!data?.chain && !!data.collection && !!displayedToken;
 	}
 
-	function shouldShowTokenBiddingForm(): boolean {
+	function shouldShowTokenBiddingAutomation(): boolean {
 		return !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && !!data?.chain && !!data.collection && !!displayedToken;
+	}
+
+	function tokenBiddingActionLabel(): string {
+		return tokenBiddingJob ? 'edit bid' : 'create bid';
+	}
+
+	function onTokenBiddingJobChange(nextJob: ApiBiddingJob | null): void {
+		tokenBiddingJob = nextJob;
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -539,7 +540,7 @@
 		{#if shouldShowTokenBidBook()}
 			<BidBookPanel
 				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
-				job={data?.tokenBiddingJob ?? null}
+				job={tokenBiddingJob}
 				showScope
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
@@ -548,14 +549,21 @@
 			/>
 		{/if}
 
-		{#if shouldShowTokenBiddingForm()}
-			<TokenBiddingJobForm
+		{#if shouldShowTokenBiddingAutomation()}
+			<div class="panel-top-actions-row token-bidding-action-row">
+				<button type="button" class="button-link" onclick={() => (biddingAutomationPanelOpen = true)}>
+					{tokenBiddingActionLabel()}
+				</button>
+			</div>
+			<BiddingAutomationPanel
+				open={biddingAutomationPanelOpen}
 				chain={data?.chain ?? null}
 				collection={data?.collection ?? null}
 				token={displayedToken}
-				job={data?.tokenBiddingJob ?? null}
+				job={tokenBiddingJob}
 				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
-				collectionBiddingHref={collectionBiddingHref()}
+				onClose={() => (biddingAutomationPanelOpen = false)}
+				onJobChange={onTokenBiddingJobChange}
 			/>
 		{/if}
 	{:else}

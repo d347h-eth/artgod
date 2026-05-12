@@ -12,19 +12,23 @@
 	type EditableTokenJobStatus = 'enabled' | 'paused';
 
 	let {
+		open,
 		chain,
 		collection,
 		token,
 		job,
 		bidBook = null,
-		collectionBiddingHref
+		onClose,
+		onJobChange = null
 	}: {
+		open: boolean;
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		token: ApiTokenDetail | null;
 		job: ApiBiddingJob | null;
 		bidBook?: ApiBiddingBidBook | null;
-		collectionBiddingHref: string;
+		onClose: () => void;
+		onJobChange?: ((job: ApiBiddingJob | null) => void) | null;
 	} = $props();
 
 	let currentJob = $state<ApiBiddingJob | null>(job);
@@ -113,7 +117,7 @@
 
 	function formatEthLabel(value: string | null): string {
 		if (value === null || value.trim().length === 0) {
-			return '—';
+			return '-';
 		}
 		return `${value} ETH`;
 	}
@@ -171,6 +175,7 @@
 				deltaEth: deltaEth.trim()
 			});
 			currentJob = response.job;
+			onJobChange?.(response.job);
 			resetDraft();
 			saveMessage = wasExistingJob ? 'saved' : 'created';
 		} catch (error) {
@@ -202,6 +207,7 @@
 			// Archive the token-scoped bidding job through the backend CRUD adapter.
 			await archiveTokenBiddingJob(fetch, chain.slug, collection.slug, token.tokenId);
 			currentJob = null;
+			onJobChange?.(null);
 			resetDraft();
 			saveMessage = 'archived';
 		} catch (error) {
@@ -212,20 +218,24 @@
 	}
 </script>
 
-<section class="runtime-section token-bidding-panel">
-	<header class="panel-header token-bidding-panel-header">
-		<div>
+{#if open}
+	<div class="runtime-section bidding-automation-panel" role="dialog" aria-label="bidding automation">
+		<header class="panel-header bidding-automation-panel-header">
 			<h2 class="panel-title">token bidding</h2>
-		</div>
-		<a class="button-link" href={collectionBiddingHref}>collection bidding page</a>
-	</header>
+			<button type="button" class="button-link" onclick={onClose}>close</button>
+		</header>
 
-	{#if currentJob}
 		<div class="runtime-kv-grid token-bidding-runtime-grid">
 			<div>
-				<span class="runtime-k">updated</span>
-				<span class="runtime-v mono">{currentJob.updatedAt}</span>
+				<span class="runtime-k">target</span>
+				<span class="runtime-v mono">#{token?.tokenId ?? '-'}</span>
 			</div>
+			{#if currentJob}
+				<div>
+					<span class="runtime-k">updated</span>
+					<span class="runtime-v mono">{currentJob.updatedAt}</span>
+				</div>
+			{/if}
 			{#if bidPosition}
 				<div>
 					<span class="runtime-k">position</span>
@@ -235,103 +245,103 @@
 			{#if hasRuntimeState}
 				<div>
 					<span class="runtime-k">current price</span>
-					<span class="runtime-v">{formatEthLabel(currentJob.runtime?.currentPriceEth ?? null)}</span>
+					<span class="runtime-v">{formatEthLabel(currentJob?.runtime?.currentPriceEth ?? null)}</span>
 				</div>
 				<div>
 					<span class="runtime-k">active order</span>
-					<span class="runtime-v mono">{currentJob.runtime?.activeOrderId ?? '—'}</span>
+					<span class="runtime-v mono">{currentJob?.runtime?.activeOrderId ?? '-'}</span>
 				</div>
 				<div>
 					<span class="runtime-k">last run</span>
-					<span class="runtime-v mono">{currentJob.runtime?.lastRunAt ?? '—'}</span>
+					<span class="runtime-v mono">{currentJob?.runtime?.lastRunAt ?? '-'}</span>
 				</div>
 			{/if}
 		</div>
-		{#if currentJob.runtime?.lastError}
+		{#if currentJob?.runtime?.lastError}
 			<p class="runtime-error token-bidding-feedback" role="alert">{currentJob.runtime.lastError}</p>
 		{/if}
-	{/if}
 
-	<form
-		class="bootstrap-form token-bidding-form"
-		onsubmit={(event) => {
-			event.preventDefault();
-			void handleSave();
-		}}
-	>
-		<div class="bootstrap-form-row">
-			<label for="token-bidding-status"><span>status</span></label>
-			<select
-				id="token-bidding-status"
-				class="bootstrap-control bootstrap-input-select-short"
-				bind:value={status}
-				disabled={saving || archiving}
-			>
-				<option value="enabled">enabled</option>
-				<option value="paused">paused</option>
-			</select>
-		</div>
-		<div class="bootstrap-form-row">
-			<label for="token-bidding-floor"><span>floor ETH</span></label>
-			<input
-				id="token-bidding-floor"
-				class="bootstrap-control bidding-token-input"
-				type="text"
-				inputmode="decimal"
-				bind:value={floorEth}
-				disabled={saving || archiving}
-			/>
-		</div>
-		<div class="bootstrap-form-row">
-			<label for="token-bidding-ceiling"><span>ceiling ETH</span></label>
-			<input
-				id="token-bidding-ceiling"
-				class="bootstrap-control bidding-token-input"
-				type="text"
-				inputmode="decimal"
-				bind:value={ceilingEth}
-				disabled={saving || archiving}
-			/>
-		</div>
-		<div class="bootstrap-form-row">
-			<label for="token-bidding-delta"><span>delta ETH</span></label>
-			<input
-				id="token-bidding-delta"
-				class="bootstrap-control bidding-token-input"
-				type="text"
-				inputmode="decimal"
-				bind:value={deltaEth}
-				disabled={saving || archiving}
-			/>
-		</div>
-		<div class="panel-footer token-bidding-form-footer">
-			<div class="token-bidding-form-actions">
-				<button type="submit" disabled={saving || archiving || !hasDraftChanges}>
-					{#if saving}
-						saving…
-					{:else if hasExistingJob}
-						save
-					{:else}
-						create
-					{/if}
-				</button>
-				<button type="button" onclick={resetDraft} disabled={saving || archiving || !hasDraftChanges}>
-					reset
-				</button>
-				{#if hasExistingJob}
-					<button type="button" onclick={() => void handleArchive()} disabled={saving || archiving}>
-						{archiving ? 'archiving…' : 'archive'}
+		<form
+			class="bootstrap-form token-bidding-form"
+			onsubmit={(event) => {
+				event.preventDefault();
+				void handleSave();
+			}}
+		>
+			<div class="bootstrap-form-row">
+				<label for="bidding-automation-status"><span>status</span></label>
+				<select
+					id="bidding-automation-status"
+					class="bootstrap-control bootstrap-input-select-short"
+					bind:value={status}
+					disabled={saving || archiving}
+				>
+					<option value="enabled">enabled</option>
+					<option value="paused">paused</option>
+				</select>
+			</div>
+			<div class="bootstrap-form-row">
+				<label for="bidding-automation-floor"><span>floor ETH</span></label>
+				<input
+					id="bidding-automation-floor"
+					class="bootstrap-control bidding-token-input"
+					type="text"
+					inputmode="decimal"
+					bind:value={floorEth}
+					disabled={saving || archiving}
+				/>
+			</div>
+			<div class="bootstrap-form-row">
+				<label for="bidding-automation-ceiling"><span>ceiling ETH</span></label>
+				<input
+					id="bidding-automation-ceiling"
+					class="bootstrap-control bidding-token-input"
+					type="text"
+					inputmode="decimal"
+					bind:value={ceilingEth}
+					disabled={saving || archiving}
+				/>
+			</div>
+			<div class="bootstrap-form-row">
+				<label for="bidding-automation-delta"><span>delta ETH</span></label>
+				<input
+					id="bidding-automation-delta"
+					class="bootstrap-control bidding-token-input"
+					type="text"
+					inputmode="decimal"
+					bind:value={deltaEth}
+					disabled={saving || archiving}
+				/>
+			</div>
+			<div class="panel-footer token-bidding-form-footer">
+				<div class="token-bidding-form-actions">
+					<button type="submit" disabled={saving || archiving || !hasDraftChanges}>
+						{#if saving}
+							saving...
+						{:else if hasExistingJob}
+							save
+						{:else}
+							create
+						{/if}
 					</button>
-				{/if}
+					<button type="button" onclick={resetDraft} disabled={saving || archiving || !hasDraftChanges}>
+						reset
+					</button>
+					{#if hasExistingJob}
+						<button type="button" onclick={() => void handleArchive()} disabled={saving || archiving}>
+							{archiving ? 'archiving...' : 'archive'}
+						</button>
+					{/if}
+				</div>
+				<div class="bootstrap-form-feedback">
+					{#if saveMessage}
+						<p class="runtime-pass token-bidding-feedback">{saveMessage}</p>
+					{/if}
+					{#if saveError}
+						<p class="runtime-error token-bidding-feedback" role="alert">{saveError}</p>
+					{/if}
+				</div>
 			</div>
-			<div class="bootstrap-form-feedback">
-				{#if saveMessage}
-					<p class="runtime-pass token-bidding-feedback">{saveMessage}</p>
-				{/if}
-				{#if saveError}
-					<p class="runtime-error token-bidding-feedback" role="alert">{saveError}</p>
-				{/if}
-			</div>
-		</div>
-	</form>
-</section>
+		</form>
+	</div>
+{/if}

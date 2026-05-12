@@ -350,6 +350,11 @@ Artifacts:
 - Reuse existing token job APIs first.
 - Replace the static token detail form only after parity is verified.
 
+Artifacts:
+
+- `frontend/src/lib/components/BiddingAutomationPanel.svelte`
+- `frontend/src/routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte`
+
 ### Slice 5: Selected Bid Drafts
 
 - Add bid-book row action to open the automation panel.

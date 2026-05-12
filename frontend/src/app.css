@@ -1947,14 +1947,24 @@ th {
 	margin-block-start: var(--token-detail-section-gap);
 }
 
-.token-bidding-panel {
+.bidding-automation-panel {
+	position: fixed;
+	right: 1rem;
+	bottom: 1rem;
+	z-index: 40;
 	width: fit-content;
-	max-width: calc(100% - 1.5rem);
-	margin: var(--token-detail-section-gap) auto 0;
+	max-width: min(34rem, calc(100vw - 2rem));
+	max-height: calc(100vh - 2rem);
+	overflow: auto;
+	background: var(--c-bg);
+	border: 1px solid var(--c-blue);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-blue) 35%, transparent);
 }
 
-.token-bidding-panel-header {
+.bidding-automation-panel-header {
 	padding: 0 0 0.75rem;
+	justify-content: space-between;
+	gap: 1rem;
 }
 
 .token-bidding-runtime-grid {
@@ -1982,6 +1992,11 @@ th {
 
 .token-bidding-feedback {
 	margin: 0;
+}
+
+.token-bidding-action-row {
+	margin-block-start: var(--token-detail-section-gap);
+	justify-content: center;
 }
 
 .token-detail-traits {

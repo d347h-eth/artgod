@@ -147,43 +147,41 @@ describe('token detail page', () => {
 		});
 
 		expect(body).toContain('back to collection');
-			expect(body).toContain(
-				'?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid&amp;media_mode=artifact'
-			);
-			expect(body).toContain('milady #1');
-			expect(body).toContain('class="token-detail-media-frame"');
-			expect(body).toContain('https://example.com/1.html');
-			expect(body).toContain('aria-label="Token detail media mode"');
-			expect(body).toContain('class="secondary-tab-active"');
-			expect(body).toContain('>artifact<');
-			expect(body).toContain('>snapshot<');
-			expect(body).toContain('current holder:');
-			expect(body).toContain('Beanie');
-			expect(body).toContain('66.67%');
+		expect(body).toContain(
+			'?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid&amp;media_mode=artifact'
+		);
+		expect(body).toContain('milady #1');
+		expect(body).toContain('class="token-detail-media-frame"');
+		expect(body).toContain('https://example.com/1.html');
+		expect(body).toContain('aria-label="Token detail media mode"');
+		expect(body).toContain('class="secondary-tab-active"');
+		expect(body).toContain('>artifact<');
+		expect(body).toContain('>snapshot<');
+		expect(body).toContain('current holder:');
+		expect(body).toContain('Beanie');
+		expect(body).toContain('66.67%');
 		expect(body).toContain(
 			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
 		);
-			expect(body).toContain(
-				'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
-			);
-			expect(body).toContain('0.5 ETH [OS]');
-			expect(body).toContain(
-				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
-			);
-			expect(body).not.toContain('traits=Power%3A7');
-			expect(body).toContain('token bidding');
-			expect(body).toContain('<th class="bid-book-col-center">scope</th>');
-			expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
-			expect(body).toContain('Hat=Beanie');
-			expect(body).toContain(
-				'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-			);
-			expect(body).toContain(
-				'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
-			);
-			expect(body).toContain('collection bidding page');
-			expect(body).toContain('>create<');
-		});
+		expect(body).toContain(
+			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
+		);
+		expect(body).toContain('0.5 ETH [OS]');
+		expect(body).toContain(
+			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
+		expect(body).not.toContain('traits=Power%3A7');
+		expect(body).toContain('create bid');
+		expect(body).toContain('<th class="bid-book-col-center">scope</th>');
+		expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
+		expect(body).toContain('Hat=Beanie');
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+		);
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
+		);
+	});
 
 	it('uses holder return path when provided', () => {
 		const { body } = render(TokenDetailPage, {
@@ -285,12 +283,7 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('0.15 ETH');
-		expect(body).toContain('0xabc123');
-		expect(body).toContain('value="0.1"');
-		expect(body).toContain('value="0.2"');
-		expect(body).toContain('value="0.01"');
-		expect(body).toContain('>archive<');
+		expect(body).toContain('edit bid');
 	});
 
 	it('keeps token-local lost mode out of collection navigation links', () => {
