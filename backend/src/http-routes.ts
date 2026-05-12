@@ -107,6 +107,10 @@ import type {
     UpsertBatchTokenBiddingJobsRoute,
 } from "./http/handlers/trading/upsert-batch-token-bidding-jobs.js";
 import type {
+    UpsertCollectionBiddingJobHttpAdapter,
+    UpsertCollectionBiddingJobRoute,
+} from "./http/handlers/trading/upsert-collection-bidding-job.js";
+import type {
     UpsertCollectionBiddingPriceTierHttpAdapter,
     UpsertCollectionBiddingPriceTierRoute,
 } from "./http/handlers/trading/upsert-collection-bidding-price-tier.js";
@@ -165,6 +169,7 @@ export function registerApiRoutes(
     upsertTokenBiddingJobAdapter: UpsertTokenBiddingJobHttpAdapter,
     upsertTraitBiddingJobAdapter: UpsertTraitBiddingJobHttpAdapter,
     upsertBatchTokenBiddingJobsAdapter: UpsertBatchTokenBiddingJobsHttpAdapter,
+    upsertCollectionBiddingJobAdapter: UpsertCollectionBiddingJobHttpAdapter,
     upsertCollectionBiddingPriceTierAdapter: UpsertCollectionBiddingPriceTierHttpAdapter,
     archiveTokenBiddingJobAdapter: ArchiveTokenBiddingJobHttpAdapter,
     archiveCollectionBiddingPriceTierAdapter: ArchiveCollectionBiddingPriceTierHttpAdapter,
@@ -324,6 +329,10 @@ export function registerApiRoutes(
     app.put<UpsertBatchTokenBiddingJobsRoute>(
         "/api/:chain_ref/:collection_ref/bidding/jobs/tokens/batch",
         upsertBatchTokenBiddingJobsAdapter.handle,
+    );
+    app.put<UpsertCollectionBiddingJobRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/jobs/collection",
+        upsertCollectionBiddingJobAdapter.handle,
     );
     app.put<UpsertCollectionBiddingPriceTierRoute>(
         "/api/:chain_ref/:collection_ref/bidding/price-tiers",

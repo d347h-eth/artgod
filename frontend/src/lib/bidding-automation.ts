@@ -26,6 +26,7 @@ export type BiddingAutomationFilterSelectionState =
 
 export const BIDDING_AUTOMATION_DRAFT_TARGET_TYPE = {
 	TokenBatch: 'token_batch',
+	FilteredTokenBatch: 'filtered_token_batch',
 	TraitJob: 'trait_job',
 	CollectionJob: 'collection_job'
 } as const;
@@ -87,6 +88,10 @@ export type BiddingAutomationDraftTarget =
 	| {
 			type: typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch;
 			tokenIds: string[];
+	  }
+	| {
+			type: typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch;
+			tokenCount: number;
 	  }
 	| {
 			type: typeof BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob;
@@ -151,17 +156,44 @@ export function buildBiddingAutomationDraftFromBid(
 	};
 }
 
-// Gates the first write pass to the existing token-scoped bidding job API only.
+// Builds a draft from token-card/filter selection without materializing large clean filters in the UI.
+export function buildBiddingAutomationDraftFromSelection(
+	selection: BiddingAutomationSelection,
+	existingJob: ApiBiddingJob | null = null
+): BiddingAutomationDraft | null {
+	const target = resolveDraftTargetFromSelection(selection);
+	if (!target) {
+		return null;
+	}
+	return {
+		source: selection,
+		target,
+		pricing: {
+			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+			floorEth: existingJob?.config.floorEth ?? '',
+			ceilingEth: existingJob?.config.ceilingEth ?? '',
+			deltaEth: existingJob?.config.deltaEth ?? ''
+		},
+		existingJob
+	};
+}
+
+// Gates drafts to target kinds that currently have a backend mutation path.
 export function isBiddingAutomationDraftSubmittable(
 	draft: BiddingAutomationDraft | null
 ): boolean {
 	if (!draft) {
 		return true;
 	}
-	return (
-		draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch &&
-		draft.target.tokenIds.length === 1
-	);
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+		return draft.target.tokenIds.length > 0;
+	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
+		return draft.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
+			draft.source.filter.tokenStatus !== null &&
+			draft.source.filter.tokenStatus !== undefined;
+	}
+	return true;
 }
 
 // Resolves the token ID required by the existing token job mutation API.
@@ -197,4 +229,43 @@ function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomation
 		};
 	}
 	return null;
+}
+
+function resolveDraftTargetFromSelection(
+	selection: BiddingAutomationSelection
+): BiddingAutomationDraftTarget | null {
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
+		return {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
+			tokenIds: selection.tokenIds
+		};
+	}
+
+	if (selection.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
+		return null;
+	}
+
+	if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.VisibleTokenAdjustments) {
+		return {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
+			tokenIds: selection.state.visibleTokenIds
+		};
+	}
+
+	if (
+		selection.filter.traitJoinMode === 'and' &&
+		selection.filter.selectedTraits.length > 0 &&
+		selection.filter.selectedTraitRanges.length === 0
+	) {
+		return {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: selection.filter.selectedTraits,
+			traitJoinMode: selection.filter.traitJoinMode
+		};
+	}
+
+	return {
+		type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch,
+		tokenCount: selection.tokenCount
+	};
 }

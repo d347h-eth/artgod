@@ -5,6 +5,7 @@ import type {
 	BootstrapRunsApiResponse,
 	BatchTokenBiddingJobMutationApiResponse,
 	CollectionBiddingBidBookApiResponse,
+	CollectionBiddingJobMutationApiResponse,
 	CollectionBiddingPriceTierMutationApiResponse,
 	CollectionBiddingPriceTiersApiResponse,
 	BootstrapStatusApiResponse,
@@ -275,6 +276,28 @@ export async function upsertBatchTokenBiddingJobs(
 	return requestJsonWithBody<BatchTokenBiddingJobMutationApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/tokens/batch`,
+		'PUT',
+		body
+	);
+}
+
+export async function upsertCollectionBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		status: 'enabled' | 'paused';
+		floorEth?: string;
+		ceilingEth?: string;
+		deltaEth: string;
+		priceTierId?: string | null;
+		quantity?: number;
+	}
+): Promise<CollectionBiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionBiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/collection`,
 		'PUT',
 		body
 	);

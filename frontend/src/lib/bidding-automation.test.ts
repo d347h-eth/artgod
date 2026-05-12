@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
+	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 	BIDDING_AUTOMATION_PRICING_MODE,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	biddingAutomationDraftTokenId,
 	buildBiddingAutomationDraftFromBid,
+	buildBiddingAutomationDraftFromSelection,
 	isBiddingAutomationDraftSubmittable
 } from '$lib/bidding-automation';
 
@@ -85,7 +87,7 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
 	});
 
-	it('creates an unsupported trait draft without fanning out to token IDs', () => {
+	it('creates a submittable trait draft without fanning out to token IDs', () => {
 		const draft = buildBiddingAutomationDraftFromBid({
 			...BASE_BID,
 			scope: {
@@ -108,15 +110,71 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 			traitJoinMode: 'and'
 		});
 		expect(biddingAutomationDraftTokenId(draft)).toBe(null);
-		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(false);
+		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
 	});
 
-	it('creates an unsupported collection draft', () => {
+	it('creates a submittable collection draft', () => {
 		const draft = buildBiddingAutomationDraftFromBid(BASE_BID);
 
 		expect(draft?.target).toEqual({
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.CollectionJob
 		});
-		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(false);
+		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
+	});
+});
+
+describe('buildBiddingAutomationDraftFromSelection', () => {
+	it('turns clean exact trait filters into a trait job draft', () => {
+		const draft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			filter: {
+				selectedTraits: [
+					{ key: 'Biome', value: '42' },
+					{ key: 'Mode', value: 'Terrain' }
+				],
+				selectedTraitRanges: [],
+				traitJoinMode: 'and',
+				tokenStatus: null,
+				makerAddress: null
+			},
+			tokenCount: 12,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		});
+
+		expect(draft?.target).toEqual({
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: [
+				{ key: 'Biome', value: '42' },
+				{ key: 'Mode', value: 'Terrain' }
+			],
+			traitJoinMode: 'and'
+		});
+		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
+	});
+
+	it('keeps visible token adjustments as an explicit token batch draft', () => {
+		const draft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			filter: {
+				selectedTraits: [{ key: 'Biome', value: '42' }],
+				selectedTraitRanges: [],
+				traitJoinMode: 'and',
+				tokenStatus: 'all',
+				makerAddress: null
+			},
+			tokenCount: 12,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.VisibleTokenAdjustments,
+				visibleTokenIds: ['1', '2']
+			}
+		});
+
+		expect(draft?.target).toEqual({
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
+			tokenIds: ['1', '2']
+		});
+		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
 	});
 });

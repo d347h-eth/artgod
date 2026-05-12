@@ -152,6 +152,23 @@ export type UpsertTraitBiddingJobOutput = {
     job: BiddingJobView;
 };
 
+export type UpsertCollectionBiddingJobInput = {
+    chainRef: string;
+    collectionRef: string;
+    status: BiddingJobMutationStatus;
+    floorEth?: string;
+    ceilingEth?: string;
+    deltaEth: string;
+    priceTierId?: string | null;
+    quantity?: number;
+};
+
+export type UpsertCollectionBiddingJobOutput = {
+    chain: ChainRecord;
+    collection: CollectionListItem;
+    job: BiddingJobView;
+};
+
 export type ArchiveTokenBiddingJobInput = {
     chainRef: string;
     collectionRef: string;

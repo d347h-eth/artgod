@@ -33,6 +33,7 @@
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
 	import {
+		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
@@ -232,6 +233,19 @@
 		writeCollectionBiddingNavigationPreference({ bidScope });
 	});
 
+	$effect(() => {
+		const selection = $biddingAutomationState.selection;
+		if (!selection) {
+			return;
+		}
+		const draft = buildBiddingAutomationDraftFromSelection(selection);
+		if (!draft) {
+			return;
+		}
+		selectedBiddingDraft = draft;
+		biddingAutomationPanelOpen = true;
+	});
+
 	function collectionsHref(): string {
 		if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) return publicCollectionTokensPath();
 		if (!chain) return '/';
@@ -390,6 +404,18 @@
 
 	function handleJobArchived(jobId: string): void {
 		collectionJobs = collectionJobs.filter((job) => job.jobId !== jobId);
+	}
+
+	function handleJobsChanged(nextJobs: ApiBiddingJob[]): void {
+		const nextById = new Map(nextJobs.map((job) => [job.jobId, job]));
+		const merged = collectionJobs.map((job) => nextById.get(job.jobId) ?? job);
+		const existing = new Set(collectionJobs.map((job) => job.jobId));
+		for (const job of nextJobs) {
+			if (!existing.has(job.jobId)) {
+				merged.unshift(job);
+			}
+		}
+		collectionJobs = merged;
 	}
 
 	function jobTokenId(job: ApiBiddingJob): string | null {
@@ -620,6 +646,7 @@
 
 	function closeBiddingAutomationPanel(): void {
 		selectedBiddingDraft = null;
+		biddingAutomation.clearSelection();
 		biddingAutomationPanelOpen = false;
 	}
 
@@ -994,6 +1021,7 @@
 			{bidBook}
 			{priceTiers}
 			onClose={closeBiddingAutomationPanel}
+			onJobsChange={handleJobsChanged}
 		/>
 	{/if}
 </CollectionPageLayout>

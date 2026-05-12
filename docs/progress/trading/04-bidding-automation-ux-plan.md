@@ -437,6 +437,20 @@ Current implementation notes:
 - Add generalized job mutation APIs for collection targets.
 - Keep collection target submits explicit and guarded.
 
+Artifacts:
+
+- `backend/src/application/use-cases/trading/upsert-collection-bidding-job.ts`
+- `backend/src/http/handlers/trading/upsert-collection-bidding-job.ts`
+- `frontend/src/lib/components/BiddingAutomationPanel.svelte`
+- `frontend/src/lib/bidding-automation.ts`
+
+Current implementation notes:
+
+- Collection-wide bid drafts submit through an explicit collection-job route.
+- Trait bid drafts submit through the existing trait-job route instead of fanning out into token IDs.
+- Explicit token batches submit through the batch token route; single-token batches still use the token route.
+- Filtered-token drafts are only submittable when the backend can resolve the filter selection directly.
+
 ## Resolved Decisions
 
 > Question: Should `select all filtered tokens` immediately mean all matching tokens across the collection, or should the first implementation be limited to loaded token cards with a clear label?

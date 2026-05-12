@@ -8,8 +8,15 @@
 		ApiCollection,
 		ApiTokenDetail
 	} from '$lib/api-types';
-	import { archiveTokenBiddingJob, upsertTokenBiddingJob } from '$lib/backend-api';
 	import {
+		archiveTokenBiddingJob,
+		upsertBatchTokenBiddingJobs,
+		upsertCollectionBiddingJob,
+		upsertTokenBiddingJob,
+		upsertTraitBiddingJob
+	} from '$lib/backend-api';
+	import {
+		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 		BIDDING_AUTOMATION_PRICING_MODE,
 		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
@@ -30,7 +37,8 @@
 		bidBook = null,
 		priceTiers = [],
 		onClose,
-		onJobChange = null
+		onJobChange = null,
+		onJobsChange = null
 	}: {
 		open: boolean;
 		chain: ApiChain | null;
@@ -42,6 +50,7 @@
 		priceTiers?: ApiBiddingPriceTier[];
 		onClose: () => void;
 		onJobChange?: ((job: ApiBiddingJob | null) => void) | null;
+		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
 	} = $props();
 
 	const initialPanelJob = resolvePanelJob(job, draft);
@@ -85,8 +94,8 @@
 	const canSubmitDraft = $derived(
 		!!chain &&
 			!!collection &&
-			!!targetTokenId &&
 			!selectedDraftUnsupported &&
+			hasSubmittableTarget() &&
 			pricingAvailable &&
 			priceInputsComplete
 	);
@@ -144,6 +153,9 @@
 				: '',
 			value.target.type,
 			biddingAutomationDraftTokenId(value) ?? '',
+			value.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch
+				? value.target.tokenCount
+				: '',
 			value.pricing.mode,
 			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.floorEth : '',
 			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.ceilingEth : '',
@@ -296,6 +308,9 @@
 				.map((trait) => `${trimTargetText(trait.key)}=${trimTargetText(trait.value)}`)
 				.join(' + ');
 		}
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
+			return `${draft.target.tokenCount} filtered tokens`;
+		}
 		return 'collection';
 	}
 
@@ -347,7 +362,7 @@
 	}
 
 	async function handleSave(): Promise<void> {
-		if (!chain || !collection || !targetTokenId || selectedDraftUnsupported || saving || archiving) {
+		if (!chain || !collection || selectedDraftUnsupported || saving || archiving || !canSubmitDraft) {
 			return;
 		}
 
@@ -357,27 +372,157 @@
 		saveError = null;
 
 		try {
-			// Persist the token-scoped bidding job through the backend CRUD adapter.
-			const response = await upsertTokenBiddingJob(fetch, chain.slug, collection.slug, targetTokenId, {
-				status,
-				...(pricingMode === 'tier'
-					? { priceTierId: selectedPriceTierId, deltaEth: deltaEth.trim() }
-					: {
-							floorEth: floorEth.trim(),
-							ceilingEth: ceilingEth.trim(),
-							deltaEth: deltaEth.trim(),
-							priceTierId: null
-						})
-			});
-			currentJob = response.job;
-			onJobChange?.(response.job);
+			// Persist the draft through the matching backend job mutation adapter.
+			const changedJobs = await saveDraftJobs(chain.slug, collection.slug);
+			currentJob = changedJobs.length === 1 ? changedJobs[0] : currentJob;
+			notifyJobsChanged(changedJobs);
 			resetDraft();
-			saveMessage = wasExistingJob ? 'saved' : 'created';
+			saveMessage = resolveSaveMessage(changedJobs.length, wasExistingJob);
 		} catch (error) {
-			saveError = error instanceof Error ? error.message : 'failed to save token bidding job';
+			saveError = error instanceof Error ? error.message : 'failed to save bidding job';
 		} finally {
 			saving = false;
 		}
+	}
+
+	async function saveDraftJobs(chainRef: string, collectionRef: string): Promise<ApiBiddingJob[]> {
+		const pricingBody = pricingRequestBody();
+		if (!draft) {
+			if (!targetTokenId) {
+				throw new Error('target token is required');
+			}
+			const response = await upsertTokenBiddingJob(fetch, chainRef, collectionRef, targetTokenId, {
+				status,
+				...pricingBody
+			});
+			return [response.job];
+		}
+
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+			if (draft.target.tokenIds.length === 1) {
+				const response = await upsertTokenBiddingJob(
+					fetch,
+					chainRef,
+					collectionRef,
+					draft.target.tokenIds[0],
+					{
+						status,
+						...pricingBody
+					}
+				);
+				return [response.job];
+			}
+			const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
+				status,
+				...pricingBody,
+				selection: {
+					type: 'token_ids',
+					tokenIds: draft.target.tokenIds
+				}
+			});
+			return response.jobs;
+		}
+
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
+			if (
+				draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens ||
+				!draft.source.filter.tokenStatus
+			) {
+				throw new Error('filtered token selection is not available for submit');
+			}
+			const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
+				status,
+				...pricingBody,
+				selection: {
+					type: 'filter',
+					tokenStatus: draft.source.filter.tokenStatus,
+					traits: draft.source.filter.selectedTraits,
+					traitRanges: draft.source.filter.selectedTraitRanges
+				}
+			});
+			return response.jobs;
+		}
+
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
+			const response = await upsertTraitBiddingJob(fetch, chainRef, collectionRef, {
+				status,
+				...pricingBody,
+				quantity: selectedBidQuantity(),
+				targetTraits: draft.target.traits.map((trait) => ({
+					type: trait.key,
+					value: trait.value
+				}))
+			});
+			return [response.job];
+		}
+
+		const response = await upsertCollectionBiddingJob(fetch, chainRef, collectionRef, {
+			status,
+			...pricingBody,
+			quantity: selectedBidQuantity()
+		});
+		return [response.job];
+	}
+
+	function pricingRequestBody():
+		| {
+				priceTierId: string;
+				deltaEth: string;
+		  }
+		| {
+				floorEth: string;
+				ceilingEth: string;
+				deltaEth: string;
+				priceTierId: null;
+		  } {
+		return pricingMode === 'tier'
+			? { priceTierId: selectedPriceTierId, deltaEth: deltaEth.trim() }
+			: {
+					floorEth: floorEth.trim(),
+					ceilingEth: ceilingEth.trim(),
+					deltaEth: deltaEth.trim(),
+					priceTierId: null
+				};
+	}
+
+	function selectedBidQuantity(): number | undefined {
+		if (draft?.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
+			return undefined;
+		}
+		const parsed = Number(draft.source.bid.quantity);
+		return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+	}
+
+	function hasSubmittableTarget(): boolean {
+		if (!draft) {
+			return !!targetTokenId;
+		}
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+			return draft.target.tokenIds.length > 0;
+		}
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
+			return draft.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
+				draft.source.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean &&
+				!!draft.source.filter.tokenStatus;
+		}
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
+			return draft.target.traits.length > 0;
+		}
+		return true;
+	}
+
+	function notifyJobsChanged(jobs: ApiBiddingJob[]): void {
+		if (jobs.length === 1 && jobs[0].target.type === 'token') {
+			onJobChange?.(jobs[0]);
+		}
+		onJobsChange?.(jobs);
+	}
+
+	function resolveSaveMessage(count: number, wasExistingJob: boolean): string {
+		if (count <= 1) {
+			return wasExistingJob ? 'saved' : 'created';
+		}
+		return `${count} jobs saved`;
 	}
 
 	async function handleArchive(): Promise<void> {

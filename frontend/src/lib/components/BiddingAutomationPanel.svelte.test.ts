@@ -93,7 +93,7 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('>archive<');
 	});
 
-	it('renders selected trait bid drafts as unavailable for submit in the token-only write pass', () => {
+	it('renders selected trait bid drafts as submittable collection-scope jobs', () => {
 		const draft = buildBiddingAutomationDraftFromBid({
 			orderId: '0xtrait-bid',
 			source: 'orders',
@@ -153,9 +153,71 @@ describe('BiddingAutomationPanel', () => {
 		});
 
 		expect(body).toContain('Biome=42 + Mode=Terrain');
-		expect(body).toContain('not available');
+		expect(body).not.toContain('not available');
 		expect(body).toContain('value="0.3"');
-		expect(body).toContain('disabled');
+		expect(body).toContain('>create<');
+	});
+
+	it('renders selected collection bid drafts as explicit collection jobs', () => {
+		const draft = buildBiddingAutomationDraftFromBid({
+			orderId: '0xcollection-bid',
+			source: 'orders',
+			scope: {
+				kind: 'collection',
+				label: 'collection',
+				tokenId: null,
+				traits: []
+			},
+			maker: {
+				address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				isOwn: false
+			},
+			priceWei: '300000000000000000',
+			priceEth: '0.3',
+			quantity: '2',
+			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+			currencySymbol: 'WETH',
+			protocolAddress: null,
+			validUntil: 1_900_000_000,
+			placedAt: '2026-01-02T00:00:00Z',
+			snapshotRefreshedAtMs: null,
+			seenAt: '2026-01-02T00:00:00Z'
+		});
+
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: {
+					id: 1,
+					type: 'evm',
+					publicChainId: 1,
+					slug: 'ethereum',
+					name: 'Ethereum'
+				},
+				collection: {
+					chainId: 1,
+					collectionId: 1,
+					slug: 'milady',
+					address: '0x1111111111111111111111111111111111111111',
+					standard: 'erc721',
+					status: 'live',
+					deploymentBlock: 1,
+					bootstrapAnchorBlock: null,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T00:00:00Z'
+				},
+				token: null,
+				job: null,
+				draft,
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain('collection');
+		expect(body).toContain('value="0.3"');
+		expect(body).toContain('>create<');
+		expect(body).not.toContain('not available');
 	});
 
 	it('renders tier-backed pricing as resolved floor and ceiling preview', () => {
