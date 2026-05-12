@@ -26,6 +26,7 @@
 		isBiddingAutomationDraftSubmittable,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
+	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 
 	type EditableTokenJobStatus = 'enabled' | 'paused';
 
@@ -68,6 +69,7 @@
 	let archiving = $state(false);
 	let saveMessage = $state<string | null>(null);
 	let saveError = $state<string | null>(null);
+	let panelCollapsed = $state(false);
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
@@ -258,6 +260,14 @@
 		applyDraft(currentJob, draft);
 		saveMessage = null;
 		saveError = null;
+	}
+
+	function hidePanel(): void {
+		panelCollapsed = true;
+	}
+
+	function showPanel(): void {
+		panelCollapsed = false;
 	}
 
 	function applyLoadedPanel(
@@ -577,11 +587,21 @@
 	}
 </script>
 
-{#if open}
+{#if open && panelCollapsed}
+	<button
+		type="button"
+		class="bidding-automation-panel-collapsed"
+		aria-label="show bidding panel"
+		title="show bidding panel"
+		onclick={showPanel}
+	>
+		<PlaceBidIcon className="bidding-automation-panel-collapsed-icon" />
+	</button>
+{:else if open}
 	<div class="runtime-section bidding-automation-panel" role="dialog" aria-label="bidding automation">
 		<header class="panel-header bidding-automation-panel-header">
 			<h2 class="panel-title">token bidding</h2>
-			<button type="button" class="button-link" onclick={onClose}>close</button>
+			<button type="button" class="button-link" onclick={hidePanel}>hide</button>
 		</header>
 
 		<div class="runtime-kv-grid token-bidding-runtime-grid">
