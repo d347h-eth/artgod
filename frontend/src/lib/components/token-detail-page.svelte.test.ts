@@ -186,6 +186,7 @@ describe('token detail page', () => {
 		expect(body).toContain('value="0.101"');
 		expect(body).toContain('value="0.001"');
 		expect(body).toContain('>create<');
+		expect(body).not.toContain('>hide<');
 		expect(body).not.toContain('>use<');
 	});
 

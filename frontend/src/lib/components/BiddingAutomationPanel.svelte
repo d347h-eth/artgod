@@ -647,7 +647,9 @@
 	>
 		<header class="panel-header bidding-automation-panel-header">
 			<h2 class="panel-title">token bidding</h2>
-			<button type="button" class="button-link" onclick={hidePanel}>hide</button>
+			{#if variant !== 'inline'}
+				<button type="button" class="button-link" onclick={hidePanel}>hide</button>
+			{/if}
 		</header>
 
 		<div class="runtime-kv-grid token-bidding-runtime-grid">
