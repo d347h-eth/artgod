@@ -5,7 +5,6 @@
 		ApiBiddingJob,
 		ApiTradingTraitCriterion
 	} from '$lib/api-types';
-	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
@@ -932,7 +931,7 @@
 											title={placeBidLabel(group.label)}
 											onclick={() => selectBid(group.bestBid)}
 										>
-											<PlaceBidIcon className="bid-book-place-bid-icon" />
+											bid
 										</button>
 									{/if}
 								</div>

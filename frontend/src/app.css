@@ -1401,30 +1401,23 @@ th {
 	align-items: center;
 	justify-content: center;
 	align-self: baseline;
-	width: 1em;
-	height: 1em;
-	min-height: 0;
-	border: 0;
-	padding: 0;
+	width: 3.4ch;
+	height: 14px;
+	min-height: 14px;
+	border: 1px solid var(--c-blue);
+	padding: 0 0.35rem;
 	color: var(--c-cyan);
-	line-height: 1;
+	font-size: 0.58rem;
+	line-height: 12px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
 	vertical-align: baseline;
 }
 
 .bid-book-place-bid-icon-button:hover,
 .bid-book-place-bid-icon-button:focus-visible {
-	border: 0;
-}
-
-.bid-book-place-bid-icon {
-	width: 1em;
-	height: 1em;
-	fill: none;
-	stroke: currentColor;
-	stroke-width: 1.6;
-	stroke-linecap: square;
-	stroke-linejoin: miter;
-	transform: translateY(0.13em);
+	border-color: var(--c-cyan);
+	color: var(--c-cyan);
 }
 
 .bid-book-col-right {
