@@ -29,21 +29,24 @@
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import {
+		buildFilteredTokenBatchBiddingSelectionInput,
+		buildFilteredTraitBiddingSelectionInput,
 		biddingAutomationSelectionStateKey,
 		biddingAutomationTokenSelectionState,
 		createBiddingAutomationController,
 		describeBiddingAutomationSelection,
+		isCleanFilteredTokenBatchSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
 	import {
-		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
-		BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
-		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+		buildBiddingAutomationTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
+		biddingTraitCriteriaToTokenAttributes,
 		canDraftTraitJobFromFilters,
-		type BiddingAutomationDraft
+		type BiddingAutomationDraft,
+		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
 		buildCollectionNavigation,
@@ -198,7 +201,7 @@
 	const selectionBiddingDraft = $derived(
 		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
 	);
-	const selectedBiddingDraft = $derived(selectionBiddingDraft ?? selectedBidDraft);
+	const selectedBiddingDraft = $derived(selectedBidDraft ?? selectionBiddingDraft);
 	const biddingAutomationPanelOpen = $derived(selectedBiddingDraft !== null);
 	const biddingSelectionStateKey = $derived(
 		biddingAutomationSelectionStateKey(currentBiddingSelection)
@@ -314,14 +317,15 @@
 
 	function filtersHref(
 		traits: ApiTokenAttribute[],
-		ranges: ApiTraitRangeFilter[]
+		ranges: ApiTraitRangeFilter[],
+		nextTraitJoinMode: ApiCollectionBiddingTraitFilterJoinMode = traitJoinMode
 	): string {
 		return buildCollectionBiddingHref({
 			basePath,
 			selectedTraits: traits,
 			selectedTraitRanges: ranges,
 			bidScope,
-			traitJoinMode,
+			traitJoinMode: nextTraitJoinMode,
 			viewMode: biddingView,
 			mediaMode,
 			maker: makerFilter,
@@ -551,11 +555,12 @@
 
 	async function applyTraitFilters(
 		nextTraits: ApiTokenAttribute[],
-		nextRanges: ApiTraitRangeFilter[]
+		nextRanges: ApiTraitRangeFilter[],
+		nextTraitJoinMode: ApiCollectionBiddingTraitFilterJoinMode = traitJoinMode
 	): Promise<void> {
 		activeTraits = nextTraits;
 		activeTraitRanges = nextRanges;
-		await goto(filtersHref(nextTraits, nextRanges), {
+		await goto(filtersHref(nextTraits, nextRanges, nextTraitJoinMode), {
 			invalidateAll: true,
 			keepFocus: true,
 			noScroll: true
@@ -635,18 +640,12 @@
 	function bidOnFilteredTraits(): void {
 		if (!canBidOnTraits) return;
 		selectedBidDraft = null;
-		biddingAutomation.selectFilteredTokens({
-			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
-			tokenCount: tokenOfferCards.totalItems,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
-				selectedTraits: activeTraits,
-				selectedTraitRanges: activeTraitRanges,
-				traitJoinMode,
-				tokenStatus: null,
-				makerAddress: makerFilter
-			}
-		});
+		biddingAutomation.selectFilteredTokens(
+			buildFilteredTraitBiddingSelectionInput({
+				tokenCount: tokenOfferCards.totalItems,
+				filter: currentBiddingFilterSnapshot()
+			})
+		);
 		expandBiddingAutomationPanel();
 	}
 
@@ -659,18 +658,12 @@
 			expandBiddingAutomationPanel();
 			return;
 		}
-		biddingAutomation.selectFilteredTokens({
-			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
-			tokenCount: tokenOfferCards.totalItems,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
-				selectedTraits: activeTraits,
-				selectedTraitRanges: activeTraitRanges,
-				traitJoinMode,
-				tokenStatus: null,
-				makerAddress: makerFilter
-			}
-		});
+		biddingAutomation.selectFilteredTokens(
+			buildFilteredTokenBatchBiddingSelectionInput({
+				tokenCount: tokenOfferCards.totalItems,
+				filter: currentBiddingFilterSnapshot()
+			})
+		);
 		expandBiddingAutomationPanel();
 	}
 
@@ -687,11 +680,22 @@
 	}
 
 	function isAllFilteredTokenSelectionActive(): boolean {
-		return (
-			currentBiddingSelection?.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
-			currentBiddingSelection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch &&
-			currentBiddingSelection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
-		);
+		return isCleanFilteredTokenBatchSelection(currentBiddingSelection);
+	}
+
+	function currentBiddingFilterSnapshot(params: {
+		traits?: ApiTokenAttribute[];
+		ranges?: ApiTraitRangeFilter[];
+		nextTraitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
+	} = {}): BiddingAutomationTokenFilterSnapshot {
+		return buildBiddingAutomationTokenFilterSnapshot({
+			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+			selectedTraits: params.traits ?? activeTraits,
+			selectedTraitRanges: params.ranges ?? activeTraitRanges,
+			traitJoinMode: params.nextTraitJoinMode ?? traitJoinMode,
+			tokenStatus: null,
+			makerAddress: makerFilter
+		});
 	}
 
 	function activeBiddingFilterKey(): string {
@@ -701,6 +705,20 @@
 			makerFilter,
 			activeTraits,
 			activeTraitRanges
+		});
+	}
+
+	function biddingFilterKeyFor(params: {
+		traits: ApiTokenAttribute[];
+		ranges: ApiTraitRangeFilter[];
+		nextTraitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
+	}): string {
+		return JSON.stringify({
+			bidScope,
+			traitJoinMode: params.nextTraitJoinMode ?? traitJoinMode,
+			makerFilter,
+			activeTraits: params.traits,
+			activeTraitRanges: params.ranges
 		});
 	}
 
@@ -728,6 +746,40 @@
 		if (!draft) return;
 		biddingAutomation.clearSelection();
 		selectedBidDraft = draft;
+		expandBiddingAutomationPanel();
+	}
+
+	async function onBidBookTraitDemandBid(selection: {
+		bid: ApiBiddingBidBookRow;
+		traits: ApiBiddingBidBookRow['scope']['traits'];
+	}): Promise<void> {
+		const nextTraits = biddingTraitCriteriaToTokenAttributes(selection.traits);
+		if (!canDraftTraitJobFromFilters({ selectedTraits: nextTraits, selectedTraitRanges: [] })) {
+			onBidBookSelectBid(selection.bid);
+			return;
+		}
+
+		const nextTraitJoinMode = 'or';
+		// Apply the demand bucket traits to the reusable trait filter controls first.
+		await applyTraitFilters(nextTraits, [], nextTraitJoinMode);
+		lastBiddingFilterKey = biddingFilterKeyFor({
+			traits: nextTraits,
+			ranges: [],
+			nextTraitJoinMode
+		});
+
+		// Draft the trait target through the same shared selection state as the top controls.
+		biddingAutomation.selectFilteredTokens(
+			buildFilteredTraitBiddingSelectionInput({
+				tokenCount: tokenOfferCards.totalItems,
+				filter: currentBiddingFilterSnapshot({
+					traits: nextTraits,
+					ranges: [],
+					nextTraitJoinMode
+				})
+			})
+		);
+		selectedBidDraft = buildBiddingAutomationDraftFromBid(selection.bid);
 		expandBiddingAutomationPanel();
 	}
 
@@ -828,6 +880,7 @@
 		preferredDemandTraitKey={preferredBidBookDemandTraitKey}
 		traitValueHref={bidBookTraitValueHref}
 		makerFilterHref={makerFilterHref}
+		onSelectTraitDemandBid={onBidBookTraitDemandBid}
 		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
 		showRowActions={bidScope !== 'collection'}
 	/>

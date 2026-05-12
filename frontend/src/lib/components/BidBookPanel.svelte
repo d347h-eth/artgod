@@ -14,6 +14,7 @@
 		key: string;
 		value: string;
 	};
+	type MaybePromise<T> = T | Promise<T>;
 	type BidBookDemandGroup = {
 		key: string;
 		label: string;
@@ -28,6 +29,11 @@
 		key: string | null;
 		label: string;
 		count: number;
+	};
+	type BidBookTraitDemandBidSelection = {
+		bid: ApiBiddingBidBookRow;
+		traits: ApiBiddingBidBookRow['scope']['traits'];
+		label: string;
 	};
 	type OwnBidStatusBadge = {
 		kind: 'winning' | 'draw' | 'losing' | 'ceiling' | 'floor';
@@ -50,6 +56,7 @@
 		traitValueHref = null,
 		makerFilterHref = null,
 		makerBidHref = null,
+		onSelectTraitDemandBid = null,
 		onSelectBid = null
 	}: {
 		bidBook: ApiBiddingBidBook;
@@ -64,7 +71,10 @@
 		traitValueHref?: ((trait: TraitFilterValue) => string) | null;
 		makerFilterHref?: ((makerAddress: string) => string) | null;
 		makerBidHref?: ((bid: ApiBiddingBidBookRow) => string) | null;
-		onSelectBid?: ((bid: ApiBiddingBidBookRow) => void) | null;
+		onSelectTraitDemandBid?:
+			| ((selection: BidBookTraitDemandBidSelection) => MaybePromise<void>)
+			| null;
+		onSelectBid?: ((bid: ApiBiddingBidBookRow) => MaybePromise<void>) | null;
 	} = $props();
 
 	let placedAtMode = $state<BidBookTimeMode>('relative');
@@ -258,7 +268,19 @@
 	}
 
 	function selectBid(bid: ApiBiddingBidBookRow): void {
-		onSelectBid?.(bid);
+		void onSelectBid?.(bid);
+	}
+
+	function selectTraitDemandBid(group: BidBookDemandGroup): void {
+		if (onSelectTraitDemandBid) {
+			void onSelectTraitDemandBid({
+				bid: group.bestBid,
+				traits: group.traits,
+				label: group.label
+			});
+			return;
+		}
+		void onSelectBid?.(group.bestBid);
 	}
 
 	function placeBidLabel(label: string): string {
@@ -929,7 +951,7 @@
 											class="bid-book-place-bid-icon-button"
 											aria-label={placeBidLabel(group.label)}
 											title={placeBidLabel(group.label)}
-											onclick={() => selectBid(group.bestBid)}
+											onclick={() => selectTraitDemandBid(group)}
 										>
 											bid
 										</button>

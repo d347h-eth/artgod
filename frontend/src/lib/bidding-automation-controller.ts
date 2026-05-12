@@ -38,6 +38,41 @@ export type BiddingAutomationController = {
 	selectionSummary(): string | null;
 };
 
+// Builds the shared controller input for exact trait-job targets backed by the current filter.
+export function buildFilteredTraitBiddingSelectionInput(params: {
+	filter: BiddingAutomationTokenFilterSnapshot;
+	tokenCount: number;
+}): SelectFilteredTokensInput {
+	return {
+		targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+		filter: params.filter,
+		tokenCount: params.tokenCount
+	};
+}
+
+// Builds the shared controller input for all-matching-token batch targets.
+export function buildFilteredTokenBatchBiddingSelectionInput(params: {
+	filter: BiddingAutomationTokenFilterSnapshot;
+	tokenCount: number;
+}): SelectFilteredTokensInput {
+	return {
+		targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+		filter: params.filter,
+		tokenCount: params.tokenCount
+	};
+}
+
+// Identifies the broad "all filtered tokens" state before optional visible-page refinement.
+export function isCleanFilteredTokenBatchSelection(
+	selection: BiddingAutomationSelection | null
+): boolean {
+	return (
+		selection?.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
+		selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch &&
+		selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+	);
+}
+
 export function createBiddingAutomationController(): BiddingAutomationController {
 	const state = writable<BiddingAutomationControllerState>({
 		selection: null

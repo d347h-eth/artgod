@@ -8,13 +8,38 @@ import {
 	type BiddingAutomationSelection
 } from '$lib/bidding-automation';
 import {
+	buildFilteredTokenBatchBiddingSelectionInput,
+	buildFilteredTraitBiddingSelectionInput,
 	biddingAutomationSelectionStateKey,
 	biddingAutomationTokenSelectionState,
 	createBiddingAutomationController,
-	describeBiddingAutomationSelection
+	describeBiddingAutomationSelection,
+	isCleanFilteredTokenBatchSelection
 } from '$lib/bidding-automation-controller';
 
 describe('createBiddingAutomationController', () => {
+	it('builds shared filtered selection inputs for trait and token target controls', () => {
+		const filter = {
+			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+			selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
+			selectedTraitRanges: [],
+			traitJoinMode: 'or' as const,
+			tokenStatus: null,
+			makerAddress: null
+		};
+
+		expect(buildFilteredTraitBiddingSelectionInput({ filter, tokenCount: 12 })).toEqual({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+			filter,
+			tokenCount: 12
+		});
+		expect(buildFilteredTokenBatchBiddingSelectionInput({ filter, tokenCount: 12 })).toEqual({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+			filter,
+			tokenCount: 12
+		});
+	});
+
 	it('stores clean filtered-token selections as all matching tokens', () => {
 		const controller = createBiddingAutomationController();
 
@@ -38,6 +63,7 @@ describe('createBiddingAutomationController', () => {
 		}
 		expect(selection.tokenCount).toBe(500);
 		expect(selection.state.kind).toBe(BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean);
+		expect(isCleanFilteredTokenBatchSelection(selection)).toBe(true);
 		expect(controller.selectionSummary()).toBe('500 tokens selected');
 	});
 

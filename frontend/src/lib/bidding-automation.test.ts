@@ -8,6 +8,8 @@ import {
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 	biddingAutomationDraftTokenId,
+	biddingTraitCriteriaToTokenAttributes,
+	buildBiddingAutomationTokenFilterSnapshot,
 	buildBiddingAutomationDraftFromBid,
 	buildBiddingAutomationDraftFromSelection,
 	isBiddingAutomationDraftSubmittable
@@ -236,5 +238,39 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 			tokenIds: ['1', '2']
 		});
 		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
+	});
+});
+
+describe('biddingTraitCriteriaToTokenAttributes', () => {
+	it('maps bid-book trait criteria into reusable trait-filter attributes', () => {
+		expect(
+			biddingTraitCriteriaToTokenAttributes([
+				{ type: 'Biome', value: '42' },
+				{ type: 'Mode', value: 'Terrain' }
+			])
+		).toEqual([
+			{ key: 'Biome', value: '42' },
+			{ key: 'Mode', value: 'Terrain' }
+		]);
+	});
+});
+
+describe('buildBiddingAutomationTokenFilterSnapshot', () => {
+	it('normalizes optional filter values used by bidding controls', () => {
+		expect(
+			buildBiddingAutomationTokenFilterSnapshot({
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
+				selectedTraitRanges: [],
+				traitJoinMode: 'or'
+			})
+		).toEqual({
+			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+			selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
+			selectedTraitRanges: [],
+			traitJoinMode: 'or',
+			tokenStatus: null,
+			makerAddress: null
+		});
 	});
 });

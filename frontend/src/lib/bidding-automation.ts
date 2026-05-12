@@ -2,6 +2,7 @@ import type {
 	ApiBiddingBidBookRow,
 	ApiBiddingJob,
 	ApiCollectionBiddingTraitFilterJoinMode,
+	ApiTradingTraitCriterion,
 	ApiTokenAttribute,
 	ApiTraitRangeFilter
 } from '$lib/api-types';
@@ -67,6 +68,25 @@ export type BiddingAutomationTokenFilterSnapshot = {
 	tokenStatus?: TokenBrowserStatus | null;
 	makerAddress?: string | null;
 };
+
+// Builds the canonical filter snapshot consumed by bidding selection and draft flows.
+export function buildBiddingAutomationTokenFilterSnapshot(params: {
+	source: BiddingAutomationTokenFilterSource;
+	selectedTraits: ApiTokenAttribute[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
+	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
+	tokenStatus?: TokenBrowserStatus | null;
+	makerAddress?: string | null;
+}): BiddingAutomationTokenFilterSnapshot {
+	return {
+		source: params.source,
+		selectedTraits: params.selectedTraits,
+		selectedTraitRanges: params.selectedTraitRanges,
+		traitJoinMode: params.traitJoinMode,
+		tokenStatus: params.tokenStatus ?? null,
+		makerAddress: params.makerAddress ?? null
+	};
+}
 
 // Represents a clean all-filtered-tokens action or a visible-page-adjusted variant.
 export type BiddingAutomationFilteredTokenSelection = {
@@ -220,6 +240,16 @@ export function biddingAutomationDraftTokenId(
 		return null;
 	}
 	return draft.target.tokenIds[0] ?? null;
+}
+
+// Converts bid-book criteria into the trait-filter shape shared by controls and drafts.
+export function biddingTraitCriteriaToTokenAttributes(
+	traits: ApiTradingTraitCriterion[]
+): ApiTokenAttribute[] {
+	return traits.map((trait) => ({
+		key: trait.type,
+		value: trait.value
+	}));
 }
 
 function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomationDraftTarget | null {

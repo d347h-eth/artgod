@@ -16,18 +16,20 @@
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
 	import {
-		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
-		BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
-		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+		buildBiddingAutomationTokenFilterSnapshot,
 		buildBiddingAutomationDraftFromSelection,
-		canDraftTraitJobFromFilters
+		canDraftTraitJobFromFilters,
+		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
+		buildFilteredTokenBatchBiddingSelectionInput,
+		buildFilteredTraitBiddingSelectionInput,
 		biddingAutomationSelectionStateKey,
 		biddingAutomationTokenSelectionState,
 		createBiddingAutomationController,
 		describeBiddingAutomationSelection,
+		isCleanFilteredTokenBatchSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
 	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
@@ -238,18 +240,12 @@
 
 	function bidOnFilteredTraits(): void {
 		if (!canBidOnTraits) return;
-		biddingAutomation.selectFilteredTokens({
-			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
-			tokenCount: tokens.totalItems,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
-				selectedTraits,
-				selectedTraitRanges,
-				traitJoinMode: 'and',
-				tokenStatus,
-				makerAddress: null
-			}
-		});
+		biddingAutomation.selectFilteredTokens(
+			buildFilteredTraitBiddingSelectionInput({
+				tokenCount: tokens.totalItems,
+				filter: currentBiddingFilterSnapshot()
+			})
+		);
 		expandBiddingAutomationPanel();
 	}
 
@@ -261,18 +257,12 @@
 			expandBiddingAutomationPanel();
 			return;
 		}
-		biddingAutomation.selectFilteredTokens({
-			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
-			tokenCount: tokens.totalItems,
-			filter: {
-				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
-				selectedTraits,
-				selectedTraitRanges,
-				traitJoinMode: 'and',
-				tokenStatus,
-				makerAddress: null
-			}
-		});
+		biddingAutomation.selectFilteredTokens(
+			buildFilteredTokenBatchBiddingSelectionInput({
+				tokenCount: tokens.totalItems,
+				filter: currentBiddingFilterSnapshot()
+			})
+		);
 		expandBiddingAutomationPanel();
 	}
 
@@ -285,11 +275,18 @@
 	}
 
 	function isAllFilteredTokenSelectionActive(): boolean {
-		return (
-			currentBiddingSelection?.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
-			currentBiddingSelection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch &&
-			currentBiddingSelection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
-		);
+		return isCleanFilteredTokenBatchSelection(currentBiddingSelection);
+	}
+
+	function currentBiddingFilterSnapshot(): BiddingAutomationTokenFilterSnapshot {
+		return buildBiddingAutomationTokenFilterSnapshot({
+			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+			selectedTraits,
+			selectedTraitRanges,
+			traitJoinMode: 'and',
+			tokenStatus,
+			makerAddress: null
+		});
 	}
 
 	function activeBiddingFilterKey(): string {
