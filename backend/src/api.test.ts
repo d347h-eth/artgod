@@ -255,12 +255,18 @@ beforeAll(async () => {
     const biddingBidBookRepositoryModule = await import(
         "./infra/trading/sqlite-bidding-bid-book-repository.js"
     );
+    const biddingPriceTiersRepositoryModule = await import(
+        "./infra/trading/sqlite-bidding-price-tiers-repository.js"
+    );
     const listCollectionBiddingJobsUseCaseModule =
         await import(
             "./application/use-cases/trading/list-collection-bidding-jobs.js"
         );
     const listCollectionBiddingBidBookUseCaseModule = await import(
         "./application/use-cases/trading/list-collection-bidding-bid-book.js"
+    );
+    const listCollectionBiddingPriceTiersUseCaseModule = await import(
+        "./application/use-cases/trading/list-collection-bidding-price-tiers.js"
     );
     const getTokenBiddingJobUseCaseModule =
         await import("./application/use-cases/trading/get-token-bidding-job.js");
@@ -279,14 +285,22 @@ beforeAll(async () => {
         await import(
             "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js"
         );
+    const upsertCollectionBiddingPriceTierUseCaseModule = await import(
+        "./application/use-cases/trading/upsert-collection-bidding-price-tier.js"
+    );
     const archiveTokenBiddingJobUseCaseModule =
         await import(
             "./application/use-cases/trading/archive-token-bidding-job.js"
         );
+    const archiveCollectionBiddingPriceTierUseCaseModule = await import(
+        "./application/use-cases/trading/archive-collection-bidding-price-tier.js"
+    );
     const biddingJobsRepository =
         new biddingJobsRepositoryModule.SqliteBiddingJobsRepository();
     const biddingBidBookRepository =
         new biddingBidBookRepositoryModule.SqliteBiddingBidBookRepository();
+    const biddingPriceTiersRepository =
+        new biddingPriceTiersRepositoryModule.SqliteBiddingPriceTiersRepository();
     const listCollectionBiddingJobsUseCase =
         new listCollectionBiddingJobsUseCaseModule.ListCollectionBiddingJobsUseCase(
             1,
@@ -302,6 +316,13 @@ beforeAll(async () => {
             collectionsReadModel,
             customizationReadModel,
             biddingBidBookRepository,
+        );
+    const listCollectionBiddingPriceTiersUseCase =
+        new listCollectionBiddingPriceTiersUseCaseModule.ListCollectionBiddingPriceTiersUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingPriceTiersRepository,
         );
     const getTokenBiddingJobUseCase =
         new getTokenBiddingJobUseCaseModule.GetTokenBiddingJobUseCase(
@@ -326,6 +347,7 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             biddingJobsRepository,
+            biddingPriceTiersRepository,
             tradingJobCommandSignalPort,
         );
     const upsertTraitBiddingJobUseCase =
@@ -334,6 +356,7 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             biddingJobsRepository,
+            biddingPriceTiersRepository,
             tradingJobCommandSignalPort,
         );
     const upsertBatchTokenBiddingJobsUseCase =
@@ -342,7 +365,15 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             biddingJobsRepository,
+            biddingPriceTiersRepository,
             tradingJobCommandSignalPort,
+        );
+    const upsertCollectionBiddingPriceTierUseCase =
+        new upsertCollectionBiddingPriceTierUseCaseModule.UpsertCollectionBiddingPriceTierUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingPriceTiersRepository,
         );
     const archiveTokenBiddingJobUseCase =
         new archiveTokenBiddingJobUseCaseModule.ArchiveTokenBiddingJobUseCase(
@@ -351,6 +382,13 @@ beforeAll(async () => {
             collectionsReadModel,
             biddingJobsRepository,
             tradingJobCommandSignalPort,
+        );
+    const archiveCollectionBiddingPriceTierUseCase =
+        new archiveCollectionBiddingPriceTierUseCaseModule.ArchiveCollectionBiddingPriceTierUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingPriceTiersRepository,
         );
     const bootstrapRepositoryModule =
         await import("./infra/bootstrap/sqlite-bootstrap-runs.js");
@@ -431,12 +469,15 @@ beforeAll(async () => {
         updateCollectionCustomizationUseCase,
         listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,
+        listCollectionBiddingPriceTiersUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
         upsertBatchTokenBiddingJobsUseCase,
+        upsertCollectionBiddingPriceTierUseCase,
         archiveTokenBiddingJobUseCase,
+        archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
         null,
         API_SECURITY_CONFIG,
@@ -466,12 +507,15 @@ beforeAll(async () => {
         updateCollectionCustomizationUseCase,
         listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,
+        listCollectionBiddingPriceTiersUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
         upsertBatchTokenBiddingJobsUseCase,
+        upsertCollectionBiddingPriceTierUseCase,
         archiveTokenBiddingJobUseCase,
+        archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
         null,
         API_SECURITY_CONFIG,
@@ -1139,6 +1183,7 @@ describe("backend api routes", () => {
             floorEth: "0.1",
             ceilingEth: "0.2",
             deltaEth: "0.01",
+            pricingSource: { kind: "manual" },
         });
 
         const updated = await resolve(
@@ -1159,6 +1204,7 @@ describe("backend api routes", () => {
             floorEth: "0.11",
             ceilingEth: "0.22",
             deltaEth: "0.02",
+            pricingSource: { kind: "manual" },
         });
 
         const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
@@ -1182,12 +1228,77 @@ describe("backend api routes", () => {
             floorEth: "0.11",
             ceilingEth: "0.22",
             deltaEth: "0.02",
+            pricingSource: { kind: "manual" },
         });
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
             TRADING_JOB_COMMAND_KIND.JobPaused,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
         ]);
+    });
+
+    it("creates price tiers and resolves tier-backed token jobs via admin routes", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        const createdTier = await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/price-tiers",
+            {
+                name: "base",
+                status: TRADING_JOB_STATUS.Enabled,
+                sortOrder: 0,
+                parentTierId: null,
+                floorConfig: {
+                    kind: "fixed",
+                    valueEth: "0.12",
+                },
+                ceilingConfig: {
+                    kind: "floor_delta",
+                    deltaKind: "absolute",
+                    deltaEth: "0.03",
+                },
+            },
+            csrf,
+        );
+        expect(createdTier.statusCode).toBe(200);
+        expect(createdTier.payload.tier).toMatchObject({
+            name: "base",
+            resolvedFloorEth: "0.12",
+            resolvedCeilingEth: "0.15",
+        });
+
+        const tiers = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/price-tiers",
+        );
+        expect(tiers.statusCode).toBe(200);
+        expect(tiers.payload.tiers).toHaveLength(1);
+
+        const createdJob = await resolve(
+            "PUT",
+            "/api/ethereum/milady/1/bidding/job",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                priceTierId: createdTier.payload.tier.tierId,
+                deltaEth: "0.01",
+            },
+            csrf,
+        );
+        expect(createdJob.statusCode).toBe(200);
+        expect(createdJob.payload.job.config).toMatchObject({
+            floorEth: "0.12",
+            ceilingEth: "0.15",
+            deltaEth: "0.01",
+            pricingSource: {
+                kind: "price_tier",
+                tierId: createdTier.payload.tier.tierId,
+                tierName: "base",
+                resolvedFloorWei: "120000000000000000",
+                resolvedCeilingWei: "150000000000000000",
+                deltaWei: "10000000000000000",
+            },
+        });
     });
 
     it("creates clean trait bidding jobs via admin routes", async () => {
@@ -4188,6 +4299,7 @@ function clearTradingJobFixtures(): void {
             "DELETE FROM trading_bidding_job_runtime_state;",
             "DELETE FROM trading_bidding_job_specs;",
             "DELETE FROM trading_jobs;",
+            "DELETE FROM trading_bidding_price_tiers;",
         ].join("\n"),
     );
 }

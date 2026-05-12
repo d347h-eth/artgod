@@ -5,12 +5,14 @@ import {
     TRADING_BOT_KIND,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_COMMAND_STATUS,
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
     type PersistedBiddingJobRecord,
     type PersistedCollectionBiddingJobRecord,
     type PersistedBiddingJobRuntimeState,
     type PersistedTokenBiddingJobRecord,
+    type TradingBiddingJobPricingSource,
     type TradingJobCommandKind,
     type TradingJobCommandRecord,
     type TradingTraitCriterion,
@@ -35,6 +37,8 @@ type BiddingJobRow = {
     floor_wei: string;
     ceiling_wei: string;
     delta_wei: string;
+    price_tier_id: string | null;
+    pricing_source_json: string | null;
     quantity: number | null;
     target_traits_json: string | null;
     competitor_traits_json: string | null;
@@ -73,7 +77,8 @@ const BIDDING_JOB_SELECT =
     "SELECT j.job_id, j.bot_kind, j.chain_id, j.collection_id, " +
     "c.slug AS collection_slug, c.opensea_slug AS collection_opensea_slug, c.address AS collection_address, " +
     "j.status, j.target_kind, j.token_id, j.revision, j.created_at, j.updated_at, j.archived_at, " +
-    "s.floor_wei, s.ceiling_wei, s.delta_wei, s.quantity, s.target_traits_json, s.competitor_traits_json, " +
+    "s.floor_wei, s.ceiling_wei, s.delta_wei, s.price_tier_id, s.pricing_source_json, " +
+    "s.quantity, s.target_traits_json, s.competitor_traits_json, " +
     "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_expiration_time_ms, " +
     "r.last_run_at, r.last_error, r.cancellation_requested_at, r.cancellation_completed_at, r.cancellation_error, r.updated_at AS runtime_updated_at " +
     "FROM trading_jobs j " +
@@ -132,6 +137,8 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         quantity: number | null;
         targetTraitsJson: string | null;
         competitorTraitsJson: string | null;
+        priceTierId: string | null;
+        pricingSourceJson: string | null;
     }>;
 
     private readonly updateBiddingSpecById: BetterSqlite3NamedStatement<{
@@ -142,6 +149,8 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         quantity: number | null;
         targetTraitsJson: string | null;
         competitorTraitsJson: string | null;
+        priceTierId: string | null;
+        pricingSourceJson: string | null;
     }>;
 
     private readonly insertCommand: BetterSqlite3NamedStatement<{
@@ -259,10 +268,12 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             quantity: number | null;
             targetTraitsJson: string | null;
             competitorTraitsJson: string | null;
+            priceTierId: string | null;
+            pricingSourceJson: string | null;
         }>(
             "INSERT INTO trading_bidding_job_specs " +
-                "(job_id, floor_wei, ceiling_wei, delta_wei, quantity, target_traits_json, competitor_traits_json) " +
-                "VALUES (@jobId, @floorWei, @ceilingWei, @deltaWei, @quantity, @targetTraitsJson, @competitorTraitsJson)",
+                "(job_id, floor_wei, ceiling_wei, delta_wei, quantity, target_traits_json, competitor_traits_json, price_tier_id, pricing_source_json) " +
+                "VALUES (@jobId, @floorWei, @ceilingWei, @deltaWei, @quantity, @targetTraitsJson, @competitorTraitsJson, @priceTierId, @pricingSourceJson)",
         ) as BetterSqlite3NamedStatement<{
             jobId: string;
             floorWei: string;
@@ -271,6 +282,8 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             quantity: number | null;
             targetTraitsJson: string | null;
             competitorTraitsJson: string | null;
+            priceTierId: string | null;
+            pricingSourceJson: string | null;
         }>;
 
         this.updateBiddingSpecById = db.prepare<{
@@ -281,10 +294,13 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             quantity: number | null;
             targetTraitsJson: string | null;
             competitorTraitsJson: string | null;
+            priceTierId: string | null;
+            pricingSourceJson: string | null;
         }>(
             "UPDATE trading_bidding_job_specs SET " +
                 "floor_wei = @floorWei, ceiling_wei = @ceilingWei, delta_wei = @deltaWei, " +
                 "quantity = @quantity, target_traits_json = @targetTraitsJson, competitor_traits_json = @competitorTraitsJson, " +
+                "price_tier_id = @priceTierId, pricing_source_json = @pricingSourceJson, " +
                 "updated_at = CURRENT_TIMESTAMP " +
                 "WHERE job_id = @jobId",
         ) as BetterSqlite3NamedStatement<{
@@ -295,6 +311,8 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             quantity: number | null;
             targetTraitsJson: string | null;
             competitorTraitsJson: string | null;
+            priceTierId: string | null;
+            pricingSourceJson: string | null;
         }>;
 
         this.insertCommand = db.prepare<{
@@ -433,6 +451,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                         quantity: transactionInput.quantity,
                         targetTraitsJson: JSON.stringify(targetTraits),
                         competitorTraitsJson: null,
+                        ...this.biddingPricingPayload(transactionInput),
                     });
 
                     const job = this.requireCollectionJobById(existing.jobId);
@@ -479,6 +498,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                     quantity: transactionInput.quantity,
                     targetTraitsJson: JSON.stringify(targetTraits),
                     competitorTraitsJson: null,
+                    ...this.biddingPricingPayload(transactionInput),
                 });
 
                 const job = this.requireCollectionJobById(jobId);
@@ -599,6 +619,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 quantity: null,
                 targetTraitsJson: null,
                 competitorTraitsJson: null,
+                ...this.biddingPricingPayload(transactionInput),
             });
 
             const job = this.requireTokenJobById(existing.jobId);
@@ -645,6 +666,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             quantity: null,
             targetTraitsJson: null,
             competitorTraitsJson: null,
+            ...this.biddingPricingPayload(transactionInput),
         });
 
         const job = this.requireTokenJobById(jobId);
@@ -776,6 +798,11 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             floorWei: row.floor_wei,
             ceilingWei: row.ceiling_wei,
             deltaWei: row.delta_wei,
+            priceTierId: row.price_tier_id,
+            pricingSource: this.parsePricingSourceJson(
+                row.pricing_source_json,
+                row.job_id,
+            ),
             revision: row.revision,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
@@ -908,6 +935,48 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(
                 `Invalid persisted bidding trait JSON: ${message}. value=${value}`,
+            );
+        }
+    }
+
+    private biddingPricingPayload(
+        input: {
+            priceTierId?: string | null;
+            pricingSource?: TradingBiddingJobPricingSource | null;
+        },
+    ): {
+        priceTierId: string | null;
+        pricingSourceJson: string | null;
+    } {
+        const pricingSource = input.pricingSource ?? {
+            kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+        };
+        return {
+            priceTierId: input.priceTierId ?? null,
+            pricingSourceJson: JSON.stringify(pricingSource),
+        };
+    }
+
+    private parsePricingSourceJson(
+        value: string | null,
+        jobId: string,
+    ): TradingBiddingJobPricingSource | null {
+        if (!value) {
+            return null;
+        }
+        try {
+            const parsed = JSON.parse(value) as TradingBiddingJobPricingSource;
+            if (
+                parsed.kind !== TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual &&
+                parsed.kind !== TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
+            ) {
+                throw new Error("unsupported kind");
+            }
+            return parsed;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(
+                `Invalid persisted bidding pricing source JSON for jobId=${jobId}: ${message}. value=${value}`,
             );
         }
     }

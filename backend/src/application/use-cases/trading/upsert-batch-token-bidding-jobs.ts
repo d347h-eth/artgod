@@ -11,14 +11,16 @@ import type {
     BiddingJobsRepositoryPort,
     UpsertTokenBiddingJobInput as PersistedUpsertTokenBiddingJobInput,
 } from "./ports.js";
+import {
+    resolveBiddingJobPricing,
+    type BiddingJobPriceTierReadPort,
+} from "./bidding-job-pricing.js";
 import type {
     BatchTokenBiddingJobSelection,
     UpsertBatchTokenBiddingJobsOutput,
 } from "./types.js";
 import {
-    assertFloorNotAboveCeiling,
     mapPersistedTokenBiddingJobToView,
-    parsePositiveEthToWei,
     TradingValidationError,
     type TokenBiddingJobMutationStatus,
 } from "./types.js";
@@ -29,9 +31,10 @@ export type UpsertBatchTokenBiddingJobsInput = {
     chainRef: string;
     collectionRef: string;
     status: TokenBiddingJobMutationStatus;
-    floorEth: string;
-    ceilingEth: string;
+    floorEth?: string;
+    ceilingEth?: string;
     deltaEth: string;
+    priceTierId?: string | null;
     selection: BatchTokenBiddingJobSelection;
 };
 
@@ -68,6 +71,7 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             BiddingJobsRepositoryPort,
             "upsertTokenJobs"
         >,
+        readonly biddingPriceTiersRepositoryPort: BiddingJobPriceTierReadPort,
         readonly tradingJobCommandSignalPort: TradingJobCommandSignalPort,
     ) {}
 
@@ -85,14 +89,13 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             input.collectionRef,
         );
 
-        // Normalize the human-readable Ether inputs into canonical wei strings.
-        const floorWei = parsePositiveEthToWei(input.floorEth, "floorEth");
-        const ceilingWei = parsePositiveEthToWei(
-            input.ceilingEth,
-            "ceilingEth",
-        );
-        const deltaWei = parsePositiveEthToWei(input.deltaEth, "deltaEth");
-        assertFloorNotAboveCeiling(floorWei, ceilingWei);
+        // Resolve manual or tier-backed pricing into bot-facing scalar wei values.
+        const pricing = resolveBiddingJobPricing({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            input,
+            priceTierReadPort: this.biddingPriceTiersRepositoryPort,
+        });
 
         const tokenIds = this.resolveTokenIds({
             chainId: chain.publicChainId,
@@ -109,9 +112,11 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 collectionId: collection.collectionId,
                 tokenId,
                 status: input.status,
-                floorWei,
-                ceilingWei,
-                deltaWei,
+                floorWei: pricing.floorWei,
+                ceilingWei: pricing.ceilingWei,
+                deltaWei: pricing.deltaWei,
+                priceTierId: pricing.priceTierId,
+                pricingSource: pricing.pricingSource,
             }),
         );
         // Persist the batch as one SQLite transaction and enqueue one command per affected job.

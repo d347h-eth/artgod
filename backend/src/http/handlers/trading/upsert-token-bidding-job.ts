@@ -5,6 +5,7 @@ import type {
 } from "../../../application/use-cases/trading/upsert-token-bidding-job.js";
 import {
     parseEditableBiddingJobStatus,
+    parseOptionalString,
     parseRequiredString,
 } from "./trading-job-http.js";
 
@@ -19,6 +20,7 @@ export type UpsertTokenBiddingJobRoute = {
         floorEth?: unknown;
         ceilingEth?: unknown;
         deltaEth?: unknown;
+        priceTierId?: unknown;
     };
 };
 
@@ -48,12 +50,10 @@ export class UpsertTokenBiddingJobHttpAdapter {
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,
             status: parseEditableBiddingJobStatus(request.body?.status),
-            floorEth: parseRequiredString(request.body?.floorEth, "floorEth"),
-            ceilingEth: parseRequiredString(
-                request.body?.ceilingEth,
-                "ceilingEth",
-            ),
+            floorEth: parseOptionalString(request.body?.floorEth, "floorEth"),
+            ceilingEth: parseOptionalString(request.body?.ceilingEth, "ceilingEth"),
             deltaEth: parseRequiredString(request.body?.deltaEth, "deltaEth"),
+            priceTierId: parseOptionalString(request.body?.priceTierId, "priceTierId"),
         };
     }
 }

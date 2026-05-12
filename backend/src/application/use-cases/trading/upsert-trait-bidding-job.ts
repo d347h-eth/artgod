@@ -3,11 +3,13 @@ import type {
     BiddingJobsRepositoryPort,
     UpsertCollectionBiddingJobInput as PersistedUpsertCollectionBiddingJobInput,
 } from "./ports.js";
+import {
+    resolveBiddingJobPricing,
+    type BiddingJobPriceTierReadPort,
+} from "./bidding-job-pricing.js";
 import type { UpsertTraitBiddingJobOutput } from "./types.js";
 import {
-    assertFloorNotAboveCeiling,
     mapPersistedBiddingJobToView,
-    parsePositiveEthToWei,
     TradingValidationError,
     type BiddingJobMutationStatus,
 } from "./types.js";
@@ -18,9 +20,10 @@ export type UpsertTraitBiddingJobInput = {
     chainRef: string;
     collectionRef: string;
     status: BiddingJobMutationStatus;
-    floorEth: string;
-    ceilingEth: string;
+    floorEth?: string;
+    ceilingEth?: string;
     deltaEth: string;
+    priceTierId?: string | null;
     quantity?: number;
     targetTraits: TradingTraitCriterion[];
 };
@@ -44,6 +47,7 @@ export class UpsertTraitBiddingJobUseCase {
             BiddingJobsRepositoryPort,
             "upsertCollectionJob"
         >,
+        readonly biddingPriceTiersRepositoryPort: BiddingJobPriceTierReadPort,
         readonly tradingJobCommandSignalPort: TradingJobCommandSignalPort,
     ) {}
 
@@ -61,22 +65,23 @@ export class UpsertTraitBiddingJobUseCase {
             input.collectionRef,
         );
 
-        // Normalize the human-readable Ether inputs into canonical wei strings.
-        const floorWei = parsePositiveEthToWei(input.floorEth, "floorEth");
-        const ceilingWei = parsePositiveEthToWei(
-            input.ceilingEth,
-            "ceilingEth",
-        );
-        const deltaWei = parsePositiveEthToWei(input.deltaEth, "deltaEth");
-        assertFloorNotAboveCeiling(floorWei, ceilingWei);
+        // Resolve manual or tier-backed pricing into bot-facing scalar wei values.
+        const pricing = resolveBiddingJobPricing({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            input,
+            priceTierReadPort: this.biddingPriceTiersRepositoryPort,
+        });
 
         const persistedInput: PersistedUpsertCollectionBiddingJobInput = {
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             status: input.status,
-            floorWei,
-            ceilingWei,
-            deltaWei,
+            floorWei: pricing.floorWei,
+            ceilingWei: pricing.ceilingWei,
+            deltaWei: pricing.deltaWei,
+            priceTierId: pricing.priceTierId,
+            pricingSource: pricing.pricingSource,
             quantity: parseQuantity(input.quantity),
             targetTraits: normalizeTargetTraits(input.targetTraits),
         };

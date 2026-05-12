@@ -315,7 +315,8 @@ describe('CollectionBiddingView', () => {
 						config: {
 							floorEth: '0.1',
 							ceilingEth: '0.2',
-							deltaEth: '0.01'
+							deltaEth: '0.01',
+							pricingSource: null
 						},
 						runtime: {
 							currentPriceEth: '0.15',
@@ -341,7 +342,8 @@ describe('CollectionBiddingView', () => {
 						config: {
 							floorEth: '0.05',
 							ceilingEth: '0.15',
-							deltaEth: '0.01'
+							deltaEth: '0.01',
+							pricingSource: null
 						},
 						runtime: null
 					}

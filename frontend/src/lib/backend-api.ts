@@ -5,6 +5,8 @@ import type {
 	BootstrapRunsApiResponse,
 	BatchTokenBiddingJobMutationApiResponse,
 	CollectionBiddingBidBookApiResponse,
+	CollectionBiddingPriceTierMutationApiResponse,
+	CollectionBiddingPriceTiersApiResponse,
 	BootstrapStatusApiResponse,
 	CollectionBiddingJobsApiResponse,
 	CollectionActivitiesApiResponse,
@@ -151,6 +153,17 @@ export async function getCollectionBiddingBidBook(
 	);
 }
 
+export async function getCollectionBiddingPriceTiers(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<CollectionBiddingPriceTiersApiResponse> {
+	return requestJson<CollectionBiddingPriceTiersApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`
+	);
+}
+
 export async function getTokenBiddingJob(
 	fetchFn: typeof fetch,
 	chainRef: string,
@@ -182,9 +195,10 @@ export async function upsertTokenBiddingJob(
 	tokenRef: string,
 	body: {
 		status: 'enabled' | 'paused';
-		floorEth: string;
-		ceilingEth: string;
+		floorEth?: string;
+		ceilingEth?: string;
 		deltaEth: string;
+		priceTierId?: string | null;
 	}
 ): Promise<TokenBiddingJobMutationApiResponse> {
 	await ensureCsrfToken(fetchFn);
@@ -217,9 +231,10 @@ export async function upsertTraitBiddingJob(
 	collectionRef: string,
 	body: {
 		status: 'enabled' | 'paused';
-		floorEth: string;
-		ceilingEth: string;
+		floorEth?: string;
+		ceilingEth?: string;
 		deltaEth: string;
+		priceTierId?: string | null;
 		quantity?: number;
 		targetTraits: { type: string; value: string }[];
 	}
@@ -239,9 +254,10 @@ export async function upsertBatchTokenBiddingJobs(
 	collectionRef: string,
 	body: {
 		status: 'enabled' | 'paused';
-		floorEth: string;
-		ceilingEth: string;
+		floorEth?: string;
+		ceilingEth?: string;
 		deltaEth: string;
+		priceTierId?: string | null;
 		selection:
 			| {
 					type: 'token_ids';
@@ -261,6 +277,58 @@ export async function upsertBatchTokenBiddingJobs(
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/tokens/batch`,
 		'PUT',
 		body
+	);
+}
+
+export async function upsertCollectionBiddingPriceTier(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		tierId?: string;
+		name: string;
+		status: 'enabled' | 'paused';
+		sortOrder: number;
+		parentTierId: string | null;
+		floorConfig:
+			| { kind: 'fixed'; valueEth: string }
+			| {
+					kind: 'parent_delta';
+					deltaKind: 'absolute' | 'percent';
+					deltaEth?: string;
+					percent?: string;
+			  };
+		ceilingConfig:
+			| { kind: 'fixed'; valueEth: string }
+			| {
+					kind: 'floor_delta' | 'parent_delta';
+					deltaKind: 'absolute' | 'percent';
+					deltaEth?: string;
+					percent?: string;
+			  };
+	}
+): Promise<CollectionBiddingPriceTierMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`,
+		'PUT',
+		body
+	);
+}
+
+export async function archiveCollectionBiddingPriceTier(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tierId: string
+): Promise<CollectionBiddingPriceTierMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}`,
+		'DELETE',
+		{}
 	);
 }
 

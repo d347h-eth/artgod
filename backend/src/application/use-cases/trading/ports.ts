@@ -2,6 +2,7 @@ import type {
     PersistedBiddingJobRecord,
     PersistedCollectionBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
+    TradingBiddingJobPricingSource,
     TradingJobCommandRecord,
     TradingJobStatus,
     TradingTraitCriterion,
@@ -15,6 +16,8 @@ export type UpsertTokenBiddingJobInput = {
     floorWei: string;
     ceilingWei: string;
     deltaWei: string;
+    priceTierId?: string | null;
+    pricingSource?: TradingBiddingJobPricingSource | null;
 };
 
 export type UpsertCollectionBiddingJobInput = {
@@ -24,6 +27,8 @@ export type UpsertCollectionBiddingJobInput = {
     floorWei: string;
     ceilingWei: string;
     deltaWei: string;
+    priceTierId?: string | null;
+    pricingSource?: TradingBiddingJobPricingSource | null;
     quantity: number;
     targetTraits: TradingTraitCriterion[];
 };

@@ -306,7 +306,8 @@ describe('BidBookPanel', () => {
 			config: {
 				floorEth: '0.1',
 				ceilingEth: '0.2',
-				deltaEth: '0.01'
+				deltaEth: '0.01',
+				pricingSource: null
 			},
 			runtime: null
 		};

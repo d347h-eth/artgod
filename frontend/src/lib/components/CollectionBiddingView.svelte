@@ -8,6 +8,7 @@
 		ApiBiddingTokenOfferCard,
 		ApiBiddingTokenOfferCardsPage,
 		ApiBiddingJob,
+		ApiBiddingPriceTier,
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
@@ -90,6 +91,7 @@
 		chain,
 		collection,
 		jobs,
+		priceTiers = [],
 		bidBook,
 		tokenOfferCards = emptyBiddingTokenOfferCardsPage(),
 		facets,
@@ -109,6 +111,7 @@
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		jobs: ApiBiddingJob[];
+		priceTiers?: ApiBiddingPriceTier[];
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards?: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
@@ -989,6 +992,7 @@
 			job={null}
 			draft={selectedBiddingDraft}
 			{bidBook}
+			{priceTiers}
 			onClose={closeBiddingAutomationPanel}
 		/>
 	{/if}

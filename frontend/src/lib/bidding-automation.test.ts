@@ -49,7 +49,8 @@ const EXISTING_TOKEN_JOB: ApiBiddingJob = {
 	config: {
 		floorEth: '0.2',
 		ceilingEth: '0.4',
-		deltaEth: '0.01'
+		deltaEth: '0.01',
+		pricingSource: null
 	},
 	runtime: null
 };

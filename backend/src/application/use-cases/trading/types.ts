@@ -9,6 +9,7 @@ import type {
     TraitFilter,
     TraitRangeFilter,
     TokenPresentationSummary,
+    TradingBiddingJobPricingSource,
     TradingJobStatus,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
@@ -43,6 +44,7 @@ export type BiddingJobView = {
         floorEth: string;
         ceilingEth: string;
         deltaEth: string;
+        pricingSource: TradingBiddingJobPricingSource | null;
     };
     runtime: {
         currentPriceEth: string | null;
@@ -89,9 +91,10 @@ export type UpsertTokenBiddingJobInput = {
     collectionRef: string;
     tokenRef: string;
     status: TokenBiddingJobMutationStatus;
-    floorEth: string;
-    ceilingEth: string;
+    floorEth?: string;
+    ceilingEth?: string;
     deltaEth: string;
+    priceTierId?: string | null;
 };
 
 export type UpsertTokenBiddingJobOutput = {
@@ -117,9 +120,10 @@ export type UpsertBatchTokenBiddingJobsInput = {
     chainRef: string;
     collectionRef: string;
     status: TokenBiddingJobMutationStatus;
-    floorEth: string;
-    ceilingEth: string;
+    floorEth?: string;
+    ceilingEth?: string;
     deltaEth: string;
+    priceTierId?: string | null;
     selection: BatchTokenBiddingJobSelection;
 };
 
@@ -134,9 +138,10 @@ export type UpsertTraitBiddingJobInput = {
     chainRef: string;
     collectionRef: string;
     status: BiddingJobMutationStatus;
-    floorEth: string;
-    ceilingEth: string;
+    floorEth?: string;
+    ceilingEth?: string;
     deltaEth: string;
+    priceTierId?: string | null;
     quantity?: number;
     targetTraits: TradingTraitCriterion[];
 };
@@ -227,6 +232,7 @@ export function mapPersistedBiddingJobToView(
                 floorEth: formatWeiAsEth(job.floorWei),
                 ceilingEth: formatWeiAsEth(job.ceilingWei),
                 deltaEth: formatWeiAsEth(job.deltaWei),
+                pricingSource: job.pricingSource,
             },
             runtime,
         };
@@ -249,6 +255,7 @@ export function mapPersistedBiddingJobToView(
                 floorEth: formatWeiAsEth(job.floorWei),
                 ceilingEth: formatWeiAsEth(job.ceilingWei),
                 deltaEth: formatWeiAsEth(job.deltaWei),
+                pricingSource: job.pricingSource,
             },
             runtime,
         };
@@ -271,6 +278,7 @@ export function mapPersistedBiddingJobToView(
             floorEth: formatWeiAsEth(job.floorWei),
             ceilingEth: formatWeiAsEth(job.ceilingWei),
             deltaEth: formatWeiAsEth(job.deltaWei),
+            pricingSource: job.pricingSource,
         },
         runtime,
     };

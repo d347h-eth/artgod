@@ -168,6 +168,29 @@ export type PersistedBiddingPriceTierRecord = {
     archivedAt: string | null;
 };
 
+export const TRADING_BIDDING_JOB_PRICING_SOURCE_KIND = {
+    Manual: "manual",
+    PriceTier: "price_tier",
+} as const;
+
+export type TradingBiddingJobPricingSourceKind =
+    (typeof TRADING_BIDDING_JOB_PRICING_SOURCE_KIND)[keyof typeof TRADING_BIDDING_JOB_PRICING_SOURCE_KIND];
+
+// Explains how the bot-facing scalar bidding prices were resolved at submit time.
+export type TradingBiddingJobPricingSource =
+    | {
+          kind: typeof TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual;
+      }
+    | {
+          kind: typeof TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier;
+          tierId: string;
+          tierName: string;
+          resolvedAt: string | null;
+          resolvedFloorWei: string;
+          resolvedCeilingWei: string;
+          deltaWei: string;
+      };
+
 export const TRADING_BIDDING_BID_BOOK_SOURCE = {
     BotSnapshot: "bot_snapshot",
     Orders: "orders",
@@ -212,6 +235,8 @@ type PersistedBiddingJobBase = {
     floorWei: string;
     ceilingWei: string;
     deltaWei: string;
+    priceTierId: string | null;
+    pricingSource: TradingBiddingJobPricingSource | null;
     revision: number;
     createdAt: string;
     updatedAt: string;

@@ -172,6 +172,62 @@ export type ApiTradingTraitCriterion = {
 	value: string;
 };
 
+export type ApiBiddingPriceTierFloorConfig =
+	| {
+			kind: 'fixed';
+			valueEth: string;
+	  }
+	| {
+			kind: 'parent_delta';
+			deltaKind: 'absolute' | 'percent';
+			deltaEth?: string;
+			percent?: string;
+	  };
+
+export type ApiBiddingPriceTierCeilingConfig =
+	| {
+			kind: 'fixed';
+			valueEth: string;
+	  }
+	| {
+			kind: 'floor_delta' | 'parent_delta';
+			deltaKind: 'absolute' | 'percent';
+			deltaEth?: string;
+			percent?: string;
+	  };
+
+export type ApiBiddingPriceTier = {
+	tierId: string;
+	name: string;
+	status: ApiBiddingJobStatus;
+	sortOrder: number;
+	parentTierId: string | null;
+	floorConfig: ApiBiddingPriceTierFloorConfig;
+	ceilingConfig: ApiBiddingPriceTierCeilingConfig;
+	resolvedFloorEth: string | null;
+	resolvedCeilingEth: string | null;
+	resolvedAt: string | null;
+	lastError: string | null;
+	revision: number;
+	createdAt: string;
+	updatedAt: string;
+	archivedAt: string | null;
+};
+
+export type ApiBiddingJobPricingSource =
+	| {
+			kind: 'manual';
+	  }
+	| {
+			kind: 'price_tier';
+			tierId: string;
+			tierName: string;
+			resolvedAt: string | null;
+			resolvedFloorWei: string;
+			resolvedCeilingWei: string;
+			deltaWei: string;
+	  };
+
 export type ApiTokenCard = {
 	tokenId: string;
 	name: string | null;
@@ -343,6 +399,7 @@ export type ApiBiddingJob = {
 		floorEth: string;
 		ceilingEth: string;
 		deltaEth: string;
+		pricingSource: ApiBiddingJobPricingSource | null;
 	};
 	runtime: ApiBiddingJobRuntimeState | null;
 };
@@ -419,6 +476,19 @@ export type CollectionBiddingJobsApiResponse = {
 		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 		hasTraitSummaryTemplate: boolean;
 	};
+};
+
+export type CollectionBiddingPriceTiersApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tiers: ApiBiddingPriceTier[];
+};
+
+export type CollectionBiddingPriceTierMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tier: ApiBiddingPriceTier;
+	tiers: ApiBiddingPriceTier[];
 };
 
 export type CollectionBiddingBidBookApiResponse = {

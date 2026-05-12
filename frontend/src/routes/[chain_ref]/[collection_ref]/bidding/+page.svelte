@@ -2,6 +2,7 @@
 	import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingPriceTier,
 		ApiBiddingTokenOfferCardsPage,
 		ApiBiddingJob,
 		ApiChain,
@@ -21,6 +22,7 @@
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		jobs: ApiBiddingJob[];
+		priceTiers: ApiBiddingPriceTier[];
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
@@ -72,6 +74,7 @@
 	chain={data?.chain ?? null}
 	collection={data?.collection ?? null}
 	jobs={data?.jobs ?? []}
+	priceTiers={data?.priceTiers ?? []}
 	bidBook={data?.bidBook ?? emptyBidBook()}
 	tokenOfferCards={data?.tokenOfferCards ?? emptyBiddingTokenOfferCardsPage()}
 	facets={data?.facets ?? []}

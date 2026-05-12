@@ -15,6 +15,7 @@
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
 		ApiBiddingJob,
+		ApiBiddingPriceTier,
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
@@ -66,6 +67,7 @@
 		collection: ApiCollection | null;
 		media: ApiCollectionMediaState;
 		token: ApiTokenDetail | null;
+		priceTiers?: ApiBiddingPriceTier[];
 		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
 		tokenBiddingJob?: ApiBiddingJob | null;
 		tokenBiddingBidBook?: ApiBiddingBidBook;
@@ -591,6 +593,7 @@
 				job={tokenBiddingJob}
 				draft={selectedBiddingDraft}
 				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
+				priceTiers={data?.priceTiers ?? []}
 				onClose={closeTokenBiddingAutomation}
 				onJobChange={onTokenBiddingJobChange}
 			/>

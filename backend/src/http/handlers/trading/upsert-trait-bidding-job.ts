@@ -6,6 +6,7 @@ import type {
 } from "../../../application/use-cases/trading/upsert-trait-bidding-job.js";
 import {
     parseEditableBiddingJobStatus,
+    parseOptionalString,
     parseRequiredString,
 } from "./trading-job-http.js";
 
@@ -19,6 +20,7 @@ export type UpsertTraitBiddingJobRoute = {
         floorEth?: unknown;
         ceilingEth?: unknown;
         deltaEth?: unknown;
+        priceTierId?: unknown;
         quantity?: unknown;
         targetTraits?: unknown;
     };
@@ -51,12 +53,10 @@ export class UpsertTraitBiddingJobHttpAdapter {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             status: parseEditableBiddingJobStatus(request.body?.status),
-            floorEth: parseRequiredString(request.body?.floorEth, "floorEth"),
-            ceilingEth: parseRequiredString(
-                request.body?.ceilingEth,
-                "ceilingEth",
-            ),
+            floorEth: parseOptionalString(request.body?.floorEth, "floorEth"),
+            ceilingEth: parseOptionalString(request.body?.ceilingEth, "ceilingEth"),
             deltaEth: parseRequiredString(request.body?.deltaEth, "deltaEth"),
+            priceTierId: parseOptionalString(request.body?.priceTierId, "priceTierId"),
             quantity: parseOptionalQuantity(request.body?.quantity),
             targetTraits: parseTargetTraits(request.body?.targetTraits),
         };

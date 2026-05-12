@@ -416,6 +416,22 @@ Artifacts:
 - Store pricing metadata alongside scalar values.
 - Add staged preview plus explicit apply for re-resolving existing tier-backed jobs.
 
+Artifacts:
+
+- `database/migrations/027_trading_bidding_job_pricing_metadata.sql`
+- `backend/src/application/use-cases/trading/bidding-job-pricing.ts`
+- `backend/src/http/handlers/trading/list-collection-bidding-price-tiers.ts`
+- `backend/src/http/handlers/trading/upsert-collection-bidding-price-tier.ts`
+- `backend/src/http/handlers/trading/archive-collection-bidding-price-tier.ts`
+- `frontend/src/lib/components/BiddingAutomationPanel.svelte`
+
+Current implementation notes:
+
+- Tier APIs are admin-only.
+- Job mutations keep `floor_wei`, `ceiling_wei`, and `delta_wei` as the runtime contract.
+- Tier-backed submits resolve tier floor/ceiling at submit time and store `price_tier_id` plus `pricing_source_json`.
+- The automation panel shows current tier-resolved floor/ceiling before save; applying a changed tier to an existing job remains an explicit user save action.
+
 ### Slice 10: Collection Targets
 
 - Add generalized job mutation APIs for collection targets.

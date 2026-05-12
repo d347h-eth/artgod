@@ -71,6 +71,8 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(result.job.collectionOpenseaSlug, "terraforms");
         assert.equal(result.job.collectionAddress, "0x1111111111111111111111111111111111111111");
         assert.equal(result.job.tokenId, "123");
+        assert.equal(result.job.priceTierId, null);
+        assert.deepEqual(result.job.pricingSource, { kind: "manual" });
         assert.equal(result.job.revision, 1);
         assert.equal(result.job.runtime, null);
 
@@ -101,6 +103,41 @@ describe("SqliteBiddingJobsRepository", () => {
             pendingCommands[0]?.commandKind,
             TRADING_JOB_COMMAND_KIND.JobCreated,
         );
+    });
+
+    it("persists tier-backed pricing metadata beside scalar token job prices", () => {
+        const repository = new SqliteBiddingJobsRepository();
+
+        const result = repository.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "123",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "120000000000000000",
+            ceilingWei: "150000000000000000",
+            deltaWei: "10000000000000000",
+            priceTierId: "tier-base",
+            pricingSource: {
+                kind: "price_tier",
+                tierId: "tier-base",
+                tierName: "base",
+                resolvedAt: "2026-01-01T00:00:00Z",
+                resolvedFloorWei: "120000000000000000",
+                resolvedCeilingWei: "150000000000000000",
+                deltaWei: "10000000000000000",
+            },
+        });
+
+        assert.equal(result.job.priceTierId, "tier-base");
+        assert.deepEqual(result.job.pricingSource, {
+            kind: "price_tier",
+            tierId: "tier-base",
+            tierName: "base",
+            resolvedAt: "2026-01-01T00:00:00Z",
+            resolvedFloorWei: "120000000000000000",
+            resolvedCeilingWei: "150000000000000000",
+            deltaWei: "10000000000000000",
+        });
     });
 
     it("creates multiple token bidding jobs in one batch transaction", () => {

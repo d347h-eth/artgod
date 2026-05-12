@@ -53,7 +53,8 @@ describe('BiddingAutomationPanel', () => {
 					config: {
 						floorEth: '0.1',
 						ceilingEth: '0.2',
-						deltaEth: '0.01'
+						deltaEth: '0.01',
+						pricingSource: null
 					},
 					runtime: {
 						currentPriceEth: '0.15',
@@ -155,5 +156,104 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('not available');
 		expect(body).toContain('value="0.3"');
 		expect(body).toContain('disabled');
+	});
+
+	it('renders tier-backed pricing as resolved floor and ceiling preview', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: {
+					id: 1,
+					type: 'evm',
+					publicChainId: 1,
+					slug: 'ethereum',
+					name: 'Ethereum'
+				},
+				collection: {
+					chainId: 1,
+					collectionId: 1,
+					slug: 'milady',
+					address: '0x1111111111111111111111111111111111111111',
+					standard: 'erc721',
+					status: 'live',
+					deploymentBlock: 1,
+					bootstrapAnchorBlock: null,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T00:00:00Z'
+				},
+				token: {
+					tokenId: '1',
+					name: 'Milady #1',
+					image: 'https://example.com/1.png',
+					animationUrl: null,
+					listingPrice: null,
+					listingCurrency: null,
+					currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+					attributes: [],
+					hasMetadata: true,
+					metadataUpdatedAt: '2026-01-01T00:00:00Z'
+				},
+				job: {
+					jobId: 'job-token-1',
+					status: 'enabled',
+					revision: 2,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T12:00:00Z',
+					archivedAt: null,
+					target: {
+						type: 'token',
+						tokenId: '1'
+					},
+					config: {
+						floorEth: '0.1',
+						ceilingEth: '0.2',
+						deltaEth: '0.01',
+						pricingSource: {
+							kind: 'price_tier',
+							tierId: 'tier-base',
+							tierName: 'base',
+							resolvedAt: '2026-01-01T00:00:00Z',
+							resolvedFloorWei: '100000000000000000',
+							resolvedCeilingWei: '200000000000000000',
+							deltaWei: '10000000000000000'
+						}
+					},
+					runtime: null
+				},
+				priceTiers: [
+					{
+						tierId: 'tier-base',
+						name: 'base',
+						status: 'enabled',
+						sortOrder: 0,
+						parentTierId: null,
+						floorConfig: {
+							kind: 'fixed',
+							valueEth: '0.12'
+						},
+						ceilingConfig: {
+							kind: 'floor_delta',
+							deltaKind: 'absolute',
+							deltaEth: '0.03'
+						},
+						resolvedFloorEth: '0.12',
+						resolvedCeilingEth: '0.15',
+						resolvedAt: '2026-01-02T00:00:00Z',
+						lastError: null,
+						revision: 2,
+						createdAt: '2026-01-01T00:00:00Z',
+						updatedAt: '2026-01-02T00:00:00Z',
+						archivedAt: null
+					}
+				],
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain('bidding-automation-pricing-mode');
+		expect(body).toContain('bidding-automation-price-tier');
+		expect(body).toContain('>base</option>');
+		expect(body).toContain('value="0.12"');
+		expect(body).toContain('value="0.15"');
 	});
 });

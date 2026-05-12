@@ -3,6 +3,7 @@
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
 		ApiBiddingJob,
+		ApiBiddingPriceTier,
 		ApiChain,
 		ApiCollection,
 		ApiTokenDetail
@@ -27,6 +28,7 @@
 		job,
 		draft = null,
 		bidBook = null,
+		priceTiers = [],
 		onClose,
 		onJobChange = null
 	}: {
@@ -37,6 +39,7 @@
 		job: ApiBiddingJob | null;
 		draft?: BiddingAutomationDraft | null;
 		bidBook?: ApiBiddingBidBook | null;
+		priceTiers?: ApiBiddingPriceTier[];
 		onClose: () => void;
 		onJobChange?: ((job: ApiBiddingJob | null) => void) | null;
 	} = $props();
@@ -44,6 +47,8 @@
 	const initialPanelJob = resolvePanelJob(job, draft);
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
 	let loadedJobKey = $state(resolveLoadedPanelKey(job, draft));
+	let pricingMode = $state<'manual' | 'tier'>(resolveInitialPricingMode(initialPanelJob, draft));
+	let selectedPriceTierId = $state(resolveInitialPriceTierId(initialPanelJob, draft));
 	let status = $state<EditableTokenJobStatus>(resolveInitialStatus(initialPanelJob));
 	let floorEth = $state(resolveInitialFloorEth(initialPanelJob, draft));
 	let ceilingEth = $state(resolveInitialCeilingEth(initialPanelJob, draft));
@@ -56,11 +61,34 @@
 	const hasExistingJob = $derived(currentJob !== null);
 	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
 	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
-	const hasDraftChanges = $derived(resolveHasDraftChanges());
 	const bidPosition = $derived(resolveBidPosition(currentJob, bidBook));
 	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
+	const selectedPriceTier = $derived(resolveSelectedPriceTier());
+	const displayedFloorEth = $derived(
+		pricingMode === 'tier' ? (selectedPriceTier?.resolvedFloorEth ?? currentJob?.config.floorEth ?? '') : floorEth
+	);
+	const displayedCeilingEth = $derived(
+		pricingMode === 'tier'
+			? (selectedPriceTier?.resolvedCeilingEth ?? currentJob?.config.ceilingEth ?? '')
+			: ceilingEth
+	);
+	const canUseTierPricing = $derived(priceTiers.length > 0);
+	const pricingAvailable = $derived(
+		pricingMode === 'manual' || (!!selectedPriceTier && !!displayedFloorEth && !!displayedCeilingEth)
+	);
+	const priceInputsComplete = $derived(
+		displayedFloorEth.trim().length > 0 &&
+			displayedCeilingEth.trim().length > 0 &&
+			deltaEth.trim().length > 0
+	);
+	const hasDraftChanges = $derived(resolveHasDraftChanges());
 	const canSubmitDraft = $derived(
-		!!chain && !!collection && !!targetTokenId && !selectedDraftUnsupported
+		!!chain &&
+			!!collection &&
+			!!targetTokenId &&
+			!selectedDraftUnsupported &&
+			pricingAvailable &&
+			priceInputsComplete
 	);
 
 	$effect(() => {
@@ -119,8 +147,31 @@
 			value.pricing.mode,
 			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.floorEth : '',
 			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.ceilingEth : '',
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.deltaEth : ''
+			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.deltaEth : '',
+			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier ? value.pricing.tierId : ''
 		].join(':');
+	}
+
+	function resolveInitialPricingMode(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): 'manual' | 'tier' {
+		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
+			return 'tier';
+		}
+		return value?.config.pricingSource?.kind === 'price_tier' ? 'tier' : 'manual';
+	}
+
+	function resolveInitialPriceTierId(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): string {
+		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
+			return currentDraft.pricing.tierId;
+		}
+		return value?.config.pricingSource?.kind === 'price_tier'
+			? value.config.pricingSource.tierId
+			: '';
 	}
 
 	function resolveInitialStatus(value: ApiBiddingJob | null): EditableTokenJobStatus {
@@ -154,13 +205,26 @@
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
 			return currentDraft.pricing.deltaEth;
 		}
+		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
+			return currentDraft.pricing.deltaEth;
+		}
 		return value?.config.deltaEth ?? '';
 	}
 
 	function resolveHasDraftChanges(): boolean {
 		if (currentJob) {
+			if (pricingMode === 'tier') {
+				return (
+					status !== resolveInitialStatus(currentJob) ||
+					selectedPriceTierId !== jobPriceTierId(currentJob) ||
+					displayedFloorEth.trim() !== currentJob.config.floorEth ||
+					displayedCeilingEth.trim() !== currentJob.config.ceilingEth ||
+					deltaEth.trim() !== currentJob.config.deltaEth
+				);
+			}
 			return (
 				status !== resolveInitialStatus(currentJob) ||
+				currentJob.config.pricingSource?.kind === 'price_tier' ||
 				floorEth.trim() !== currentJob.config.floorEth ||
 				ceilingEth.trim() !== currentJob.config.ceilingEth ||
 				deltaEth.trim() !== currentJob.config.deltaEth
@@ -169,8 +233,9 @@
 
 		return (
 			status !== 'enabled' ||
-			floorEth.trim().length > 0 ||
-			ceilingEth.trim().length > 0 ||
+			pricingMode !== 'manual' ||
+			displayedFloorEth.trim().length > 0 ||
+			displayedCeilingEth.trim().length > 0 ||
 			deltaEth.trim().length > 0
 		);
 	}
@@ -190,10 +255,31 @@
 	}
 
 	function applyDraft(value: ApiBiddingJob | null, currentDraft: BiddingAutomationDraft | null): void {
+		pricingMode = resolveInitialPricingMode(value, currentDraft);
+		selectedPriceTierId = resolveInitialPriceTierId(value, currentDraft);
 		status = resolveInitialStatus(value);
 		floorEth = resolveInitialFloorEth(value, currentDraft);
 		ceilingEth = resolveInitialCeilingEth(value, currentDraft);
 		deltaEth = resolveInitialDeltaEth(value, currentDraft);
+	}
+
+	function resolveSelectedPriceTier(): ApiBiddingPriceTier | null {
+		if (!selectedPriceTierId) {
+			return null;
+		}
+		return priceTiers.find((tier) => tier.tierId === selectedPriceTierId) ?? null;
+	}
+
+	function jobPriceTierId(value: ApiBiddingJob): string | null {
+		return value.config.pricingSource?.kind === 'price_tier'
+			? value.config.pricingSource.tierId
+			: null;
+	}
+
+	function onPricingModeChange(): void {
+		if (pricingMode === 'tier' && !selectedPriceTierId) {
+			selectedPriceTierId = priceTiers[0]?.tierId ?? '';
+		}
 	}
 
 	function targetLabel(): string {
@@ -274,9 +360,14 @@
 			// Persist the token-scoped bidding job through the backend CRUD adapter.
 			const response = await upsertTokenBiddingJob(fetch, chain.slug, collection.slug, targetTokenId, {
 				status,
-				floorEth: floorEth.trim(),
-				ceilingEth: ceilingEth.trim(),
-				deltaEth: deltaEth.trim()
+				...(pricingMode === 'tier'
+					? { priceTierId: selectedPriceTierId, deltaEth: deltaEth.trim() }
+					: {
+							floorEth: floorEth.trim(),
+							ceilingEth: ceilingEth.trim(),
+							deltaEth: deltaEth.trim(),
+							priceTierId: null
+						})
 			});
 			currentJob = response.job;
 			onJobChange?.(response.job);
@@ -390,27 +481,77 @@
 					<option value="paused">paused</option>
 				</select>
 			</div>
+			{#if canUseTierPricing}
+				<div class="bootstrap-form-row">
+					<label for="bidding-automation-pricing-mode"><span>pricing</span></label>
+					<select
+						id="bidding-automation-pricing-mode"
+						class="bootstrap-control bootstrap-input-select-short"
+						bind:value={pricingMode}
+						onchange={onPricingModeChange}
+						disabled={saving || archiving || selectedDraftUnsupported}
+					>
+						<option value="manual">manual</option>
+						<option value="tier">tier</option>
+					</select>
+				</div>
+				{#if pricingMode === 'tier'}
+					<div class="bootstrap-form-row">
+						<label for="bidding-automation-price-tier"><span>tier</span></label>
+						<select
+							id="bidding-automation-price-tier"
+							class="bootstrap-control bootstrap-input-select-medium"
+							bind:value={selectedPriceTierId}
+							disabled={saving || archiving || selectedDraftUnsupported}
+						>
+							{#each priceTiers as tier}
+								<option value={tier.tierId}>{tier.name}</option>
+							{/each}
+						</select>
+					</div>
+				{/if}
+			{/if}
 			<div class="bootstrap-form-row">
 				<label for="bidding-automation-floor"><span>floor ETH</span></label>
-				<input
-					id="bidding-automation-floor"
-					class="bootstrap-control bidding-token-input"
-					type="text"
-					inputmode="decimal"
-					bind:value={floorEth}
-					disabled={saving || archiving || selectedDraftUnsupported}
-				/>
+				{#if pricingMode === 'tier'}
+					<input
+						id="bidding-automation-floor"
+						class="bootstrap-control bidding-token-input"
+						type="text"
+						value={displayedFloorEth}
+						disabled
+					/>
+				{:else}
+					<input
+						id="bidding-automation-floor"
+						class="bootstrap-control bidding-token-input"
+						type="text"
+						inputmode="decimal"
+						bind:value={floorEth}
+						disabled={saving || archiving || selectedDraftUnsupported}
+					/>
+				{/if}
 			</div>
 			<div class="bootstrap-form-row">
 				<label for="bidding-automation-ceiling"><span>ceiling ETH</span></label>
-				<input
-					id="bidding-automation-ceiling"
-					class="bootstrap-control bidding-token-input"
-					type="text"
-					inputmode="decimal"
-					bind:value={ceilingEth}
-					disabled={saving || archiving || selectedDraftUnsupported}
-				/>
+				{#if pricingMode === 'tier'}
+					<input
+						id="bidding-automation-ceiling"
+						class="bootstrap-control bidding-token-input"
+						type="text"
+						value={displayedCeilingEth}
+						disabled
+					/>
+				{:else}
+					<input
+						id="bidding-automation-ceiling"
+						class="bootstrap-control bidding-token-input"
+						type="text"
+						inputmode="decimal"
+						bind:value={ceilingEth}
+						disabled={saving || archiving || selectedDraftUnsupported}
+					/>
+				{/if}
 			</div>
 			<div class="bootstrap-form-row">
 				<label for="bidding-automation-delta"><span>delta ETH</span></label>
