@@ -87,6 +87,7 @@ describe('token detail page', () => {
 								durationMs: null,
 								lastError: null
 							},
+							ownMakerAddress: null,
 							bids: [
 								{
 									orderId: '0xcollection-bid',

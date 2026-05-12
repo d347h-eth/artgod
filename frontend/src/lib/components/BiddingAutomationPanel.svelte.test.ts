@@ -74,6 +74,7 @@ describe('BiddingAutomationPanel', () => {
 						durationMs: null,
 						lastError: null
 					},
+					ownMakerAddress: null,
 					bids: []
 				},
 				onClose: () => {},

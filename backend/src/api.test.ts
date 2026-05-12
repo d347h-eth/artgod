@@ -975,6 +975,7 @@ describe("backend api routes", () => {
                 orderId: "bid-book-runtime-orders",
                 contract: MILADY_ADDRESS,
                 priceWei: "100000000000000000",
+                maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 validFrom: 1,
                 validUntil: 4_000_000_000,
             }),
@@ -1072,6 +1073,16 @@ describe("backend api routes", () => {
         );
         expect(staleHeartbeat.statusCode).toBe(200);
         expect(staleHeartbeat.payload.bidBook.state.source).toBe("orders");
+        expect(staleHeartbeat.payload.bidBook.ownMakerAddress).toBe(
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+        const staleOwnOrder = staleHeartbeat.payload.bidBook.bids.find(
+            (bid: { orderId: string }) => bid.orderId === "bid-book-runtime-orders",
+        );
+        expect(staleOwnOrder?.maker).toMatchObject({
+            label: "You",
+            isOwn: true,
+        });
 
         db.prepare(
             "UPDATE trading_bot_runtime_state " +

@@ -1417,6 +1417,28 @@ th {
 	background: color-mix(in srgb, var(--c-yellow) 18%, transparent);
 }
 
+.bid-book-own-status {
+	display: inline-block;
+	margin-inline-start: 0.45rem;
+	padding: 0 0.28rem;
+	border: 1px solid currentColor;
+	color: var(--c-yellow);
+	font-size: 0.58rem;
+	line-height: 1.2;
+	text-transform: uppercase;
+	vertical-align: 0.08rem;
+}
+
+.bid-book-own-status-losing,
+.bid-book-own-status-ceiling {
+	color: var(--c-pink);
+}
+
+.bid-book-own-status-draw,
+.bid-book-own-status-floor {
+	color: var(--c-cyan);
+}
+
 .bid-book-time-header {
 	white-space: nowrap;
 }

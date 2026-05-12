@@ -1,6 +1,6 @@
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
-import type { ApiBiddingBidBook, ApiBiddingBidBookRow } from '$lib/api-types';
+import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import BidBookPanel from './BidBookPanel.svelte';
 
 const BASE_BID: ApiBiddingBidBookRow = {
@@ -44,6 +44,7 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			ownMakerAddress: null,
 			bids: [
 				{
 					...BASE_BID,
@@ -190,6 +191,7 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			ownMakerAddress: null,
 			bids: [
 				{
 					...BASE_BID,
@@ -256,6 +258,7 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			ownMakerAddress: null,
 			bids: [
 				{
 					...BASE_BID,
@@ -288,6 +291,86 @@ describe('BidBookPanel', () => {
 		expect(body).not.toContain('/holders/');
 	});
 
+	it('labels own bids and shows compact position and constraint badges', () => {
+		const job: ApiBiddingJob = {
+			jobId: 'job-token-1',
+			status: 'enabled',
+			revision: 1,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z',
+			archivedAt: null,
+			target: {
+				type: 'token',
+				tokenId: '1'
+			},
+			config: {
+				floorEth: '0.1',
+				ceilingEth: '0.2',
+				deltaEth: '0.01'
+			},
+			runtime: null
+		};
+		const ownBid = {
+			...BASE_BID,
+			orderId: '0xown-token',
+			scope: {
+				kind: 'token' as const,
+				label: '#1',
+				tokenId: '1',
+				traits: []
+			},
+			maker: {
+				address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				label: 'You',
+				isOwn: true
+			},
+			priceWei: '200000000000000000',
+			priceEth: '0.2'
+		};
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'bot_snapshot',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 2,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [
+				{
+					...ownBid,
+					priceWei: '190000000000000000',
+					priceEth: '0.19',
+					maker: {
+						address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+						label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+						isOwn: false
+					}
+				},
+				ownBid
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				job,
+				showScope: true,
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(body).toContain('>You</a>');
+		expect(body).toContain('title="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"');
+		expect(body).toContain('bid-book-own-status-winning');
+		expect(body).toContain('>winning</span>');
+		expect(body).toContain('bid-book-own-status-ceiling');
+		expect(body).toContain('>ceiling</span>');
+	});
+
 	it('renders clickable demand trait values and opens the preferred trait tab', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {
@@ -299,6 +382,7 @@ describe('BidBookPanel', () => {
 				durationMs: null,
 				lastError: null
 			},
+			ownMakerAddress: null,
 			bids: [{ ...BASE_BID, orderId: '0xclickable-trait' }]
 		};
 

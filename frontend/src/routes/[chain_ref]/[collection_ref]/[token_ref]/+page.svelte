@@ -447,6 +447,7 @@
 				durationMs: null,
 				lastError: null
 			},
+			ownMakerAddress: null,
 			bids: []
 		};
 	}

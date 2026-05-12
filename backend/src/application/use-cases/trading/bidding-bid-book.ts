@@ -63,6 +63,7 @@ export type PersistedBiddingBidBookState = {
 
 export type PersistedBiddingBidBook = {
     state: PersistedBiddingBidBookState;
+    ownMakerAddress: string | null;
     bids: PersistedBiddingBidBookRow[];
 };
 
@@ -112,6 +113,7 @@ export type BiddingBidBookRowView = {
 
 export type BiddingBidBookView = {
     state: PersistedBiddingBidBookState;
+    ownMakerAddress: string | null;
     bids: BiddingBidBookRowView[];
 };
 
@@ -157,6 +159,7 @@ export function mapPersistedBidBookToView(
 ): BiddingBidBookView {
     return {
         state: bidBook.state,
+        ownMakerAddress: bidBook.ownMakerAddress,
         bids: mapPersistedBidRowsToView(bidBook.bids),
     };
 }

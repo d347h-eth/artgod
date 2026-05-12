@@ -402,6 +402,13 @@ Artifacts:
 - Make `show my bids` apply the existing maker filter.
 - Enrich own bid rows with winning/draw/losing and job constraint state.
 
+Artifacts:
+
+- `backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts`
+- `backend/src/application/use-cases/trading/bidding-bid-book.ts`
+- `frontend/src/lib/components/BidBookPanel.svelte`
+- `frontend/src/lib/components/CollectionBiddingView.svelte`
+
 ### Slice 9: Tier-Backed Job Pricing
 
 - Let the automation panel choose a tier.

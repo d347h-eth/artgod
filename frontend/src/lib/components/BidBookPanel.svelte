@@ -1,5 +1,10 @@
 <script lang="ts">
-	import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
+	import type {
+		ApiBiddingBidBook,
+		ApiBiddingBidBookRow,
+		ApiBiddingJob,
+		ApiTradingTraitCriterion
+	} from '$lib/api-types';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
@@ -23,6 +28,10 @@
 		key: string | null;
 		label: string;
 		count: number;
+	};
+	type OwnBidStatusBadge = {
+		kind: 'winning' | 'draw' | 'losing' | 'ceiling' | 'floor';
+		label: string;
 	};
 
 	const WEI_PER_ETH = 1_000_000_000_000_000_000n;
@@ -222,6 +231,14 @@
 		);
 	}
 
+	function makerDisplayLabel(bid: ApiBiddingBidBookRow): string {
+		return bid.maker.isOwn ? bid.maker.label : bid.maker.address;
+	}
+
+	function makerTitle(bid: ApiBiddingBidBookRow): string | undefined {
+		return bid.maker.isOwn ? bid.maker.address : undefined;
+	}
+
 	function makerHighlightKey(bid: ApiBiddingBidBookRow): string {
 		return bid.maker.address.toLowerCase();
 	}
@@ -240,6 +257,93 @@
 
 	function selectBid(bid: ApiBiddingBidBookRow): void {
 		onSelectBid?.(bid);
+	}
+
+	function ownBidStatusBadges(
+		rows: ApiBiddingBidBookRow[],
+		bid: ApiBiddingBidBookRow
+	): OwnBidStatusBadge[] {
+		if (!bid.maker.isOwn) {
+			return [];
+		}
+		const badges: OwnBidStatusBadge[] = [resolveOwnBidPositionBadge(rows, bid)];
+		const constraint = resolveOwnBidConstraintBadge(bid);
+		if (constraint) {
+			badges.push(constraint);
+		}
+		return badges;
+	}
+
+	function resolveOwnBidPositionBadge(
+		rows: ApiBiddingBidBookRow[],
+		bid: ApiBiddingBidBookRow
+	): OwnBidStatusBadge {
+		const ownPrice = BigInt(bid.priceWei);
+		const bestOpponent = bestBid(rows, (row) => !row.maker.isOwn);
+		if (!bestOpponent || ownPrice > BigInt(bestOpponent.priceWei)) {
+			return { kind: 'winning', label: 'winning' };
+		}
+		if (ownPrice === BigInt(bestOpponent.priceWei)) {
+			return { kind: 'draw', label: 'draw' };
+		}
+		return { kind: 'losing', label: 'losing' };
+	}
+
+	function resolveOwnBidConstraintBadge(bid: ApiBiddingBidBookRow): OwnBidStatusBadge | null {
+		if (!job || !bidMatchesJobTarget(bid, job)) {
+			return null;
+		}
+		const priceWei = BigInt(bid.priceWei);
+		const ceilingWei = parseEthToWei(job.config.ceilingEth);
+		if (ceilingWei !== null && priceWei >= ceilingWei) {
+			return { kind: 'ceiling', label: 'ceiling' };
+		}
+		const floorWei = parseEthToWei(job.config.floorEth);
+		if (floorWei !== null && priceWei <= floorWei) {
+			return { kind: 'floor', label: 'floor' };
+		}
+		return null;
+	}
+
+	function bidMatchesJobTarget(bid: ApiBiddingBidBookRow, currentJob: ApiBiddingJob): boolean {
+		if (currentJob.target.type === 'token') {
+			return bid.scope.kind === 'token' && bid.scope.tokenId === currentJob.target.tokenId;
+		}
+		if (currentJob.target.type === 'collection') {
+			return traitsEqual(bid.scope.traits, currentJob.target.targetTraits);
+		}
+		return traitsEqual(bid.scope.traits, currentJob.target.targetTraits);
+	}
+
+	function traitsEqual(
+		left: ApiBiddingBidBookRow['scope']['traits'],
+		right: ApiTradingTraitCriterion[]
+	): boolean {
+		const leftKey = canonicalTraitKey(left);
+		const rightKey = canonicalTraitKey(right);
+		return leftKey === rightKey;
+	}
+
+	function canonicalTraitKey(traits: ApiBiddingBidBookRow['scope']['traits']): string {
+		return [...traits]
+			.sort((left, right) => {
+				const typeCompare = left.type.localeCompare(right.type);
+				return typeCompare === 0 ? left.value.localeCompare(right.value) : typeCompare;
+			})
+			.map((trait) => `${trait.type}\u0000${trait.value}`)
+			.join('\u0001');
+	}
+
+	function parseEthToWei(value: string): bigint | null {
+		const trimmed = value.trim();
+		if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+			return null;
+		}
+		const [integer, fraction = ''] = trimmed.split('.');
+		if (fraction.length > 18) {
+			return null;
+		}
+		return BigInt(integer) * WEI_PER_ETH + BigInt(fraction.padEnd(18, '0'));
 	}
 
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
@@ -821,6 +925,7 @@
 							{@const validUntil = validUntilMs(bid)}
 							{@const bidMuted = isMutedDemandBid(group, bid)}
 							{@const quantityPrefix = formatQuantityPrefix(bid)}
+							{@const ownBadges = ownBidStatusBadges(group.bids, bid)}
 							{#if startsNewDemandDisplayedBidSection(group, index, groupBucketStepWei)}
 								<tr class="bid-book-bucket-spacer" aria-hidden="true">
 									<td colspan={4}></td>
@@ -860,9 +965,15 @@
 										onpointerleave={clearHighlightedMaker}
 										onfocus={() => setHighlightedMaker(bid)}
 										onblur={clearHighlightedMaker}
+										title={makerTitle(bid)}
 									>
-										{bid.maker.address}
+										{makerDisplayLabel(bid)}
 									</a>
+									{#each ownBadges as badge (`${badge.kind}:${badge.label}`)}
+										<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
+											{badge.label}
+										</span>
+									{/each}
 								</td>
 								<td class="mono bid-book-col-center" title={oppositeTimeTitle(placedAt, placedAtMode)}>
 									{formatTime(placedAt, placedAtMode)}
@@ -918,6 +1029,7 @@
 						{@const validUntil = validUntilMs(bid)}
 						{@const bidMuted = isMutedBidInRows(displayedBids, bid)}
 						{@const quantityPrefix = formatQuantityPrefix(bid)}
+						{@const ownBadges = ownBidStatusBadges(displayedBids, bid)}
 						{#if startsNewBidBucket(displayedBids, index) && !shouldHideMutedBid(bidMuted)}
 							<tr class="bid-book-bucket-spacer" aria-hidden="true">
 								<td colspan={bidBookColumnCount()}></td>
@@ -962,9 +1074,15 @@
 									onpointerleave={clearHighlightedMaker}
 									onfocus={() => setHighlightedMaker(bid)}
 									onblur={clearHighlightedMaker}
+									title={makerTitle(bid)}
 								>
-									{bid.maker.address}
+									{makerDisplayLabel(bid)}
 								</a>
+								{#each ownBadges as badge (`${badge.kind}:${badge.label}`)}
+									<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
+										{badge.label}
+									</span>
+								{/each}
 							</td>
 							<td class="mono bid-book-col-center" title={oppositeTimeTitle(placedAt, placedAtMode)}>
 								{formatTime(placedAt, placedAtMode)}

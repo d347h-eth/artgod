@@ -388,6 +388,7 @@ export type ApiBiddingBidBook = {
 		durationMs: number | null;
 		lastError: string | null;
 	};
+	ownMakerAddress: string | null;
 	bids: ApiBiddingBidBookRow[];
 };
 

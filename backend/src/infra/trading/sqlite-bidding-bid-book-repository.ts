@@ -70,6 +70,10 @@ type BotRuntimeStateRow = {
     heartbeat_at: string | null;
 };
 
+type KnownBiddingMakerRow = {
+    address: string;
+};
+
 type IndexedOrderRow = {
     id: string;
     source_scope_kind: "token" | "collection" | "attribute" | "token_set";
@@ -107,6 +111,10 @@ export class SqliteBiddingBidBookRepository
         chainId: number;
         botKind: typeof TRADING_BOT_KIND.Bidding;
         state: typeof TRADING_BOT_RUNTIME_STATE.Running;
+    }>;
+    private readonly selectKnownBiddingMaker: BetterSqlite3NamedStatement<{
+        chainId: number;
+        botKind: typeof TRADING_BOT_KIND.Bidding;
     }>;
     private readonly selectActiveIndexedOrders: BetterSqlite3NamedStatement<{
         chainId: number;
@@ -177,6 +185,20 @@ export class SqliteBiddingBidBookRepository
             state: typeof TRADING_BOT_RUNTIME_STATE.Running;
         }>;
 
+        this.selectKnownBiddingMaker = db.prepare<{
+            chainId: number;
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+        }>(
+            "SELECT address " +
+                "FROM trading_bot_runtime_state " +
+                "WHERE chain_id = @chainId AND bot_kind = @botKind " +
+                "ORDER BY updated_at DESC, heartbeat_at DESC " +
+                "LIMIT 1",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+        }>;
+
         this.selectActiveIndexedOrders = db.prepare<{
             chainId: number;
             collectionId: number;
@@ -205,13 +227,23 @@ export class SqliteBiddingBidBookRepository
         selectedTraitRanges: TraitRangeFilter[];
         makerAddress?: string | null;
     }): PersistedBiddingBidBook {
+        const knownMakerAddress = this.loadKnownBiddingMakerAddress(
+            params.chainId,
+        );
         const useProjection = this.shouldUseBotSnapshot(params);
-        const bidBook = useProjection
-            ? this.loadProjectedBidBook(params.chainId, params.collectionId)
-            : this.loadIndexedOrdersBidBook(params.chainId, params.collectionId);
+        const bidBook = markOwnBids(
+            useProjection
+                ? this.loadProjectedBidBook(params.chainId, params.collectionId)
+                : this.loadIndexedOrdersBidBook(
+                      params.chainId,
+                      params.collectionId,
+                  ),
+            knownMakerAddress,
+        );
         const makerAddress = params.makerAddress?.toLowerCase() ?? null;
         return {
             state: bidBook.state,
+            ownMakerAddress: bidBook.ownMakerAddress,
             bids: sortBidsDesc(
                 bidBook.bids.filter(
                     (bid) =>
@@ -234,12 +266,22 @@ export class SqliteBiddingBidBookRepository
         tokenId: string;
         tokenTraits: TradingTraitCriterion[];
     }): PersistedBiddingBidBook {
+        const knownMakerAddress = this.loadKnownBiddingMakerAddress(
+            params.chainId,
+        );
         const useProjection = this.shouldUseBotSnapshot(params);
-        const bidBook = useProjection
-            ? this.loadProjectedBidBook(params.chainId, params.collectionId)
-            : this.loadIndexedOrdersBidBook(params.chainId, params.collectionId);
+        const bidBook = markOwnBids(
+            useProjection
+                ? this.loadProjectedBidBook(params.chainId, params.collectionId)
+                : this.loadIndexedOrdersBidBook(
+                      params.chainId,
+                      params.collectionId,
+                  ),
+            knownMakerAddress,
+        );
         return {
             state: bidBook.state,
+            ownMakerAddress: bidBook.ownMakerAddress,
             bids: sortBidsDesc(
                 bidBook.bids.filter((bid) =>
                     tokenBidApplies(bid, params.tokenId, params.tokenTraits),
@@ -299,6 +341,15 @@ export class SqliteBiddingBidBookRepository
         );
     }
 
+    private loadKnownBiddingMakerAddress(chainId: number): string | null {
+        // Read the latest bot-owned wallet address so passive orders can still mark own bids.
+        const row = this.selectKnownBiddingMaker.get({
+            chainId,
+            botKind: TRADING_BOT_KIND.Bidding,
+        }) as KnownBiddingMakerRow | undefined;
+        return row?.address?.toLowerCase() ?? null;
+    }
+
     private loadProjectedBidBook(
         chainId: number,
         collectionId: number,
@@ -318,6 +369,7 @@ export class SqliteBiddingBidBookRepository
             state: stateRow
                 ? mapProjectionStateRow(stateRow)
                 : emptyState(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot),
+            ownMakerAddress: null,
             bids: rows.flatMap((row) => mapProjectedRow(row)),
         };
     }
@@ -340,9 +392,31 @@ export class SqliteBiddingBidBookRepository
                 updatedAt,
                 rowCount: bids.length,
             },
+            ownMakerAddress: null,
             bids,
         };
     }
+}
+
+function markOwnBids(
+    bidBook: PersistedBiddingBidBook,
+    ownMakerAddress: string | null,
+): PersistedBiddingBidBook {
+    if (!ownMakerAddress) {
+        return {
+            ...bidBook,
+            ownMakerAddress: null,
+        };
+    }
+
+    return {
+        ...bidBook,
+        ownMakerAddress,
+        bids: bidBook.bids.map((bid) => ({
+            ...bid,
+            isOwn: bid.maker.toLowerCase() === ownMakerAddress,
+        })),
+    };
 }
 
 function isFreshProjectionState(row: ProjectionStateRow | undefined): boolean {

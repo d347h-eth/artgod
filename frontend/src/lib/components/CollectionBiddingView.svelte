@@ -181,6 +181,7 @@
 	);
 	const visibleTokenOfferCardIds = $derived(visibleTokenOfferCards.map((token) => token.tokenId));
 	const biddingSelectionSummary = $derived(biddingAutomation.selectionSummary());
+	const ownMakerAddress = $derived(bidBook.ownMakerAddress);
 
 	$effect(() => {
 		collectionJobs = jobs;
@@ -427,6 +428,14 @@
 			query.set(BID_SCOPE_QUERY_PARAM, 'token');
 		}
 		return withQuery(biddingPath(), query);
+	}
+
+	function isShowingOwnMakerBids(): boolean {
+		return (
+			!!makerFilter &&
+			!!ownMakerAddress &&
+			makerFilter.toLowerCase() === ownMakerAddress.toLowerCase()
+		);
 	}
 
 	async function onMakerFilterApply(makerAddress: string): Promise<void> {
@@ -750,6 +759,15 @@
 							<a href={bidScopeHref('collection')}>collection</a>
 						{/if}
 					</div>
+					{#if ownMakerAddress}
+						<div class="secondary-tabs" aria-label="Own bid filter">
+							{#if isShowingOwnMakerBids()}
+								<button type="button" class="secondary-tab-active" disabled>my bids</button>
+							{:else}
+								<a href={makerFilterHref(ownMakerAddress)}>my bids</a>
+							{/if}
+						</div>
+					{/if}
 				</div>
 				{#if showBidBookFilters}
 					<div class="panel-top-actions-row">

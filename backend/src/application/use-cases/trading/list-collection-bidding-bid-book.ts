@@ -167,6 +167,7 @@ export class ListCollectionBiddingBidBookUseCase {
             input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
                 ? {
                       state: persistedBidBook.state,
+                      ownMakerAddress: persistedBidBook.ownMakerAddress,
                       bids: pageCards.flatMap((card) => card.persistedOffers),
                   }
                 : persistedBidBook;

@@ -36,6 +36,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
 							orderId: '0xcollection-bid',
@@ -105,6 +106,10 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
 		);
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+		);
+		expect(body).toContain('>my bids</a>');
 	});
 
 	it('renders token-scoped offers as token cards without trait join controls', () => {
@@ -140,6 +145,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					ownMakerAddress: null,
 					bids: [
 						{
 							orderId: '0xtoken-bid-1',
@@ -350,6 +356,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: 12,
 						lastError: null
 					},
+					ownMakerAddress: null,
 					bids: [
 						{
 							orderId: '0xbid1',
@@ -465,6 +472,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					ownMakerAddress: '0x9999999999999999999999999999999999999999',
 					bids: []
 				},
 				facets: [],
@@ -493,6 +501,9 @@ describe('CollectionBiddingView', () => {
 		);
 		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection');
 		expect(body).toContain('value="0x9999999999999999999999999999999999999999"');
+		expect(body).toContain(
+			'<button type="button" class="secondary-tab-active" disabled>my bids</button>'
+		);
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
 		);

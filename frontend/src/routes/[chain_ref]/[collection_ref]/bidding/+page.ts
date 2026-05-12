@@ -51,6 +51,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 					durationMs: null,
 					lastError: null
 				},
+				ownMakerAddress: null,
 				bids: []
 			},
 			tokenOfferCards: emptyBiddingTokenOfferCardsPage(),
