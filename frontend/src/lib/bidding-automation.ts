@@ -125,3 +125,76 @@ export type BiddingAutomationDraft = {
 	pricing: BiddingAutomationPricingDraft;
 	existingJob?: ApiBiddingJob | null;
 };
+
+// Builds a draft from an existing bid-book row without committing to a backend mutation path.
+export function buildBiddingAutomationDraftFromBid(
+	bid: ApiBiddingBidBookRow,
+	existingJob: ApiBiddingJob | null = null
+): BiddingAutomationDraft | null {
+	const target = resolveDraftTargetFromBid(bid);
+	if (!target) {
+		return null;
+	}
+	return {
+		source: {
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid,
+			bid
+		},
+		target,
+		pricing: {
+			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+			floorEth: bid.priceEth,
+			ceilingEth: bid.priceEth,
+			deltaEth: existingJob?.config.deltaEth ?? ''
+		},
+		existingJob
+	};
+}
+
+// Gates the first write pass to the existing token-scoped bidding job API only.
+export function isBiddingAutomationDraftSubmittable(
+	draft: BiddingAutomationDraft | null
+): boolean {
+	if (!draft) {
+		return true;
+	}
+	return (
+		draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch &&
+		draft.target.tokenIds.length === 1
+	);
+}
+
+// Resolves the token ID required by the existing token job mutation API.
+export function biddingAutomationDraftTokenId(
+	draft: BiddingAutomationDraft | null
+): string | null {
+	if (!draft || draft.target.type !== BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+		return null;
+	}
+	return draft.target.tokenIds[0] ?? null;
+}
+
+function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomationDraftTarget | null {
+	if (bid.scope.kind === 'token' && bid.scope.tokenId) {
+		return {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
+			tokenIds: [bid.scope.tokenId]
+		};
+	}
+	if (bid.scope.kind === 'trait') {
+		return {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: bid.scope.traits.map((trait) => ({
+				key: trait.type,
+				value: trait.value
+			})),
+			traitJoinMode: 'and'
+		};
+	}
+	if (bid.scope.kind === 'collection') {
+		return {
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.CollectionJob
+		};
+	}
+	return null;
+}

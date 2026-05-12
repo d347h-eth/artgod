@@ -8,6 +8,14 @@
 		ApiTokenDetail
 	} from '$lib/api-types';
 	import { archiveTokenBiddingJob, upsertTokenBiddingJob } from '$lib/backend-api';
+	import {
+		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
+		BIDDING_AUTOMATION_PRICING_MODE,
+		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+		biddingAutomationDraftTokenId,
+		isBiddingAutomationDraftSubmittable,
+		type BiddingAutomationDraft
+	} from '$lib/bidding-automation';
 
 	type EditableTokenJobStatus = 'enabled' | 'paused';
 
@@ -17,6 +25,7 @@
 		collection,
 		token,
 		job,
+		draft = null,
 		bidBook = null,
 		onClose,
 		onJobChange = null
@@ -26,17 +35,19 @@
 		collection: ApiCollection | null;
 		token: ApiTokenDetail | null;
 		job: ApiBiddingJob | null;
+		draft?: BiddingAutomationDraft | null;
 		bidBook?: ApiBiddingBidBook | null;
 		onClose: () => void;
 		onJobChange?: ((job: ApiBiddingJob | null) => void) | null;
 	} = $props();
 
-	let currentJob = $state<ApiBiddingJob | null>(job);
-	let loadedJobKey = $state(resolveLoadedJobKey(job));
-	let status = $state<EditableTokenJobStatus>(resolveInitialStatus(job));
-	let floorEth = $state(job?.config.floorEth ?? '');
-	let ceilingEth = $state(job?.config.ceilingEth ?? '');
-	let deltaEth = $state(job?.config.deltaEth ?? '');
+	const initialPanelJob = resolvePanelJob(job, draft);
+	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
+	let loadedJobKey = $state(resolveLoadedPanelKey(job, draft));
+	let status = $state<EditableTokenJobStatus>(resolveInitialStatus(initialPanelJob));
+	let floorEth = $state(resolveInitialFloorEth(initialPanelJob, draft));
+	let ceilingEth = $state(resolveInitialCeilingEth(initialPanelJob, draft));
+	let deltaEth = $state(resolveInitialDeltaEth(initialPanelJob, draft));
 	let saving = $state(false);
 	let archiving = $state(false);
 	let saveMessage = $state<string | null>(null);
@@ -44,22 +55,41 @@
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
+	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
 	const hasDraftChanges = $derived(resolveHasDraftChanges());
 	const bidPosition = $derived(resolveBidPosition(currentJob, bidBook));
+	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
+	const canSubmitDraft = $derived(
+		!!chain && !!collection && !!targetTokenId && !selectedDraftUnsupported
+	);
 
 	$effect(() => {
-		const nextLoadedJobKey = resolveLoadedJobKey(job);
+		const nextLoadedJobKey = resolveLoadedPanelKey(job, draft);
 		if (nextLoadedJobKey === loadedJobKey) {
 			return;
 		}
 
 		loadedJobKey = nextLoadedJobKey;
-		applyLoadedJob(job);
+		applyLoadedPanel(job, draft);
 		saving = false;
 		archiving = false;
 		saveMessage = null;
 		saveError = null;
 	});
+
+	function resolvePanelJob(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): ApiBiddingJob | null {
+		return currentDraft?.existingJob ?? value;
+	}
+
+	function resolveLoadedPanelKey(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): string {
+		return `${resolveLoadedJobKey(resolvePanelJob(value, currentDraft))}:${resolveDraftKey(currentDraft)}`;
+	}
 
 	function resolveLoadedJobKey(value: ApiBiddingJob | null): string {
 		if (!value) {
@@ -75,8 +105,56 @@
 		].join(':');
 	}
 
+	function resolveDraftKey(value: BiddingAutomationDraft | null): string {
+		if (!value) {
+			return 'no-draft';
+		}
+		return [
+			value.source.type,
+			value.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid
+				? value.source.bid.orderId
+				: '',
+			value.target.type,
+			biddingAutomationDraftTokenId(value) ?? '',
+			value.pricing.mode,
+			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.floorEth : '',
+			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.ceilingEth : '',
+			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.deltaEth : ''
+		].join(':');
+	}
+
 	function resolveInitialStatus(value: ApiBiddingJob | null): EditableTokenJobStatus {
 		return value?.status === 'paused' ? 'paused' : 'enabled';
+	}
+
+	function resolveInitialFloorEth(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): string {
+		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
+			return currentDraft.pricing.floorEth;
+		}
+		return value?.config.floorEth ?? '';
+	}
+
+	function resolveInitialCeilingEth(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): string {
+		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
+			return currentDraft.pricing.ceilingEth;
+		}
+		return value?.config.ceilingEth ?? '';
+	}
+
+	function resolveInitialDeltaEth(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): string {
+		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
+			return currentDraft.pricing.deltaEth;
+		}
+		return value?.config.deltaEth ?? '';
 	}
 
 	function resolveHasDraftChanges(): boolean {
@@ -98,21 +176,47 @@
 	}
 
 	function resetDraft(): void {
-		applyDraft(currentJob);
+		applyDraft(currentJob, draft);
 		saveMessage = null;
 		saveError = null;
 	}
 
-	function applyLoadedJob(value: ApiBiddingJob | null): void {
-		currentJob = value;
-		applyDraft(value);
+	function applyLoadedPanel(
+		value: ApiBiddingJob | null,
+		currentDraft: BiddingAutomationDraft | null
+	): void {
+		currentJob = resolvePanelJob(value, currentDraft);
+		applyDraft(currentJob, currentDraft);
 	}
 
-	function applyDraft(value: ApiBiddingJob | null): void {
+	function applyDraft(value: ApiBiddingJob | null, currentDraft: BiddingAutomationDraft | null): void {
 		status = resolveInitialStatus(value);
-		floorEth = value?.config.floorEth ?? '';
-		ceilingEth = value?.config.ceilingEth ?? '';
-		deltaEth = value?.config.deltaEth ?? '';
+		floorEth = resolveInitialFloorEth(value, currentDraft);
+		ceilingEth = resolveInitialCeilingEth(value, currentDraft);
+		deltaEth = resolveInitialDeltaEth(value, currentDraft);
+	}
+
+	function targetLabel(): string {
+		if (!draft) {
+			return targetTokenId ? `#${targetTokenId}` : '-';
+		}
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+			return draft.target.tokenIds.length === 1
+				? `#${draft.target.tokenIds[0]}`
+				: `${draft.target.tokenIds.length} tokens`;
+		}
+		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
+			return draft.target.traits
+				.map((trait) => `${trimTargetText(trait.key)}=${trimTargetText(trait.value)}`)
+				.join(' + ');
+		}
+		return 'collection';
+	}
+
+	function trimTargetText(value: string): string {
+		const maxLength = 96;
+		const trimmed = value.trim();
+		return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, maxLength - 3)}...`;
 	}
 
 	function formatEthLabel(value: string | null): string {
@@ -157,7 +261,7 @@
 	}
 
 	async function handleSave(): Promise<void> {
-		if (!chain || !collection || !token || saving || archiving) {
+		if (!chain || !collection || !targetTokenId || selectedDraftUnsupported || saving || archiving) {
 			return;
 		}
 
@@ -168,7 +272,7 @@
 
 		try {
 			// Persist the token-scoped bidding job through the backend CRUD adapter.
-			const response = await upsertTokenBiddingJob(fetch, chain.slug, collection.slug, token.tokenId, {
+			const response = await upsertTokenBiddingJob(fetch, chain.slug, collection.slug, targetTokenId, {
 				status,
 				floorEth: floorEth.trim(),
 				ceilingEth: ceilingEth.trim(),
@@ -186,13 +290,13 @@
 	}
 
 	async function handleArchive(): Promise<void> {
-		if (!chain || !collection || !token || !currentJob || saving || archiving) {
+		if (!chain || !collection || !targetTokenId || !currentJob || saving || archiving) {
 			return;
 		}
 
 		if (typeof window !== 'undefined') {
 			const confirmed = window.confirm(
-				`Archive bidding job for token ${token.tokenId}? Active offer cleanup will be queued.`
+				`Archive bidding job for token ${targetTokenId}? Active offer cleanup will be queued.`
 			);
 			if (!confirmed) {
 				return;
@@ -205,7 +309,7 @@
 
 		try {
 			// Archive the token-scoped bidding job through the backend CRUD adapter.
-			await archiveTokenBiddingJob(fetch, chain.slug, collection.slug, token.tokenId);
+			await archiveTokenBiddingJob(fetch, chain.slug, collection.slug, targetTokenId);
 			currentJob = null;
 			onJobChange?.(null);
 			resetDraft();
@@ -228,8 +332,14 @@
 		<div class="runtime-kv-grid token-bidding-runtime-grid">
 			<div>
 				<span class="runtime-k">target</span>
-				<span class="runtime-v mono">#{token?.tokenId ?? '-'}</span>
+				<span class="runtime-v mono">{targetLabel()}</span>
 			</div>
+			{#if selectedDraftUnsupported}
+				<div>
+					<span class="runtime-k">submit</span>
+					<span class="runtime-v">not available</span>
+				</div>
+			{/if}
 			{#if currentJob}
 				<div>
 					<span class="runtime-k">updated</span>
@@ -274,7 +384,7 @@
 					id="bidding-automation-status"
 					class="bootstrap-control bootstrap-input-select-short"
 					bind:value={status}
-					disabled={saving || archiving}
+					disabled={saving || archiving || selectedDraftUnsupported}
 				>
 					<option value="enabled">enabled</option>
 					<option value="paused">paused</option>
@@ -288,7 +398,7 @@
 					type="text"
 					inputmode="decimal"
 					bind:value={floorEth}
-					disabled={saving || archiving}
+					disabled={saving || archiving || selectedDraftUnsupported}
 				/>
 			</div>
 			<div class="bootstrap-form-row">
@@ -299,7 +409,7 @@
 					type="text"
 					inputmode="decimal"
 					bind:value={ceilingEth}
-					disabled={saving || archiving}
+					disabled={saving || archiving || selectedDraftUnsupported}
 				/>
 			</div>
 			<div class="bootstrap-form-row">
@@ -310,12 +420,12 @@
 					type="text"
 					inputmode="decimal"
 					bind:value={deltaEth}
-					disabled={saving || archiving}
+					disabled={saving || archiving || selectedDraftUnsupported}
 				/>
 			</div>
 			<div class="panel-footer token-bidding-form-footer">
 				<div class="token-bidding-form-actions">
-					<button type="submit" disabled={saving || archiving || !hasDraftChanges}>
+					<button type="submit" disabled={saving || archiving || !hasDraftChanges || !canSubmitDraft}>
 						{#if saving}
 							saving...
 						{:else if hasExistingJob}

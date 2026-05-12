@@ -39,7 +39,8 @@
 		preferredDemandTraitKey = null,
 		traitValueHref = null,
 		makerFilterHref = null,
-		makerBidHref = null
+		makerBidHref = null,
+		onSelectBid = null
 	}: {
 		bidBook: ApiBiddingBidBook;
 		job?: ApiBiddingJob | null;
@@ -52,6 +53,7 @@
 		traitValueHref?: ((trait: TraitFilterValue) => string) | null;
 		makerFilterHref?: ((makerAddress: string) => string) | null;
 		makerBidHref?: ((bid: ApiBiddingBidBookRow) => string) | null;
+		onSelectBid?: ((bid: ApiBiddingBidBookRow) => void) | null;
 	} = $props();
 
 	let placedAtMode = $state<BidBookTimeMode>('relative');
@@ -234,6 +236,10 @@
 
 	function clearHighlightedMaker(): void {
 		highlightedMakerAddress = null;
+	}
+
+	function selectBid(bid: ApiBiddingBidBookRow): void {
+		onSelectBid?.(bid);
 	}
 
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
@@ -836,6 +842,15 @@
 										</span>
 										<span class="bid-book-price-amount">{formatPriceAmount(bid)}</span>
 									</span>
+									{#if onSelectBid}
+										<button
+											type="button"
+											class="button-link bid-book-row-action"
+											onclick={() => selectBid(bid)}
+										>
+											use
+										</button>
+									{/if}
 								</td>
 								<td class="mono bid-book-maker-cell bid-book-col-center">
 									<a
@@ -924,6 +939,15 @@
 									</span>
 									<span class="bid-book-price-amount">{formatPriceAmount(bid)}</span>
 								</span>
+								{#if onSelectBid}
+									<button
+										type="button"
+										class="button-link bid-book-row-action"
+										onclick={() => selectBid(bid)}
+									>
+										use
+									</button>
+								{/if}
 							</td>
 							{#if showScope}
 								<td class="bid-book-col-center">

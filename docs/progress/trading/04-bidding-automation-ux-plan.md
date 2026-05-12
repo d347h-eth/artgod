@@ -361,6 +361,14 @@ Artifacts:
 - Token-scoped bid rows create token-job drafts.
 - Trait and collection bid rows can prefill draft state but should not submit unsupported target kinds yet.
 
+Artifacts:
+
+- `frontend/src/lib/bidding-automation.ts`
+- `frontend/src/lib/components/BidBookPanel.svelte`
+- `frontend/src/lib/components/BiddingAutomationPanel.svelte`
+- `frontend/src/lib/components/CollectionBiddingView.svelte`
+- `frontend/src/routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte`
+
 ### Slice 6: Clean Trait Selection Job Mutations
 
 - Add the backend path for trait bidding jobs created from clean trait-filter selections.

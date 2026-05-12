@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
 import BiddingAutomationPanel from './BiddingAutomationPanel.svelte';
 
 describe('BiddingAutomationPanel', () => {
@@ -88,5 +89,70 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('value="0.2"');
 		expect(body).toContain('value="0.01"');
 		expect(body).toContain('>archive<');
+	});
+
+	it('renders selected trait bid drafts as unavailable for submit in the token-only write pass', () => {
+		const draft = buildBiddingAutomationDraftFromBid({
+			orderId: '0xtrait-bid',
+			source: 'orders',
+			scope: {
+				kind: 'trait',
+				label: 'Biome=42 + Mode=Terrain',
+				tokenId: null,
+				traits: [
+					{ type: 'Biome', value: '42' },
+					{ type: 'Mode', value: 'Terrain' }
+				]
+			},
+			maker: {
+				address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				isOwn: false
+			},
+			priceWei: '300000000000000000',
+			priceEth: '0.3',
+			quantity: '1',
+			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+			currencySymbol: 'WETH',
+			protocolAddress: null,
+			validUntil: 1_900_000_000,
+			placedAt: '2026-01-02T00:00:00Z',
+			snapshotRefreshedAtMs: null,
+			seenAt: '2026-01-02T00:00:00Z'
+		});
+
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: {
+					id: 1,
+					type: 'evm',
+					publicChainId: 1,
+					slug: 'ethereum',
+					name: 'Ethereum'
+				},
+				collection: {
+					chainId: 1,
+					collectionId: 1,
+					slug: 'milady',
+					address: '0x1111111111111111111111111111111111111111',
+					standard: 'erc721',
+					status: 'live',
+					deploymentBlock: 1,
+					bootstrapAnchorBlock: null,
+					createdAt: '2026-01-01T00:00:00Z',
+					updatedAt: '2026-01-01T00:00:00Z'
+				},
+				token: null,
+				job: null,
+				draft,
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain('Biome=42 + Mode=Terrain');
+		expect(body).toContain('not available');
+		expect(body).toContain('value="0.3"');
+		expect(body).toContain('disabled');
 	});
 });

@@ -1387,6 +1387,15 @@ th {
 	text-align: right;
 }
 
+.bid-book-row-action {
+	height: 18px;
+	min-height: 18px;
+	margin-inline-start: 0.45rem;
+	padding: 0 0.3rem;
+	font-size: 0.62rem;
+	vertical-align: 0.08rem;
+}
+
 .bid-book-col-right {
 	text-align: right;
 	font-variant-numeric: tabular-nums;

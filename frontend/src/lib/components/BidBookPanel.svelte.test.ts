@@ -276,13 +276,15 @@ describe('BidBookPanel', () => {
 				basePath: '/ethereum/terraforms',
 				mediaMode: 'artifact',
 				makerFilterHref: (makerAddress: string) =>
-					`/ethereum/terraforms/bidding?maker=${makerAddress}`
+					`/ethereum/terraforms/bidding?maker=${makerAddress}`,
+				onSelectBid: () => {}
 			}
 		});
 
 		expect(body).toContain(
 			'href="/ethereum/terraforms/bidding?maker=0x1111111111111111111111111111111111111111"'
 		);
+		expect(body).toContain('>use</button>');
 		expect(body).not.toContain('/holders/');
 	});
 

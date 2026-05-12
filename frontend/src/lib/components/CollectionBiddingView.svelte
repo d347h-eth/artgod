@@ -4,6 +4,7 @@
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingBidBookRow,
 		ApiBiddingTokenOfferCard,
 		ApiBiddingTokenOfferCardsPage,
 		ApiBiddingJob,
@@ -31,11 +32,16 @@
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
 	import {
+		buildBiddingAutomationDraftFromBid,
+		type BiddingAutomationDraft
+	} from '$lib/bidding-automation';
+	import {
 		buildCollectionNavigation,
 		handleCollectionSectionShortcut
 	} from '$lib/collection-navigation';
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
+	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
 	import BidBookMakerFilterControl from '$lib/components/BidBookMakerFilterControl.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
@@ -145,6 +151,8 @@
 	let tokenOffersHeadPrevCursor = $state<string | null>(tokenOfferCards.prevCursor);
 	let tokenOffersTailNextCursor = $state<string | null>(tokenOfferCards.nextCursor);
 	let tokenOffersPagingPending = $state(false);
+	let selectedBiddingDraft = $state<BiddingAutomationDraft | null>(null);
+	let biddingAutomationPanelOpen = $state(false);
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
@@ -591,6 +599,18 @@
 			: 'The bid book is refreshed at a normal pace based on periodic orderbook polling with immediate updates from the inbound events stream.';
 	}
 
+	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
+		const draft = buildBiddingAutomationDraftFromBid(bid);
+		if (!draft) return;
+		selectedBiddingDraft = draft;
+		biddingAutomationPanelOpen = true;
+	}
+
+	function closeBiddingAutomationPanel(): void {
+		selectedBiddingDraft = null;
+		biddingAutomationPanelOpen = false;
+	}
+
 	async function onLoadPreviousTokenOffers(event: MouseEvent): Promise<void> {
 		event.preventDefault();
 		if (!tokenOfferMetrics.hasPreviousPage || tokenOffersPagingPending) return;
@@ -668,6 +688,7 @@
 		preferredDemandTraitKey={preferredBidBookDemandTraitKey}
 		traitValueHref={bidBookTraitValueHref}
 		makerFilterHref={makerFilterHref}
+		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
 	/>
 {/snippet}
 
@@ -940,5 +961,17 @@
 				</div>
 			{/if}
 		</div>
+	{/if}
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
+		<BiddingAutomationPanel
+			open={biddingAutomationPanelOpen}
+			{chain}
+			{collection}
+			token={null}
+			job={null}
+			draft={selectedBiddingDraft}
+			{bidBook}
+			onClose={closeBiddingAutomationPanel}
+		/>
 	{/if}
 </CollectionPageLayout>

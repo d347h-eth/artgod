@@ -29,6 +29,10 @@
 		BID_SCOPE_QUERY_PARAM,
 		buildCollectionBiddingQuery
 	} from '$lib/bidding-query';
+	import {
+		buildBiddingAutomationDraftFromBid,
+		type BiddingAutomationDraft
+	} from '$lib/bidding-automation';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
@@ -75,6 +79,7 @@
 	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
 	let displayedMediaAspectRatio = $state<number | null>(null);
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
+	let selectedBiddingDraft = $state<BiddingAutomationDraft | null>(null);
 	let biddingAutomationPanelOpen = $state(false);
 	let tokenDetailRequestId = 0;
 
@@ -83,6 +88,7 @@
 		displayedMedia = resolveInitialMediaState(data?.media);
 		displayedMediaAspectRatio = null;
 		tokenBiddingJob = data?.tokenBiddingJob ?? null;
+		selectedBiddingDraft = null;
 		biddingAutomationPanelOpen = false;
 		tokenDetailRequestId += 1;
 	});
@@ -190,6 +196,26 @@
 
 	function onTokenBiddingJobChange(nextJob: ApiBiddingJob | null): void {
 		tokenBiddingJob = nextJob;
+		selectedBiddingDraft = null;
+	}
+
+	function openTokenBiddingAutomation(draft: BiddingAutomationDraft | null = null): void {
+		selectedBiddingDraft = draft;
+		biddingAutomationPanelOpen = true;
+	}
+
+	function closeTokenBiddingAutomation(): void {
+		selectedBiddingDraft = null;
+		biddingAutomationPanelOpen = false;
+	}
+
+	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
+		const draft = buildBiddingAutomationDraftFromBid(
+			bid,
+			bid.scope.kind === 'token' ? tokenBiddingJob : null
+		);
+		if (!draft) return;
+		openTokenBiddingAutomation(draft);
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -546,12 +572,13 @@
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}
 				makerBidHref={bidBookMakerHref}
+				onSelectBid={shouldShowTokenBiddingAutomation() ? onBidBookSelectBid : null}
 			/>
 		{/if}
 
 		{#if shouldShowTokenBiddingAutomation()}
 			<div class="panel-top-actions-row token-bidding-action-row">
-				<button type="button" class="button-link" onclick={() => (biddingAutomationPanelOpen = true)}>
+				<button type="button" class="button-link" onclick={() => openTokenBiddingAutomation()}>
 					{tokenBiddingActionLabel()}
 				</button>
 			</div>
@@ -561,8 +588,9 @@
 				collection={data?.collection ?? null}
 				token={displayedToken}
 				job={tokenBiddingJob}
+				draft={selectedBiddingDraft}
 				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
-				onClose={() => (biddingAutomationPanelOpen = false)}
+				onClose={closeTokenBiddingAutomation}
 				onJobChange={onTokenBiddingJobChange}
 			/>
 		{/if}
