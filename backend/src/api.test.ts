@@ -275,6 +275,10 @@ beforeAll(async () => {
         await import(
             "./application/use-cases/trading/upsert-trait-bidding-job.js"
         );
+    const upsertBatchTokenBiddingJobsUseCaseModule =
+        await import(
+            "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js"
+        );
     const archiveTokenBiddingJobUseCaseModule =
         await import(
             "./application/use-cases/trading/archive-token-bidding-job.js"
@@ -326,6 +330,14 @@ beforeAll(async () => {
         );
     const upsertTraitBiddingJobUseCase =
         new upsertTraitBiddingJobUseCaseModule.UpsertTraitBiddingJobUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+            tradingJobCommandSignalPort,
+        );
+    const upsertBatchTokenBiddingJobsUseCase =
+        new upsertBatchTokenBiddingJobsUseCaseModule.UpsertBatchTokenBiddingJobsUseCase(
             1,
             chainsReadModel,
             collectionsReadModel,
@@ -423,6 +435,7 @@ beforeAll(async () => {
         getTokenBiddingBidBookUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
+        upsertBatchTokenBiddingJobsUseCase,
         archiveTokenBiddingJobUseCase,
         runtimeHealthUseCase,
         null,
@@ -457,6 +470,7 @@ beforeAll(async () => {
         getTokenBiddingBidBookUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
+        upsertBatchTokenBiddingJobsUseCase,
         archiveTokenBiddingJobUseCase,
         runtimeHealthUseCase,
         null,
@@ -1222,6 +1236,44 @@ describe("backend api routes", () => {
             TRADING_JOB_COMMAND_KIND.JobCreated,
             TRADING_JOB_COMMAND_KIND.JobPaused,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+        ]);
+    });
+
+    it("creates batch token bidding jobs from a filtered selection via admin routes", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        const created = await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/jobs/tokens/batch",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+                selection: {
+                    type: "filter",
+                    tokenStatus: "all",
+                    traits: [{ key: "Hat", value: "Beanie" }],
+                    traitRanges: [],
+                },
+            },
+            csrf,
+        );
+        expect(created.statusCode).toBe(200);
+        expect(created.payload.tokenIds).toEqual(["1", "2"]);
+        expect(created.payload.jobs).toHaveLength(2);
+        expect(created.payload.jobs.map((job: any) => job.target)).toEqual([
+            { type: "token", tokenId: "1" },
+            { type: "token", tokenId: "2" },
+        ]);
+
+        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
+        expect(jobs.statusCode).toBe(200);
+        expect(jobs.payload.jobs).toHaveLength(2);
+        expect(listTradingCommandKinds()).toEqual([
+            TRADING_JOB_COMMAND_KIND.JobCreated,
+            TRADING_JOB_COMMAND_KIND.JobCreated,
         ]);
     });
 

@@ -103,6 +103,47 @@ describe("SqliteBiddingJobsRepository", () => {
         );
     });
 
+    it("creates multiple token bidding jobs in one batch transaction", () => {
+        const repository = new SqliteBiddingJobsRepository();
+
+        const result = repository.upsertTokenJobs([
+            {
+                chainId: 1,
+                collectionId,
+                tokenId: "123",
+                status: TRADING_JOB_STATUS.Enabled,
+                floorWei: "100000000000000000",
+                ceilingWei: "200000000000000000",
+                deltaWei: "1000000000000000",
+            },
+            {
+                chainId: 1,
+                collectionId,
+                tokenId: "456",
+                status: TRADING_JOB_STATUS.Enabled,
+                floorWei: "100000000000000000",
+                ceilingWei: "200000000000000000",
+                deltaWei: "1000000000000000",
+            },
+        ]);
+
+        assert.deepEqual(
+            result.jobs.map((job) => job.tokenId),
+            ["123", "456"],
+        );
+        assert.deepEqual(
+            result.commands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobCreated,
+                TRADING_JOB_COMMAND_KIND.JobCreated,
+            ],
+        );
+        assert.equal(
+            repository.listCollectionJobs({ chainId: 1, collectionId }).length,
+            2,
+        );
+    });
+
     it("updates an existing token bidding job, preserves job identity, and keeps joined runtime state", () => {
         const repository = new SqliteBiddingJobsRepository();
         const created = repository.upsertTokenJob({

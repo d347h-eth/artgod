@@ -460,6 +460,13 @@ export type TraitBiddingJobMutationApiResponse = {
 	job: ApiBiddingJob;
 };
 
+export type BatchTokenBiddingJobMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tokenIds: string[];
+	jobs: ApiBiddingJob[];
+};
+
 export type TokenDetailApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;

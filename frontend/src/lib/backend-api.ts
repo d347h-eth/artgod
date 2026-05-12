@@ -3,6 +3,7 @@ import type {
 	BootstrapRetryFailedResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
+	BatchTokenBiddingJobMutationApiResponse,
 	CollectionBiddingBidBookApiResponse,
 	BootstrapStatusApiResponse,
 	CollectionBiddingJobsApiResponse,
@@ -227,6 +228,37 @@ export async function upsertTraitBiddingJob(
 	return requestJsonWithBody<TraitBiddingJobMutationApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/traits`,
+		'PUT',
+		body
+	);
+}
+
+export async function upsertBatchTokenBiddingJobs(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		status: 'enabled' | 'paused';
+		floorEth: string;
+		ceilingEth: string;
+		deltaEth: string;
+		selection:
+			| {
+					type: 'token_ids';
+					tokenIds: string[];
+			  }
+			| {
+					type: 'filter';
+					tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
+					traits: { key: string; value: string }[];
+					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+			  };
+	}
+): Promise<BatchTokenBiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BatchTokenBiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/tokens/batch`,
 		'PUT',
 		body
 	);

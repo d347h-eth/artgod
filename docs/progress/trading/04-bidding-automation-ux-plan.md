@@ -389,6 +389,13 @@ Artifacts:
 - Downgrade manually adjusted filtered selections to visible token IDs in the first pass.
 - Emit one command per affected job or a clear batch command shape that the runtime reconciliation can process deterministically.
 
+Artifacts:
+
+- `backend/src/application/use-cases/trading/upsert-batch-token-bidding-jobs.ts`
+- `backend/src/http/handlers/trading/upsert-batch-token-bidding-jobs.ts`
+- `backend/src/infra/trading/sqlite-bidding-jobs-repository.ts`
+- `frontend/src/lib/backend-api.ts`
+
 ### Slice 8: Own Bid State and Show My Bids
 
 - Expose known bidding maker address from runtime/backend state.

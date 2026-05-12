@@ -49,6 +49,7 @@ import { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-t
 import { GetTokenBiddingBidBookUseCase } from "./application/use-cases/trading/get-token-bidding-bid-book.js";
 import { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
 import { UpsertTraitBiddingJobUseCase } from "./application/use-cases/trading/upsert-trait-bidding-job.js";
+import { UpsertBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
 import { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/archive-token-bidding-job.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
@@ -299,6 +300,14 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         biddingJobsRepository,
         tradingJobCommandSignalPublisher,
     );
+    const upsertBatchTokenBiddingJobsUseCase =
+        new UpsertBatchTokenBiddingJobsUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingJobsRepository,
+            tradingJobCommandSignalPublisher,
+        );
     const archiveTokenBiddingJobUseCase = new ArchiveTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -336,6 +345,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         getTokenBiddingBidBookUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
+        upsertBatchTokenBiddingJobsUseCase,
         archiveTokenBiddingJobUseCase,
         runtimeHealthUseCase,
         config.userlandUiDistDir,

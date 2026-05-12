@@ -379,109 +379,27 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         job: PersistedTokenBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } {
-        return db.raw.transaction(
-            (transactionInput: UpsertTokenBiddingJobInput) => {
-                const existing = this.getTokenJob({
-                    chainId: transactionInput.chainId,
-                    collectionId: transactionInput.collectionId,
-                    tokenId: transactionInput.tokenId,
-                    includeArchived: false,
-                });
-
-                if (existing) {
-                    this.updateTradingJobById.run({
-                        jobId: existing.jobId,
-                        status: transactionInput.status,
-                    });
-                    this.updateBiddingSpecById.run({
-                        jobId: existing.jobId,
-                        floorWei: transactionInput.floorWei,
-                        ceilingWei: transactionInput.ceilingWei,
-                        deltaWei: transactionInput.deltaWei,
-                        quantity: null,
-                        targetTraitsJson: null,
-                        competitorTraitsJson: null,
-                    });
-
-                    const job = this.requireTokenJobById(existing.jobId);
-                    const commandKind =
-                        job.status === TRADING_JOB_STATUS.Paused
-                            ? TRADING_JOB_COMMAND_KIND.JobPaused
-                            : TRADING_JOB_COMMAND_KIND.JobUpdated;
-                    const commands = [
-                        this.insertCommandRecord(
-                            job.jobId,
-                            commandKind,
-                            job.revision,
-                            {
-                                chainId: job.chainId,
-                                collectionId: job.collectionId,
-                                tokenId: job.tokenId,
-                                jobId: job.jobId,
-                            },
-                        ),
-                    ];
-                    if (job.status === TRADING_JOB_STATUS.Paused) {
-                        commands.push(
-                            this.insertCommandRecord(
-                                job.jobId,
-                                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
-                                job.revision,
-                                {
-                                    chainId: job.chainId,
-                                    collectionId: job.collectionId,
-                                    tokenId: job.tokenId,
-                                    jobId: job.jobId,
-                                },
-                            ),
-                        );
-                    }
-                    return {
-                        job,
-                        commands,
-                    };
-                }
-
-                const jobId = randomUUID();
-                this.insertTradingJob.run({
-                    jobId,
-                    botKind: TRADING_BOT_KIND.Bidding,
-                    chainId: transactionInput.chainId,
-                    collectionId: transactionInput.collectionId,
-                    status: transactionInput.status,
-                    targetKind: TRADING_JOB_TARGET_KIND.Token,
-                    tokenId: transactionInput.tokenId,
-                });
-                this.insertBiddingSpec.run({
-                    jobId,
-                    floorWei: transactionInput.floorWei,
-                    ceilingWei: transactionInput.ceilingWei,
-                    deltaWei: transactionInput.deltaWei,
-                    quantity: null,
-                    targetTraitsJson: null,
-                    competitorTraitsJson: null,
-                });
-
-                const job = this.requireTokenJobById(jobId);
-                const command = this.insertCommandRecord(
-                    job.jobId,
-                    job.status === TRADING_JOB_STATUS.Paused
-                        ? TRADING_JOB_COMMAND_KIND.JobPaused
-                        : TRADING_JOB_COMMAND_KIND.JobCreated,
-                    job.revision,
-                    {
-                        chainId: job.chainId,
-                        collectionId: job.collectionId,
-                        tokenId: job.tokenId,
-                        jobId: job.jobId,
-                    },
-                );
-                return {
-                    job,
-                    commands: [command],
-                };
-            },
+        return db.raw.transaction((transactionInput: UpsertTokenBiddingJobInput) =>
+            this.upsertTokenJobInTransaction(transactionInput),
         )(input);
+    }
+
+    upsertTokenJobs(
+        inputs: UpsertTokenBiddingJobInput[],
+    ): {
+        jobs: PersistedTokenBiddingJobRecord[];
+        commands: TradingJobCommandRecord[];
+    } {
+        return db.raw.transaction((transactionInputs: UpsertTokenBiddingJobInput[]) => {
+            const jobs: PersistedTokenBiddingJobRecord[] = [];
+            const commands: TradingJobCommandRecord[] = [];
+            for (const input of transactionInputs) {
+                const result = this.upsertTokenJobInTransaction(input);
+                jobs.push(result.job);
+                commands.push(...result.commands);
+            }
+            return { jobs, commands };
+        })(inputs);
     }
 
     upsertCollectionJob(
@@ -653,6 +571,106 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             );
         }
         return job;
+    }
+
+    private upsertTokenJobInTransaction(
+        transactionInput: UpsertTokenBiddingJobInput,
+    ): {
+        job: PersistedTokenBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    } {
+        const existing = this.getTokenJob({
+            chainId: transactionInput.chainId,
+            collectionId: transactionInput.collectionId,
+            tokenId: transactionInput.tokenId,
+            includeArchived: false,
+        });
+
+        if (existing) {
+            this.updateTradingJobById.run({
+                jobId: existing.jobId,
+                status: transactionInput.status,
+            });
+            this.updateBiddingSpecById.run({
+                jobId: existing.jobId,
+                floorWei: transactionInput.floorWei,
+                ceilingWei: transactionInput.ceilingWei,
+                deltaWei: transactionInput.deltaWei,
+                quantity: null,
+                targetTraitsJson: null,
+                competitorTraitsJson: null,
+            });
+
+            const job = this.requireTokenJobById(existing.jobId);
+            const commandKind =
+                job.status === TRADING_JOB_STATUS.Paused
+                    ? TRADING_JOB_COMMAND_KIND.JobPaused
+                    : TRADING_JOB_COMMAND_KIND.JobUpdated;
+            const commands = [
+                this.insertCommandRecord(
+                    job.jobId,
+                    commandKind,
+                    job.revision,
+                    this.tokenJobCommandPayload(job),
+                ),
+            ];
+            if (job.status === TRADING_JOB_STATUS.Paused) {
+                commands.push(
+                    this.insertCommandRecord(
+                        job.jobId,
+                        TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                        job.revision,
+                        this.tokenJobCommandPayload(job),
+                    ),
+                );
+            }
+            return { job, commands };
+        }
+
+        const jobId = randomUUID();
+        this.insertTradingJob.run({
+            jobId,
+            botKind: TRADING_BOT_KIND.Bidding,
+            chainId: transactionInput.chainId,
+            collectionId: transactionInput.collectionId,
+            status: transactionInput.status,
+            targetKind: TRADING_JOB_TARGET_KIND.Token,
+            tokenId: transactionInput.tokenId,
+        });
+        this.insertBiddingSpec.run({
+            jobId,
+            floorWei: transactionInput.floorWei,
+            ceilingWei: transactionInput.ceilingWei,
+            deltaWei: transactionInput.deltaWei,
+            quantity: null,
+            targetTraitsJson: null,
+            competitorTraitsJson: null,
+        });
+
+        const job = this.requireTokenJobById(jobId);
+        const command = this.insertCommandRecord(
+            job.jobId,
+            job.status === TRADING_JOB_STATUS.Paused
+                ? TRADING_JOB_COMMAND_KIND.JobPaused
+                : TRADING_JOB_COMMAND_KIND.JobCreated,
+            job.revision,
+            this.tokenJobCommandPayload(job),
+        );
+        return {
+            job,
+            commands: [command],
+        };
+    }
+
+    private tokenJobCommandPayload(
+        job: PersistedTokenBiddingJobRecord,
+    ): Record<string, unknown> {
+        return {
+            chainId: job.chainId,
+            collectionId: job.collectionId,
+            tokenId: job.tokenId,
+            jobId: job.jobId,
+        };
     }
 
     private requireCollectionJobById(

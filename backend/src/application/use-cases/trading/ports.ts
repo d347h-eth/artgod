@@ -47,6 +47,12 @@ export interface BiddingJobsRepositoryPort {
         job: PersistedTokenBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     };
+    upsertTokenJobs(
+        inputs: UpsertTokenBiddingJobInput[],
+    ): {
+        jobs: PersistedTokenBiddingJobRecord[];
+        commands: TradingJobCommandRecord[];
+    };
     upsertCollectionJob(
         input: UpsertCollectionBiddingJobInput,
     ): {

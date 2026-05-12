@@ -5,6 +5,9 @@ import type {
     CollectionListItem,
     PersistedBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
+    TokenBrowserStatus,
+    TraitFilter,
+    TraitRangeFilter,
     TokenPresentationSummary,
     TradingJobStatus,
     TradingTraitCriterion,
@@ -96,6 +99,35 @@ export type UpsertTokenBiddingJobOutput = {
     collection: CollectionListItem;
     tokenId: string;
     job: BiddingJobView;
+};
+
+export type BatchTokenBiddingJobSelection =
+    | {
+          type: "token_ids";
+          tokenIds: string[];
+      }
+    | {
+          type: "filter";
+          tokenStatus: TokenBrowserStatus;
+          traits: TraitFilter[];
+          traitRanges: TraitRangeFilter[];
+      };
+
+export type UpsertBatchTokenBiddingJobsInput = {
+    chainRef: string;
+    collectionRef: string;
+    status: TokenBiddingJobMutationStatus;
+    floorEth: string;
+    ceilingEth: string;
+    deltaEth: string;
+    selection: BatchTokenBiddingJobSelection;
+};
+
+export type UpsertBatchTokenBiddingJobsOutput = {
+    chain: ChainRecord;
+    collection: CollectionListItem;
+    tokenIds: string[];
+    jobs: BiddingJobView[];
 };
 
 export type UpsertTraitBiddingJobInput = {
