@@ -2,6 +2,7 @@ import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import type {
     ChainRecord,
     CollectionListItem,
+    TokenCard,
     TokenBrowserStatus,
     TokenCursorPage,
     TraitFilter,
@@ -25,6 +26,16 @@ import {
     type TokenBiddingJobMutationStatus,
 } from "./types.js";
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
+import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    type BiddingBidBookRepositoryPort,
+} from "./bidding-bid-book.js";
+import {
+    buildTokenOfferGroups,
+    sortTokenIdsByTopOffer,
+    tokenMatchesTraitFilters,
+} from "./bidding-token-offer-cards.js";
 export type { UpsertBatchTokenBiddingJobsOutput } from "./types.js";
 
 export type UpsertBatchTokenBiddingJobsInput = {
@@ -65,8 +76,12 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 chainId: number;
                 collectionId: number;
                 tokenIds: string[];
-            }): { tokenId: string }[];
+            }): TokenCard[];
         },
+        readonly bidBookRepositoryPort: Pick<
+            BiddingBidBookRepositoryPort,
+            "listCollectionBidBook"
+        >,
         readonly biddingJobsRepositoryPort: Pick<
             BiddingJobsRepositoryPort,
             "upsertTokenJobs"
@@ -148,6 +163,13 @@ export class UpsertBatchTokenBiddingJobsUseCase {
                 selection: params.selection,
             });
         }
+        if (params.selection.type === "token_offer_filter") {
+            return this.resolveTokenOfferFilterTokenIds({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                selection: params.selection,
+            });
+        }
         return this.resolveFilteredTokenIds({
             chainId: params.chainId,
             collectionId: params.collectionId,
@@ -204,6 +226,63 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             cursor = page.nextCursor ?? undefined;
         } while (cursor);
         return uniqueNonEmptyTokenIds(tokenIds);
+    }
+
+    private resolveTokenOfferFilterTokenIds(params: {
+        chainId: number;
+        collectionId: number;
+        selection: Extract<
+            BatchTokenBiddingJobSelection,
+            { type: "token_offer_filter" }
+        >;
+    }): string[] {
+        // Read token-scoped bids from the same source-selection path used by the offers page.
+        const tokenBidBook = this.bidBookRepositoryPort.listCollectionBidBook({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+            makerAddress: params.selection.makerAddress ?? null,
+        });
+        // Read collection bids so low-signal token offers are filtered exactly like the token-offer cards.
+        const collectionBidBook =
+            this.bidBookRepositoryPort.listCollectionBidBook({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+                traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                selectedTraits: [],
+                selectedTraitRanges: [],
+                makerAddress: null,
+            });
+        const offersByTokenId = buildTokenOfferGroups({
+            tokenBids: tokenBidBook.bids,
+            collectionBids: collectionBidBook.bids,
+        });
+        const tokenIds = sortTokenIdsByTopOffer(offersByTokenId);
+        if (tokenIds.length === 0) {
+            return [];
+        }
+        // Hydrate matched token IDs so trait filters apply to token metadata, not bid payloads.
+        const cards = this.collectionReadPort.listCollectionTokenCardsByIds({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenIds,
+        });
+        const cardsById = new Map(cards.map((card) => [card.tokenId, card]));
+        return tokenIds.filter((tokenId) => {
+            const card = cardsById.get(tokenId);
+            return (
+                card !== undefined &&
+                tokenMatchesTraitFilters(
+                    card,
+                    params.selection.traits,
+                    params.selection.traitRanges,
+                )
+            );
+        });
     }
 }
 

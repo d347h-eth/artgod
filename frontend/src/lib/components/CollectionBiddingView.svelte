@@ -36,8 +36,13 @@
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
 	import {
+		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+		BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
+		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		buildBiddingAutomationDraftFromSelection,
 		buildBiddingAutomationDraftFromBid,
+		canDraftTraitJobFromFilters,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
 	import {
@@ -160,6 +165,7 @@
 	let tokenOffersTailNextCursor = $state<string | null>(tokenOfferCards.nextCursor);
 	let tokenOffersPagingPending = $state(false);
 	let selectedBidDraft = $state<BiddingAutomationDraft | null>(null);
+	let lastBiddingFilterKey = $state('');
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
@@ -200,6 +206,17 @@
 		describeBiddingAutomationSelection(currentBiddingSelection)
 	);
 	const ownMakerAddress = $derived(bidBook.ownMakerAddress);
+	const biddingFilterKey = $derived(activeBiddingFilterKey());
+	const canBidOnTraits = $derived(
+		canDraftTraitJobFromFilters({
+			selectedTraits: activeTraits,
+			selectedTraitRanges: activeTraitRanges,
+			traitJoinMode
+		})
+	);
+	const tokenActionLabel = $derived(
+		isAllFilteredTokenSelectionActive() ? 'bid on tokens [this page]' : 'bid on tokens'
+	);
 
 	$effect(() => {
 		collectionJobs = jobs;
@@ -245,6 +262,19 @@
 
 	$effect(() => {
 		writeCollectionBiddingNavigationPreference({ bidScope });
+	});
+
+	$effect(() => {
+		const nextKey = biddingFilterKey;
+		if (!lastBiddingFilterKey) {
+			lastBiddingFilterKey = nextKey;
+			return;
+		}
+		if (nextKey === lastBiddingFilterKey) {
+			return;
+		}
+		lastBiddingFilterKey = nextKey;
+		clearBiddingSelection();
 	});
 
 	function collectionsHref(): string {
@@ -599,14 +629,37 @@
 		return count === 1 ? '1 token' : `${count} tokens`;
 	}
 
-	function selectAllFilteredTokenOffers(): void {
+	function bidOnFilteredTraits(): void {
+		if (!canBidOnTraits) return;
 		selectedBidDraft = null;
 		biddingAutomation.selectFilteredTokens({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
 			tokenCount: tokenOfferCards.totalItems,
 			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
 				selectedTraits: activeTraits,
 				selectedTraitRanges: activeTraitRanges,
-				traitJoinMode: 'and',
+				traitJoinMode,
+				tokenStatus: null,
+				makerAddress: makerFilter
+			}
+		});
+	}
+
+	function bidOnFilteredTokenOffers(): void {
+		selectedBidDraft = null;
+		if (isAllFilteredTokenSelectionActive()) {
+			biddingAutomation.selectExplicitTokens(visibleTokenOfferCardIds);
+			return;
+		}
+		biddingAutomation.selectFilteredTokens({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+			tokenCount: tokenOfferCards.totalItems,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+				selectedTraits: activeTraits,
+				selectedTraitRanges: activeTraitRanges,
+				traitJoinMode,
 				tokenStatus: null,
 				makerAddress: makerFilter
 			}
@@ -623,6 +676,24 @@
 
 	function biddingTokenSelectionState(tokenId: string, stateKey: string) {
 		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId, stateKey);
+	}
+
+	function isAllFilteredTokenSelectionActive(): boolean {
+		return (
+			currentBiddingSelection?.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
+			currentBiddingSelection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch &&
+			currentBiddingSelection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+		);
+	}
+
+	function activeBiddingFilterKey(): string {
+		return JSON.stringify({
+			bidScope,
+			traitJoinMode,
+			makerFilter,
+			activeTraits,
+			activeTraitRanges
+		});
 	}
 
 	function tokenOffersUpdatedAt(): string {
@@ -649,6 +720,12 @@
 		if (!draft) return;
 		biddingAutomation.clearSelection();
 		selectedBidDraft = draft;
+	}
+
+	function placeCollectionBid(): void {
+		const topBid = bidBook.bids[0];
+		if (!topBid) return;
+		onBidBookSelectBid(topBid);
 	}
 
 	function closeBiddingAutomationPanel(): void {
@@ -739,6 +816,7 @@
 		traitValueHref={bidBookTraitValueHref}
 		makerFilterHref={makerFilterHref}
 		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
+		showRowActions={bidScope !== 'collection'}
 	/>
 {/snippet}
 
@@ -826,14 +904,29 @@
 						/>
 					</div>
 				{/if}
-				{#if bidScope === 'token'}
+				{#if bidScope === 'token' || (bidScope === 'traits' && (canBidOnTraits || biddingSelectionSummary))}
 					<div class="panel-top-actions-row">
 						<BiddingSelectionControls
-							totalItems={tokenOfferCards.totalItems}
 							summary={biddingSelectionSummary}
-							onSelectAll={selectAllFilteredTokenOffers}
+							showTraitAction={canBidOnTraits}
+							showTokenAction={bidScope === 'token'}
+							tokenActionLabel={tokenActionLabel}
+							tokenActionDisabled={tokenOfferCards.totalItems === 0}
+							onBidOnTraits={bidOnFilteredTraits}
+							onBidOnTokens={bidOnFilteredTokenOffers}
 							onClear={clearBiddingSelection}
 						/>
+					</div>
+				{:else if bidScope === 'collection' && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+					<div class="panel-top-actions-row">
+						<button
+							type="button"
+							class="facet-panel-action-button bidding-select-all-button"
+							disabled={bidBook.bids.length === 0}
+							onclick={placeCollectionBid}
+						>
+							place collection bid
+						</button>
 					</div>
 				{/if}
 			{/if}

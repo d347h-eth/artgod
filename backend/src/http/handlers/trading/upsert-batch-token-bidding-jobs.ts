@@ -88,6 +88,17 @@ function parseSelection(value: unknown): UpsertBatchTokenBiddingJobsInput["selec
             traitRanges: parseTraitRanges(record.traitRanges),
         };
     }
+    if (record.type === "token_offer_filter") {
+        return {
+            type: "token_offer_filter",
+            traits: parseTraits(record.traits),
+            traitRanges: parseTraitRanges(record.traitRanges),
+            makerAddress: parseOptionalString(
+                record.makerAddress,
+                "selection.makerAddress",
+            ),
+        };
+    }
     throw new ReadModelBadRequestError("selection.type is invalid");
 }
 

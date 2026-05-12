@@ -368,6 +368,7 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             collectionsReadModel,
+            biddingBidBookRepository,
             biddingJobsRepository,
             biddingPriceTiersRepository,
             tradingJobCommandSignalPort,

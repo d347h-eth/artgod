@@ -24,6 +24,22 @@ export const BIDDING_AUTOMATION_FILTER_SELECTION_STATE = {
 export type BiddingAutomationFilterSelectionState =
 	(typeof BIDDING_AUTOMATION_FILTER_SELECTION_STATE)[keyof typeof BIDDING_AUTOMATION_FILTER_SELECTION_STATE];
 
+export const BIDDING_AUTOMATION_FILTER_TARGET_INTENT = {
+	TraitJob: 'trait_job',
+	TokenBatch: 'token_batch'
+} as const;
+
+export type BiddingAutomationFilterTargetIntent =
+	(typeof BIDDING_AUTOMATION_FILTER_TARGET_INTENT)[keyof typeof BIDDING_AUTOMATION_FILTER_TARGET_INTENT];
+
+export const BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE = {
+	TokenBrowser: 'token_browser',
+	TokenOffers: 'token_offers'
+} as const;
+
+export type BiddingAutomationTokenFilterSource =
+	(typeof BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE)[keyof typeof BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE];
+
 export const BIDDING_AUTOMATION_DRAFT_TARGET_TYPE = {
 	TokenBatch: 'token_batch',
 	FilteredTokenBatch: 'filtered_token_batch',
@@ -44,6 +60,7 @@ export type BiddingAutomationPricingMode =
 
 // Captures token-filter state so backend can resolve all matching tokens across pages.
 export type BiddingAutomationTokenFilterSnapshot = {
+	source: BiddingAutomationTokenFilterSource;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	traitJoinMode: ApiCollectionBiddingTraitFilterJoinMode;
@@ -54,6 +71,7 @@ export type BiddingAutomationTokenFilterSnapshot = {
 // Represents a clean all-filtered-tokens action or a visible-page-adjusted variant.
 export type BiddingAutomationFilteredTokenSelection = {
 	type: typeof BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens;
+	targetIntent: BiddingAutomationFilterTargetIntent;
 	filter: BiddingAutomationTokenFilterSnapshot;
 	tokenCount: number;
 	state:
@@ -148,9 +166,9 @@ export function buildBiddingAutomationDraftFromBid(
 		target,
 		pricing: {
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: bid.priceEth,
-			ceilingEth: bid.priceEth,
-			deltaEth: existingJob?.config.deltaEth ?? ''
+			floorEth: nextWinningBidEth(bid),
+			ceilingEth: nextWinningBidEth(bid),
+			deltaEth: existingJob?.config.deltaEth ?? minimalBidDeltaEth(bid)
 		},
 		existingJob
 	};
@@ -189,9 +207,7 @@ export function isBiddingAutomationDraftSubmittable(
 		return draft.target.tokenIds.length > 0;
 	}
 	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
-		return draft.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
-			draft.source.filter.tokenStatus !== null &&
-			draft.source.filter.tokenStatus !== undefined;
+		return canSubmitFilteredTokenBatch(draft);
 	}
 	return true;
 }
@@ -253,9 +269,12 @@ function resolveDraftTargetFromSelection(
 	}
 
 	if (
-		selection.filter.traitJoinMode === 'and' &&
-		selection.filter.selectedTraits.length > 0 &&
-		selection.filter.selectedTraitRanges.length === 0
+		selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob &&
+		canDraftTraitJobFromFilters({
+			selectedTraits: selection.filter.selectedTraits,
+			selectedTraitRanges: selection.filter.selectedTraitRanges,
+			traitJoinMode: selection.filter.traitJoinMode
+		})
 	) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
@@ -268,4 +287,54 @@ function resolveDraftTargetFromSelection(
 		type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch,
 		tokenCount: selection.tokenCount
 	};
+}
+
+export function canSubmitFilteredTokenBatch(draft: BiddingAutomationDraft): boolean {
+	return (
+		draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch &&
+		draft.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
+		(draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers ||
+			(draft.source.filter.tokenStatus !== null && draft.source.filter.tokenStatus !== undefined))
+	);
+}
+
+// Allows trait-job drafting only for exact AND-compatible trait criteria.
+export function canDraftTraitJobFromFilters(params: {
+	selectedTraits: ApiTokenAttribute[];
+	selectedTraitRanges: ApiTraitRangeFilter[];
+	traitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
+}): boolean {
+	if (params.selectedTraits.length === 0 || params.selectedTraitRanges.length > 0) {
+		return false;
+	}
+	if (params.selectedTraits.length > 1 && params.traitJoinMode && params.traitJoinMode !== 'and') {
+		return false;
+	}
+	return new Set(params.selectedTraits.map((trait) => trait.key)).size === params.selectedTraits.length;
+}
+
+const WEI_PER_ETH = 1_000_000_000_000_000_000n;
+
+function nextWinningBidEth(bid: ApiBiddingBidBookRow): string {
+	return formatWeiAsEth(BigInt(bid.priceWei) + minimalBidDeltaWei(bid));
+}
+
+function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
+	return formatWeiAsEth(minimalBidDeltaWei(bid));
+}
+
+function minimalBidDeltaWei(bid: ApiBiddingBidBookRow): bigint {
+	const priceWei = BigInt(bid.priceWei);
+	const deltaWei = priceWei / 100n;
+	return deltaWei > 0n ? deltaWei : 1n;
+}
+
+function formatWeiAsEth(value: bigint): string {
+	const whole = value / WEI_PER_ETH;
+	const fraction = value % WEI_PER_ETH;
+	if (fraction === 0n) {
+		return whole.toString();
+	}
+	const fractionText = fraction.toString().padStart(18, '0').replace(/0+$/, '');
+	return `${whole}.${fractionText}`;
 }

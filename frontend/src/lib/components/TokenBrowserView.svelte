@@ -92,7 +92,10 @@
 			summary: string | null;
 			stateKey: string;
 			state: (tokenId: string, stateKey: string) => TokenCardSelectionState;
-			onSelectAll: () => void;
+			showTraitAction: boolean;
+			tokenActionLabel: string;
+			onBidOnTraits: () => void;
+			onBidOnTokens: (visibleTokenIds: string[]) => void;
 			onClear: () => void;
 			onToggle: (request: TokenCardSelectionToggleRequest & { visibleTokenIds: string[] }) => void;
 		} | null;
@@ -504,9 +507,12 @@
 				{/if}
 				{#if selection}
 					<BiddingSelectionControls
-						totalItems={tokens.totalItems}
 						summary={selection.summary}
-						onSelectAll={selection.onSelectAll}
+						showTraitAction={selection.showTraitAction}
+						tokenActionLabel={selection.tokenActionLabel}
+						tokenActionDisabled={tokens.totalItems === 0}
+						onBidOnTraits={selection.onBidOnTraits}
+						onBidOnTokens={() => selection.onBidOnTokens(visibleTokenIds)}
 						onClear={selection.onClear}
 					/>
 				{/if}

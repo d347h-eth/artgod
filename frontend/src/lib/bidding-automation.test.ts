@@ -3,8 +3,10 @@ import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
 	BIDDING_AUTOMATION_PRICING_MODE,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 	biddingAutomationDraftTokenId,
 	buildBiddingAutomationDraftFromBid,
 	buildBiddingAutomationDraftFromSelection,
@@ -79,8 +81,8 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 		});
 		expect(draft?.pricing).toEqual({
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: '0.3',
-			ceilingEth: '0.3',
+			floorEth: '0.303',
+			ceilingEth: '0.303',
 			deltaEth: '0.01'
 		});
 		expect(biddingAutomationDraftTokenId(draft)).toBe('42');
@@ -127,7 +129,9 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 	it('turns clean exact trait filters into a trait job draft', () => {
 		const draft = buildBiddingAutomationDraftFromSelection({
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
 			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 				selectedTraits: [
 					{ key: 'Biome', value: '42' },
 					{ key: 'Mode', value: 'Terrain' }
@@ -157,7 +161,9 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 	it('keeps visible token adjustments as an explicit token batch draft', () => {
 		const draft = buildBiddingAutomationDraftFromSelection({
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 				selectedTraits: [{ key: 'Biome', value: '42' }],
 				selectedTraitRanges: [],
 				traitJoinMode: 'and',

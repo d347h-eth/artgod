@@ -41,6 +41,7 @@
 		bidBook,
 		job = null,
 		showScope = false,
+		showRowActions = true,
 		showMuted = false,
 		view = 'rows',
 		basePath = '/',
@@ -54,6 +55,7 @@
 		bidBook: ApiBiddingBidBook;
 		job?: ApiBiddingJob | null;
 		showScope?: boolean;
+		showRowActions?: boolean;
 		showMuted?: boolean;
 		view?: BidBookPanelView;
 		basePath?: string;
@@ -257,6 +259,10 @@
 
 	function selectBid(bid: ApiBiddingBidBookRow): void {
 		onSelectBid?.(bid);
+	}
+
+	function placeBidLabel(label: string): string {
+		return `place bid on ${label}`;
 	}
 
 	function ownBidStatusBadges(
@@ -917,6 +923,24 @@
 											</div>
 										</div>
 									{/if}
+									{#if onSelectBid}
+										<button
+											type="button"
+											class="button-link bid-book-place-bid-icon-button"
+											aria-label={placeBidLabel(group.label)}
+											title={placeBidLabel(group.label)}
+											onclick={() => selectBid(group.bestBid)}
+										>
+											<svg
+												class="bid-book-place-bid-icon"
+												viewBox="0 0 16 16"
+												aria-hidden="true"
+												focusable="false"
+											>
+												<path d="M3 8h8M8 5l3 3-3 3M4 13h9V3" />
+											</svg>
+										</button>
+									{/if}
 								</div>
 							</td>
 						</tr>
@@ -947,15 +971,6 @@
 										</span>
 										<span class="bid-book-price-amount">{formatPriceAmount(bid)}</span>
 									</span>
-									{#if onSelectBid}
-										<button
-											type="button"
-											class="button-link bid-book-row-action"
-											onclick={() => selectBid(bid)}
-										>
-											use
-										</button>
-									{/if}
 								</td>
 								<td class="mono bid-book-maker-cell bid-book-col-center">
 									<a
@@ -1051,7 +1066,7 @@
 									</span>
 									<span class="bid-book-price-amount">{formatPriceAmount(bid)}</span>
 								</span>
-								{#if onSelectBid}
+								{#if onSelectBid && showRowActions}
 									<button
 										type="button"
 										class="button-link bid-book-row-action"

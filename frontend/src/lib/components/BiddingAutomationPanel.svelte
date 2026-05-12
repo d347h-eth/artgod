@@ -20,7 +20,9 @@
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 		BIDDING_AUTOMATION_PRICING_MODE,
 		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		biddingAutomationDraftTokenId,
+		canSubmitFilteredTokenBatch,
 		isBiddingAutomationDraftSubmittable,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
@@ -426,16 +428,33 @@
 		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
 			if (
 				draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens ||
-				!draft.source.filter.tokenStatus
+				!canSubmitFilteredTokenBatch(draft)
 			) {
 				throw new Error('filtered token selection is not available for submit');
+			}
+			if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
+				const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
+					status,
+					...pricingBody,
+					selection: {
+						type: 'token_offer_filter',
+						traits: draft.source.filter.selectedTraits,
+						traitRanges: draft.source.filter.selectedTraitRanges,
+						makerAddress: draft.source.filter.makerAddress
+					}
+				});
+				return response.jobs;
+			}
+			const tokenStatus = draft.source.filter.tokenStatus;
+			if (!tokenStatus) {
+				throw new Error('filtered token selection is missing token status');
 			}
 			const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
 				status,
 				...pricingBody,
 				selection: {
 					type: 'filter',
-					tokenStatus: draft.source.filter.tokenStatus,
+					tokenStatus,
 					traits: draft.source.filter.selectedTraits,
 					traitRanges: draft.source.filter.selectedTraitRanges
 				}
@@ -503,7 +522,7 @@
 		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
 			return draft.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
 				draft.source.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean &&
-				!!draft.source.filter.tokenStatus;
+				canSubmitFilteredTokenBatch(draft);
 		}
 		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
 			return draft.target.traits.length > 0;

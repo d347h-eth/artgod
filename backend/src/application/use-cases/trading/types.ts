@@ -114,6 +114,12 @@ export type BatchTokenBiddingJobSelection =
           tokenStatus: TokenBrowserStatus;
           traits: TraitFilter[];
           traitRanges: TraitRangeFilter[];
+      }
+    | {
+          type: "token_offer_filter";
+          traits: TraitFilter[];
+          traitRanges: TraitRangeFilter[];
+          makerAddress?: string | null;
       };
 
 export type UpsertBatchTokenBiddingJobsInput = {

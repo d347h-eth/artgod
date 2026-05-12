@@ -15,7 +15,14 @@
 		ApiTraitFacet
 	} from '$lib/api-types';
 	import { getBootstrapStatus } from '$lib/backend-api';
-	import { buildBiddingAutomationDraftFromSelection } from '$lib/bidding-automation';
+	import {
+		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+		BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
+		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
+		buildBiddingAutomationDraftFromSelection,
+		canDraftTraitJobFromFilters
+	} from '$lib/bidding-automation';
 	import {
 		biddingAutomationSelectionStateKey,
 		biddingAutomationTokenSelectionState,
@@ -81,6 +88,7 @@
 	let bootstrapError = $state<string | null>(null);
 	let bootstrapRequestInFlight = false;
 	let changedBiddingJobs = $state<ApiBiddingJob[]>([]);
+	let lastBiddingFilterKey = $state('');
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
 	const selectedBiddingDraft = $derived(
 		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
@@ -91,6 +99,13 @@
 	);
 	const biddingSelectionSummary = $derived(
 		describeBiddingAutomationSelection(currentBiddingSelection)
+	);
+	const biddingFilterKey = $derived(activeBiddingFilterKey());
+	const canBidOnTraits = $derived(
+		canDraftTraitJobFromFilters({ selectedTraits, selectedTraitRanges, traitJoinMode: 'and' })
+	);
+	const tokenActionLabel = $derived(
+		isAllFilteredTokenSelectionActive() ? 'bid on tokens [this page]' : 'bid on tokens'
 	);
 
 	$effect(() => {
@@ -104,6 +119,19 @@
 			void refreshBootstrapStatus();
 		}, BOOTSTRAP_POLL_INTERVAL_MS);
 		return () => clearInterval(timer);
+	});
+
+	$effect(() => {
+		const nextKey = biddingFilterKey;
+		if (!lastBiddingFilterKey) {
+			lastBiddingFilterKey = nextKey;
+			return;
+		}
+		if (nextKey === lastBiddingFilterKey) {
+			return;
+		}
+		lastBiddingFilterKey = nextKey;
+		biddingAutomation.clearSelection();
 	});
 
 	function collectionsHref(): string {
@@ -204,10 +232,32 @@
 		);
 	}
 
-	function selectAllFilteredTokens(): void {
+	function bidOnFilteredTraits(): void {
+		if (!canBidOnTraits) return;
 		biddingAutomation.selectFilteredTokens({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
 			tokenCount: tokens.totalItems,
 			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits,
+				selectedTraitRanges,
+				traitJoinMode: 'and',
+				tokenStatus,
+				makerAddress: null
+			}
+		});
+	}
+
+	function bidOnFilteredTokens(nextVisibleTokenIds: string[]): void {
+		if (isAllFilteredTokenSelectionActive()) {
+			biddingAutomation.selectExplicitTokens(nextVisibleTokenIds);
+			return;
+		}
+		biddingAutomation.selectFilteredTokens({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+			tokenCount: tokens.totalItems,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 				selectedTraits,
 				selectedTraitRanges,
 				traitJoinMode: 'and',
@@ -223,6 +273,22 @@
 
 	function biddingTokenSelectionState(tokenId: string, stateKey: string) {
 		return biddingAutomationTokenSelectionState(currentBiddingSelection, tokenId, stateKey);
+	}
+
+	function isAllFilteredTokenSelectionActive(): boolean {
+		return (
+			currentBiddingSelection?.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
+			currentBiddingSelection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch &&
+			currentBiddingSelection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+		);
+	}
+
+	function activeBiddingFilterKey(): string {
+		return JSON.stringify({
+			tokenStatus,
+			selectedTraits,
+			selectedTraitRanges
+		});
 	}
 
 	function clearBiddingSelection(): void {
@@ -318,7 +384,10 @@
 					summary: biddingSelectionSummary,
 					stateKey: biddingSelectionStateKey,
 					state: biddingTokenSelectionState,
-					onSelectAll: selectAllFilteredTokens,
+					showTraitAction: canBidOnTraits,
+					tokenActionLabel,
+					onBidOnTraits: bidOnFilteredTraits,
+					onBidOnTokens: bidOnFilteredTokens,
 					onClear: clearBiddingSelection,
 					onToggle: toggleVisibleTokenSelection
 				}

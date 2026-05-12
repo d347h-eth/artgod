@@ -320,6 +320,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
             config.defaultChainId,
             chainsReadModel,
             extensionAwareCollectionsReadModel,
+            biddingBidBookRepository,
             biddingJobsRepository,
             biddingPriceTiersRepository,
             tradingJobCommandSignalPublisher,

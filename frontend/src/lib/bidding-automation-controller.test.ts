@@ -2,7 +2,9 @@ import { get } from 'svelte/store';
 import { describe, expect, it } from 'vitest';
 import {
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 	type BiddingAutomationSelection
 } from '$lib/bidding-automation';
 import {
@@ -17,12 +19,14 @@ describe('createBiddingAutomationController', () => {
 		const controller = createBiddingAutomationController();
 
 		controller.selectFilteredTokens({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			tokenCount: 500,
 			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
 				selectedTraitRanges: [],
 				traitJoinMode: 'and',
-				tokenStatus: null,
+				tokenStatus: 'all',
 				makerAddress: null
 			}
 		});
@@ -34,14 +38,16 @@ describe('createBiddingAutomationController', () => {
 		}
 		expect(selection.tokenCount).toBe(500);
 		expect(selection.state.kind).toBe(BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean);
-		expect(controller.selectionSummary()).toBe('500 selected');
+		expect(controller.selectionSummary()).toBe('500 tokens selected');
 	});
 
 	it('derives render state from explicit selection snapshots', () => {
 		const selection: BiddingAutomationSelection = {
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			tokenCount: 69,
 			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
 				selectedTraitRanges: [],
 				traitJoinMode: 'and',
@@ -53,7 +59,7 @@ describe('createBiddingAutomationController', () => {
 			}
 		};
 
-		expect(describeBiddingAutomationSelection(selection)).toBe('69 selected');
+		expect(describeBiddingAutomationSelection(selection)).toBe('69 tokens selected');
 		const stateKey = biddingAutomationSelectionStateKey(selection);
 		expect(stateKey).toContain('filter-clean');
 		expect(biddingAutomationTokenSelectionState(selection, '123', stateKey).selected).toBe(true);
@@ -82,7 +88,7 @@ describe('createBiddingAutomationController', () => {
 			throw new Error('expected explicit token selection');
 		}
 		expect(selection.tokenIds).toEqual(['1', '2']);
-		expect(controller.selectionSummary()).toBe('2 selected');
+		expect(controller.selectionSummary()).toBe('2 tokens selected');
 	});
 
 	it('removes explicit token selections one by one', () => {
@@ -113,7 +119,7 @@ describe('createBiddingAutomationController', () => {
 			throw new Error('expected explicit token selection');
 		}
 		expect(selection.tokenIds).toEqual(['2']);
-		expect(controller.selectionSummary()).toBe('1 selected');
+		expect(controller.selectionSummary()).toBe('1 token selected');
 	});
 
 	it('allows a later select-all action to replace an explicit token selection', () => {
@@ -127,8 +133,10 @@ describe('createBiddingAutomationController', () => {
 		});
 		controller.clearSelection();
 		controller.selectFilteredTokens({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			tokenCount: 69,
 			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
 				selectedTraitRanges: [],
 				traitJoinMode: 'and',
@@ -137,7 +145,7 @@ describe('createBiddingAutomationController', () => {
 			}
 		});
 
-		expect(controller.selectionSummary()).toBe('69 selected');
+		expect(controller.selectionSummary()).toBe('69 tokens selected');
 		expect(controller.tokenSelectionState('2').selected).toBe(true);
 	});
 
@@ -145,8 +153,10 @@ describe('createBiddingAutomationController', () => {
 		const controller = createBiddingAutomationController();
 
 		controller.selectFilteredTokens({
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
 			tokenCount: 500,
 			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 				selectedTraits: [{ key: 'Mode', value: 'Terrain' }],
 				selectedTraitRanges: [],
 				traitJoinMode: 'and',

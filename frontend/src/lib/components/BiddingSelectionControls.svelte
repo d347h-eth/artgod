@@ -2,19 +2,31 @@
 	type MaybePromise<T> = T | Promise<T>;
 
 	let {
-		totalItems,
 		summary,
-		onSelectAll,
+		showTraitAction = false,
+		showTokenAction = true,
+		tokenActionLabel = 'bid on tokens',
+		tokenActionDisabled = false,
+		onBidOnTraits = null,
+		onBidOnTokens,
 		onClear
 	}: {
-		totalItems: number;
 		summary: string | null;
-		onSelectAll: () => MaybePromise<void>;
+		showTraitAction?: boolean;
+		showTokenAction?: boolean;
+		tokenActionLabel?: string;
+		tokenActionDisabled?: boolean;
+		onBidOnTraits?: (() => MaybePromise<void>) | null;
+		onBidOnTokens: () => MaybePromise<void>;
 		onClear: () => MaybePromise<void>;
 	} = $props();
 
-	function handleSelectAll(): void {
-		void onSelectAll();
+	function handleBidOnTraits(): void {
+		void onBidOnTraits?.();
+	}
+
+	function handleBidOnTokens(): void {
+		void onBidOnTokens();
 	}
 
 	function handleClear(): void {
@@ -22,15 +34,26 @@
 	}
 </script>
 
-<div class="bidding-selection-controls" aria-label="Token bidding selection">
-	<button
-		type="button"
-		class="facet-panel-action-button bidding-select-all-button"
-		disabled={totalItems === 0}
-		onclick={handleSelectAll}
-	>
-		select all
-	</button>
+<div class="bidding-selection-controls" aria-label="Bidding target selection">
+	{#if showTraitAction && onBidOnTraits}
+		<button
+			type="button"
+			class="facet-panel-action-button bidding-select-all-button"
+			onclick={handleBidOnTraits}
+		>
+			bid on traits
+		</button>
+	{/if}
+	{#if showTokenAction}
+		<button
+			type="button"
+			class="facet-panel-action-button bidding-select-all-button"
+			disabled={tokenActionDisabled}
+			onclick={handleBidOnTokens}
+		>
+			{tokenActionLabel}
+		</button>
+	{/if}
 	{#if summary}
 		<span class="mono bidding-selection-summary">{summary}</span>
 		<button type="button" class="button-link bidding-selection-clear-button" onclick={handleClear}>

@@ -154,7 +154,8 @@ describe('BiddingAutomationPanel', () => {
 
 		expect(body).toContain('Biome=42 + Mode=Terrain');
 		expect(body).not.toContain('not available');
-		expect(body).toContain('value="0.3"');
+		expect(body).toContain('value="0.303"');
+		expect(body).toContain('value="0.003"');
 		expect(body).toContain('>create<');
 	});
 
@@ -215,7 +216,8 @@ describe('BiddingAutomationPanel', () => {
 		});
 
 		expect(body).toContain('collection');
-		expect(body).toContain('value="0.3"');
+		expect(body).toContain('value="0.303"');
+		expect(body).toContain('value="0.003"');
 		expect(body).toContain('>create<');
 		expect(body).not.toContain('not available');
 	});

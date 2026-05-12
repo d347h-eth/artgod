@@ -1,7 +1,9 @@
 import { get, writable, type Readable } from 'svelte/store';
 import {
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	type BiddingAutomationFilterTargetIntent,
 	type BiddingAutomationSelection,
 	type BiddingAutomationTokenFilterSnapshot
 } from '$lib/bidding-automation';
@@ -16,6 +18,7 @@ export type BiddingAutomationControllerState = {
 };
 
 export type SelectFilteredTokensInput = {
+	targetIntent: BiddingAutomationFilterTargetIntent;
 	filter: BiddingAutomationTokenFilterSnapshot;
 	tokenCount: number;
 };
@@ -27,6 +30,7 @@ export type ToggleBiddingTokenInput = TokenCardSelectionToggleRequest & {
 export type BiddingAutomationController = {
 	state: Readable<BiddingAutomationControllerState>;
 	selectFilteredTokens(input: SelectFilteredTokensInput): void;
+	selectExplicitTokens(tokenIds: string[]): void;
 	toggleToken(input: ToggleBiddingTokenInput): void;
 	clearSelection(): void;
 	isTokenSelected(tokenId: string): boolean;
@@ -43,6 +47,7 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		state.set({
 			selection: {
 				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+				targetIntent: input.targetIntent,
 				filter: input.filter,
 				tokenCount: input.tokenCount,
 				state: {
@@ -56,6 +61,17 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		state.update((current) => ({
 			selection: nextSelectionAfterTokenToggle(current.selection, input)
 		}));
+	}
+
+	function selectExplicitTokens(tokenIds: string[]): void {
+		state.set({
+			selection: tokenIds.length > 0
+				? {
+						type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+						tokenIds
+					}
+				: null
+		});
 	}
 
 	function clearSelection(): void {
@@ -77,6 +93,7 @@ export function createBiddingAutomationController(): BiddingAutomationController
 	return {
 		state: { subscribe: state.subscribe },
 		selectFilteredTokens,
+		selectExplicitTokens,
 		toggleToken,
 		clearSelection,
 		isTokenSelected,
@@ -91,15 +108,19 @@ export function describeBiddingAutomationSelection(
 ): string | null {
 	if (!selection) return null;
 	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
+		if (selection.targetIntent === BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob) {
+			const count = selection.filter.selectedTraits.length;
+			return count === 1 ? '1 trait selected' : `${count} traits selected`;
+		}
 		if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
-			return `${selection.tokenCount} selected`;
+			return `${selection.tokenCount} tokens selected`;
 		}
 		const count = selection.state.visibleTokenIds.length;
-		return count === 1 ? '1 selected' : `${count} selected`;
+		return count === 1 ? '1 token selected' : `${count} tokens selected`;
 	}
 	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
 		const count = selection.tokenIds.length;
-		return count === 1 ? '1 selected' : `${count} selected`;
+		return count === 1 ? '1 token selected' : `${count} tokens selected`;
 	}
 	return 'bid selected';
 }
@@ -118,6 +139,8 @@ export function biddingAutomationSelectionStateKey(
 	if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
 		return [
 			'filter-clean',
+			selection.targetIntent,
+			selection.filter.source,
 			selection.tokenCount,
 			selection.filter.tokenStatus ?? 'any-status',
 			selection.filter.makerAddress ?? 'any-maker',
@@ -152,6 +175,9 @@ export function isBiddingAutomationTokenSelected(
 		return selection.tokenIds.includes(tokenId);
 	}
 	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
+		if (selection.targetIntent !== BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch) {
+			return false;
+		}
 		if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
 			return true;
 		}
@@ -196,6 +222,9 @@ function selectedTokenIds(
 		return new Set(selection.tokenIds);
 	}
 	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens) {
+		if (selection.targetIntent !== BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch) {
+			return new Set();
+		}
 		if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
 			return new Set(visibleTokenIds);
 		}

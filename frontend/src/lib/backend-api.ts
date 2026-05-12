@@ -269,6 +269,12 @@ export async function upsertBatchTokenBiddingJobs(
 					tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 					traits: { key: string; value: string }[];
 					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+			  }
+			| {
+					type: 'token_offer_filter';
+					traits: { key: string; value: string }[];
+					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+					makerAddress?: string | null;
 			  };
 	}
 ): Promise<BatchTokenBiddingJobMutationApiResponse> {
