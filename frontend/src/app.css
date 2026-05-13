@@ -2010,6 +2010,11 @@ th {
 }
 
 .bidding-automation-panel {
+	--token-bidding-action-gap: 150px;
+	--token-bidding-action-width: 75px;
+	--token-bidding-content-width: calc(
+		var(--token-bidding-action-width) * 2 + var(--token-bidding-action-gap)
+	);
 	position: fixed;
 	right: 0;
 	bottom: 0;
@@ -2021,6 +2026,10 @@ th {
 	background: var(--c-bg);
 	border: 1px solid var(--c-blue);
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-blue) 35%, transparent);
+}
+
+.runtime-section.bidding-automation-panel {
+	padding: 0.75rem;
 }
 
 .bidding-automation-panel-inline {
@@ -2077,22 +2086,50 @@ th {
 	padding: 0 0 0.75rem;
 	justify-content: space-between;
 	gap: 1rem;
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	margin-inline: auto;
+}
+
+.bidding-automation-panel .token-bidding-runtime-grid,
+.bidding-automation-panel > .token-bidding-feedback {
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	margin-inline: auto;
+}
+
+.bidding-automation-panel > .token-bidding-feedback {
+	text-align: center;
 }
 
 .token-bidding-form {
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
 	margin-inline: auto;
+	padding: 0;
+	justify-items: stretch;
 }
 
 .bidding-token-input {
 	width: 12ch;
 }
 
+.token-bidding-form .bootstrap-form-row {
+	grid-template-columns: minmax(0, 1fr) max-content;
+	width: 100%;
+}
+
+.token-bidding-form .bootstrap-form-row label {
+	justify-self: end;
+	text-align: right;
+}
+
 .token-bidding-form-footer {
 	padding: 0.75rem 0 0;
 	display: grid;
-	grid-template-columns: 75px 75px;
-	align-items: flex-start;
-	column-gap: 150px;
+	grid-template-columns: var(--token-bidding-action-width) var(--token-bidding-action-width);
+	align-items: end;
+	column-gap: var(--token-bidding-action-gap);
 	row-gap: 0.5rem;
 	justify-content: center;
 }
@@ -2106,7 +2143,7 @@ th {
 
 .token-bidding-form-actions-left button,
 .token-bidding-form-actions-right button {
-	width: 75px;
+	width: var(--token-bidding-action-width);
 }
 
 .token-bidding-action-positive:not(:disabled) {
@@ -2131,6 +2168,10 @@ th {
 
 .token-bidding-form-footer .bootstrap-form-feedback {
 	grid-column: 1 / -1;
+	justify-self: stretch;
+	justify-items: center;
+	width: 100%;
+	text-align: center;
 }
 
 .token-bidding-feedback {
