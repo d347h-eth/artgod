@@ -29,10 +29,10 @@ The current runtime contract remains unchanged: SQLite stores declared desired j
 The user should be able to start a bidding action from three sources:
 
 1. Filtered token or trait targeting:
-- User filters a collection through existing trait/token controls.
-- User clicks `bid on traits` when the intended target is the current trait filter.
-- User clicks `bid on all tokens` when the intended target is all tokens matching the current token-card result set.
-- User clicks `bid on this page` when the intended target should be constrained to the currently loaded token cards.
+   - User filters a collection through existing trait/token controls.
+   - User clicks `bid on traits` when the intended target is the current trait filter.
+   - User clicks `bid on all tokens` when the intended target is all tokens matching the current token-card result set.
+   - User clicks `bid on this page` when the intended target should be constrained to the currently loaded token cards.
    - Token targeting records the filter snapshot and can target all matching tokens across the collection, not only the visible page.
    - Trait targeting records the exact current trait criteria and creates a trait job; do not infer this from generic token selection.
 2. Explicit token selection:
@@ -114,10 +114,10 @@ Token detail renders the same panel inline and does not show the floating-panel 
 
 The bid book should become the primary bidding operations surface.
 
-Near the scope controls, add a `show my bids` action once the backend can expose the relevant bidding wallet address.
-This should apply the existing maker filter with the user's bidding address, not invent a separate filter path.
+Near the scope controls, the `my bids` action applies the existing maker filter with the user's bidding address when the backend/runtime can expose it.
+Do not invent a separate filtering path for own bids.
 
-Own bid rows should eventually display:
+Own bid rows display the runtime-owned state that is available from the backend read model:
 
 - own bid marker: visual highlight plus a compact icon or label
 - market position: winning, draw, or losing
@@ -127,7 +127,8 @@ Own bid rows should eventually display:
 Current limitation:
 
 - `isOwn` is reliable for bot snapshot rows when the bot knows the maker address.
-- Orders fallback cannot always know the user's bidding address until the backend/runtime exposes assigned bidding wallet state.
+- Orders fallback stays honest and cannot always mark own bids if the backend/runtime has no assigned bidding wallet.
+- Balance and allowance constraints remain unset until the bidding runtime persists explicit constraint flags.
 
 ## Price Tiers
 
@@ -285,8 +286,10 @@ For selected bids:
 
 For clean trait-filter selections:
 
-- if the user selects all filtered tokens and does not manually unselect token cards, create a trait bidding job instead of fanning out into token jobs
-- if the user filters by traits and then unselects token cards, draft only the visible token IDs in the first pass
+- `bid on traits` creates a trait bidding job from the current exact trait filter criteria
+- `bid on all tokens` creates token jobs for all matching token-card results across all pages
+- `bid on this page` creates token jobs only for the currently loaded token cards
+- if the user manually toggles token cards after a filtered selection, draft only the visible token IDs in the first pass
 - avoid building a throw-away backend path for "all tokens matching this trait set except these arbitrary exclusions" until that target model is explicitly needed
 
 Long-term target expansion:
@@ -306,9 +309,12 @@ New or expanded use cases:
 - upsert collection bidding price tier
 - archive collection bidding price tier
 - resolve collection bidding tier graph
-- create/update token bidding jobs from a selection
-- resolve bidding draft from selected bid row
-- expose own bidding wallet identity for maker filtering when available
+- update collection bidding settings
+- create/update token, trait, collection, and batch-token bidding jobs from explicit typed targets
+- resolve token-offer filtered selections backend-side when `bid on all tokens` is used from offers
+- look up active declared jobs by canonical target before rendering create/modify/archive actions
+- preview and apply staged tier-backed job re-resolution
+- expose own bidding wallet identity and bid-row runtime state for maker filtering when available
 
 Mutation rules:
 
@@ -442,10 +448,10 @@ Artifacts:
 - `backend/src/infra/trading/sqlite-bidding-jobs-repository.ts`
 - `frontend/src/lib/backend-api.ts`
 
-### Slice 8: Own Bid State and Show My Bids
+### Slice 8: Own Bid State and My Bids
 
 - Expose known bidding maker address from runtime/backend state.
-- Make `show my bids` apply the existing maker filter.
+- Make `my bids` apply the existing maker filter.
 - Enrich own bid rows with winning/draw/losing and job constraint state.
 
 Artifacts:
