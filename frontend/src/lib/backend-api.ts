@@ -3,7 +3,16 @@ import type {
 	BootstrapRetryFailedResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
+	BatchTokenBiddingJobMutationApiResponse,
+	BiddingPriceTierReapplyApplyApiResponse,
+	BiddingPriceTierReapplyPreviewApiResponse,
+	BiddingJobMutationApiResponse,
+	BiddingJobTargetLookupApiResponse,
 	CollectionBiddingBidBookApiResponse,
+	CollectionBiddingSettingsMutationApiResponse,
+	CollectionBiddingJobMutationApiResponse,
+	CollectionBiddingPriceTierMutationApiResponse,
+	CollectionBiddingPriceTiersApiResponse,
 	BootstrapStatusApiResponse,
 	CollectionBiddingJobsApiResponse,
 	CollectionActivitiesApiResponse,
@@ -17,10 +26,12 @@ import type {
 	TokenBiddingJobApiResponse,
 	TokenBiddingJobMutationApiResponse,
 	TokenDetailApiResponse,
-	TokenPreviewApiResponse
+	TokenPreviewApiResponse,
+	TraitBiddingJobMutationApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { browser } from '$app/environment';
+import type { TradingBiddingTierSelectionMode } from '@artgod/shared/types';
 
 // Max duration for transient backend retry loop during early runtime startup.
 const STARTUP_RETRY_WINDOW_MS = 12_000;
@@ -149,6 +160,17 @@ export async function getCollectionBiddingBidBook(
 	);
 }
 
+export async function getCollectionBiddingPriceTiers(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string
+): Promise<CollectionBiddingPriceTiersApiResponse> {
+	return requestJson<CollectionBiddingPriceTiersApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`
+	);
+}
+
 export async function getTokenBiddingJob(
 	fetchFn: typeof fetch,
 	chainRef: string,
@@ -180,9 +202,10 @@ export async function upsertTokenBiddingJob(
 	tokenRef: string,
 	body: {
 		status: 'enabled' | 'paused';
-		floorEth: string;
-		ceilingEth: string;
+		floorEth?: string;
+		ceilingEth?: string;
 		deltaEth: string;
+		priceTierId?: string | null;
 	}
 ): Promise<TokenBiddingJobMutationApiResponse> {
 	await ensureCsrfToken(fetchFn);
@@ -206,6 +229,236 @@ export async function archiveTokenBiddingJob(
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
 		'DELETE',
 		{}
+	);
+}
+
+export async function lookupBiddingJobTarget(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		target:
+			| {
+					type: 'token';
+					tokenId: string;
+			  }
+			| {
+					type: 'collection';
+					quantity?: number;
+			  }
+			| {
+					type: 'trait';
+					quantity?: number;
+					targetTraits: { type: string; value: string }[];
+			  };
+	}
+): Promise<BiddingJobTargetLookupApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BiddingJobTargetLookupApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/target-lookup`,
+		'POST',
+		body
+	);
+}
+
+export async function archiveBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	jobId: string
+): Promise<BiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/${encodeURIComponent(jobId)}`,
+		'DELETE',
+		{}
+	);
+}
+
+export async function upsertTraitBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		status: 'enabled' | 'paused';
+		floorEth?: string;
+		ceilingEth?: string;
+		deltaEth: string;
+		priceTierId?: string | null;
+		quantity?: number;
+		targetTraits: { type: string; value: string }[];
+	}
+): Promise<TraitBiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<TraitBiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/traits`,
+		'PUT',
+		body
+	);
+}
+
+export async function upsertBatchTokenBiddingJobs(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		status: 'enabled' | 'paused';
+		floorEth?: string;
+		ceilingEth?: string;
+		deltaEth: string;
+		priceTierId?: string | null;
+		selection:
+			| {
+					type: 'token_ids';
+					tokenIds: string[];
+			  }
+			| {
+					type: 'filter';
+					tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
+					traits: { key: string; value: string }[];
+					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+			  }
+			| {
+					type: 'token_offer_filter';
+					traits: { key: string; value: string }[];
+					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+					traitJoinMode: 'or' | 'and';
+					makerAddress?: string | null;
+			  };
+	}
+): Promise<BatchTokenBiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BatchTokenBiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/tokens/batch`,
+		'PUT',
+		body
+	);
+}
+
+export async function upsertCollectionBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		status: 'enabled' | 'paused';
+		floorEth?: string;
+		ceilingEth?: string;
+		deltaEth: string;
+		priceTierId?: string | null;
+		quantity?: number;
+	}
+): Promise<CollectionBiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionBiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/collection`,
+		'PUT',
+		body
+	);
+}
+
+export async function upsertCollectionBiddingPriceTier(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		tierId?: string;
+		name: string;
+		status: 'enabled' | 'paused';
+		sortOrder: number;
+		parentTierId: string | null;
+		floorConfig:
+			| { kind: 'fixed'; valueEth: string }
+			| {
+					kind: 'parent_delta';
+					deltaKind: 'absolute' | 'percent';
+					deltaEth?: string;
+					percent?: string;
+			  };
+		ceilingConfig:
+			| { kind: 'fixed'; valueEth: string }
+			| {
+					kind: 'floor_delta' | 'parent_delta';
+					deltaKind: 'absolute' | 'percent';
+					deltaEth?: string;
+					percent?: string;
+			  };
+		deltaEth: string;
+	}
+): Promise<CollectionBiddingPriceTierMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`,
+		'PUT',
+		body
+	);
+}
+
+export async function updateCollectionBiddingSettings(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		tierSelectionMode: TradingBiddingTierSelectionMode;
+		defaultDeltaEth: string;
+	}
+): Promise<CollectionBiddingSettingsMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionBiddingSettingsMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/settings`,
+		'PUT',
+		body
+	);
+}
+
+export async function archiveCollectionBiddingPriceTier(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tierId: string
+): Promise<CollectionBiddingPriceTierMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}`,
+		'DELETE',
+		{}
+	);
+}
+
+export async function previewBiddingPriceTierReapply(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tierId: string
+): Promise<BiddingPriceTierReapplyPreviewApiResponse> {
+	return requestJson<BiddingPriceTierReapplyPreviewApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply-preview`
+	);
+}
+
+export async function applyBiddingPriceTierReapply(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tierId: string,
+	body: {
+		jobIds: string[];
+	}
+): Promise<BiddingPriceTierReapplyApplyApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BiddingPriceTierReapplyApplyApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply`,
+		'POST',
+		body
 	);
 }
 

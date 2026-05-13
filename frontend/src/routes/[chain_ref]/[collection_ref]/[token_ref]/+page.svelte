@@ -7,14 +7,16 @@
 		TRAIT_FILTER_DISPLAY_KIND
 	} from '@artgod/shared/types';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
+	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
 	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
-	import TokenBiddingJobForm from '$lib/components/TokenBiddingJobForm.svelte';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import TokenDetailExtensionSectionOutlet from '$lib/token-detail-extension-sections/TokenDetailExtensionSectionOutlet.svelte';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
+		ApiBiddingCollectionSettings,
 		ApiBiddingJob,
+		ApiBiddingPriceTier,
 		ApiChain,
 		ApiCollection,
 		ApiCollectionBiddingBidScopeFilter,
@@ -24,12 +26,18 @@
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
+	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { getTokenDetail } from '$lib/backend-api';
 	import {
 		BID_SCOPE_QUERY_PARAM,
-		buildCollectionBiddingHref,
 		buildCollectionBiddingQuery
 	} from '$lib/bidding-query';
+	import {
+		bestBiddingAutomationBid,
+		buildTokenBiddingAutomationDraftFromBid,
+		type BiddingAutomationDraft
+	} from '$lib/bidding-automation';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
@@ -63,6 +71,8 @@
 		collection: ApiCollection | null;
 		media: ApiCollectionMediaState;
 		token: ApiTokenDetail | null;
+		biddingSettings?: ApiBiddingCollectionSettings;
+		priceTiers?: ApiBiddingPriceTier[];
 		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
 		tokenBiddingJob?: ApiBiddingJob | null;
 		tokenBiddingBidBook?: ApiBiddingBidBook;
@@ -75,12 +85,15 @@
 	let displayedToken = $state<ApiTokenDetail | null>(data?.token ?? null);
 	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
 	let displayedMediaAspectRatio = $state<number | null>(null);
+	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
 	let tokenDetailRequestId = 0;
+	const tokenBiddingDraft = $derived(resolveTokenBiddingDraft());
 
 	$effect(() => {
 		displayedToken = data?.token ?? null;
 		displayedMedia = resolveInitialMediaState(data?.media);
 		displayedMediaAspectRatio = null;
+		tokenBiddingJob = data?.tokenBiddingJob ?? null;
 		tokenDetailRequestId += 1;
 	});
 
@@ -148,16 +161,6 @@
 		return data.backPath && data.backPath !== collectionPath ? 'back to holder' : 'back to collection';
 	}
 
-	function collectionBiddingHref(): string {
-		return buildCollectionBiddingHref({
-			basePath: collectionTokensBasePath(),
-			selectedTraits: [],
-			selectedTraitRanges: [],
-			mediaMode: collectionNavigationMediaMode(),
-			showMuted: data?.showMuted ?? false
-		});
-	}
-
 	function bidBookMakerHref(bid: ApiBiddingBidBookRow): string {
 		const bidScope = bidBookScopeForBid(bid);
 		const query = buildCollectionBiddingQuery({
@@ -187,8 +190,23 @@
 		return !!data?.chain && !!data.collection && !!displayedToken;
 	}
 
-	function shouldShowTokenBiddingForm(): boolean {
+	function shouldShowTokenBiddingAutomation(): boolean {
 		return !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && !!data?.chain && !!data.collection && !!displayedToken;
+	}
+
+	function onTokenBiddingJobChange(nextJob: ApiBiddingJob | null): void {
+		tokenBiddingJob = nextJob;
+	}
+
+	function resolveTokenBiddingDraft(): BiddingAutomationDraft | null {
+		if (tokenBiddingJob || !displayedToken) {
+			return null;
+		}
+		const topBid = bestBiddingAutomationBid(data?.tokenBiddingBidBook?.bids ?? []);
+		if (!topBid) {
+			return null;
+		}
+		return buildTokenBiddingAutomationDraftFromBid(topBid, displayedToken.tokenId);
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -409,20 +427,6 @@
 		};
 	}
 
-	function emptyBidBook(): ApiBiddingBidBook {
-		return {
-			state: {
-				source: 'orders',
-				updatedAt: null,
-				snapshotRefreshedAtMs: null,
-				projectedAt: null,
-				rowCount: 0,
-				durationMs: null,
-				lastError: null
-			},
-			bids: []
-		};
-	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -538,24 +542,30 @@
 
 		{#if shouldShowTokenBidBook()}
 			<BidBookPanel
-				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
-				job={data?.tokenBiddingJob ?? null}
+				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
+				job={tokenBiddingJob}
 				showScope
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}
 				makerBidHref={bidBookMakerHref}
+				showRowActions={false}
 			/>
 		{/if}
 
-		{#if shouldShowTokenBiddingForm()}
-			<TokenBiddingJobForm
+		{#if shouldShowTokenBiddingAutomation()}
+			<BiddingAutomationPanel
+				open
+				variant="inline"
 				chain={data?.chain ?? null}
 				collection={data?.collection ?? null}
 				token={displayedToken}
-				job={data?.tokenBiddingJob ?? null}
-				bidBook={data?.tokenBiddingBidBook ?? emptyBidBook()}
-				collectionBiddingHref={collectionBiddingHref()}
+				job={tokenBiddingJob}
+				draft={tokenBiddingDraft}
+				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
+				biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
+				priceTiers={data?.priceTiers ?? []}
+				onJobChange={onTokenBiddingJobChange}
 			/>
 		{/if}
 	{:else}

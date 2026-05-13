@@ -11,9 +11,11 @@ Current implementation:
 
 - the real bidding runtime runs from `trading/dist-desktop/bidding-bot-runtime.mjs`
 - declared bidding jobs are stored in SQLite
-- backend/Userland expose CRUD for token-scoped jobs
+- backend/Userland expose mutation paths for token, trait, and collection bidding jobs
 - running bots reconcile DB job commands without restart
 - bid-book UI reads either the bot snapshot projection or canonical orders fallback
+- Userland bidding automation can draft jobs from token cards, trait filters, collection bids, and bid-book rows
+- collection-scoped price tiers can resolve reusable floor/ceiling/delta settings into scalar job specs
 - sniping remains staged but not functionally ported
 
 ## Hard Invariants
@@ -60,11 +62,14 @@ Primary tables:
 - `trading_bidding_job_runtime_state`: bot-owned active-offer/runtime state for cancellation and diagnostics
 - `trading_job_commands`: durable Outbox for bot-side effects
 
-Implemented first-pass UI:
+Implemented bidding UI:
 
-- collection bidding page lists jobs for the collection and supports inline update/archive actions
-- token detail page supports create/update/archive for token-scoped jobs
-- collection-scoped and trait-scoped job creation UI is intentionally deferred
+- collection bidding offers page is the primary operations surface for bid display and job targeting
+- asks, tokens, and offers pages expose shared bidding target controls where write controls are allowed
+- token detail renders the shared bidding automation panel inline for exact-token jobs
+- jobs page remains a read-only diagnostics/overview surface
+- reusable automation panel supports create, modify, activate, pause, and archive across target kinds
+- price-tier panel supports collection-scoped tier settings, tier CRUD, ordering, and staged reapply
 
 Backend mutation contract:
 
@@ -122,6 +127,60 @@ Frontend labels:
 
 `competitive` means the bid book is refreshed at the bot's competitive snapshot cadence.
 `normal` means the bid book is refreshed through normal OpenSea order polling plus inbound stream updates.
+
+## Bidding Automation UI
+
+The bidding automation UI is a Userland control layer over declared DB jobs.
+It does not change the bot's market-decision logic.
+
+Targeting surfaces:
+
+- `asks` and `tokens`: draft token or trait jobs from the current token-browser context
+- `offers` / bid book: draft token, trait, or collection jobs from bid-book context
+- token detail: edit or create the exact-token job inline
+
+Target controls:
+
+- `bid on traits`: uses the current trait filter or selected trait bucket as the declared trait target
+- `bid on all tokens`: creates token jobs for every matching token across the full filtered result set
+- `bid on this page`: narrows token jobs to currently loaded token cards
+- `place collection bid`: creates or edits the collection-wide target
+- `tiers`: opens collection price-tier management
+
+Selection behavior:
+
+- token-card selection is opt-in and uses `Ctrl` + left click or middle click on non-link card areas
+- token-card links preserve browser-native `Ctrl` / middle-click new-tab behavior
+- selected-card state feeds the bidding draft, selected-count text, and card visuals from one controller
+
+Keyboard shortcuts:
+
+- `1` / `2` / `3` / `4`: asks / offers / tokens / bidding
+- `F`: trait filter panel
+- `S`: bid scope
+- `T`: price tiers
+- `B`: floating bidding panel collapse/expand
+- `C`: clear current bidding target
+
+Button focus behavior is centralized through the frontend pointer-focus-release helper so clicked controls do not trap later page hotkeys.
+
+## Price Tiers
+
+Price tiers are collection-scoped reusable pricing definitions.
+Jobs still store scalar `floor_wei`, `ceiling_wei`, and `delta_wei` for the bot.
+
+Implemented behavior:
+
+- root tiers are user-entered scalar floor values in Ether units
+- child tiers can derive floor/ceiling from parent or floor values by absolute or percent deltas
+- each tier owns its own delta
+- collection settings store the default new-tier delta and tier selector presentation mode
+- automation panel can select `manual` or a tier
+- selected tier pricing fills the panel with resolved floor, ceiling, and delta values
+- tier changes do not silently cascade into jobs
+- staged reapply previews affected tier-backed jobs and applies only explicitly selected changes
+
+Collection settings are stored through generic `collection_settings`; bidding owns typed setting keys but does not own a bidding-specific settings table.
 
 ## Orders Fallback
 
@@ -211,7 +270,7 @@ The indexer `OPENSEA_API_KEY` remains dedicated to indexer/offchain ingestion an
 ## Deferred Work
 
 - sniping runtime port
-- collection-scoped and trait-scoped job creation UI
 - persisted own-maker feedback for orders fallback `isOwn`
 - token-card best-bid projection, limited to tokens with active listings
 - real-time user-controlled WETH allowance updates
+- SQL-backed token-offer pagination for larger offer books

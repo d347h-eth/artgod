@@ -309,6 +309,15 @@ Initial use cases:
 - `ListCollectionBiddingBidBookUseCase`
 - `GetTokenBiddingBidBookUseCase`
 
+Expanded bidding automation use cases:
+
+- `UpsertTraitBiddingJobUseCase`
+- `UpsertCollectionBiddingJobUseCase`
+- `UpsertBatchTokenBiddingJobsUseCase`
+- `ArchiveBiddingJobUseCase`
+- price tier list/upsert/archive/reapply use cases
+- collection bidding settings use case
+
 Validation rules:
 
 - Resolve `chain_ref` through the existing chain resolver.
@@ -317,7 +326,8 @@ Validation rules:
 - `floorEth`, `ceilingEth`, and `deltaEth` must parse as positive Ether amounts.
 - `floorEth <= ceilingEth`.
 - `deltaEth > 0`.
-- For the first pass, token job CRUD must reject collection and trait target payloads rather than silently accepting incomplete shapes.
+- Token-specific routes still reject collection and trait target payloads rather than silently accepting incomplete shapes.
+- Trait and collection targets use their dedicated automation mutation routes.
 
 Mutation rules:
 
@@ -344,34 +354,33 @@ View:
 
 - `frontend/src/lib/components/CollectionBiddingView.svelte`
 
-The collection bidding page lists the bid book above existing jobs and allows quick inline actions:
+The collection bidding page lists the bid book above job diagnostics and exposes shared bidding operations:
 
-- inline edit `floorEth`
-- inline edit `ceilingEth`
-- inline edit `deltaEth`
-- inline status toggle when pause is introduced
-- save/cancel per row
-- archive/delete per row with confirmation
+- current bid-book display
+- contextual bidding target controls
+- shared automation panel for create/modify/pause/activate/archive
+- compact read-only jobs diagnostics page
 - token target rows link to token detail
 
-For the first pass, collection and competitive-trait jobs can be displayed if they exist, but their creation UI can wait.
+Inline per-row job edit forms were replaced by the shared automation panel in `docs/progress/trading/04-bidding-automation-ux-plan.md`.
 
 ### Token Detail Form
 
-Add a compact token-bidding management form near the bottom of the token detail page.
+Render the shared bidding automation panel near the bottom of the token detail page.
 
-The token detail page renders the bid book above the token job form because current bids are the primary user navigation surface.
+The token detail page renders the bid book above the inline panel because current bids are the primary user navigation surface.
 
-First-pass fields:
+Current fields and actions:
 
-- status display
+- target display
+- existing job metadata
 - `floorEth`
 - `ceilingEth`
 - `deltaEth`
-- save button
-- archive/delete button if a job exists
+- optional tier-derived pricing
+- create/modify/activate/pause/archive buttons
 
-This form should manage only `target.type = 'token'`.
+Token detail manages the exact token target.
 
 ### Reusable Bid Book Panel
 
@@ -503,13 +512,13 @@ Source selection:
 ### Slice 3: Userland Collection Bidding Page (done)
 
 - Add `bidding` tab after `customization`.
-- Add collection bidding jobs page.
-- Add inline edit/archive actions for existing jobs.
-- Keep collection and trait scoped creation out of scope.
+- Add collection bidding page with bid-book display.
+- Keep jobs page as read-only diagnostics after automation panel rollout.
+- Collection and trait scoped creation moved into the automation UX work.
 
 ### Slice 4: Token Detail Job Form (done)
 
-- Add token job form at the bottom of token detail.
+- Add shared inline bidding automation panel at the bottom of token detail.
 - Support create/update/archive for token jobs.
 - Keep form compact and fit-to-content.
 
@@ -551,5 +560,4 @@ Source selection:
 ## Open Questions
 
 - How much of the sniping runtime should reuse the bidding command/outbox implementation directly versus sharing only the generic trading job envelope?
-- When should collection-scoped and trait-scoped bidding job creation UI be added?
 - Should token-card best bids be materialized from the bid-book projection for listed tokens only, or should the UI request token bid books on demand?

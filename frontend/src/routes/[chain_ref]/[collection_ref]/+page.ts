@@ -1,7 +1,12 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionDetail } from '$lib/backend-api';
+import {
+	BackendApiError,
+	getCollectionBiddingPriceTiers,
+	getCollectionDetail
+} from '$lib/backend-api';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -53,7 +58,9 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			basePath: '/',
 			requestCursor: null,
 			tokenStatus: 'listed' as const,
-			displayMode: 'grid' as const
+			displayMode: 'grid' as const,
+			biddingSettings: defaultBiddingCollectionSettings(),
+			priceTiers: []
 		};
 	}
 	const tokenStatus = parseCollectionTokenStatus(url.searchParams.get('token_status'));
@@ -61,12 +68,10 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
 	try {
-		const response = await getCollectionDetail(
-			fetch,
-			params.chain_ref,
-			params.collection_ref,
-			query
-		);
+		const [response, priceTiersResponse] = await Promise.all([
+			getCollectionDetail(fetch, params.chain_ref, params.collection_ref, query),
+			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
+		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
@@ -78,7 +83,9 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			basePath: `/${response.chain.slug}/${response.collection.slug}`,
 			requestCursor: query.get('cursor') ?? null,
 			tokenStatus,
-			displayMode
+			displayMode,
+			biddingSettings: priceTiersResponse.settings,
+			priceTiers: priceTiersResponse.tiers
 		};
 	} catch (cause) {
 		toKitError(cause);

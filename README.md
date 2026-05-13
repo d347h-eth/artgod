@@ -23,6 +23,7 @@ Current implementation snapshot:
 - Desktop wallet custody is implemented with Rust-owned Ethereum keystore storage, native secret prompts, and one-shot stdin secret handoff into wallet-bound trading runtimes.
 - Bidding runtime is operational with DB-backed job management, secure wallet unlock, direct OpenSea bidding/snapshot lanes, WETH allowance bootstrap, and live command reconciliation.
 - Bid-book UI is implemented for collection bidding and token detail pages, sourcing from the live/fresh bot snapshot projection when bidding is active and from canonical orders otherwise.
+- Bidding automation UI is implemented for token, trait, and collection targets, with reusable token-card selection, contextual bid drafts, collection price tiers, staged tier reapply, and shared bidding panels.
 
 Canonical backlog and priorities live in `docs/progress/indexer/15-unified-backlog.md`.
 

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import CollectionDetailView from '$lib/components/CollectionDetailView.svelte';
 	import CollectionsPageView from '$lib/components/CollectionsPageView.svelte';
 	import type {
@@ -92,6 +93,7 @@
 		requestCursor={data.requestCursor ?? null}
 		tokenStatus={data.tokenStatus ?? 'listed'}
 		displayMode={data.displayMode ?? 'grid'}
+		biddingSettings={defaultBiddingCollectionSettings()}
 	/>
 {:else}
 	<CollectionsPageView

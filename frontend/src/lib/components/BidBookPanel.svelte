@@ -1,14 +1,25 @@
 <script lang="ts">
-	import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
+	import type {
+		ApiBiddingBidBook,
+		ApiBiddingBidBookRow,
+		ApiBiddingJob
+	} from '$lib/api-types';
+	import {
+		formatCompactTime,
+		formatRfc3339,
+		oppositeCompactTimeTitle,
+		type CompactTimeDisplayMode
+	} from '$lib/compact-time-display';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
-	type BidBookTimeMode = 'relative' | 'absolute';
+	type BidBookTimeMode = CompactTimeDisplayMode;
 	type BidBookPanelView = 'rows' | 'trait-demand';
 	type TraitFilterValue = {
 		key: string;
 		value: string;
 	};
+	type MaybePromise<T> = T | Promise<T>;
 	type BidBookDemandGroup = {
 		key: string;
 		label: string;
@@ -24,6 +35,15 @@
 		label: string;
 		count: number;
 	};
+	type BidBookTraitDemandBidSelection = {
+		bid: ApiBiddingBidBookRow;
+		traits: ApiBiddingBidBookRow['scope']['traits'];
+		label: string;
+	};
+	type OwnBidStatusBadge = {
+		kind: 'winning' | 'draw' | 'losing' | 'ceiling' | 'floor' | 'balance' | 'allowance';
+		label: string;
+	};
 
 	const WEI_PER_ETH = 1_000_000_000_000_000_000n;
 	const LOW_BID_MUTE_RATIO_DENOMINATOR = 10n;
@@ -32,6 +52,7 @@
 		bidBook,
 		job = null,
 		showScope = false,
+		showRowActions = true,
 		showMuted = false,
 		view = 'rows',
 		basePath = '/',
@@ -39,11 +60,14 @@
 		preferredDemandTraitKey = null,
 		traitValueHref = null,
 		makerFilterHref = null,
-		makerBidHref = null
+		makerBidHref = null,
+		onSelectTraitDemandBid = null,
+		onSelectBid = null
 	}: {
 		bidBook: ApiBiddingBidBook;
 		job?: ApiBiddingJob | null;
 		showScope?: boolean;
+		showRowActions?: boolean;
 		showMuted?: boolean;
 		view?: BidBookPanelView;
 		basePath?: string;
@@ -52,6 +76,10 @@
 		traitValueHref?: ((trait: TraitFilterValue) => string) | null;
 		makerFilterHref?: ((makerAddress: string) => string) | null;
 		makerBidHref?: ((bid: ApiBiddingBidBookRow) => string) | null;
+		onSelectTraitDemandBid?:
+			| ((selection: BidBookTraitDemandBidSelection) => MaybePromise<void>)
+			| null;
+		onSelectBid?: ((bid: ApiBiddingBidBookRow) => MaybePromise<void>) | null;
 	} = $props();
 
 	let placedAtMode = $state<BidBookTimeMode>('relative');
@@ -220,6 +248,14 @@
 		);
 	}
 
+	function makerDisplayLabel(bid: ApiBiddingBidBookRow): string {
+		return bid.maker.isOwn ? bid.maker.label : bid.maker.address;
+	}
+
+	function makerTitle(bid: ApiBiddingBidBookRow): string | undefined {
+		return bid.maker.isOwn ? bid.maker.address : undefined;
+	}
+
 	function makerHighlightKey(bid: ApiBiddingBidBookRow): string {
 		return bid.maker.address.toLowerCase();
 	}
@@ -234,6 +270,41 @@
 
 	function clearHighlightedMaker(): void {
 		highlightedMakerAddress = null;
+	}
+
+	function selectBid(bid: ApiBiddingBidBookRow): void {
+		void onSelectBid?.(bid);
+	}
+
+	function selectTraitDemandBid(group: BidBookDemandGroup): void {
+		if (onSelectTraitDemandBid) {
+			void onSelectTraitDemandBid({
+				bid: group.bestBid,
+				traits: group.traits,
+				label: group.label
+			});
+			return;
+		}
+		void onSelectBid?.(group.bestBid);
+	}
+
+	function placeBidLabel(label: string): string {
+		return `place bid on ${label}`;
+	}
+
+	function ownBidStatusBadges(
+		bid: ApiBiddingBidBookRow
+	): OwnBidStatusBadge[] {
+		if (!bid.maker.isOwn || !bid.ownStatus) {
+			return [];
+		}
+		return [
+			{ kind: bid.ownStatus.position, label: bid.ownStatus.position },
+			...bid.ownStatus.constraints.map((constraint) => ({
+				kind: constraint,
+				label: constraint
+			}))
+		];
 	}
 
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
@@ -597,32 +668,11 @@
 	}
 
 	function formatTime(valueMs: number | null, mode: BidBookTimeMode): string {
-		if (valueMs === null) return '-';
-		if (mode === 'absolute') return formatRfc3339(valueMs);
-		return formatRelativeTime(valueMs);
+		return formatCompactTime(valueMs, mode, nowMs);
 	}
 
 	function oppositeTimeTitle(valueMs: number | null, mode: BidBookTimeMode): string | undefined {
-		if (valueMs === null) return undefined;
-		return mode === 'relative' ? formatRfc3339(valueMs) : formatRelativeTime(valueMs);
-	}
-
-	function formatRfc3339(valueMs: number): string {
-		return new Date(valueMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
-	}
-
-	function formatRelativeTime(valueMs: number): string {
-		const diffSeconds = Math.round((valueMs - nowMs) / 1000);
-		const absoluteSeconds = Math.abs(diffSeconds);
-		if (absoluteSeconds < 5) return 'now';
-		if (absoluteSeconds < 60) return `${absoluteSeconds}s`;
-		if (absoluteSeconds < 3600) return `${Math.floor(absoluteSeconds / 60)}m`;
-		if (absoluteSeconds < 86_400) return `${Math.floor(absoluteSeconds / 3600)}h`;
-		return `${Math.floor(absoluteSeconds / 86_400)}d`;
-	}
-
-	function timeModeLabel(mode: BidBookTimeMode): string {
-		return mode === 'relative' ? 'rel' : 'abs';
+		return oppositeCompactTimeTitle(valueMs, mode, nowMs);
 	}
 
 	function togglePlacedAtMode(): void {
@@ -661,7 +711,7 @@
 <section class="runtime-section bid-book-summary-panel">
 	<div class="runtime-kv-grid bid-book-meta">
 		<div>
-			<span class="runtime-k">bids source</span>
+			<span class="runtime-k">refresh pace</span>
 			<span class="runtime-v" title={sourceTitle(bidBook.state.source)}>
 				{sourceLabel(bidBook.state.source)}
 			</span>
@@ -719,25 +769,23 @@
 						<th class="bid-book-col-right">price</th>
 						<th class="bid-book-col-center">maker</th>
 						<th class="bid-book-time-header bid-book-col-center">
-							<span>placed</span>
 							<button
 								type="button"
 								class="activities-time-mode-button"
 								aria-label="toggle placed-at time mode"
 								onclick={togglePlacedAtMode}
 							>
-								{timeModeLabel(placedAtMode)}
+								placed
 							</button>
 						</th>
 						<th class="bid-book-time-header bid-book-col-center">
-							<span>valid</span>
 							<button
 								type="button"
 								class="activities-time-mode-button"
 								aria-label="toggle valid-until time mode"
 								onclick={toggleValidUntilMode}
 							>
-								{timeModeLabel(validUntilMode)}
+								valid
 							</button>
 						</th>
 					</tr>
@@ -807,6 +855,17 @@
 											</div>
 										</div>
 									{/if}
+									{#if onSelectBid}
+										<button
+											type="button"
+											class="bid-book-place-bid-icon-button"
+											aria-label={placeBidLabel(group.label)}
+											title={placeBidLabel(group.label)}
+											onclick={() => selectTraitDemandBid(group)}
+										>
+											bid
+										</button>
+									{/if}
 								</div>
 							</td>
 						</tr>
@@ -815,6 +874,7 @@
 							{@const validUntil = validUntilMs(bid)}
 							{@const bidMuted = isMutedDemandBid(group, bid)}
 							{@const quantityPrefix = formatQuantityPrefix(bid)}
+							{@const ownBadges = ownBidStatusBadges(bid)}
 							{#if startsNewDemandDisplayedBidSection(group, index, groupBucketStepWei)}
 								<tr class="bid-book-bucket-spacer" aria-hidden="true">
 									<td colspan={4}></td>
@@ -845,9 +905,15 @@
 										onpointerleave={clearHighlightedMaker}
 										onfocus={() => setHighlightedMaker(bid)}
 										onblur={clearHighlightedMaker}
+										title={makerTitle(bid)}
 									>
-										{bid.maker.address}
+										{makerDisplayLabel(bid)}
 									</a>
+									{#each ownBadges as badge (`${badge.kind}:${badge.label}`)}
+										<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
+											{badge.label}
+										</span>
+									{/each}
 								</td>
 								<td class="mono bid-book-col-center" title={oppositeTimeTitle(placedAt, placedAtMode)}>
 									{formatTime(placedAt, placedAtMode)}
@@ -874,25 +940,23 @@
 						{/if}
 						<th class="bid-book-col-center">maker</th>
 						<th class="bid-book-time-header bid-book-col-center">
-							<span>placed</span>
 							<button
 								type="button"
 								class="activities-time-mode-button"
 								aria-label="toggle placed-at time mode"
 								onclick={togglePlacedAtMode}
 							>
-								{timeModeLabel(placedAtMode)}
+								placed
 							</button>
 						</th>
 						<th class="bid-book-time-header bid-book-col-center">
-							<span>valid</span>
 							<button
 								type="button"
 								class="activities-time-mode-button"
 								aria-label="toggle valid-until time mode"
 								onclick={toggleValidUntilMode}
 							>
-								{timeModeLabel(validUntilMode)}
+								valid
 							</button>
 						</th>
 					</tr>
@@ -903,6 +967,7 @@
 						{@const validUntil = validUntilMs(bid)}
 						{@const bidMuted = isMutedBidInRows(displayedBids, bid)}
 						{@const quantityPrefix = formatQuantityPrefix(bid)}
+						{@const ownBadges = ownBidStatusBadges(bid)}
 						{#if startsNewBidBucket(displayedBids, index) && !shouldHideMutedBid(bidMuted)}
 							<tr class="bid-book-bucket-spacer" aria-hidden="true">
 								<td colspan={bidBookColumnCount()}></td>
@@ -924,6 +989,15 @@
 									</span>
 									<span class="bid-book-price-amount">{formatPriceAmount(bid)}</span>
 								</span>
+								{#if onSelectBid && showRowActions}
+									<button
+										type="button"
+										class="button-link bid-book-row-action"
+										onclick={() => selectBid(bid)}
+									>
+										use
+									</button>
+								{/if}
 							</td>
 							{#if showScope}
 								<td class="bid-book-col-center">
@@ -938,9 +1012,15 @@
 									onpointerleave={clearHighlightedMaker}
 									onfocus={() => setHighlightedMaker(bid)}
 									onblur={clearHighlightedMaker}
+									title={makerTitle(bid)}
 								>
-									{bid.maker.address}
+									{makerDisplayLabel(bid)}
 								</a>
+								{#each ownBadges as badge (`${badge.kind}:${badge.label}`)}
+									<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
+										{badge.label}
+									</span>
+								{/each}
 							</td>
 							<td class="mono bid-book-col-center" title={oppositeTimeTitle(placedAt, placedAtMode)}>
 								{formatTime(placedAt, placedAtMode)}

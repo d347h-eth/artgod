@@ -3,11 +3,13 @@ import type {
     BiddingJobsRepositoryPort,
     UpsertTokenBiddingJobInput as PersistedUpsertTokenBiddingJobInput,
 } from "./ports.js";
+import {
+    resolveBiddingJobPricing,
+    type BiddingJobPriceTierReadPort,
+} from "./bidding-job-pricing.js";
 import type { UpsertTokenBiddingJobOutput } from "./types.js";
 import {
-    assertFloorNotAboveCeiling,
     mapPersistedTokenBiddingJobToView,
-    parsePositiveEthToWei,
     type TokenBiddingJobMutationStatus,
 } from "./types.js";
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
@@ -18,9 +20,10 @@ export type UpsertTokenBiddingJobInput = {
     collectionRef: string;
     tokenRef: string;
     status: TokenBiddingJobMutationStatus;
-    floorEth: string;
-    ceilingEth: string;
+    floorEth?: string;
+    ceilingEth?: string;
     deltaEth: string;
+    priceTierId?: string | null;
 };
 
 export class UpsertTokenBiddingJobUseCase {
@@ -47,6 +50,7 @@ export class UpsertTokenBiddingJobUseCase {
             BiddingJobsRepositoryPort,
             "upsertTokenJob"
         >,
+        readonly biddingPriceTiersRepositoryPort: BiddingJobPriceTierReadPort,
         readonly tradingJobCommandSignalPort: TradingJobCommandSignalPort,
     ) {}
 
@@ -70,23 +74,24 @@ export class UpsertTokenBiddingJobUseCase {
             tokenId: input.tokenRef,
         });
 
-        // Normalize the human-readable Ether inputs into canonical wei strings.
-        const floorWei = parsePositiveEthToWei(input.floorEth, "floorEth");
-        const ceilingWei = parsePositiveEthToWei(
-            input.ceilingEth,
-            "ceilingEth",
-        );
-        const deltaWei = parsePositiveEthToWei(input.deltaEth, "deltaEth");
-        assertFloorNotAboveCeiling(floorWei, ceilingWei);
+        // Resolve manual or tier-backed pricing into bot-facing scalar wei values.
+        const pricing = resolveBiddingJobPricing({
+            chainId: chain.publicChainId,
+            collectionId: collection.collectionId,
+            input,
+            priceTierReadPort: this.biddingPriceTiersRepositoryPort,
+        });
 
         const persistedInput: PersistedUpsertTokenBiddingJobInput = {
             chainId: chain.publicChainId,
             collectionId: collection.collectionId,
             tokenId: token.tokenId,
             status: input.status,
-            floorWei,
-            ceilingWei,
-            deltaWei,
+            floorWei: pricing.floorWei,
+            ceilingWei: pricing.ceilingWei,
+            deltaWei: pricing.deltaWei,
+            priceTierId: pricing.priceTierId,
+            pricingSource: pricing.pricingSource,
         };
         // Persist the desired job state and enqueue the matching Outbox command.
         const result = this.biddingJobsRepositoryPort.upsertTokenJob(

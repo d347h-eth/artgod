@@ -3,9 +3,11 @@ import type { PageLoad } from './$types';
 import {
 	BackendApiError,
 	getCollectionBiddingBidBook,
-	getCollectionBiddingJobs
+	getCollectionBiddingJobs,
+	getCollectionBiddingPriceTiers
 } from '$lib/backend-api';
 import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	parseCollectionBiddingBidScopeFilter,
@@ -41,6 +43,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			chain: null,
 			collection: null,
 			jobs: [],
+			biddingSettings: defaultBiddingCollectionSettings(),
+			priceTiers: [],
 			bidBook: {
 				state: {
 					source: 'orders',
@@ -51,6 +55,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 					durationMs: null,
 					lastError: null
 				},
+				ownMakerAddress: null,
 				bids: []
 			},
 			tokenOfferCards: emptyBiddingTokenOfferCardsPage(),
@@ -84,14 +89,17 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 
 	try {
 		// Load the authoritative jobs and source-selected bid book for this collection.
-		const [response, bidBookResponse] = await Promise.all([
+		const [response, bidBookResponse, priceTiersResponse] = await Promise.all([
 			getCollectionBiddingJobs(fetch, params.chain_ref, params.collection_ref, url.searchParams),
-			getCollectionBiddingBidBook(fetch, params.chain_ref, params.collection_ref, url.searchParams)
+			getCollectionBiddingBidBook(fetch, params.chain_ref, params.collection_ref, url.searchParams),
+			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
 		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
 			jobs: response.jobs,
+			biddingSettings: priceTiersResponse.settings,
+			priceTiers: priceTiersResponse.tiers,
 			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,

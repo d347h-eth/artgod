@@ -1,8 +1,12 @@
 import type {
     PersistedBiddingJobRecord,
+    PersistedCollectionBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
+    TradingBiddingJobTargetDescriptor,
+    TradingBiddingJobPricingSource,
     TradingJobCommandRecord,
     TradingJobStatus,
+    TradingTraitCriterion,
 } from "@artgod/shared/types";
 
 export type UpsertTokenBiddingJobInput = {
@@ -13,6 +17,32 @@ export type UpsertTokenBiddingJobInput = {
     floorWei: string;
     ceilingWei: string;
     deltaWei: string;
+    priceTierId?: string | null;
+    pricingSource?: TradingBiddingJobPricingSource | null;
+};
+
+export type UpsertCollectionBiddingJobInput = {
+    chainId: number;
+    collectionId: number;
+    status: Exclude<TradingJobStatus, "archived">;
+    floorWei: string;
+    ceilingWei: string;
+    deltaWei: string;
+    priceTierId?: string | null;
+    pricingSource?: TradingBiddingJobPricingSource | null;
+    quantity: number;
+    targetTraits: TradingTraitCriterion[];
+};
+
+export type UpdateBiddingJobPricingByIdInput = {
+    chainId: number;
+    collectionId: number;
+    jobId: string;
+    floorWei: string;
+    ceilingWei: string;
+    deltaWei: string;
+    priceTierId: string | null;
+    pricingSource: TradingBiddingJobPricingSource;
 };
 
 export interface BiddingJobsRepositoryPort {
@@ -28,10 +58,28 @@ export interface BiddingJobsRepositoryPort {
         includeArchived?: boolean;
     }): PersistedTokenBiddingJobRecord | null;
     getJobById(jobId: string): PersistedBiddingJobRecord | null;
+    findJobByTarget(params: {
+        chainId: number;
+        collectionId: number;
+        target: TradingBiddingJobTargetDescriptor;
+        includeArchived?: boolean;
+    }): PersistedBiddingJobRecord | null;
     upsertTokenJob(
         input: UpsertTokenBiddingJobInput,
     ): {
         job: PersistedTokenBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    };
+    upsertTokenJobs(
+        inputs: UpsertTokenBiddingJobInput[],
+    ): {
+        jobs: PersistedTokenBiddingJobRecord[];
+        commands: TradingJobCommandRecord[];
+    };
+    upsertCollectionJob(
+        input: UpsertCollectionBiddingJobInput,
+    ): {
+        job: PersistedCollectionBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     };
     archiveTokenJob(params: {
@@ -42,6 +90,20 @@ export interface BiddingJobsRepositoryPort {
         job: PersistedTokenBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } | null;
+    archiveJobById(params: {
+        chainId: number;
+        collectionId: number;
+        jobId: string;
+    }): {
+        job: PersistedBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    } | null;
+    updateJobsPricingById(
+        inputs: UpdateBiddingJobPricingByIdInput[],
+    ): {
+        jobs: PersistedBiddingJobRecord[];
+        commands: TradingJobCommandRecord[];
+    };
     listPendingCommands(params: {
         limit: number;
     }): TradingJobCommandRecord[];

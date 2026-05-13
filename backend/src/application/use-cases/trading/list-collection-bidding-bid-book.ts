@@ -1,10 +1,7 @@
-import {
-    renderTraitSummaryTemplate,
-    TRADING_BIDDING_BID_SCOPE_KIND,
-    type ChainRecord,
-    type CollectionListItem,
-    type TokenAttribute,
-    type TokenCard,
+import type {
+    ChainRecord,
+    CollectionListItem,
+    TokenCard,
 } from "@artgod/shared/types";
 import {
     decodeOpaqueCursor,
@@ -24,13 +21,18 @@ import type {
     CollectionBiddingTraitFilterJoinMode,
     ListCollectionBiddingBidBookOutput,
     PersistedBiddingBidBook,
-    PersistedBiddingBidBookRow,
 } from "./bidding-bid-book.js";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     mapPersistedBidBookToView,
     mapPersistedBidRowsToView,
 } from "./bidding-bid-book.js";
+import {
+    buildPersistedTokenOfferCards,
+    buildTokenOfferGroups,
+    sortTokenIdsByTopOffer,
+    type PersistedTokenOfferCard,
+} from "./bidding-token-offer-cards.js";
 export type { ListCollectionBiddingBidBookOutput } from "./bidding-bid-book.js";
 
 export type ListCollectionBiddingBidBookInput = {
@@ -167,6 +169,7 @@ export class ListCollectionBiddingBidBookUseCase {
             input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
                 ? {
                       state: persistedBidBook.state,
+                      ownMakerAddress: persistedBidBook.ownMakerAddress,
                       bids: pageCards.flatMap((card) => card.persistedOffers),
                   }
                 : persistedBidBook;
@@ -194,11 +197,10 @@ export class ListCollectionBiddingBidBookUseCase {
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
     }): PersistedTokenOfferCard[] {
-        const topCollectionBidWei = topBidPriceWei(params.collectionBidBook.bids);
-        const offersByTokenId = groupTokenOffers(
-            params.tokenBidBook.bids,
-            topCollectionBidWei,
-        );
+        const offersByTokenId = buildTokenOfferGroups({
+            tokenBids: params.tokenBidBook.bids,
+            collectionBids: params.collectionBidBook.bids,
+        });
         const tokenIds = sortTokenIdsByTopOffer(offersByTokenId);
         if (tokenIds.length === 0) {
             return [];
@@ -218,30 +220,12 @@ export class ListCollectionBiddingBidBookUseCase {
                 collectionId: params.collectionId,
             });
 
-        return tokenCards.flatMap((token) => {
-            const offers = offersByTokenId.get(token.tokenId) ?? [];
-            if (
-                offers.length === 0 ||
-                !tokenMatchesTraitFilters(
-                    token,
-                    params.selectedTraits,
-                    params.selectedTraitRanges,
-                )
-            ) {
-                return [];
-            }
-            return [
-                {
-                    token: {
-                        ...token,
-                        traitSummary: renderTraitSummaryTemplate(
-                            traitSummaryTemplate.effectiveConfig.template,
-                            token.attributes,
-                        ),
-                    },
-                    persistedOffers: offers,
-                },
-            ];
+        return buildPersistedTokenOfferCards({
+            tokenCards,
+            offersByTokenId,
+            selectedTraits: params.selectedTraits,
+            selectedTraitRanges: params.selectedTraitRanges,
+            traitSummaryTemplate: traitSummaryTemplate.effectiveConfig.template,
         });
     }
 }
@@ -256,11 +240,6 @@ type PersistedTokenOfferCardsPage = Omit<
 type TokenOfferCursor = {
     kind: "bidding_token_offers";
     offset: number;
-};
-
-type PersistedTokenOfferCard = {
-    token: TokenCard;
-    persistedOffers: PersistedBiddingBidBookRow[];
 };
 
 function emptyTokenOfferCardsPage(limit: number): PersistedTokenOfferCardsPage {
@@ -360,143 +339,4 @@ function encodeTokenOfferCursor(offset: number): string {
         kind: "bidding_token_offers",
         offset,
     } satisfies TokenOfferCursor);
-}
-
-function groupTokenOffers(
-    bids: PersistedBiddingBidBookRow[],
-    topCollectionBidWei: bigint | null,
-): Map<string, PersistedBiddingBidBookRow[]> {
-    const grouped = new Map<string, PersistedBiddingBidBookRow[]>();
-    for (const bid of bids) {
-        if (
-            bid.scopeKind !== TRADING_BIDDING_BID_SCOPE_KIND.Token ||
-            !bid.tokenId ||
-            !tokenOfferPassesCollectionBidFloor(bid, topCollectionBidWei)
-        ) {
-            continue;
-        }
-        const offers = grouped.get(bid.tokenId) ?? [];
-        offers.push(bid);
-        grouped.set(bid.tokenId, offers);
-    }
-
-    for (const [tokenId, offers] of grouped) {
-        grouped.set(tokenId, sortOffersByPriceDesc(offers));
-    }
-    return grouped;
-}
-
-function tokenOfferPassesCollectionBidFloor(
-    bid: PersistedBiddingBidBookRow,
-    topCollectionBidWei: bigint | null,
-): boolean {
-    if (topCollectionBidWei === null || topCollectionBidWei <= 0n) {
-        return true;
-    }
-    return BigInt(bid.priceWei) * 10n >= topCollectionBidWei;
-}
-
-function topBidPriceWei(bids: PersistedBiddingBidBookRow[]): bigint | null {
-    let top: bigint | null = null;
-    for (const bid of bids) {
-        const price = BigInt(bid.priceWei);
-        if (top === null || price > top) {
-            top = price;
-        }
-    }
-    return top;
-}
-
-function sortTokenIdsByTopOffer(
-    offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>,
-): string[] {
-    return [...offersByTokenId.entries()]
-        .sort((left, right) => {
-            const leftTop = topOfferPrice(left[1]);
-            const rightTop = topOfferPrice(right[1]);
-            if (leftTop === rightTop) {
-                return left[0].localeCompare(right[0], undefined, {
-                    numeric: true,
-                });
-            }
-            return leftTop > rightTop ? -1 : 1;
-        })
-        .map(([tokenId]) => tokenId);
-}
-
-function topOfferPrice(offers: PersistedBiddingBidBookRow[]): bigint {
-    return offers.length === 0 ? 0n : BigInt(offers[0].priceWei);
-}
-
-function sortOffersByPriceDesc(
-    offers: PersistedBiddingBidBookRow[],
-): PersistedBiddingBidBookRow[] {
-    return [...offers].sort((left, right) => {
-        const leftPrice = BigInt(left.priceWei);
-        const rightPrice = BigInt(right.priceWei);
-        if (leftPrice === rightPrice) {
-            return left.orderId.localeCompare(right.orderId);
-        }
-        return leftPrice > rightPrice ? -1 : 1;
-    });
-}
-
-function tokenMatchesTraitFilters(
-    token: TokenCard,
-    selectedTraits: TraitFilter[],
-    selectedTraitRanges: TraitRangeFilter[],
-): boolean {
-    return (
-        tokenMatchesExactTraitFilters(token.attributes, selectedTraits) &&
-        tokenMatchesRangeTraitFilters(token.attributes, selectedTraitRanges)
-    );
-}
-
-function tokenMatchesExactTraitFilters(
-    attributes: TokenAttribute[],
-    selectedTraits: TraitFilter[],
-): boolean {
-    const selectedByKey = new Map<string, Set<string>>();
-    for (const trait of selectedTraits) {
-        const values = selectedByKey.get(trait.key) ?? new Set<string>();
-        values.add(trait.value);
-        selectedByKey.set(trait.key, values);
-    }
-
-    for (const [key, values] of selectedByKey) {
-        const hasMatch = attributes.some(
-            (attribute) => attribute.key === key && values.has(attribute.value),
-        );
-        if (!hasMatch) {
-            return false;
-        }
-    }
-    return true;
-}
-
-function tokenMatchesRangeTraitFilters(
-    attributes: TokenAttribute[],
-    selectedTraitRanges: TraitRangeFilter[],
-): boolean {
-    return selectedTraitRanges.every((range) =>
-        attributes.some(
-            (attribute) =>
-                attribute.key === range.key &&
-                traitValueWithinRange(attribute.value, range),
-        ),
-    );
-}
-
-function traitValueWithinRange(value: string, range: TraitRangeFilter): boolean {
-    if (!/^\d+$/.test(value)) {
-        return false;
-    }
-    const numeric = BigInt(value);
-    if (range.fromValue !== null && numeric < BigInt(range.fromValue)) {
-        return false;
-    }
-    if (range.toValue !== null && numeric > BigInt(range.toValue)) {
-        return false;
-    }
-    return true;
 }

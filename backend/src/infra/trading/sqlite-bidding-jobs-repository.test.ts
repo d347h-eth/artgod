@@ -6,6 +6,7 @@ import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
@@ -71,6 +72,10 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(result.job.collectionOpenseaSlug, "terraforms");
         assert.equal(result.job.collectionAddress, "0x1111111111111111111111111111111111111111");
         assert.equal(result.job.tokenId, "123");
+        assert.equal(result.job.priceTierId, null);
+        assert.deepEqual(result.job.pricingSource, {
+            kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+        });
         assert.equal(result.job.revision, 1);
         assert.equal(result.job.runtime, null);
 
@@ -100,6 +105,145 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(
             pendingCommands[0]?.commandKind,
             TRADING_JOB_COMMAND_KIND.JobCreated,
+        );
+    });
+
+    it("persists tier-backed pricing metadata beside scalar token job prices", () => {
+        const repository = new SqliteBiddingJobsRepository();
+
+        const result = repository.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "123",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "120000000000000000",
+            ceilingWei: "150000000000000000",
+            deltaWei: "10000000000000000",
+            priceTierId: "tier-base",
+            pricingSource: {
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+                tierId: "tier-base",
+                tierName: "base",
+                resolvedAt: "2026-01-01T00:00:00Z",
+                resolvedFloorWei: "120000000000000000",
+                resolvedCeilingWei: "150000000000000000",
+                deltaWei: "10000000000000000",
+            },
+        });
+
+        assert.equal(result.job.priceTierId, "tier-base");
+        assert.deepEqual(result.job.pricingSource, {
+            kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+            tierId: "tier-base",
+            tierName: "base",
+            resolvedAt: "2026-01-01T00:00:00Z",
+            resolvedFloorWei: "120000000000000000",
+            resolvedCeilingWei: "150000000000000000",
+            deltaWei: "10000000000000000",
+        });
+    });
+
+    it("reapplies tier-backed pricing by job id and emits a normal update command", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const created = repository.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "123",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "120000000000000000",
+            ceilingWei: "150000000000000000",
+            deltaWei: "10000000000000000",
+            priceTierId: "tier-base",
+            pricingSource: {
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+                tierId: "tier-base",
+                tierName: "base",
+                resolvedAt: "2026-01-01T00:00:00Z",
+                resolvedFloorWei: "120000000000000000",
+                resolvedCeilingWei: "150000000000000000",
+                deltaWei: "10000000000000000",
+            },
+        });
+
+        const result = repository.updateJobsPricingById([
+            {
+                chainId: 1,
+                collectionId,
+                jobId: created.job.jobId,
+                floorWei: "130000000000000000",
+                ceilingWei: "160000000000000000",
+                deltaWei: "10000000000000000",
+                priceTierId: "tier-base",
+                pricingSource: {
+                    kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+                    tierId: "tier-base",
+                    tierName: "base",
+                    resolvedAt: "2026-01-02T00:00:00Z",
+                    resolvedFloorWei: "130000000000000000",
+                    resolvedCeilingWei: "160000000000000000",
+                    deltaWei: "10000000000000000",
+                },
+            },
+        ]);
+
+        assert.equal(result.jobs.length, 1);
+        assert.equal(result.jobs[0]?.jobId, created.job.jobId);
+        assert.equal(result.jobs[0]?.revision, 2);
+        assert.equal(result.jobs[0]?.floorWei, "130000000000000000");
+        assert.deepEqual(result.jobs[0]?.pricingSource, {
+            kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
+            tierId: "tier-base",
+            tierName: "base",
+            resolvedAt: "2026-01-02T00:00:00Z",
+            resolvedFloorWei: "130000000000000000",
+            resolvedCeilingWei: "160000000000000000",
+            deltaWei: "10000000000000000",
+        });
+        assert.deepEqual(
+            result.commands.map((command) => command.commandKind),
+            [TRADING_JOB_COMMAND_KIND.JobUpdated],
+        );
+        assert.equal(result.commands[0]?.requestedRevision, 2);
+    });
+
+    it("creates multiple token bidding jobs in one batch transaction", () => {
+        const repository = new SqliteBiddingJobsRepository();
+
+        const result = repository.upsertTokenJobs([
+            {
+                chainId: 1,
+                collectionId,
+                tokenId: "123",
+                status: TRADING_JOB_STATUS.Enabled,
+                floorWei: "100000000000000000",
+                ceilingWei: "200000000000000000",
+                deltaWei: "1000000000000000",
+            },
+            {
+                chainId: 1,
+                collectionId,
+                tokenId: "456",
+                status: TRADING_JOB_STATUS.Enabled,
+                floorWei: "100000000000000000",
+                ceilingWei: "200000000000000000",
+                deltaWei: "1000000000000000",
+            },
+        ]);
+
+        assert.deepEqual(
+            result.jobs.map((job) => job.tokenId),
+            ["123", "456"],
+        );
+        assert.deepEqual(
+            result.commands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobCreated,
+                TRADING_JOB_COMMAND_KIND.JobCreated,
+            ],
+        );
+        assert.equal(
+            repository.listCollectionJobs({ chainId: 1, collectionId }).length,
+            2,
         );
     });
 
@@ -170,6 +314,188 @@ describe("SqliteBiddingJobsRepository", () => {
             [
                 TRADING_JOB_COMMAND_KIND.JobCreated,
                 TRADING_JOB_COMMAND_KIND.JobPaused,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            ],
+        );
+    });
+
+    it("creates and updates a trait-scoped collection bidding job", () => {
+        const repository = new SqliteBiddingJobsRepository();
+
+        const created = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100000000000000000",
+            ceilingWei: "200000000000000000",
+            deltaWei: "1000000000000000",
+            quantity: 1,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Biome", value: "42" },
+            ],
+        });
+
+        assert.equal(created.job.targetKind, TRADING_JOB_TARGET_KIND.Collection);
+        assert.equal(created.job.quantity, 1);
+        assert.deepEqual(created.job.targetTraits, [
+            { type: "Biome", value: "42" },
+            { type: "Mode", value: "Terrain" },
+        ]);
+        assert.equal(created.commands.length, 1);
+        assert.equal(
+            created.commands[0]?.commandKind,
+            TRADING_JOB_COMMAND_KIND.JobCreated,
+        );
+
+        const updated = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Paused,
+            floorWei: "120000000000000000",
+            ceilingWei: "240000000000000000",
+            deltaWei: "2000000000000000",
+            quantity: 1,
+            targetTraits: [
+                { type: "Biome", value: "42" },
+                { type: "Mode", value: "Terrain" },
+            ],
+        });
+
+        assert.equal(updated.job.jobId, created.job.jobId);
+        assert.equal(updated.job.revision, 2);
+        assert.equal(updated.job.status, TRADING_JOB_STATUS.Paused);
+        assert.equal(updated.job.floorWei, "120000000000000000");
+        assert.deepEqual(
+            updated.commands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobPaused,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            ],
+        );
+
+        const listed = repository.listCollectionJobs({
+            chainId: 1,
+            collectionId,
+        });
+        assert.equal(listed.length, 1);
+        assert.equal(listed[0]?.jobId, created.job.jobId);
+    });
+
+    it("resolves existing jobs by canonical target equivalence", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const tokenJob = repository.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "123",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100000000000000000",
+            ceilingWei: "200000000000000000",
+            deltaWei: "1000000000000000",
+        });
+        const traitJob = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100000000000000000",
+            ceilingWei: "200000000000000000",
+            deltaWei: "1000000000000000",
+            quantity: 2,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Biome", value: "42" },
+            ],
+        });
+
+        const foundToken = repository.findJobByTarget({
+            chainId: 1,
+            collectionId,
+            target: {
+                targetKind: TRADING_JOB_TARGET_KIND.Token,
+                tokenId: "123",
+            },
+        });
+        assert.equal(foundToken?.jobId, tokenJob.job.jobId);
+
+        const foundTrait = repository.findJobByTarget({
+            chainId: 1,
+            collectionId,
+            target: {
+                targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                quantity: 2,
+                targetTraits: [
+                    { type: "Biome", value: "42" },
+                    { type: "Mode", value: "Terrain" },
+                ],
+            },
+        });
+        assert.equal(foundTrait?.jobId, traitJob.job.jobId);
+
+        const wrongQuantity = repository.findJobByTarget({
+            chainId: 1,
+            collectionId,
+            target: {
+                targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                quantity: 1,
+                targetTraits: [
+                    { type: "Biome", value: "42" },
+                    { type: "Mode", value: "Terrain" },
+                ],
+            },
+        });
+        assert.equal(wrongQuantity, null);
+    });
+
+    it("archives a collection bidding job by id and emits archive plus cancel commands", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const created = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100000000000000000",
+            ceilingWei: "200000000000000000",
+            deltaWei: "1000000000000000",
+            quantity: 1,
+            targetTraits: [{ type: "Biome", value: "42" }],
+        });
+
+        const archived = repository.archiveJobById({
+            chainId: 1,
+            collectionId,
+            jobId: created.job.jobId,
+        });
+
+        assert.ok(archived);
+        assert.equal(archived?.job.jobId, created.job.jobId);
+        assert.equal(archived?.job.status, TRADING_JOB_STATUS.Archived);
+        assert.equal(archived?.job.revision, 2);
+        assert.deepEqual(
+            archived?.commands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobArchived,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            ],
+        );
+
+        assert.equal(
+            repository.findJobByTarget({
+                chainId: 1,
+                collectionId,
+                target: {
+                    targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                    quantity: 1,
+                    targetTraits: [{ type: "Biome", value: "42" }],
+                },
+            }),
+            null,
+        );
+
+        const pendingCommands = repository.listPendingCommands({ limit: 10 });
+        assert.deepEqual(
+            pendingCommands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobCreated,
+                TRADING_JOB_COMMAND_KIND.JobArchived,
                 TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
             ],
         );

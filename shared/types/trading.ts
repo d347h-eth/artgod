@@ -91,6 +91,211 @@ export type TradingTraitCriterion = {
     value: string;
 };
 
+export type TradingBiddingJobTargetDescriptor =
+    | {
+          targetKind: typeof TRADING_JOB_TARGET_KIND.Token;
+          tokenId: string;
+      }
+    | {
+          targetKind: typeof TRADING_JOB_TARGET_KIND.Collection;
+          quantity: number;
+          targetTraits: TradingTraitCriterion[];
+      }
+    | {
+          targetKind: typeof TRADING_JOB_TARGET_KIND.CompetitiveTrait;
+          quantity: number;
+          targetTraits: TradingTraitCriterion[];
+          competitorTraits: TradingTraitCriterion[];
+      };
+
+// Normalizes trait criteria before target comparison or persistence.
+export function normalizeTradingTraitCriteria(
+    traits: TradingTraitCriterion[],
+): TradingTraitCriterion[] {
+    return [...traits]
+        .map((trait) => ({
+            type: trait.type.trim(),
+            value: trait.value.trim(),
+        }))
+        .sort(compareTradingTraitCriteria);
+}
+
+// Builds a stable key for comparing unordered trait criteria.
+export function tradingTraitCriteriaKey(
+    traits: TradingTraitCriterion[],
+): string {
+    return normalizeTradingTraitCriteria(traits)
+        .map((trait) => `${trait.type}\u0000${trait.value}`)
+        .join("\u0001");
+}
+
+// Builds the canonical identity key for one declared bidding target.
+export function tradingBiddingJobTargetKey(
+    target: TradingBiddingJobTargetDescriptor,
+): string {
+    if (target.targetKind === TRADING_JOB_TARGET_KIND.Token) {
+        return `${target.targetKind}\u0002${target.tokenId.trim()}`;
+    }
+
+    if (target.targetKind === TRADING_JOB_TARGET_KIND.Collection) {
+        return [
+            target.targetKind,
+            String(target.quantity),
+            tradingTraitCriteriaKey(target.targetTraits),
+        ].join("\u0002");
+    }
+
+    return [
+        target.targetKind,
+        String(target.quantity),
+        tradingTraitCriteriaKey(target.targetTraits),
+        tradingTraitCriteriaKey(target.competitorTraits),
+    ].join("\u0002");
+}
+
+function compareTradingTraitCriteria(
+    left: TradingTraitCriterion,
+    right: TradingTraitCriterion,
+): number {
+    const typeCompare = left.type.localeCompare(right.type);
+    return typeCompare === 0
+        ? left.value.localeCompare(right.value)
+        : typeCompare;
+}
+
+// Reuses the enabled/paused/archived lifecycle for collection bidding price tiers.
+export type TradingBiddingPriceTierStatus = TradingJobStatus;
+
+export const TRADING_BIDDING_PRICE_TIER_DELTA_KIND = {
+    Absolute: "absolute",
+    Percent: "percent",
+} as const;
+
+export type TradingBiddingPriceTierDeltaKind =
+    (typeof TRADING_BIDDING_PRICE_TIER_DELTA_KIND)[keyof typeof TRADING_BIDDING_PRICE_TIER_DELTA_KIND];
+
+export const TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND = {
+    Fixed: "fixed",
+    ParentDelta: "parent_delta",
+} as const;
+
+export type TradingBiddingPriceTierFloorConfigKind =
+    (typeof TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND)[keyof typeof TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND];
+
+export const TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND = {
+    Fixed: "fixed",
+    FloorDelta: "floor_delta",
+    ParentDelta: "parent_delta",
+} as const;
+
+export type TradingBiddingPriceTierCeilingConfigKind =
+    (typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND)[keyof typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND];
+
+// Default fixed bid increment used when a collection has not customized bidding settings yet.
+export const DEFAULT_TRADING_BIDDING_PRICE_DELTA_ETH = "0.001";
+export const DEFAULT_TRADING_BIDDING_PRICE_DELTA_WEI = "1000000000000000";
+
+// Selects how price tiers are presented in the bidding automation form.
+export const TRADING_BIDDING_TIER_SELECTION_MODE = {
+    Buttons: "buttons",
+    Dropdown: "dropdown",
+} as const;
+
+export type TradingBiddingTierSelectionMode =
+    (typeof TRADING_BIDDING_TIER_SELECTION_MODE)[keyof typeof TRADING_BIDDING_TIER_SELECTION_MODE];
+
+// Names bidding-owned entries stored in the generic collection settings table.
+export const TRADING_BIDDING_COLLECTION_SETTING_KEY = {
+    TierSelectionMode: "trading.bidding.tier_selection_mode",
+    DefaultDeltaWei: "trading.bidding.default_delta_wei",
+} as const;
+
+export type TradingBiddingCollectionSettingKey =
+    (typeof TRADING_BIDDING_COLLECTION_SETTING_KEY)[keyof typeof TRADING_BIDDING_COLLECTION_SETTING_KEY];
+
+// Stores the original human-entered floor rule for a collection bidding tier.
+export type TradingBiddingPriceTierFloorConfig =
+    | {
+          kind: typeof TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed;
+          valueEth: string;
+      }
+    | {
+          kind: typeof TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.ParentDelta;
+          deltaKind: TradingBiddingPriceTierDeltaKind;
+          deltaEth?: string;
+          percent?: string;
+      };
+
+// Stores the original human-entered ceiling rule for a collection bidding tier.
+export type TradingBiddingPriceTierCeilingConfig =
+    | {
+          kind: typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed;
+          valueEth: string;
+      }
+    | {
+          kind:
+              | typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.FloorDelta
+              | typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.ParentDelta;
+          deltaKind: TradingBiddingPriceTierDeltaKind;
+          deltaEth?: string;
+          percent?: string;
+      };
+
+// Persisted price tier plus its latest resolved scalar values.
+export type PersistedBiddingPriceTierRecord = {
+    tierId: string;
+    chainId: number;
+    collectionId: number;
+    name: string;
+    status: TradingBiddingPriceTierStatus;
+    sortOrder: number;
+    parentTierId: string | null;
+    floorConfig: TradingBiddingPriceTierFloorConfig;
+    ceilingConfig: TradingBiddingPriceTierCeilingConfig;
+    deltaWei: string;
+    resolvedFloorWei: string | null;
+    resolvedCeilingWei: string | null;
+    resolvedAt: string | null;
+    lastError: string | null;
+    revision: number;
+    createdAt: string;
+    updatedAt: string;
+    archivedAt: string | null;
+};
+
+// Domain view of collection-scoped bidding UI defaults that feed tier and job drafting flows.
+export type TradingBiddingCollectionSettingsRecord = {
+    chainId: number;
+    collectionId: number;
+    tierSelectionMode: TradingBiddingTierSelectionMode;
+    defaultDeltaWei: string;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export const TRADING_BIDDING_JOB_PRICING_SOURCE_KIND = {
+    Manual: "manual",
+    PriceTier: "price_tier",
+} as const;
+
+export type TradingBiddingJobPricingSourceKind =
+    (typeof TRADING_BIDDING_JOB_PRICING_SOURCE_KIND)[keyof typeof TRADING_BIDDING_JOB_PRICING_SOURCE_KIND];
+
+// Explains how the bot-facing scalar bidding prices were resolved at submit time.
+export type TradingBiddingJobPricingSource =
+    | {
+          kind: typeof TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual;
+      }
+    | {
+          kind: typeof TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier;
+          tierId: string;
+          tierName: string;
+          resolvedAt: string | null;
+          resolvedFloorWei: string;
+          resolvedCeilingWei: string;
+          deltaWei: string;
+      };
+
 export const TRADING_BIDDING_BID_BOOK_SOURCE = {
     BotSnapshot: "bot_snapshot",
     Orders: "orders",
@@ -135,6 +340,8 @@ type PersistedBiddingJobBase = {
     floorWei: string;
     ceilingWei: string;
     deltaWei: string;
+    priceTierId: string | null;
+    pricingSource: TradingBiddingJobPricingSource | null;
     revision: number;
     createdAt: string;
     updatedAt: string;

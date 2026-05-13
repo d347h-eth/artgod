@@ -1,10 +1,13 @@
 import type { FastifyRequest } from "fastify";
-import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
-import { TRADING_JOB_STATUS } from "@artgod/shared/types";
 import type {
     UpsertTokenBiddingJobInput,
     UpsertTokenBiddingJobOutput,
 } from "../../../application/use-cases/trading/upsert-token-bidding-job.js";
+import {
+    parseEditableBiddingJobStatus,
+    parseOptionalString,
+    parseRequiredString,
+} from "./trading-job-http.js";
 
 export type UpsertTokenBiddingJobRoute = {
     Params: {
@@ -17,6 +20,7 @@ export type UpsertTokenBiddingJobRoute = {
         floorEth?: unknown;
         ceilingEth?: unknown;
         deltaEth?: unknown;
+        priceTierId?: unknown;
     };
 };
 
@@ -45,32 +49,11 @@ export class UpsertTokenBiddingJobHttpAdapter {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,
-            status: parseJobStatus(request.body?.status),
-            floorEth: parseRequiredString(request.body?.floorEth, "floorEth"),
-            ceilingEth: parseRequiredString(
-                request.body?.ceilingEth,
-                "ceilingEth",
-            ),
+            status: parseEditableBiddingJobStatus(request.body?.status),
+            floorEth: parseOptionalString(request.body?.floorEth, "floorEth"),
+            ceilingEth: parseOptionalString(request.body?.ceilingEth, "ceilingEth"),
             deltaEth: parseRequiredString(request.body?.deltaEth, "deltaEth"),
+            priceTierId: parseOptionalString(request.body?.priceTierId, "priceTierId"),
         };
     }
-}
-
-function parseJobStatus(
-    value: unknown,
-): typeof TRADING_JOB_STATUS.Enabled | typeof TRADING_JOB_STATUS.Paused {
-    if (
-        value === TRADING_JOB_STATUS.Enabled ||
-        value === TRADING_JOB_STATUS.Paused
-    ) {
-        return value;
-    }
-    throw new ReadModelBadRequestError("status is invalid");
-}
-
-function parseRequiredString(value: unknown, field: string): string {
-    if (typeof value !== "string") {
-        throw new ReadModelBadRequestError(`${field} must be a string`);
-    }
-    return value;
 }

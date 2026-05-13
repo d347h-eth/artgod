@@ -11,6 +11,8 @@
 	--c-ice: #f8fefe;
 	--c-yellow: #f6e518;
 	--c-orange: #ec7e15;
+	/* Shared compact gap for adjacent top-action buttons and button-like controls. */
+	--control-button-gap: 0.35rem;
 }
 
 * {
@@ -760,14 +762,14 @@ th {
 	display: inline-flex;
 	align-items: center;
 	justify-content: flex-start;
-	gap: 0.3rem;
+	gap: var(--control-button-gap);
 	flex-wrap: wrap;
 }
 
 .trait-filter-slugs {
 	display: inline-flex;
 	flex-wrap: wrap;
-	gap: 0.25rem;
+	gap: var(--control-button-gap);
 	align-items: center;
 	max-width: 100%;
 }
@@ -815,6 +817,11 @@ th {
 	width: 2.35rem;
 	min-width: 2.35rem;
 	padding: 0;
+}
+
+.facet-collapse-button-active {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
 }
 
 .facet-panel-action-button:hover,
@@ -1261,14 +1268,6 @@ th {
 	white-space: nowrap;
 }
 
-.bidding-status-select {
-	width: 10rem;
-}
-
-.bidding-number-input {
-	width: 10ch;
-}
-
 .bidding-runtime-cell {
 	min-width: 15rem;
 }
@@ -1283,19 +1282,216 @@ th {
 	gap: 0.1rem;
 }
 
-.bidding-actions-cell {
-	min-width: 14rem;
+.bidding-row-error {
+	margin: 0.35rem 0 0;
 }
 
-.bidding-row-actions {
+.bidding-price-tier-panel {
+	width: fit-content;
+	max-width: calc(100% - 1.5rem);
+	margin: 0 auto 0.85rem;
+}
+
+.bidding-price-tier-header {
+	padding: 0 0 0.55rem;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.bidding-price-tier-meta {
+	margin-bottom: 0.65rem;
+}
+
+.bidding-price-tier-settings-form {
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	margin: 0 auto 0.75rem;
+	padding: 0 0 0.75rem;
+	border-bottom: 1px solid color-mix(in srgb, var(--c-blue) 55%, transparent);
+}
+
+.bidding-price-tier-checkbox-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	width: fit-content;
+	color: var(--c-ice);
+	font-size: 0.75rem;
+	text-transform: none;
+}
+
+.bidding-price-tier-checkbox-label input {
+	margin: 0;
+}
+
+.bidding-price-tier-settings-actions {
 	display: flex;
-	flex-wrap: wrap;
+	justify-content: flex-end;
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	margin-inline: auto;
+	padding-top: 0.45rem;
+}
+
+.bidding-price-tier-settings-actions button {
+	min-width: 6.5rem;
+}
+
+.bidding-price-tier-table-wrap {
+	width: fit-content;
+	max-width: 100%;
+	margin-bottom: 0.75rem;
+}
+
+.bidding-price-tier-table {
+	width: max-content;
+	border-collapse: separate;
+	border-spacing: 0 0.2rem;
+}
+
+.bidding-price-tier-table th,
+.bidding-price-tier-table td {
+	padding: 0.12rem 0.45rem;
+	white-space: nowrap;
+	text-align: left;
+}
+
+.bidding-price-tier-table th {
+	color: var(--c-pink);
+	font-size: 0.68rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.tier-cell-center {
+	text-align: center;
+}
+
+.tier-cell-right {
+	text-align: right;
+}
+
+.tier-cell-error {
+	max-width: 24ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--c-orange);
+}
+
+.tier-row-actions,
+.bidding-price-tier-config-row,
+.bidding-price-tier-form-footer {
+	display: flex;
+	align-items: center;
 	gap: 0.35rem;
 }
 
-.bidding-row-note,
-.bidding-row-error {
-	margin: 0.35rem 0 0;
+.tier-row-actions button,
+.bidding-price-tier-form-footer button {
+	min-width: 4.5rem;
+}
+
+.bidding-price-tier-form {
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	padding: 0;
+	margin-inline: auto;
+}
+
+.bidding-price-tier-form .bootstrap-form-row,
+.bidding-price-tier-settings-form .bootstrap-form-row {
+	grid-template-columns: var(--token-bidding-label-width) var(--token-bidding-control-width);
+	column-gap: var(--token-bidding-field-gap);
+	width: 100%;
+}
+
+.bidding-price-tier-form .bootstrap-form-row > label:first-child,
+.bidding-price-tier-settings-form .bootstrap-form-row > label:first-child {
+	justify-self: end;
+	text-align: right;
+}
+
+.bidding-price-tier-form .bootstrap-form-row > .bootstrap-control,
+.bidding-price-tier-settings-form .bootstrap-form-row > .bootstrap-control {
+	width: 100%;
+	justify-self: stretch;
+}
+
+.bidding-price-tier-config-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 10ch;
+	width: 100%;
+}
+
+.bidding-price-tier-reapply-wrap {
+	margin-bottom: 0.75rem;
+	padding-bottom: 0.75rem;
+	border-bottom: 1px solid color-mix(in srgb, var(--c-blue) 60%, transparent);
+}
+
+.bidding-price-tier-reapply-preview {
+	display: grid;
+	gap: 0.55rem;
+	width: fit-content;
+	max-width: 100%;
+}
+
+.bidding-price-tier-reapply-table input {
+	margin: 0;
+}
+
+.bidding-price-tier-reapply-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.bidding-price-tier-reapply-actions button {
+	min-width: 4.5rem;
+}
+
+.bidding-price-tier-form-summary {
+	padding-bottom: 0.2rem;
+}
+
+.bidding-price-tier-name-input {
+	width: 18ch;
+}
+
+.bidding-price-tier-small-input,
+.bidding-price-tier-price-input {
+	width: 10ch;
+}
+
+.bidding-price-tier-delta-kind {
+	width: 5.5rem;
+}
+
+.bidding-price-tier-fixed-kind {
+	min-width: 0;
+	color: var(--c-sand);
+	text-transform: uppercase;
+	font-size: 0.68rem;
+}
+
+.bidding-price-tier-form-footer {
+	justify-content: space-between;
+	width: 100%;
+}
+
+.bidding-price-tier-feedback {
+	justify-self: center;
+	text-align: center;
+}
+
+.price-tier-time-value {
+	color: var(--c-ice);
+	font-size: 0.75rem;
+	text-transform: none;
+}
+
+.bidding-price-tier-toggle-active {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
 }
 
 .bid-book-summary-panel,
@@ -1312,14 +1508,14 @@ th {
 .runtime-kv-grid.bid-book-meta {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.45rem 1.35rem;
+	gap: 0.35rem 1rem;
 	align-items: center;
 }
 
 .runtime-kv-grid.bid-book-meta > div {
 	display: inline-flex;
 	align-items: baseline;
-	gap: 0.5rem;
+	gap: 0.25rem;
 }
 
 .bid-book-table-wrap {
@@ -1387,6 +1583,15 @@ th {
 	text-align: right;
 }
 
+.bid-book-row-action {
+	height: 18px;
+	min-height: 18px;
+	margin-inline-start: 0.45rem;
+	padding: 0 0.3rem;
+	font-size: 0.62rem;
+	vertical-align: 0.08rem;
+}
+
 .bid-book-col-right {
 	text-align: right;
 	font-variant-numeric: tabular-nums;
@@ -1408,6 +1613,30 @@ th {
 	background: color-mix(in srgb, var(--c-yellow) 18%, transparent);
 }
 
+.bid-book-own-status {
+	display: inline-block;
+	margin-inline-start: 0.45rem;
+	padding: 0 0.28rem;
+	border: 1px solid currentColor;
+	color: var(--c-yellow);
+	font-size: 0.58rem;
+	line-height: 1.2;
+	text-transform: uppercase;
+	vertical-align: 0.08rem;
+}
+
+.bid-book-own-status-losing,
+.bid-book-own-status-ceiling,
+.bid-book-own-status-balance,
+.bid-book-own-status-allowance {
+	color: var(--c-pink);
+}
+
+.bid-book-own-status-draw,
+.bid-book-own-status-floor {
+	color: var(--c-cyan);
+}
+
 .bid-book-time-header {
 	white-space: nowrap;
 }
@@ -1427,7 +1656,7 @@ th {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: baseline;
-	gap: 0.55rem 1.35rem;
+	gap: 0.15rem 1.35rem;
 	margin-bottom: 0;
 }
 
@@ -1496,14 +1725,14 @@ th {
 .runtime-kv-grid.bid-book-demand-group-meta {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.45rem 1rem;
+	gap: 0.35rem 0.8rem;
 	align-items: center;
 }
 
 .runtime-kv-grid.bid-book-demand-group-meta > div {
 	display: inline-flex;
 	align-items: baseline;
-	gap: 0.4rem;
+	gap: 0.25rem;
 }
 
 .bid-book-bucket-spacer,
@@ -1549,14 +1778,14 @@ th {
 	display: grid;
 	align-items: stretch;
 	justify-content: stretch;
-	gap: 0.8rem;
+	gap: var(--control-button-gap);
 }
 
 .panel-top-actions-row {
 	display: flex;
 	align-items: center;
 	justify-content: flex-start;
-	gap: 0.1rem;
+	gap: var(--control-button-gap);
 	flex-wrap: wrap;
 }
 
@@ -1572,6 +1801,14 @@ th {
 	align-items: center;
 	justify-content: flex-end;
 	gap: 0.5rem;
+	flex-wrap: wrap;
+}
+
+.results-toolbar-left {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.75rem;
 	flex-wrap: wrap;
 }
 
@@ -1606,6 +1843,49 @@ th {
 .token-grid-card {
 	display: grid;
 	gap: 0.55rem;
+	position: relative;
+	border: 1px solid transparent;
+	padding: 0.25rem;
+}
+
+.token-grid-card-selection-shortcut {
+	cursor: pointer;
+}
+
+.token-grid-card-selection-shortcut .token-preview-trigger {
+	cursor: pointer;
+}
+
+.token-grid-card-selected {
+	border-color: transparent;
+	background: color-mix(in srgb, var(--c-orange) 14%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-orange) 42%, transparent);
+}
+
+.token-grid-selection-marker {
+	position: absolute;
+	top: 0.55rem;
+	right: 0.55rem;
+	z-index: 2;
+	width: 1.35rem;
+	height: 1.35rem;
+	padding: 0;
+	border: 1px solid var(--c-orange);
+	background: var(--c-orange);
+	color: var(--c-bg);
+	font-size: 0.74rem;
+	line-height: 1;
+	text-transform: uppercase;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.token-grid-selection-marker:hover,
+.token-grid-selection-marker:focus-visible {
+	background: var(--c-bg);
+	color: var(--c-orange);
 }
 
 .token-grid-media {
@@ -1927,37 +2207,210 @@ th {
 	margin-block-start: var(--token-detail-section-gap);
 }
 
-.token-bidding-panel {
+.bidding-automation-panel,
+.bidding-price-tier-panel {
+	--token-bidding-label-width: clamp(6.75rem, 26vw, 8rem);
+	--token-bidding-control-width: clamp(11.5rem, 42vw, 13.5rem);
+	--token-bidding-field-gap: 0.7rem;
+	--token-bidding-action-width: 75px;
+	--token-bidding-content-width: calc(
+		var(--token-bidding-label-width) + var(--token-bidding-field-gap) +
+			var(--token-bidding-control-width)
+	);
+}
+
+.bidding-price-tier-panel {
+	--token-bidding-control-width: clamp(15rem, 42vw, 18rem);
+}
+
+.bidding-automation-panel {
+	position: fixed;
+	right: 0;
+	bottom: 0;
+	z-index: 40;
 	width: fit-content;
-	max-width: calc(100% - 1.5rem);
-	margin: var(--token-detail-section-gap) auto 0;
+	max-width: min(34rem, 100vw);
+	max-height: 100vh;
+	overflow: auto;
+	background: var(--c-bg);
+	border: 1px solid var(--c-blue);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-blue) 35%, transparent);
 }
 
-.token-bidding-panel-header {
-	padding: 0 0 0.75rem;
+.runtime-section.bidding-automation-panel {
+	padding: 0.75rem;
 }
 
-.token-bidding-runtime-grid {
-	padding-bottom: 0.75rem;
+.bidding-automation-panel-inline {
+	position: relative;
+	right: auto;
+	bottom: auto;
+	z-index: auto;
+	margin-block-start: var(--token-detail-section-gap);
+	margin-inline: auto;
+	max-height: none;
 }
 
-.token-bidding-form {
+.bidding-automation-panel-collapsed {
+	position: fixed;
+	right: 0;
+	bottom: 0;
+	z-index: 40;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	min-height: 30px;
+	padding: 0;
+	border: 1px solid var(--c-blue);
+	background: var(--c-bg);
+	color: var(--c-cyan);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-blue) 35%, transparent);
+	cursor: pointer;
+}
+
+.bidding-automation-panel-collapsed-inline {
+	position: static;
+	margin-block-start: var(--token-detail-section-gap);
 	margin-inline: auto;
 }
 
+.bidding-automation-panel-collapsed:hover {
+	border-color: var(--c-cyan);
+	color: var(--c-cyan);
+}
+
+.bidding-automation-panel-collapsed-icon {
+	width: 1rem;
+	height: 1rem;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.6;
+	stroke-linecap: square;
+	stroke-linejoin: miter;
+}
+
+.bidding-automation-panel-header {
+	padding: 0 0 0.75rem;
+	justify-content: space-between;
+	gap: 1rem;
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	margin-inline: auto;
+}
+
+.bidding-automation-panel .token-bidding-runtime-grid,
+.bidding-automation-panel > .token-bidding-feedback {
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	margin-inline: auto;
+}
+
+.bidding-automation-panel > .token-bidding-feedback {
+	text-align: center;
+}
+
+.token-bidding-form {
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	margin-inline: auto;
+	padding: 0;
+	justify-items: stretch;
+}
+
 .bidding-token-input {
-	width: 12ch;
+	width: 100%;
+}
+
+.token-bidding-form .bootstrap-form-row {
+	grid-template-columns: var(--token-bidding-label-width) var(--token-bidding-control-width);
+	column-gap: var(--token-bidding-field-gap);
+	width: 100%;
+}
+
+.token-bidding-form .bootstrap-form-row label {
+	justify-self: end;
+	text-align: right;
+}
+
+.token-bidding-form .bootstrap-control {
+	width: 100%;
+	justify-self: stretch;
+}
+
+.token-bidding-pricing-options {
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.secondary-tabs.token-bidding-pricing-options button {
+	width: var(--token-bidding-action-width);
+	min-width: var(--token-bidding-action-width);
+	max-width: var(--token-bidding-action-width);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .token-bidding-form-footer {
 	padding: 0.75rem 0 0;
-	justify-content: flex-start;
+	display: grid;
+	grid-template-columns: var(--token-bidding-label-width) var(--token-bidding-control-width);
+	align-items: end;
+	column-gap: var(--token-bidding-field-gap);
+	row-gap: 0.5rem;
+	justify-content: stretch;
 }
 
-.token-bidding-form-actions {
+.token-bidding-form-actions-left,
+.token-bidding-form-actions-right {
 	display: flex;
-	flex-wrap: wrap;
+	flex-direction: column;
 	gap: 0.35rem;
+}
+
+.token-bidding-form-actions-left {
+	justify-self: start;
+}
+
+.token-bidding-form-actions-right {
+	justify-self: end;
+}
+
+.token-bidding-form-actions-left button,
+.token-bidding-form-actions-right button {
+	width: var(--token-bidding-action-width);
+}
+
+.token-bidding-action-positive:not(:disabled) {
+	border-color: var(--c-cyan);
+	color: var(--c-cyan);
+}
+
+.token-bidding-action-negative:not(:disabled) {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
+.token-bidding-action-positive.token-bidding-action-armed:not(:disabled) {
+	background: var(--c-cyan);
+	color: var(--c-bg);
+}
+
+.token-bidding-action-negative.token-bidding-action-armed:not(:disabled) {
+	background: var(--c-orange);
+	color: var(--c-bg);
+}
+
+.token-bidding-form-footer .bootstrap-form-feedback {
+	grid-column: 1 / -1;
+	justify-self: stretch;
+	justify-items: center;
+	width: 100%;
+	text-align: center;
 }
 
 .token-bidding-feedback {
@@ -2039,6 +2492,32 @@ th {
 
 .bid-price {
 	color: var(--c-orange);
+}
+
+.bidding-selection-controls {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: var(--control-button-gap);
+	flex-wrap: wrap;
+}
+
+.bidding-select-all-button {
+	color: var(--c-cyan);
+	border-color: var(--c-blue);
+}
+
+.bidding-selection-clear-button {
+	height: 20px;
+	min-height: 20px;
+	padding-block: 0;
+	font-size: 0.68rem;
+}
+
+.bidding-selection-summary {
+	color: var(--c-sand);
+	font-size: 0.76rem;
+	line-height: 20px;
 }
 
 .token-grid-secondary-meta {
@@ -2314,6 +2793,14 @@ th {
 	color: var(--c-yellow);
 }
 
+.bid-book-time-header .activities-time-mode-button {
+	color: var(--c-pink);
+}
+
+.bid-book-time-header .activities-time-mode-button:hover {
+	color: var(--c-yellow);
+}
+
 .activity-token-cell {
 	display: flex;
 	align-items: center;
@@ -2572,9 +3059,26 @@ th {
 	gap: 0.4rem;
 }
 
+.runtime-kv-grid.token-bidding-runtime-grid {
+	display: grid;
+	gap: 0.15rem;
+	padding-bottom: 0.75rem;
+}
+
 .runtime-kv-grid > div {
 	display: grid;
 	gap: 0.15rem;
+}
+
+.runtime-kv-grid.token-bidding-runtime-grid > div {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.25rem;
+}
+
+.token-bidding-runtime-grid .activities-time-mode-button {
+	font-size: 0.75rem;
+	line-height: 1;
 }
 
 .runtime-k {
@@ -2582,11 +3086,24 @@ th {
 	font-size: 0.7rem;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
+	opacity: 0.78;
+}
+
+.runtime-kv-grid.bid-book-meta .runtime-k::after,
+.runtime-kv-grid.bid-book-demand-group-meta .runtime-k::after,
+.runtime-kv-grid.token-bidding-runtime-grid .runtime-k::after {
+	content: ':';
 }
 
 .runtime-v {
 	color: var(--c-ice);
 	font-size: 0.75rem;
+}
+
+.token-bidding-time-value {
+	color: var(--c-ice);
+	font-size: 0.75rem;
+	text-transform: none;
 }
 
 .runtime-error {
@@ -2757,7 +3274,8 @@ th {
 
 .secondary-tabs button,
 .secondary-tabs a,
-.secondary-tabs span {
+.secondary-tabs span,
+.bid-book-place-bid-icon-button {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -2776,7 +3294,8 @@ th {
 }
 
 .secondary-tabs button,
-.secondary-tabs a {
+.secondary-tabs a,
+.bid-book-place-bid-icon-button {
 	cursor: pointer;
 }
 
@@ -2836,10 +3355,22 @@ th {
 .secondary-tabs button:hover,
 .secondary-tabs a:hover,
 .secondary-tabs button:focus-visible,
-.secondary-tabs a:focus-visible {
+.secondary-tabs a:focus-visible,
+.bid-book-place-bid-icon-button:hover,
+.bid-book-place-bid-icon-button:focus-visible {
 	border-color: var(--c-yellow);
 	color: var(--c-yellow);
 	outline: none;
+}
+
+.bid-book-place-bid-icon-button {
+	align-self: baseline;
+	min-width: 3.8ch;
+	min-height: 14px;
+	height: 14px;
+	padding: 0 0.45rem;
+	line-height: 12px;
+	vertical-align: baseline;
 }
 
 .runtime-tabs button:disabled:hover,

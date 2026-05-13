@@ -28,6 +28,17 @@ Collection views should pass an explicit typed navigation state into `buildColle
 
 The active primary tab must be rendered as non-clickable text, not as a live link, and must not use pointer/hover behavior.
 
+Top-action rows are page chrome and should stay compact.
+
+Rules:
+
+- top-action rows stack vertically under the primary section tabs
+- every top-action row should use the same vertical gap
+- controls inside one row should use the same compact horizontal gap
+- left-side controls stay aligned to the left edge of the page content
+- media mode is the only standard control that should sit on the far right of token-browser result toolbars
+- bidding/filter controls belong in top-action rows, not inside token-card grids or result summaries
+
 ## Default Width Policy
 
 Do not stretch forms, tables, or configuration panels to full available page width by default.
@@ -39,6 +50,17 @@ Default layout expectation:
 - centered horizontally within the available page area
 
 Use full-width stretching only when the user explicitly asks for it or when the content genuinely requires it.
+
+Within compact forms and panels, visual alignment matters as much as outer width.
+
+Rules:
+
+- use grid-like row layouts for label/value and label/input pairs
+- keep labels, inputs, and buttons on stable columns
+- make repeated controls the same width when they represent the same kind of action or value
+- prefer balanced label/control proportions over label-heavy or input-heavy layouts
+- do not let one long label or select option push the whole form wider than its intended panel
+- clip or constrain long user-provided names in controls and expose the full value through hover text when needed
 
 ## Pattern Reuse
 
@@ -126,6 +148,7 @@ Do not name these inner toolbars `panel-top-actions`; reserve that name for page
     - active/selected: orange
     - hover/focus: yellow
     - active item is not clickable
+    - active item uses default cursor and must not expose hover/active link behavior
     - do not replace active text with clickable active buttons in one-off pages
 
 ### Transient action links/buttons
@@ -168,6 +191,7 @@ Specific controls:
 - `filter`
     - structural toggle for the sidebar
     - lives in its own top-action row
+    - uses the active orange state while the trait panel is open
 - trait join mode
     - optional compact fixed-width `OR` / `AND` button beside `filter`
     - changes the current page's trait-filter join mode without clearing selected filters
@@ -180,6 +204,45 @@ Specific controls:
     - use compact `key=value` labels clipped to 20 characters
     - wrap naturally only when viewport width requires it
     - clicking one slug removes only that applied filter
+
+### Bidding selection controls
+
+- Component family: `BiddingSelectionControls.svelte` plus the shared token-selection controller state.
+- Scope:
+    - collection `asks`
+    - collection `tokens`
+    - collection bidding `bid_scope=token`
+    - collection bidding `bid_scope=traits`
+    - collection bidding `bid_scope=collection`
+- Placement:
+    - always render in a page-level top-action row
+    - keep `tiers` in the same row as bid-target actions
+    - keep these controls out of result summaries and token-card grids
+
+Control rules:
+
+- `tiers` toggles collection price-tier management.
+- `bid on traits` drafts a trait-scoped bidding target from the current trait filter or selected trait bucket.
+- `bid on all tokens` drafts token-scoped bidding targets for every token matching the current filters across the full result set.
+- `bid on this page` narrows an all-pages token draft to the currently loaded page only and should only appear when it is meaningfully different.
+- `place collection bid` drafts a collection-scoped bidding target from the current collection bid context.
+- selected-count text is plain text, not a button.
+- `clear` removes only the current bidding target and must not reset trait filters.
+- asks, tokens, and offers must share this component instead of each implementing their own action row.
+- public single-collection deployments may show read-only offers, but must not expose bidding job or tier write controls.
+
+### Button and focus behavior
+
+Button-like controls should not retain pointer focus after mouse or touch activation.
+
+Rules:
+
+- keyboard focus must remain available for keyboard navigation
+- pointer activation may release focus after the click action
+- do not add one-off `blur()` calls inside individual buttons
+- if this behavior is needed globally, use a shared pointer-focus helper
+- active/selected navigation controls must be visually selected but inert, with no pointer cursor and no hover affordance
+- stateful toggles such as `filter`, `tiers`, and `traits` remain clickable while active and should keep the normal hover/focus color behavior
 
 ## Trait Panel Behavior
 
@@ -210,6 +273,15 @@ The split of responsibilities is:
     - reset navigation behavior
     - applying changed selected-filter state to the current route
 
+Bidding-specific trait behavior:
+
+- collection bidding offers use `OR` trait join by default for trait discovery
+- `OR` join means any selected `key=value` match can keep a trait bucket visible
+- `AND` join means each selected `key=value` must be present in the trait bucket
+- when filters are active, do not silently cycle the join mode unless the user explicitly clicks the join-mode control
+- `bid_scope=collection` does not render the trait facet panel because collection-wide bids are not trait-filtered
+- selecting a trait bucket for bidding should also apply its traits to the visible trait filters so the panel, bid controls, and URL stay coherent
+
 ### Collection Query-Control Preferences and Shortcuts
 
 - `1` opens `asks`.
@@ -217,7 +289,11 @@ The split of responsibilities is:
 - `3` opens `tokens`.
 - `4` opens `bidding`.
 - `S` cycles the `bid_scope` query control using the ordered values defined in `bidding-query.ts` (`token`, `traits`, `collection`).
+- `T` toggles collection price-tier management where bidding controls are available.
+- `B` collapses or expands the bidding job panel where the panel is available.
+- `C` clears the current bidding target where bidding controls are available.
 - Collection and bidding shortcuts must not fire while a text-entry target is focused.
+- Checkbox and radio focus must not trap page-level shortcuts after pointer activation.
 - Last selected `bid_scope` is a global local UI navigation preference stored in `localStorage`.
 - Bidding route load applies stored `bid_scope` before backend fetches during browser-side navigation when the URL omits `bid_scope`.
 - Explicit `bid_scope` URL params always override stored bidding navigation preferences.
@@ -304,6 +380,113 @@ Trait filter query families:
 
 - discrete values: repeated `traits=key:value`
 - scalar ranges: repeated `trait_ranges=key:from..to`
+
+## Bidding Bid Book Presentation
+
+Bid-book surfaces should be reusable across collection bidding pages and token detail pages.
+
+General rules:
+
+- bid-book metadata renders as one compact horizontal chip row
+- metadata labels use `key: value` formatting
+- the source label is `refresh pace`
+- user-facing refresh pace values are `normal` and `competitive`
+- timing/projection diagnostics belong in logs, not in the bid-book metadata row
+- bid rows should not use table row borders for visual grouping
+- use spacing, buckets, and muted state instead of heavy separators
+- prices align consistently and should not gain extra decimal precision from hidden or collapsed rows
+- display `WETH` only where currency disambiguation is useful
+- own bids should be visually marked and labeled as the user when the wallet identity is known
+
+Scope rules:
+
+- collection-wide scope may render as compact `C`
+- hide the scope column when the current view can only contain one obvious scope
+- token detail bid books should keep the scope column because the token can receive collection, trait, token, and token-set offers
+- trait scope views group individual bids under canonical trait-combination buckets; do not replace the individual bid list with aggregate-only rows
+- trait bucket titles should display selected tab trait keys first, then remaining keys in stable order
+- clickable trait values in bucket titles should apply the same trait filter controls as the facet panel
+
+Muted and collapsed rows:
+
+- muted bids remain useful for debugging but should be hidden by default
+- `show_muted=true` in the URL may reveal muted rows for diagnostics
+- collection and token bid lists mute bids below 10% of the top displayed bid
+- trait bid tabs also mute bids and buckets below 50% of the tab median bid
+- muted bids should not contribute to user-facing bucket summary stats
+- the bottom price percentile may be collapsed by default when the list is large, but expansion should not alter the primary top-row decimal formatting
+
+Time display:
+
+- `placed` and `valid` default to relative time
+- the time value itself toggles between relative and absolute display
+- do not add separate `REL` / `ABS` links beside time values
+- use RFC 3339 without sub-second precision for absolute timestamps
+
+## Token Card Bidding Selection
+
+Token cards can participate in bidding selection without changing their normal navigation behavior.
+
+Rules:
+
+- `Ctrl` + left click on token-card non-link areas toggles token selection
+- middle click on token-card non-link areas toggles token selection
+- token ID links and marketplace price links must keep browser-native `Ctrl` / middle-click open-in-new-tab behavior
+- media preview clicks keep their existing behavior unless the selection gesture is active
+- selected cards show a clear selected background/effect without relying on a loud orange border
+- selected cards may expose a small deselect affordance so users do not need the modifier key to remove one card
+- token selection state must be one shared source of truth for selection count, card visuals, and bidding draft data
+- broad filtered-token selection should mean all matching tokens across the full filtered result set, not only currently rendered cards
+
+Token-card market labels:
+
+- asks, tokens, offers, and future token-card market surfaces should reuse the same ask/bid price label component
+- ask and bid icons should use the shared market icon treatment and palette
+- ask and bid price groups should have enough spacing to read as separate market sides
+- adding bid labels later must not require a separate token-card layout fork
+
+## Bidding Job Panel
+
+The bidding job panel is a reusable form surface for floating browser-page bidding flows and inline token-detail bidding.
+
+General rules:
+
+- use one shared component for floating and inline rendering
+- token detail inline rendering must not show the floating-only `hide` control
+- floating panel `hide` collapses the panel without clearing current draft state
+- panel controls should sit flush in the bottom-right corner when floating
+- forms should use a balanced label/control grid with consistent inner padding
+- labels should be visually quieter than values and inputs
+- labels and inputs should align to one clean grid, not drift into independent columns
+- form rows should use one consistent label column width and one consistent control column width
+- labels should align to the control edge in dense forms so the label/input relationship is clear
+- inputs that represent the same kind of scalar value should share the same width
+- action buttons in the same form should share the same width unless their role genuinely requires otherwise
+- left and right button groups should align to the same row grid and keep a stable gap between groups
+- single right-side actions should align to the bottom of the left action stack instead of floating at the top
+- feedback/status text should align to the form grid or center of the panel, not drift toward one edge
+- avoid status dropdowns; expose user intent through action buttons instead
+
+Action rules:
+
+- new job state uses `create` as the positive action
+- existing active job state uses `modify`, `pause`, and `archive`
+- paused job state uses `modify`, `activate`, and `archive`
+- ineligible actions stay visible only when useful, but disabled and muted
+- positive job actions use the cyan control family
+- negative job actions use the orange control family
+- job state-changing actions require double-click confirmation
+- the armed confirmation state clears on outside click, focus change, or another interaction
+
+Pricing rules:
+
+- manual pricing and tier pricing use explicit selection controls
+- tier button labels are fixed width and clipped to protect panel layout
+- long tier names may be exposed through a hover title, still clipped to a safe length
+- selecting a tier fills floor, ceiling, and delta from that tier
+- tier-selected prices are visible but not directly editable
+- switching back to manual keeps the last resolved values for reuse
+- collection settings may switch tier selection from inline buttons to a dropdown when a collection has many tiers
 
 ## Media Mode State
 

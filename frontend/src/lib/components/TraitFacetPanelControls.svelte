@@ -37,8 +37,7 @@
 		return filterModes.find((mode) => mode.value === selectedFilterMode) ?? null;
 	}
 
-	async function onToggleClick(event: MouseEvent): Promise<void> {
-		blurAfterPointerActivation(event);
+	async function onToggleClick(): Promise<void> {
 		await onToggleCollapsed();
 	}
 
@@ -50,18 +49,11 @@
 		return currentMode()?.label.toUpperCase() ?? '';
 	}
 
-	async function onModeClick(event: MouseEvent): Promise<void> {
+	async function onModeClick(): Promise<void> {
 		if (!onFilterModeChange || filterModes.length === 0) return;
-		blurAfterPointerActivation(event);
 		const currentIndex = filterModes.findIndex((mode) => mode.value === selectedFilterMode);
 		const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % filterModes.length : 0;
 		await onFilterModeChange(filterModes[nextIndex].value);
-	}
-
-	function blurAfterPointerActivation(event: MouseEvent): void {
-		if (event.detail > 0) {
-			(event.currentTarget as HTMLButtonElement).blur();
-		}
 	}
 
 	function onResetClick(): void {
@@ -82,10 +74,11 @@
 <div class="facet-panel-controls-row">
 	<button
 		class="facet-panel-action-button facet-collapse-button"
+		class:facet-collapse-button-active={!collapsed}
 		type="button"
 		aria-label={collapsed ? 'expand traits panel' : 'collapse traits panel'}
 		title="toggle traits panel"
-		onclick={(event) => void onToggleClick(event)}
+		onclick={() => void onToggleClick()}
 	>
 		filter
 	</button>
@@ -95,7 +88,7 @@
 			type="button"
 			aria-label={`switch trait filter join mode from ${modeLabel()}`}
 			title="switch trait filter join mode"
-			onclick={(event) => void onModeClick(event)}
+			onclick={() => void onModeClick()}
 		>
 			{modeLabel()}
 		</button>

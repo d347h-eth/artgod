@@ -1,3 +1,8 @@
+import type {
+	TradingBiddingJobPricingSource,
+	TradingBiddingTierSelectionMode
+} from '@artgod/shared/types';
+
 export type ApiChain = {
 	id: number;
 	type: string;
@@ -172,6 +177,57 @@ export type ApiTradingTraitCriterion = {
 	value: string;
 };
 
+export type ApiBiddingPriceTierFloorConfig =
+	| {
+			kind: 'fixed';
+			valueEth: string;
+	  }
+	| {
+			kind: 'parent_delta';
+			deltaKind: 'absolute' | 'percent';
+			deltaEth?: string;
+			percent?: string;
+	  };
+
+export type ApiBiddingPriceTierCeilingConfig =
+	| {
+			kind: 'fixed';
+			valueEth: string;
+	  }
+	| {
+			kind: 'floor_delta' | 'parent_delta';
+			deltaKind: 'absolute' | 'percent';
+			deltaEth?: string;
+			percent?: string;
+	  };
+
+export type ApiBiddingPriceTier = {
+	tierId: string;
+	name: string;
+	status: ApiBiddingJobStatus;
+	sortOrder: number;
+	parentTierId: string | null;
+	floorConfig: ApiBiddingPriceTierFloorConfig;
+	ceilingConfig: ApiBiddingPriceTierCeilingConfig;
+	deltaEth: string;
+	resolvedFloorEth: string | null;
+	resolvedCeilingEth: string | null;
+	resolvedAt: string | null;
+	lastError: string | null;
+	revision: number;
+	createdAt: string;
+	updatedAt: string;
+	archivedAt: string | null;
+};
+
+export type ApiBiddingCollectionSettings = {
+	tierSelectionMode: TradingBiddingTierSelectionMode;
+	defaultDeltaEth: string;
+	updatedAt: string | null;
+};
+
+export type ApiBiddingJobPricingSource = TradingBiddingJobPricingSource;
+
 export type ApiTokenCard = {
 	tokenId: string;
 	name: string | null;
@@ -329,6 +385,7 @@ export type ApiBiddingJobRuntimeState = {
 	activeExpirationTimeMs: number | null;
 	lastRunAt: string | null;
 	lastError: string | null;
+	updatedAt: string;
 };
 
 export type ApiBiddingJob = {
@@ -343,6 +400,7 @@ export type ApiBiddingJob = {
 		floorEth: string;
 		ceilingEth: string;
 		deltaEth: string;
+		pricingSource: ApiBiddingJobPricingSource | null;
 	};
 	runtime: ApiBiddingJobRuntimeState | null;
 };
@@ -351,6 +409,17 @@ export type ApiBiddingBidBookSource = 'bot_snapshot' | 'orders';
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
 export type ApiCollectionBiddingBidScopeFilter = 'token' | 'traits' | 'collection';
 export type ApiCollectionBiddingTraitFilterJoinMode = 'or' | 'and';
+export type ApiBiddingBidBookOwnPosition = 'winning' | 'draw' | 'losing';
+export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor' | 'balance' | 'allowance';
+export type ApiBiddingBidBookOwnStatus = {
+	position: ApiBiddingBidBookOwnPosition;
+	constraints: ApiBiddingBidBookOwnConstraint[];
+	job: {
+		jobId: string;
+		revision: number;
+		status: ApiBiddingJobStatus;
+	} | null;
+};
 
 export type ApiBiddingBidBookRow = {
 	orderId: string;
@@ -376,6 +445,7 @@ export type ApiBiddingBidBookRow = {
 	placedAt: string | null;
 	snapshotRefreshedAtMs: number | null;
 	seenAt: string | null;
+	ownStatus: ApiBiddingBidBookOwnStatus | null;
 };
 
 export type ApiBiddingBidBook = {
@@ -388,6 +458,7 @@ export type ApiBiddingBidBook = {
 		durationMs: number | null;
 		lastError: string | null;
 	};
+	ownMakerAddress: string | null;
 	bids: ApiBiddingBidBookRow[];
 };
 
@@ -418,6 +489,55 @@ export type CollectionBiddingJobsApiResponse = {
 		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
 		hasTraitSummaryTemplate: boolean;
 	};
+};
+
+export type CollectionBiddingPriceTiersApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	settings: ApiBiddingCollectionSettings;
+	tiers: ApiBiddingPriceTier[];
+};
+
+export type CollectionBiddingSettingsMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	settings: ApiBiddingCollectionSettings;
+};
+
+export type CollectionBiddingPriceTierMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tier: ApiBiddingPriceTier;
+	tiers: ApiBiddingPriceTier[];
+};
+
+export type ApiBiddingPriceTierReapplyPricePreview = {
+	floorEth: string;
+	ceilingEth: string;
+	deltaEth: string;
+	pricingSource: ApiBiddingJobPricingSource | null;
+};
+
+export type ApiBiddingPriceTierReapplyJobPreview = {
+	job: ApiBiddingJob;
+	before: ApiBiddingPriceTierReapplyPricePreview;
+	after: ApiBiddingPriceTierReapplyPricePreview;
+	changed: boolean;
+};
+
+export type BiddingPriceTierReapplyPreviewApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tier: ApiBiddingPriceTier;
+	jobs: ApiBiddingPriceTierReapplyJobPreview[];
+};
+
+export type BiddingPriceTierReapplyApplyApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tier: ApiBiddingPriceTier;
+	jobs: ApiBiddingJob[];
+	preview: ApiBiddingPriceTierReapplyJobPreview[];
 };
 
 export type CollectionBiddingBidBookApiResponse = {
@@ -452,6 +572,37 @@ export type TokenBiddingJobMutationApiResponse = {
 	collection: ApiCollection;
 	tokenId: string;
 	job: ApiBiddingJob;
+};
+
+export type BiddingJobTargetLookupApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	job: ApiBiddingJob | null;
+};
+
+export type BiddingJobMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	job: ApiBiddingJob;
+};
+
+export type TraitBiddingJobMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	job: ApiBiddingJob;
+};
+
+export type CollectionBiddingJobMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	job: ApiBiddingJob;
+};
+
+export type BatchTokenBiddingJobMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tokenIds: string[];
+	jobs: ApiBiddingJob[];
 };
 
 export type TokenDetailApiResponse = {

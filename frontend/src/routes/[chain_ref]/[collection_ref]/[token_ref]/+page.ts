@@ -2,10 +2,12 @@ import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import {
 	BackendApiError,
+	getCollectionBiddingPriceTiers,
 	getTokenBiddingBidBook,
 	getTokenBiddingJob,
 	getTokenDetail
 } from '$lib/backend-api';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { parseShowMutedBidBook } from '$lib/bidding-query';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
@@ -42,6 +44,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 			},
 			token: null,
+			biddingSettings: defaultBiddingCollectionSettings(),
+			priceTiers: [],
 			traitFilterPresentation: defaultTraitFilterPresentationState(),
 			tokenBiddingBidBook: {
 				state: {
@@ -53,6 +57,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 					durationMs: null,
 					lastError: null
 				},
+				ownMakerAddress: null,
 				bids: []
 			},
 			showMuted: parseShowMutedBidBook(url.searchParams),
@@ -63,7 +68,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 
 	try {
 		// Load the token detail and its token-scoped bidding job together for the page shell.
-		const [response, biddingJobResponse, biddingBidBookResponse] = await Promise.all([
+		const [response, biddingJobResponse, biddingBidBookResponse, priceTiersResponse] = await Promise.all([
 			getTokenDetail(
 				fetch,
 				params.chain_ref,
@@ -72,13 +77,16 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				buildMediaModeQuery(mediaMode)
 			),
 			getTokenBiddingJob(fetch, params.chain_ref, params.collection_ref, params.token_ref),
-			getTokenBiddingBidBook(fetch, params.chain_ref, params.collection_ref, params.token_ref)
+			getTokenBiddingBidBook(fetch, params.chain_ref, params.collection_ref, params.token_ref),
+			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
 		]);
 		return {
 			chain: response.chain,
 			collection: response.collection,
 			media: response.media,
 			token: response.token,
+			biddingSettings: priceTiersResponse.settings,
+			priceTiers: priceTiersResponse.tiers,
 			traitFilterPresentation: response.traitFilterPresentation,
 			tokenBiddingJob: biddingJobResponse.job,
 			tokenBiddingBidBook: biddingBidBookResponse.bidBook,

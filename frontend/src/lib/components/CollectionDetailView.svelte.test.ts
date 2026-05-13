@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import CollectionDetailView from './CollectionDetailView.svelte';
 
 describe('CollectionDetailView', () => {
@@ -70,7 +71,8 @@ describe('CollectionDetailView', () => {
 				basePath: '/ethereum/milady',
 				requestCursor: null,
 				tokenStatus: 'listed',
-				displayMode: 'grid'
+				displayMode: 'grid',
+				biddingSettings: defaultBiddingCollectionSettings()
 			}
 		});
 
@@ -105,6 +107,9 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain('>reset<');
 		expect(body).toContain('>Hat=Beanie<');
 		expect(body).toContain('1 listed');
+		expect(body).toContain('aria-label="Bidding target selection"');
+		expect(body).toContain('bid on traits');
+		expect(body).toContain('bid on all tokens');
 		expect(body).toContain('token 1');
 		expect(body).toContain(
 			'/ethereum/milady/1?media_mode=artifact&amp;returnPath=%2Fethereum%2Fmilady&amp;returnQuery=limit%3D25%26mode%3Dgrid%26token_status%3Dlisted%26media_mode%3Dartifact%26traits%3DHat%253ABeanie'

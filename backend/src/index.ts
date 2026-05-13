@@ -45,10 +45,21 @@ import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runt
 import { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
 import { ListCollectionBiddingJobsUseCase } from "./application/use-cases/trading/list-collection-bidding-jobs.js";
 import { ListCollectionBiddingBidBookUseCase } from "./application/use-cases/trading/list-collection-bidding-bid-book.js";
+import { ListCollectionBiddingPriceTiersUseCase } from "./application/use-cases/trading/list-collection-bidding-price-tiers.js";
 import { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
 import { GetTokenBiddingBidBookUseCase } from "./application/use-cases/trading/get-token-bidding-bid-book.js";
+import { BiddingJobTargetLookupUseCase } from "./application/use-cases/trading/bidding-job-target-lookup.js";
 import { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
+import { UpsertTraitBiddingJobUseCase } from "./application/use-cases/trading/upsert-trait-bidding-job.js";
+import { UpsertBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
+import { UpsertCollectionBiddingJobUseCase } from "./application/use-cases/trading/upsert-collection-bidding-job.js";
+import { UpsertCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/upsert-collection-bidding-price-tier.js";
+import { UpdateCollectionBiddingSettingsUseCase } from "./application/use-cases/trading/update-collection-bidding-settings.js";
+import { PreviewBiddingPriceTierReapplyUseCase } from "./application/use-cases/trading/preview-bidding-price-tier-reapply.js";
+import { ApplyBiddingPriceTierReapplyUseCase } from "./application/use-cases/trading/apply-bidding-price-tier-reapply.js";
+import { ArchiveBiddingJobUseCase } from "./application/use-cases/trading/archive-bidding-job.js";
 import { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/archive-token-bidding-job.js";
+import { ArchiveCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/archive-collection-bidding-price-tier.js";
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
@@ -60,6 +71,7 @@ import { ExtensionAwareCollectionCustomization } from "./infra/collections/exten
 import { ExtensionAwareCollectionDetailRead } from "./infra/collections/extension-aware-collection-detail-read.js";
 import { ExtensionActivityEventPreviewRead } from "./infra/collections/extension-activity-event-preview.js";
 import { ExtensionAwareTokenUriRead } from "./infra/collections/extension-aware-token-uri-read.js";
+import { SqliteCollectionSettingsRepository } from "./infra/collections/sqlite-collection-settings-repository.js";
 import { SqliteCollectionCustomizationRecords } from "./infra/collections/sqlite-collection-customization-records.js";
 import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-collection-extension-records.js";
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
@@ -68,6 +80,7 @@ import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
 import { NatsTradingJobCommandSignalPublisher } from "./infra/trading/nats-trading-job-command-signals.js";
 import { SqliteBiddingBidBookRepository } from "./infra/trading/sqlite-bidding-bid-book-repository.js";
 import { SqliteBiddingJobsRepository } from "./infra/trading/sqlite-bidding-jobs-repository.js";
+import { SqliteBiddingPriceTiersRepository } from "./infra/trading/sqlite-bidding-price-tiers-repository.js";
 import {
     QUERY_CACHE_PROVIDERS,
     type QueryCachePort,
@@ -122,6 +135,8 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
     );
     const biddingJobsRepository = new SqliteBiddingJobsRepository();
     const biddingBidBookRepository = new SqliteBiddingBidBookRepository();
+    const biddingPriceTiersRepository = new SqliteBiddingPriceTiersRepository();
+    const collectionSettingsRepository = new SqliteCollectionSettingsRepository();
     const tradingJobCommandSignalPublisher =
         new NatsTradingJobCommandSignalPublisher(
             config.natsUrl,
@@ -272,6 +287,14 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
             extensionAwareCollectionCustomization,
             biddingBidBookRepository,
         );
+    const listCollectionBiddingPriceTiersUseCase =
+        new ListCollectionBiddingPriceTiersUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingPriceTiersRepository,
+            collectionSettingsRepository,
+        );
     const getTokenBiddingJobUseCase = new GetTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -284,13 +307,79 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         extensionAwareCollectionsReadModel,
         biddingBidBookRepository,
     );
+    const biddingJobTargetLookupUseCase =
+        new BiddingJobTargetLookupUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingJobsRepository,
+        );
     const upsertTokenBiddingJobUseCase = new UpsertTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
         extensionAwareCollectionsReadModel,
         biddingJobsRepository,
+        biddingPriceTiersRepository,
         tradingJobCommandSignalPublisher,
     );
+    const upsertTraitBiddingJobUseCase = new UpsertTraitBiddingJobUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        biddingJobsRepository,
+        biddingPriceTiersRepository,
+        tradingJobCommandSignalPublisher,
+    );
+    const upsertBatchTokenBiddingJobsUseCase =
+        new UpsertBatchTokenBiddingJobsUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingBidBookRepository,
+            biddingJobsRepository,
+            biddingPriceTiersRepository,
+            tradingJobCommandSignalPublisher,
+        );
+    const upsertCollectionBiddingJobUseCase =
+        new UpsertCollectionBiddingJobUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingJobsRepository,
+            biddingPriceTiersRepository,
+            tradingJobCommandSignalPublisher,
+        );
+    const upsertCollectionBiddingPriceTierUseCase =
+        new UpsertCollectionBiddingPriceTierUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingPriceTiersRepository,
+        );
+    const updateCollectionBiddingSettingsUseCase =
+        new UpdateCollectionBiddingSettingsUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            collectionSettingsRepository,
+        );
+    const previewBiddingPriceTierReapplyUseCase =
+        new PreviewBiddingPriceTierReapplyUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingJobsRepository,
+            biddingPriceTiersRepository,
+        );
+    const applyBiddingPriceTierReapplyUseCase =
+        new ApplyBiddingPriceTierReapplyUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingJobsRepository,
+            biddingPriceTiersRepository,
+            tradingJobCommandSignalPublisher,
+        );
     const archiveTokenBiddingJobUseCase = new ArchiveTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -298,6 +387,20 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         biddingJobsRepository,
         tradingJobCommandSignalPublisher,
     );
+    const archiveBiddingJobUseCase = new ArchiveBiddingJobUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        biddingJobsRepository,
+        tradingJobCommandSignalPublisher,
+    );
+    const archiveCollectionBiddingPriceTierUseCase =
+        new ArchiveCollectionBiddingPriceTierUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            biddingPriceTiersRepository,
+        );
     const runtimeHealthUseCase = new GetRuntimeHealthUseCase(
         new SqliteRuntimeHealthAdapter(),
         new NatsRuntimeHealthAdapter(config.natsUrl),
@@ -324,10 +427,21 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         updateCollectionCustomizationUseCase,
         listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,
+        listCollectionBiddingPriceTiersUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
+        biddingJobTargetLookupUseCase,
         upsertTokenBiddingJobUseCase,
+        upsertTraitBiddingJobUseCase,
+        upsertBatchTokenBiddingJobsUseCase,
+        upsertCollectionBiddingJobUseCase,
+        upsertCollectionBiddingPriceTierUseCase,
+        updateCollectionBiddingSettingsUseCase,
+        previewBiddingPriceTierReapplyUseCase,
+        applyBiddingPriceTierReapplyUseCase,
+        archiveBiddingJobUseCase,
         archiveTokenBiddingJobUseCase,
+        archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
         config.userlandUiDistDir,
         config.security,

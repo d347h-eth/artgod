@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import CollectionBiddingView from './CollectionBiddingView.svelte';
 
 describe('CollectionBiddingView', () => {
@@ -26,6 +27,7 @@ describe('CollectionBiddingView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				jobs: [],
+				biddingSettings: defaultBiddingCollectionSettings(),
 				bidBook: {
 					state: {
 						source: 'orders',
@@ -36,6 +38,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 					bids: [
 						{
 							orderId: '0xcollection-bid',
@@ -60,7 +63,8 @@ describe('CollectionBiddingView', () => {
 							validUntil: 1_900_000_000,
 							placedAt: '2026-01-02T00:00:00Z',
 							snapshotRefreshedAtMs: null,
-							seenAt: '2026-01-02T00:00:00Z'
+							seenAt: '2026-01-02T00:00:00Z',
+							ownStatus: null
 						}
 					]
 				},
@@ -95,7 +99,7 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain(
 			'<button type="button" class="secondary-tab-active" disabled>collection</button>'
 		);
-		expect(body).toContain('bids source');
+		expect(body).toContain('refresh pace');
 		expect(body).not.toContain('facet-panel-controls-row');
 		expect(body).not.toContain('class="facet-column"');
 		expect(body).not.toContain('class="detail-layout"');
@@ -105,6 +109,10 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
 		);
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+		);
+		expect(body).toContain('>my bids</a>');
 	});
 
 	it('renders token-scoped offers as token cards without trait join controls', () => {
@@ -130,6 +138,7 @@ describe('CollectionBiddingView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				jobs: [],
+				biddingSettings: defaultBiddingCollectionSettings(),
 				bidBook: {
 					state: {
 						source: 'orders',
@@ -140,6 +149,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					ownMakerAddress: null,
 					bids: [
 						{
 							orderId: '0xtoken-bid-1',
@@ -164,7 +174,8 @@ describe('CollectionBiddingView', () => {
 							validUntil: 1_900_000_000,
 							placedAt: '2026-01-02T00:00:00Z',
 							snapshotRefreshedAtMs: null,
-							seenAt: '2026-01-02T00:00:00Z'
+							seenAt: '2026-01-02T00:00:00Z',
+							ownStatus: null
 						}
 					]
 				},
@@ -204,7 +215,8 @@ describe('CollectionBiddingView', () => {
 									validUntil: 1_900_000_000,
 									placedAt: '2026-01-02T00:00:00Z',
 									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-02T00:00:00Z'
+									seenAt: '2026-01-02T00:00:00Z',
+									ownStatus: null
 								}
 							]
 						}
@@ -272,7 +284,7 @@ describe('CollectionBiddingView', () => {
 		expect(body).not.toContain('facet-filter-mode-button');
 	});
 
-	it('renders bidding jobs with inline token controls', () => {
+	it('renders bidding jobs as a read-only diagnostics table', () => {
 		const { body } = render(CollectionBiddingView, {
 			props: {
 				chain: {
@@ -309,7 +321,8 @@ describe('CollectionBiddingView', () => {
 						config: {
 							floorEth: '0.1',
 							ceilingEth: '0.2',
-							deltaEth: '0.01'
+							deltaEth: '0.01',
+							pricingSource: null
 						},
 						runtime: {
 							currentPriceEth: '0.15',
@@ -317,7 +330,8 @@ describe('CollectionBiddingView', () => {
 							activeProtocolAddress: '0xdef456',
 							activeExpirationTimeMs: 1_760_000_000_000,
 							lastRunAt: '2026-01-02T00:00:00Z',
-							lastError: null
+							lastError: null,
+							updatedAt: '2026-01-02T00:00:30Z'
 						}
 					},
 					{
@@ -335,11 +349,13 @@ describe('CollectionBiddingView', () => {
 						config: {
 							floorEth: '0.05',
 							ceilingEth: '0.15',
-							deltaEth: '0.01'
+							deltaEth: '0.01',
+							pricingSource: null
 						},
 						runtime: null
 					}
 				],
+				biddingSettings: defaultBiddingCollectionSettings(),
 				bidBook: {
 					state: {
 						source: 'bot_snapshot',
@@ -350,6 +366,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: 12,
 						lastError: null
 					},
+					ownMakerAddress: null,
 					bids: [
 						{
 							orderId: '0xbid1',
@@ -374,7 +391,8 @@ describe('CollectionBiddingView', () => {
 							validUntil: 1_900_000_000,
 							placedAt: '2026-01-02T00:00:00Z',
 							snapshotRefreshedAtMs: 1_760_000_000_000,
-							seenAt: '2026-01-02T00:00:00Z'
+							seenAt: '2026-01-02T00:00:00Z',
+							ownStatus: null
 						}
 					]
 				},
@@ -417,8 +435,13 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain('token 1');
 		expect(body).toContain('activity-token-cell');
 		expect(body).toContain('https://example.com/milady-1.png');
-		expect(body).toContain('save');
-		expect(body).toContain('archive');
+		expect(body).toContain('<span class="mono">enabled</span>');
+		expect(body).toContain('<span class="mono">paused</span>');
+		expect(body).toContain('<span class="mono">0.1</span>');
+		expect(body).not.toContain('save');
+		expect(body).not.toContain('archive');
+		expect(body).not.toContain('<th>actions</th>');
+		expect(body).not.toContain('bidding-row-actions');
 		expect(body).toContain('token jobs');
 		expect(body).toContain('other scopes');
 		expect(body).not.toContain('bids source');
@@ -455,6 +478,7 @@ describe('CollectionBiddingView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				jobs: [],
+				biddingSettings: defaultBiddingCollectionSettings(),
 				bidBook: {
 					state: {
 						source: 'orders',
@@ -465,6 +489,7 @@ describe('CollectionBiddingView', () => {
 						durationMs: null,
 						lastError: null
 					},
+					ownMakerAddress: '0x9999999999999999999999999999999999999999',
 					bids: []
 				},
 				facets: [],
@@ -493,6 +518,9 @@ describe('CollectionBiddingView', () => {
 		);
 		expect(body).toContain('/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection');
 		expect(body).toContain('value="0x9999999999999999999999999999999999999999"');
+		expect(body).toContain(
+			'<button type="button" class="secondary-tab-active" disabled>my bids</button>'
+		);
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0x9999999999999999999999999999999999999999'
 		);

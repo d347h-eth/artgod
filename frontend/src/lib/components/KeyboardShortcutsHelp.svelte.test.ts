@@ -41,6 +41,16 @@ describe('KeyboardShortcutsHelp', () => {
 		expect(body).toContain('open bidding');
 		expect(body).toContain('>S<');
 		expect(body).toContain('cycle bid scope');
+		expect(body).toContain('>T<');
+		expect(body).toContain('toggle tiers management');
+		expect(body).toContain('>B<');
+		expect(body).toContain('hide or show the bidding panel');
+		expect(body).toContain('>C<');
+		expect(body).toContain('clear the current bidding target');
+		expect(body).not.toContain('>Esc<');
 		expect(body).not.toContain('cycle bidding view');
+		expect(body.indexOf('decrease preview height')).toBeLessThan(
+			body.indexOf('increase preview height')
+		);
 	});
 });

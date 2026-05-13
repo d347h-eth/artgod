@@ -5,12 +5,18 @@ import type {
     CollectionListItem,
     PersistedBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
+    TokenBrowserStatus,
+    TraitFilter,
+    TraitRangeFilter,
     TokenPresentationSummary,
+    TradingBiddingJobPricingSource,
     TradingJobStatus,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
+import type { CollectionBiddingTraitFilterJoinMode } from "./bidding-bid-book.js";
 
-export type TokenBiddingJobMutationStatus = Exclude<TradingJobStatus, "archived">;
+export type BiddingJobMutationStatus = Exclude<TradingJobStatus, "archived">;
+export type TokenBiddingJobMutationStatus = BiddingJobMutationStatus;
 
 export type BiddingJobView = {
     jobId: string;
@@ -39,6 +45,7 @@ export type BiddingJobView = {
         floorEth: string;
         ceilingEth: string;
         deltaEth: string;
+        pricingSource: TradingBiddingJobPricingSource | null;
     };
     runtime: {
         currentPriceEth: string | null;
@@ -47,6 +54,7 @@ export type BiddingJobView = {
         activeExpirationTimeMs: number | null;
         lastRunAt: string | null;
         lastError: string | null;
+        updatedAt: string;
     } | null;
 };
 
@@ -85,15 +93,88 @@ export type UpsertTokenBiddingJobInput = {
     collectionRef: string;
     tokenRef: string;
     status: TokenBiddingJobMutationStatus;
-    floorEth: string;
-    ceilingEth: string;
+    floorEth?: string;
+    ceilingEth?: string;
     deltaEth: string;
+    priceTierId?: string | null;
 };
 
 export type UpsertTokenBiddingJobOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
     tokenId: string;
+    job: BiddingJobView;
+};
+
+export type BatchTokenBiddingJobSelection =
+    | {
+          type: "token_ids";
+          tokenIds: string[];
+      }
+    | {
+          type: "filter";
+          tokenStatus: TokenBrowserStatus;
+          traits: TraitFilter[];
+          traitRanges: TraitRangeFilter[];
+      }
+    | {
+          type: "token_offer_filter";
+          traits: TraitFilter[];
+          traitRanges: TraitRangeFilter[];
+          traitJoinMode: CollectionBiddingTraitFilterJoinMode;
+          makerAddress?: string | null;
+      };
+
+export type UpsertBatchTokenBiddingJobsInput = {
+    chainRef: string;
+    collectionRef: string;
+    status: TokenBiddingJobMutationStatus;
+    floorEth?: string;
+    ceilingEth?: string;
+    deltaEth: string;
+    priceTierId?: string | null;
+    selection: BatchTokenBiddingJobSelection;
+};
+
+export type UpsertBatchTokenBiddingJobsOutput = {
+    chain: ChainRecord;
+    collection: CollectionListItem;
+    tokenIds: string[];
+    jobs: BiddingJobView[];
+};
+
+export type UpsertTraitBiddingJobInput = {
+    chainRef: string;
+    collectionRef: string;
+    status: BiddingJobMutationStatus;
+    floorEth?: string;
+    ceilingEth?: string;
+    deltaEth: string;
+    priceTierId?: string | null;
+    quantity?: number;
+    targetTraits: TradingTraitCriterion[];
+};
+
+export type UpsertTraitBiddingJobOutput = {
+    chain: ChainRecord;
+    collection: CollectionListItem;
+    job: BiddingJobView;
+};
+
+export type UpsertCollectionBiddingJobInput = {
+    chainRef: string;
+    collectionRef: string;
+    status: BiddingJobMutationStatus;
+    floorEth?: string;
+    ceilingEth?: string;
+    deltaEth: string;
+    priceTierId?: string | null;
+    quantity?: number;
+};
+
+export type UpsertCollectionBiddingJobOutput = {
+    chain: ChainRecord;
+    collection: CollectionListItem;
     job: BiddingJobView;
 };
 
@@ -158,6 +239,7 @@ export function mapPersistedBiddingJobToView(
               activeExpirationTimeMs: job.runtime.activeExpirationTimeMs,
               lastRunAt: job.runtime.lastRunAt,
               lastError: job.runtime.lastError,
+              updatedAt: job.runtime.updatedAt,
           }
         : null;
 
@@ -177,6 +259,7 @@ export function mapPersistedBiddingJobToView(
                 floorEth: formatWeiAsEth(job.floorWei),
                 ceilingEth: formatWeiAsEth(job.ceilingWei),
                 deltaEth: formatWeiAsEth(job.deltaWei),
+                pricingSource: job.pricingSource,
             },
             runtime,
         };
@@ -199,6 +282,7 @@ export function mapPersistedBiddingJobToView(
                 floorEth: formatWeiAsEth(job.floorWei),
                 ceilingEth: formatWeiAsEth(job.ceilingWei),
                 deltaEth: formatWeiAsEth(job.deltaWei),
+                pricingSource: job.pricingSource,
             },
             runtime,
         };
@@ -221,6 +305,7 @@ export function mapPersistedBiddingJobToView(
             floorEth: formatWeiAsEth(job.floorWei),
             ceilingEth: formatWeiAsEth(job.ceilingWei),
             deltaEth: formatWeiAsEth(job.deltaWei),
+            pricingSource: job.pricingSource,
         },
         runtime,
     };

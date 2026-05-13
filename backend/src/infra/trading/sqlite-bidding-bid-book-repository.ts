@@ -16,10 +16,13 @@ import {
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_STATUS,
+    TRADING_JOB_TARGET_KIND,
     type TradingBiddingBidBookSource,
     type TradingBiddingBidScopeKind,
     type TradingBotRuntimeState,
+    type TradingJobStatus,
     type TradingTraitCriterion,
+    tradingTraitCriteriaKey,
 } from "@artgod/shared/types";
 import type { TraitFilter, TraitRangeFilter } from "@artgod/shared/types/browse";
 import type {
@@ -70,6 +73,32 @@ type BotRuntimeStateRow = {
     heartbeat_at: string | null;
 };
 
+type KnownBiddingMakerRow = {
+    address: string;
+};
+
+type BiddingJobSignalRow = {
+    job_id: string;
+    status: TradingJobStatus;
+    target_kind: (typeof TRADING_JOB_TARGET_KIND)[keyof typeof TRADING_JOB_TARGET_KIND];
+    token_id: string | null;
+    floor_wei: string;
+    ceiling_wei: string;
+    revision: number;
+    target_traits_json: string | null;
+};
+
+type BiddingJobSignal = {
+    jobId: string;
+    status: TradingJobStatus;
+    targetKind: (typeof TRADING_JOB_TARGET_KIND)[keyof typeof TRADING_JOB_TARGET_KIND];
+    tokenId: string | null;
+    floorWei: string;
+    ceilingWei: string;
+    revision: number;
+    targetTraits: TradingTraitCriterion[];
+};
+
 type IndexedOrderRow = {
     id: string;
     source_scope_kind: "token" | "collection" | "attribute" | "token_set";
@@ -107,6 +136,16 @@ export class SqliteBiddingBidBookRepository
         chainId: number;
         botKind: typeof TRADING_BOT_KIND.Bidding;
         state: typeof TRADING_BOT_RUNTIME_STATE.Running;
+    }>;
+    private readonly selectKnownBiddingMaker: BetterSqlite3NamedStatement<{
+        chainId: number;
+        botKind: typeof TRADING_BOT_KIND.Bidding;
+    }>;
+    private readonly selectActiveBiddingJobs: BetterSqlite3NamedStatement<{
+        chainId: number;
+        collectionId: number;
+        botKind: typeof TRADING_BOT_KIND.Bidding;
+        archivedStatus: typeof TRADING_JOB_STATUS.Archived;
     }>;
     private readonly selectActiveIndexedOrders: BetterSqlite3NamedStatement<{
         chainId: number;
@@ -177,6 +216,39 @@ export class SqliteBiddingBidBookRepository
             state: typeof TRADING_BOT_RUNTIME_STATE.Running;
         }>;
 
+        this.selectKnownBiddingMaker = db.prepare<{
+            chainId: number;
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+        }>(
+            "SELECT address " +
+                "FROM trading_bot_runtime_state " +
+                "WHERE chain_id = @chainId AND bot_kind = @botKind " +
+                "ORDER BY updated_at DESC, heartbeat_at DESC " +
+                "LIMIT 1",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+        }>;
+
+        this.selectActiveBiddingJobs = db.prepare<{
+            chainId: number;
+            collectionId: number;
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+            archivedStatus: typeof TRADING_JOB_STATUS.Archived;
+        }>(
+            "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
+                "s.floor_wei, s.ceiling_wei, s.target_traits_json " +
+                "FROM trading_jobs j " +
+                "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
+                "WHERE j.chain_id = @chainId AND j.collection_id = @collectionId " +
+                "AND j.bot_kind = @botKind AND j.status != @archivedStatus",
+        ) as BetterSqlite3NamedStatement<{
+            chainId: number;
+            collectionId: number;
+            botKind: typeof TRADING_BOT_KIND.Bidding;
+            archivedStatus: typeof TRADING_JOB_STATUS.Archived;
+        }>;
+
         this.selectActiveIndexedOrders = db.prepare<{
             chainId: number;
             collectionId: number;
@@ -205,26 +277,39 @@ export class SqliteBiddingBidBookRepository
         selectedTraitRanges: TraitRangeFilter[];
         makerAddress?: string | null;
     }): PersistedBiddingBidBook {
+        const knownMakerAddress = this.loadKnownBiddingMakerAddress(
+            params.chainId,
+        );
         const useProjection = this.shouldUseBotSnapshot(params);
-        const bidBook = useProjection
-            ? this.loadProjectedBidBook(params.chainId, params.collectionId)
-            : this.loadIndexedOrdersBidBook(params.chainId, params.collectionId);
+        const bidBook = markOwnBids(
+            useProjection
+                ? this.loadProjectedBidBook(params.chainId, params.collectionId)
+                : this.loadIndexedOrdersBidBook(
+                      params.chainId,
+                      params.collectionId,
+                  ),
+            knownMakerAddress,
+        );
         const makerAddress = params.makerAddress?.toLowerCase() ?? null;
+        const scopedBids = sortBidsDesc(
+            bidBook.bids.filter(
+                (bid) =>
+                    collectionBidMatchesFilters(
+                        bid,
+                        params.scopeFilter,
+                        params.traitFilterJoinMode,
+                        params.selectedTraits,
+                        params.selectedTraitRanges,
+                    ),
+            ),
+        );
         return {
             state: bidBook.state,
-            bids: sortBidsDesc(
-                bidBook.bids.filter(
-                    (bid) =>
-                        makerMatchesFilter(bid, makerAddress) &&
-                        collectionBidMatchesFilters(
-                            bid,
-                            params.scopeFilter,
-                            params.traitFilterJoinMode,
-                            params.selectedTraits,
-                            params.selectedTraitRanges,
-                        ),
-                ),
-            ),
+            ownMakerAddress: bidBook.ownMakerAddress,
+            bids: attachOwnBidRuntimeSignals(
+                scopedBids,
+                this.loadActiveBiddingJobs(params.chainId, params.collectionId),
+            ).filter((bid) => makerMatchesFilter(bid, makerAddress)),
         };
     }
 
@@ -234,16 +319,30 @@ export class SqliteBiddingBidBookRepository
         tokenId: string;
         tokenTraits: TradingTraitCriterion[];
     }): PersistedBiddingBidBook {
+        const knownMakerAddress = this.loadKnownBiddingMakerAddress(
+            params.chainId,
+        );
         const useProjection = this.shouldUseBotSnapshot(params);
-        const bidBook = useProjection
-            ? this.loadProjectedBidBook(params.chainId, params.collectionId)
-            : this.loadIndexedOrdersBidBook(params.chainId, params.collectionId);
+        const bidBook = markOwnBids(
+            useProjection
+                ? this.loadProjectedBidBook(params.chainId, params.collectionId)
+                : this.loadIndexedOrdersBidBook(
+                      params.chainId,
+                      params.collectionId,
+                  ),
+            knownMakerAddress,
+        );
+        const bids = sortBidsDesc(
+            bidBook.bids.filter((bid) =>
+                tokenBidApplies(bid, params.tokenId, params.tokenTraits),
+            ),
+        );
         return {
             state: bidBook.state,
-            bids: sortBidsDesc(
-                bidBook.bids.filter((bid) =>
-                    tokenBidApplies(bid, params.tokenId, params.tokenTraits),
-                ),
+            ownMakerAddress: bidBook.ownMakerAddress,
+            bids: attachOwnBidRuntimeSignals(
+                bids,
+                this.loadActiveBiddingJobs(params.chainId, params.collectionId),
             ),
         };
     }
@@ -299,6 +398,38 @@ export class SqliteBiddingBidBookRepository
         );
     }
 
+    private loadKnownBiddingMakerAddress(chainId: number): string | null {
+        // Read the latest bot-owned wallet address so passive orders can still mark own bids.
+        const row = this.selectKnownBiddingMaker.get({
+            chainId,
+            botKind: TRADING_BOT_KIND.Bidding,
+        }) as KnownBiddingMakerRow | undefined;
+        return row?.address?.toLowerCase() ?? null;
+    }
+
+    private loadActiveBiddingJobs(
+        chainId: number,
+        collectionId: number,
+    ): BiddingJobSignal[] {
+        // Load declared jobs once so own-bid row signals can be computed from backend read models.
+        const rows = this.selectActiveBiddingJobs.all({
+            chainId,
+            collectionId,
+            botKind: TRADING_BOT_KIND.Bidding,
+            archivedStatus: TRADING_JOB_STATUS.Archived,
+        }) as BiddingJobSignalRow[];
+        return rows.map((row) => ({
+            jobId: row.job_id,
+            status: row.status,
+            targetKind: row.target_kind,
+            tokenId: row.token_id,
+            floorWei: row.floor_wei,
+            ceilingWei: row.ceiling_wei,
+            revision: row.revision,
+            targetTraits: parseTraitArray(row.target_traits_json),
+        }));
+    }
+
     private loadProjectedBidBook(
         chainId: number,
         collectionId: number,
@@ -318,6 +449,7 @@ export class SqliteBiddingBidBookRepository
             state: stateRow
                 ? mapProjectionStateRow(stateRow)
                 : emptyState(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot),
+            ownMakerAddress: null,
             bids: rows.flatMap((row) => mapProjectedRow(row)),
         };
     }
@@ -340,9 +472,143 @@ export class SqliteBiddingBidBookRepository
                 updatedAt,
                 rowCount: bids.length,
             },
+            ownMakerAddress: null,
             bids,
         };
     }
+}
+
+function markOwnBids(
+    bidBook: PersistedBiddingBidBook,
+    ownMakerAddress: string | null,
+): PersistedBiddingBidBook {
+    if (!ownMakerAddress) {
+        return {
+            ...bidBook,
+            ownMakerAddress: null,
+        };
+    }
+
+    return {
+        ...bidBook,
+        ownMakerAddress,
+        bids: bidBook.bids.map((bid) => ({
+            ...bid,
+            isOwn: bid.maker.toLowerCase() === ownMakerAddress,
+        })),
+    };
+}
+
+function attachOwnBidRuntimeSignals(
+    bids: PersistedBiddingBidBookRow[],
+    jobs: BiddingJobSignal[],
+): PersistedBiddingBidBookRow[] {
+    const bidGroups = groupBidsByExactScope(bids);
+    return bids.map((bid) => {
+        if (!bid.isOwn) {
+            return {
+                ...bid,
+                ownStatus: null,
+            };
+        }
+
+        const job =
+            jobs.find((candidate) => jobMatchesBid(candidate, bid)) ?? null;
+        return {
+            ...bid,
+            ownStatus: {
+                position: resolveOwnBidPosition(
+                    bidGroups.get(exactBidScopeKey(bid)) ?? [bid],
+                    bid,
+                ),
+                constraints: job ? resolveOwnBidConstraints(job, bid) : [],
+                job: job
+                    ? {
+                          jobId: job.jobId,
+                          revision: job.revision,
+                          status: job.status,
+                      }
+                    : null,
+            },
+        };
+    });
+}
+
+function groupBidsByExactScope(
+    bids: PersistedBiddingBidBookRow[],
+): Map<string, PersistedBiddingBidBookRow[]> {
+    const groups = new Map<string, PersistedBiddingBidBookRow[]>();
+    for (const bid of bids) {
+        const key = exactBidScopeKey(bid);
+        const group = groups.get(key) ?? [];
+        group.push(bid);
+        groups.set(key, group);
+    }
+    return groups;
+}
+
+function exactBidScopeKey(bid: PersistedBiddingBidBookRow): string {
+    return [
+        bid.scopeKind,
+        bid.tokenId ?? "",
+        bid.encodedTokenIds ?? "",
+        tradingTraitCriteriaKey(bid.scopeTraits),
+    ].join("\u0001");
+}
+
+function resolveOwnBidPosition(
+    bids: PersistedBiddingBidBookRow[],
+    ownBid: PersistedBiddingBidBookRow,
+): "winning" | "draw" | "losing" {
+    const ownPrice = BigInt(ownBid.priceWei);
+    const bestOpponent = bids.find((bid) => !bid.isOwn);
+    if (!bestOpponent || ownPrice > BigInt(bestOpponent.priceWei)) {
+        return "winning";
+    }
+    return ownPrice === BigInt(bestOpponent.priceWei) ? "draw" : "losing";
+}
+
+function resolveOwnBidConstraints(
+    job: BiddingJobSignal,
+    bid: PersistedBiddingBidBookRow,
+): Array<"ceiling" | "floor" | "balance" | "allowance"> {
+    const constraints: Array<"ceiling" | "floor" | "balance" | "allowance"> = [];
+    const price = BigInt(bid.priceWei);
+    if (price >= BigInt(job.ceilingWei)) {
+        constraints.push("ceiling");
+    }
+    if (price <= BigInt(job.floorWei)) {
+        constraints.push("floor");
+    }
+    return constraints;
+}
+
+function jobMatchesBid(
+    job: BiddingJobSignal,
+    bid: PersistedBiddingBidBookRow,
+): boolean {
+    if (job.targetKind === TRADING_JOB_TARGET_KIND.Token) {
+        return (
+            bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Token &&
+            bid.tokenId === job.tokenId
+        );
+    }
+
+    if (job.targetKind === TRADING_JOB_TARGET_KIND.Collection) {
+        return (
+            tradingTraitCriteriaKey(bid.scopeTraits) ===
+            tradingTraitCriteriaKey(job.targetTraits)
+        );
+    }
+
+    if (job.targetKind === TRADING_JOB_TARGET_KIND.CompetitiveTrait) {
+        return (
+            tradingTraitCriteriaKey(bid.scopeTraits) ===
+            tradingTraitCriteriaKey(job.targetTraits)
+        );
+    }
+
+    return false;
 }
 
 function isFreshProjectionState(row: ProjectionStateRow | undefined): boolean {
@@ -432,6 +698,7 @@ function mapProjectedRow(row: ProjectedBidBookRow): PersistedBiddingBidBookRow[]
             placedAt: row.placed_at,
             snapshotRefreshedAtMs: row.snapshot_refreshed_at_ms,
             seenAt: row.seen_at,
+            ownStatus: null,
         },
     ];
 }
@@ -467,6 +734,7 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
                 placedAt: parsed.createdAt ?? row.created_at,
                 snapshotRefreshedAtMs: null,
                 seenAt: row.updated_at,
+                ownStatus: null,
             },
         ];
     }

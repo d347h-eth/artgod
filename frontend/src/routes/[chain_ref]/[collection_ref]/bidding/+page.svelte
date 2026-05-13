@@ -2,6 +2,8 @@
 	import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingCollectionSettings,
+		ApiBiddingPriceTier,
 		ApiBiddingTokenOfferCardsPage,
 		ApiBiddingJob,
 		ApiChain,
@@ -14,13 +16,16 @@
 		ApiTraitFacet,
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
-	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
+	import { emptyBiddingBidBook, emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
+	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 
 	type PageData = {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		jobs: ApiBiddingJob[];
+		biddingSettings: ApiBiddingCollectionSettings;
+		priceTiers: ApiBiddingPriceTier[];
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards: ApiBiddingTokenOfferCardsPage;
 		facets: ApiTraitFacet[];
@@ -43,21 +48,6 @@
 
 	let { data }: { data?: PageData } = $props();
 
-	function emptyBidBook(): ApiBiddingBidBook {
-		return {
-			state: {
-				source: 'orders',
-				updatedAt: null,
-				snapshotRefreshedAtMs: null,
-				projectedAt: null,
-				rowCount: 0,
-				durationMs: null,
-				lastError: null
-			},
-			bids: []
-		};
-	}
-
 	function defaultMedia(): ApiCollectionMediaState {
 		return {
 			selectedMode: 'snapshot',
@@ -71,7 +61,9 @@
 	chain={data?.chain ?? null}
 	collection={data?.collection ?? null}
 	jobs={data?.jobs ?? []}
-	bidBook={data?.bidBook ?? emptyBidBook()}
+	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
+	priceTiers={data?.priceTiers ?? []}
+	bidBook={data?.bidBook ?? emptyBiddingBidBook()}
 	tokenOfferCards={data?.tokenOfferCards ?? emptyBiddingTokenOfferCardsPage()}
 	facets={data?.facets ?? []}
 	media={data?.media ?? defaultMedia()}

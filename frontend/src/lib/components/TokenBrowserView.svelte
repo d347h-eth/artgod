@@ -25,6 +25,10 @@
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { buildTokenBrowserHref, buildTokenDetailHref } from '$lib/token-browser-query';
+	import type {
+		TokenCardSelectionState,
+		TokenCardSelectionToggleRequest
+	} from '$lib/token-card-selection';
 	import {
 		appendTraitParams,
 		appendTraitRangeParams,
@@ -63,7 +67,10 @@
 		collectionNavigation = null,
 		tokenStatus,
 		displayMode,
-		emptyMessage = 'no tokens match current filters'
+		emptyMessage = 'no tokens match current filters',
+		selection = null,
+		onVisibleTokenIdsChange = null,
+		onToggleTiers = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -82,6 +89,13 @@
 		tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
 		displayMode: 'grid' | 'table';
 		emptyMessage?: string;
+		selection?: {
+			stateKey: string;
+			state: (tokenId: string, stateKey: string) => TokenCardSelectionState;
+			onToggle: (request: TokenCardSelectionToggleRequest & { visibleTokenIds: string[] }) => void;
+		} | null;
+		onVisibleTokenIdsChange?: ((tokenIds: string[]) => void) | null;
+		onToggleTiers?: (() => void) | null;
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
@@ -113,6 +127,11 @@
 	let hasMediaModeChoices = $derived(media.availableModes.length > 1);
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
+	let visibleTokenIds = $derived(visibleTokens.map((token) => token.tokenId));
+
+	$effect(() => {
+		onVisibleTokenIdsChange?.(visibleTokenIds);
+	});
 
 	$effect(() => {
 		activeTraits = selectedTraits;
@@ -415,9 +434,14 @@
 			!event.metaKey &&
 			!event.ctrlKey &&
 			!event.altKey &&
-			!isKeyboardTextEntryTarget(event.target)
+			!isKeyboardTextEntryTarget(event.target, { allowCheckboxAndRadio: true })
 		) {
 			const key = event.key.toLowerCase();
+			if (key === 't' && onToggleTiers) {
+				event.preventDefault();
+				onToggleTiers();
+				return;
+			}
 			if (key === 'v') {
 				const nextMode = nextPageMediaMode();
 				if (nextMode) {
@@ -472,7 +496,7 @@
 			onNext={onLoadNext}
 			endLabel="end of token results"
 		>
-			{#snippet actions()}
+			{#snippet leftActions()}
 				{#if showDisplayModeControls}
 					<div class="secondary-tabs" aria-label="Token display mode">
 						{#if isGridMode}
@@ -487,6 +511,8 @@
 						{/if}
 					</div>
 				{/if}
+			{/snippet}
+			{#snippet rightActions()}
 				{#if hasMediaModeChoices}
 					<div class="secondary-tabs" aria-label="Token media mode">
 						{#each media.availableModes as mode}
@@ -517,6 +543,16 @@
 									{tokenPreview}
 									adjacentTokenResolver={resolveAdjacentPreviewTokenId}
 									marketPrices={tokenMarketPrices(token)}
+									selection={selection
+										? {
+												state: selection.state(token.tokenId, selection.stateKey),
+												onToggle: (request) =>
+													selection.onToggle({
+														...request,
+														visibleTokenIds
+													})
+											}
+										: null}
 								/>
 							{/each}
 						</div>

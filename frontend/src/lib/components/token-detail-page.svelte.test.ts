@@ -87,6 +87,7 @@ describe('token detail page', () => {
 								durationMs: null,
 								lastError: null
 							},
+							ownMakerAddress: null,
 							bids: [
 								{
 									orderId: '0xcollection-bid',
@@ -111,7 +112,8 @@ describe('token detail page', () => {
 									validUntil: 4_000_000_000,
 									placedAt: '2026-01-01T00:00:00Z',
 									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-01T00:00:00Z'
+									seenAt: '2026-01-01T00:00:00Z',
+									ownStatus: null
 								},
 								{
 									orderId: '0xtrait-bid',
@@ -136,7 +138,8 @@ describe('token detail page', () => {
 									validUntil: 4_000_000_000,
 									placedAt: '2026-01-01T00:00:00Z',
 									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-01T00:00:00Z'
+									seenAt: '2026-01-01T00:00:00Z',
+									ownStatus: null
 								}
 							]
 						},
@@ -147,43 +150,47 @@ describe('token detail page', () => {
 		});
 
 		expect(body).toContain('back to collection');
-			expect(body).toContain(
-				'?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid&amp;media_mode=artifact'
-			);
-			expect(body).toContain('milady #1');
-			expect(body).toContain('class="token-detail-media-frame"');
-			expect(body).toContain('https://example.com/1.html');
-			expect(body).toContain('aria-label="Token detail media mode"');
-			expect(body).toContain('class="secondary-tab-active"');
-			expect(body).toContain('>artifact<');
-			expect(body).toContain('>snapshot<');
-			expect(body).toContain('current holder:');
-			expect(body).toContain('Beanie');
-			expect(body).toContain('66.67%');
+		expect(body).toContain(
+			'?cursor=opaque-cursor-token&amp;token_status=listed&amp;mode=grid&amp;media_mode=artifact'
+		);
+		expect(body).toContain('milady #1');
+		expect(body).toContain('class="token-detail-media-frame"');
+		expect(body).toContain('https://example.com/1.html');
+		expect(body).toContain('aria-label="Token detail media mode"');
+		expect(body).toContain('class="secondary-tab-active"');
+		expect(body).toContain('>artifact<');
+		expect(body).toContain('>snapshot<');
+		expect(body).toContain('current holder:');
+		expect(body).toContain('Beanie');
+		expect(body).toContain('66.67%');
 		expect(body).toContain(
 			'/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?limit=250&amp;mode=grid&amp;token_status=listed_then_unlisted&amp;media_mode=artifact'
 		);
-			expect(body).toContain(
-				'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
-			);
-			expect(body).toContain('0.5 ETH [OS]');
-			expect(body).toContain(
-				'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
-			);
-			expect(body).not.toContain('traits=Power%3A7');
-			expect(body).toContain('token bidding');
-			expect(body).toContain('<th class="bid-book-col-center">scope</th>');
-			expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
-			expect(body).toContain('Hat=Beanie');
-			expect(body).toContain(
-				'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-			);
-			expect(body).toContain(
-				'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
-			);
-			expect(body).toContain('collection bidding page');
-			expect(body).toContain('>create<');
-		});
+		expect(body).toContain(
+			'https://opensea.io/item/ethereum/0x1111111111111111111111111111111111111111/1'
+		);
+		expect(body).toContain('0.5 ETH [OS]');
+		expect(body).toContain(
+			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
+		);
+		expect(body).not.toContain('traits=Power%3A7');
+		expect(body).toContain('<th class="bid-book-col-center">scope</th>');
+		expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
+		expect(body).toContain('Hat=Beanie');
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+		);
+		expect(body).toContain(
+			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
+		);
+		expect(body).toContain('role="region" aria-label="bidding automation"');
+		expect(body).toContain('token bidding');
+		expect(body).toContain('value="0.101"');
+		expect(body).toContain('value="0.001"');
+		expect(body).toContain('>create<');
+		expect(body).not.toContain('>hide<');
+		expect(body).not.toContain('>use<');
+	});
 
 	it('uses holder return path when provided', () => {
 		const { body } = render(TokenDetailPage, {
@@ -256,7 +263,8 @@ describe('token detail page', () => {
 						config: {
 							floorEth: '0.1',
 							ceilingEth: '0.2',
-							deltaEth: '0.01'
+							deltaEth: '0.01',
+							pricingSource: null
 						},
 						runtime: {
 							currentPriceEth: '0.15',
@@ -264,7 +272,8 @@ describe('token detail page', () => {
 							activeProtocolAddress: '0xdef456',
 							activeExpirationTimeMs: 1760000000000,
 							lastRunAt: '2026-01-01T13:00:00Z',
-							lastError: null
+							lastError: null,
+							updatedAt: '2026-01-01T13:00:30Z'
 						}
 					},
 					backPath: '/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -285,12 +294,11 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('0.15 ETH');
-		expect(body).toContain('0xabc123');
+		expect(body).toContain('token bidding');
 		expect(body).toContain('value="0.1"');
 		expect(body).toContain('value="0.2"');
 		expect(body).toContain('value="0.01"');
-		expect(body).toContain('>archive<');
+		expect(body).toContain('>modify<');
 	});
 
 	it('keeps token-local lost mode out of collection navigation links', () => {
