@@ -2090,24 +2090,23 @@ th {
 .token-bidding-form-footer {
 	padding: 0.75rem 0 0;
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-columns: 75px 75px;
 	align-items: flex-start;
-	gap: 0.5rem;
+	column-gap: 150px;
+	row-gap: 0.5rem;
+	justify-content: center;
 }
 
 .token-bidding-form-actions-left,
 .token-bidding-form-actions-right {
 	display: flex;
-	flex-wrap: wrap;
+	flex-direction: column;
 	gap: 0.35rem;
 }
 
-.token-bidding-form-actions-left {
-	justify-content: flex-start;
-}
-
-.token-bidding-form-actions-right {
-	justify-content: flex-end;
+.token-bidding-form-actions-left button,
+.token-bidding-form-actions-right button {
+	width: 75px;
 }
 
 .token-bidding-action-positive:not(:disabled) {
@@ -2118,6 +2117,16 @@ th {
 .token-bidding-action-negative:not(:disabled) {
 	border-color: var(--c-orange);
 	color: var(--c-orange);
+}
+
+.token-bidding-action-positive.token-bidding-action-armed:not(:disabled) {
+	background: var(--c-cyan);
+	color: var(--c-bg);
+}
+
+.token-bidding-action-negative.token-bidding-action-armed:not(:disabled) {
+	background: var(--c-orange);
+	color: var(--c-bg);
 }
 
 .token-bidding-form-footer .bootstrap-form-feedback {

@@ -40,6 +40,7 @@
 		| typeof TRADING_JOB_STATUS.Enabled
 		| typeof TRADING_JOB_STATUS.Paused;
 	type BiddingAutomationPanelVariant = 'floating' | 'inline';
+	type ConfirmableBiddingAction = 'create' | 'modify' | 'activate' | 'pause' | 'archive';
 
 	let {
 		open,
@@ -89,6 +90,7 @@
 	let modifiedAtMode = $state<CompactTimeDisplayMode>('relative');
 	let refreshedAtMode = $state<CompactTimeDisplayMode>('relative');
 	let nowMs = $state(Date.now());
+	let armedAction = $state<ConfirmableBiddingAction | null>(null);
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
@@ -166,6 +168,7 @@
 		archiving = false;
 		saveMessage = null;
 		saveError = null;
+		armedAction = null;
 	});
 
 	$effect(() => {
@@ -322,6 +325,7 @@
 		applyDraft(currentJob, draft);
 		saveMessage = null;
 		saveError = null;
+		armedAction = null;
 	}
 
 	function hidePanel(): void {
@@ -334,6 +338,42 @@
 
 	function togglePanelCollapsed(): void {
 		panelCollapsed = !panelCollapsed;
+	}
+
+	function onWindowPointerDown(event: PointerEvent): void {
+		clearArmedActionUnlessTarget(event.target);
+	}
+
+	function onWindowFocusIn(event: FocusEvent): void {
+		clearArmedActionUnlessTarget(event.target);
+	}
+
+	function clearArmedActionUnlessTarget(target: EventTarget | null): void {
+		if (!armedAction || isArmedActionTarget(target, armedAction)) {
+			return;
+		}
+		armedAction = null;
+	}
+
+	function isArmedActionTarget(
+		target: EventTarget | null,
+		action: ConfirmableBiddingAction
+	): boolean {
+		return target instanceof HTMLElement
+			? target.closest(`[data-bidding-action="${action}"]`) !== null
+			: false;
+	}
+
+	async function confirmBiddingAction(
+		action: ConfirmableBiddingAction,
+		run: () => Promise<void>
+	): Promise<void> {
+		if (armedAction !== action) {
+			armedAction = action;
+			return;
+		}
+		armedAction = null;
+		await run();
 	}
 
 	function onWindowKeydown(event: KeyboardEvent): void {
@@ -491,6 +531,7 @@
 
 		const nextStatus = statusOverride ?? status;
 		const wasExistingJob = currentJob !== null;
+		armedAction = null;
 		saving = true;
 		saveMessage = null;
 		saveError = null;
@@ -688,16 +729,8 @@
 			return;
 		}
 
-		if (typeof window !== 'undefined') {
-			const confirmed = window.confirm(
-				`Archive bidding job for token ${archivableTokenId}? Active offer cleanup will be queued.`
-			);
-			if (!confirmed) {
-				return;
-			}
-		}
-
 		archiving = true;
+		armedAction = null;
 		saveMessage = null;
 		saveError = null;
 
@@ -716,7 +749,11 @@
 	}
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} />
+<svelte:window
+	onkeydown={onWindowKeydown}
+	onpointerdown={onWindowPointerDown}
+	onfocusin={onWindowFocusIn}
+/>
 
 {#if open && panelCollapsed}
 	<button
@@ -813,7 +850,6 @@
 			class="bootstrap-form token-bidding-form"
 			onsubmit={(event) => {
 				event.preventDefault();
-				void handleSave();
 			}}
 		>
 			{#if canUseTierPricing}
@@ -906,7 +942,12 @@
 						<button
 							type="button"
 							class="token-bidding-action-negative"
-							onclick={() => void handleSave(TRADING_JOB_STATUS.Paused)}
+							class:token-bidding-action-armed={armedAction === 'pause'}
+							data-bidding-action="pause"
+							onclick={() =>
+								void confirmBiddingAction('pause', () =>
+									handleSave(TRADING_JOB_STATUS.Paused)
+								)}
 							disabled={!canPauseJob}
 						>
 							pause
@@ -915,7 +956,9 @@
 					<button
 						type="button"
 						class="token-bidding-action-negative"
-						onclick={() => void handleArchive()}
+						class:token-bidding-action-armed={armedAction === 'archive'}
+						data-bidding-action="archive"
+						onclick={() => void confirmBiddingAction('archive', handleArchive)}
 						disabled={!canArchiveJob}
 					>
 						{archiving ? 'archiving...' : 'archive'}
@@ -924,8 +967,11 @@
 				<div class="token-bidding-form-actions-right">
 					{#if hasExistingJob}
 						<button
-							type="submit"
+							type="button"
 							class="token-bidding-action-positive"
+							class:token-bidding-action-armed={armedAction === 'modify'}
+							data-bidding-action="modify"
+							onclick={() => void confirmBiddingAction('modify', () => handleSave())}
 							disabled={!canModifyJob}
 						>
 							{saving ? 'saving...' : 'modify'}
@@ -934,7 +980,12 @@
 							<button
 								type="button"
 								class="token-bidding-action-positive"
-								onclick={() => void handleSave(TRADING_JOB_STATUS.Enabled)}
+								class:token-bidding-action-armed={armedAction === 'activate'}
+								data-bidding-action="activate"
+								onclick={() =>
+									void confirmBiddingAction('activate', () =>
+										handleSave(TRADING_JOB_STATUS.Enabled)
+									)}
 								disabled={!canActivateJob}
 							>
 								activate
@@ -942,8 +993,11 @@
 						{/if}
 					{:else}
 						<button
-							type="submit"
+							type="button"
 							class="token-bidding-action-positive"
+							class:token-bidding-action-armed={armedAction === 'create'}
+							data-bidding-action="create"
+							onclick={() => void confirmBiddingAction('create', () => handleSave())}
 							disabled={!canCreateJob}
 						>
 							{saving ? 'creating...' : 'create'}

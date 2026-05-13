@@ -784,7 +784,7 @@
 <section class="runtime-section bid-book-summary-panel">
 	<div class="runtime-kv-grid bid-book-meta">
 		<div>
-			<span class="runtime-k">bids source</span>
+			<span class="runtime-k">refresh pace</span>
 			<span class="runtime-v" title={sourceTitle(bidBook.state.source)}>
 				{sourceLabel(bidBook.state.source)}
 			</span>
