@@ -2079,10 +2079,6 @@ th {
 	gap: 1rem;
 }
 
-.token-bidding-runtime-grid {
-	padding-bottom: 0.75rem;
-}
-
 .token-bidding-form {
 	margin-inline: auto;
 }
@@ -2766,9 +2762,28 @@ th {
 	gap: 0.4rem;
 }
 
+.runtime-kv-grid.token-bidding-runtime-grid {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.45rem 1.35rem;
+	padding-bottom: 0.75rem;
+}
+
 .runtime-kv-grid > div {
 	display: grid;
 	gap: 0.15rem;
+}
+
+.runtime-kv-grid.token-bidding-runtime-grid > div {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.5rem;
+}
+
+.token-bidding-runtime-grid .activities-time-mode-button {
+	font-size: 0.75rem;
+	line-height: 1;
 }
 
 .runtime-k {
