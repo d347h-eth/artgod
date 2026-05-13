@@ -7,6 +7,7 @@ import {
 	getCollectionBiddingPriceTiers
 } from '$lib/backend-api';
 import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	parseCollectionBiddingBidScopeFilter,
@@ -42,6 +43,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			chain: null,
 			collection: null,
 			jobs: [],
+			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: [],
 			bidBook: {
 				state: {
@@ -96,6 +98,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			chain: response.chain,
 			collection: response.collection,
 			jobs: response.jobs,
+			biddingSettings: priceTiersResponse.settings,
 			priceTiers: priceTiersResponse.tiers,
 			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,

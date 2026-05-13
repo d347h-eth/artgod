@@ -1,5 +1,13 @@
 import type { ChainRecord, CollectionListItem } from "@artgod/shared/types";
-import type { BiddingPriceTiersRepositoryPort } from "./bidding-price-tier-ports.js";
+import type {
+    CollectionSettingsRepositoryPort,
+    BiddingPriceTiersRepositoryPort,
+} from "./bidding-price-tier-ports.js";
+import {
+    mapBiddingCollectionSettingsToView,
+    readBiddingCollectionSettings,
+    type BiddingCollectionSettingsView,
+} from "./bidding-collection-settings.js";
 import {
     mapResolvedBiddingPriceTierToView,
     resolveBiddingPriceTierGraph,
@@ -14,6 +22,7 @@ export type ListCollectionBiddingPriceTiersInput = {
 export type ListCollectionBiddingPriceTiersOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
+    settings: BiddingCollectionSettingsView;
     tiers: BiddingPriceTierView[];
 };
 
@@ -35,6 +44,10 @@ export class ListCollectionBiddingPriceTiersUseCase {
         readonly biddingPriceTiersRepositoryPort: Pick<
             BiddingPriceTiersRepositoryPort,
             "listCollectionPriceTiers"
+        >,
+        readonly collectionSettingsRepositoryPort: Pick<
+            CollectionSettingsRepositoryPort,
+            "getCollectionSetting"
         >,
     ) {}
 
@@ -58,10 +71,18 @@ export class ListCollectionBiddingPriceTiersUseCase {
                 collectionId: collection.collectionId,
             }),
         ).map((tier) => mapResolvedBiddingPriceTierToView(tier));
+        // Load collection-scoped bidding UI defaults alongside the tier read model.
+        const settings = mapBiddingCollectionSettingsToView(
+            readBiddingCollectionSettings(this.collectionSettingsRepositoryPort, {
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+            }),
+        );
 
         return {
             chain,
             collection,
+            settings,
             tiers,
         };
     }

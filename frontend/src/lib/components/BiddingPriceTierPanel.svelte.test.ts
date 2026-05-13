@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import BiddingPriceTierPanel from './BiddingPriceTierPanel.svelte';
 
 describe('BiddingPriceTierPanel', () => {
@@ -34,6 +35,7 @@ describe('BiddingPriceTierPanel', () => {
 						parentTierId: null,
 						floorConfig: { kind: 'fixed', valueEth: '0.1' },
 						ceilingConfig: { kind: 'fixed', valueEth: '0.2' },
+						deltaEth: '0.001',
 						resolvedFloorEth: '0.1',
 						resolvedCeilingEth: '0.2',
 						resolvedAt: '2026-01-02T00:00:00Z',
@@ -59,6 +61,7 @@ describe('BiddingPriceTierPanel', () => {
 							deltaKind: 'percent',
 							percent: '10'
 						},
+						deltaEth: '0.002',
 						resolvedFloorEth: '0.11',
 						resolvedCeilingEth: '0.121',
 						resolvedAt: '2026-01-02T00:00:00Z',
@@ -69,6 +72,8 @@ describe('BiddingPriceTierPanel', () => {
 						archivedAt: null
 					}
 				],
+				settings: defaultBiddingCollectionSettings(),
+				onSettingsChange: () => {},
 				onTiersChange: () => {}
 			}
 		});
@@ -79,6 +84,9 @@ describe('BiddingPriceTierPanel', () => {
 		expect(body).toContain('0.1');
 		expect(body).toContain('0.121');
 		expect(body).toContain('resolution failed');
+		expect(body).toContain('tier selector');
+		expect(body).toContain('default delta ETH');
+		expect(body).toContain('price delta ETH');
 		expect(body).toContain('>reapply<');
 		expect(body).toContain('<option value="" selected>root</option>');
 		expect(body).toContain('>create<');

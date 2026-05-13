@@ -27,6 +27,7 @@ const BASE_TIER: PersistedBiddingPriceTierRecord = {
         deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
         deltaEth: "0.25",
     },
+    deltaWei: "1000000000000000",
     resolvedFloorWei: null,
     resolvedCeilingWei: null,
     resolvedAt: null,

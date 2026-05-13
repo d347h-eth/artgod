@@ -29,9 +29,10 @@ The current runtime contract remains unchanged: SQLite stores declared desired j
 The user should be able to start a bidding action from three sources:
 
 1. Filtered token or trait targeting:
-   - User filters a collection through existing trait/token controls.
-   - User clicks `bid on traits` when the intended target is the current trait filter.
-   - User clicks `bid on tokens` when the intended target is tokens matching the current token-card result set.
+- User filters a collection through existing trait/token controls.
+- User clicks `bid on traits` when the intended target is the current trait filter.
+- User clicks `bid on all tokens` when the intended target is all tokens matching the current token-card result set.
+- User clicks `bid on this page` when the intended target should be constrained to the currently loaded token cards.
    - Token targeting records the filter snapshot and can target all matching tokens across the collection, not only the visible page.
    - Trait targeting records the exact current trait criteria and creates a trait job; do not infer this from generic token selection.
 2. Explicit token selection:
@@ -90,6 +91,8 @@ The shared panel should be a compact bottom-right surface with:
 - target summary: token, token count, trait criteria, bid scope, or selected bid context
 - pricing mode: manual scalar prices or collection tier
 - floor, ceiling, and delta preview in Ether units
+- tier selection is inline fixed-width buttons by default, with `manual` first followed by tier names
+- collection settings can switch tier selection to a dropdown when a collection has too many tiers for compact buttons
 - current market context when available: top bid, user's active bid, ask floor, and winning/outbid state
 - submit action for create/update
 - archive/disable action when editing an existing job
@@ -99,7 +102,7 @@ It should use compact labels and existing control families.
 
 The panel should be opened or expanded by:
 
-- `bid on traits`, `bid on tokens`, or `place collection bid` from token exploration and offers
+- `bid on traits`, `bid on all tokens`, `bid on this page`, or `place collection bid` from token exploration and offers
 - token-card selection gestures
 - bid-book trait bucket action
 - token detail inline action
@@ -140,6 +143,8 @@ Core rules:
 - Each tier stores the original pricing configuration and the latest resolved scalar values.
 - Human-facing inputs and displays use Ether units.
 - Persisted resolved amounts use wei strings.
+- Each tier owns a fixed `delta_wei` value; the collection-level default only seeds new tier forms.
+- Bidding automation uses the tier's resolved floor/ceiling plus tier delta when tier pricing is selected.
 
 ### Tier Price Components
 
@@ -188,6 +193,7 @@ CREATE TABLE trading_bidding_price_tiers (
   parent_tier_id TEXT,
   floor_config_json TEXT NOT NULL,
   ceiling_config_json TEXT NOT NULL,
+  delta_wei TEXT NOT NULL,
   resolved_floor_wei TEXT,
   resolved_ceiling_wei TEXT,
   resolved_at TEXT,
@@ -215,6 +221,29 @@ CREATE UNIQUE INDEX trading_bidding_price_tiers_one_child_uq
 
 The one-child invariant is enforced by the unique partial index.
 Multiple root tiers are allowed because `parent_tier_id IS NULL` rows do not participate in that unique index.
+
+Collection-scoped UI settings use the generic collection settings persistence table, not a bidding-specific settings table:
+
+```sql
+CREATE TABLE collection_settings (
+  chain_id INTEGER NOT NULL,
+  collection_id INTEGER NOT NULL,
+  setting_key TEXT NOT NULL,
+  value_json TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (chain_id, collection_id, setting_key),
+  FOREIGN KEY(collection_id) REFERENCES collections(collection_id) ON DELETE CASCADE
+);
+```
+
+Bidding owns only its setting keys and mapping:
+
+- tier selector presentation mode
+- default price delta in wei
+
+Use shared constants for all setting keys, selector modes, pricing modes, and pricing-source kinds.
+Do not duplicate raw string literals in Svelte components, tests, backend handlers, or adapters.
 
 ### Job Pricing Link
 
@@ -499,11 +528,12 @@ The bid book and token browser should remain the main surfaces, while the automa
 
 Current baseline entering these slices:
 
-- Targeting controls are explicit, not inferred: `bid on traits`, `bid on tokens`, `place collection bid`, and trait-bucket `bid`.
+- Targeting controls are explicit, not inferred: `bid on traits`, `bid on all tokens`, `bid on this page`, `place collection bid`, and trait-bucket `bid`.
 - `bid on traits` means the current trait filter or trait bucket becomes the declared trait target; do not reintroduce ambiguous `select all` behavior for this path.
 - Trait-bucket `bid` must also apply the bucket criteria into the normal trait filter controls so the top action state, the bid book, and the panel all describe the same target.
-- `bid on tokens` means token-job creation, with all-pages vs current-page behavior controlled explicitly by the existing button state.
-- Do not cycle `bid on tokens` between all-pages and current-page modes when the current result set only has one page.
+- `bid on all tokens` means token-job creation for all matching token-card results across all pages.
+- `bid on this page` narrows token-job creation to the currently loaded token cards.
+- Do not show or cycle the current-page action when the current result set only has one page.
 - Bid scope ordering is `token`, `traits`, `collection`; token scope is the default offers view.
 - Token-card selection remains opt-in through `Ctrl` + left click, middle click, and the selected-card unselect affordance.
 - Token-card selection gestures must not intercept `Ctrl` + click or middle-click on actual token-card links.
@@ -516,6 +546,8 @@ Current baseline entering these slices:
 - Token detail pre-fills from the highest applicable bid plus the same minimum-winning-delta calculation used by collection and trait actions.
 - Minimum winning delta is based on the bid price order of magnitude, not one percent of the bid: examples are `20 -> 0.1`, `4 -> 0.01`, `0.23 -> 0.001`, `0.05 -> 0.0001`.
 - Human-facing prices and logs stay in Ether units; wei remains an internal/runtime boundary detail.
+- Bidding collection settings are stored through generic `collection_settings`; do not introduce bidding-specific settings persistence.
+- Keep selector modes and pricing modes behind shared constants/helpers, even when the literal only affects frontend state.
 
 ### Slice 12: Job Association and Edit Existing Targets
 
@@ -576,10 +608,44 @@ Current implementation notes:
 - Collection offers exposes a compact `tiers` toggle that opens collection-scoped tier management without leaving the bidding operations surface.
 - `BiddingPriceTierPanel.svelte` owns tier form state and mutation calls; `BiddingAutomationPanel.svelte` only consumes the updated resolved tier read models.
 - The tier panel can create, modify, pause, activate, archive, and reorder active tiers through existing backend graph-validation use cases.
+- The tier panel owns collection-scoped settings for tier selector mode and default price delta, persisted through generic collection settings.
+- New tier forms initialize price delta from the collection default; existing tiers keep their own delta until explicitly changed.
 - Root tier floor configuration stays fixed-scalar only; parent-derived floor/ceiling controls are only available when a parent tier is selected.
 - Tier pause, activate, archive, create, and modify actions use the same two-click arm/confirm behavior as other bidding state changes.
 - Tier mutations update collection-local tier state so open bidding panels see the latest resolved floor/ceiling values immediately.
+- The `tiers` action belongs next to bidding target actions, not in the bid-scope selector row.
 - Ordering is a first-pass single-tier sort-order move; if tier ordering needs atomic multi-row swaps later, add a backend use case instead of coordinating swaps in the frontend.
+
+### Slice 13B: Tier Selector Simplification and Collection Settings
+
+Status: complete.
+
+- Replace the separate pricing-mode and tier dropdowns in the automation panel with one compact tier selector.
+- Default selector presentation is fixed-width buttons: `manual` first, then clipped tier names.
+- Let collection-scoped settings switch the automation panel to a dropdown when button presentation becomes too wide.
+- Add a collection-scoped default price delta in Ether units.
+- Add per-tier price delta in Ether units and resolve it into tier-backed job scalar `delta_wei`.
+- Keep tier-selected floor, ceiling, and delta visible but not editable in the automation panel.
+- Switching back to manual keeps the last tier-resolved values in the inputs so the user can reuse them.
+- Rename token target actions to `bid on all tokens` and `bid on this page`.
+- Add the attached Playwright bidding panel geometry check as the reusable visual QA path for panel grid alignment.
+
+Expected artifacts:
+
+- `database/migrations/028_collection_settings_and_trading_bidding_tier_delta.sql`
+- `backend/src/infra/collections/sqlite-collection-settings-repository.ts`
+- `backend/src/application/use-cases/trading/update-collection-bidding-settings.ts`
+- `frontend/src/lib/components/BiddingAutomationPanel.svelte`
+- `frontend/src/lib/components/BiddingPriceTierPanel.svelte`
+- `frontend/e2e/bidding-panel.attached.spec.ts`
+
+Current implementation notes:
+
+- The generic `collection_settings` table stores collection-scoped settings as keyed JSON values; bidding-specific settings are just typed keys mapped by the bidding use case.
+- `trading_bidding_price_tiers.delta_wei` is the authoritative tier delta used by tier-backed job creation and staged reapply.
+- Collection settings currently include tier selector mode and default price delta.
+- Inline tier buttons are capped to fixed-width clipped labels so long tier names do not widen the panel.
+- The attached E2E command is `yarn test:bidding:attached`; it expects an already-running app through the attached dev server, same as the existing preview-modal flow.
 
 ### Slice 14: Staged Tier Reapply
 
@@ -657,7 +723,7 @@ Status: complete.
 - Preserve the invariant that all-pages token bidding means all matching tokens across all pages.
 - Keep visible manual adjustments downgraded to visible token IDs until an explicit exclusion target model exists.
 - Do not make canonical orders a bot decision source; this resolver only creates declared UI-selected jobs.
-- Treat `bid on tokens` all-pages behavior as the main driver for this resolver; current-page behavior can continue submitting visible token IDs.
+- Treat `bid on all tokens` behavior as the main driver for this resolver; current-page behavior can continue submitting visible token IDs through `bid on this page`.
 - Respect maker filters and trait filters from the offers page when resolving token-offer result sets.
 - Keep token-scope offer pagination grouped by token; avoid rebuilding all-pages selection from already-loaded cards.
 - Align this slice with the SQL-backed offer pagination plan before changing repository contracts.

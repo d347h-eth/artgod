@@ -59,6 +59,11 @@ export const BIDDING_AUTOMATION_PRICING_MODE = {
 export type BiddingAutomationPricingMode =
 	(typeof BIDDING_AUTOMATION_PRICING_MODE)[keyof typeof BIDDING_AUTOMATION_PRICING_MODE];
 
+export const BIDDING_AUTOMATION_PRICING_MODE_LABEL = {
+	[BIDDING_AUTOMATION_PRICING_MODE.Manual]: 'manual',
+	[BIDDING_AUTOMATION_PRICING_MODE.Tier]: 'tier'
+} as const;
+
 // Captures token-filter state so backend can resolve all matching tokens across pages.
 export type BiddingAutomationTokenFilterSnapshot = {
 	source: BiddingAutomationTokenFilterSource;

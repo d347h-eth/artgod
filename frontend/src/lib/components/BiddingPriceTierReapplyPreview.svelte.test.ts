@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { TRADING_BIDDING_JOB_PRICING_SOURCE_KIND } from '@artgod/shared/types';
 import BiddingPriceTierReapplyPreview from './BiddingPriceTierReapplyPreview.svelte';
 
 describe('BiddingPriceTierReapplyPreview', () => {
@@ -38,7 +39,7 @@ describe('BiddingPriceTierReapplyPreview', () => {
 							ceilingEth: '0.22',
 							deltaEth: '0.01',
 							pricingSource: {
-								kind: 'price_tier',
+								kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
 								tierId: 'tier-1',
 								tierName: 'base',
 								resolvedAt: '2026-01-02T00:00:00Z',

@@ -5,7 +5,7 @@
 		summary,
 		showTraitAction = false,
 		showTokenAction = true,
-		tokenActionLabel = 'bid on tokens',
+		tokenActionLabel = 'bid on all tokens',
 		tokenActionDisabled = false,
 		onBidOnTraits = null,
 		onBidOnTokens,

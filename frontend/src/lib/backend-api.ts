@@ -9,6 +9,7 @@ import type {
 	BiddingJobMutationApiResponse,
 	BiddingJobTargetLookupApiResponse,
 	CollectionBiddingBidBookApiResponse,
+	CollectionBiddingSettingsMutationApiResponse,
 	CollectionBiddingJobMutationApiResponse,
 	CollectionBiddingPriceTierMutationApiResponse,
 	CollectionBiddingPriceTiersApiResponse,
@@ -30,6 +31,7 @@ import type {
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { browser } from '$app/environment';
+import type { TradingBiddingTierSelectionMode } from '@artgod/shared/types';
 
 // Max duration for transient backend retry loop during early runtime startup.
 const STARTUP_RETRY_WINDOW_MS = 12_000;
@@ -385,12 +387,31 @@ export async function upsertCollectionBiddingPriceTier(
 					deltaEth?: string;
 					percent?: string;
 			  };
+		deltaEth: string;
 	}
 ): Promise<CollectionBiddingPriceTierMutationApiResponse> {
 	await ensureCsrfToken(fetchFn);
 	return requestJsonWithBody<CollectionBiddingPriceTierMutationApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers`,
+		'PUT',
+		body
+	);
+}
+
+export async function updateCollectionBiddingSettings(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		tierSelectionMode: TradingBiddingTierSelectionMode;
+		defaultDeltaEth: string;
+	}
+): Promise<CollectionBiddingSettingsMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionBiddingSettingsMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/settings`,
 		'PUT',
 		body
 	);

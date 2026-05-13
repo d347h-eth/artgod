@@ -6,6 +6,7 @@ import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
@@ -72,7 +73,9 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(result.job.collectionAddress, "0x1111111111111111111111111111111111111111");
         assert.equal(result.job.tokenId, "123");
         assert.equal(result.job.priceTierId, null);
-        assert.deepEqual(result.job.pricingSource, { kind: "manual" });
+        assert.deepEqual(result.job.pricingSource, {
+            kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+        });
         assert.equal(result.job.revision, 1);
         assert.equal(result.job.runtime, null);
 
@@ -118,7 +121,7 @@ describe("SqliteBiddingJobsRepository", () => {
             deltaWei: "10000000000000000",
             priceTierId: "tier-base",
             pricingSource: {
-                kind: "price_tier",
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
                 tierId: "tier-base",
                 tierName: "base",
                 resolvedAt: "2026-01-01T00:00:00Z",
@@ -130,7 +133,7 @@ describe("SqliteBiddingJobsRepository", () => {
 
         assert.equal(result.job.priceTierId, "tier-base");
         assert.deepEqual(result.job.pricingSource, {
-            kind: "price_tier",
+            kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
             tierId: "tier-base",
             tierName: "base",
             resolvedAt: "2026-01-01T00:00:00Z",
@@ -152,7 +155,7 @@ describe("SqliteBiddingJobsRepository", () => {
             deltaWei: "10000000000000000",
             priceTierId: "tier-base",
             pricingSource: {
-                kind: "price_tier",
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
                 tierId: "tier-base",
                 tierName: "base",
                 resolvedAt: "2026-01-01T00:00:00Z",
@@ -172,7 +175,7 @@ describe("SqliteBiddingJobsRepository", () => {
                 deltaWei: "10000000000000000",
                 priceTierId: "tier-base",
                 pricingSource: {
-                    kind: "price_tier",
+                    kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
                     tierId: "tier-base",
                     tierName: "base",
                     resolvedAt: "2026-01-02T00:00:00Z",
@@ -188,7 +191,7 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(result.jobs[0]?.revision, 2);
         assert.equal(result.jobs[0]?.floorWei, "130000000000000000");
         assert.deepEqual(result.jobs[0]?.pricingSource, {
-            kind: "price_tier",
+            kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
             tierId: "tier-base",
             tierName: "base",
             resolvedAt: "2026-01-02T00:00:00Z",

@@ -119,6 +119,10 @@ import type {
     UpsertCollectionBiddingPriceTierRoute,
 } from "./http/handlers/trading/upsert-collection-bidding-price-tier.js";
 import type {
+    UpdateCollectionBiddingSettingsHttpAdapter,
+    UpdateCollectionBiddingSettingsRoute,
+} from "./http/handlers/trading/update-collection-bidding-settings.js";
+import type {
     PreviewBiddingPriceTierReapplyHttpAdapter,
     PreviewBiddingPriceTierReapplyRoute,
 } from "./http/handlers/trading/preview-bidding-price-tier-reapply.js";
@@ -188,6 +192,7 @@ export function registerApiRoutes(
     upsertBatchTokenBiddingJobsAdapter: UpsertBatchTokenBiddingJobsHttpAdapter,
     upsertCollectionBiddingJobAdapter: UpsertCollectionBiddingJobHttpAdapter,
     upsertCollectionBiddingPriceTierAdapter: UpsertCollectionBiddingPriceTierHttpAdapter,
+    updateCollectionBiddingSettingsAdapter: UpdateCollectionBiddingSettingsHttpAdapter,
     previewBiddingPriceTierReapplyAdapter: PreviewBiddingPriceTierReapplyHttpAdapter,
     applyBiddingPriceTierReapplyAdapter: ApplyBiddingPriceTierReapplyHttpAdapter,
     archiveBiddingJobAdapter: ArchiveBiddingJobHttpAdapter,
@@ -365,6 +370,10 @@ export function registerApiRoutes(
     app.put<UpsertCollectionBiddingPriceTierRoute>(
         "/api/:chain_ref/:collection_ref/bidding/price-tiers",
         upsertCollectionBiddingPriceTierAdapter.handle,
+    );
+    app.put<UpdateCollectionBiddingSettingsRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/settings",
+        updateCollectionBiddingSettingsAdapter.handle,
     );
     app.post<ApplyBiddingPriceTierReapplyRoute>(
         "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply",

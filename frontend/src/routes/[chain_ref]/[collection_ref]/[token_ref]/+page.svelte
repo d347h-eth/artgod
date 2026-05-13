@@ -14,6 +14,7 @@
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
+		ApiBiddingCollectionSettings,
 		ApiBiddingJob,
 		ApiBiddingPriceTier,
 		ApiChain,
@@ -25,6 +26,7 @@
 		ApiTokenDetailTrait
 	} from '$lib/api-types';
 	import { buildCollectionActivityHref } from '$lib/activity-query';
+	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { getTokenDetail } from '$lib/backend-api';
 	import {
@@ -69,6 +71,7 @@
 		collection: ApiCollection | null;
 		media: ApiCollectionMediaState;
 		token: ApiTokenDetail | null;
+		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
 		traitFilterPresentation?: ApiTraitFilterPresentationFeatureState;
 		tokenBiddingJob?: ApiBiddingJob | null;
@@ -560,6 +563,7 @@
 				job={tokenBiddingJob}
 				draft={tokenBiddingDraft}
 				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
+				biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 				priceTiers={data?.priceTiers ?? []}
 				onJobChange={onTokenBiddingJobChange}
 			/>

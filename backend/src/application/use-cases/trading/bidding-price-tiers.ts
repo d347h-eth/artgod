@@ -22,6 +22,7 @@ export type BiddingPriceTierView = {
     parentTierId: string | null;
     floorConfig: TradingBiddingPriceTierFloorConfig;
     ceilingConfig: TradingBiddingPriceTierCeilingConfig;
+    deltaEth: string;
     resolvedFloorEth: string | null;
     resolvedCeilingEth: string | null;
     resolvedAt: string | null;
@@ -93,6 +94,7 @@ export function mapPersistedBiddingPriceTierToView(
         parentTierId: tier.parentTierId,
         floorConfig: tier.floorConfig,
         ceilingConfig: tier.ceilingConfig,
+        deltaEth: formatWeiAsEth(tier.deltaWei),
         resolvedFloorEth: formatOptionalWeiAsEth(tier.resolvedFloorWei),
         resolvedCeilingEth: formatOptionalWeiAsEth(tier.resolvedCeilingWei),
         resolvedAt: tier.resolvedAt,
@@ -298,4 +300,8 @@ function assertOneActiveChildPerParent(
 
 function formatOptionalWeiAsEth(value: string | null): string | null {
     return value === null ? null : formatEther(BigInt(value));
+}
+
+function formatWeiAsEth(value: string): string {
+    return formatEther(BigInt(value));
 }

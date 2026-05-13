@@ -13,7 +13,7 @@ import {
     resolveBiddingPriceTierGraph,
     type BiddingPriceTierView,
 } from "./bidding-price-tiers.js";
-import { TradingValidationError } from "./types.js";
+import { parsePositiveEthToWei, TradingValidationError } from "./types.js";
 
 export type UpsertCollectionBiddingPriceTierInput = {
     chainRef: string;
@@ -25,6 +25,7 @@ export type UpsertCollectionBiddingPriceTierInput = {
     parentTierId: string | null;
     floorConfig: TradingBiddingPriceTierFloorConfig;
     ceilingConfig: TradingBiddingPriceTierCeilingConfig;
+    deltaEth: string;
 };
 
 export type UpsertCollectionBiddingPriceTierOutput = {
@@ -77,6 +78,7 @@ export class UpsertCollectionBiddingPriceTierUseCase {
         if (!Number.isInteger(input.sortOrder)) {
             throw new TradingValidationError("sortOrder must be an integer");
         }
+        const deltaWei = parsePositiveEthToWei(input.deltaEth, "deltaEth");
 
         // Load existing tiers so the candidate graph can be validated before writing.
         const existingTiers =
@@ -98,6 +100,7 @@ export class UpsertCollectionBiddingPriceTierUseCase {
             parentTierId: input.parentTierId,
             floorConfig: input.floorConfig,
             ceilingConfig: input.ceilingConfig,
+            deltaWei,
             resolvedFloorWei: null,
             resolvedCeilingWei: null,
             resolvedAt: null,
@@ -129,6 +132,7 @@ export class UpsertCollectionBiddingPriceTierUseCase {
             parentTierId: input.parentTierId,
             floorConfig: input.floorConfig,
             ceilingConfig: input.ceilingConfig,
+            deltaWei,
             resolvedFloorWei: resolvedCandidate.resolvedFloorWei,
             resolvedCeilingWei: resolvedCandidate.resolvedCeilingWei,
             resolvedAt: resolvedCandidate.resolvedAt,

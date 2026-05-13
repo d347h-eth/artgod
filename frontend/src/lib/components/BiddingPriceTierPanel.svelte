@@ -3,10 +3,12 @@
 		TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
 		TRADING_BIDDING_PRICE_TIER_DELTA_KIND,
 		TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
+		TRADING_BIDDING_TIER_SELECTION_MODE,
 		TRADING_JOB_STATUS
 	} from '@artgod/shared/types';
 	import type {
 		ApiBiddingJob,
+		ApiBiddingCollectionSettings,
 		ApiBiddingPriceTier,
 		ApiBiddingPriceTierCeilingConfig,
 		ApiBiddingPriceTierFloorConfig,
@@ -18,6 +20,7 @@
 		applyBiddingPriceTierReapply,
 		archiveCollectionBiddingPriceTier,
 		previewBiddingPriceTierReapply,
+		updateCollectionBiddingSettings,
 		upsertCollectionBiddingPriceTier
 	} from '$lib/backend-api';
 	import BiddingPriceTierReapplyPreview from '$lib/components/BiddingPriceTierReapplyPreview.svelte';
@@ -33,14 +36,18 @@
 	let {
 		chain,
 		collection,
+		settings,
 		tiers,
+		onSettingsChange,
 		onTiersChange,
 		onJobsChange = null,
 		onClose = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
+		settings: ApiBiddingCollectionSettings;
 		tiers: ApiBiddingPriceTier[];
+		onSettingsChange: (settings: ApiBiddingCollectionSettings) => void;
 		onTiersChange: (tiers: ApiBiddingPriceTier[]) => void;
 		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
 		onClose?: (() => void) | null;
@@ -65,6 +72,12 @@
 	let ceilingDeltaKind = $state<DeltaKind>(TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute);
 	let ceilingDeltaEth = $state('');
 	let ceilingPercent = $state('');
+	let tierDeltaEth = $state(settings.defaultDeltaEth);
+	let tierSelectionMode = $state<ApiBiddingCollectionSettings['tierSelectionMode']>(
+		settings.tierSelectionMode
+	);
+	let defaultDeltaEth = $state(settings.defaultDeltaEth);
+	let settingsSaving = $state(false);
 	let saving = $state(false);
 	let busyActionKey = $state<string | null>(null);
 	let saveMessage = $state<string | null>(null);
@@ -87,6 +100,13 @@
 	);
 	const hasParent = $derived(parentTierId.trim().length > 0);
 	const busy = $derived(saving || busyActionKey !== null || reapplyLoading || reapplyApplying);
+	const settingsChanged = $derived(
+		tierSelectionMode !== settings.tierSelectionMode ||
+			defaultDeltaEth.trim() !== settings.defaultDeltaEth
+	);
+	const canSaveSettings = $derived(
+		!!chain && !!collection && !settingsSaving && settingsChanged && defaultDeltaEth.trim().length > 0
+	);
 	const canSubmit = $derived(resolveCanSubmit());
 	const canCreate = $derived(!editingTier && canSubmit);
 	const canModify = $derived(!!editingTier && canSubmit);
@@ -96,6 +116,14 @@
 			nowMs = Date.now();
 		}, 60_000);
 		return () => window.clearInterval(timer);
+	});
+
+	$effect(() => {
+		tierSelectionMode = settings.tierSelectionMode;
+		defaultDeltaEth = settings.defaultDeltaEth;
+		if (!editingTierId) {
+			tierDeltaEth = settings.defaultDeltaEth;
+		}
 	});
 
 	$effect(() => {
@@ -144,6 +172,7 @@
 		ceilingDeltaKind = TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute;
 		ceilingDeltaEth = '';
 		ceilingPercent = '';
+		tierDeltaEth = settings.defaultDeltaEth;
 		saveMessage = null;
 		saveError = null;
 		armedActionKey = null;
@@ -160,6 +189,7 @@
 		parentTierId = tier.parentTierId ?? '';
 		applyFloorConfig(tier.floorConfig);
 		applyCeilingConfig(tier.ceilingConfig);
+		tierDeltaEth = tier.deltaEth;
 		saveMessage = null;
 		saveError = null;
 		armedActionKey = null;
@@ -195,7 +225,8 @@
 			name.trim().length > 0 &&
 			Number.isInteger(Number(sortOrderText.trim())) &&
 			isFloorConfigComplete() &&
-			isCeilingConfigComplete()
+			isCeilingConfigComplete() &&
+			tierDeltaEth.trim().length > 0
 		);
 	}
 
@@ -280,7 +311,8 @@
 				sortOrder: Number(sortOrderText.trim()),
 				parentTierId: parentTierId.trim() || null,
 				floorConfig: buildFloorConfig(),
-				ceilingConfig: buildCeilingConfig()
+				ceilingConfig: buildCeilingConfig(),
+				deltaEth: tierDeltaEth.trim()
 			});
 			onTiersChange(response.tiers);
 			if (editingTierId) {
@@ -325,7 +357,8 @@
 				sortOrder: neighbor.sortOrder + direction,
 				parentTierId: tier.parentTierId,
 				floorConfig: tier.floorConfig,
-				ceilingConfig: tier.ceilingConfig
+				ceilingConfig: tier.ceilingConfig,
+				deltaEth: tier.deltaEth
 			});
 			onTiersChange(response.tiers);
 			if (editingTierId === response.tier.tierId) {
@@ -427,7 +460,8 @@
 					sortOrder: tier.sortOrder,
 					parentTierId: tier.parentTierId,
 					floorConfig: tier.floorConfig,
-					ceilingConfig: tier.ceilingConfig
+					ceilingConfig: tier.ceilingConfig,
+					deltaEth: tier.deltaEth
 				});
 				onTiersChange(response.tiers);
 				if (editingTierId === response.tier.tierId) {
@@ -469,6 +503,31 @@
 				busyActionKey = null;
 			}
 		});
+	}
+
+	async function handleSaveSettings(): Promise<void> {
+		if (!canSaveSettings || !chain || !collection) {
+			return;
+		}
+		settingsSaving = true;
+		saveMessage = null;
+		saveError = null;
+		try {
+			// Persist collection-scoped bidding UI defaults through the settings use case.
+			const response = await updateCollectionBiddingSettings(fetch, chain.slug, collection.slug, {
+				tierSelectionMode,
+				defaultDeltaEth: defaultDeltaEth.trim()
+			});
+			onSettingsChange(response.settings);
+			if (!editingTierId) {
+				tierDeltaEth = response.settings.defaultDeltaEth;
+			}
+			saveMessage = 'settings saved';
+		} catch (error) {
+			saveError = error instanceof Error ? error.message : 'failed to save bidding settings';
+		} finally {
+			settingsSaving = false;
+		}
 	}
 
 	async function confirmAction(actionKey: string, action: () => Promise<void>): Promise<void> {
@@ -533,6 +592,49 @@
 		</div>
 	</div>
 
+	<form
+		class="bootstrap-form bidding-price-tier-settings-form"
+		onsubmit={(event) => {
+			event.preventDefault();
+			void handleSaveSettings();
+		}}
+	>
+		<div class="bootstrap-form-row">
+			<label for="bidding-price-tier-selector-mode"><span>tier selector</span></label>
+			<label class="bidding-price-tier-checkbox-label" for="bidding-price-tier-selector-mode">
+				<input
+					id="bidding-price-tier-selector-mode"
+					type="checkbox"
+					checked={tierSelectionMode === TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown}
+					disabled={settingsSaving}
+					onchange={(event) => {
+						tierSelectionMode =
+							event.currentTarget instanceof HTMLInputElement && event.currentTarget.checked
+								? TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown
+								: TRADING_BIDDING_TIER_SELECTION_MODE.Buttons;
+					}}
+				/>
+				dropdown
+			</label>
+		</div>
+		<div class="bootstrap-form-row">
+			<label for="bidding-price-tier-default-delta"><span>default delta ETH</span></label>
+			<input
+				id="bidding-price-tier-default-delta"
+				class="bootstrap-control bidding-price-tier-price-input"
+				type="text"
+				inputmode="decimal"
+				bind:value={defaultDeltaEth}
+				disabled={settingsSaving}
+			/>
+		</div>
+		<div class="bidding-price-tier-settings-actions">
+			<button type="submit" class="token-bidding-action-positive" disabled={!canSaveSettings}>
+				{settingsSaving ? 'saving...' : 'save settings'}
+			</button>
+		</div>
+	</form>
+
 	{#if activeTiers.length > 0}
 		<div class="table-wrap bidding-price-tier-table-wrap">
 			<table class="bidding-price-tier-table">
@@ -542,6 +644,7 @@
 						<th>status</th>
 						<th>floor</th>
 						<th>ceiling</th>
+						<th>delta</th>
 						<th>parent</th>
 						<th>order</th>
 						<th>rev</th>
@@ -759,6 +862,18 @@
 					{/if}
 				{/if}
 			</div>
+		</div>
+
+		<div class="bootstrap-form-row">
+			<label for="bidding-price-tier-delta"><span>price delta ETH</span></label>
+			<input
+				id="bidding-price-tier-delta"
+				class="bootstrap-control bidding-price-tier-price-input"
+				type="text"
+				inputmode="decimal"
+				bind:value={tierDeltaEth}
+				disabled={busy}
+			/>
 		</div>
 
 		<div class="panel-footer bidding-price-tier-form-footer">

@@ -191,6 +191,28 @@ export const TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND = {
 export type TradingBiddingPriceTierCeilingConfigKind =
     (typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND)[keyof typeof TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND];
 
+// Default fixed bid increment used when a collection has not customized bidding settings yet.
+export const DEFAULT_TRADING_BIDDING_PRICE_DELTA_ETH = "0.001";
+export const DEFAULT_TRADING_BIDDING_PRICE_DELTA_WEI = "1000000000000000";
+
+// Selects how price tiers are presented in the bidding automation form.
+export const TRADING_BIDDING_TIER_SELECTION_MODE = {
+    Buttons: "buttons",
+    Dropdown: "dropdown",
+} as const;
+
+export type TradingBiddingTierSelectionMode =
+    (typeof TRADING_BIDDING_TIER_SELECTION_MODE)[keyof typeof TRADING_BIDDING_TIER_SELECTION_MODE];
+
+// Names bidding-owned entries stored in the generic collection settings table.
+export const TRADING_BIDDING_COLLECTION_SETTING_KEY = {
+    TierSelectionMode: "trading.bidding.tier_selection_mode",
+    DefaultDeltaWei: "trading.bidding.default_delta_wei",
+} as const;
+
+export type TradingBiddingCollectionSettingKey =
+    (typeof TRADING_BIDDING_COLLECTION_SETTING_KEY)[keyof typeof TRADING_BIDDING_COLLECTION_SETTING_KEY];
+
 // Stores the original human-entered floor rule for a collection bidding tier.
 export type TradingBiddingPriceTierFloorConfig =
     | {
@@ -230,6 +252,7 @@ export type PersistedBiddingPriceTierRecord = {
     parentTierId: string | null;
     floorConfig: TradingBiddingPriceTierFloorConfig;
     ceilingConfig: TradingBiddingPriceTierCeilingConfig;
+    deltaWei: string;
     resolvedFloorWei: string | null;
     resolvedCeilingWei: string | null;
     resolvedAt: string | null;
@@ -238,6 +261,16 @@ export type PersistedBiddingPriceTierRecord = {
     createdAt: string;
     updatedAt: string;
     archivedAt: string | null;
+};
+
+// Domain view of collection-scoped bidding UI defaults that feed tier and job drafting flows.
+export type TradingBiddingCollectionSettingsRecord = {
+    chainId: number;
+    collectionId: number;
+    tierSelectionMode: TradingBiddingTierSelectionMode;
+    defaultDeltaWei: string;
+    createdAt: string;
+    updatedAt: string;
 };
 
 export const TRADING_BIDDING_JOB_PRICING_SOURCE_KIND = {

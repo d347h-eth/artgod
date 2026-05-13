@@ -7,6 +7,7 @@ import {
 	getTokenBiddingJob,
 	getTokenDetail
 } from '$lib/backend-api';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { parseShowMutedBidBook } from '$lib/bidding-query';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { withQuery } from '$lib/route-paths';
@@ -43,6 +44,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 			},
 			token: null,
+			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: [],
 			traitFilterPresentation: defaultTraitFilterPresentationState(),
 			tokenBiddingBidBook: {
@@ -83,6 +85,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			collection: response.collection,
 			media: response.media,
 			token: response.token,
+			biddingSettings: priceTiersResponse.settings,
 			priceTiers: priceTiersResponse.tiers,
 			traitFilterPresentation: response.traitFilterPresentation,
 			tokenBiddingJob: biddingJobResponse.job,

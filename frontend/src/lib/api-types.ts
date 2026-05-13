@@ -1,3 +1,8 @@
+import type {
+	TradingBiddingJobPricingSource,
+	TradingBiddingTierSelectionMode
+} from '@artgod/shared/types';
+
 export type ApiChain = {
 	id: number;
 	type: string;
@@ -204,6 +209,7 @@ export type ApiBiddingPriceTier = {
 	parentTierId: string | null;
 	floorConfig: ApiBiddingPriceTierFloorConfig;
 	ceilingConfig: ApiBiddingPriceTierCeilingConfig;
+	deltaEth: string;
 	resolvedFloorEth: string | null;
 	resolvedCeilingEth: string | null;
 	resolvedAt: string | null;
@@ -214,19 +220,13 @@ export type ApiBiddingPriceTier = {
 	archivedAt: string | null;
 };
 
-export type ApiBiddingJobPricingSource =
-	| {
-			kind: 'manual';
-	  }
-	| {
-			kind: 'price_tier';
-			tierId: string;
-			tierName: string;
-			resolvedAt: string | null;
-			resolvedFloorWei: string;
-			resolvedCeilingWei: string;
-			deltaWei: string;
-	  };
+export type ApiBiddingCollectionSettings = {
+	tierSelectionMode: TradingBiddingTierSelectionMode;
+	defaultDeltaEth: string;
+	updatedAt: string | null;
+};
+
+export type ApiBiddingJobPricingSource = TradingBiddingJobPricingSource;
 
 export type ApiTokenCard = {
 	tokenId: string;
@@ -494,7 +494,14 @@ export type CollectionBiddingJobsApiResponse = {
 export type CollectionBiddingPriceTiersApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
+	settings: ApiBiddingCollectionSettings;
 	tiers: ApiBiddingPriceTier[];
+};
+
+export type CollectionBiddingSettingsMutationApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	settings: ApiBiddingCollectionSettings;
 };
 
 export type CollectionBiddingPriceTierMutationApiResponse = {

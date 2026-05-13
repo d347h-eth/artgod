@@ -73,6 +73,7 @@ describe("SqliteBiddingPriceTiersRepository", () => {
                 deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
                 deltaEth: "0.25",
             },
+            deltaWei: "1000000000000000",
             resolvedFloorWei: "1000000000000000000",
             resolvedCeilingWei: "1250000000000000000",
             resolvedAt: "2026-05-12T01:00:00Z",
@@ -83,6 +84,7 @@ describe("SqliteBiddingPriceTiersRepository", () => {
         assert.equal(tier.revision, 1);
         assert.equal(tier.resolvedFloorWei, "1000000000000000000");
         assert.equal(tier.resolvedCeilingWei, "1250000000000000000");
+        assert.equal(tier.deltaWei, "1000000000000000");
 
         const listed = repository.listCollectionPriceTiers({
             chainId: 1,
@@ -109,6 +111,7 @@ describe("SqliteBiddingPriceTiersRepository", () => {
                 kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed,
                 valueEth: "1.2",
             },
+            deltaWei: "1000000000000000",
             resolvedFloorWei: "1000000000000000000",
             resolvedCeilingWei: "1200000000000000000",
             resolvedAt: "2026-05-12T01:00:00Z",
@@ -132,6 +135,7 @@ describe("SqliteBiddingPriceTiersRepository", () => {
                 deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
                 deltaEth: "0.1",
             },
+            deltaWei: "1000000000000000",
             resolvedFloorWei: "1100000000000000000",
             resolvedCeilingWei: "1300000000000000000",
             resolvedAt: "2026-05-12T01:00:00Z",
@@ -156,6 +160,7 @@ describe("SqliteBiddingPriceTiersRepository", () => {
                     deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
                     deltaEth: "0.2",
                 },
+                deltaWei: "1000000000000000",
                 resolvedFloorWei: "1200000000000000000",
                 resolvedCeilingWei: "1400000000000000000",
                 resolvedAt: "2026-05-12T01:00:00Z",

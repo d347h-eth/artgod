@@ -6,6 +6,7 @@ import {
 	getCollectionBiddingBidBook,
 	getCollectionDetail
 } from '$lib/backend-api';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	BIDDING_VIEW_QUERY_PARAM,
@@ -60,6 +61,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			chain: bidBookResponse.chain,
 			collection: bidBookResponse.collection,
 			jobs: [],
+			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: [],
 			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,

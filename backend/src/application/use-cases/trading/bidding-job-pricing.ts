@@ -40,9 +40,9 @@ export function resolveBiddingJobPricing(params: {
     input: BiddingJobPricingInput;
     priceTierReadPort: BiddingJobPriceTierReadPort;
 }): ResolvedBiddingJobPricing {
-    const deltaWei = parsePositiveEthToWei(params.input.deltaEth, "deltaEth");
     const priceTierId = params.input.priceTierId?.trim() || null;
     if (!priceTierId) {
+        const deltaWei = parsePositiveEthToWei(params.input.deltaEth, "deltaEth");
         return resolveManualBiddingJobPricing({
             floorEth: params.input.floorEth,
             ceilingEth: params.input.ceilingEth,
@@ -60,6 +60,7 @@ export function resolveBiddingJobPricing(params: {
     if (!tier) {
         throw new TradingValidationError("priceTierId was not found");
     }
+    const deltaWei = tier.deltaWei;
 
     return {
         floorWei: tier.resolvedFloorWei,

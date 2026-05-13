@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
-import { TRADING_JOB_STATUS } from '@artgod/shared/types';
+import { TRADING_BIDDING_JOB_PRICING_SOURCE_KIND, TRADING_JOB_STATUS } from '@artgod/shared/types';
 import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
 import BiddingAutomationPanel from './BiddingAutomationPanel.svelte';
 
@@ -306,7 +306,7 @@ describe('BiddingAutomationPanel', () => {
 						ceilingEth: '0.2',
 						deltaEth: '0.01',
 						pricingSource: {
-							kind: 'price_tier',
+							kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
 							tierId: 'tier-base',
 							tierName: 'base',
 							resolvedAt: '2026-01-01T00:00:00Z',
@@ -333,6 +333,7 @@ describe('BiddingAutomationPanel', () => {
 							deltaKind: 'absolute',
 							deltaEth: '0.03'
 						},
+						deltaEth: '0.01',
 						resolvedFloorEth: '0.12',
 						resolvedCeilingEth: '0.15',
 						resolvedAt: '2026-01-02T00:00:00Z',
@@ -347,11 +348,12 @@ describe('BiddingAutomationPanel', () => {
 			}
 		});
 
-		expect(body).toContain('bidding-automation-pricing-mode');
-		expect(body).toContain('bidding-automation-price-tier');
-		expect(body).toContain('>base</option>');
+		expect(body).toContain('bidding-automation-pricing-select');
+		expect(body).toContain('>manual<');
+		expect(body).toContain('>base<');
 		expect(body).toContain('value="0.12"');
 		expect(body).toContain('value="0.15"');
+		expect(body).toContain('value="0.01"');
 	});
 });
 

@@ -23,6 +23,7 @@ type BiddingPriceTierRow = {
     parent_tier_id: string | null;
     floor_config_json: string;
     ceiling_config_json: string;
+    delta_wei: string;
     resolved_floor_wei: string | null;
     resolved_ceiling_wei: string | null;
     resolved_at: string | null;
@@ -56,6 +57,7 @@ export class SqliteBiddingPriceTiersRepository
         parentTierId: string | null;
         floorConfigJson: string;
         ceilingConfigJson: string;
+        deltaWei: string;
         resolvedFloorWei: string;
         resolvedCeilingWei: string;
         resolvedAt: string;
@@ -70,6 +72,7 @@ export class SqliteBiddingPriceTiersRepository
         parentTierId: string | null;
         floorConfigJson: string;
         ceilingConfigJson: string;
+        deltaWei: string;
         resolvedFloorWei: string;
         resolvedCeilingWei: string;
         resolvedAt: string;
@@ -96,7 +99,7 @@ export class SqliteBiddingPriceTiersRepository
         }>(
             "SELECT tier_id, chain_id, collection_id, name, status, sort_order, parent_tier_id, " +
                 "floor_config_json, ceiling_config_json, resolved_floor_wei, resolved_ceiling_wei, " +
-                "resolved_at, last_error, revision, created_at, updated_at, archived_at " +
+                "delta_wei, resolved_at, last_error, revision, created_at, updated_at, archived_at " +
                 "FROM trading_bidding_price_tiers " +
                 "WHERE chain_id = @chainId AND collection_id = @collectionId " +
                 "AND (@includeArchived = 1 OR status != 'archived') " +
@@ -110,7 +113,7 @@ export class SqliteBiddingPriceTiersRepository
         this.selectPriceTierById = db.prepare<{ tierId: string }>(
             "SELECT tier_id, chain_id, collection_id, name, status, sort_order, parent_tier_id, " +
                 "floor_config_json, ceiling_config_json, resolved_floor_wei, resolved_ceiling_wei, " +
-                "resolved_at, last_error, revision, created_at, updated_at, archived_at " +
+                "delta_wei, resolved_at, last_error, revision, created_at, updated_at, archived_at " +
                 "FROM trading_bidding_price_tiers WHERE tier_id = @tierId LIMIT 1",
         ) as BetterSqlite3NamedStatement<{ tierId: string }>;
 
@@ -128,10 +131,11 @@ export class SqliteBiddingPriceTiersRepository
             resolvedCeilingWei: string;
             resolvedAt: string;
             lastError: string | null;
+            deltaWei: string;
         }>(
             "INSERT INTO trading_bidding_price_tiers " +
-                "(tier_id, chain_id, collection_id, name, status, sort_order, parent_tier_id, floor_config_json, ceiling_config_json, resolved_floor_wei, resolved_ceiling_wei, resolved_at, last_error) " +
-                "VALUES (@tierId, @chainId, @collectionId, @name, @status, @sortOrder, @parentTierId, @floorConfigJson, @ceilingConfigJson, @resolvedFloorWei, @resolvedCeilingWei, @resolvedAt, @lastError)",
+                "(tier_id, chain_id, collection_id, name, status, sort_order, parent_tier_id, floor_config_json, ceiling_config_json, delta_wei, resolved_floor_wei, resolved_ceiling_wei, resolved_at, last_error) " +
+                "VALUES (@tierId, @chainId, @collectionId, @name, @status, @sortOrder, @parentTierId, @floorConfigJson, @ceilingConfigJson, @deltaWei, @resolvedFloorWei, @resolvedCeilingWei, @resolvedAt, @lastError)",
         ) as BetterSqlite3NamedStatement<{
             tierId: string;
             chainId: number;
@@ -146,6 +150,7 @@ export class SqliteBiddingPriceTiersRepository
             resolvedCeilingWei: string;
             resolvedAt: string;
             lastError: string | null;
+            deltaWei: string;
         }>;
 
         this.updatePriceTier = db.prepare<{
@@ -160,11 +165,12 @@ export class SqliteBiddingPriceTiersRepository
             resolvedCeilingWei: string;
             resolvedAt: string;
             lastError: string | null;
+            deltaWei: string;
         }>(
             "UPDATE trading_bidding_price_tiers SET " +
                 "name = @name, status = @status, sort_order = @sortOrder, parent_tier_id = @parentTierId, " +
                 "floor_config_json = @floorConfigJson, ceiling_config_json = @ceilingConfigJson, " +
-                "resolved_floor_wei = @resolvedFloorWei, resolved_ceiling_wei = @resolvedCeilingWei, " +
+                "delta_wei = @deltaWei, resolved_floor_wei = @resolvedFloorWei, resolved_ceiling_wei = @resolvedCeilingWei, " +
                 "resolved_at = @resolvedAt, last_error = @lastError, archived_at = NULL, " +
                 "revision = revision + 1, updated_at = CURRENT_TIMESTAMP " +
                 "WHERE tier_id = @tierId",
@@ -180,6 +186,7 @@ export class SqliteBiddingPriceTiersRepository
             resolvedCeilingWei: string;
             resolvedAt: string;
             lastError: string | null;
+            deltaWei: string;
         }>;
 
         this.archiveTierById = db.prepare<{ tierId: string }>(
@@ -243,6 +250,7 @@ export class SqliteBiddingPriceTiersRepository
                 parentTierId: transactionInput.parentTierId,
                 floorConfigJson: JSON.stringify(transactionInput.floorConfig),
                 ceilingConfigJson: JSON.stringify(transactionInput.ceilingConfig),
+                deltaWei: transactionInput.deltaWei,
                 resolvedFloorWei: transactionInput.resolvedFloorWei,
                 resolvedCeilingWei: transactionInput.resolvedCeilingWei,
                 resolvedAt: transactionInput.resolvedAt,
@@ -305,6 +313,7 @@ export class SqliteBiddingPriceTiersRepository
                 row.tier_id,
                 "ceiling_config_json",
             ),
+            deltaWei: row.delta_wei,
             resolvedFloorWei: row.resolved_floor_wei,
             resolvedCeilingWei: row.resolved_ceiling_wei,
             resolvedAt: row.resolved_at,

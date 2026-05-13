@@ -61,6 +61,7 @@
 	<td class="mono tier-cell-center">{tier.status}</td>
 	<td class="mono tier-cell-right">{valueLabel(tier.resolvedFloorEth)}</td>
 	<td class="mono tier-cell-right">{valueLabel(tier.resolvedCeilingEth)}</td>
+	<td class="mono tier-cell-right">{tier.deltaEth}</td>
 	<td class="mono tier-cell-center">{parentName ?? '-'}</td>
 	<td class="mono tier-cell-center">{tier.sortOrder}</td>
 	<td class="mono tier-cell-center">{tier.revision}</td>

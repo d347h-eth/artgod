@@ -5,12 +5,14 @@
 		ApiChain,
 		ApiCollection,
 		ApiCollectionMediaState,
+		ApiBiddingCollectionSettings,
 		ApiBiddingPriceTier,
 		ApiTokenAttribute,
 		ApiTraitRangeFilter,
 		ApiTokensPage,
 		ApiTraitFacet
 	} from '$lib/api-types';
+	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 
 	type PageData = {
 		chain: ApiChain;
@@ -24,6 +26,7 @@
 		requestCursor: string | null;
 		tokenStatus: 'listed' | 'all';
 		displayMode: 'grid' | 'table';
+		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers: ApiBiddingPriceTier[];
 	};
 
@@ -60,5 +63,6 @@
 	requestCursor={data?.requestCursor ?? null}
 	tokenStatus={data?.tokenStatus ?? 'listed'}
 	displayMode={data?.displayMode ?? 'grid'}
+	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 	priceTiers={data?.priceTiers ?? []}
 />

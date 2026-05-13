@@ -1295,6 +1295,36 @@ th {
 	margin-bottom: 0.65rem;
 }
 
+.bidding-price-tier-settings-form {
+	margin: 0 auto 0.75rem;
+	padding: 0 0 0.75rem;
+	border-bottom: 1px solid color-mix(in srgb, var(--c-blue) 55%, transparent);
+}
+
+.bidding-price-tier-checkbox-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	width: fit-content;
+	color: var(--c-ice);
+	font-size: 0.75rem;
+	text-transform: none;
+}
+
+.bidding-price-tier-checkbox-label input {
+	margin: 0;
+}
+
+.bidding-price-tier-settings-actions {
+	display: flex;
+	justify-content: flex-end;
+	padding-top: 0.45rem;
+}
+
+.bidding-price-tier-settings-actions button {
+	min-width: 6.5rem;
+}
+
 .bidding-price-tier-table-wrap {
 	width: fit-content;
 	max-width: 100%;
@@ -2260,6 +2290,22 @@ th {
 .token-bidding-form .bootstrap-control {
 	width: 100%;
 	justify-self: stretch;
+}
+
+.token-bidding-pricing-options {
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.secondary-tabs.token-bidding-pricing-options button {
+	width: var(--token-bidding-action-width);
+	min-width: var(--token-bidding-action-width);
+	max-width: var(--token-bidding-action-width);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .token-bidding-form-footer {

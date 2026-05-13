@@ -5,6 +5,7 @@
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
+		ApiBiddingCollectionSettings,
 		ApiBiddingTokenOfferCard,
 		ApiBiddingTokenOfferCardsPage,
 		ApiBiddingJob,
@@ -105,6 +106,7 @@
 		chain,
 		collection,
 		jobs,
+		biddingSettings,
 		priceTiers = [],
 		bidBook,
 		tokenOfferCards = emptyBiddingTokenOfferCardsPage(),
@@ -125,6 +127,7 @@
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		jobs: ApiBiddingJob[];
+		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards?: ApiBiddingTokenOfferCardsPage;
@@ -159,6 +162,7 @@
 		{ value: 'and', label: 'and' }
 	];
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
+	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
@@ -223,12 +227,16 @@
 	const canRefineTokenSelectionToVisiblePage = $derived(tokenOfferCards.totalPages > 1);
 	const tokenActionLabel = $derived(
 		isAllFilteredTokenSelectionActive() && canRefineTokenSelectionToVisiblePage
-			? 'bid on tokens [this page]'
-			: 'bid on tokens'
+			? 'bid on this page'
+			: 'bid on all tokens'
 	);
 
 	$effect(() => {
 		collectionJobs = jobs;
+	});
+
+	$effect(() => {
+		activeBiddingSettings = biddingSettings;
 	});
 
 	$effect(() => {
@@ -463,6 +471,10 @@
 
 	function handlePriceTiersChanged(nextTiers: ApiBiddingPriceTier[]): void {
 		activePriceTiers = nextTiers;
+	}
+
+	function handleBiddingSettingsChanged(nextSettings: ApiBiddingCollectionSettings): void {
+		activeBiddingSettings = nextSettings;
 	}
 
 	function togglePriceTierPanel(): void {
@@ -899,6 +911,19 @@
 	/>
 {/snippet}
 
+{#snippet priceTierToggleButton()}
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+		<button
+			type="button"
+			class="facet-panel-action-button bidding-price-tier-toggle"
+			class:bidding-price-tier-toggle-active={priceTierPanelOpen}
+			onclick={togglePriceTierPanel}
+		>
+			tiers
+		</button>
+	{/if}
+{/snippet}
+
 <CollectionPageLayout
 	navigation={collectionNavigation()}
 	activeSection="bidding"
@@ -966,16 +991,6 @@
 							{/if}
 						</div>
 					{/if}
-					{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-						<button
-							type="button"
-							class="facet-panel-action-button bidding-price-tier-toggle"
-							class:bidding-price-tier-toggle-active={priceTierPanelOpen}
-							onclick={togglePriceTierPanel}
-						>
-							tiers
-						</button>
-					{/if}
 				</div>
 				{#if showBidBookFilters}
 					<div class="panel-top-actions-row">
@@ -993,21 +1008,25 @@
 						/>
 					</div>
 				{/if}
-				{#if bidScope === 'token' || (bidScope === 'traits' && (canBidOnTraits || biddingSelectionSummary))}
+				{#if bidScope === 'token' || bidScope === 'traits'}
 					<div class="panel-top-actions-row">
-						<BiddingSelectionControls
-							summary={biddingSelectionSummary}
-							showTraitAction={canBidOnTraits}
-							showTokenAction={bidScope === 'token'}
-							tokenActionLabel={tokenActionLabel}
-							tokenActionDisabled={tokenOfferCards.totalItems === 0}
-							onBidOnTraits={bidOnFilteredTraits}
-							onBidOnTokens={bidOnFilteredTokenOffers}
-							onClear={clearBiddingSelection}
-						/>
+						{@render priceTierToggleButton()}
+						{#if bidScope === 'token' || canBidOnTraits || biddingSelectionSummary}
+							<BiddingSelectionControls
+								summary={biddingSelectionSummary}
+								showTraitAction={canBidOnTraits}
+								showTokenAction={bidScope === 'token'}
+								tokenActionLabel={tokenActionLabel}
+								tokenActionDisabled={tokenOfferCards.totalItems === 0}
+								onBidOnTraits={bidOnFilteredTraits}
+								onBidOnTokens={bidOnFilteredTokenOffers}
+								onClear={clearBiddingSelection}
+							/>
+						{/if}
 					</div>
 				{:else if bidScope === 'collection' && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 					<div class="panel-top-actions-row">
+						{@render priceTierToggleButton()}
 						<button
 							type="button"
 							class="facet-panel-action-button bidding-select-all-button"
@@ -1026,7 +1045,9 @@
 		<BiddingPriceTierPanel
 			{chain}
 			{collection}
+			settings={activeBiddingSettings}
 			tiers={activePriceTiers}
+			onSettingsChange={handleBiddingSettingsChanged}
 			onTiersChange={handlePriceTiersChanged}
 			onJobsChange={handleJobsChanged}
 			onClose={togglePriceTierPanel}
@@ -1050,7 +1071,7 @@
 						<section class="runtime-section bid-book-summary-panel">
 							<div class="runtime-kv-grid bid-book-meta">
 								<div>
-									<span class="runtime-k">bids source</span>
+									<span class="runtime-k">refresh pace</span>
 									<span class="runtime-v" title={tokenOffersSourceTitle()}>{tokenOffersSourceLabel()}</span>
 								</div>
 								<div>
@@ -1211,6 +1232,7 @@
 			job={null}
 			draft={selectedBiddingDraft}
 			{bidBook}
+			biddingSettings={activeBiddingSettings}
 			priceTiers={activePriceTiers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}

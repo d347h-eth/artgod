@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import CollectionBiddingView from './CollectionBiddingView.svelte';
 
 describe('CollectionBiddingView', () => {
@@ -26,6 +27,7 @@ describe('CollectionBiddingView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				jobs: [],
+				biddingSettings: defaultBiddingCollectionSettings(),
 				bidBook: {
 					state: {
 						source: 'orders',
@@ -136,6 +138,7 @@ describe('CollectionBiddingView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				jobs: [],
+				biddingSettings: defaultBiddingCollectionSettings(),
 				bidBook: {
 					state: {
 						source: 'orders',
@@ -352,6 +355,7 @@ describe('CollectionBiddingView', () => {
 						runtime: null
 					}
 				],
+				biddingSettings: defaultBiddingCollectionSettings(),
 				bidBook: {
 					state: {
 						source: 'bot_snapshot',
@@ -474,6 +478,7 @@ describe('CollectionBiddingView', () => {
 					updatedAt: '2026-01-01T00:00:00Z'
 				},
 				jobs: [],
+				biddingSettings: defaultBiddingCollectionSettings(),
 				bidBook: {
 					state: {
 						source: 'orders',

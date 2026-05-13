@@ -4,6 +4,10 @@ import {
 	attachDiagnostics,
 	capturePageDiagnostics
 } from './attached-app';
+import {
+	BIDDING_AUTOMATION_PRICING_MODE,
+	BIDDING_AUTOMATION_PRICING_MODE_LABEL
+} from '../src/lib/bidding-automation';
 
 const TARGET_PATH =
 	process.env.ARTGOD_E2E_BIDDING_TARGET_PATH?.trim() ||
@@ -55,7 +59,8 @@ async function openBiddingPanel(page: Page): Promise<void> {
 	}
 
 	const candidateButtons = [
-		page.getByRole('button', { name: /^bid on tokens(?: \[this page\])?$/ }),
+		page.getByRole('button', { name: /^bid on all tokens$/ }),
+		page.getByRole('button', { name: /^bid on this page$/ }),
 		page.getByRole('button', { name: /^bid on traits$/ }),
 		page.getByRole('button', { name: /^place collection bid$/ }),
 		page.getByRole('button', { name: /^bid$/ })
@@ -79,35 +84,43 @@ async function openBiddingPanel(page: Page): Promise<void> {
 }
 
 async function selectTierPricing(page: Page): Promise<void> {
-	const pricingMode = page.locator('#bidding-automation-pricing-mode');
+	const pricingMode = page.locator('#bidding-automation-pricing-select');
 	await expect(
 		pricingMode,
-		'The bidding panel must expose pricing mode controls; create at least one price tier first.'
+		'The bidding panel must expose pricing controls; create at least one price tier first.'
 	).toBeVisible();
 
-	await pricingMode.selectOption('tier');
-
-	const priceTier = page.locator('#bidding-automation-price-tier');
-	await expect(
-		priceTier,
-		'Tier pricing selected but no price-tier selector was rendered.'
-	).toBeVisible();
-
-	const tierOptions = await priceTier.locator('option').evaluateAll((options) =>
-		options.map((option) => ({
-			value: (option as HTMLOptionElement).value,
-			label: (option.textContent ?? '').trim()
-		}))
-	);
-	const targetTier =
-		(PRICE_TIER_LABEL
-			? tierOptions.find((option) => option.label === PRICE_TIER_LABEL)
-			: tierOptions[0]) ?? null;
-	if (!targetTier) {
-		throw new Error('No selectable price tier exists in the bidding panel.');
+	const tagName = await pricingMode.evaluate((element) => element.tagName.toLowerCase());
+	if (tagName === 'select') {
+		const tierOptions = await pricingMode.locator('option').evaluateAll((options) =>
+			options
+				.map((option) => ({
+					value: (option as HTMLOptionElement).value,
+					label: (option.textContent ?? '').trim()
+				}))
+				.filter((option) => option.value !== BIDDING_AUTOMATION_PRICING_MODE.Manual)
+		);
+		const targetTier =
+			(PRICE_TIER_LABEL
+				? tierOptions.find((option) => option.label === PRICE_TIER_LABEL)
+				: tierOptions[0]) ?? null;
+		if (!targetTier) {
+			throw new Error('No selectable price tier exists in the bidding panel.');
+		}
+		await pricingMode.selectOption(targetTier.value);
+	} else {
+		const tierButtons = pricingMode.locator('button').filter({
+			hasNotText: new RegExp(
+				`^${BIDDING_AUTOMATION_PRICING_MODE_LABEL[BIDDING_AUTOMATION_PRICING_MODE.Manual]}$`
+			)
+		});
+		const targetButton = PRICE_TIER_LABEL
+			? tierButtons.filter({ hasText: PRICE_TIER_LABEL }).first()
+			: tierButtons.first();
+		await expect(targetButton, 'No selectable price-tier button exists in the bidding panel.').toBeVisible();
+		await targetButton.click();
 	}
 
-	await priceTier.selectOption(targetTier.value);
 	await expect(page.locator('#bidding-automation-floor')).toBeVisible();
 	await expect(page.locator('#bidding-automation-ceiling')).toBeVisible();
 	await expect(page.locator('#bidding-automation-delta')).toBeVisible();
@@ -127,7 +140,7 @@ async function readBiddingPanelMetrics(page: Page): Promise<BiddingPanelMetrics>
 		const rows = [...document.querySelectorAll('.token-bidding-form .bootstrap-form-row')].map(
 			(row) => {
 				const label = row.querySelector('label');
-				const control = row.querySelector('input, select');
+				const control = row.querySelector('input, select, #bidding-automation-pricing-select');
 				if (!(label instanceof HTMLElement) || !(control instanceof HTMLElement)) {
 					throw new Error('Bidding form row is missing a label or control');
 				}

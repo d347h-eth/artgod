@@ -25,6 +25,8 @@ import {
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
+    TRADING_BIDDING_TIER_SELECTION_MODE,
+    TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_TARGET_KIND,
     TRADING_JOB_STATUS,
@@ -258,6 +260,9 @@ beforeAll(async () => {
     const biddingPriceTiersRepositoryModule = await import(
         "./infra/trading/sqlite-bidding-price-tiers-repository.js"
     );
+    const collectionSettingsRepositoryModule = await import(
+        "./infra/collections/sqlite-collection-settings-repository.js"
+    );
     const listCollectionBiddingJobsUseCaseModule =
         await import(
             "./application/use-cases/trading/list-collection-bidding-jobs.js"
@@ -295,6 +300,9 @@ beforeAll(async () => {
     const upsertCollectionBiddingPriceTierUseCaseModule = await import(
         "./application/use-cases/trading/upsert-collection-bidding-price-tier.js"
     );
+    const updateCollectionBiddingSettingsUseCaseModule = await import(
+        "./application/use-cases/trading/update-collection-bidding-settings.js"
+    );
     const previewBiddingPriceTierReapplyUseCaseModule = await import(
         "./application/use-cases/trading/preview-bidding-price-tier-reapply.js"
     );
@@ -317,6 +325,8 @@ beforeAll(async () => {
         new biddingBidBookRepositoryModule.SqliteBiddingBidBookRepository();
     const biddingPriceTiersRepository =
         new biddingPriceTiersRepositoryModule.SqliteBiddingPriceTiersRepository();
+    const collectionSettingsRepository =
+        new collectionSettingsRepositoryModule.SqliteCollectionSettingsRepository();
     const listCollectionBiddingJobsUseCase =
         new listCollectionBiddingJobsUseCaseModule.ListCollectionBiddingJobsUseCase(
             1,
@@ -339,6 +349,7 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             biddingPriceTiersRepository,
+            collectionSettingsRepository,
         );
     const getTokenBiddingJobUseCase =
         new getTokenBiddingJobUseCaseModule.GetTokenBiddingJobUseCase(
@@ -407,6 +418,13 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             biddingPriceTiersRepository,
+        );
+    const updateCollectionBiddingSettingsUseCase =
+        new updateCollectionBiddingSettingsUseCaseModule.UpdateCollectionBiddingSettingsUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            collectionSettingsRepository,
         );
     const previewBiddingPriceTierReapplyUseCase =
         new previewBiddingPriceTierReapplyUseCaseModule.PreviewBiddingPriceTierReapplyUseCase(
@@ -536,6 +554,7 @@ beforeAll(async () => {
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,
+        updateCollectionBiddingSettingsUseCase,
         previewBiddingPriceTierReapplyUseCase,
         applyBiddingPriceTierReapplyUseCase,
         archiveBiddingJobUseCase,
@@ -579,6 +598,7 @@ beforeAll(async () => {
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,
+        updateCollectionBiddingSettingsUseCase,
         previewBiddingPriceTierReapplyUseCase,
         applyBiddingPriceTierReapplyUseCase,
         archiveBiddingJobUseCase,
@@ -1364,7 +1384,7 @@ describe("backend api routes", () => {
             floorEth: "0.1",
             ceilingEth: "0.2",
             deltaEth: "0.01",
-            pricingSource: { kind: "manual" },
+            pricingSource: { kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual },
         });
 
         const updated = await resolve(
@@ -1385,7 +1405,7 @@ describe("backend api routes", () => {
             floorEth: "0.11",
             ceilingEth: "0.22",
             deltaEth: "0.02",
-            pricingSource: { kind: "manual" },
+            pricingSource: { kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual },
         });
 
         const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
@@ -1409,7 +1429,7 @@ describe("backend api routes", () => {
             floorEth: "0.11",
             ceilingEth: "0.22",
             deltaEth: "0.02",
-            pricingSource: { kind: "manual" },
+            pricingSource: { kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual },
         });
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
@@ -1439,6 +1459,7 @@ describe("backend api routes", () => {
                     deltaKind: "absolute",
                     deltaEth: "0.03",
                 },
+                deltaEth: "0.01",
             },
             csrf,
         );
@@ -1447,6 +1468,7 @@ describe("backend api routes", () => {
             name: "base",
             resolvedFloorEth: "0.12",
             resolvedCeilingEth: "0.15",
+            deltaEth: "0.01",
         });
 
         const tiers = await resolve(
@@ -1454,6 +1476,10 @@ describe("backend api routes", () => {
             "/api/ethereum/milady/bidding/price-tiers",
         );
         expect(tiers.statusCode).toBe(200);
+        expect(tiers.payload.settings).toMatchObject({
+            tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Buttons,
+            defaultDeltaEth: "0.001",
+        });
         expect(tiers.payload.tiers).toHaveLength(1);
 
         const createdJob = await resolve(
@@ -1462,7 +1488,7 @@ describe("backend api routes", () => {
             {
                 status: TRADING_JOB_STATUS.Enabled,
                 priceTierId: createdTier.payload.tier.tierId,
-                deltaEth: "0.01",
+                deltaEth: "0.99",
             },
             csrf,
         );
@@ -1472,13 +1498,28 @@ describe("backend api routes", () => {
             ceilingEth: "0.15",
             deltaEth: "0.01",
             pricingSource: {
-                kind: "price_tier",
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier,
                 tierId: createdTier.payload.tier.tierId,
                 tierName: "base",
                 resolvedFloorWei: "120000000000000000",
                 resolvedCeilingWei: "150000000000000000",
                 deltaWei: "10000000000000000",
             },
+        });
+
+        const updatedSettings = await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/settings",
+            {
+                tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown,
+                defaultDeltaEth: "0.004",
+            },
+            csrf,
+        );
+        expect(updatedSettings.statusCode).toBe(200);
+        expect(updatedSettings.payload.settings).toMatchObject({
+            tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown,
+            defaultDeltaEth: "0.004",
         });
 
         const updatedTier = await resolve(
@@ -1499,6 +1540,7 @@ describe("backend api routes", () => {
                     deltaKind: "absolute",
                     deltaEth: "0.04",
                 },
+                deltaEth: "0.02",
             },
             csrf,
         );
@@ -1520,7 +1562,7 @@ describe("backend api routes", () => {
             after: {
                 floorEth: "0.13",
                 ceilingEth: "0.17",
-                deltaEth: "0.01",
+                deltaEth: "0.02",
             },
         });
 
@@ -1536,7 +1578,7 @@ describe("backend api routes", () => {
         expect(applied.payload.jobs[0].config).toMatchObject({
             floorEth: "0.13",
             ceilingEth: "0.17",
-            deltaEth: "0.01",
+            deltaEth: "0.02",
         });
     });
 

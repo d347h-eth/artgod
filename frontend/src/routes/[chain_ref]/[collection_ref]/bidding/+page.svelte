@@ -2,6 +2,7 @@
 	import CollectionBiddingView from '$lib/components/CollectionBiddingView.svelte';
 	import type {
 		ApiBiddingBidBook,
+		ApiBiddingCollectionSettings,
 		ApiBiddingPriceTier,
 		ApiBiddingTokenOfferCardsPage,
 		ApiBiddingJob,
@@ -16,12 +17,14 @@
 		ApiTraitRangeFilter
 	} from '$lib/api-types';
 	import { emptyBiddingBidBook, emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
+	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 
 	type PageData = {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		jobs: ApiBiddingJob[];
+		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers: ApiBiddingPriceTier[];
 		bidBook: ApiBiddingBidBook;
 		tokenOfferCards: ApiBiddingTokenOfferCardsPage;
@@ -58,6 +61,7 @@
 	chain={data?.chain ?? null}
 	collection={data?.collection ?? null}
 	jobs={data?.jobs ?? []}
+	biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 	priceTiers={data?.priceTiers ?? []}
 	bidBook={data?.bidBook ?? emptyBiddingBidBook()}
 	tokenOfferCards={data?.tokenOfferCards ?? emptyBiddingTokenOfferCardsPage()}

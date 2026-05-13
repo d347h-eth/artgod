@@ -4,6 +4,7 @@
 	import type {
 		ApiChain,
 		ApiBiddingBidBook,
+		ApiBiddingCollectionSettings,
 		ApiBiddingJob,
 		ApiBiddingPriceTier,
 		ApiCollection,
@@ -62,6 +63,7 @@
 		requestCursor,
 		tokenStatus,
 		displayMode,
+		biddingSettings,
 		priceTiers = []
 	}: {
 		chain: ApiChain | null;
@@ -75,6 +77,7 @@
 		requestCursor: string | null;
 		tokenStatus: 'listed' | 'all';
 		displayMode: 'grid' | 'table';
+		biddingSettings: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
 	} = $props();
 
@@ -110,8 +113,8 @@
 	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
 	const tokenActionLabel = $derived(
 		isAllFilteredTokenSelectionActive() && canRefineTokenSelectionToVisiblePage
-			? 'bid on tokens [this page]'
-			: 'bid on tokens'
+			? 'bid on this page'
+			: 'bid on all tokens'
 	);
 
 	$effect(() => {
@@ -412,6 +415,7 @@
 			job={changedBiddingJobs.length === 1 ? changedBiddingJobs[0] : null}
 			draft={selectedBiddingDraft}
 			bidBook={emptyBidBook()}
+			{biddingSettings}
 			{priceTiers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}

@@ -66,7 +66,7 @@ export function buildBiddingPriceTierReapplyPlan(params: {
                 resolvedAt: resolvedTier.resolvedAt,
                 resolvedFloorWei: resolvedTier.resolvedFloorWei,
                 resolvedCeilingWei: resolvedTier.resolvedCeilingWei,
-                deltaWei: job.deltaWei,
+                deltaWei: resolvedTier.deltaWei,
             };
             const before = {
                 floorEth: formatWeiAsEth(job.floorWei),
@@ -77,7 +77,7 @@ export function buildBiddingPriceTierReapplyPlan(params: {
             const after = {
                 floorEth: formatWeiAsEth(resolvedTier.resolvedFloorWei),
                 ceilingEth: formatWeiAsEth(resolvedTier.resolvedCeilingWei),
-                deltaEth: formatWeiAsEth(job.deltaWei),
+                deltaEth: formatWeiAsEth(resolvedTier.deltaWei),
                 pricingSource,
             };
             return {
@@ -88,7 +88,7 @@ export function buildBiddingPriceTierReapplyPlan(params: {
                 afterWei: {
                     floorWei: resolvedTier.resolvedFloorWei,
                     ceilingWei: resolvedTier.resolvedCeilingWei,
-                    deltaWei: job.deltaWei,
+                    deltaWei: resolvedTier.deltaWei,
                     priceTierId: resolvedTier.tierId,
                     pricingSource,
                 },

@@ -1,8 +1,14 @@
 <script lang="ts">
-	import { TRADING_JOB_STATUS, TRADING_JOB_TARGET_KIND } from '@artgod/shared/types';
+	import {
+		TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+		TRADING_BIDDING_TIER_SELECTION_MODE,
+		TRADING_JOB_STATUS,
+		TRADING_JOB_TARGET_KIND
+	} from '@artgod/shared/types';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
+		ApiBiddingCollectionSettings,
 		ApiBiddingJob,
 		ApiBiddingPriceTier,
 		ApiChain,
@@ -17,17 +23,20 @@
 		upsertTokenBiddingJob,
 		upsertTraitBiddingJob
 	} from '$lib/backend-api';
+	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import {
 		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 		BIDDING_AUTOMATION_PRICING_MODE,
+		BIDDING_AUTOMATION_PRICING_MODE_LABEL,
 		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		biddingAutomationDraftTokenId,
 		buildBiddingJobTargetLookupRequestBody,
 		canSubmitFilteredTokenBatch,
 		isBiddingAutomationDraftSubmittable,
-		type BiddingAutomationDraft
+		type BiddingAutomationDraft,
+		type BiddingAutomationPricingMode
 	} from '$lib/bidding-automation';
 	import {
 		formatCompactTime,
@@ -52,6 +61,7 @@
 		job,
 		draft = null,
 		bidBook = null,
+		biddingSettings = defaultBiddingCollectionSettings(),
 		priceTiers = [],
 		expandSignal = 0,
 		variant = 'floating',
@@ -66,6 +76,7 @@
 		job: ApiBiddingJob | null;
 		draft?: BiddingAutomationDraft | null;
 		bidBook?: ApiBiddingBidBook | null;
+		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
 		expandSignal?: number;
 		variant?: BiddingAutomationPanelVariant;
@@ -77,7 +88,9 @@
 	const initialPanelJob = resolvePanelJob(job, draft, null);
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
 	let loadedJobKey = $state(resolveLoadedPanelKey(job, draft, null));
-	let pricingMode = $state<'manual' | 'tier'>(resolveInitialPricingMode(initialPanelJob, draft));
+	let pricingMode = $state<BiddingAutomationPricingMode>(
+		resolveInitialPricingMode(initialPanelJob, draft)
+	);
 	let selectedPriceTierId = $state(resolveInitialPriceTierId(initialPanelJob, draft));
 	let status = $state<EditableTokenJobStatus>(resolveInitialStatus(initialPanelJob));
 	let floorEth = $state(resolveInitialFloorEth(initialPanelJob, draft));
@@ -103,21 +116,28 @@
 	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
 	const displayedFloorEth = $derived(
-		pricingMode === 'tier' ? (selectedPriceTier?.resolvedFloorEth ?? currentJob?.config.floorEth ?? '') : floorEth
+		pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
+			? (selectedPriceTier?.resolvedFloorEth ?? currentJob?.config.floorEth ?? '')
+			: floorEth
 	);
 	const displayedCeilingEth = $derived(
-		pricingMode === 'tier'
+		pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
 			? (selectedPriceTier?.resolvedCeilingEth ?? currentJob?.config.ceilingEth ?? '')
 			: ceilingEth
 	);
-	const canUseTierPricing = $derived(priceTiers.length > 0);
+	const displayedDeltaEth = $derived(
+		pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
+			? (selectedPriceTier?.deltaEth ?? currentJob?.config.deltaEth ?? '')
+			: deltaEth
+	);
 	const pricingAvailable = $derived(
-		pricingMode === 'manual' || (!!selectedPriceTier && !!displayedFloorEth && !!displayedCeilingEth)
+		pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual ||
+			(!!selectedPriceTier && !!displayedFloorEth && !!displayedCeilingEth && !!displayedDeltaEth)
 	);
 	const priceInputsComplete = $derived(
 		displayedFloorEth.trim().length > 0 &&
 			displayedCeilingEth.trim().length > 0 &&
-			deltaEth.trim().length > 0
+			displayedDeltaEth.trim().length > 0
 	);
 	const hasDraftChanges = $derived(resolveHasDraftChanges());
 	const canSubmitDraft = $derived(
@@ -239,11 +259,13 @@
 	function resolveInitialPricingMode(
 		value: ApiBiddingJob | null,
 		currentDraft: BiddingAutomationDraft | null
-	): 'manual' | 'tier' {
+	): BiddingAutomationPricingMode {
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-			return 'tier';
+			return BIDDING_AUTOMATION_PRICING_MODE.Tier;
 		}
-		return value?.config.pricingSource?.kind === 'price_tier' ? 'tier' : 'manual';
+		return value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
+			? BIDDING_AUTOMATION_PRICING_MODE.Tier
+			: BIDDING_AUTOMATION_PRICING_MODE.Manual;
 	}
 
 	function resolveInitialPriceTierId(
@@ -253,7 +275,7 @@
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 			return currentDraft.pricing.tierId;
 		}
-		return value?.config.pricingSource?.kind === 'price_tier'
+		return value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
 			? value.config.pricingSource.tierId
 			: '';
 	}
@@ -299,18 +321,18 @@
 
 	function resolveHasDraftChanges(): boolean {
 		if (currentJob) {
-			if (pricingMode === 'tier') {
+			if (pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 				return (
 					status !== resolveInitialStatus(currentJob) ||
 					selectedPriceTierId !== jobPriceTierId(currentJob) ||
 					displayedFloorEth.trim() !== currentJob.config.floorEth ||
 					displayedCeilingEth.trim() !== currentJob.config.ceilingEth ||
-					deltaEth.trim() !== currentJob.config.deltaEth
+					displayedDeltaEth.trim() !== currentJob.config.deltaEth
 				);
 			}
 			return (
 				status !== resolveInitialStatus(currentJob) ||
-				currentJob.config.pricingSource?.kind === 'price_tier' ||
+				currentJob.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier ||
 				floorEth.trim() !== currentJob.config.floorEth ||
 				ceilingEth.trim() !== currentJob.config.ceilingEth ||
 				deltaEth.trim() !== currentJob.config.deltaEth
@@ -319,7 +341,7 @@
 
 		return (
 			status !== TRADING_JOB_STATUS.Enabled ||
-			pricingMode !== 'manual' ||
+			pricingMode !== BIDDING_AUTOMATION_PRICING_MODE.Manual ||
 			displayedFloorEth.trim().length > 0 ||
 			displayedCeilingEth.trim().length > 0 ||
 			deltaEth.trim().length > 0
@@ -458,15 +480,58 @@
 	}
 
 	function jobPriceTierId(value: ApiBiddingJob): string | null {
-		return value.config.pricingSource?.kind === 'price_tier'
+		return value.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
 			? value.config.pricingSource.tierId
 			: null;
 	}
 
-	function onPricingModeChange(): void {
-		if (pricingMode === 'tier' && !selectedPriceTierId) {
-			selectedPriceTierId = priceTiers[0]?.tierId ?? '';
+	function pricingSelectionValue(): string {
+		return pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier && selectedPriceTierId
+			? selectedPriceTierId
+			: BIDDING_AUTOMATION_PRICING_MODE.Manual;
+	}
+
+	function onPricingSelectionChange(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLSelectElement)) {
+			return;
 		}
+		selectPricingOption(target.value);
+	}
+
+	function selectPricingOption(value: string): void {
+		if (value === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
+			selectManualPricing();
+			return;
+		}
+		selectTierPricing(value);
+	}
+
+	function selectManualPricing(): void {
+		if (pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
+			floorEth = displayedFloorEth;
+			ceilingEth = displayedCeilingEth;
+			deltaEth = displayedDeltaEth;
+		}
+		pricingMode = BIDDING_AUTOMATION_PRICING_MODE.Manual;
+		selectedPriceTierId = '';
+	}
+
+	function selectTierPricing(tierId: string): void {
+		const tier = priceTiers.find((candidate) => candidate.tierId === tierId);
+		if (!tier) {
+			return;
+		}
+		pricingMode = BIDDING_AUTOMATION_PRICING_MODE.Tier;
+		selectedPriceTierId = tier.tierId;
+		floorEth = tier.resolvedFloorEth ?? floorEth;
+		ceilingEth = tier.resolvedCeilingEth ?? ceilingEth;
+		deltaEth = tier.deltaEth;
+	}
+
+	function tierButtonTitle(tier: ApiBiddingPriceTier): string {
+		const trimmed = tier.name.trim();
+		return trimmed.length <= 100 ? trimmed : `${trimmed.slice(0, 97)}...`;
 	}
 
 	function targetLabel(): string {
@@ -707,8 +772,8 @@
 				deltaEth: string;
 				priceTierId: null;
 		  } {
-		return pricingMode === 'tier'
-			? { priceTierId: selectedPriceTierId, deltaEth: deltaEth.trim() }
+		return pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
+			? { priceTierId: selectedPriceTierId, deltaEth: displayedDeltaEth.trim() }
 			: {
 					floorEth: floorEth.trim(),
 					ceilingEth: ceilingEth.trim(),
@@ -903,39 +968,59 @@
 				event.preventDefault();
 			}}
 		>
-			{#if canUseTierPricing}
-				<div class="bootstrap-form-row">
-					<label for="bidding-automation-pricing-mode"><span>pricing</span></label>
+			<div class="bootstrap-form-row token-bidding-pricing-row">
+				<label for="bidding-automation-pricing-select"><span>pricing</span></label>
+				{#if biddingSettings.tierSelectionMode === TRADING_BIDDING_TIER_SELECTION_MODE.Dropdown}
 					<select
-						id="bidding-automation-pricing-mode"
-						class="bootstrap-control bootstrap-input-select-short"
-						bind:value={pricingMode}
-						onchange={onPricingModeChange}
+						id="bidding-automation-pricing-select"
+						class="bootstrap-control bootstrap-input-select-medium"
+						value={pricingSelectionValue()}
+						onchange={onPricingSelectionChange}
 						disabled={saving || archiving || selectedDraftUnsupported}
 					>
-						<option value="manual">manual</option>
-						<option value="tier">tier</option>
+						<option value={BIDDING_AUTOMATION_PRICING_MODE.Manual}>
+							{BIDDING_AUTOMATION_PRICING_MODE_LABEL[BIDDING_AUTOMATION_PRICING_MODE.Manual]}
+						</option>
+						{#each priceTiers as tier}
+							<option value={tier.tierId}>{tier.name}</option>
+						{/each}
 					</select>
-				</div>
-				{#if pricingMode === 'tier'}
-					<div class="bootstrap-form-row">
-						<label for="bidding-automation-price-tier"><span>tier</span></label>
-						<select
-							id="bidding-automation-price-tier"
-							class="bootstrap-control bootstrap-input-select-medium"
-							bind:value={selectedPriceTierId}
+				{:else}
+					<div
+						id="bidding-automation-pricing-select"
+						class="secondary-tabs token-bidding-pricing-options"
+						aria-label="Pricing"
+					>
+						<button
+							type="button"
+							class:secondary-tab-active={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual}
+							aria-pressed={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual}
 							disabled={saving || archiving || selectedDraftUnsupported}
+							onclick={selectManualPricing}
+							title={BIDDING_AUTOMATION_PRICING_MODE_LABEL[BIDDING_AUTOMATION_PRICING_MODE.Manual]}
 						>
-							{#each priceTiers as tier}
-								<option value={tier.tierId}>{tier.name}</option>
-							{/each}
-						</select>
+							{BIDDING_AUTOMATION_PRICING_MODE_LABEL[BIDDING_AUTOMATION_PRICING_MODE.Manual]}
+						</button>
+						{#each priceTiers as tier}
+							<button
+								type="button"
+								class:secondary-tab-active={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier &&
+									selectedPriceTierId === tier.tierId}
+								aria-pressed={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier &&
+									selectedPriceTierId === tier.tierId}
+								disabled={saving || archiving || selectedDraftUnsupported}
+								onclick={() => selectTierPricing(tier.tierId)}
+								title={tierButtonTitle(tier)}
+							>
+								{tier.name}
+							</button>
+						{/each}
 					</div>
 				{/if}
-			{/if}
+			</div>
 			<div class="bootstrap-form-row">
 				<label for="bidding-automation-floor"><span>floor ETH</span></label>
-				{#if pricingMode === 'tier'}
+				{#if pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier}
 					<input
 						id="bidding-automation-floor"
 						class="bootstrap-control bidding-token-input"
@@ -956,7 +1041,7 @@
 			</div>
 			<div class="bootstrap-form-row">
 				<label for="bidding-automation-ceiling"><span>ceiling ETH</span></label>
-				{#if pricingMode === 'tier'}
+				{#if pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier}
 					<input
 						id="bidding-automation-ceiling"
 						class="bootstrap-control bidding-token-input"
@@ -982,8 +1067,19 @@
 					class="bootstrap-control bidding-token-input"
 					type="text"
 					inputmode="decimal"
-					bind:value={deltaEth}
-					disabled={saving || archiving || selectedDraftUnsupported}
+					value={displayedDeltaEth}
+					oninput={(event) => {
+						if (
+							pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Manual &&
+							event.currentTarget instanceof HTMLInputElement
+						) {
+							deltaEth = event.currentTarget.value;
+						}
+					}}
+					disabled={pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier ||
+						saving ||
+						archiving ||
+						selectedDraftUnsupported}
 				/>
 			</div>
 			<div class="panel-footer token-bidding-form-footer">

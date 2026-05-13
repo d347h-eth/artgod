@@ -6,6 +6,7 @@ import {
 	getCollectionBiddingPriceTiers,
 	getCollectionDetail
 } from '$lib/backend-api';
+import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { withQuery } from '$lib/route-paths';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -58,6 +59,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			requestCursor: null,
 			tokenStatus: 'listed' as const,
 			displayMode: 'grid' as const,
+			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: []
 		};
 	}
@@ -82,6 +84,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			requestCursor: query.get('cursor') ?? null,
 			tokenStatus,
 			displayMode,
+			biddingSettings: priceTiersResponse.settings,
 			priceTiers: priceTiersResponse.tiers
 		};
 	} catch (cause) {

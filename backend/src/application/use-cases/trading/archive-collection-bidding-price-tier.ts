@@ -1,3 +1,4 @@
+import { formatEther } from "viem";
 import type { ChainRecord, CollectionListItem } from "@artgod/shared/types";
 import { TRADING_JOB_STATUS } from "@artgod/shared/types";
 import type { BiddingPriceTiersRepositoryPort } from "./bidding-price-tier-ports.js";
@@ -106,6 +107,7 @@ export class ArchiveCollectionBiddingPriceTierUseCase {
                 parentTierId: archived.parentTierId,
                 floorConfig: archived.floorConfig,
                 ceilingConfig: archived.ceilingConfig,
+                deltaEth: formatEther(BigInt(archived.deltaWei)),
                 resolvedFloorEth: null,
                 resolvedCeilingEth: null,
                 resolvedAt: archived.resolvedAt,

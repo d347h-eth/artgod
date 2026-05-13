@@ -29,6 +29,7 @@ import type { UpsertTraitBiddingJobUseCase } from "./application/use-cases/tradi
 import type { UpsertBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
 import type { UpsertCollectionBiddingJobUseCase } from "./application/use-cases/trading/upsert-collection-bidding-job.js";
 import type { UpsertCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/upsert-collection-bidding-price-tier.js";
+import type { UpdateCollectionBiddingSettingsUseCase } from "./application/use-cases/trading/update-collection-bidding-settings.js";
 import type { PreviewBiddingPriceTierReapplyUseCase } from "./application/use-cases/trading/preview-bidding-price-tier-reapply.js";
 import type { ApplyBiddingPriceTierReapplyUseCase } from "./application/use-cases/trading/apply-bidding-price-tier-reapply.js";
 import type { ArchiveBiddingJobUseCase } from "./application/use-cases/trading/archive-bidding-job.js";
@@ -64,6 +65,7 @@ import { UpsertTraitBiddingJobHttpAdapter } from "./http/handlers/trading/upsert
 import { UpsertBatchTokenBiddingJobsHttpAdapter } from "./http/handlers/trading/upsert-batch-token-bidding-jobs.js";
 import { UpsertCollectionBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-collection-bidding-job.js";
 import { UpsertCollectionBiddingPriceTierHttpAdapter } from "./http/handlers/trading/upsert-collection-bidding-price-tier.js";
+import { UpdateCollectionBiddingSettingsHttpAdapter } from "./http/handlers/trading/update-collection-bidding-settings.js";
 import { PreviewBiddingPriceTierReapplyHttpAdapter } from "./http/handlers/trading/preview-bidding-price-tier-reapply.js";
 import { ApplyBiddingPriceTierReapplyHttpAdapter } from "./http/handlers/trading/apply-bidding-price-tier-reapply.js";
 import { ArchiveBiddingJobHttpAdapter } from "./http/handlers/trading/archive-bidding-job.js";
@@ -113,6 +115,7 @@ export function createApiApp(
     upsertBatchTokenBiddingJobsUseCase: UpsertBatchTokenBiddingJobsUseCase,
     upsertCollectionBiddingJobUseCase: UpsertCollectionBiddingJobUseCase,
     upsertCollectionBiddingPriceTierUseCase: UpsertCollectionBiddingPriceTierUseCase,
+    updateCollectionBiddingSettingsUseCase: UpdateCollectionBiddingSettingsUseCase,
     previewBiddingPriceTierReapplyUseCase: PreviewBiddingPriceTierReapplyUseCase,
     applyBiddingPriceTierReapplyUseCase: ApplyBiddingPriceTierReapplyUseCase,
     archiveBiddingJobUseCase: ArchiveBiddingJobUseCase,
@@ -223,6 +226,10 @@ export function createApiApp(
         new UpsertCollectionBiddingPriceTierHttpAdapter(
             upsertCollectionBiddingPriceTierUseCase,
         );
+    const updateCollectionBiddingSettingsAdapter =
+        new UpdateCollectionBiddingSettingsHttpAdapter(
+            updateCollectionBiddingSettingsUseCase,
+        );
     const previewBiddingPriceTierReapplyAdapter =
         new PreviewBiddingPriceTierReapplyHttpAdapter(
             previewBiddingPriceTierReapplyUseCase,
@@ -281,6 +288,7 @@ export function createApiApp(
         upsertBatchTokenBiddingJobsAdapter,
         upsertCollectionBiddingJobAdapter,
         upsertCollectionBiddingPriceTierAdapter,
+        updateCollectionBiddingSettingsAdapter,
         previewBiddingPriceTierReapplyAdapter,
         applyBiddingPriceTierReapplyAdapter,
         archiveBiddingJobAdapter,

@@ -20,6 +20,7 @@ export type ParsedPriceTierBody = {
     parentTierId: string | null;
     floorConfig: TradingBiddingPriceTierFloorConfig;
     ceilingConfig: TradingBiddingPriceTierCeilingConfig;
+    deltaEth: string;
 };
 
 // Parses collection price-tier transport fields before domain graph validation.
@@ -32,6 +33,7 @@ export function parsePriceTierBody(value: Record<string, unknown>): ParsedPriceT
         parentTierId: parseOptionalString(value.parentTierId, "parentTierId") ?? null,
         floorConfig: parseFloorConfig(value.floorConfig),
         ceilingConfig: parseCeilingConfig(value.ceilingConfig),
+        deltaEth: parseRequiredString(value.deltaEth, "deltaEth"),
     };
 }
 
