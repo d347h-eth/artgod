@@ -6,7 +6,6 @@
 		ApiTradingTraitCriterion
 	} from '$lib/api-types';
 	import {
-		compactTimeModeLabel,
 		formatCompactTime,
 		formatRfc3339,
 		oppositeCompactTimeTitle,
@@ -749,10 +748,6 @@
 		return oppositeCompactTimeTitle(valueMs, mode, nowMs);
 	}
 
-	function timeModeLabel(mode: BidBookTimeMode): string {
-		return compactTimeModeLabel(mode);
-	}
-
 	function togglePlacedAtMode(): void {
 		placedAtMode = placedAtMode === 'relative' ? 'absolute' : 'relative';
 	}
@@ -847,25 +842,23 @@
 						<th class="bid-book-col-right">price</th>
 						<th class="bid-book-col-center">maker</th>
 						<th class="bid-book-time-header bid-book-col-center">
-							<span>placed</span>
 							<button
 								type="button"
 								class="activities-time-mode-button"
 								aria-label="toggle placed-at time mode"
 								onclick={togglePlacedAtMode}
 							>
-								{timeModeLabel(placedAtMode)}
+								placed
 							</button>
 						</th>
 						<th class="bid-book-time-header bid-book-col-center">
-							<span>valid</span>
 							<button
 								type="button"
 								class="activities-time-mode-button"
 								aria-label="toggle valid-until time mode"
 								onclick={toggleValidUntilMode}
 							>
-								{timeModeLabel(validUntilMode)}
+								valid
 							</button>
 						</th>
 					</tr>
@@ -1020,25 +1013,23 @@
 						{/if}
 						<th class="bid-book-col-center">maker</th>
 						<th class="bid-book-time-header bid-book-col-center">
-							<span>placed</span>
 							<button
 								type="button"
 								class="activities-time-mode-button"
 								aria-label="toggle placed-at time mode"
 								onclick={togglePlacedAtMode}
 							>
-								{timeModeLabel(placedAtMode)}
+								placed
 							</button>
 						</th>
 						<th class="bid-book-time-header bid-book-col-center">
-							<span>valid</span>
 							<button
 								type="button"
 								class="activities-time-mode-button"
 								aria-label="toggle valid-until time mode"
 								onclick={toggleValidUntilMode}
 							>
-								{timeModeLabel(validUntilMode)}
+								valid
 							</button>
 						</th>
 					</tr>

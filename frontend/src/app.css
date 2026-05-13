@@ -2504,6 +2504,14 @@ th {
 	color: var(--c-yellow);
 }
 
+.bid-book-time-header .activities-time-mode-button {
+	color: var(--c-pink);
+}
+
+.bid-book-time-header .activities-time-mode-button:hover {
+	color: var(--c-yellow);
+}
+
 .activity-token-cell {
 	display: flex;
 	align-items: center;
@@ -2789,6 +2797,7 @@ th {
 	font-size: 0.7rem;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
+	opacity: 0.78;
 }
 
 .runtime-kv-grid.bid-book-meta .runtime-k::after,
@@ -2800,6 +2809,12 @@ th {
 .runtime-v {
 	color: var(--c-ice);
 	font-size: 0.75rem;
+}
+
+.token-bidding-time-value {
+	color: var(--c-ice);
+	font-size: 0.75rem;
+	text-transform: none;
 }
 
 .runtime-error {

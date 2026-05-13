@@ -28,7 +28,6 @@
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
 	import {
-		compactTimeModeLabel,
 		formatCompactTime,
 		oppositeCompactTimeTitle,
 		parseCompactTimeMs,
@@ -758,31 +757,35 @@
 			{#if currentJob}
 				<div>
 					<span class="runtime-k">modified</span>
-					<button
-						type="button"
-						class="activities-time-mode-button"
-						aria-label="toggle modified time mode"
-						onclick={toggleModifiedAtMode}
-					>
-						{compactTimeModeLabel(modifiedAtMode)}
-					</button>
-					<span class="runtime-v mono" title={jobTimeTitle(modifiedAtMs, modifiedAtMode)}>
-						{formatJobTime(modifiedAtMs, modifiedAtMode)}
-					</span>
+					{#if modifiedAtMs === null}
+						<span class="runtime-v mono">-</span>
+					{:else}
+						<button
+							type="button"
+							class="activities-time-mode-button token-bidding-time-value"
+							aria-label="toggle modified time mode"
+							title={jobTimeTitle(modifiedAtMs, modifiedAtMode)}
+							onclick={toggleModifiedAtMode}
+						>
+							{formatJobTime(modifiedAtMs, modifiedAtMode)}
+						</button>
+					{/if}
 				</div>
 				<div>
 					<span class="runtime-k">refreshed</span>
-					<button
-						type="button"
-						class="activities-time-mode-button"
-						aria-label="toggle refreshed time mode"
-						onclick={toggleRefreshedAtMode}
-					>
-						{compactTimeModeLabel(refreshedAtMode)}
-					</button>
-					<span class="runtime-v mono" title={jobTimeTitle(refreshedAtMs, refreshedAtMode)}>
-						{formatJobTime(refreshedAtMs, refreshedAtMode)}
-					</span>
+					{#if refreshedAtMs === null}
+						<span class="runtime-v mono">-</span>
+					{:else}
+						<button
+							type="button"
+							class="activities-time-mode-button token-bidding-time-value"
+							aria-label="toggle refreshed time mode"
+							title={jobTimeTitle(refreshedAtMs, refreshedAtMode)}
+							onclick={toggleRefreshedAtMode}
+						>
+							{formatJobTime(refreshedAtMs, refreshedAtMode)}
+						</button>
+					{/if}
 				</div>
 			{/if}
 			{#if bidPosition}
