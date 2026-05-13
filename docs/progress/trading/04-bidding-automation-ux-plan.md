@@ -524,6 +524,14 @@ Expected artifacts:
 - `frontend/src/lib/components/BiddingAutomationPanel.svelte`
 - `frontend/src/lib/components/BidBookPanel.svelte`
 
+Current implementation notes:
+
+- Canonical target equivalence lives in shared trading helpers and is reused by the SQLite jobs repository for active job lookup.
+- The backend exposes an admin target lookup path so the shared automation panel can resolve token, trait, and collection drafts into existing declared jobs before showing create/modify/archive actions.
+- Target-agnostic job archive is available by job id and emits the same durable `job_archived` plus `cancel_active_offer` command pair in the repository transaction.
+- The automation panel now looks up an existing job for draft targets, surfaces job id plus revision, and archives any target kind through the shared job-id route.
+- Archived jobs are removed from collection-page job state instead of being kept as editable active jobs.
+
 ### Slice 13: Price Tier Management UI
 
 - Add a compact collection-scoped tier management surface reachable from bidding operations.

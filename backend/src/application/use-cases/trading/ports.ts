@@ -2,6 +2,7 @@ import type {
     PersistedBiddingJobRecord,
     PersistedCollectionBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
+    TradingBiddingJobTargetDescriptor,
     TradingBiddingJobPricingSource,
     TradingJobCommandRecord,
     TradingJobStatus,
@@ -46,6 +47,12 @@ export interface BiddingJobsRepositoryPort {
         includeArchived?: boolean;
     }): PersistedTokenBiddingJobRecord | null;
     getJobById(jobId: string): PersistedBiddingJobRecord | null;
+    findJobByTarget(params: {
+        chainId: number;
+        collectionId: number;
+        target: TradingBiddingJobTargetDescriptor;
+        includeArchived?: boolean;
+    }): PersistedBiddingJobRecord | null;
     upsertTokenJob(
         input: UpsertTokenBiddingJobInput,
     ): {
@@ -70,6 +77,14 @@ export interface BiddingJobsRepositoryPort {
         tokenId: string;
     }): {
         job: PersistedTokenBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    } | null;
+    archiveJobById(params: {
+        chainId: number;
+        collectionId: number;
+        jobId: string;
+    }): {
+        job: PersistedBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } | null;
     listPendingCommands(params: {

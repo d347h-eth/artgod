@@ -10,7 +10,8 @@
 		ApiTokenDetail
 	} from '$lib/api-types';
 	import {
-		archiveTokenBiddingJob,
+		archiveBiddingJob,
+		lookupBiddingJobTarget,
 		upsertBatchTokenBiddingJobs,
 		upsertCollectionBiddingJob,
 		upsertTokenBiddingJob,
@@ -23,6 +24,7 @@
 		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		biddingAutomationDraftTokenId,
+		buildBiddingJobTargetLookupRequestBody,
 		canSubmitFilteredTokenBatch,
 		isBiddingAutomationDraftSubmittable,
 		type BiddingAutomationDraft
@@ -72,9 +74,9 @@
 		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
 	} = $props();
 
-	const initialPanelJob = resolvePanelJob(job, draft);
+	const initialPanelJob = resolvePanelJob(job, draft, null);
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
-	let loadedJobKey = $state(resolveLoadedPanelKey(job, draft));
+	let loadedJobKey = $state(resolveLoadedPanelKey(job, draft, null));
 	let pricingMode = $state<'manual' | 'tier'>(resolveInitialPricingMode(initialPanelJob, draft));
 	let selectedPriceTierId = $state(resolveInitialPriceTierId(initialPanelJob, draft));
 	let status = $state<EditableTokenJobStatus>(resolveInitialStatus(initialPanelJob));
@@ -91,15 +93,14 @@
 	let refreshedAtMode = $state<CompactTimeDisplayMode>('relative');
 	let nowMs = $state(Date.now());
 	let armedAction = $state<ConfirmableBiddingAction | null>(null);
+	let targetLookupKey = $state('');
+	let targetLookupJob = $state<ApiBiddingJob | null>(null);
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
 	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
 	const bidPosition = $derived(resolveBidPosition(currentJob, bidBook));
 	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
-	const archivableTokenId = $derived(
-		currentJob?.target.type === TRADING_JOB_TARGET_KIND.Token ? currentJob.target.tokenId : targetTokenId
-	);
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
 	const displayedFloorEth = $derived(
 		pricingMode === 'tier' ? (selectedPriceTier?.resolvedFloorEth ?? currentJob?.config.floorEth ?? '') : floorEth
@@ -136,13 +137,11 @@
 	const canActivateJob = $derived(isPausedJob && !saving && !archiving && canSubmitDraft);
 	const canArchiveJob = $derived(
 		!!currentJob &&
-			currentJob.target.type === TRADING_JOB_TARGET_KIND.Token &&
 			(isEnabledJob || isPausedJob) &&
 			!saving &&
 			!archiving &&
 			!!chain &&
-			!!collection &&
-			!!archivableTokenId
+			!!collection
 	);
 	const modifiedAtMs = $derived(parseCompactTimeMs(currentJob?.updatedAt));
 	const refreshedAtMs = $derived(
@@ -157,18 +156,22 @@
 	});
 
 	$effect(() => {
-		const nextLoadedJobKey = resolveLoadedPanelKey(job, draft);
+		const nextLoadedJobKey = resolveLoadedPanelKey(job, draft, targetLookupJob);
 		if (nextLoadedJobKey === loadedJobKey) {
 			return;
 		}
 
 		loadedJobKey = nextLoadedJobKey;
-		applyLoadedPanel(job, draft);
+		applyLoadedPanel(job, draft, targetLookupJob);
 		saving = false;
 		archiving = false;
 		saveMessage = null;
 		saveError = null;
 		armedAction = null;
+	});
+
+	$effect(() => {
+		void refreshTargetLookupJob();
 	});
 
 	$effect(() => {
@@ -183,16 +186,18 @@
 
 	function resolvePanelJob(
 		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
+		currentDraft: BiddingAutomationDraft | null,
+		lookedUpJob: ApiBiddingJob | null
 	): ApiBiddingJob | null {
-		return currentDraft?.existingJob ?? value;
+		return currentDraft?.existingJob ?? lookedUpJob ?? value;
 	}
 
 	function resolveLoadedPanelKey(
 		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
+		currentDraft: BiddingAutomationDraft | null,
+		lookedUpJob: ApiBiddingJob | null
 	): string {
-		return `${resolveLoadedJobKey(resolvePanelJob(value, currentDraft))}:${resolveDraftKey(currentDraft)}`;
+		return `${resolveLoadedJobKey(resolvePanelJob(value, currentDraft, lookedUpJob))}:${resolveDraftKey(currentDraft)}`;
 	}
 
 	function resolveLoadedJobKey(value: ApiBiddingJob | null): string {
@@ -395,10 +400,45 @@
 
 	function applyLoadedPanel(
 		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
+		currentDraft: BiddingAutomationDraft | null,
+		lookedUpJob: ApiBiddingJob | null
 	): void {
-		currentJob = resolvePanelJob(value, currentDraft);
+		currentJob = resolvePanelJob(value, currentDraft, lookedUpJob);
 		applyDraft(currentJob, currentDraft);
+	}
+
+	async function refreshTargetLookupJob(): Promise<void> {
+		if (!chain || !collection || !draft || draft.existingJob) {
+			targetLookupKey = '';
+			targetLookupJob = null;
+			return;
+		}
+
+		const body = buildBiddingJobTargetLookupRequestBody(draft);
+		if (!body) {
+			targetLookupKey = '';
+			targetLookupJob = null;
+			return;
+		}
+
+		const nextLookupKey = `${chain.slug}:${collection.slug}:${JSON.stringify(body)}`;
+		if (nextLookupKey === targetLookupKey) {
+			return;
+		}
+		targetLookupKey = nextLookupKey;
+		targetLookupJob = null;
+
+		try {
+			// Ask the backend if this draft target already has a declared job.
+			const response = await lookupBiddingJobTarget(fetch, chain.slug, collection.slug, body);
+			if (targetLookupKey === nextLookupKey) {
+				targetLookupJob = response.job;
+			}
+		} catch (error) {
+			if (targetLookupKey === nextLookupKey) {
+				saveError = error instanceof Error ? error.message : 'failed to look up bidding job';
+			}
+		}
 	}
 
 	function applyDraft(value: ApiBiddingJob | null, currentDraft: BiddingAutomationDraft | null): void {
@@ -721,7 +761,6 @@
 			!canArchiveJob ||
 			!chain ||
 			!collection ||
-			!archivableTokenId ||
 			!currentJob ||
 			saving ||
 			archiving
@@ -735,14 +774,17 @@
 		saveError = null;
 
 		try {
-			// Archive the token-scoped bidding job through the backend CRUD adapter.
-			await archiveTokenBiddingJob(fetch, chain.slug, collection.slug, archivableTokenId);
+			// Archive the declared bidding job through the target-agnostic backend adapter.
+			const response = await archiveBiddingJob(fetch, chain.slug, collection.slug, currentJob.jobId);
 			currentJob = null;
-			onJobChange?.(null);
+			if (response.job.target.type === TRADING_JOB_TARGET_KIND.Token) {
+				onJobChange?.(null);
+			}
+			onJobsChange?.([response.job]);
 			resetDraft();
 			saveMessage = 'archived';
 		} catch (error) {
-			saveError = error instanceof Error ? error.message : 'failed to archive token bidding job';
+			saveError = error instanceof Error ? error.message : 'failed to archive bidding job';
 		} finally {
 			archiving = false;
 		}
@@ -792,6 +834,14 @@
 				</div>
 			{/if}
 			{#if currentJob}
+				<div>
+					<span class="runtime-k">job</span>
+					<span class="runtime-v mono">{currentJob.jobId}</span>
+				</div>
+				<div>
+					<span class="runtime-k">revision</span>
+					<span class="runtime-v mono">{currentJob.revision}</span>
+				</div>
 				<div>
 					<span class="runtime-k">modified</span>
 					{#if modifiedAtMs === null}

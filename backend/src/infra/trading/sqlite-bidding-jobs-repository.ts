@@ -12,10 +12,14 @@ import {
     type PersistedCollectionBiddingJobRecord,
     type PersistedBiddingJobRuntimeState,
     type PersistedTokenBiddingJobRecord,
+    type TradingBiddingJobTargetDescriptor,
     type TradingBiddingJobPricingSource,
     type TradingJobCommandKind,
     type TradingJobCommandRecord,
     type TradingTraitCriterion,
+    normalizeTradingTraitCriteria,
+    tradingBiddingJobTargetKey,
+    tradingTraitCriteriaKey,
 } from "@artgod/shared/types";
 import type {
     BiddingJobsRepositoryPort,
@@ -72,6 +76,11 @@ type TradingJobCommandRow = {
     claimed_at: string | null;
     completed_at: string | null;
 };
+
+type PersistedNonTokenBiddingJobRecord = Exclude<
+    PersistedBiddingJobRecord,
+    PersistedTokenBiddingJobRecord
+>;
 
 const BIDDING_JOB_SELECT =
     "SELECT j.job_id, j.bot_kind, j.chain_id, j.collection_id, " +
@@ -391,6 +400,34 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         return row ? this.mapBiddingJobRow(row) : null;
     }
 
+    findJobByTarget(params: {
+        chainId: number;
+        collectionId: number;
+        target: TradingBiddingJobTargetDescriptor;
+        includeArchived?: boolean;
+    }): PersistedBiddingJobRecord | null {
+        if (params.target.targetKind === TRADING_JOB_TARGET_KIND.Token) {
+            return this.getTokenJob({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                tokenId: params.target.tokenId,
+                includeArchived: params.includeArchived,
+            });
+        }
+
+        const targetKey = tradingBiddingJobTargetKey(params.target);
+        for (const job of this.listCollectionJobs({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            includeArchived: params.includeArchived,
+        })) {
+            if (tradingBiddingJobTargetKey(this.persistedJobTarget(job)) === targetKey) {
+                return job;
+            }
+        }
+        return null;
+    }
+
     upsertTokenJob(
         input: UpsertTokenBiddingJobInput,
     ): {
@@ -541,38 +578,30 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 return null;
             }
 
-            this.archiveTradingJobById.run({
+            const result = this.archiveJobByIdInTransaction({
+                chainId: input.chainId,
+                collectionId: input.collectionId,
                 jobId: existing.jobId,
             });
-
-            const job = this.requireTokenJobById(existing.jobId);
-            const archivedCommand = this.insertCommandRecord(
-                job.jobId,
-                TRADING_JOB_COMMAND_KIND.JobArchived,
-                job.revision,
-                {
-                    chainId: job.chainId,
-                    collectionId: job.collectionId,
-                    tokenId: job.tokenId,
-                    jobId: job.jobId,
-                },
-            );
-            const cancelCommand = this.insertCommandRecord(
-                job.jobId,
-                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
-                job.revision,
-                {
-                    chainId: job.chainId,
-                    collectionId: job.collectionId,
-                    tokenId: job.tokenId,
-                    jobId: job.jobId,
-                },
-            );
-            return {
-                job,
-                commands: [archivedCommand, cancelCommand],
-            };
+            return result?.job.targetKind === TRADING_JOB_TARGET_KIND.Token
+                ? { job: result.job, commands: result.commands }
+                : null;
         })(params);
+    }
+
+    archiveJobById(params: {
+        chainId: number;
+        collectionId: number;
+        jobId: string;
+    }): {
+        job: PersistedBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    } | null {
+        return db.raw.transaction((input: {
+            chainId: number;
+            collectionId: number;
+            jobId: string;
+        }) => this.archiveJobByIdInTransaction(input))(params);
     }
 
     listPendingCommands(params: { limit: number }): TradingJobCommandRecord[] {
@@ -588,6 +617,56 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         if (!job || job.targetKind !== TRADING_JOB_TARGET_KIND.Token) {
             throw new Error(
                 `Expected persisted token bidding job to exist for jobId=${jobId}`,
+            );
+        }
+        return job;
+    }
+
+    private archiveJobByIdInTransaction(params: {
+        chainId: number;
+        collectionId: number;
+        jobId: string;
+    }): {
+        job: PersistedBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    } | null {
+        const existing = this.getJobById(params.jobId);
+        if (
+            !existing ||
+            existing.chainId !== params.chainId ||
+            existing.collectionId !== params.collectionId ||
+            existing.status === TRADING_JOB_STATUS.Archived
+        ) {
+            return null;
+        }
+
+        this.archiveTradingJobById.run({ jobId: existing.jobId });
+
+        const job = this.requireBiddingJobById(existing.jobId);
+        const payload = this.biddingJobCommandPayload(job);
+        const archivedCommand = this.insertCommandRecord(
+            job.jobId,
+            TRADING_JOB_COMMAND_KIND.JobArchived,
+            job.revision,
+            payload,
+        );
+        const cancelCommand = this.insertCommandRecord(
+            job.jobId,
+            TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            job.revision,
+            payload,
+        );
+        return {
+            job,
+            commands: [archivedCommand, cancelCommand],
+        };
+    }
+
+    private requireBiddingJobById(jobId: string): PersistedBiddingJobRecord {
+        const job = this.getJobById(jobId);
+        if (!job) {
+            throw new Error(
+                `Expected persisted bidding job to exist for jobId=${jobId}`,
             );
         }
         return job;
@@ -730,7 +809,7 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
     }
 
     private collectionJobCommandPayload(
-        job: PersistedCollectionBiddingJobRecord,
+        job: PersistedNonTokenBiddingJobRecord,
     ): Record<string, unknown> {
         return {
             chainId: job.chainId,
@@ -741,21 +820,47 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         };
     }
 
+    private biddingJobCommandPayload(
+        job: PersistedBiddingJobRecord,
+    ): Record<string, unknown> {
+        if (job.targetKind === TRADING_JOB_TARGET_KIND.Token) {
+            return this.tokenJobCommandPayload(job);
+        }
+        return this.collectionJobCommandPayload(job);
+    }
+
+    private persistedJobTarget(
+        job: PersistedBiddingJobRecord,
+    ): TradingBiddingJobTargetDescriptor {
+        if (job.targetKind === TRADING_JOB_TARGET_KIND.Token) {
+            return {
+                targetKind: TRADING_JOB_TARGET_KIND.Token,
+                tokenId: job.tokenId,
+            };
+        }
+        if (job.targetKind === TRADING_JOB_TARGET_KIND.Collection) {
+            return {
+                targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                quantity: job.quantity,
+                targetTraits: job.targetTraits,
+            };
+        }
+        return {
+            targetKind: TRADING_JOB_TARGET_KIND.CompetitiveTrait,
+            quantity: job.quantity,
+            targetTraits: job.targetTraits,
+            competitorTraits: job.competitorTraits,
+        };
+    }
+
     private normalizeTraitCriteria(
         traits: TradingTraitCriterion[],
     ): TradingTraitCriterion[] {
-        return [...traits].sort((left, right) => {
-            const typeCompare = left.type.localeCompare(right.type);
-            return typeCompare === 0
-                ? left.value.localeCompare(right.value)
-                : typeCompare;
-        });
+        return normalizeTradingTraitCriteria(traits);
     }
 
     private traitCriteriaKey(traits: TradingTraitCriterion[]): string {
-        return this.normalizeTraitCriteria(traits)
-            .map((trait) => `${trait.type}\u0000${trait.value}`)
-            .join("\u0001");
+        return tradingTraitCriteriaKey(traits);
     }
 
     private insertCommandRecord(

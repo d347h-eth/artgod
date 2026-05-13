@@ -169,6 +169,23 @@ export type BiddingAutomationDraft = {
 	existingJob?: ApiBiddingJob | null;
 };
 
+export type BiddingJobTargetLookupRequestBody = {
+	target:
+		| {
+				type: 'token';
+				tokenId: string;
+		  }
+		| {
+				type: 'collection';
+				quantity?: number;
+		  }
+		| {
+				type: 'trait';
+				quantity?: number;
+				targetTraits: ApiTradingTraitCriterion[];
+		  };
+};
+
 // Builds a draft from an existing bid-book row without committing to a backend mutation path.
 export function buildBiddingAutomationDraftFromBid(
 	bid: ApiBiddingBidBookRow,
@@ -250,6 +267,54 @@ export function buildBiddingAutomationDraftFromSelection(
 		},
 		existingJob
 	};
+}
+
+// Attaches a target lookup result without mutating the route-local draft source.
+export function withBiddingAutomationDraftExistingJob(
+	draft: BiddingAutomationDraft | null,
+	existingJob: ApiBiddingJob | null
+): BiddingAutomationDraft | null {
+	return draft ? { ...draft, existingJob } : null;
+}
+
+// Converts a draft target into the backend lookup contract for existing jobs.
+export function buildBiddingJobTargetLookupRequestBody(
+	draft: BiddingAutomationDraft | null
+): BiddingJobTargetLookupRequestBody | null {
+	if (!draft) {
+		return null;
+	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+		return draft.target.tokenIds.length === 1
+			? {
+					target: {
+						type: 'token',
+						tokenId: draft.target.tokenIds[0]
+					}
+				}
+			: null;
+	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
+		return {
+			target: {
+				type: 'trait',
+				quantity: selectedBidQuantity(draft),
+				targetTraits: draft.target.traits.map((trait) => ({
+					type: trait.key,
+					value: trait.value
+				}))
+			}
+		};
+	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.CollectionJob) {
+		return {
+			target: {
+				type: 'collection',
+				quantity: selectedBidQuantity(draft)
+			}
+		};
+	}
+	return null;
 }
 
 // Gates drafts to target kinds that currently have a backend mutation path.
@@ -384,6 +449,14 @@ export function canDraftTraitJobFromFilters(params: {
 		return false;
 	}
 	return new Set(params.selectedTraits.map((trait) => trait.key)).size === params.selectedTraits.length;
+}
+
+function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined {
+	if (draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
+		return undefined;
+	}
+	const parsed = Number(draft.source.bid.quantity);
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 const WEI_PER_ETH = 1_000_000_000_000_000_000n;

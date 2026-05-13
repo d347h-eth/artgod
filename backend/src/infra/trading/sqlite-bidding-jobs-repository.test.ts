@@ -316,6 +316,125 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(listed[0]?.jobId, created.job.jobId);
     });
 
+    it("resolves existing jobs by canonical target equivalence", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const tokenJob = repository.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "123",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100000000000000000",
+            ceilingWei: "200000000000000000",
+            deltaWei: "1000000000000000",
+        });
+        const traitJob = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100000000000000000",
+            ceilingWei: "200000000000000000",
+            deltaWei: "1000000000000000",
+            quantity: 2,
+            targetTraits: [
+                { type: "Mode", value: "Terrain" },
+                { type: "Biome", value: "42" },
+            ],
+        });
+
+        const foundToken = repository.findJobByTarget({
+            chainId: 1,
+            collectionId,
+            target: {
+                targetKind: TRADING_JOB_TARGET_KIND.Token,
+                tokenId: "123",
+            },
+        });
+        assert.equal(foundToken?.jobId, tokenJob.job.jobId);
+
+        const foundTrait = repository.findJobByTarget({
+            chainId: 1,
+            collectionId,
+            target: {
+                targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                quantity: 2,
+                targetTraits: [
+                    { type: "Biome", value: "42" },
+                    { type: "Mode", value: "Terrain" },
+                ],
+            },
+        });
+        assert.equal(foundTrait?.jobId, traitJob.job.jobId);
+
+        const wrongQuantity = repository.findJobByTarget({
+            chainId: 1,
+            collectionId,
+            target: {
+                targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                quantity: 1,
+                targetTraits: [
+                    { type: "Biome", value: "42" },
+                    { type: "Mode", value: "Terrain" },
+                ],
+            },
+        });
+        assert.equal(wrongQuantity, null);
+    });
+
+    it("archives a collection bidding job by id and emits archive plus cancel commands", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const created = repository.upsertCollectionJob({
+            chainId: 1,
+            collectionId,
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "100000000000000000",
+            ceilingWei: "200000000000000000",
+            deltaWei: "1000000000000000",
+            quantity: 1,
+            targetTraits: [{ type: "Biome", value: "42" }],
+        });
+
+        const archived = repository.archiveJobById({
+            chainId: 1,
+            collectionId,
+            jobId: created.job.jobId,
+        });
+
+        assert.ok(archived);
+        assert.equal(archived?.job.jobId, created.job.jobId);
+        assert.equal(archived?.job.status, TRADING_JOB_STATUS.Archived);
+        assert.equal(archived?.job.revision, 2);
+        assert.deepEqual(
+            archived?.commands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobArchived,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            ],
+        );
+
+        assert.equal(
+            repository.findJobByTarget({
+                chainId: 1,
+                collectionId,
+                target: {
+                    targetKind: TRADING_JOB_TARGET_KIND.Collection,
+                    quantity: 1,
+                    targetTraits: [{ type: "Biome", value: "42" }],
+                },
+            }),
+            null,
+        );
+
+        const pendingCommands = repository.listPendingCommands({ limit: 10 });
+        assert.deepEqual(
+            pendingCommands.map((command) => command.commandKind),
+            [
+                TRADING_JOB_COMMAND_KIND.JobCreated,
+                TRADING_JOB_COMMAND_KIND.JobArchived,
+                TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+            ],
+        );
+    });
+
     it("archives a token bidding job, hides it from active token lookups, and emits archive plus cancel commands", () => {
         const repository = new SqliteBiddingJobsRepository();
         const created = repository.upsertTokenJob({

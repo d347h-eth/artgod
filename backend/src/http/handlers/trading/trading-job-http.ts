@@ -35,3 +35,17 @@ export function parseOptionalString(
     }
     return value;
 }
+
+// Parses optional positive integer quantities shared by bidding target handlers.
+export function parseOptionalQuantity(
+    value: unknown,
+    field = "quantity",
+): number | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+        throw new ReadModelBadRequestError(`${field} must be an integer > 0`);
+    }
+    return value;
+}

@@ -91,6 +91,78 @@ export type TradingTraitCriterion = {
     value: string;
 };
 
+export type TradingBiddingJobTargetDescriptor =
+    | {
+          targetKind: typeof TRADING_JOB_TARGET_KIND.Token;
+          tokenId: string;
+      }
+    | {
+          targetKind: typeof TRADING_JOB_TARGET_KIND.Collection;
+          quantity: number;
+          targetTraits: TradingTraitCriterion[];
+      }
+    | {
+          targetKind: typeof TRADING_JOB_TARGET_KIND.CompetitiveTrait;
+          quantity: number;
+          targetTraits: TradingTraitCriterion[];
+          competitorTraits: TradingTraitCriterion[];
+      };
+
+// Normalizes trait criteria before target comparison or persistence.
+export function normalizeTradingTraitCriteria(
+    traits: TradingTraitCriterion[],
+): TradingTraitCriterion[] {
+    return [...traits]
+        .map((trait) => ({
+            type: trait.type.trim(),
+            value: trait.value.trim(),
+        }))
+        .sort(compareTradingTraitCriteria);
+}
+
+// Builds a stable key for comparing unordered trait criteria.
+export function tradingTraitCriteriaKey(
+    traits: TradingTraitCriterion[],
+): string {
+    return normalizeTradingTraitCriteria(traits)
+        .map((trait) => `${trait.type}\u0000${trait.value}`)
+        .join("\u0001");
+}
+
+// Builds the canonical identity key for one declared bidding target.
+export function tradingBiddingJobTargetKey(
+    target: TradingBiddingJobTargetDescriptor,
+): string {
+    if (target.targetKind === TRADING_JOB_TARGET_KIND.Token) {
+        return `${target.targetKind}\u0002${target.tokenId.trim()}`;
+    }
+
+    if (target.targetKind === TRADING_JOB_TARGET_KIND.Collection) {
+        return [
+            target.targetKind,
+            String(target.quantity),
+            tradingTraitCriteriaKey(target.targetTraits),
+        ].join("\u0002");
+    }
+
+    return [
+        target.targetKind,
+        String(target.quantity),
+        tradingTraitCriteriaKey(target.targetTraits),
+        tradingTraitCriteriaKey(target.competitorTraits),
+    ].join("\u0002");
+}
+
+function compareTradingTraitCriteria(
+    left: TradingTraitCriterion,
+    right: TradingTraitCriterion,
+): number {
+    const typeCompare = left.type.localeCompare(right.type);
+    return typeCompare === 0
+        ? left.value.localeCompare(right.value)
+        : typeCompare;
+}
+
 // Reuses the enabled/paused/archived lifecycle for collection bidding price tiers.
 export type TradingBiddingPriceTierStatus = TradingJobStatus;
 

@@ -273,6 +273,9 @@ beforeAll(async () => {
     const getTokenBiddingBidBookUseCaseModule = await import(
         "./application/use-cases/trading/get-token-bidding-bid-book.js"
     );
+    const biddingJobTargetLookupUseCaseModule = await import(
+        "./application/use-cases/trading/bidding-job-target-lookup.js"
+    );
     const upsertTokenBiddingJobUseCaseModule =
         await import(
             "./application/use-cases/trading/upsert-token-bidding-job.js"
@@ -291,6 +294,9 @@ beforeAll(async () => {
         );
     const upsertCollectionBiddingPriceTierUseCaseModule = await import(
         "./application/use-cases/trading/upsert-collection-bidding-price-tier.js"
+    );
+    const archiveBiddingJobUseCaseModule = await import(
+        "./application/use-cases/trading/archive-bidding-job.js"
     );
     const archiveTokenBiddingJobUseCaseModule =
         await import(
@@ -342,6 +348,13 @@ beforeAll(async () => {
             collectionsReadModel,
             biddingBidBookRepository,
         );
+    const biddingJobTargetLookupUseCase =
+        new biddingJobTargetLookupUseCaseModule.BiddingJobTargetLookupUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+        );
     const tradingJobCommandSignalPort = {
         publishBiddingJobCommandsChanged: () => undefined,
     };
@@ -391,6 +404,14 @@ beforeAll(async () => {
         );
     const archiveTokenBiddingJobUseCase =
         new archiveTokenBiddingJobUseCaseModule.ArchiveTokenBiddingJobUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+            tradingJobCommandSignalPort,
+        );
+    const archiveBiddingJobUseCase =
+        new archiveBiddingJobUseCaseModule.ArchiveBiddingJobUseCase(
             1,
             chainsReadModel,
             collectionsReadModel,
@@ -486,11 +507,13 @@ beforeAll(async () => {
         listCollectionBiddingPriceTiersUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
+        biddingJobTargetLookupUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,
+        archiveBiddingJobUseCase,
         archiveTokenBiddingJobUseCase,
         archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
@@ -525,11 +548,13 @@ beforeAll(async () => {
         listCollectionBiddingPriceTiersUseCase,
         getTokenBiddingJobUseCase,
         getTokenBiddingBidBookUseCase,
+        biddingJobTargetLookupUseCase,
         upsertTokenBiddingJobUseCase,
         upsertTraitBiddingJobUseCase,
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,
+        archiveBiddingJobUseCase,
         archiveTokenBiddingJobUseCase,
         archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
@@ -1424,6 +1449,79 @@ describe("backend api routes", () => {
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
             TRADING_JOB_COMMAND_KIND.JobPaused,
+            TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+        ]);
+    });
+
+    it("looks up and archives non-token bidding jobs through target-agnostic admin routes", async () => {
+        clearTradingJobFixtures();
+        const csrf = await issueAdminCsrf();
+
+        const created = await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/jobs/traits",
+            {
+                status: TRADING_JOB_STATUS.Enabled,
+                floorEth: "0.1",
+                ceilingEth: "0.2",
+                deltaEth: "0.01",
+                quantity: 2,
+                targetTraits: [
+                    { type: "Mode", value: "Terrain" },
+                    { type: "Biome", value: "42" },
+                ],
+            },
+            csrf,
+        );
+        expect(created.statusCode).toBe(200);
+
+        const lookup = await resolve(
+            "POST",
+            "/api/ethereum/milady/bidding/jobs/target-lookup",
+            {
+                target: {
+                    type: "trait",
+                    quantity: 2,
+                    targetTraits: [
+                        { type: "Biome", value: "42" },
+                        { type: "Mode", value: "Terrain" },
+                    ],
+                },
+            },
+            csrf,
+        );
+        expect(lookup.statusCode).toBe(200);
+        expect(lookup.payload.job.jobId).toBe(created.payload.job.jobId);
+
+        const archived = await resolve(
+            "DELETE",
+            `/api/ethereum/milady/bidding/jobs/${created.payload.job.jobId}`,
+            undefined,
+            csrf,
+        );
+        expect(archived.statusCode).toBe(200);
+        expect(archived.payload.job.status).toBe(TRADING_JOB_STATUS.Archived);
+
+        const missing = await resolve(
+            "POST",
+            "/api/ethereum/milady/bidding/jobs/target-lookup",
+            {
+                target: {
+                    type: "trait",
+                    quantity: 2,
+                    targetTraits: [
+                        { type: "Biome", value: "42" },
+                        { type: "Mode", value: "Terrain" },
+                    ],
+                },
+            },
+            csrf,
+        );
+        expect(missing.statusCode).toBe(200);
+        expect(missing.payload.job).toBeNull();
+        expect(listTradingCommandKinds()).toEqual([
+            TRADING_JOB_COMMAND_KIND.JobCreated,
+            TRADING_JOB_COMMAND_KIND.JobArchived,
             TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
         ]);
     });

@@ -6,6 +6,7 @@ import type {
 } from "../../../application/use-cases/trading/upsert-trait-bidding-job.js";
 import {
     parseEditableBiddingJobStatus,
+    parseOptionalQuantity,
     parseOptionalString,
     parseRequiredString,
 } from "./trading-job-http.js";
@@ -61,16 +62,6 @@ export class UpsertTraitBiddingJobHttpAdapter {
             targetTraits: parseTargetTraits(request.body?.targetTraits),
         };
     }
-}
-
-function parseOptionalQuantity(value: unknown): number | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-        throw new ReadModelBadRequestError("quantity must be an integer > 0");
-    }
-    return value;
 }
 
 function parseTargetTraits(value: unknown): { type: string; value: string }[] {

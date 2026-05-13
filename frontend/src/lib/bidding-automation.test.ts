@@ -11,6 +11,7 @@ import {
 	biddingAutomationDraftTokenId,
 	biddingTraitCriteriaToTokenAttributes,
 	buildBiddingAutomationTokenFilterSnapshot,
+	buildBiddingJobTargetLookupRequestBody,
 	buildBiddingAutomationDraftFromBid,
 	buildBiddingAutomationDraftFromSelection,
 	buildTokenBiddingAutomationDraftFromBid,
@@ -278,6 +279,81 @@ describe('buildBiddingAutomationDraftFromSelection', () => {
 			tokenIds: ['1', '2']
 		});
 		expect(isBiddingAutomationDraftSubmittable(draft)).toBe(true);
+	});
+});
+
+describe('buildBiddingJobTargetLookupRequestBody', () => {
+	it('maps single token, trait, and collection drafts to backend lookup targets', () => {
+		const tokenDraft = buildBiddingAutomationDraftFromBid({
+			...BASE_BID,
+			scope: {
+				kind: 'token',
+				label: '#42',
+				tokenId: '42',
+				traits: []
+			}
+		});
+		expect(buildBiddingJobTargetLookupRequestBody(tokenDraft)).toEqual({
+			target: {
+				type: 'token',
+				tokenId: '42'
+			}
+		});
+
+		const traitDraft = buildBiddingAutomationDraftFromBid({
+			...BASE_BID,
+			quantity: '2',
+			scope: {
+				kind: 'trait',
+				label: 'Biome=42',
+				tokenId: null,
+				traits: [{ type: 'Biome', value: '42' }]
+			}
+		});
+		expect(buildBiddingJobTargetLookupRequestBody(traitDraft)).toEqual({
+			target: {
+				type: 'trait',
+				quantity: 2,
+				targetTraits: [{ type: 'Biome', value: '42' }]
+			}
+		});
+
+		const collectionDraft = buildBiddingAutomationDraftFromBid({
+			...BASE_BID,
+			quantity: '3'
+		});
+		expect(buildBiddingJobTargetLookupRequestBody(collectionDraft)).toEqual({
+			target: {
+				type: 'collection',
+				quantity: 3
+			}
+		});
+	});
+
+	it('does not build one lookup for multi-token or broad filtered batch drafts', () => {
+		const multiTokenDraft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+			tokenIds: ['1', '2']
+		});
+		expect(buildBiddingJobTargetLookupRequestBody(multiTokenDraft)).toBeNull();
+
+		const filteredDraft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TokenBatch,
+			filter: {
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers,
+				selectedTraits: [],
+				selectedTraitRanges: [],
+				traitJoinMode: 'or',
+				tokenStatus: null,
+				makerAddress: null
+			},
+			tokenCount: 12,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		});
+		expect(buildBiddingJobTargetLookupRequestBody(filteredDraft)).toBeNull();
 	});
 });
 

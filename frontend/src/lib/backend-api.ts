@@ -4,6 +4,8 @@ import type {
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BatchTokenBiddingJobMutationApiResponse,
+	BiddingJobMutationApiResponse,
+	BiddingJobTargetLookupApiResponse,
 	CollectionBiddingBidBookApiResponse,
 	CollectionBiddingJobMutationApiResponse,
 	CollectionBiddingPriceTierMutationApiResponse,
@@ -221,6 +223,51 @@ export async function archiveTokenBiddingJob(
 	return requestJsonWithBody<TokenBiddingJobMutationApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/${encodeURIComponent(tokenRef)}/bidding/job`,
+		'DELETE',
+		{}
+	);
+}
+
+export async function lookupBiddingJobTarget(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	body: {
+		target:
+			| {
+					type: 'token';
+					tokenId: string;
+			  }
+			| {
+					type: 'collection';
+					quantity?: number;
+			  }
+			| {
+					type: 'trait';
+					quantity?: number;
+					targetTraits: { type: string; value: string }[];
+			  };
+	}
+): Promise<BiddingJobTargetLookupApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BiddingJobTargetLookupApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/target-lookup`,
+		'POST',
+		body
+	);
+}
+
+export async function archiveBiddingJob(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	jobId: string
+): Promise<BiddingJobMutationApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BiddingJobMutationApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs/${encodeURIComponent(jobId)}`,
 		'DELETE',
 		{}
 	);

@@ -95,6 +95,10 @@ import type {
     GetTokenBiddingBidBookRoute,
 } from "./http/handlers/trading/get-token-bidding-bid-book.js";
 import type {
+    LookupBiddingJobTargetHttpAdapter,
+    LookupBiddingJobTargetRoute,
+} from "./http/handlers/trading/lookup-bidding-job-target.js";
+import type {
     UpsertTokenBiddingJobHttpAdapter,
     UpsertTokenBiddingJobRoute,
 } from "./http/handlers/trading/upsert-token-bidding-job.js";
@@ -114,6 +118,10 @@ import type {
     UpsertCollectionBiddingPriceTierHttpAdapter,
     UpsertCollectionBiddingPriceTierRoute,
 } from "./http/handlers/trading/upsert-collection-bidding-price-tier.js";
+import type {
+    ArchiveBiddingJobHttpAdapter,
+    ArchiveBiddingJobRoute,
+} from "./http/handlers/trading/archive-bidding-job.js";
 import type {
     ArchiveTokenBiddingJobHttpAdapter,
     ArchiveTokenBiddingJobRoute,
@@ -166,11 +174,13 @@ export function registerApiRoutes(
     listCollectionBiddingPriceTiersAdapter: ListCollectionBiddingPriceTiersHttpAdapter,
     getTokenBiddingJobAdapter: GetTokenBiddingJobHttpAdapter,
     getTokenBiddingBidBookAdapter: GetTokenBiddingBidBookHttpAdapter,
+    lookupBiddingJobTargetAdapter: LookupBiddingJobTargetHttpAdapter,
     upsertTokenBiddingJobAdapter: UpsertTokenBiddingJobHttpAdapter,
     upsertTraitBiddingJobAdapter: UpsertTraitBiddingJobHttpAdapter,
     upsertBatchTokenBiddingJobsAdapter: UpsertBatchTokenBiddingJobsHttpAdapter,
     upsertCollectionBiddingJobAdapter: UpsertCollectionBiddingJobHttpAdapter,
     upsertCollectionBiddingPriceTierAdapter: UpsertCollectionBiddingPriceTierHttpAdapter,
+    archiveBiddingJobAdapter: ArchiveBiddingJobHttpAdapter,
     archiveTokenBiddingJobAdapter: ArchiveTokenBiddingJobHttpAdapter,
     archiveCollectionBiddingPriceTierAdapter: ArchiveCollectionBiddingPriceTierHttpAdapter,
     getRuntimeHealthAdapter: GetRuntimeHealthHttpAdapter,
@@ -298,6 +308,10 @@ export function registerApiRoutes(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         getTokenBiddingJobAdapter.handle,
     );
+    app.post<LookupBiddingJobTargetRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup",
+        lookupBiddingJobTargetAdapter.handle,
+    );
     app.post<CreateBootstrapRunRoute>(
         "/api/:chain_ref/collections/bootstrap",
         createBootstrapRunAdapter.handle,
@@ -341,6 +355,10 @@ export function registerApiRoutes(
     app.delete<ArchiveTokenBiddingJobRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         archiveTokenBiddingJobAdapter.handle,
+    );
+    app.delete<ArchiveBiddingJobRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/jobs/:job_id",
+        archiveBiddingJobAdapter.handle,
     );
     app.delete<ArchiveCollectionBiddingPriceTierRoute>(
         "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id",

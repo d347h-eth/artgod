@@ -446,10 +446,16 @@
 
 	function handleJobsChanged(nextJobs: ApiBiddingJob[]): void {
 		const nextById = new Map(nextJobs.map((job) => [job.jobId, job]));
-		const merged = collectionJobs.map((job) => nextById.get(job.jobId) ?? job);
+		const archivedIds = new Set(
+			nextJobs.filter((job) => job.status === 'archived').map((job) => job.jobId)
+		);
+		const merged = collectionJobs
+			.filter((job) => !archivedIds.has(job.jobId))
+			.map((job) => nextById.get(job.jobId) ?? job)
+			.filter((job) => job.status !== 'archived');
 		const existing = new Set(collectionJobs.map((job) => job.jobId));
 		for (const job of nextJobs) {
-			if (!existing.has(job.jobId)) {
+			if (job.status !== 'archived' && !existing.has(job.jobId)) {
 				merged.unshift(job);
 			}
 		}

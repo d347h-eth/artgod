@@ -23,11 +23,13 @@ import type { ListCollectionBiddingBidBookUseCase } from "./application/use-case
 import type { ListCollectionBiddingPriceTiersUseCase } from "./application/use-cases/trading/list-collection-bidding-price-tiers.js";
 import type { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
 import type { GetTokenBiddingBidBookUseCase } from "./application/use-cases/trading/get-token-bidding-bid-book.js";
+import type { BiddingJobTargetLookupUseCase } from "./application/use-cases/trading/bidding-job-target-lookup.js";
 import type { UpsertTokenBiddingJobUseCase } from "./application/use-cases/trading/upsert-token-bidding-job.js";
 import type { UpsertTraitBiddingJobUseCase } from "./application/use-cases/trading/upsert-trait-bidding-job.js";
 import type { UpsertBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
 import type { UpsertCollectionBiddingJobUseCase } from "./application/use-cases/trading/upsert-collection-bidding-job.js";
 import type { UpsertCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/upsert-collection-bidding-price-tier.js";
+import type { ArchiveBiddingJobUseCase } from "./application/use-cases/trading/archive-bidding-job.js";
 import type { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/archive-token-bidding-job.js";
 import type { ArchiveCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/archive-collection-bidding-price-tier.js";
 import { CreateBootstrapRunHttpAdapter } from "./http/handlers/bootstrap/create-bootstrap-run.js";
@@ -54,11 +56,13 @@ import { ListCollectionBiddingBidBookHttpAdapter } from "./http/handlers/trading
 import { ListCollectionBiddingPriceTiersHttpAdapter } from "./http/handlers/trading/list-collection-bidding-price-tiers.js";
 import { GetTokenBiddingJobHttpAdapter } from "./http/handlers/trading/get-token-bidding-job.js";
 import { GetTokenBiddingBidBookHttpAdapter } from "./http/handlers/trading/get-token-bidding-bid-book.js";
+import { LookupBiddingJobTargetHttpAdapter } from "./http/handlers/trading/lookup-bidding-job-target.js";
 import { UpsertTokenBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-token-bidding-job.js";
 import { UpsertTraitBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-trait-bidding-job.js";
 import { UpsertBatchTokenBiddingJobsHttpAdapter } from "./http/handlers/trading/upsert-batch-token-bidding-jobs.js";
 import { UpsertCollectionBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-collection-bidding-job.js";
 import { UpsertCollectionBiddingPriceTierHttpAdapter } from "./http/handlers/trading/upsert-collection-bidding-price-tier.js";
+import { ArchiveBiddingJobHttpAdapter } from "./http/handlers/trading/archive-bidding-job.js";
 import { ArchiveTokenBiddingJobHttpAdapter } from "./http/handlers/trading/archive-token-bidding-job.js";
 import { ArchiveCollectionBiddingPriceTierHttpAdapter } from "./http/handlers/trading/archive-collection-bidding-price-tier.js";
 import { createCommonHttpHandlers } from "./http/common/handlers.js";
@@ -99,11 +103,13 @@ export function createApiApp(
     listCollectionBiddingPriceTiersUseCase: ListCollectionBiddingPriceTiersUseCase,
     getTokenBiddingJobUseCase: GetTokenBiddingJobUseCase,
     getTokenBiddingBidBookUseCase: GetTokenBiddingBidBookUseCase,
+    biddingJobTargetLookupUseCase: BiddingJobTargetLookupUseCase,
     upsertTokenBiddingJobUseCase: UpsertTokenBiddingJobUseCase,
     upsertTraitBiddingJobUseCase: UpsertTraitBiddingJobUseCase,
     upsertBatchTokenBiddingJobsUseCase: UpsertBatchTokenBiddingJobsUseCase,
     upsertCollectionBiddingJobUseCase: UpsertCollectionBiddingJobUseCase,
     upsertCollectionBiddingPriceTierUseCase: UpsertCollectionBiddingPriceTierUseCase,
+    archiveBiddingJobUseCase: ArchiveBiddingJobUseCase,
     archiveTokenBiddingJobUseCase: ArchiveTokenBiddingJobUseCase,
     archiveCollectionBiddingPriceTierUseCase: ArchiveCollectionBiddingPriceTierUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
@@ -189,6 +195,10 @@ export function createApiApp(
         new GetTokenBiddingBidBookHttpAdapter(
             getTokenBiddingBidBookUseCase,
         );
+    const lookupBiddingJobTargetAdapter =
+        new LookupBiddingJobTargetHttpAdapter(
+            biddingJobTargetLookupUseCase,
+        );
     const upsertTokenBiddingJobAdapter = new UpsertTokenBiddingJobHttpAdapter(
         upsertTokenBiddingJobUseCase,
     );
@@ -211,6 +221,8 @@ export function createApiApp(
         new ArchiveTokenBiddingJobHttpAdapter(
             archiveTokenBiddingJobUseCase,
         );
+    const archiveBiddingJobAdapter =
+        new ArchiveBiddingJobHttpAdapter(archiveBiddingJobUseCase);
     const archiveCollectionBiddingPriceTierAdapter =
         new ArchiveCollectionBiddingPriceTierHttpAdapter(
             archiveCollectionBiddingPriceTierUseCase,
@@ -249,11 +261,13 @@ export function createApiApp(
         listCollectionBiddingPriceTiersAdapter,
         getTokenBiddingJobAdapter,
         getTokenBiddingBidBookAdapter,
+        lookupBiddingJobTargetAdapter,
         upsertTokenBiddingJobAdapter,
         upsertTraitBiddingJobAdapter,
         upsertBatchTokenBiddingJobsAdapter,
         upsertCollectionBiddingJobAdapter,
         upsertCollectionBiddingPriceTierAdapter,
+        archiveBiddingJobAdapter,
         archiveTokenBiddingJobAdapter,
         archiveCollectionBiddingPriceTierAdapter,
         getRuntimeHealthAdapter,

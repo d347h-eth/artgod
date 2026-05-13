@@ -1,11 +1,11 @@
 import type { FastifyRequest } from "fastify";
-import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type {
     UpsertCollectionBiddingJobInput,
     UpsertCollectionBiddingJobOutput,
 } from "../../../application/use-cases/trading/upsert-collection-bidding-job.js";
 import {
     parseEditableBiddingJobStatus,
+    parseOptionalQuantity,
     parseOptionalString,
     parseRequiredString,
 } from "./trading-job-http.js";
@@ -59,14 +59,4 @@ export class UpsertCollectionBiddingJobHttpAdapter {
             quantity: parseOptionalQuantity(request.body?.quantity),
         };
     }
-}
-
-function parseOptionalQuantity(value: unknown): number | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-        throw new ReadModelBadRequestError("quantity must be an integer > 0");
-    }
-    return value;
 }

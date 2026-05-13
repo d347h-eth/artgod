@@ -310,7 +310,7 @@
 	}
 
 	function handleBiddingJobsChanged(jobs: ApiBiddingJob[]): void {
-		changedBiddingJobs = jobs;
+		changedBiddingJobs = jobs.filter((job) => job.status !== 'archived');
 	}
 
 	function emptyBidBook(): ApiBiddingBidBook {
