@@ -17,10 +17,6 @@
 				{
 					keys: ['F1'],
 					description: 'open or close this shortcuts modal'
-				},
-				{
-					keys: ['Esc'],
-					description: 'close the shortcuts modal'
 				}
 			]
 		},
@@ -86,6 +82,14 @@
 				{
 					keys: ['S'],
 					description: 'cycle bid scope'
+				},
+				{
+					keys: ['B'],
+					description: 'hide or show the bidding panel'
+				},
+				{
+					keys: ['C'],
+					description: 'clear the current bidding target'
 				}
 			]
 		},
@@ -93,20 +97,16 @@
 			title: 'Preview Modal',
 			entries: [
 				{
-					keys: ['Esc'],
-					description: 'close the token preview'
-				},
-				{
 					keys: ['V'],
 					description: 'switch to the next media mode for the opened token'
 				},
 				{
-					keys: ['+'],
-					description: 'increase preview height'
-				},
-				{
 					keys: ['-'],
 					description: 'decrease preview height'
+				},
+				{
+					keys: ['+'],
+					description: 'increase preview height'
 				},
 				{
 					keys: ['0'],

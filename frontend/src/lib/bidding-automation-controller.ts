@@ -272,11 +272,39 @@ function selectedTokenIds(
 export function resolveTokenCardSelectionGesture(
 	event: MouseEvent
 ): TokenCardSelectionGesture | null {
+	// Preserve native browser new-tab gestures on token-card links.
+	if (isNativeLinkActivationTarget(event.target)) {
+		return null;
+	}
 	if (event.type === 'click' && event.button === 0 && event.ctrlKey) {
 		return 'ctrl_left_click';
 	}
 	if (event.type === 'auxclick' && event.button === 1) {
 		return 'middle_click';
+	}
+	return null;
+}
+
+function isNativeLinkActivationTarget(target: EventTarget | null): boolean {
+	const closestTarget = closestCapableTarget(target);
+	return closestTarget?.closest('a[href]') != null;
+}
+
+function closestCapableTarget(
+	target: EventTarget | null
+): { closest: (selector: string) => unknown } | null {
+	if (!target) {
+		return null;
+	}
+	const maybeElement = target as {
+		closest?: (selector: string) => unknown;
+		parentElement?: { closest?: (selector: string) => unknown } | null;
+	};
+	if (typeof maybeElement.closest === 'function') {
+		return { closest: maybeElement.closest.bind(maybeElement) };
+	}
+	if (typeof maybeElement.parentElement?.closest === 'function') {
+		return { closest: maybeElement.parentElement.closest.bind(maybeElement.parentElement) };
 	}
 	return null;
 }

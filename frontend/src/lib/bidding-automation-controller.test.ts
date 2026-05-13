@@ -14,7 +14,8 @@ import {
 	biddingAutomationTokenSelectionState,
 	createBiddingAutomationController,
 	describeBiddingAutomationSelection,
-	isCleanFilteredTokenBatchSelection
+	isCleanFilteredTokenBatchSelection,
+	resolveTokenCardSelectionGesture
 } from '$lib/bidding-automation-controller';
 
 describe('createBiddingAutomationController', () => {
@@ -205,5 +206,42 @@ describe('createBiddingAutomationController', () => {
 		expect(selection.tokenIds).toEqual(['1', '3']);
 		expect(controller.tokenSelectionState('1').selected).toBe(true);
 		expect(controller.tokenSelectionState('2').selected).toBe(false);
+	});
+});
+
+describe('resolveTokenCardSelectionGesture', () => {
+	it('preserves native browser new-tab behavior on token-card links', () => {
+		const linkChild = {
+			closest: (selector: string) => (selector === 'a[href]' ? {} : null)
+		};
+		const event = {
+			type: 'click',
+			button: 0,
+			ctrlKey: true,
+			target: linkChild
+		} as unknown as MouseEvent;
+
+		expect(resolveTokenCardSelectionGesture(event)).toBe(null);
+	});
+
+	it('keeps ctrl-click and middle-click selection on non-link card surfaces', () => {
+		const mediaButton = {
+			closest: () => null
+		};
+		const ctrlClick = {
+			type: 'click',
+			button: 0,
+			ctrlKey: true,
+			target: mediaButton
+		} as unknown as MouseEvent;
+
+		const middleClick = {
+			type: 'auxclick',
+			button: 1,
+			target: mediaButton
+		} as unknown as MouseEvent;
+
+		expect(resolveTokenCardSelectionGesture(ctrlClick)).toBe('ctrl_left_click');
+		expect(resolveTokenCardSelectionGesture(middleClick)).toBe('middle_click');
 	});
 });
