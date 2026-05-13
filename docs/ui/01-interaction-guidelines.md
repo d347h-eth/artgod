@@ -242,6 +242,7 @@ Rules:
 - do not add one-off `blur()` calls inside individual buttons
 - if this behavior is needed globally, use a shared pointer-focus helper
 - active/selected navigation controls must be visually selected but inert, with no pointer cursor and no hover affordance
+- stateful toggles such as `filter`, `tiers`, and `traits` remain clickable while active and should keep the normal hover/focus color behavior
 
 ## Trait Panel Behavior
 

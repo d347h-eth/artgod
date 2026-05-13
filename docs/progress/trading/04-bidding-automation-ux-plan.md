@@ -1,6 +1,6 @@
 # Bidding Automation UX Plan
 
-Status: First implementation pass complete; remaining operations slices drafted
+Status: Feature branch implementation complete; follow-up operations slices 12-17 complete
 Branch: `feature/bidding-automation-ux`
 
 This document plans the next bidding UX layer on top of the current DB-backed bidding jobs and bid-book display.
@@ -367,7 +367,7 @@ Artifacts:
 
 - Add route-local collection bidding selection state.
 - Add opt-in token-card selected rendering and toggle callbacks.
-- Add `select all filtered tokens` as a draft action, using a filter snapshot.
+- Add `bid on all tokens` as a draft action, using a filter snapshot.
 - Treat clean filter selections as collection-wide filtered intent, not visible-page selection.
 
 Artifacts:
@@ -381,14 +381,14 @@ Artifacts:
 Current implementation notes:
 
 - Token-card selection is opt-in through reusable `TokenCardTile` / `TokenBrowserView` props.
-- The offers token-card view and regular asks/tokens browser both expose `select all` plus `Ctrl` + click / middle-click selection.
+- The offers token-card view and regular asks/tokens browser expose `bid on all tokens` plus `Ctrl` + click / middle-click selection.
 - Holders continues to reuse `TokenBrowserView` without passing selection props, so it does not inherit bidding behavior.
 
 ### Slice 4: Shared Automation Panel for Token Jobs
 
 - Implement the bottom-right panel for existing token-scoped create/update/archive only.
 - Reuse existing token job APIs first.
-- Replace the static token detail form only after parity is verified.
+- Replace the static token detail form with the shared inline panel after parity is verified.
 
 Artifacts:
 
@@ -503,7 +503,7 @@ Current implementation notes:
 - Avoid latching panel drafts from token-card selection as a side effect; selected bid rows remain their own explicit draft source.
 - Add selected-card visual feedback and an inline unselect shortcut.
 - Keep `Ctrl` + left click and middle-click as token-card toggle gestures.
-- Unify `select all`, `X selected`, and `clear` controls between asks, tokens, and offers.
+- Unify `bid on all tokens`, `X selected`, and `clear` controls between asks, tokens, and offers.
 - Keep only media-mode controls on the far right of token-browser toolbars; bidding selection controls stay left-aligned.
 
 Artifacts:
@@ -521,12 +521,12 @@ Current implementation notes:
 - Once a user manually toggles visible token cards, the draft becomes an explicit visible-token batch for this first pass.
 - The selected-card `x` control removes a card without requiring the selection modifier key.
 
-## Remaining Work
+## Completed Follow-Up Work
 
-The next slices should improve bidding operations rather than adding more static CRUD forms.
+The follow-up slices improved bidding operations rather than adding more static CRUD forms.
 The bid book and token browser should remain the main surfaces, while the automation panel becomes the common edit/apply surface.
 
-Current baseline entering these slices:
+Current baseline after these slices:
 
 - Targeting controls are explicit, not inferred: `bid on traits`, `bid on all tokens`, `bid on this page`, `place collection bid`, and trait-bucket `bid`.
 - `bid on traits` means the current trait filter or trait bucket becomes the declared trait target; do not reintroduce ambiguous `select all` behavior for this path.
@@ -543,11 +543,17 @@ Current baseline entering these slices:
 - Ineligible actions must stay disabled/muted.
 - State-changing actions except `reset` require the existing two-click arm/confirm interaction; do not replace it with native confirm dialogs.
 - `B` toggles the floating bidding panel and `C` clears the current bidding target on pages where the panel exists.
+- `T` toggles price-tier management on pages where bidding controls are available.
+- `F` toggles trait filters and keeps checkbox/radio focus compatible with page shortcuts.
+- Clicked buttons, checkboxes, and radio controls release pointer focus through the shared frontend focus-release helper instead of one-off `blur()` calls.
+- Active stateful toggles such as `filter`, `tiers`, and `traits` keep the shared hover/focus behavior; inert selected navigation tabs remain non-clickable.
+- Top-action rows own filter, scope, and bidding target controls; result toolbars remain limited to result chrome such as counts, pagination, display mode, and media mode.
 - Token detail pre-fills from the highest applicable bid plus the same minimum-winning-delta calculation used by collection and trait actions.
 - Minimum winning delta is based on the bid price order of magnitude, not one percent of the bid: examples are `20 -> 0.1`, `4 -> 0.01`, `0.23 -> 0.001`, `0.05 -> 0.0001`.
 - Human-facing prices and logs stay in Ether units; wei remains an internal/runtime boundary detail.
 - Bidding collection settings are stored through generic `collection_settings`; do not introduce bidding-specific settings persistence.
 - Keep selector modes and pricing modes behind shared constants/helpers, even when the literal only affects frontend state.
+- Tier and bidding forms use compact grid-aligned label/input columns, matched repeated control widths, and fixed-width action buttons.
 
 ### Slice 12: Job Association and Edit Existing Targets
 
@@ -772,14 +778,14 @@ Current implementation notes:
 
 ## Resolved Decisions
 
-> Question: Should `select all filtered tokens` immediately mean all matching tokens across the collection, or should the first implementation be limited to loaded token cards with a clear label?
-> Answer: `select all filtered tokens` should mean all tokens that matching that filter across all the collection (so if the filtered results is spread across multiple pages, we must include tokens from all these pages - not only visible results).
+> Question: Should the broad filtered-token action immediately mean all matching tokens across the collection, or should the first implementation be limited to loaded token cards with a clear label?
+> Answer: the broad filtered-token action, now labeled `bid on all tokens`, means all tokens matching that filter across the collection. If filtered results span multiple pages, include tokens from all pages, not only visible results.
 
 > Question: Which gesture should toggle individual token selection without conflicting with existing preview/navigation controls?
 > Answer: either "hold CTRL + left mouse button click" or "middle mouse button click" (both: on token card area)
 
 > Question: Should a selected trait bid create a trait-scoped job in the first real write pass, or should it first create a curated token batch derived from current matching tokens?
-> Answer: if it's a clean/unmodified single/multi trait filtering (meaning: user hit "select all filtered tokens" after filtering and then didn't start to "unselect" token cards), then we should already do the trait bidding job. trying to fan-out this behavior into the "token IDs" funnel would likely create throw-away code or just be very unreasonable. for simplicity of the first pass though: if user filters by trait(s) and then unselects some token cards, then we can only draft the job for visible token IDs on that page (to limit scope on unwrapping this behavior on backend into actual "all tokens on all pages with this trait, except these token IDs").
+> Answer: if it is a clean/unmodified single/multi trait filter and the user chooses `bid on traits`, create the trait bidding job directly. Trying to fan this into token IDs would likely create throw-away code. For the first pass, if the user filters by traits and then unselects token cards, draft only the visible token IDs on that page.
 
 > Question: What should root dynamic tiers anchor to first: user-entered scalar, current ask floor, current collection bid, or a selectable market metric?
 > Answer: for the root tiers the current scope for now is only "user-entered scalar".
@@ -787,10 +793,9 @@ Current implementation notes:
 > Question: How should tier updates cascade into already-created jobs: manual reapply, automatic re-resolve, or staged preview plus apply?
 > Answer: would be probably a dedicated user setting in future to control this behavior, but for now let's keep it manual, user driven/owned. but let's actually do the "staged preview plus apply" from the start, so at least user can assess changes before committing since it can affect funds/deal damage in case of a mistake.
 
-## Verification Plan
+## Verification Status
 
-- Backend unit tests for tier graph resolution and invalid tier shapes.
-- Backend integration tests for job mutation plus Outbox atomicity.
-- Frontend component tests for selection rendering and automation panel draft modes.
-- Bid-book tests for selected-bid draft actions and own-bid state labels.
-- Manual run with a live bidding collection to verify that UI-created token jobs reconcile without bot restart.
+- Backend tests cover tier graph resolution, invalid tier shapes, collection settings, job mutation metadata, target lookup, and tier reapply.
+- Frontend tests cover selection rendering, automation panel draft modes, shortcut help, trait controls, bid-book actions, jobs-page read-only behavior, and pointer focus release.
+- Attached Playwright visual QA exists for bidding panel geometry through `yarn test:bidding:attached`.
+- Manual live bidding QA should still be run before merge if the branch has drifted from the last tested desktop build.

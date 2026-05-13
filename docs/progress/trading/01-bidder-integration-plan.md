@@ -550,13 +550,14 @@ Done means:
 
 ## Explicit Non-Goals For This Phase
 
-Do not include these in the first bidding rollout:
+Do not include these in the first bidding-runtime rollout:
 
 - sniping port
 - intent-signal monitor
-- collection-scoped and trait-scoped bidding job creation UI
 - replacing the direct OpenSea model with ArtGod indexed order state
 - broad refactors for elegance that risk changing behavior
+
+Collection-scoped and trait-scoped bidding job creation UI was deferred from the initial runtime port and later implemented by the bidding automation UX work tracked in `docs/progress/trading/04-bidding-automation-ux-plan.md`.
 
 ## Deferred Until Bidding Is Hardened
 
@@ -574,7 +575,7 @@ The bidding port is successful when:
 
 - the real bidding runtime replaces the placeholder runtime in `trading/`
 - the bot runs under ArtGod’s existing wallet-bound desktop supervisor
-- token-scoped DB job CRUD and live runtime reconciliation work without restart
+- DB-backed job mutations and live runtime reconciliation work without restart
 - bid-book UI can display the competitive bot snapshot projection and normal orders fallback
 - no material bidding behavior was lost during the port
 - authoritative offer discovery still comes from direct OpenSea snapshot plus SDK paths
