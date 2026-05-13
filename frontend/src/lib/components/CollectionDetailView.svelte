@@ -38,6 +38,7 @@
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
 	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
 	import BiddingPriceTierPanel from '$lib/components/BiddingPriceTierPanel.svelte';
+	import BiddingSelectionControls from '$lib/components/BiddingSelectionControls.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
@@ -98,6 +99,7 @@
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
 	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let priceTierPanelOpen = $state(false);
+	let visibleBrowserTokenIds = $state<string[]>(tokens.items.map((token) => token.tokenId));
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
@@ -128,6 +130,10 @@
 
 	$effect(() => {
 		activePriceTiers = priceTiers;
+	});
+
+	$effect(() => {
+		visibleBrowserTokenIds = tokens.items.map((token) => token.tokenId);
 	});
 
 	$effect(() => {
@@ -317,6 +323,10 @@
 		biddingAutomation.clearSelection();
 	}
 
+	function handleVisibleTokenIdsChange(tokenIds: string[]): void {
+		visibleBrowserTokenIds = tokenIds;
+	}
+
 	function togglePriceTierPanel(): void {
 		priceTierPanelOpen = !priceTierPanelOpen;
 	}
@@ -383,6 +393,22 @@
 					onSelectedFiltersChange={applyTraitFilters}
 				/>
 			</div>
+			{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+				<div class="panel-top-actions-row">
+					<BiddingSelectionControls
+						summary={biddingSelectionSummary}
+						showTraitAction={canBidOnTraits}
+						showTierAction
+						tierActionActive={priceTierPanelOpen}
+						tokenActionLabel={tokenActionLabel}
+						tokenActionDisabled={tokens.totalItems === 0}
+						onToggleTiers={togglePriceTierPanel}
+						onBidOnTraits={bidOnFilteredTraits}
+						onBidOnTokens={() => bidOnFilteredTokens(visibleBrowserTokenIds)}
+						onClear={clearBiddingSelection}
+					/>
+				</div>
+			{/if}
 		{/if}
 	{/snippet}
 	{#if collection && collection.status !== 'live'}
@@ -399,11 +425,23 @@
 			{/if}
 		</section>
 	{/if}
+	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && priceTierPanelOpen && collection}
+		<BiddingPriceTierPanel
+			{chain}
+			{collection}
+			settings={activeBiddingSettings}
+			tiers={activePriceTiers}
+			onSettingsChange={handleBiddingSettingsChanged}
+			onTiersChange={handlePriceTiersChanged}
+			onJobsChange={handleBiddingJobsChanged}
+			onClose={togglePriceTierPanel}
+		/>
+	{/if}
 
 	<TokenBrowserView
-			chain={chain}
-			collection={collection}
-			tokens={tokens}
+		chain={chain}
+		collection={collection}
+		tokens={tokens}
 		facets={facets}
 		selectedTraits={selectedTraits}
 		selectedTraitRanges={selectedTraitRanges}
@@ -419,36 +457,13 @@
 		displayMode={displayMode}
 		selection={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
 			? {
-					summary: biddingSelectionSummary,
 					stateKey: biddingSelectionStateKey,
 					state: biddingTokenSelectionState,
-					showTraitAction: canBidOnTraits,
-					showTierAction: true,
-					tierActionActive: priceTierPanelOpen,
-					tokenActionLabel,
-					onToggleTiers: togglePriceTierPanel,
-					onBidOnTraits: bidOnFilteredTraits,
-					onBidOnTokens: bidOnFilteredTokens,
-					onClear: clearBiddingSelection,
 					onToggle: toggleVisibleTokenSelection
 				}
 			: null}
-	>
-		{#snippet afterBiddingSelectionControls()}
-			{#if priceTierPanelOpen && collection}
-				<BiddingPriceTierPanel
-					{chain}
-					{collection}
-					settings={activeBiddingSettings}
-					tiers={activePriceTiers}
-					onSettingsChange={handleBiddingSettingsChanged}
-					onTiersChange={handlePriceTiersChanged}
-					onJobsChange={handleBiddingJobsChanged}
-					onClose={togglePriceTierPanel}
-				/>
-			{/if}
-		{/snippet}
-	</TokenBrowserView>
+		onVisibleTokenIdsChange={handleVisibleTokenIdsChange}
+	/>
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
 		<BiddingAutomationPanel
 			open={biddingAutomationPanelOpen}

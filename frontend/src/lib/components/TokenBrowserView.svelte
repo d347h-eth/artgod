@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import type { Snippet } from 'svelte';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -21,7 +20,6 @@
 	import type { KeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import type { TraitFacetPanelController } from '$lib/components/trait-facet-panel-controller';
-	import BiddingSelectionControls from '$lib/components/BiddingSelectionControls.svelte';
 	import CursorPaginationControls from '$lib/components/CursorPaginationControls.svelte';
 	import TokenCardTile from '$lib/components/TokenCardTile.svelte';
 	import { formatListingPrice } from '$lib/listing-price';
@@ -71,7 +69,7 @@
 		displayMode,
 		emptyMessage = 'no tokens match current filters',
 		selection = null,
-		afterBiddingSelectionControls = null
+		onVisibleTokenIdsChange = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -91,20 +89,11 @@
 		displayMode: 'grid' | 'table';
 		emptyMessage?: string;
 		selection?: {
-			summary: string | null;
 			stateKey: string;
 			state: (tokenId: string, stateKey: string) => TokenCardSelectionState;
-			showTraitAction: boolean;
-			showTierAction?: boolean;
-			tierActionActive?: boolean;
-			tokenActionLabel: string;
-			onToggleTiers?: () => void;
-			onBidOnTraits: () => void;
-			onBidOnTokens: (visibleTokenIds: string[]) => void;
-			onClear: () => void;
 			onToggle: (request: TokenCardSelectionToggleRequest & { visibleTokenIds: string[] }) => void;
 		} | null;
-		afterBiddingSelectionControls?: Snippet | null;
+		onVisibleTokenIdsChange?: ((tokenIds: string[]) => void) | null;
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
@@ -137,6 +126,10 @@
 	let traitColumns = $derived(resolveTraitColumns(facets));
 	let traitFacetIndex = $derived(buildTraitFacetIndex(facets));
 	let visibleTokenIds = $derived(visibleTokens.map((token) => token.tokenId));
+
+	$effect(() => {
+		onVisibleTokenIdsChange?.(visibleTokenIds);
+	});
 
 	$effect(() => {
 		activeTraits = selectedTraits;
@@ -476,28 +469,6 @@
 	/>
 
 	<div class="token-panel">
-		{#if selection}
-			<div class="panel-top-actions panel-top-actions-stack token-browser-bidding-actions">
-				<div class="panel-top-actions-row">
-					<BiddingSelectionControls
-						summary={selection.summary}
-						showTraitAction={selection.showTraitAction}
-						showTierAction={selection.showTierAction ?? false}
-						tierActionActive={selection.tierActionActive ?? false}
-						tokenActionLabel={selection.tokenActionLabel}
-						tokenActionDisabled={tokens.totalItems === 0}
-						onToggleTiers={selection.onToggleTiers ?? null}
-						onBidOnTraits={selection.onBidOnTraits}
-						onBidOnTokens={() => selection.onBidOnTokens(visibleTokenIds)}
-						onClear={selection.onClear}
-					/>
-				</div>
-			</div>
-		{/if}
-		{#if afterBiddingSelectionControls}
-			{@render afterBiddingSelectionControls()}
-		{/if}
-
 		<CursorPaginationControls
 			resultsSummary={browserResultsSummary()}
 			totalItems={tokens.totalItems}
