@@ -1,6 +1,6 @@
 # Bidding Automation UX Plan
 
-Status: First implementation pass complete; next slices drafted
+Status: First implementation pass complete; remaining operations slices drafted
 Branch: `feature/bidding-automation-ux`
 
 This document plans the next bidding UX layer on top of the current DB-backed bidding jobs and bid-book display.
@@ -493,13 +493,28 @@ Current implementation notes:
 The next slices should improve bidding operations rather than adding more static CRUD forms.
 The bid book and token browser should remain the main surfaces, while the automation panel becomes the common edit/apply surface.
 
+Current baseline entering these slices:
+
+- Targeting controls are explicit, not inferred: `bid on traits`, `bid on tokens`, `place collection bid`, and trait-bucket `bid`.
+- `bid on traits` means the current trait filter or trait bucket becomes the declared trait target; do not reintroduce ambiguous `select all` behavior for this path.
+- `bid on tokens` means token-job creation, with all-pages vs current-page behavior controlled explicitly by the existing button state.
+- Token-card selection remains opt-in through `Ctrl` + left click, middle click, and the selected-card unselect affordance.
+- The automation panel is the single reusable form for floating collection/browser flows and inline token detail flows.
+- The panel has no status dropdown; users express intent through `create`, `modify`, `activate`, `pause`, and `archive`.
+- Ineligible actions must stay disabled/muted.
+- State-changing actions except `reset` require the existing two-click arm/confirm interaction; do not replace it with native confirm dialogs.
+- Human-facing prices and logs stay in Ether units; wei remains an internal/runtime boundary detail.
+
 ### Slice 12: Job Association and Edit Existing Targets
 
 - Resolve whether a bid-book row or token selection maps to an existing declared bidding job.
-- Pass the matching existing job into the automation panel so selected own bids edit instead of blindly creating/upserting by target.
+- Normalize target equivalence in one backend/domain helper so token, trait, and collection lookup semantics are not duplicated in the frontend.
+- Pass the matching existing job into the automation panel so selected own bids or selected targets edit instead of blindly creating duplicate declared jobs.
 - Support archive/disable for trait and collection jobs from the automation panel, not only token jobs.
 - Surface job identity and revision in the panel without adding redundant helper prose.
 - Keep DB writes and `trading_job_commands` Outbox writes atomic through the existing repository path.
+- Reuse the current panel intent buttons and two-click confirmation for all job state mutations.
+- Do not infer an editable job from maker address alone; prefer declared target lookup, stored active order metadata, or explicit runtime job association when available.
 
 Expected artifacts:
 
@@ -516,6 +531,9 @@ Expected artifacts:
 - Show resolved floor/ceiling values and last resolution errors.
 - Preserve the current first-pass rule that root tiers are user-entered scalar values only.
 - Keep tier graph validation in backend use cases; frontend only previews and submits typed configs.
+- Keep the tier UI compact and operational; avoid a separate static CRUD-feeling page if an inline panel/drawer can serve the flow.
+- Reuse existing button families, time display helpers, and the two-click state-change rule for tier pause/archive actions.
+- Keep tier selection in `BiddingAutomationPanel.svelte` as a consumer of resolved tier read models; do not make the panel own tier graph logic.
 
 Expected artifacts:
 
@@ -531,6 +549,9 @@ Expected artifacts:
 - Apply selected staged changes only after explicit user confirmation.
 - Emit normal job update commands for every affected job; do not introduce a hidden cascade path.
 - Keep automatic cascade as a future user preference, not the default behavior.
+- Use the same job mutation path as manual panel edits so the bot sees ordinary desired-state revisions.
+- Show affected targets in compact rows/cards with enough context to detect accidental fund-damaging changes before apply.
+- Keep preview calculations backend-owned; frontend renders the staged diff and selected apply set.
 
 Expected artifacts:
 
@@ -545,6 +566,9 @@ Expected artifacts:
 - Use the existing maker filter for `my bids`; do not create a separate filtering mechanism.
 - Source own maker identity from bot/runtime state when available, and keep orders fallback honest when it cannot know the wallet.
 - Keep all bot decision semantics inside the runtime; UI consumes read models only.
+- Connect own bid rows to declared jobs where possible so clicking/editing opens the current job rather than only drafting a new target.
+- Preserve the current bid-book source language: `refresh pace` is `normal` for orders and `competitive` for bot snapshot projection.
+- Keep constraint labels compact and deterministic; no explanatory prose in rows.
 
 Expected artifacts:
 
@@ -556,9 +580,13 @@ Expected artifacts:
 
 - Decide whether offers-page token selections with maker/offer filters should become backend-resolvable filtered batches.
 - If yes, add a SQL-backed resolver that uses normalized bid-book/order data instead of frontend-visible cards.
-- Preserve the invariant that `select all` means all matching tokens across all pages.
+- Preserve the invariant that all-pages token bidding means all matching tokens across all pages.
 - Keep visible manual adjustments downgraded to visible token IDs until an explicit exclusion target model exists.
 - Do not make canonical orders a bot decision source; this resolver only creates declared UI-selected jobs.
+- Treat `bid on tokens` all-pages behavior as the main driver for this resolver; current-page behavior can continue submitting visible token IDs.
+- Respect maker filters and trait filters from the offers page when resolving token-offer result sets.
+- Keep token-scope offer pagination grouped by token; avoid rebuilding all-pages selection from already-loaded cards.
+- Align this slice with the SQL-backed offer pagination plan before changing repository contracts.
 
 Expected artifacts:
 
@@ -572,6 +600,9 @@ Expected artifacts:
 - If retained, make it a compact diagnostics/overview page instead of the primary editing surface.
 - If removed, preserve any useful runtime counters in the bid-book operations UI.
 - Keep token previews reusable; do not fork token-card or activity-token preview components.
+- Do not duplicate the automation panel or job mutation forms inside the jobs page.
+- If the page remains, use it for auditability: declared jobs, runtime state, command/revision status, and troubleshooting.
+- Preserve existing navigation semantics: direct bidding operations live in offers/bid-book and token browsing surfaces.
 
 Expected artifacts:
 
