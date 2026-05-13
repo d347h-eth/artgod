@@ -55,6 +55,7 @@
 	import ActivityTokenCell from '$lib/components/ActivityTokenCell.svelte';
 	import BidBookPanel from '$lib/components/BidBookPanel.svelte';
 	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
+	import BiddingPriceTierPanel from '$lib/components/BiddingPriceTierPanel.svelte';
 	import BiddingSelectionControls from '$lib/components/BiddingSelectionControls.svelte';
 	import BidBookMakerFilterControl from '$lib/components/BidBookMakerFilterControl.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
@@ -158,6 +159,7 @@
 		{ value: 'and', label: 'and' }
 	];
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
+	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
 	let activeTraits = $state<ApiTokenAttribute[]>(selectedTraits);
 	let activeTraitRanges = $state<ApiTraitRangeFilter[]>(selectedTraitRanges);
 	let visibleTokenOfferCards = $state<ApiBiddingTokenOfferCard[]>(tokenOfferCards.items);
@@ -170,6 +172,7 @@
 	let selectedBidDraft = $state<BiddingAutomationDraft | null>(null);
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
+	let priceTierPanelOpen = $state(false);
 
 	const tokenJobCount = $derived(
 		collectionJobs.filter((job) => job.target.type === 'token').length
@@ -226,6 +229,10 @@
 
 	$effect(() => {
 		collectionJobs = jobs;
+	});
+
+	$effect(() => {
+		activePriceTiers = priceTiers;
 	});
 
 	$effect(() => {
@@ -460,6 +467,14 @@
 			}
 		}
 		collectionJobs = merged;
+	}
+
+	function handlePriceTiersChanged(nextTiers: ApiBiddingPriceTier[]): void {
+		activePriceTiers = nextTiers;
+	}
+
+	function togglePriceTierPanel(): void {
+		priceTierPanelOpen = !priceTierPanelOpen;
 	}
 
 	function jobTokenId(job: ApiBiddingJob): string | null {
@@ -959,6 +974,16 @@
 							{/if}
 						</div>
 					{/if}
+					{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+						<button
+							type="button"
+							class="facet-panel-action-button bidding-price-tier-toggle"
+							class:bidding-price-tier-toggle-active={priceTierPanelOpen}
+							onclick={togglePriceTierPanel}
+						>
+							tiers
+						</button>
+					{/if}
 				</div>
 				{#if showBidBookFilters}
 					<div class="panel-top-actions-row">
@@ -1004,6 +1029,16 @@
 			{/if}
 		{/if}
 	{/snippet}
+
+	{#if priceTierPanelOpen && collection && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+		<BiddingPriceTierPanel
+			{chain}
+			{collection}
+			tiers={activePriceTiers}
+			onTiersChange={handlePriceTiersChanged}
+			onClose={togglePriceTierPanel}
+		/>
+	{/if}
 
 	{#if biddingView === 'bid_book'}
 		{#if bidScope === 'token' || bidScope === 'traits'}
@@ -1187,7 +1222,7 @@
 			job={null}
 			draft={selectedBiddingDraft}
 			{bidBook}
-			{priceTiers}
+			priceTiers={activePriceTiers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}
 			onJobsChange={handleJobsChanged}

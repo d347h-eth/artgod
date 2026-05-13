@@ -96,7 +96,7 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain(
 			'<button type="button" class="secondary-tab-active" disabled>collection</button>'
 		);
-		expect(body).toContain('bids source');
+		expect(body).toContain('refresh pace');
 		expect(body).not.toContain('facet-panel-controls-row');
 		expect(body).not.toContain('class="facet-column"');
 		expect(body).not.toContain('class="detail-layout"');

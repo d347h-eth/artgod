@@ -1298,6 +1298,126 @@ th {
 	margin: 0.35rem 0 0;
 }
 
+.bidding-price-tier-panel {
+	width: fit-content;
+	max-width: calc(100% - 1.5rem);
+	margin: 0 auto 0.85rem;
+}
+
+.bidding-price-tier-header {
+	padding: 0 0 0.55rem;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.bidding-price-tier-meta {
+	margin-bottom: 0.65rem;
+}
+
+.bidding-price-tier-table-wrap {
+	width: fit-content;
+	max-width: 100%;
+	margin-bottom: 0.75rem;
+}
+
+.bidding-price-tier-table {
+	width: max-content;
+	border-collapse: separate;
+	border-spacing: 0 0.2rem;
+}
+
+.bidding-price-tier-table th,
+.bidding-price-tier-table td {
+	padding: 0.12rem 0.45rem;
+	white-space: nowrap;
+	text-align: left;
+}
+
+.bidding-price-tier-table th {
+	color: var(--c-pink);
+	font-size: 0.68rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.tier-cell-center {
+	text-align: center;
+}
+
+.tier-cell-right {
+	text-align: right;
+}
+
+.tier-cell-error {
+	max-width: 24ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--c-orange);
+}
+
+.tier-row-actions,
+.bidding-price-tier-config-row,
+.bidding-price-tier-form-footer {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+
+.tier-row-actions button,
+.bidding-price-tier-form-footer button {
+	min-width: 4.5rem;
+}
+
+.bidding-price-tier-form {
+	padding: 0;
+	margin-inline: auto;
+}
+
+.bidding-price-tier-form-summary {
+	padding-bottom: 0.2rem;
+}
+
+.bidding-price-tier-name-input {
+	width: 18ch;
+}
+
+.bidding-price-tier-small-input,
+.bidding-price-tier-price-input {
+	width: 10ch;
+}
+
+.bidding-price-tier-delta-kind {
+	width: 5.5rem;
+}
+
+.bidding-price-tier-fixed-kind {
+	min-width: 13rem;
+	color: var(--c-sand);
+	text-transform: uppercase;
+	font-size: 0.68rem;
+}
+
+.bidding-price-tier-form-footer {
+	justify-content: space-between;
+	width: 100%;
+}
+
+.bidding-price-tier-feedback {
+	justify-self: center;
+	text-align: center;
+}
+
+.price-tier-time-value {
+	color: var(--c-ice);
+	font-size: 0.75rem;
+	text-transform: none;
+}
+
+.bidding-price-tier-toggle-active {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
 .bid-book-summary-panel,
 .bid-book-table-panel {
 	width: fit-content;

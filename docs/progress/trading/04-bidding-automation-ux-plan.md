@@ -549,7 +549,7 @@ Current implementation notes:
 
 ### Slice 13: Price Tier Management UI
 
-Status: pending.
+Status: complete.
 
 - Add a compact collection-scoped tier management surface reachable from bidding operations.
 - Let users create, edit, pause, archive, and order tiers.
@@ -570,6 +570,16 @@ Expected artifacts:
 - `frontend/src/lib/components/BiddingPriceTierRow.svelte`
 - `backend/src/application/use-cases/trading/upsert-collection-bidding-price-tier.ts`
 - `backend/src/application/use-cases/trading/archive-collection-bidding-price-tier.ts`
+
+Current implementation notes:
+
+- Collection offers exposes a compact `tiers` toggle that opens collection-scoped tier management without leaving the bidding operations surface.
+- `BiddingPriceTierPanel.svelte` owns tier form state and mutation calls; `BiddingAutomationPanel.svelte` only consumes the updated resolved tier read models.
+- The tier panel can create, modify, pause, activate, archive, and reorder active tiers through existing backend graph-validation use cases.
+- Root tier floor configuration stays fixed-scalar only; parent-derived floor/ceiling controls are only available when a parent tier is selected.
+- Tier pause, activate, archive, create, and modify actions use the same two-click arm/confirm behavior as other bidding state changes.
+- Tier mutations update collection-local tier state so open bidding panels see the latest resolved floor/ceiling values immediately.
+- Ordering is a first-pass single-tier sort-order move; if tier ordering needs atomic multi-row swaps later, add a backend use case instead of coordinating swaps in the frontend.
 
 ### Slice 14: Staged Tier Reapply
 
