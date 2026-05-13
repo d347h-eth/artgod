@@ -34,7 +34,7 @@ import {
 import {
     buildTokenOfferGroups,
     sortTokenIdsByTopOffer,
-    tokenMatchesTraitFilters,
+    tokenMatchesTraitFiltersWithJoinMode,
 } from "./bidding-token-offer-cards.js";
 export type { UpsertBatchTokenBiddingJobsOutput } from "./types.js";
 
@@ -276,10 +276,11 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             const card = cardsById.get(tokenId);
             return (
                 card !== undefined &&
-                tokenMatchesTraitFilters(
+                tokenMatchesTraitFiltersWithJoinMode(
                     card,
                     params.selection.traits,
                     params.selection.traitRanges,
+                    params.selection.traitJoinMode,
                 )
             );
         });

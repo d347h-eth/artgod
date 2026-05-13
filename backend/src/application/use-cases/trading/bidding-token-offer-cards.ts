@@ -6,6 +6,10 @@ import {
 } from "@artgod/shared/types";
 import type { TraitFilter, TraitRangeFilter } from "@artgod/shared/types/browse";
 import type { PersistedBiddingBidBookRow } from "./bidding-bid-book.js";
+import {
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    type CollectionBiddingTraitFilterJoinMode,
+} from "./bidding-bid-book.js";
 
 export type PersistedTokenOfferCard = {
     token: TokenCard;
@@ -82,9 +86,57 @@ export function tokenMatchesTraitFilters(
     selectedTraits: TraitFilter[],
     selectedTraitRanges: TraitRangeFilter[],
 ): boolean {
+    return tokenMatchesTraitFiltersWithJoinMode(
+        token,
+        selectedTraits,
+        selectedTraitRanges,
+        COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+    );
+}
+
+// Applies token-card trait filters using the requested offers-page join semantics.
+export function tokenMatchesTraitFiltersWithJoinMode(
+    token: Pick<TokenCard, "attributes">,
+    selectedTraits: TraitFilter[],
+    selectedTraitRanges: TraitRangeFilter[],
+    traitJoinMode: CollectionBiddingTraitFilterJoinMode,
+): boolean {
+    if (traitJoinMode === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or) {
+        return tokenMatchesAnyTraitFilter(
+            token.attributes,
+            selectedTraits,
+            selectedTraitRanges,
+        );
+    }
     return (
         tokenMatchesExactTraitFilters(token.attributes, selectedTraits) &&
         tokenMatchesRangeTraitFilters(token.attributes, selectedTraitRanges)
+    );
+}
+
+function tokenMatchesAnyTraitFilter(
+    attributes: TokenAttribute[],
+    selectedTraits: TraitFilter[],
+    selectedTraitRanges: TraitRangeFilter[],
+): boolean {
+    if (selectedTraits.length === 0 && selectedTraitRanges.length === 0) {
+        return true;
+    }
+    return (
+        selectedTraits.some((trait) =>
+            attributes.some(
+                (attribute) =>
+                    attribute.key === trait.key &&
+                    attribute.value === trait.value,
+            ),
+        ) ||
+        selectedTraitRanges.some((range) =>
+            attributes.some(
+                (attribute) =>
+                    attribute.key === range.key &&
+                    traitValueWithinRange(attribute.value, range),
+            ),
+        )
     );
 }
 

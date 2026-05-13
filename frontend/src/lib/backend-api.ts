@@ -323,6 +323,7 @@ export async function upsertBatchTokenBiddingJobs(
 					type: 'token_offer_filter';
 					traits: { key: string; value: string }[];
 					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
+					traitJoinMode: 'or' | 'and';
 					makerAddress?: string | null;
 			  };
 	}

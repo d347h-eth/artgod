@@ -13,6 +13,7 @@ import type {
     TradingJobStatus,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
+import type { CollectionBiddingTraitFilterJoinMode } from "./bidding-bid-book.js";
 
 export type BiddingJobMutationStatus = Exclude<TradingJobStatus, "archived">;
 export type TokenBiddingJobMutationStatus = BiddingJobMutationStatus;
@@ -120,6 +121,7 @@ export type BatchTokenBiddingJobSelection =
           type: "token_offer_filter";
           traits: TraitFilter[];
           traitRanges: TraitRangeFilter[];
+          traitJoinMode: CollectionBiddingTraitFilterJoinMode;
           makerAddress?: string | null;
       };
 

@@ -652,6 +652,7 @@
 						type: 'token_offer_filter',
 						traits: draft.source.filter.selectedTraits,
 						traitRanges: draft.source.filter.selectedTraitRanges,
+						traitJoinMode: draft.source.filter.traitJoinMode,
 						makerAddress: draft.source.filter.makerAddress
 					}
 				});

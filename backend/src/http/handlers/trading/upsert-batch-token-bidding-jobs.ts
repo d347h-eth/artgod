@@ -10,6 +10,10 @@ import type {
     UpsertBatchTokenBiddingJobsOutput,
 } from "../../../application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
 import {
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    type CollectionBiddingTraitFilterJoinMode,
+} from "../../../application/use-cases/trading/bidding-bid-book.js";
+import {
     parseEditableBiddingJobStatus,
     parseOptionalString as parseOptionalBodyString,
     parseRequiredString,
@@ -93,6 +97,7 @@ function parseSelection(value: unknown): UpsertBatchTokenBiddingJobsInput["selec
             type: "token_offer_filter",
             traits: parseTraits(record.traits),
             traitRanges: parseTraitRanges(record.traitRanges),
+            traitJoinMode: parseTraitJoinMode(record.traitJoinMode),
             makerAddress: parseOptionalString(
                 record.makerAddress,
                 "selection.makerAddress",
@@ -111,6 +116,16 @@ function parseTokenStatus(value: unknown): TokenBrowserStatus {
         return value;
     }
     throw new ReadModelBadRequestError("selection.tokenStatus is invalid");
+}
+
+function parseTraitJoinMode(value: unknown): CollectionBiddingTraitFilterJoinMode {
+    if (
+        value === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And ||
+        value === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
+    ) {
+        return value;
+    }
+    throw new ReadModelBadRequestError("selection.traitJoinMode is invalid");
 }
 
 function parseTraits(value: unknown): TraitFilter[] {

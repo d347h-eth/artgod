@@ -651,10 +651,9 @@ Current implementation notes:
 
 ### Slice 16: Offer-Filtered Selection Resolution
 
-Status: pending.
+Status: complete.
 
-- Decide whether offers-page token selections with maker/offer filters should become backend-resolvable filtered batches.
-- If yes, add a SQL-backed resolver that uses normalized bid-book/order data instead of frontend-visible cards.
+- Offers-page token selections with maker/offer filters are backend-resolvable filtered batches.
 - Preserve the invariant that all-pages token bidding means all matching tokens across all pages.
 - Keep visible manual adjustments downgraded to visible token IDs until an explicit exclusion target model exists.
 - Do not make canonical orders a bot decision source; this resolver only creates declared UI-selected jobs.
@@ -671,6 +670,15 @@ Expected artifacts:
 - `docs/progress/trading/03-sql-backed-offer-pagination-plan.md`
 - `backend/src/application/use-cases/trading/upsert-batch-token-bidding-jobs.ts`
 - `backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts`
+
+Current implementation notes:
+
+- The frontend submits `selection.type = token_offer_filter` with selected trait filters, selected trait ranges, the current offers-page trait join mode, and optional maker filter.
+- The backend resolves the token set through `BiddingBidBookRepositoryPort.listCollectionBidBook`, preserving the same source-selection boundary as the offers page: projected bot snapshot when eligible, normalized orders otherwise.
+- Token-scoped offers are grouped by token in the backend, sorted by top surviving offer, and filtered with the shared 10% relevance floor against the top collection bid before token IDs are selected.
+- The resolver hydrates matching token cards by ID and applies trait filters to token metadata, preserving OR/AND join semantics from the offers page.
+- Maker filtering applies to token-scoped offers before grouping; the collection-bid floor remains market-wide so a narrow maker filter cannot lower the relevance threshold.
+- Full SQL-backed grouped offer pagination remains deferred to `docs/progress/trading/03-sql-backed-offer-pagination-plan.md`; this slice keeps correctness for write-target resolution without expanding repository pagination contracts.
 
 ### Slice 17: Bidding Jobs Page Cleanup
 

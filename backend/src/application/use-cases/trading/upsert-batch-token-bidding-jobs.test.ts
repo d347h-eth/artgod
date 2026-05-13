@@ -14,6 +14,7 @@ import {
     type TokenCursorPage,
     type TradingJobCommandRecord,
 } from "@artgod/shared/types";
+import { COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE } from "./bidding-bid-book.js";
 import { UpsertBatchTokenBiddingJobsUseCase } from "./upsert-batch-token-bidding-jobs.js";
 
 const CHAIN: ChainRecord = {
@@ -159,7 +160,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
     });
 
     it("resolves a token-offer selection across all offer pages and keeps token trait filters server-side", () => {
-        const commands = buildCommands(["7"]);
+        const commands = buildCommands(["7", "8"]);
         const persistedInputs: { tokenId: string }[] = [];
         const useCase = new UpsertBatchTokenBiddingJobsUseCase(
             1,
@@ -171,12 +172,12 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                 listCollectionTokens: () => tokenPage([], null),
                 listCollectionTokenCardsByIds: ({ tokenIds }) =>
                     tokenIds.map((tokenId) =>
-                        tokenCard(tokenId, [
-                            {
-                                key: "Mode",
-                                value: tokenId === "7" ? "Terrain" : "Origin",
-                            },
-                        ]),
+                        tokenCard(
+                            tokenId,
+                            tokenId === "8"
+                                ? [{ key: "Chroma", value: "Plague" }]
+                                : [{ key: "Mode", value: "Terrain" }],
+                        ),
                     ),
             },
             {
@@ -244,8 +245,105 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
             deltaEth: "0.001",
             selection: {
                 type: "token_offer_filter",
-                traits: [{ key: "Mode", value: "Terrain" }],
+                traits: [
+                    { key: "Mode", value: "Terrain" },
+                    { key: "Chroma", value: "Plague" },
+                ],
                 traitRanges: [],
+                traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            },
+        });
+
+        assert.deepEqual(result.tokenIds, ["7", "8"]);
+        assert.deepEqual(
+            persistedInputs.map((input) => input.tokenId),
+            ["7", "8"],
+        );
+    });
+
+    it("respects token-offer maker filters when resolving all matching token IDs", () => {
+        const persistedInputs: { tokenId: string }[] = [];
+        const useCase = new UpsertBatchTokenBiddingJobsUseCase(
+            1,
+            {
+                resolveChainRef: () => CHAIN,
+            },
+            {
+                resolveCollectionRef: () => COLLECTION,
+                listCollectionTokens: () => tokenPage([], null),
+                listCollectionTokenCardsByIds: ({ tokenIds }) =>
+                    tokenIds.map((tokenId) => tokenCard(tokenId)),
+            },
+            {
+                listCollectionBidBook: ({ scopeFilter, makerAddress }) => {
+                    const bids =
+                        scopeFilter === "collection"
+                            ? [
+                                  bidBookRow({
+                                      orderId: "collection-top",
+                                      scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+                                      tokenId: null,
+                                      priceWei: "1000000000000000000",
+                                  }),
+                              ]
+                            : [
+                                  bidBookRow({
+                                      orderId: "token-7",
+                                      scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                      tokenId: "7",
+                                      priceWei: "500000000000000000",
+                                      maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                  }),
+                                  bidBookRow({
+                                      orderId: "token-8",
+                                      scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                                      tokenId: "8",
+                                      priceWei: "400000000000000000",
+                                      maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                                  }),
+                              ];
+                    return bidBook(
+                        makerAddress
+                            ? bids.filter(
+                                  (bid) =>
+                                      bid.maker.toLowerCase() === makerAddress,
+                              )
+                            : bids,
+                    );
+                },
+            },
+            {
+                upsertTokenJobs: (inputs) => {
+                    persistedInputs.push(...inputs);
+                    return {
+                        jobs: inputs.map((input) =>
+                            buildPersistedTokenJob({ tokenId: input.tokenId }),
+                        ),
+                        commands: [],
+                    };
+                },
+            },
+            {
+                listCollectionPriceTiers: () => [],
+            },
+            {
+                publishBiddingJobCommandsChanged: () => undefined,
+            },
+        );
+
+        const result = useCase.upsertBatchTokenBiddingJobs({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorEth: "0.1",
+            ceilingEth: "0.2",
+            deltaEth: "0.001",
+            selection: {
+                type: "token_offer_filter",
+                traits: [],
+                traitRanges: [],
+                traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                makerAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             },
         });
 
@@ -312,6 +410,7 @@ function bidBookRow(input: {
     scopeKind: typeof TRADING_BIDDING_BID_SCOPE_KIND.Collection | typeof TRADING_BIDDING_BID_SCOPE_KIND.Token;
     tokenId: string | null;
     priceWei: string;
+    maker?: string;
 }) {
     return {
         orderId: input.orderId,
@@ -321,7 +420,7 @@ function bidBookRow(input: {
         tokenId: input.tokenId,
         scopeTraits: [],
         encodedTokenIds: null,
-        maker: "0x1111111111111111111111111111111111111111",
+        maker: input.maker ?? "0x1111111111111111111111111111111111111111",
         isOwn: false,
         priceWei: input.priceWei,
         quantity: "1",
@@ -355,9 +454,9 @@ function buildCommands(tokenIds: string[]): TradingJobCommandRecord[] {
 
 function buildPersistedTokenJob(input: {
     tokenId: string;
-    floorWei: string;
-    ceilingWei: string;
-    deltaWei: string;
+    floorWei?: string;
+    ceilingWei?: string;
+    deltaWei?: string;
 }): PersistedTokenBiddingJobRecord {
     return {
         jobId: `job-${input.tokenId}`,
@@ -368,9 +467,9 @@ function buildPersistedTokenJob(input: {
         collectionOpenseaSlug: COLLECTION.slug,
         collectionAddress: COLLECTION.address,
         status: TRADING_JOB_STATUS.Enabled,
-        floorWei: input.floorWei,
-        ceilingWei: input.ceilingWei,
-        deltaWei: input.deltaWei,
+        floorWei: input.floorWei ?? "100000000000000000",
+        ceilingWei: input.ceilingWei ?? "200000000000000000",
+        deltaWei: input.deltaWei ?? "1000000000000000",
         priceTierId: null,
         pricingSource: null,
         revision: 1,
