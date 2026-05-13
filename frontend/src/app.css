@@ -1312,14 +1312,14 @@ th {
 .runtime-kv-grid.bid-book-meta {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.45rem 1.35rem;
+	gap: 0.35rem 1rem;
 	align-items: center;
 }
 
 .runtime-kv-grid.bid-book-meta > div {
 	display: inline-flex;
 	align-items: baseline;
-	gap: 0.5rem;
+	gap: 0.25rem;
 }
 
 .bid-book-table-wrap {
@@ -1527,14 +1527,14 @@ th {
 .runtime-kv-grid.bid-book-demand-group-meta {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.45rem 1rem;
+	gap: 0.35rem 0.8rem;
 	align-items: center;
 }
 
 .runtime-kv-grid.bid-book-demand-group-meta > div {
 	display: inline-flex;
 	align-items: baseline;
-	gap: 0.4rem;
+	gap: 0.25rem;
 }
 
 .bid-book-bucket-spacer,
@@ -2763,10 +2763,8 @@ th {
 }
 
 .runtime-kv-grid.token-bidding-runtime-grid {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 0.45rem 1.35rem;
+	display: grid;
+	gap: 0.15rem;
 	padding-bottom: 0.75rem;
 }
 
@@ -2778,7 +2776,7 @@ th {
 .runtime-kv-grid.token-bidding-runtime-grid > div {
 	display: inline-flex;
 	align-items: baseline;
-	gap: 0.5rem;
+	gap: 0.25rem;
 }
 
 .token-bidding-runtime-grid .activities-time-mode-button {
@@ -2791,6 +2789,12 @@ th {
 	font-size: 0.7rem;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
+}
+
+.runtime-kv-grid.bid-book-meta .runtime-k::after,
+.runtime-kv-grid.bid-book-demand-group-meta .runtime-k::after,
+.runtime-kv-grid.token-bidding-runtime-grid .runtime-k::after {
+	content: ':';
 }
 
 .runtime-v {
