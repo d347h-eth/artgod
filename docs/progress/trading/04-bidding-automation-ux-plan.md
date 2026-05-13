@@ -28,15 +28,18 @@ The current runtime contract remains unchanged: SQLite stores declared desired j
 
 The user should be able to start a bidding action from three sources:
 
-1. Filtered token selection:
+1. Filtered token or trait targeting:
    - User filters a collection through existing trait/token controls.
-   - User clicks `select all` for the current filter.
-   - The selection records the filter snapshot and targets all matching tokens across the collection, not only the visible page.
+   - User clicks `bid on traits` when the intended target is the current trait filter.
+   - User clicks `bid on tokens` when the intended target is tokens matching the current token-card result set.
+   - Token targeting records the filter snapshot and can target all matching tokens across the collection, not only the visible page.
+   - Trait targeting records the exact current trait criteria and creates a trait job; do not infer this from generic token selection.
 2. Explicit token selection:
    - User toggles individual token cards in asks, offers, or tokens exploration.
    - This can add to or subtract from a filter-based selection.
    - Supported gestures should be `Ctrl` + left click and/or middle mouse click on the token card area.
    - Gesture handling must be isolated behind token-card selection props so generic card behavior stays reusable.
+   - Gesture handling must not break browser link affordances: `Ctrl` + click and middle click on actual links still open those links normally, while media/card body selection keeps taking precedence over preview.
 3. Selected bid:
     - User acts on an existing bid-book row.
     - The draft inherits target scope, maker-independent bid parameters, current price context, and visible market scope from that row.
@@ -94,14 +97,15 @@ The shared panel should be a compact bottom-right surface with:
 The panel should not contain instructional prose.
 It should use compact labels and existing control families.
 
-The panel should be opened by:
+The panel should be opened or expanded by:
 
-- `select all` from token exploration
+- `bid on traits`, `bid on tokens`, or `place collection bid` from token exploration and offers
 - token-card selection gestures
-- bid-book row action
-- token detail bid-book action
+- bid-book trait bucket action
+- token detail inline action
 
-The existing static `TokenBiddingJobForm` should be removed only after the shared panel can fully create, update, and archive token-scoped jobs.
+The old static `TokenBiddingJobForm` is superseded by the shared panel.
+Token detail renders the same panel inline and does not show the floating-panel `hide` control.
 
 ## Bid Book Integration
 
@@ -497,15 +501,25 @@ Current baseline entering these slices:
 
 - Targeting controls are explicit, not inferred: `bid on traits`, `bid on tokens`, `place collection bid`, and trait-bucket `bid`.
 - `bid on traits` means the current trait filter or trait bucket becomes the declared trait target; do not reintroduce ambiguous `select all` behavior for this path.
+- Trait-bucket `bid` must also apply the bucket criteria into the normal trait filter controls so the top action state, the bid book, and the panel all describe the same target.
 - `bid on tokens` means token-job creation, with all-pages vs current-page behavior controlled explicitly by the existing button state.
+- Do not cycle `bid on tokens` between all-pages and current-page modes when the current result set only has one page.
+- Bid scope ordering is `token`, `traits`, `collection`; token scope is the default offers view.
 - Token-card selection remains opt-in through `Ctrl` + left click, middle click, and the selected-card unselect affordance.
+- Token-card selection gestures must not intercept `Ctrl` + click or middle-click on actual token-card links.
 - The automation panel is the single reusable form for floating collection/browser flows and inline token detail flows.
+- Floating panel `hide` collapses to the square place-bid affordance and preserves current state; token detail uses the inline variant without `hide`.
 - The panel has no status dropdown; users express intent through `create`, `modify`, `activate`, `pause`, and `archive`.
 - Ineligible actions must stay disabled/muted.
 - State-changing actions except `reset` require the existing two-click arm/confirm interaction; do not replace it with native confirm dialogs.
+- `B` toggles the floating bidding panel and `C` clears the current bidding target on pages where the panel exists.
+- Token detail pre-fills from the highest applicable bid plus the same minimum-winning-delta calculation used by collection and trait actions.
+- Minimum winning delta is based on the bid price order of magnitude, not one percent of the bid: examples are `20 -> 0.1`, `4 -> 0.01`, `0.23 -> 0.001`, `0.05 -> 0.0001`.
 - Human-facing prices and logs stay in Ether units; wei remains an internal/runtime boundary detail.
 
 ### Slice 12: Job Association and Edit Existing Targets
+
+Status: complete.
 
 - Resolve whether a bid-book row or token selection maps to an existing declared bidding job.
 - Normalize target equivalence in one backend/domain helper so token, trait, and collection lookup semantics are not duplicated in the frontend.
@@ -531,17 +545,24 @@ Current implementation notes:
 - Target-agnostic job archive is available by job id and emits the same durable `job_archived` plus `cancel_active_offer` command pair in the repository transaction.
 - The automation panel now looks up an existing job for draft targets, surfaces job id plus revision, and archives any target kind through the shared job-id route.
 - Archived jobs are removed from collection-page job state instead of being kept as editable active jobs.
+- Later slices should reuse this target lookup instead of adding page-local "does job exist" checks.
 
 ### Slice 13: Price Tier Management UI
+
+Status: pending.
 
 - Add a compact collection-scoped tier management surface reachable from bidding operations.
 - Let users create, edit, pause, archive, and order tiers.
 - Show resolved floor/ceiling values and last resolution errors.
 - Preserve the current first-pass rule that root tiers are user-entered scalar values only.
-- Keep tier graph validation in backend use cases; frontend only previews and submits typed configs.
+- Keep tier graph validation in backend use cases; frontend only renders previews and submits typed configs.
 - Keep the tier UI compact and operational; avoid a separate static CRUD-feeling page if an inline panel/drawer can serve the flow.
-- Reuse existing button families, time display helpers, and the two-click state-change rule for tier pause/archive actions.
+- Reuse existing button families, time display helpers, compact `key: value` rows, and the two-click state-change rule for tier pause/archive actions.
 - Keep tier selection in `BiddingAutomationPanel.svelte` as a consumer of resolved tier read models; do not make the panel own tier graph logic.
+- Use intent actions instead of a status dropdown: create/modify, pause/activate, archive.
+- Keep root tier floor configuration fixed-scalar only until explicit dynamic anchors are added.
+- Disable or hide parent-derived config options when no parent tier is selected.
+- Update the collection-level tier state after mutations so open automation panels immediately see the latest resolved tiers.
 
 Expected artifacts:
 
@@ -552,6 +573,8 @@ Expected artifacts:
 
 ### Slice 14: Staged Tier Reapply
 
+Status: pending.
+
 - List existing tier-backed jobs affected by a tier edit.
 - Show a staged before/after preview for resolved floor, ceiling, and delta.
 - Apply selected staged changes only after explicit user confirmation.
@@ -560,6 +583,9 @@ Expected artifacts:
 - Use the same job mutation path as manual panel edits so the bot sees ordinary desired-state revisions.
 - Show affected targets in compact rows/cards with enough context to detect accidental fund-damaging changes before apply.
 - Keep preview calculations backend-owned; frontend renders the staged diff and selected apply set.
+- Use `price_tier_id` and `pricing_source_json` as metadata for finding affected jobs; the scalar job fields remain the bot contract.
+- Do not silently mutate jobs when a tier is paused or archived.
+- Apply should use the same two-click arm/confirm interaction as other fund-affecting job state changes.
 
 Expected artifacts:
 
@@ -569,6 +595,8 @@ Expected artifacts:
 
 ### Slice 15: Own-Bid Runtime State and Constraint Signals
 
+Status: pending.
+
 - Enrich own bid rows with job-linked status: winning, draw, losing, ceiling hit, floor hit, balance limited, and allowance limited.
 - Add compact icons or labels directly on own bid rows.
 - Use the existing maker filter for `my bids`; do not create a separate filtering mechanism.
@@ -577,6 +605,8 @@ Expected artifacts:
 - Connect own bid rows to declared jobs where possible so clicking/editing opens the current job rather than only drafting a new target.
 - Preserve the current bid-book source language: `refresh pace` is `normal` for orders and `competitive` for bot snapshot projection.
 - Keep constraint labels compact and deterministic; no explanatory prose in rows.
+- Reuse Slice 12 target lookup or explicit runtime job association; do not infer editability from maker address alone.
+- Keep row-level state as a read model. The frontend should not reimplement runtime bidding decisions.
 
 Expected artifacts:
 
@@ -585,6 +615,8 @@ Expected artifacts:
 - `frontend/src/lib/components/BidBookPanel.svelte`
 
 ### Slice 16: Offer-Filtered Selection Resolution
+
+Status: pending.
 
 - Decide whether offers-page token selections with maker/offer filters should become backend-resolvable filtered batches.
 - If yes, add a SQL-backed resolver that uses normalized bid-book/order data instead of frontend-visible cards.
@@ -595,6 +627,9 @@ Expected artifacts:
 - Respect maker filters and trait filters from the offers page when resolving token-offer result sets.
 - Keep token-scope offer pagination grouped by token; avoid rebuilding all-pages selection from already-loaded cards.
 - Align this slice with the SQL-backed offer pagination plan before changing repository contracts.
+- Apply the 10% relevance floor before grouped token pagination so muted/hidden offers do not change selected-token counts.
+- Keep source selection inside the repository/use-case boundary: projected snapshot when the collection has enabled jobs and the bot is running, normalized orders otherwise.
+- Preserve OR/AND trait join semantics from the offers filter when resolving the all-pages token set.
 
 Expected artifacts:
 
@@ -604,6 +639,8 @@ Expected artifacts:
 
 ### Slice 17: Bidding Jobs Page Cleanup
 
+Status: pending.
+
 - Reassess whether the dedicated jobs subpage should remain once bid-book operations can create, edit, and archive all target kinds.
 - If retained, make it a compact diagnostics/overview page instead of the primary editing surface.
 - If removed, preserve any useful runtime counters in the bid-book operations UI.
@@ -611,6 +648,8 @@ Expected artifacts:
 - Do not duplicate the automation panel or job mutation forms inside the jobs page.
 - If the page remains, use it for auditability: declared jobs, runtime state, command/revision status, and troubleshooting.
 - Preserve existing navigation semantics: direct bidding operations live in offers/bid-book and token browsing surfaces.
+- Do not duplicate job mutation forms or tier graph editors here; link or open the shared automation/tier surfaces when editing is needed.
+- If runtime counters remain useful, keep them as compact horizontal chips consistent with bid-book metadata.
 
 Expected artifacts:
 
