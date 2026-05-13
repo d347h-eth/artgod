@@ -1036,6 +1036,7 @@
 			{collection}
 			tiers={activePriceTiers}
 			onTiersChange={handlePriceTiersChanged}
+			onJobsChange={handleJobsChanged}
 			onClose={togglePriceTierPanel}
 		/>
 	{/if}

@@ -119,6 +119,14 @@ import type {
     UpsertCollectionBiddingPriceTierRoute,
 } from "./http/handlers/trading/upsert-collection-bidding-price-tier.js";
 import type {
+    PreviewBiddingPriceTierReapplyHttpAdapter,
+    PreviewBiddingPriceTierReapplyRoute,
+} from "./http/handlers/trading/preview-bidding-price-tier-reapply.js";
+import type {
+    ApplyBiddingPriceTierReapplyHttpAdapter,
+    ApplyBiddingPriceTierReapplyRoute,
+} from "./http/handlers/trading/apply-bidding-price-tier-reapply.js";
+import type {
     ArchiveBiddingJobHttpAdapter,
     ArchiveBiddingJobRoute,
 } from "./http/handlers/trading/archive-bidding-job.js";
@@ -180,6 +188,8 @@ export function registerApiRoutes(
     upsertBatchTokenBiddingJobsAdapter: UpsertBatchTokenBiddingJobsHttpAdapter,
     upsertCollectionBiddingJobAdapter: UpsertCollectionBiddingJobHttpAdapter,
     upsertCollectionBiddingPriceTierAdapter: UpsertCollectionBiddingPriceTierHttpAdapter,
+    previewBiddingPriceTierReapplyAdapter: PreviewBiddingPriceTierReapplyHttpAdapter,
+    applyBiddingPriceTierReapplyAdapter: ApplyBiddingPriceTierReapplyHttpAdapter,
     archiveBiddingJobAdapter: ArchiveBiddingJobHttpAdapter,
     archiveTokenBiddingJobAdapter: ArchiveTokenBiddingJobHttpAdapter,
     archiveCollectionBiddingPriceTierAdapter: ArchiveCollectionBiddingPriceTierHttpAdapter,
@@ -304,6 +314,10 @@ export function registerApiRoutes(
         "/api/:chain_ref/:collection_ref/bidding/price-tiers",
         listCollectionBiddingPriceTiersAdapter.handle,
     );
+    app.get<PreviewBiddingPriceTierReapplyRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview",
+        previewBiddingPriceTierReapplyAdapter.handle,
+    );
     app.get<GetTokenBiddingJobRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         getTokenBiddingJobAdapter.handle,
@@ -351,6 +365,10 @@ export function registerApiRoutes(
     app.put<UpsertCollectionBiddingPriceTierRoute>(
         "/api/:chain_ref/:collection_ref/bidding/price-tiers",
         upsertCollectionBiddingPriceTierAdapter.handle,
+    );
+    app.post<ApplyBiddingPriceTierReapplyRoute>(
+        "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply",
+        applyBiddingPriceTierReapplyAdapter.handle,
     );
     app.delete<ArchiveTokenBiddingJobRoute>(
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",

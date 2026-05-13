@@ -492,6 +492,35 @@ export type CollectionBiddingPriceTierMutationApiResponse = {
 	tiers: ApiBiddingPriceTier[];
 };
 
+export type ApiBiddingPriceTierReapplyPricePreview = {
+	floorEth: string;
+	ceilingEth: string;
+	deltaEth: string;
+	pricingSource: ApiBiddingJobPricingSource | null;
+};
+
+export type ApiBiddingPriceTierReapplyJobPreview = {
+	job: ApiBiddingJob;
+	before: ApiBiddingPriceTierReapplyPricePreview;
+	after: ApiBiddingPriceTierReapplyPricePreview;
+	changed: boolean;
+};
+
+export type BiddingPriceTierReapplyPreviewApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tier: ApiBiddingPriceTier;
+	jobs: ApiBiddingPriceTierReapplyJobPreview[];
+};
+
+export type BiddingPriceTierReapplyApplyApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	tier: ApiBiddingPriceTier;
+	jobs: ApiBiddingJob[];
+	preview: ApiBiddingPriceTierReapplyJobPreview[];
+};
+
 export type CollectionBiddingBidBookApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;

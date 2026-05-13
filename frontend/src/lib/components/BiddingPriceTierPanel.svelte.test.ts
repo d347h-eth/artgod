@@ -79,6 +79,7 @@ describe('BiddingPriceTierPanel', () => {
 		expect(body).toContain('0.1');
 		expect(body).toContain('0.121');
 		expect(body).toContain('resolution failed');
+		expect(body).toContain('>reapply<');
 		expect(body).toContain('<option value="" selected>root</option>');
 		expect(body).toContain('>create<');
 		expect(body).not.toContain('status</span></label>');

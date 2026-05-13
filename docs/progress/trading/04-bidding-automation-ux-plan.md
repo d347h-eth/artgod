@@ -583,7 +583,7 @@ Current implementation notes:
 
 ### Slice 14: Staged Tier Reapply
 
-Status: pending.
+Status: complete.
 
 - List existing tier-backed jobs affected by a tier edit.
 - Show a staged before/after preview for resolved floor, ceiling, and delta.
@@ -596,12 +596,28 @@ Status: pending.
 - Use `price_tier_id` and `pricing_source_json` as metadata for finding affected jobs; the scalar job fields remain the bot contract.
 - Do not silently mutate jobs when a tier is paused or archived.
 - Apply should use the same two-click arm/confirm interaction as other fund-affecting job state changes.
+- Apply only selected job ids from the preview; do not bulk-apply every affected job implicitly.
+- Preserve each job's existing runtime status while updating only tier-derived scalar pricing and pricing metadata.
+- Disabled/archived jobs must not be resurrected by reapply; archived jobs stay outside the editable reapply set.
+- After apply, refresh the collection job read model so open automation panels see the new scalar values immediately.
+- Treat unchanged jobs as preview-only rows; applying them should not emit no-op job update commands.
 
 Expected artifacts:
 
 - `backend/src/application/use-cases/trading/preview-bidding-price-tier-reapply.ts`
 - `backend/src/application/use-cases/trading/apply-bidding-price-tier-reapply.ts`
 - `frontend/src/lib/components/BiddingPriceTierReapplyPreview.svelte`
+
+Current implementation notes:
+
+- Backend preview/apply use cases own tier graph resolution and affected-job calculation; the frontend only renders the staged diff and selected apply set.
+- Admin routes are exposed under each collection price tier:
+  - `GET /api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview`
+  - `POST /api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply`
+- Apply accepts explicit `jobIds`, updates selected changed jobs through the jobs repository, and publishes ordinary bidding job command wake-ups after the transaction commits.
+- Repository-level apply keeps the bot-facing scalar job fields canonical and updates `price_tier_id` / `pricing_source_json` as explanatory metadata.
+- The tier panel opens a compact preview from each tier row, lets the user select changed jobs, and uses the standard two-click arm/confirm flow for apply.
+- Focused backend/frontend tests pass, and the tier panel refreshes collection-local job state after apply so open automation panels see the new scalar values.
 
 ### Slice 15: Own-Bid Runtime State and Constraint Signals
 

@@ -17,6 +17,7 @@
 		busy = false,
 		nowMs = Date.now(),
 		onEdit,
+		onPreviewReapply,
 		onMove,
 		onStatusChange,
 		onArchive
@@ -29,6 +30,7 @@
 		busy?: boolean;
 		nowMs?: number;
 		onEdit: (tier: ApiBiddingPriceTier) => void;
+		onPreviewReapply: (tier: ApiBiddingPriceTier) => void | Promise<void>;
 		onMove: (tier: ApiBiddingPriceTier, direction: -1 | 1) => void | Promise<void>;
 		onStatusChange: (
 			tier: ApiBiddingPriceTier,
@@ -80,6 +82,7 @@
 	<td class="mono tier-cell-error">{tier.lastError ?? '-'}</td>
 	<td>
 		<div class="tier-row-actions">
+			<button type="button" onclick={() => onPreviewReapply(tier)} disabled={busy}>reapply</button>
 			<button type="button" onclick={() => onEdit(tier)} disabled={busy}>edit</button>
 			<button type="button" onclick={() => onMove(tier, -1)} disabled={busy || !canMoveUp}>up</button>
 			<button type="button" onclick={() => onMove(tier, 1)} disabled={busy || !canMoveDown}>down</button>

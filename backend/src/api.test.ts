@@ -295,6 +295,12 @@ beforeAll(async () => {
     const upsertCollectionBiddingPriceTierUseCaseModule = await import(
         "./application/use-cases/trading/upsert-collection-bidding-price-tier.js"
     );
+    const previewBiddingPriceTierReapplyUseCaseModule = await import(
+        "./application/use-cases/trading/preview-bidding-price-tier-reapply.js"
+    );
+    const applyBiddingPriceTierReapplyUseCaseModule = await import(
+        "./application/use-cases/trading/apply-bidding-price-tier-reapply.js"
+    );
     const archiveBiddingJobUseCaseModule = await import(
         "./application/use-cases/trading/archive-bidding-job.js"
     );
@@ -401,6 +407,23 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             biddingPriceTiersRepository,
+        );
+    const previewBiddingPriceTierReapplyUseCase =
+        new previewBiddingPriceTierReapplyUseCaseModule.PreviewBiddingPriceTierReapplyUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+            biddingPriceTiersRepository,
+        );
+    const applyBiddingPriceTierReapplyUseCase =
+        new applyBiddingPriceTierReapplyUseCaseModule.ApplyBiddingPriceTierReapplyUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
+            biddingJobsRepository,
+            biddingPriceTiersRepository,
+            tradingJobCommandSignalPort,
         );
     const archiveTokenBiddingJobUseCase =
         new archiveTokenBiddingJobUseCaseModule.ArchiveTokenBiddingJobUseCase(
@@ -513,6 +536,8 @@ beforeAll(async () => {
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,
+        previewBiddingPriceTierReapplyUseCase,
+        applyBiddingPriceTierReapplyUseCase,
         archiveBiddingJobUseCase,
         archiveTokenBiddingJobUseCase,
         archiveCollectionBiddingPriceTierUseCase,
@@ -554,6 +579,8 @@ beforeAll(async () => {
         upsertBatchTokenBiddingJobsUseCase,
         upsertCollectionBiddingJobUseCase,
         upsertCollectionBiddingPriceTierUseCase,
+        previewBiddingPriceTierReapplyUseCase,
+        applyBiddingPriceTierReapplyUseCase,
         archiveBiddingJobUseCase,
         archiveTokenBiddingJobUseCase,
         archiveCollectionBiddingPriceTierUseCase,
@@ -1339,6 +1366,64 @@ describe("backend api routes", () => {
                 resolvedCeilingWei: "150000000000000000",
                 deltaWei: "10000000000000000",
             },
+        });
+
+        const updatedTier = await resolve(
+            "PUT",
+            "/api/ethereum/milady/bidding/price-tiers",
+            {
+                tierId: createdTier.payload.tier.tierId,
+                name: "base",
+                status: TRADING_JOB_STATUS.Enabled,
+                sortOrder: 0,
+                parentTierId: null,
+                floorConfig: {
+                    kind: "fixed",
+                    valueEth: "0.13",
+                },
+                ceilingConfig: {
+                    kind: "floor_delta",
+                    deltaKind: "absolute",
+                    deltaEth: "0.04",
+                },
+            },
+            csrf,
+        );
+        expect(updatedTier.statusCode).toBe(200);
+
+        const preview = await resolve(
+            "GET",
+            `/api/ethereum/milady/bidding/price-tiers/${createdTier.payload.tier.tierId}/reapply-preview`,
+        );
+        expect(preview.statusCode).toBe(200);
+        expect(preview.payload.jobs).toHaveLength(1);
+        expect(preview.payload.jobs[0]).toMatchObject({
+            changed: true,
+            before: {
+                floorEth: "0.12",
+                ceilingEth: "0.15",
+                deltaEth: "0.01",
+            },
+            after: {
+                floorEth: "0.13",
+                ceilingEth: "0.17",
+                deltaEth: "0.01",
+            },
+        });
+
+        const applied = await resolve(
+            "POST",
+            `/api/ethereum/milady/bidding/price-tiers/${createdTier.payload.tier.tierId}/reapply`,
+            {
+                jobIds: [createdJob.payload.job.jobId],
+            },
+            csrf,
+        );
+        expect(applied.statusCode).toBe(200);
+        expect(applied.payload.jobs[0].config).toMatchObject({
+            floorEth: "0.13",
+            ceilingEth: "0.17",
+            deltaEth: "0.01",
         });
     });
 

@@ -1373,6 +1373,32 @@ th {
 	margin-inline: auto;
 }
 
+.bidding-price-tier-reapply-wrap {
+	margin-bottom: 0.75rem;
+	padding-bottom: 0.75rem;
+	border-bottom: 1px solid color-mix(in srgb, var(--c-blue) 60%, transparent);
+}
+
+.bidding-price-tier-reapply-preview {
+	display: grid;
+	gap: 0.55rem;
+	width: fit-content;
+	max-width: 100%;
+}
+
+.bidding-price-tier-reapply-table input {
+	margin: 0;
+}
+
+.bidding-price-tier-reapply-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.bidding-price-tier-reapply-actions button {
+	min-width: 4.5rem;
+}
+
 .bidding-price-tier-form-summary {
 	padding-bottom: 0.2rem;
 }

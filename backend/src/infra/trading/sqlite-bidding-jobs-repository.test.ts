@@ -140,6 +140,69 @@ describe("SqliteBiddingJobsRepository", () => {
         });
     });
 
+    it("reapplies tier-backed pricing by job id and emits a normal update command", () => {
+        const repository = new SqliteBiddingJobsRepository();
+        const created = repository.upsertTokenJob({
+            chainId: 1,
+            collectionId,
+            tokenId: "123",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorWei: "120000000000000000",
+            ceilingWei: "150000000000000000",
+            deltaWei: "10000000000000000",
+            priceTierId: "tier-base",
+            pricingSource: {
+                kind: "price_tier",
+                tierId: "tier-base",
+                tierName: "base",
+                resolvedAt: "2026-01-01T00:00:00Z",
+                resolvedFloorWei: "120000000000000000",
+                resolvedCeilingWei: "150000000000000000",
+                deltaWei: "10000000000000000",
+            },
+        });
+
+        const result = repository.updateJobsPricingById([
+            {
+                chainId: 1,
+                collectionId,
+                jobId: created.job.jobId,
+                floorWei: "130000000000000000",
+                ceilingWei: "160000000000000000",
+                deltaWei: "10000000000000000",
+                priceTierId: "tier-base",
+                pricingSource: {
+                    kind: "price_tier",
+                    tierId: "tier-base",
+                    tierName: "base",
+                    resolvedAt: "2026-01-02T00:00:00Z",
+                    resolvedFloorWei: "130000000000000000",
+                    resolvedCeilingWei: "160000000000000000",
+                    deltaWei: "10000000000000000",
+                },
+            },
+        ]);
+
+        assert.equal(result.jobs.length, 1);
+        assert.equal(result.jobs[0]?.jobId, created.job.jobId);
+        assert.equal(result.jobs[0]?.revision, 2);
+        assert.equal(result.jobs[0]?.floorWei, "130000000000000000");
+        assert.deepEqual(result.jobs[0]?.pricingSource, {
+            kind: "price_tier",
+            tierId: "tier-base",
+            tierName: "base",
+            resolvedAt: "2026-01-02T00:00:00Z",
+            resolvedFloorWei: "130000000000000000",
+            resolvedCeilingWei: "160000000000000000",
+            deltaWei: "10000000000000000",
+        });
+        assert.deepEqual(
+            result.commands.map((command) => command.commandKind),
+            [TRADING_JOB_COMMAND_KIND.JobUpdated],
+        );
+        assert.equal(result.commands[0]?.requestedRevision, 2);
+    });
+
     it("creates multiple token bidding jobs in one batch transaction", () => {
         const repository = new SqliteBiddingJobsRepository();
 

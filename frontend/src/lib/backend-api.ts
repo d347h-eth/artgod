@@ -4,6 +4,8 @@ import type {
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BatchTokenBiddingJobMutationApiResponse,
+	BiddingPriceTierReapplyApplyApiResponse,
+	BiddingPriceTierReapplyPreviewApiResponse,
 	BiddingJobMutationApiResponse,
 	BiddingJobTargetLookupApiResponse,
 	CollectionBiddingBidBookApiResponse,
@@ -405,6 +407,36 @@ export async function archiveCollectionBiddingPriceTier(
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}`,
 		'DELETE',
 		{}
+	);
+}
+
+export async function previewBiddingPriceTierReapply(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tierId: string
+): Promise<BiddingPriceTierReapplyPreviewApiResponse> {
+	return requestJson<BiddingPriceTierReapplyPreviewApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply-preview`
+	);
+}
+
+export async function applyBiddingPriceTierReapply(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	tierId: string,
+	body: {
+		jobIds: string[];
+	}
+): Promise<BiddingPriceTierReapplyApplyApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<BiddingPriceTierReapplyApplyApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/price-tiers/${encodeURIComponent(tierId)}/reapply`,
+		'POST',
+		body
 	);
 }
 

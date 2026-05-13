@@ -34,6 +34,17 @@ export type UpsertCollectionBiddingJobInput = {
     targetTraits: TradingTraitCriterion[];
 };
 
+export type UpdateBiddingJobPricingByIdInput = {
+    chainId: number;
+    collectionId: number;
+    jobId: string;
+    floorWei: string;
+    ceilingWei: string;
+    deltaWei: string;
+    priceTierId: string | null;
+    pricingSource: TradingBiddingJobPricingSource;
+};
+
 export interface BiddingJobsRepositoryPort {
     listCollectionJobs(params: {
         chainId: number;
@@ -87,6 +98,12 @@ export interface BiddingJobsRepositoryPort {
         job: PersistedBiddingJobRecord;
         commands: TradingJobCommandRecord[];
     } | null;
+    updateJobsPricingById(
+        inputs: UpdateBiddingJobPricingByIdInput[],
+    ): {
+        jobs: PersistedBiddingJobRecord[];
+        commands: TradingJobCommandRecord[];
+    };
     listPendingCommands(params: {
         limit: number;
     }): TradingJobCommandRecord[];

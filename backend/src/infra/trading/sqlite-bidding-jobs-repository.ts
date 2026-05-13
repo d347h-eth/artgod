@@ -23,6 +23,7 @@ import {
 } from "@artgod/shared/types";
 import type {
     BiddingJobsRepositoryPort,
+    UpdateBiddingJobPricingByIdInput,
     UpsertCollectionBiddingJobInput,
     UpsertTokenBiddingJobInput,
 } from "../../application/use-cases/trading/ports.js";
@@ -604,6 +605,29 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
         }) => this.archiveJobByIdInTransaction(input))(params);
     }
 
+    updateJobsPricingById(
+        inputs: UpdateBiddingJobPricingByIdInput[],
+    ): {
+        jobs: PersistedBiddingJobRecord[];
+        commands: TradingJobCommandRecord[];
+    } {
+        return db.raw.transaction(
+            (transactionInputs: UpdateBiddingJobPricingByIdInput[]) => {
+                const jobs: PersistedBiddingJobRecord[] = [];
+                const commands: TradingJobCommandRecord[] = [];
+                for (const input of transactionInputs) {
+                    const result = this.updateJobPricingByIdInTransaction(input);
+                    if (!result) {
+                        continue;
+                    }
+                    jobs.push(result.job);
+                    commands.push(...result.commands);
+                }
+                return { jobs, commands };
+            },
+        )(inputs);
+    }
+
     listPendingCommands(params: { limit: number }): TradingJobCommandRecord[] {
         const rows = this.selectPendingCommands.all({
             botKind: TRADING_BOT_KIND.Bidding,
@@ -660,6 +684,63 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             job,
             commands: [archivedCommand, cancelCommand],
         };
+    }
+
+    private updateJobPricingByIdInTransaction(
+        input: UpdateBiddingJobPricingByIdInput,
+    ): {
+        job: PersistedBiddingJobRecord;
+        commands: TradingJobCommandRecord[];
+    } | null {
+        const existing = this.getJobById(input.jobId);
+        if (
+            !existing ||
+            existing.chainId !== input.chainId ||
+            existing.collectionId !== input.collectionId ||
+            existing.status === TRADING_JOB_STATUS.Archived
+        ) {
+            return null;
+        }
+
+        this.updateTradingJobById.run({
+            jobId: existing.jobId,
+            status: existing.status,
+        });
+        this.updateBiddingSpecById.run({
+            jobId: existing.jobId,
+            floorWei: input.floorWei,
+            ceilingWei: input.ceilingWei,
+            deltaWei: input.deltaWei,
+            ...this.biddingSpecTargetPayload(existing),
+            priceTierId: input.priceTierId,
+            pricingSourceJson: JSON.stringify(input.pricingSource),
+        });
+
+        const job = this.requireBiddingJobById(existing.jobId);
+        const payload = this.biddingJobCommandPayload(job);
+        const commandKind =
+            job.status === TRADING_JOB_STATUS.Paused
+                ? TRADING_JOB_COMMAND_KIND.JobPaused
+                : TRADING_JOB_COMMAND_KIND.JobUpdated;
+        const commands = [
+            this.insertCommandRecord(
+                job.jobId,
+                commandKind,
+                job.revision,
+                payload,
+            ),
+        ];
+        if (job.status === TRADING_JOB_STATUS.Paused) {
+            commands.push(
+                this.insertCommandRecord(
+                    job.jobId,
+                    TRADING_JOB_COMMAND_KIND.CancelActiveOffer,
+                    job.revision,
+                    payload,
+                ),
+            );
+        }
+        return { job, commands };
     }
 
     private requireBiddingJobById(jobId: string): PersistedBiddingJobRecord {
@@ -816,6 +897,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             collectionId: job.collectionId,
             quantity: job.quantity,
             targetTraits: job.targetTraits,
+            ...(job.targetKind === TRADING_JOB_TARGET_KIND.CompetitiveTrait
+                ? { competitorTraits: job.competitorTraits }
+                : {}),
             jobId: job.jobId,
         };
     }
@@ -861,6 +945,28 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
 
     private traitCriteriaKey(traits: TradingTraitCriterion[]): string {
         return tradingTraitCriteriaKey(traits);
+    }
+
+    private biddingSpecTargetPayload(job: PersistedBiddingJobRecord): {
+        quantity: number | null;
+        targetTraitsJson: string | null;
+        competitorTraitsJson: string | null;
+    } {
+        if (job.targetKind === TRADING_JOB_TARGET_KIND.Token) {
+            return {
+                quantity: null,
+                targetTraitsJson: null,
+                competitorTraitsJson: null,
+            };
+        }
+        return {
+            quantity: job.quantity,
+            targetTraitsJson: JSON.stringify(job.targetTraits),
+            competitorTraitsJson:
+                job.targetKind === TRADING_JOB_TARGET_KIND.CompetitiveTrait
+                    ? JSON.stringify(job.competitorTraits)
+                    : null,
+        };
     }
 
     private insertCommandRecord(

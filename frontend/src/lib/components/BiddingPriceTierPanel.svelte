@@ -6,22 +6,27 @@
 		TRADING_JOB_STATUS
 	} from '@artgod/shared/types';
 	import type {
+		ApiBiddingJob,
 		ApiBiddingPriceTier,
 		ApiBiddingPriceTierCeilingConfig,
 		ApiBiddingPriceTierFloorConfig,
+		ApiBiddingPriceTierReapplyJobPreview,
 		ApiChain,
 		ApiCollection
 	} from '$lib/api-types';
 	import {
+		applyBiddingPriceTierReapply,
 		archiveCollectionBiddingPriceTier,
+		previewBiddingPriceTierReapply,
 		upsertCollectionBiddingPriceTier
 	} from '$lib/backend-api';
+	import BiddingPriceTierReapplyPreview from '$lib/components/BiddingPriceTierReapplyPreview.svelte';
 	import BiddingPriceTierRow from '$lib/components/BiddingPriceTierRow.svelte';
 
 	type EditablePriceTierStatus =
 		| typeof TRADING_JOB_STATUS.Enabled
 		| typeof TRADING_JOB_STATUS.Paused;
-	type PriceTierAction = 'create' | 'modify' | 'pause' | 'activate' | 'archive';
+	type PriceTierAction = 'create' | 'modify' | 'pause' | 'activate' | 'archive' | 'reapply';
 	type DeltaKind =
 		(typeof TRADING_BIDDING_PRICE_TIER_DELTA_KIND)[keyof typeof TRADING_BIDDING_PRICE_TIER_DELTA_KIND];
 
@@ -30,12 +35,14 @@
 		collection,
 		tiers,
 		onTiersChange,
+		onJobsChange = null,
 		onClose = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
 		tiers: ApiBiddingPriceTier[];
 		onTiersChange: (tiers: ApiBiddingPriceTier[]) => void;
+		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
 		onClose?: (() => void) | null;
 	} = $props();
 
@@ -64,6 +71,12 @@
 	let saveError = $state<string | null>(null);
 	let armedActionKey = $state<string | null>(null);
 	let nowMs = $state(Date.now());
+	let reapplyTierId = $state<string | null>(null);
+	let reapplyTierName = $state<string | null>(null);
+	let reapplyJobs = $state<ApiBiddingPriceTierReapplyJobPreview[]>([]);
+	let selectedReapplyJobIds = $state<string[]>([]);
+	let reapplyLoading = $state(false);
+	let reapplyApplying = $state(false);
 
 	const sortedTiers = $derived(sortTiers(tiers));
 	const activeTiers = $derived(
@@ -73,7 +86,7 @@
 		editingTierId ? (tiers.find((tier) => tier.tierId === editingTierId) ?? null) : null
 	);
 	const hasParent = $derived(parentTierId.trim().length > 0);
-	const busy = $derived(saving || busyActionKey !== null);
+	const busy = $derived(saving || busyActionKey !== null || reapplyLoading || reapplyApplying);
 	const canSubmit = $derived(resolveCanSubmit());
 	const canCreate = $derived(!editingTier && canSubmit);
 	const canModify = $derived(!!editingTier && canSubmit);
@@ -325,6 +338,74 @@
 		}
 	}
 
+	async function handlePreviewReapply(tier: ApiBiddingPriceTier): Promise<void> {
+		if (!chain || !collection || busy) {
+			return;
+		}
+		reapplyLoading = true;
+		saveMessage = null;
+		saveError = null;
+		armedActionKey = null;
+		try {
+			// Ask the backend to calculate the staged job diffs from current tier resolution.
+			const response = await previewBiddingPriceTierReapply(
+				fetch,
+				chain.slug,
+				collection.slug,
+				tier.tierId
+			);
+			reapplyTierId = response.tier.tierId;
+			reapplyTierName = response.tier.name;
+			reapplyJobs = response.jobs;
+			selectedReapplyJobIds = response.jobs
+				.filter((job) => job.changed)
+				.map((job) => job.job.jobId);
+		} catch (error) {
+			saveError = error instanceof Error ? error.message : 'failed to preview tier reapply';
+		} finally {
+			reapplyLoading = false;
+		}
+	}
+
+	function toggleReapplyJob(jobId: string): void {
+		const selected = new Set(selectedReapplyJobIds);
+		if (selected.has(jobId)) {
+			selected.delete(jobId);
+		} else {
+			selected.add(jobId);
+		}
+		selectedReapplyJobIds = [...selected];
+	}
+
+	async function handleApplyReapply(): Promise<void> {
+		await confirmAction('reapply:form', async () => {
+			if (!chain || !collection || !reapplyTierId || selectedReapplyJobIds.length === 0) {
+				return;
+			}
+			reapplyApplying = true;
+			saveMessage = null;
+			saveError = null;
+			try {
+				// Apply selected staged diffs through the backend job mutation path.
+				const response = await applyBiddingPriceTierReapply(
+					fetch,
+					chain.slug,
+					collection.slug,
+					reapplyTierId,
+					{ jobIds: selectedReapplyJobIds }
+				);
+				onJobsChange?.(response.jobs);
+				reapplyApplying = false;
+				await handlePreviewReapply(response.tier);
+				saveMessage = 'reapplied';
+			} catch (error) {
+				saveError = error instanceof Error ? error.message : 'failed to apply tier reapply';
+			} finally {
+				reapplyApplying = false;
+			}
+		});
+	}
+
 	async function handleStatusChange(
 		tier: ApiBiddingPriceTier,
 		status: EditablePriceTierStatus
@@ -480,6 +561,7 @@
 							busy={busy}
 							{nowMs}
 							onEdit={editTier}
+							onPreviewReapply={handlePreviewReapply}
 							onMove={handleMove}
 							onStatusChange={handleStatusChange}
 							onArchive={handleArchive}
@@ -490,7 +572,26 @@
 		</div>
 	{/if}
 
-		<form
+	{#if reapplyTierId}
+		<div class="bidding-price-tier-reapply-wrap">
+			<div class="runtime-kv-grid bid-book-meta bidding-price-tier-meta">
+				<div>
+					<span class="runtime-k">reapply</span>
+					<span class="runtime-v mono">{reapplyTierName ?? reapplyTierId}</span>
+				</div>
+			</div>
+			<BiddingPriceTierReapplyPreview
+				jobs={reapplyJobs}
+				selectedJobIds={selectedReapplyJobIds}
+				applying={reapplyApplying}
+				armedActionKey={armedActionKey}
+				onToggleJob={toggleReapplyJob}
+				onApply={handleApplyReapply}
+			/>
+		</div>
+	{/if}
+
+	<form
 		class="bootstrap-form bidding-price-tier-form"
 		onsubmit={(event) => {
 			event.preventDefault();

@@ -29,6 +29,8 @@ import type { UpsertTraitBiddingJobUseCase } from "./application/use-cases/tradi
 import type { UpsertBatchTokenBiddingJobsUseCase } from "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
 import type { UpsertCollectionBiddingJobUseCase } from "./application/use-cases/trading/upsert-collection-bidding-job.js";
 import type { UpsertCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/upsert-collection-bidding-price-tier.js";
+import type { PreviewBiddingPriceTierReapplyUseCase } from "./application/use-cases/trading/preview-bidding-price-tier-reapply.js";
+import type { ApplyBiddingPriceTierReapplyUseCase } from "./application/use-cases/trading/apply-bidding-price-tier-reapply.js";
 import type { ArchiveBiddingJobUseCase } from "./application/use-cases/trading/archive-bidding-job.js";
 import type { ArchiveTokenBiddingJobUseCase } from "./application/use-cases/trading/archive-token-bidding-job.js";
 import type { ArchiveCollectionBiddingPriceTierUseCase } from "./application/use-cases/trading/archive-collection-bidding-price-tier.js";
@@ -62,6 +64,8 @@ import { UpsertTraitBiddingJobHttpAdapter } from "./http/handlers/trading/upsert
 import { UpsertBatchTokenBiddingJobsHttpAdapter } from "./http/handlers/trading/upsert-batch-token-bidding-jobs.js";
 import { UpsertCollectionBiddingJobHttpAdapter } from "./http/handlers/trading/upsert-collection-bidding-job.js";
 import { UpsertCollectionBiddingPriceTierHttpAdapter } from "./http/handlers/trading/upsert-collection-bidding-price-tier.js";
+import { PreviewBiddingPriceTierReapplyHttpAdapter } from "./http/handlers/trading/preview-bidding-price-tier-reapply.js";
+import { ApplyBiddingPriceTierReapplyHttpAdapter } from "./http/handlers/trading/apply-bidding-price-tier-reapply.js";
 import { ArchiveBiddingJobHttpAdapter } from "./http/handlers/trading/archive-bidding-job.js";
 import { ArchiveTokenBiddingJobHttpAdapter } from "./http/handlers/trading/archive-token-bidding-job.js";
 import { ArchiveCollectionBiddingPriceTierHttpAdapter } from "./http/handlers/trading/archive-collection-bidding-price-tier.js";
@@ -109,6 +113,8 @@ export function createApiApp(
     upsertBatchTokenBiddingJobsUseCase: UpsertBatchTokenBiddingJobsUseCase,
     upsertCollectionBiddingJobUseCase: UpsertCollectionBiddingJobUseCase,
     upsertCollectionBiddingPriceTierUseCase: UpsertCollectionBiddingPriceTierUseCase,
+    previewBiddingPriceTierReapplyUseCase: PreviewBiddingPriceTierReapplyUseCase,
+    applyBiddingPriceTierReapplyUseCase: ApplyBiddingPriceTierReapplyUseCase,
     archiveBiddingJobUseCase: ArchiveBiddingJobUseCase,
     archiveTokenBiddingJobUseCase: ArchiveTokenBiddingJobUseCase,
     archiveCollectionBiddingPriceTierUseCase: ArchiveCollectionBiddingPriceTierUseCase,
@@ -217,6 +223,14 @@ export function createApiApp(
         new UpsertCollectionBiddingPriceTierHttpAdapter(
             upsertCollectionBiddingPriceTierUseCase,
         );
+    const previewBiddingPriceTierReapplyAdapter =
+        new PreviewBiddingPriceTierReapplyHttpAdapter(
+            previewBiddingPriceTierReapplyUseCase,
+        );
+    const applyBiddingPriceTierReapplyAdapter =
+        new ApplyBiddingPriceTierReapplyHttpAdapter(
+            applyBiddingPriceTierReapplyUseCase,
+        );
     const archiveTokenBiddingJobAdapter =
         new ArchiveTokenBiddingJobHttpAdapter(
             archiveTokenBiddingJobUseCase,
@@ -267,6 +281,8 @@ export function createApiApp(
         upsertBatchTokenBiddingJobsAdapter,
         upsertCollectionBiddingJobAdapter,
         upsertCollectionBiddingPriceTierAdapter,
+        previewBiddingPriceTierReapplyAdapter,
+        applyBiddingPriceTierReapplyAdapter,
         archiveBiddingJobAdapter,
         archiveTokenBiddingJobAdapter,
         archiveCollectionBiddingPriceTierAdapter,
