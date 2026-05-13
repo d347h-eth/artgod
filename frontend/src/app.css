@@ -1261,14 +1261,6 @@ th {
 	white-space: nowrap;
 }
 
-.bidding-status-select {
-	width: 10rem;
-}
-
-.bidding-number-input {
-	width: 10ch;
-}
-
 .bidding-runtime-cell {
 	min-width: 15rem;
 }
@@ -1283,17 +1275,6 @@ th {
 	gap: 0.1rem;
 }
 
-.bidding-actions-cell {
-	min-width: 14rem;
-}
-
-.bidding-row-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.35rem;
-}
-
-.bidding-row-note,
 .bidding-row-error {
 	margin: 0.35rem 0 0;
 }

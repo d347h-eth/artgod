@@ -443,14 +443,6 @@
 		]);
 	}
 
-	function handleJobUpdated(nextJob: ApiBiddingJob): void {
-		collectionJobs = collectionJobs.map((job) => (job.jobId === nextJob.jobId ? nextJob : job));
-	}
-
-	function handleJobArchived(jobId: string): void {
-		collectionJobs = collectionJobs.filter((job) => job.jobId !== jobId);
-	}
-
 	function handleJobsChanged(nextJobs: ApiBiddingJob[]): void {
 		const nextById = new Map(nextJobs.map((job) => [job.jobId, job]));
 		const archivedIds = new Set(
@@ -1174,7 +1166,6 @@
 								<th>ceiling</th>
 								<th>delta</th>
 								<th>runtime</th>
-								<th>actions</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -1182,14 +1173,11 @@
 								{@const tokenId = jobTokenId(job)}
 								<CollectionBiddingJobRow
 									chainRef={chain?.slug ?? ''}
-									collectionRef={collection?.slug ?? ''}
 									collectionBasePath={basePath}
 									returnPath={biddingPath()}
 									returnQuery={biddingReturnQuery()}
 									{mediaMode}
 									{job}
-									onJobUpdated={handleJobUpdated}
-									onJobArchived={handleJobArchived}
 								>
 									{#snippet imageCell()}
 										{#if tokenId}

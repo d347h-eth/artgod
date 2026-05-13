@@ -682,11 +682,9 @@ Current implementation notes:
 
 ### Slice 17: Bidding Jobs Page Cleanup
 
-Status: pending.
+Status: complete.
 
-- Reassess whether the dedicated jobs subpage should remain once bid-book operations can create, edit, and archive all target kinds.
-- If retained, make it a compact diagnostics/overview page instead of the primary editing surface.
-- If removed, preserve any useful runtime counters in the bid-book operations UI.
+- Keep the dedicated jobs subpage as a compact diagnostics/overview page instead of the primary editing surface.
 - Keep token previews reusable; do not fork token-card or activity-token preview components.
 - Do not duplicate the automation panel or job mutation forms inside the jobs page.
 - If the page remains, use it for auditability: declared jobs, runtime state, command/revision status, and troubleshooting.
@@ -698,6 +696,13 @@ Expected artifacts:
 
 - `frontend/src/lib/components/CollectionBiddingView.svelte`
 - `frontend/src/lib/components/CollectionBiddingJobRow.svelte`
+
+Current implementation notes:
+
+- The jobs subpage remains available from the main `bidding` navigation item and shows compact job counters plus a read-only declared-job/runtime table.
+- `CollectionBiddingJobRow` no longer imports backend mutation APIs, owns local form state, or renders save/archive/status controls.
+- Token previews continue to use the existing activity-token preview cell path; no token-card or preview fork was introduced.
+- Job mutations stay centralized in the shared automation panel and bid-book/token-browsing operations surfaces.
 
 ## Resolved Decisions
 

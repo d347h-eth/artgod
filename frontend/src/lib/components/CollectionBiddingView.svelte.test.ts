@@ -281,7 +281,7 @@ describe('CollectionBiddingView', () => {
 		expect(body).not.toContain('facet-filter-mode-button');
 	});
 
-	it('renders bidding jobs with inline token controls', () => {
+	it('renders bidding jobs as a read-only diagnostics table', () => {
 		const { body } = render(CollectionBiddingView, {
 			props: {
 				chain: {
@@ -431,8 +431,13 @@ describe('CollectionBiddingView', () => {
 		expect(body).toContain('token 1');
 		expect(body).toContain('activity-token-cell');
 		expect(body).toContain('https://example.com/milady-1.png');
-		expect(body).toContain('save');
-		expect(body).toContain('archive');
+		expect(body).toContain('<span class="mono">enabled</span>');
+		expect(body).toContain('<span class="mono">paused</span>');
+		expect(body).toContain('<span class="mono">0.1</span>');
+		expect(body).not.toContain('save');
+		expect(body).not.toContain('archive');
+		expect(body).not.toContain('<th>actions</th>');
+		expect(body).not.toContain('bidding-row-actions');
 		expect(body).toContain('token jobs');
 		expect(body).toContain('other scopes');
 		expect(body).not.toContain('bids source');
