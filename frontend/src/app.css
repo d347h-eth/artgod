@@ -2139,10 +2139,13 @@ th {
 }
 
 .bidding-automation-panel {
-	--token-bidding-action-gap: 150px;
+	--token-bidding-label-width: clamp(6.75rem, 26vw, 8rem);
+	--token-bidding-control-width: clamp(11.5rem, 42vw, 13.5rem);
+	--token-bidding-field-gap: 0.7rem;
 	--token-bidding-action-width: 75px;
 	--token-bidding-content-width: calc(
-		var(--token-bidding-action-width) * 2 + var(--token-bidding-action-gap)
+		var(--token-bidding-label-width) + var(--token-bidding-field-gap) +
+			var(--token-bidding-control-width)
 	);
 	position: fixed;
 	right: 0;
@@ -2240,11 +2243,12 @@ th {
 }
 
 .bidding-token-input {
-	width: 12ch;
+	width: 100%;
 }
 
 .token-bidding-form .bootstrap-form-row {
-	grid-template-columns: minmax(0, 1fr) max-content;
+	grid-template-columns: var(--token-bidding-label-width) var(--token-bidding-control-width);
+	column-gap: var(--token-bidding-field-gap);
 	width: 100%;
 }
 
@@ -2253,14 +2257,19 @@ th {
 	text-align: right;
 }
 
+.token-bidding-form .bootstrap-control {
+	width: 100%;
+	justify-self: stretch;
+}
+
 .token-bidding-form-footer {
 	padding: 0.75rem 0 0;
 	display: grid;
-	grid-template-columns: var(--token-bidding-action-width) var(--token-bidding-action-width);
+	grid-template-columns: var(--token-bidding-label-width) var(--token-bidding-control-width);
 	align-items: end;
-	column-gap: var(--token-bidding-action-gap);
+	column-gap: var(--token-bidding-field-gap);
 	row-gap: 0.5rem;
-	justify-content: center;
+	justify-content: stretch;
 }
 
 .token-bidding-form-actions-left,
@@ -2268,6 +2277,14 @@ th {
 	display: flex;
 	flex-direction: column;
 	gap: 0.35rem;
+}
+
+.token-bidding-form-actions-left {
+	justify-self: start;
+}
+
+.token-bidding-form-actions-right {
+	justify-self: end;
 }
 
 .token-bidding-form-actions-left button,

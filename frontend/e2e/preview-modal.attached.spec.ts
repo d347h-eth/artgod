@@ -1,12 +1,10 @@
-import {
-	expect,
-	test,
-	type APIRequestContext,
-	type Locator,
-	type Page,
-	type TestInfo
-} from 'playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
 import { LOCAL_STORAGE_KEYS } from '$lib/local-storage-keys';
+import {
+	assertAttachedAppReachable,
+	attachDiagnostics,
+	capturePageDiagnostics
+} from './attached-app';
 
 const TARGET_PATH = process.env.ARTGOD_E2E_TARGET_PATH?.trim() || '/ethereum/terraforms';
 const GEOMETRY_TOLERANCE_PX = 4;
@@ -18,7 +16,10 @@ test('opens preview modal within the viewport and closes on backdrop click', asy
 	const diagnostics = capturePageDiagnostics(page);
 
 	try {
-		await assertAttachedAppReachable(request);
+		await assertAttachedAppReachable(request, {
+			targetPath: TARGET_PATH,
+			probeName: 'preview'
+		});
 
 		await page.goto(TARGET_PATH, {
 			waitUntil: 'domcontentloaded'
@@ -68,7 +69,10 @@ test('renders token detail media within the viewport without horizontal overflow
 	const diagnostics = capturePageDiagnostics(page);
 
 	try {
-		await assertAttachedAppReachable(request);
+		await assertAttachedAppReachable(request, {
+			targetPath: TARGET_PATH,
+			probeName: 'preview'
+		});
 
 		await page.goto(TARGET_PATH, {
 			waitUntil: 'domcontentloaded'
@@ -78,7 +82,9 @@ test('renders token detail media within the viewport without horizontal overflow
 		const tokenCard = page.locator('.token-grid-card').first();
 		await expect(tokenCard).toBeVisible();
 
-		const expectedAspectRatio = await readImageNaturalAspectRatio(tokenCard.locator('.token-grid-thumb'));
+		const expectedAspectRatio = await readImageNaturalAspectRatio(
+			tokenCard.locator('.token-grid-thumb')
+		);
 		await tokenCard.locator('a.token-grid-id').click();
 
 		await expect(page).toHaveURL(/\/ethereum\/terraforms\/\d+/);
@@ -126,7 +132,10 @@ test('mobile preview hides arrow buttons and persists swipe hint dismissal', asy
 	const diagnostics = capturePageDiagnostics(page);
 
 	try {
-		await assertAttachedAppReachable(request);
+		await assertAttachedAppReachable(request, {
+			targetPath: TARGET_PATH,
+			probeName: 'preview'
+		});
 		await page.addInitScript((storageKey) => {
 			window.localStorage.removeItem(storageKey);
 		}, LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed);
@@ -181,7 +190,10 @@ test('mobile backdrop swipe navigates between adjacent previews', async ({
 	const diagnostics = capturePageDiagnostics(page);
 
 	try {
-		await assertAttachedAppReachable(request);
+		await assertAttachedAppReachable(request, {
+			targetPath: TARGET_PATH,
+			probeName: 'preview'
+		});
 
 		await page.goto(TARGET_PATH, {
 			waitUntil: 'domcontentloaded'
@@ -256,7 +268,10 @@ test('pixel mobile bottom-backdrop swipe navigates with browser touch input', as
 	const diagnostics = capturePageDiagnostics(page);
 
 	try {
-		await assertAttachedAppReachable(request);
+		await assertAttachedAppReachable(request, {
+			targetPath: TARGET_PATH,
+			probeName: 'preview'
+		});
 		await page.addInitScript((storageKey) => {
 			window.localStorage.removeItem(storageKey);
 		}, LOCAL_STORAGE_KEYS.tokenPreviewSwipeHintDismissed);
@@ -312,7 +327,10 @@ test('pixel mobile bottom-backdrop tap closes preview with browser touch input',
 	const diagnostics = capturePageDiagnostics(page);
 
 	try {
-		await assertAttachedAppReachable(request);
+		await assertAttachedAppReachable(request, {
+			targetPath: TARGET_PATH,
+			probeName: 'preview'
+		});
 
 		await page.goto(TARGET_PATH, {
 			waitUntil: 'domcontentloaded'
@@ -337,78 +355,6 @@ test('pixel mobile bottom-backdrop tap closes preview with browser touch input',
 	}
 });
 
-async function assertAttachedAppReachable(request: APIRequestContext): Promise<void> {
-	let pageResponse;
-	try {
-		pageResponse = await request.get(TARGET_PATH);
-	} catch (cause) {
-		throw new Error(
-			`Attached preview probe could not reach ${TARGET_PATH}. Start yarn dev first. ${toErrorMessage(cause)}`
-		);
-	}
-
-	if (!pageResponse.ok()) {
-		throw new Error(
-			`Attached preview probe got ${pageResponse.status()} for ${TARGET_PATH}. Start yarn dev first.`
-		);
-	}
-
-	let apiResponse;
-	try {
-		apiResponse = await request.get('/api/chains/default');
-	} catch (cause) {
-		throw new Error(
-			`Attached preview probe could not reach /api/chains/default through the frontend dev server. Ensure backend/indexer/frontend are all running via yarn dev. ${toErrorMessage(cause)}`
-		);
-	}
-
-	if (!apiResponse.ok()) {
-		throw new Error(
-			`Attached preview probe got ${apiResponse.status()} from /api/chains/default. Ensure yarn dev is fully up and healthy.`
-		);
-	}
-}
-
-function capturePageDiagnostics(page: Page): {
-	consoleMessages: string[];
-	pageErrors: string[];
-} {
-	const consoleMessages: string[] = [];
-	const pageErrors: string[] = [];
-
-	page.on('console', (message) => {
-		consoleMessages.push(`[${message.type()}] ${message.text()}`);
-	});
-
-	page.on('pageerror', (error) => {
-		pageErrors.push(error.stack || error.message);
-	});
-
-	return { consoleMessages, pageErrors };
-}
-
-async function attachDiagnostics(
-	testInfo: TestInfo,
-	diagnostics: {
-		consoleMessages: string[];
-		pageErrors: string[];
-	}
-): Promise<void> {
-	if (diagnostics.consoleMessages.length > 0) {
-		await testInfo.attach('browser-console.txt', {
-			body: Buffer.from(diagnostics.consoleMessages.join('\n')),
-			contentType: 'text/plain'
-		});
-	}
-
-	if (diagnostics.pageErrors.length > 0) {
-		await testInfo.attach('page-errors.txt', {
-			body: Buffer.from(diagnostics.pageErrors.join('\n\n')),
-			contentType: 'text/plain'
-		});
-	}
-}
-
 async function readPreviewMetrics(page: Page): Promise<PreviewMetrics> {
 	return page.evaluate(() => {
 		const readRectSnapshot = (element: HTMLElement) => {
@@ -430,18 +376,18 @@ async function readPreviewMetrics(page: Page): Promise<PreviewMetrics> {
 			throw new Error('Preview frame was not found');
 		}
 
-			return {
-				viewport: {
-					width: window.innerWidth,
-					height: window.innerHeight
-				},
-				scrollWidth: document.documentElement.scrollWidth,
-				scrollHeight: document.documentElement.scrollHeight,
-				overlay: readRectSnapshot(overlay),
-				box: readRectSnapshot(box),
-				frame: readRectSnapshot(frame)
-			};
-		});
+		return {
+			viewport: {
+				width: window.innerWidth,
+				height: window.innerHeight
+			},
+			scrollWidth: document.documentElement.scrollWidth,
+			scrollHeight: document.documentElement.scrollHeight,
+			overlay: readRectSnapshot(overlay),
+			box: readRectSnapshot(box),
+			frame: readRectSnapshot(frame)
+		};
+	});
 }
 
 async function readTokenDetailMetrics(page: Page): Promise<TokenDetailMetrics> {
@@ -685,16 +631,6 @@ function assertTokenDetailMetrics(
 		Math.abs(metrics.box.width / metrics.box.height - expectedAspectRatio),
 		`${testInfo.project.name} token detail media box aspect ratio drifted from the token image aspect`
 	).toBeLessThanOrEqual(0.02);
-}
-
-function toErrorMessage(cause: unknown): string {
-	if (cause instanceof Error && cause.message.trim()) {
-		return cause.message;
-	}
-	if (typeof cause === 'string' && cause.trim()) {
-		return cause;
-	}
-	return 'Unknown error';
 }
 
 async function readPreviewTriggerAspectRatio(previewTrigger: Locator): Promise<number> {

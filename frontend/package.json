@@ -17,7 +17,11 @@
         "test:preview:attached": "playwright test -c playwright.attached.config.ts",
         "test:preview:attached:headed": "playwright test -c playwright.attached.config.ts --headed",
         "test:preview:attached:artifacts": "ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts",
-        "test:preview:attached:headed:artifacts": "ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts --headed"
+        "test:preview:attached:headed:artifacts": "ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts --headed",
+        "test:bidding:attached": "playwright test -c playwright.attached.config.ts e2e/bidding-panel.attached.spec.ts",
+        "test:bidding:attached:headed": "playwright test -c playwright.attached.config.ts e2e/bidding-panel.attached.spec.ts --headed",
+        "test:bidding:attached:artifacts": "ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts e2e/bidding-panel.attached.spec.ts",
+        "test:bidding:attached:headed:artifacts": "ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts e2e/bidding-panel.attached.spec.ts --headed"
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
