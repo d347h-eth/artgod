@@ -112,7 +112,8 @@ describe('token detail page', () => {
 									validUntil: 4_000_000_000,
 									placedAt: '2026-01-01T00:00:00Z',
 									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-01T00:00:00Z'
+									seenAt: '2026-01-01T00:00:00Z',
+									ownStatus: null
 								},
 								{
 									orderId: '0xtrait-bid',
@@ -137,7 +138,8 @@ describe('token detail page', () => {
 									validUntil: 4_000_000_000,
 									placedAt: '2026-01-01T00:00:00Z',
 									snapshotRefreshedAtMs: null,
-									seenAt: '2026-01-01T00:00:00Z'
+									seenAt: '2026-01-01T00:00:00Z',
+									ownStatus: null
 								}
 							]
 						},

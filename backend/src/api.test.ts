@@ -1224,6 +1224,119 @@ describe("backend api routes", () => {
         expect(staleProjection.payload.bidBook.state.source).toBe("orders");
     });
 
+    it("enriches own bid rows with backend-owned position and job constraint signals", async () => {
+        clearTradingJobFixtures();
+        const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
+        db.prepare("DELETE FROM trading_bidding_bid_book_rows WHERE order_id IN (?, ?)").run(
+            "own-signal-bid",
+            "opponent-signal-bid",
+        );
+
+        db.prepare(
+            "INSERT INTO trading_jobs " +
+                "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id, revision) " +
+                "VALUES (?, ?, 1, ?, ?, ?, NULL, 1)",
+        ).run(
+            "own-signal-job",
+            TRADING_BOT_KIND.Bidding,
+            collection.collection_id,
+            TRADING_JOB_STATUS.Enabled,
+            TRADING_JOB_TARGET_KIND.Collection,
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_job_specs " +
+                "(job_id, floor_wei, ceiling_wei, delta_wei, quantity) " +
+                "VALUES (?, '100000000000000000', '200000000000000000', '10000000000000000', 1)",
+        ).run("own-signal-job");
+        db.prepare(
+            "INSERT INTO trading_bot_runtime_state " +
+                "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
+                "VALUES (?, 1, 'wallet-own-signal', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, NULL)",
+        ).run(
+            TRADING_BOT_KIND.Bidding,
+            TRADING_BOT_RUNTIME_STATE.Running,
+            new Date().toISOString(),
+            new Date().toISOString(),
+            new Date().toISOString(),
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_bid_book_rows " +
+                "(chain_id, collection_id, order_id, source, scope_kind, scope_label, maker, is_own, price_wei, currency_address, snapshot_refreshed_at_ms) " +
+                "VALUES (1, ?, ?, ?, ?, 'collection', ?, 0, ?, ?, ?)",
+        ).run(
+            collection.collection_id,
+            "own-signal-bid",
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+            TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "200000000000000000",
+            WETH_ADDRESS.toLowerCase(),
+            Date.now(),
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_bid_book_rows " +
+                "(chain_id, collection_id, order_id, source, scope_kind, scope_label, maker, is_own, price_wei, currency_address, snapshot_refreshed_at_ms) " +
+                "VALUES (1, ?, ?, ?, ?, 'collection', ?, 0, ?, ?, ?)",
+        ).run(
+            collection.collection_id,
+            "opponent-signal-bid",
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+            TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "210000000000000000",
+            WETH_ADDRESS.toLowerCase(),
+            Date.now(),
+        );
+        db.prepare(
+            "INSERT INTO trading_bidding_collection_bid_book_state " +
+                "(chain_id, collection_id, source, snapshot_refreshed_at_ms, projected_at, row_count, duration_ms, last_error) " +
+                "VALUES (1, ?, ?, ?, ?, 2, 1, NULL)",
+        ).run(
+            collection.collection_id,
+            TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+            Date.now(),
+            new Date().toISOString(),
+        );
+
+        const response = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids?bid_scope=collection",
+        );
+        expect(response.statusCode).toBe(200);
+        const ownBid = response.payload.bidBook.bids.find(
+            (bid: { orderId: string }) => bid.orderId === "own-signal-bid",
+        );
+        const opponentBid = response.payload.bidBook.bids.find(
+            (bid: { orderId: string }) => bid.orderId === "opponent-signal-bid",
+        );
+        expect(ownBid).toMatchObject({
+            maker: { label: "You", isOwn: true },
+            ownStatus: {
+                position: "losing",
+                constraints: ["ceiling"],
+                job: {
+                    jobId: "own-signal-job",
+                    revision: 1,
+                    status: TRADING_JOB_STATUS.Enabled,
+                },
+            },
+        });
+        expect(opponentBid?.ownStatus).toBeNull();
+
+        const makerFiltered = await resolve(
+            "GET",
+            "/api/ethereum/milady/bidding/bids?bid_scope=collection&maker=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+        expect(
+            makerFiltered.payload.bidBook.bids.map(
+                (bid: { orderId: string }) => bid.orderId,
+            ),
+        ).toEqual(["own-signal-bid"]);
+        expect(makerFiltered.payload.bidBook.bids[0]?.ownStatus?.position).toBe(
+            "losing",
+        );
+    });
+
     it("creates and updates token bidding jobs via admin routes", async () => {
         clearTradingJobFixtures();
         const csrf = await issueAdminCsrf();

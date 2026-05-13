@@ -10,6 +10,7 @@ import type {
 import type {
     TradingBiddingBidBookSource,
     TradingBiddingBidScopeKind,
+    TradingJobStatus,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
 
@@ -49,6 +50,7 @@ export type PersistedBiddingBidBookRow = {
     placedAt: string | null;
     snapshotRefreshedAtMs: number | null;
     seenAt: string | null;
+    ownStatus: BiddingBidBookOwnStatus | null;
 };
 
 export type PersistedBiddingBidBookState = {
@@ -59,6 +61,27 @@ export type PersistedBiddingBidBookState = {
     rowCount: number;
     durationMs: number | null;
     lastError: string | null;
+};
+
+// Describes an own bid's market rank within its exact bid-book scope.
+export type BiddingBidBookOwnPosition = "winning" | "draw" | "losing";
+
+// Names compact own-bid strategy limits that can be rendered directly in rows.
+export type BiddingBidBookOwnConstraint =
+    | "ceiling"
+    | "floor"
+    | "balance"
+    | "allowance";
+
+// Carries backend-owned own-bid signals so the frontend does not reimplement bot rules.
+export type BiddingBidBookOwnStatus = {
+    position: BiddingBidBookOwnPosition;
+    constraints: BiddingBidBookOwnConstraint[];
+    job: {
+        jobId: string;
+        revision: number;
+        status: TradingJobStatus;
+    } | null;
 };
 
 export type PersistedBiddingBidBook = {
@@ -109,6 +132,7 @@ export type BiddingBidBookRowView = {
     placedAt: string | null;
     snapshotRefreshedAtMs: number | null;
     seenAt: string | null;
+    ownStatus: BiddingBidBookOwnStatus | null;
 };
 
 export type BiddingBidBookView = {
@@ -191,5 +215,6 @@ export function mapPersistedBidRowsToView(
         placedAt: bid.placedAt,
         snapshotRefreshedAtMs: bid.snapshotRefreshedAtMs,
         seenAt: bid.seenAt,
+        ownStatus: bid.ownStatus,
     }));
 }

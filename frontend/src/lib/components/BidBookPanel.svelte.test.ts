@@ -29,7 +29,8 @@ const BASE_BID: ApiBiddingBidBookRow = {
 	validUntil: 1_900_000_000,
 	placedAt: '2026-01-02T00:00:00Z',
 	snapshotRefreshedAtMs: null,
-	seenAt: '2026-01-02T00:00:00Z'
+	seenAt: '2026-01-02T00:00:00Z',
+	ownStatus: null
 };
 
 describe('BidBookPanel', () => {
@@ -326,7 +327,16 @@ describe('BidBookPanel', () => {
 				isOwn: true
 			},
 			priceWei: '200000000000000000',
-			priceEth: '0.2'
+			priceEth: '0.2',
+			ownStatus: {
+				position: 'winning' as const,
+				constraints: ['ceiling' as const],
+				job: {
+					jobId: 'job-token-1',
+					revision: 1,
+					status: 'enabled' as const
+				}
+			}
 		};
 		const bidBook: ApiBiddingBidBook = {
 			state: {
@@ -348,7 +358,8 @@ describe('BidBookPanel', () => {
 						address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 						label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 						isOwn: false
-					}
+					},
+					ownStatus: null
 				},
 				ownBid
 			]

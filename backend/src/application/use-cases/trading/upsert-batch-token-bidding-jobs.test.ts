@@ -332,6 +332,7 @@ function bidBookRow(input: {
         placedAt: null,
         snapshotRefreshedAtMs: null,
         seenAt: null,
+        ownStatus: null,
     };
 }
 

@@ -41,7 +41,8 @@ const BASE_BID: ApiBiddingBidBookRow = {
 	validUntil: 1_900_000_000,
 	placedAt: '2026-01-02T00:00:00Z',
 	snapshotRefreshedAtMs: null,
-	seenAt: '2026-01-02T00:00:00Z'
+	seenAt: '2026-01-02T00:00:00Z',
+	ownStatus: null
 };
 
 const EXISTING_TOKEN_JOB: ApiBiddingJob = {

@@ -621,7 +621,7 @@ Current implementation notes:
 
 ### Slice 15: Own-Bid Runtime State and Constraint Signals
 
-Status: pending.
+Status: complete.
 
 - Enrich own bid rows with job-linked status: winning, draw, losing, ceiling hit, floor hit, balance limited, and allowance limited.
 - Add compact icons or labels directly on own bid rows.
@@ -639,6 +639,15 @@ Expected artifacts:
 - `backend/src/application/use-cases/trading/bidding-bid-book.ts`
 - `backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts`
 - `frontend/src/lib/components/BidBookPanel.svelte`
+
+Current implementation notes:
+
+- Bid-book rows now carry backend-owned `ownStatus` for own bids instead of deriving row status in the frontend.
+- The repository computes own-bid position by exact bid scope before applying the maker filter, so `my bids` can still show losing/draw/winning against hidden opponents.
+- Own bid rows are linked to matching non-archived declared jobs by token, collection, or exact trait target; the row status exposes job id, revision, and job status.
+- Floor and ceiling constraint labels are derived from the matching declared job scalar prices.
+- `balance` and `allowance` are included in the read-model constraint contract, but they intentionally remain unset until the bidding runtime persists explicit constraint flags. Do not infer them from free-form error strings.
+- The frontend only renders `ownStatus` from the API and no longer reimplements bid-row position or floor/ceiling decisions.
 
 ### Slice 16: Offer-Filtered Selection Resolution
 

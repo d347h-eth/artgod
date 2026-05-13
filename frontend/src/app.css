@@ -1576,7 +1576,9 @@ th {
 }
 
 .bid-book-own-status-losing,
-.bid-book-own-status-ceiling {
+.bid-book-own-status-ceiling,
+.bid-book-own-status-balance,
+.bid-book-own-status-allowance {
 	color: var(--c-pink);
 }
 

@@ -409,6 +409,17 @@ export type ApiBiddingBidBookSource = 'bot_snapshot' | 'orders';
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
 export type ApiCollectionBiddingBidScopeFilter = 'token' | 'traits' | 'collection';
 export type ApiCollectionBiddingTraitFilterJoinMode = 'or' | 'and';
+export type ApiBiddingBidBookOwnPosition = 'winning' | 'draw' | 'losing';
+export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor' | 'balance' | 'allowance';
+export type ApiBiddingBidBookOwnStatus = {
+	position: ApiBiddingBidBookOwnPosition;
+	constraints: ApiBiddingBidBookOwnConstraint[];
+	job: {
+		jobId: string;
+		revision: number;
+		status: ApiBiddingJobStatus;
+	} | null;
+};
 
 export type ApiBiddingBidBookRow = {
 	orderId: string;
@@ -434,6 +445,7 @@ export type ApiBiddingBidBookRow = {
 	placedAt: string | null;
 	snapshotRefreshedAtMs: number | null;
 	seenAt: string | null;
+	ownStatus: ApiBiddingBidBookOwnStatus | null;
 };
 
 export type ApiBiddingBidBook = {

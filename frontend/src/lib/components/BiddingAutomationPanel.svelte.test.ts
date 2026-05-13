@@ -127,7 +127,8 @@ describe('BiddingAutomationPanel', () => {
 			validUntil: 1_900_000_000,
 			placedAt: '2026-01-02T00:00:00Z',
 			snapshotRefreshedAtMs: null,
-			seenAt: '2026-01-02T00:00:00Z'
+			seenAt: '2026-01-02T00:00:00Z',
+			ownStatus: null
 		});
 
 		const { body } = render(BiddingAutomationPanel, {
@@ -214,7 +215,8 @@ describe('BiddingAutomationPanel', () => {
 			validUntil: 1_900_000_000,
 			placedAt: '2026-01-02T00:00:00Z',
 			snapshotRefreshedAtMs: null,
-			seenAt: '2026-01-02T00:00:00Z'
+			seenAt: '2026-01-02T00:00:00Z',
+			ownStatus: null
 		});
 
 		const { body } = render(BiddingAutomationPanel, {
