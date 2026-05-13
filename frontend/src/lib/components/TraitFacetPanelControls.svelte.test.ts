@@ -39,6 +39,7 @@ describe('TraitFacetPanelControls', () => {
 		expect(body).toContain('>filter<');
 		expect(body).toContain('>OR<');
 		expect(body).toContain('facet-filter-mode-button');
+		expect(body).toContain('facet-collapse-button-active');
 		expect(body).not.toContain('filter [or]');
 	});
 

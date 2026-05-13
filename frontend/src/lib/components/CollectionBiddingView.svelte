@@ -877,7 +877,13 @@
 			!event.altKey &&
 			!isKeyboardTextEntryTarget(event.target, { allowCheckboxAndRadio: true })
 		) {
-			if (event.key.toLowerCase() === 's') {
+			const key = event.key.toLowerCase();
+			if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && key === 't') {
+				event.preventDefault();
+				togglePriceTierPanel();
+				return;
+			}
+			if (key === 's') {
 				event.preventDefault();
 				void cycleBidScope();
 				return;

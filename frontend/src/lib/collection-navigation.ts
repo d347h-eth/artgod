@@ -202,7 +202,7 @@ export function resolveCollectionSectionShortcutHref(
 ): string | null {
 	if (event.defaultPrevented) return null;
 	if (event.metaKey || event.ctrlKey || event.altKey) return null;
-	if (isKeyboardTextEntryTarget(event.target)) return null;
+	if (isKeyboardTextEntryTarget(event.target, { allowCheckboxAndRadio: true })) return null;
 
 	switch (event.key) {
 		case '1':

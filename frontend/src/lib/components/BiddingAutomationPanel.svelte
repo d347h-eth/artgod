@@ -406,7 +406,7 @@
 	function onWindowKeydown(event: KeyboardEvent): void {
 		if (!open || event.defaultPrevented) return;
 		if (event.metaKey || event.ctrlKey || event.altKey) return;
-		if (isKeyboardTextEntryTarget(event.target)) return;
+		if (isKeyboardTextEntryTarget(event.target, { allowCheckboxAndRadio: true })) return;
 
 		const key = event.key.toLowerCase();
 		if (key === 'b') {

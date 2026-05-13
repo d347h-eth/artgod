@@ -819,6 +819,17 @@ th {
 	padding: 0;
 }
 
+.facet-collapse-button-active {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
+.facet-panel-action-button.facet-collapse-button-active:hover,
+.facet-panel-action-button.facet-collapse-button-active:focus-visible {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
 .facet-panel-action-button:hover,
 .facet-panel-action-button:focus-visible {
 	color: var(--c-yellow);
@@ -1298,6 +1309,8 @@ th {
 }
 
 .bidding-price-tier-settings-form {
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
 	margin: 0 auto 0.75rem;
 	padding: 0 0 0.75rem;
 	border-bottom: 1px solid color-mix(in srgb, var(--c-blue) 55%, transparent);
@@ -1320,6 +1333,9 @@ th {
 .bidding-price-tier-settings-actions {
 	display: flex;
 	justify-content: flex-end;
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
+	margin-inline: auto;
 	padding-top: 0.45rem;
 }
 
@@ -1382,8 +1398,35 @@ th {
 }
 
 .bidding-price-tier-form {
+	width: var(--token-bidding-content-width);
+	max-width: 100%;
 	padding: 0;
 	margin-inline: auto;
+}
+
+.bidding-price-tier-form .bootstrap-form-row,
+.bidding-price-tier-settings-form .bootstrap-form-row {
+	grid-template-columns: var(--token-bidding-label-width) var(--token-bidding-control-width);
+	column-gap: var(--token-bidding-field-gap);
+	width: 100%;
+}
+
+.bidding-price-tier-form .bootstrap-form-row > label:first-child,
+.bidding-price-tier-settings-form .bootstrap-form-row > label:first-child {
+	justify-self: end;
+	text-align: right;
+}
+
+.bidding-price-tier-form .bootstrap-form-row > .bootstrap-control,
+.bidding-price-tier-settings-form .bootstrap-form-row > .bootstrap-control {
+	width: 100%;
+	justify-self: stretch;
+}
+
+.bidding-price-tier-config-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 10ch;
+	width: 100%;
 }
 
 .bidding-price-tier-reapply-wrap {
@@ -1430,7 +1473,7 @@ th {
 }
 
 .bidding-price-tier-fixed-kind {
-	min-width: 13rem;
+	min-width: 0;
 	color: var(--c-sand);
 	text-transform: uppercase;
 	font-size: 0.68rem;
@@ -2170,7 +2213,8 @@ th {
 	margin-block-start: var(--token-detail-section-gap);
 }
 
-.bidding-automation-panel {
+.bidding-automation-panel,
+.bidding-price-tier-panel {
 	--token-bidding-label-width: clamp(6.75rem, 26vw, 8rem);
 	--token-bidding-control-width: clamp(11.5rem, 42vw, 13.5rem);
 	--token-bidding-field-gap: 0.7rem;
@@ -2179,6 +2223,13 @@ th {
 		var(--token-bidding-label-width) + var(--token-bidding-field-gap) +
 			var(--token-bidding-control-width)
 	);
+}
+
+.bidding-price-tier-panel {
+	--token-bidding-control-width: clamp(15rem, 42vw, 18rem);
+}
+
+.bidding-automation-panel {
 	position: fixed;
 	right: 0;
 	bottom: 0;

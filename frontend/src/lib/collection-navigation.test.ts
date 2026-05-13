@@ -3,6 +3,7 @@ import {
 	buildCollectionNavigation,
 	resolveCollectionSectionShortcutHref
 } from '$lib/collection-navigation';
+import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 
 describe('buildCollectionNavigation', () => {
 	it('builds collection section hrefs from explicit navigation state', () => {
@@ -91,6 +92,9 @@ describe('resolveCollectionSectionShortcutHref', () => {
 		expect(
 			resolveCollectionSectionShortcutHref(keyEvent('1', elementLike('INPUT', 'text')), navigation)
 		).toBeNull();
+		expect(
+			resolveCollectionSectionShortcutHref(keyEvent('1', elementLike('INPUT', 'checkbox')), navigation)
+		).toBe(`/ethereum/milady?limit=${DEFAULT_PAGE_LIMIT}&mode=grid&token_status=listed`);
 		expect(resolveCollectionSectionShortcutHref(keyEvent('2'), navigation)).toBeNull();
 		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBeNull();
 	});

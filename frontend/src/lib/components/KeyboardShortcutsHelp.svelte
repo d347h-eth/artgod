@@ -84,6 +84,10 @@
 					description: 'cycle bid scope'
 				},
 				{
+					keys: ['T'],
+					description: 'toggle tiers management'
+				},
+				{
 					keys: ['B'],
 					description: 'hide or show the bidding panel'
 				},

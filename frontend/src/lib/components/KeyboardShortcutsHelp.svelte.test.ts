@@ -41,6 +41,8 @@ describe('KeyboardShortcutsHelp', () => {
 		expect(body).toContain('open bidding');
 		expect(body).toContain('>S<');
 		expect(body).toContain('cycle bid scope');
+		expect(body).toContain('>T<');
+		expect(body).toContain('toggle tiers management');
 		expect(body).toContain('>B<');
 		expect(body).toContain('hide or show the bidding panel');
 		expect(body).toContain('>C<');

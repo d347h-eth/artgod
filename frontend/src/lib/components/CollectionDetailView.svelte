@@ -463,6 +463,7 @@
 				}
 			: null}
 		onVisibleTokenIdsChange={handleVisibleTokenIdsChange}
+		onToggleTiers={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? togglePriceTierPanel : null}
 	/>
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
 		<BiddingAutomationPanel

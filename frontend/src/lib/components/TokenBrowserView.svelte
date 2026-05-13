@@ -69,7 +69,8 @@
 		displayMode,
 		emptyMessage = 'no tokens match current filters',
 		selection = null,
-		onVisibleTokenIdsChange = null
+		onVisibleTokenIdsChange = null,
+		onToggleTiers = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -94,6 +95,7 @@
 			onToggle: (request: TokenCardSelectionToggleRequest & { visibleTokenIds: string[] }) => void;
 		} | null;
 		onVisibleTokenIdsChange?: ((tokenIds: string[]) => void) | null;
+		onToggleTiers?: (() => void) | null;
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
@@ -432,9 +434,14 @@
 			!event.metaKey &&
 			!event.ctrlKey &&
 			!event.altKey &&
-			!isKeyboardTextEntryTarget(event.target)
+			!isKeyboardTextEntryTarget(event.target, { allowCheckboxAndRadio: true })
 		) {
 			const key = event.key.toLowerCase();
+			if (key === 't' && onToggleTiers) {
+				event.preventDefault();
+				onToggleTiers();
+				return;
+			}
 			if (key === 'v') {
 				const nextMode = nextPageMediaMode();
 				if (nextMode) {
