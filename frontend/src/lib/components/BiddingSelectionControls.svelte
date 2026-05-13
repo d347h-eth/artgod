@@ -5,21 +5,31 @@
 		summary,
 		showTraitAction = false,
 		showTokenAction = true,
+		showTierAction = false,
+		tierActionActive = false,
 		tokenActionLabel = 'bid on all tokens',
 		tokenActionDisabled = false,
 		onBidOnTraits = null,
 		onBidOnTokens,
+		onToggleTiers = null,
 		onClear
 	}: {
 		summary: string | null;
 		showTraitAction?: boolean;
 		showTokenAction?: boolean;
+		showTierAction?: boolean;
+		tierActionActive?: boolean;
 		tokenActionLabel?: string;
 		tokenActionDisabled?: boolean;
 		onBidOnTraits?: (() => MaybePromise<void>) | null;
 		onBidOnTokens: () => MaybePromise<void>;
+		onToggleTiers?: (() => MaybePromise<void>) | null;
 		onClear: () => MaybePromise<void>;
 	} = $props();
+
+	function handleToggleTiers(): void {
+		void onToggleTiers?.();
+	}
 
 	function handleBidOnTraits(): void {
 		void onBidOnTraits?.();
@@ -35,6 +45,17 @@
 </script>
 
 <div class="bidding-selection-controls" aria-label="Bidding target selection">
+	{#if showTierAction && onToggleTiers}
+		<button
+			type="button"
+			class="facet-panel-action-button bidding-price-tier-toggle"
+			class:bidding-price-tier-toggle-active={tierActionActive}
+			aria-pressed={tierActionActive}
+			onclick={handleToggleTiers}
+		>
+			tiers
+		</button>
+	{/if}
 	{#if showTraitAction && onBidOnTraits}
 		<button
 			type="button"

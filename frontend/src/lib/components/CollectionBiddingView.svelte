@@ -911,19 +911,6 @@
 	/>
 {/snippet}
 
-{#snippet priceTierToggleButton()}
-	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-		<button
-			type="button"
-			class="facet-panel-action-button bidding-price-tier-toggle"
-			class:bidding-price-tier-toggle-active={priceTierPanelOpen}
-			onclick={togglePriceTierPanel}
-		>
-			tiers
-		</button>
-	{/if}
-{/snippet}
-
 <CollectionPageLayout
 	navigation={collectionNavigation()}
 	activeSection="bidding"
@@ -1010,14 +997,16 @@
 				{/if}
 				{#if bidScope === 'token' || bidScope === 'traits'}
 					<div class="panel-top-actions-row">
-						{@render priceTierToggleButton()}
 						{#if bidScope === 'token' || canBidOnTraits || biddingSelectionSummary}
 							<BiddingSelectionControls
 								summary={biddingSelectionSummary}
 								showTraitAction={canBidOnTraits}
 								showTokenAction={bidScope === 'token'}
+								showTierAction={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+								tierActionActive={priceTierPanelOpen}
 								tokenActionLabel={tokenActionLabel}
 								tokenActionDisabled={tokenOfferCards.totalItems === 0}
+								onToggleTiers={togglePriceTierPanel}
 								onBidOnTraits={bidOnFilteredTraits}
 								onBidOnTokens={bidOnFilteredTokenOffers}
 								onClear={clearBiddingSelection}
@@ -1026,7 +1015,15 @@
 					</div>
 				{:else if bidScope === 'collection' && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 					<div class="panel-top-actions-row">
-						{@render priceTierToggleButton()}
+						<button
+							type="button"
+							class="facet-panel-action-button bidding-price-tier-toggle"
+							class:bidding-price-tier-toggle-active={priceTierPanelOpen}
+							aria-pressed={priceTierPanelOpen}
+							onclick={togglePriceTierPanel}
+						>
+							tiers
+						</button>
 						<button
 							type="button"
 							class="facet-panel-action-button bidding-select-all-button"

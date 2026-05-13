@@ -11,6 +11,8 @@
 	--c-ice: #f8fefe;
 	--c-yellow: #f6e518;
 	--c-orange: #ec7e15;
+	/* Shared compact gap for adjacent top-action buttons and button-like controls. */
+	--control-button-gap: 0.35rem;
 }
 
 * {
@@ -760,14 +762,14 @@ th {
 	display: inline-flex;
 	align-items: center;
 	justify-content: flex-start;
-	gap: 0.3rem;
+	gap: var(--control-button-gap);
 	flex-wrap: wrap;
 }
 
 .trait-filter-slugs {
 	display: inline-flex;
 	flex-wrap: wrap;
-	gap: 0.25rem;
+	gap: var(--control-button-gap);
 	align-items: center;
 	max-width: 100%;
 }
@@ -1739,14 +1741,14 @@ th {
 	display: grid;
 	align-items: stretch;
 	justify-content: stretch;
-	gap: 0.8rem;
+	gap: var(--control-button-gap);
 }
 
 .panel-top-actions-row {
 	display: flex;
 	align-items: center;
 	justify-content: flex-start;
-	gap: 0.1rem;
+	gap: var(--control-button-gap);
 	flex-wrap: wrap;
 }
 
@@ -2451,7 +2453,7 @@ th {
 	display: inline-flex;
 	align-items: center;
 	justify-content: flex-start;
-	gap: 0.75rem;
+	gap: var(--control-button-gap);
 	flex-wrap: wrap;
 }
 

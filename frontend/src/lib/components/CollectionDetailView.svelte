@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { TRADING_JOB_STATUS } from '@artgod/shared/types';
 	import type {
 		ApiChain,
 		ApiBiddingBidBook,
@@ -36,6 +37,7 @@
 	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
 	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
+	import BiddingPriceTierPanel from '$lib/components/BiddingPriceTierPanel.svelte';
 	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
@@ -93,6 +95,9 @@
 	let bootstrapError = $state<string | null>(null);
 	let bootstrapRequestInFlight = false;
 	let changedBiddingJobs = $state<ApiBiddingJob[]>([]);
+	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
+	let activePriceTiers = $state<ApiBiddingPriceTier[]>(priceTiers);
+	let priceTierPanelOpen = $state(false);
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	const currentBiddingSelection = $derived($biddingAutomationState.selection);
@@ -116,6 +121,14 @@
 			? 'bid on this page'
 			: 'bid on all tokens'
 	);
+
+	$effect(() => {
+		activeBiddingSettings = biddingSettings;
+	});
+
+	$effect(() => {
+		activePriceTiers = priceTiers;
+	});
 
 	$effect(() => {
 		if (!browser || !chain || !collection || collection.status === 'live') {
@@ -304,6 +317,18 @@
 		biddingAutomation.clearSelection();
 	}
 
+	function togglePriceTierPanel(): void {
+		priceTierPanelOpen = !priceTierPanelOpen;
+	}
+
+	function handleBiddingSettingsChanged(nextSettings: ApiBiddingCollectionSettings): void {
+		activeBiddingSettings = nextSettings;
+	}
+
+	function handlePriceTiersChanged(nextTiers: ApiBiddingPriceTier[]): void {
+		activePriceTiers = nextTiers;
+	}
+
 	function expandBiddingAutomationPanel(): void {
 		biddingPanelExpandSignal += 1;
 	}
@@ -313,7 +338,7 @@
 	}
 
 	function handleBiddingJobsChanged(jobs: ApiBiddingJob[]): void {
-		changedBiddingJobs = jobs.filter((job) => job.status !== 'archived');
+		changedBiddingJobs = jobs.filter((job) => job.status !== TRADING_JOB_STATUS.Archived);
 	}
 
 	function emptyBidBook(): ApiBiddingBidBook {
@@ -398,14 +423,32 @@
 					stateKey: biddingSelectionStateKey,
 					state: biddingTokenSelectionState,
 					showTraitAction: canBidOnTraits,
+					showTierAction: true,
+					tierActionActive: priceTierPanelOpen,
 					tokenActionLabel,
+					onToggleTiers: togglePriceTierPanel,
 					onBidOnTraits: bidOnFilteredTraits,
 					onBidOnTokens: bidOnFilteredTokens,
 					onClear: clearBiddingSelection,
 					onToggle: toggleVisibleTokenSelection
 				}
 			: null}
-	/>
+	>
+		{#snippet afterBiddingSelectionControls()}
+			{#if priceTierPanelOpen && collection}
+				<BiddingPriceTierPanel
+					{chain}
+					{collection}
+					settings={activeBiddingSettings}
+					tiers={activePriceTiers}
+					onSettingsChange={handleBiddingSettingsChanged}
+					onTiersChange={handlePriceTiersChanged}
+					onJobsChange={handleBiddingJobsChanged}
+					onClose={togglePriceTierPanel}
+				/>
+			{/if}
+		{/snippet}
+	</TokenBrowserView>
 	{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && collection}
 		<BiddingAutomationPanel
 			open={biddingAutomationPanelOpen}
@@ -415,8 +458,8 @@
 			job={changedBiddingJobs.length === 1 ? changedBiddingJobs[0] : null}
 			draft={selectedBiddingDraft}
 			bidBook={emptyBidBook()}
-			{biddingSettings}
-			{priceTiers}
+			biddingSettings={activeBiddingSettings}
+			priceTiers={activePriceTiers}
 			expandSignal={biddingPanelExpandSignal}
 			onClose={closeBiddingAutomationPanel}
 			onJobsChange={handleBiddingJobsChanged}

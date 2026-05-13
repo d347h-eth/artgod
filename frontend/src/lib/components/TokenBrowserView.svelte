@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import type { Snippet } from 'svelte';
 	import type {
 		ApiChain,
 		ApiCollection,
@@ -69,7 +70,8 @@
 		tokenStatus,
 		displayMode,
 		emptyMessage = 'no tokens match current filters',
-		selection = null
+		selection = null,
+		afterBiddingSelectionControls = null
 	}: {
 		chain: ApiChain | null;
 		collection: ApiCollection | null;
@@ -93,12 +95,16 @@
 			stateKey: string;
 			state: (tokenId: string, stateKey: string) => TokenCardSelectionState;
 			showTraitAction: boolean;
+			showTierAction?: boolean;
+			tierActionActive?: boolean;
 			tokenActionLabel: string;
+			onToggleTiers?: () => void;
 			onBidOnTraits: () => void;
 			onBidOnTokens: (visibleTokenIds: string[]) => void;
 			onClear: () => void;
 			onToggle: (request: TokenCardSelectionToggleRequest & { visibleTokenIds: string[] }) => void;
 		} | null;
+		afterBiddingSelectionControls?: Snippet | null;
 	} = $props();
 
 	const TRAIT_COLUMN_PRIORITY = ['Mode', 'Zone', 'Biome', 'x', 'y', 'Level', 'Chroma', '???'];
@@ -470,6 +476,28 @@
 	/>
 
 	<div class="token-panel">
+		{#if selection}
+			<div class="panel-top-actions panel-top-actions-stack token-browser-bidding-actions">
+				<div class="panel-top-actions-row">
+					<BiddingSelectionControls
+						summary={selection.summary}
+						showTraitAction={selection.showTraitAction}
+						showTierAction={selection.showTierAction ?? false}
+						tierActionActive={selection.tierActionActive ?? false}
+						tokenActionLabel={selection.tokenActionLabel}
+						tokenActionDisabled={tokens.totalItems === 0}
+						onToggleTiers={selection.onToggleTiers ?? null}
+						onBidOnTraits={selection.onBidOnTraits}
+						onBidOnTokens={() => selection.onBidOnTokens(visibleTokenIds)}
+						onClear={selection.onClear}
+					/>
+				</div>
+			</div>
+		{/if}
+		{#if afterBiddingSelectionControls}
+			{@render afterBiddingSelectionControls()}
+		{/if}
+
 		<CursorPaginationControls
 			resultsSummary={browserResultsSummary()}
 			totalItems={tokens.totalItems}
@@ -504,17 +532,6 @@
 							<a href={modeHref('table')}>table</a>
 						{/if}
 					</div>
-				{/if}
-				{#if selection}
-					<BiddingSelectionControls
-						summary={selection.summary}
-						showTraitAction={selection.showTraitAction}
-						tokenActionLabel={selection.tokenActionLabel}
-						tokenActionDisabled={tokens.totalItems === 0}
-						onBidOnTraits={selection.onBidOnTraits}
-						onBidOnTokens={() => selection.onBidOnTokens(visibleTokenIds)}
-						onClear={selection.onClear}
-					/>
 				{/if}
 			{/snippet}
 			{#snippet rightActions()}
