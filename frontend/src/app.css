@@ -824,12 +824,6 @@ th {
 	color: var(--c-orange);
 }
 
-.facet-panel-action-button.facet-collapse-button-active:hover,
-.facet-panel-action-button.facet-collapse-button-active:focus-visible {
-	border-color: var(--c-orange);
-	color: var(--c-orange);
-}
-
 .facet-panel-action-button:hover,
 .facet-panel-action-button:focus-visible {
 	color: var(--c-yellow);

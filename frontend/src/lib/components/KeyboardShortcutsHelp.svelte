@@ -77,7 +77,7 @@
 			]
 		},
 		{
-			title: 'Bidding Page',
+			title: 'Bidding',
 			entries: [
 				{
 					keys: ['S'],
