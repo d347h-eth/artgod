@@ -2093,13 +2093,39 @@ th {
 
 .token-bidding-form-footer {
 	padding: 0.75rem 0 0;
-	justify-content: flex-start;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: flex-start;
+	gap: 0.5rem;
 }
 
-.token-bidding-form-actions {
+.token-bidding-form-actions-left,
+.token-bidding-form-actions-right {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.35rem;
+}
+
+.token-bidding-form-actions-left {
+	justify-content: flex-start;
+}
+
+.token-bidding-form-actions-right {
+	justify-content: flex-end;
+}
+
+.token-bidding-action-positive:not(:disabled) {
+	border-color: var(--c-cyan);
+	color: var(--c-cyan);
+}
+
+.token-bidding-action-negative:not(:disabled) {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
+.token-bidding-form-footer .bootstrap-form-feedback {
+	grid-column: 1 / -1;
 }
 
 .token-bidding-feedback {

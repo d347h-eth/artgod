@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { TRADING_JOB_STATUS } from '@artgod/shared/types';
 import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
 import BiddingAutomationPanel from './BiddingAutomationPanel.svelte';
 
@@ -62,7 +63,8 @@ describe('BiddingAutomationPanel', () => {
 						activeProtocolAddress: '0xdef456',
 						activeExpirationTimeMs: 1760000000000,
 						lastRunAt: '2026-01-01T13:00:00Z',
-						lastError: null
+						lastError: null,
+						updatedAt: '2026-01-01T13:00:30Z'
 					}
 				},
 				bidBook: {
@@ -90,6 +92,11 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('value="0.1"');
 		expect(body).toContain('value="0.2"');
 		expect(body).toContain('value="0.01"');
+		expect(body).toContain('>modified<');
+		expect(body).toContain('>refreshed<');
+		expect(body).not.toContain('bidding-automation-status');
+		expect(body).toContain('>modify<');
+		expect(body).toContain('>pause<');
 		expect(body).toContain('>archive<');
 	});
 
@@ -157,6 +164,30 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('value="0.301"');
 		expect(body).toContain('value="0.001"');
 		expect(body).toContain('>create<');
+		expect(body).toContain('disabled>pause<');
+		expect(body).toContain('disabled>archive<');
+	});
+
+	it('renders paused token jobs with activate and archive actions', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: testToken(),
+				job: testTokenJob(TRADING_JOB_STATUS.Paused),
+				onClose: () => {},
+				onJobChange: () => {}
+			}
+		});
+
+		expect(body).toContain('>modify<');
+		expect(body).toContain('>activate<');
+		expect(body).toContain('>archive<');
+		expect(body).not.toContain('>pause<');
+		expect(body).toContain('disabled>modify<');
+		expect(body).not.toContain('disabled>activate<');
+		expect(body).not.toContain('disabled>archive<');
 	});
 
 	it('renders selected collection bid drafts as explicit collection jobs', () => {
@@ -321,3 +352,73 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('value="0.15"');
 	});
 });
+
+function testChain() {
+	return {
+		id: 1,
+		type: 'evm' as const,
+		publicChainId: 1,
+		slug: 'ethereum',
+		name: 'Ethereum'
+	};
+}
+
+function testCollection() {
+	return {
+		chainId: 1,
+		collectionId: 1,
+		slug: 'milady',
+		address: '0x1111111111111111111111111111111111111111',
+		standard: 'erc721' as const,
+		status: 'live' as const,
+		deploymentBlock: 1,
+		bootstrapAnchorBlock: null,
+		createdAt: '2026-01-01T00:00:00Z',
+		updatedAt: '2026-01-01T00:00:00Z'
+	};
+}
+
+function testToken() {
+	return {
+		tokenId: '1',
+		name: 'Milady #1',
+		image: 'https://example.com/1.png',
+		animationUrl: null,
+		listingPrice: null,
+		listingCurrency: null,
+		currentHolder: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+		attributes: [],
+		hasMetadata: true,
+		metadataUpdatedAt: '2026-01-01T00:00:00Z'
+	};
+}
+
+function testTokenJob(status: typeof TRADING_JOB_STATUS.Enabled | typeof TRADING_JOB_STATUS.Paused) {
+	return {
+		jobId: 'job-token-1',
+		status,
+		revision: 2,
+		createdAt: '2026-01-01T00:00:00Z',
+		updatedAt: '2026-01-01T12:00:00Z',
+		archivedAt: null,
+		target: {
+			type: 'token' as const,
+			tokenId: '1'
+		},
+		config: {
+			floorEth: '0.1',
+			ceilingEth: '0.2',
+			deltaEth: '0.01',
+			pricingSource: null
+		},
+		runtime: {
+			currentPriceEth: '0.15',
+			activeOrderId: '0xabc123',
+			activeProtocolAddress: '0xdef456',
+			activeExpirationTimeMs: 1760000000000,
+			lastRunAt: '2026-01-01T13:00:00Z',
+			lastError: null,
+			updatedAt: '2026-01-01T13:00:30Z'
+		}
+	};
+}

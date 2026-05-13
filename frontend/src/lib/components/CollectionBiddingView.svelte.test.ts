@@ -324,7 +324,8 @@ describe('CollectionBiddingView', () => {
 							activeProtocolAddress: '0xdef456',
 							activeExpirationTimeMs: 1_760_000_000_000,
 							lastRunAt: '2026-01-02T00:00:00Z',
-							lastError: null
+							lastError: null,
+							updatedAt: '2026-01-02T00:00:30Z'
 						}
 					},
 					{

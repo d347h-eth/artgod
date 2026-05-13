@@ -270,7 +270,8 @@ describe('token detail page', () => {
 							activeProtocolAddress: '0xdef456',
 							activeExpirationTimeMs: 1760000000000,
 							lastRunAt: '2026-01-01T13:00:00Z',
-							lastError: null
+							lastError: null,
+							updatedAt: '2026-01-01T13:00:30Z'
 						}
 					},
 					backPath: '/ethereum/milady/holders/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -295,7 +296,7 @@ describe('token detail page', () => {
 		expect(body).toContain('value="0.1"');
 		expect(body).toContain('value="0.2"');
 		expect(body).toContain('value="0.01"');
-		expect(body).toContain('>save<');
+		expect(body).toContain('>modify<');
 	});
 
 	it('keeps token-local lost mode out of collection navigation links', () => {

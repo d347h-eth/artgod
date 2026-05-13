@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { TRADING_JOB_STATUS, TRADING_JOB_TARGET_KIND } from '@artgod/shared/types';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
@@ -26,10 +27,19 @@
 		isBiddingAutomationDraftSubmittable,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
+	import {
+		compactTimeModeLabel,
+		formatCompactTime,
+		oppositeCompactTimeTitle,
+		parseCompactTimeMs,
+		type CompactTimeDisplayMode
+	} from '$lib/compact-time-display';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 
-	type EditableTokenJobStatus = 'enabled' | 'paused';
+	type EditableTokenJobStatus =
+		| typeof TRADING_JOB_STATUS.Enabled
+		| typeof TRADING_JOB_STATUS.Paused;
 	type BiddingAutomationPanelVariant = 'floating' | 'inline';
 
 	let {
@@ -77,12 +87,18 @@
 	let saveError = $state<string | null>(null);
 	let panelCollapsed = $state(false);
 	let lastExpandSignal = $state(expandSignal);
+	let modifiedAtMode = $state<CompactTimeDisplayMode>('relative');
+	let refreshedAtMode = $state<CompactTimeDisplayMode>('relative');
+	let nowMs = $state(Date.now());
 
 	const hasExistingJob = $derived(currentJob !== null);
 	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
 	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
 	const bidPosition = $derived(resolveBidPosition(currentJob, bidBook));
 	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
+	const archivableTokenId = $derived(
+		currentJob?.target.type === TRADING_JOB_TARGET_KIND.Token ? currentJob.target.tokenId : targetTokenId
+	);
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
 	const displayedFloorEth = $derived(
 		pricingMode === 'tier' ? (selectedPriceTier?.resolvedFloorEth ?? currentJob?.config.floorEth ?? '') : floorEth
@@ -110,6 +126,34 @@
 			pricingAvailable &&
 			priceInputsComplete
 	);
+	const isEnabledJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Enabled);
+	const isPausedJob = $derived(currentJob?.status === TRADING_JOB_STATUS.Paused);
+	const canResetDraft = $derived(!saving && !archiving && hasDraftChanges);
+	const canCreateJob = $derived(!hasExistingJob && !saving && !archiving && canSubmitDraft);
+	const canModifyJob = $derived(hasExistingJob && !saving && !archiving && hasDraftChanges && canSubmitDraft);
+	const canPauseJob = $derived(isEnabledJob && !saving && !archiving && canSubmitDraft);
+	const canActivateJob = $derived(isPausedJob && !saving && !archiving && canSubmitDraft);
+	const canArchiveJob = $derived(
+		!!currentJob &&
+			currentJob.target.type === TRADING_JOB_TARGET_KIND.Token &&
+			(isEnabledJob || isPausedJob) &&
+			!saving &&
+			!archiving &&
+			!!chain &&
+			!!collection &&
+			!!archivableTokenId
+	);
+	const modifiedAtMs = $derived(parseCompactTimeMs(currentJob?.updatedAt));
+	const refreshedAtMs = $derived(
+		parseCompactTimeMs(currentJob?.runtime?.updatedAt ?? currentJob?.runtime?.lastRunAt)
+	);
+
+	$effect(() => {
+		const timer = window.setInterval(() => {
+			nowMs = Date.now();
+		}, 60_000);
+		return () => window.clearInterval(timer);
+	});
 
 	$effect(() => {
 		const nextLoadedJobKey = resolveLoadedPanelKey(job, draft);
@@ -208,7 +252,9 @@
 	}
 
 	function resolveInitialStatus(value: ApiBiddingJob | null): EditableTokenJobStatus {
-		return value?.status === 'paused' ? 'paused' : 'enabled';
+		return value?.status === TRADING_JOB_STATUS.Paused
+			? TRADING_JOB_STATUS.Paused
+			: TRADING_JOB_STATUS.Enabled;
 	}
 
 	function resolveInitialFloorEth(
@@ -265,7 +311,7 @@
 		}
 
 		return (
-			status !== 'enabled' ||
+			status !== TRADING_JOB_STATUS.Enabled ||
 			pricingMode !== 'manual' ||
 			displayedFloorEth.trim().length > 0 ||
 			displayedCeilingEth.trim().length > 0 ||
@@ -377,6 +423,22 @@
 		return `${value} ETH`;
 	}
 
+	function formatJobTime(valueMs: number | null, mode: CompactTimeDisplayMode): string {
+		return formatCompactTime(valueMs, mode, nowMs);
+	}
+
+	function jobTimeTitle(valueMs: number | null, mode: CompactTimeDisplayMode): string | undefined {
+		return oppositeCompactTimeTitle(valueMs, mode, nowMs);
+	}
+
+	function toggleModifiedAtMode(): void {
+		modifiedAtMode = modifiedAtMode === 'relative' ? 'absolute' : 'relative';
+	}
+
+	function toggleRefreshedAtMode(): void {
+		refreshedAtMode = refreshedAtMode === 'relative' ? 'absolute' : 'relative';
+	}
+
 	function resolveBidPosition(
 		currentValue: ApiBiddingJob | null,
 		currentBidBook: ApiBiddingBidBook | null
@@ -411,11 +473,24 @@
 		})[0] ?? null;
 	}
 
-	async function handleSave(): Promise<void> {
+	async function handleSave(statusOverride: EditableTokenJobStatus | null = null): Promise<void> {
 		if (!chain || !collection || selectedDraftUnsupported || saving || archiving || !canSubmitDraft) {
 			return;
 		}
+		if (statusOverride === null && hasExistingJob && !canModifyJob) {
+			return;
+		}
+		if (statusOverride === null && !hasExistingJob && !canCreateJob) {
+			return;
+		}
+		if (statusOverride === TRADING_JOB_STATUS.Paused && !canPauseJob) {
+			return;
+		}
+		if (statusOverride === TRADING_JOB_STATUS.Enabled && hasExistingJob && !canActivateJob) {
+			return;
+		}
 
+		const nextStatus = statusOverride ?? status;
 		const wasExistingJob = currentJob !== null;
 		saving = true;
 		saveMessage = null;
@@ -423,11 +498,16 @@
 
 		try {
 			// Persist the draft through the matching backend job mutation adapter.
-			const changedJobs = await saveDraftJobs(chain.slug, collection.slug);
+			const changedJobs = await saveDraftJobs(chain.slug, collection.slug, nextStatus);
 			currentJob = changedJobs.length === 1 ? changedJobs[0] : currentJob;
 			notifyJobsChanged(changedJobs);
 			resetDraft();
-			saveMessage = resolveSaveMessage(changedJobs.length, wasExistingJob);
+			saveMessage =
+				statusOverride === TRADING_JOB_STATUS.Paused
+					? 'paused'
+					: statusOverride === TRADING_JOB_STATUS.Enabled && wasExistingJob
+						? 'activated'
+						: resolveSaveMessage(changedJobs.length, wasExistingJob);
 		} catch (error) {
 			saveError = error instanceof Error ? error.message : 'failed to save bidding job';
 		} finally {
@@ -435,14 +515,18 @@
 		}
 	}
 
-	async function saveDraftJobs(chainRef: string, collectionRef: string): Promise<ApiBiddingJob[]> {
+	async function saveDraftJobs(
+		chainRef: string,
+		collectionRef: string,
+		nextStatus: EditableTokenJobStatus
+	): Promise<ApiBiddingJob[]> {
 		const pricingBody = pricingRequestBody();
 		if (!draft) {
 			if (!targetTokenId) {
 				throw new Error('target token is required');
 			}
 			const response = await upsertTokenBiddingJob(fetch, chainRef, collectionRef, targetTokenId, {
-				status,
+				status: nextStatus,
 				...pricingBody
 			});
 			return [response.job];
@@ -456,14 +540,14 @@
 					collectionRef,
 					draft.target.tokenIds[0],
 					{
-						status,
+						status: nextStatus,
 						...pricingBody
 					}
 				);
 				return [response.job];
 			}
 			const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
-				status,
+				status: nextStatus,
 				...pricingBody,
 				selection: {
 					type: 'token_ids',
@@ -482,7 +566,7 @@
 			}
 			if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
 				const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
-					status,
+					status: nextStatus,
 					...pricingBody,
 					selection: {
 						type: 'token_offer_filter',
@@ -498,7 +582,7 @@
 				throw new Error('filtered token selection is missing token status');
 			}
 			const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
-				status,
+				status: nextStatus,
 				...pricingBody,
 				selection: {
 					type: 'filter',
@@ -512,7 +596,7 @@
 
 		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
 			const response = await upsertTraitBiddingJob(fetch, chainRef, collectionRef, {
-				status,
+				status: nextStatus,
 				...pricingBody,
 				quantity: selectedBidQuantity(),
 				targetTraits: draft.target.traits.map((trait) => ({
@@ -524,7 +608,7 @@
 		}
 
 		const response = await upsertCollectionBiddingJob(fetch, chainRef, collectionRef, {
-			status,
+			status: nextStatus,
 			...pricingBody,
 			quantity: selectedBidQuantity()
 		});
@@ -579,7 +663,7 @@
 	}
 
 	function notifyJobsChanged(jobs: ApiBiddingJob[]): void {
-		if (jobs.length === 1 && jobs[0].target.type === 'token') {
+		if (jobs.length === 1 && jobs[0].target.type === TRADING_JOB_TARGET_KIND.Token) {
 			onJobChange?.(jobs[0]);
 		}
 		onJobsChange?.(jobs);
@@ -587,19 +671,27 @@
 
 	function resolveSaveMessage(count: number, wasExistingJob: boolean): string {
 		if (count <= 1) {
-			return wasExistingJob ? 'saved' : 'created';
+			return wasExistingJob ? 'modified' : 'created';
 		}
 		return `${count} jobs saved`;
 	}
 
 	async function handleArchive(): Promise<void> {
-		if (!chain || !collection || !targetTokenId || !currentJob || saving || archiving) {
+		if (
+			!canArchiveJob ||
+			!chain ||
+			!collection ||
+			!archivableTokenId ||
+			!currentJob ||
+			saving ||
+			archiving
+		) {
 			return;
 		}
 
 		if (typeof window !== 'undefined') {
 			const confirmed = window.confirm(
-				`Archive bidding job for token ${targetTokenId}? Active offer cleanup will be queued.`
+				`Archive bidding job for token ${archivableTokenId}? Active offer cleanup will be queued.`
 			);
 			if (!confirmed) {
 				return;
@@ -612,7 +704,7 @@
 
 		try {
 			// Archive the token-scoped bidding job through the backend CRUD adapter.
-			await archiveTokenBiddingJob(fetch, chain.slug, collection.slug, targetTokenId);
+			await archiveTokenBiddingJob(fetch, chain.slug, collection.slug, archivableTokenId);
 			currentJob = null;
 			onJobChange?.(null);
 			resetDraft();
@@ -665,8 +757,32 @@
 			{/if}
 			{#if currentJob}
 				<div>
-					<span class="runtime-k">updated</span>
-					<span class="runtime-v mono">{currentJob.updatedAt}</span>
+					<span class="runtime-k">modified</span>
+					<button
+						type="button"
+						class="activities-time-mode-button"
+						aria-label="toggle modified time mode"
+						onclick={toggleModifiedAtMode}
+					>
+						{compactTimeModeLabel(modifiedAtMode)}
+					</button>
+					<span class="runtime-v mono" title={jobTimeTitle(modifiedAtMs, modifiedAtMode)}>
+						{formatJobTime(modifiedAtMs, modifiedAtMode)}
+					</span>
+				</div>
+				<div>
+					<span class="runtime-k">refreshed</span>
+					<button
+						type="button"
+						class="activities-time-mode-button"
+						aria-label="toggle refreshed time mode"
+						onclick={toggleRefreshedAtMode}
+					>
+						{compactTimeModeLabel(refreshedAtMode)}
+					</button>
+					<span class="runtime-v mono" title={jobTimeTitle(refreshedAtMs, refreshedAtMode)}>
+						{formatJobTime(refreshedAtMs, refreshedAtMode)}
+					</span>
 				</div>
 			{/if}
 			{#if bidPosition}
@@ -684,10 +800,6 @@
 					<span class="runtime-k">active order</span>
 					<span class="runtime-v mono">{currentJob?.runtime?.activeOrderId ?? '-'}</span>
 				</div>
-				<div>
-					<span class="runtime-k">last run</span>
-					<span class="runtime-v mono">{currentJob?.runtime?.lastRunAt ?? '-'}</span>
-				</div>
 			{/if}
 		</div>
 		{#if currentJob?.runtime?.lastError}
@@ -701,18 +813,6 @@
 				void handleSave();
 			}}
 		>
-			<div class="bootstrap-form-row">
-				<label for="bidding-automation-status"><span>status</span></label>
-				<select
-					id="bidding-automation-status"
-					class="bootstrap-control bootstrap-input-select-short"
-					bind:value={status}
-					disabled={saving || archiving || selectedDraftUnsupported}
-				>
-					<option value="enabled">enabled</option>
-					<option value="paused">paused</option>
-				</select>
-			</div>
 			{#if canUseTierPricing}
 				<div class="bootstrap-form-row">
 					<label for="bidding-automation-pricing-mode"><span>pricing</span></label>
@@ -797,22 +897,53 @@
 				/>
 			</div>
 			<div class="panel-footer token-bidding-form-footer">
-				<div class="token-bidding-form-actions">
-					<button type="submit" disabled={saving || archiving || !hasDraftChanges || !canSubmitDraft}>
-						{#if saving}
-							saving...
-						{:else if hasExistingJob}
-							save
-						{:else}
-							create
-						{/if}
+				<div class="token-bidding-form-actions-left">
+					<button type="button" onclick={resetDraft} disabled={!canResetDraft}>reset</button>
+					{#if !hasExistingJob || isEnabledJob}
+						<button
+							type="button"
+							class="token-bidding-action-negative"
+							onclick={() => void handleSave(TRADING_JOB_STATUS.Paused)}
+							disabled={!canPauseJob}
+						>
+							pause
+						</button>
+					{/if}
+					<button
+						type="button"
+						class="token-bidding-action-negative"
+						onclick={() => void handleArchive()}
+						disabled={!canArchiveJob}
+					>
+						{archiving ? 'archiving...' : 'archive'}
 					</button>
-					<button type="button" onclick={resetDraft} disabled={saving || archiving || !hasDraftChanges}>
-						reset
-					</button>
+				</div>
+				<div class="token-bidding-form-actions-right">
 					{#if hasExistingJob}
-						<button type="button" onclick={() => void handleArchive()} disabled={saving || archiving}>
-							{archiving ? 'archiving...' : 'archive'}
+						<button
+							type="submit"
+							class="token-bidding-action-positive"
+							disabled={!canModifyJob}
+						>
+							{saving ? 'saving...' : 'modify'}
+						</button>
+						{#if isPausedJob}
+							<button
+								type="button"
+								class="token-bidding-action-positive"
+								onclick={() => void handleSave(TRADING_JOB_STATUS.Enabled)}
+								disabled={!canActivateJob}
+							>
+								activate
+							</button>
+						{/if}
+					{:else}
+						<button
+							type="submit"
+							class="token-bidding-action-positive"
+							disabled={!canCreateJob}
+						>
+							{saving ? 'creating...' : 'create'}
 						</button>
 					{/if}
 				</div>

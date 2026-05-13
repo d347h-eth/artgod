@@ -385,6 +385,7 @@ export type ApiBiddingJobRuntimeState = {
 	activeExpirationTimeMs: number | null;
 	lastRunAt: string | null;
 	lastError: string | null;
+	updatedAt: string;
 };
 
 export type ApiBiddingJob = {

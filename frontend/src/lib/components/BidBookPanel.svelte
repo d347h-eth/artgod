@@ -5,10 +5,17 @@
 		ApiBiddingJob,
 		ApiTradingTraitCriterion
 	} from '$lib/api-types';
+	import {
+		compactTimeModeLabel,
+		formatCompactTime,
+		formatRfc3339,
+		oppositeCompactTimeTitle,
+		type CompactTimeDisplayMode
+	} from '$lib/compact-time-display';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
-	type BidBookTimeMode = 'relative' | 'absolute';
+	type BidBookTimeMode = CompactTimeDisplayMode;
 	type BidBookPanelView = 'rows' | 'trait-demand';
 	type TraitFilterValue = {
 		key: string;
@@ -735,32 +742,15 @@
 	}
 
 	function formatTime(valueMs: number | null, mode: BidBookTimeMode): string {
-		if (valueMs === null) return '-';
-		if (mode === 'absolute') return formatRfc3339(valueMs);
-		return formatRelativeTime(valueMs);
+		return formatCompactTime(valueMs, mode, nowMs);
 	}
 
 	function oppositeTimeTitle(valueMs: number | null, mode: BidBookTimeMode): string | undefined {
-		if (valueMs === null) return undefined;
-		return mode === 'relative' ? formatRfc3339(valueMs) : formatRelativeTime(valueMs);
-	}
-
-	function formatRfc3339(valueMs: number): string {
-		return new Date(valueMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
-	}
-
-	function formatRelativeTime(valueMs: number): string {
-		const diffSeconds = Math.round((valueMs - nowMs) / 1000);
-		const absoluteSeconds = Math.abs(diffSeconds);
-		if (absoluteSeconds < 5) return 'now';
-		if (absoluteSeconds < 60) return `${absoluteSeconds}s`;
-		if (absoluteSeconds < 3600) return `${Math.floor(absoluteSeconds / 60)}m`;
-		if (absoluteSeconds < 86_400) return `${Math.floor(absoluteSeconds / 3600)}h`;
-		return `${Math.floor(absoluteSeconds / 86_400)}d`;
+		return oppositeCompactTimeTitle(valueMs, mode, nowMs);
 	}
 
 	function timeModeLabel(mode: BidBookTimeMode): string {
-		return mode === 'relative' ? 'rel' : 'abs';
+		return compactTimeModeLabel(mode);
 	}
 
 	function togglePlacedAtMode(): void {

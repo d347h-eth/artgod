@@ -53,6 +53,7 @@ export type BiddingJobView = {
         activeExpirationTimeMs: number | null;
         lastRunAt: string | null;
         lastError: string | null;
+        updatedAt: string;
     } | null;
 };
 
@@ -236,6 +237,7 @@ export function mapPersistedBiddingJobToView(
               activeExpirationTimeMs: job.runtime.activeExpirationTimeMs,
               lastRunAt: job.runtime.lastRunAt,
               lastError: job.runtime.lastError,
+              updatedAt: job.runtime.updatedAt,
           }
         : null;
 
