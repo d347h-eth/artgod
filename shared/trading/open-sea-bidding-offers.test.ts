@@ -129,6 +129,49 @@ describe("OpenSea bidding offer parser", () => {
         assert.equal(parsed.priceSource, "currentPrice");
     });
 
+    it("parses SDK v10 offer price payloads when protocol token sums are absent", () => {
+        const parsed = parseOpenSeaBiddingOffer(
+            {
+                order_hash: "0xprice-only",
+                maker: MAKER_ADDRESS,
+                protocol_address: PROTOCOL_ADDRESS,
+                protocol_data: {
+                    parameters: {
+                        offerer: MAKER_ADDRESS,
+                        consideration: [
+                            {
+                                token: COLLECTION_ADDRESS,
+                                identifierOrCriteria: "123",
+                                amount: "1",
+                                itemType: 2,
+                            },
+                        ],
+                        endTime: "1780000000",
+                    },
+                },
+                price: {
+                    value: "1200000000000000000",
+                    decimals: 18,
+                    currency: "WETH",
+                },
+                status: "ACTIVE",
+            },
+            {
+                collectionAddress: COLLECTION_ADDRESS,
+                wethAddress: WETH_ADDRESS,
+                discoverySource: "itemOffers",
+            },
+        );
+
+        assert.ok(parsed);
+        assert.equal(parsed.id, "0xprice-only");
+        assert.equal(parsed.price, 1200000000000000000n);
+        assert.equal(parsed.priceSource, "price.value");
+        assert.equal(parsed.expirationTime, 1780000000);
+        assert.equal(parsed.bidScope.kind, TRADING_BIDDING_BID_SCOPE_KIND.Token);
+        assert.equal(parsed.bidScope.tokenId, "123");
+    });
+
     it("trims oversized trait text before creating stored bid-book labels", () => {
         const longValue = "x".repeat(140);
         const parsed = parseOpenSeaBiddingOffer(

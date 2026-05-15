@@ -8,15 +8,16 @@ import {
     Network,
     OpenSeaStreamClient as OpenSeaSdkStreamClient,
 } from "@opensea/stream-js";
-import { JsonRpcProvider, Wallet } from "ethers";
-import { Chain, getDefaultConduit, OpenSeaSDK, OrderSide } from "opensea-js";
-import { OpenSeaAPI } from "opensea-js/lib/api/api.js";
+import { Chain, getDefaultConduit, OpenSeaAPI } from "@opensea/sdk";
+import { OpenSeaSDK } from "@opensea/sdk/viem";
 import {
     createPublicClient,
     createWalletClient,
     formatEther,
     http,
     type Hex,
+    type PublicClient,
+    type WalletClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
@@ -189,7 +190,8 @@ export async function startBiddingRuntime(
 
     // Create the write-capable OpenSea SDK lane for live offer discovery, placement, and cancellation.
     const biddingSdk = createBiddingSdkClient(
-        params.privateKeyHex,
+        publicClient,
+        walletClient,
         params.config.rpc.primaryUrl,
         params.biddingConfig.openSea.biddingSecretKey,
     );
@@ -594,15 +596,17 @@ async function startBiddingJobCommandSignalListener(
 }
 
 function createBiddingSdkClient(
-    privateKeyHex: Hex,
+    publicClient: PublicClient,
+    walletClient: WalletClient,
     rpcUrl: string,
     apiKey: string,
 ): OpenSeaBiddingSdkClient {
-    const provider = new JsonRpcProvider(rpcUrl);
-    // The public opensea-js v8 SDK still expects ethers-native signer types on this boundary.
-    const signer = new Wallet(privateKeyHex, provider) as any;
     const sdk = new OpenSeaSDK(
-        signer,
+        {
+            publicClient,
+            walletClient,
+            rpcUrl,
+        },
         {
             chain: Chain.Mainnet,
             apiKey,
@@ -649,11 +653,8 @@ function createSnapshotApiClient(apiKey: string): OpenSeaApiClient {
 
 function createApiClientAdapter(api: OpenSeaAPI): OpenSeaApiClient {
     return {
-        getOrders: (query) =>
-            api.getOrders({
-                ...query,
-                side: query.side as OrderSide,
-            } as any),
+        getOffersByNFT: (collectionSlug, tokenId, limit, next) =>
+            api.getOffersByNFT(collectionSlug, tokenId, limit, next),
         getAllOffers: (collectionSlug, limit, next) =>
             api.getAllOffers(collectionSlug, limit, next),
         getOrderByHash: (orderHash, protocolAddress) =>
@@ -681,15 +682,31 @@ function normalizeOfferResponse(order: {
     protocol_address?: string | null;
     expirationTime?: number | string | null;
     expiration_time?: number | string | null;
+    protocolData?: { parameters?: { endTime?: unknown } } | null;
+    protocol_data?: { parameters?: { endTime?: unknown } } | null;
 }): OpenSeaCreateOfferResponse {
+    const expirationTime =
+        normalizeNumberLike(order.expirationTime) ??
+        normalizeNumberLike(order.protocolData?.parameters?.endTime) ??
+        normalizeNumberLike(order.protocol_data?.parameters?.endTime);
     return {
         orderHash: order.orderHash ?? undefined,
         order_hash: order.order_hash ?? undefined,
         protocolAddress: order.protocolAddress ?? undefined,
         protocol_address: order.protocol_address ?? undefined,
-        expirationTime: order.expirationTime ?? undefined,
-        expiration_time: order.expiration_time ?? undefined,
+        expirationTime,
+        expiration_time: normalizeNumberLike(order.expiration_time),
     };
+}
+
+function normalizeNumberLike(value: unknown): number | string | undefined {
+    if (typeof value === "number" || typeof value === "string") {
+        return value;
+    }
+    if (typeof value === "bigint") {
+        return value.toString();
+    }
+    return undefined;
 }
 
 function createStreamClient(streamSecretKey: string): OpenSeaSdkStreamClient {

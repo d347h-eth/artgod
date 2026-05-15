@@ -221,6 +221,22 @@ export function extractOpenSeaWethUnitPrice(
         }
     }
 
+    const priceRecord = asRecord(asRecord(rawOrder).price);
+    const priceValue = tryParseBigInt(priceRecord.value);
+    const priceCurrency = stringOrUndefined(priceRecord.currency);
+    if (
+        priceValue !== null &&
+        priceCurrency &&
+        isWethCurrency(priceCurrency, wethAddress)
+    ) {
+        return {
+            price: priceValue,
+            source: "price.value",
+            quantity: 1n,
+            currencyAddress: wethAddress,
+        };
+    }
+
     if (!isOpenSeaWethOrder(rawOrder, wethAddress)) {
         return null;
     }
@@ -682,6 +698,11 @@ function isOpenSeaWethOrder(rawOrder: unknown, wethAddress: string): boolean {
         (item) =>
             stringOrUndefined(asRecord(item).token)?.toLowerCase() === wethAddress,
     );
+}
+
+function isWethCurrency(currency: string, wethAddress: string): boolean {
+    const normalized = currency.toLowerCase();
+    return normalized === wethAddress || normalized === "weth";
 }
 
 function sumTokenItems(items: unknown, tokenAddress: string): bigint {

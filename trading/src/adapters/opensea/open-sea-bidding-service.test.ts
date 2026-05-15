@@ -24,9 +24,12 @@ const TEST_RETRY_POLICY = {
 
 class MockOpenSeaSdk implements OpenSeaBiddingSdkClient {
     public api: OpenSeaApiClient = {
-        getOrders: async (_query: unknown): Promise<{ orders: unknown[] }> => ({
-            orders: [],
-        }),
+        getOffersByNFT: async (
+            _slug: string,
+            _tokenId: string,
+            _limit?: number,
+            _next?: string,
+        ): Promise<OpenSeaOffersPage> => ({ offers: [] }),
         getAllOffers: async (
             _slug: string,
             _limit?: number,
@@ -415,14 +418,21 @@ describe("OpenSeaBiddingService", () => {
             state: {},
         };
 
-        sdk.api.getOrders = async (query: any) => {
-            assert.equal(query.assetContractAddress, collectionAddress);
-            assert.deepEqual(query.tokenIds, ["123"]);
-            assert.equal(query.side, "bid");
-            assert.equal(query.maker, "0xmaker");
-            assert.equal(query.paymentTokenAddress, WETH);
+        sdk.api.getOffersByNFT = async (slug, tokenId, limit, next) => {
+            assert.equal(slug, collectionSlug);
+            assert.equal(tokenId, "123");
+            assert.equal(limit, 100);
+            assert.equal(next, undefined);
             return {
-                orders: [
+                offers: [
+                    {
+                        orderHash: "0xother",
+                        maker: { address: "0xother" },
+                        protocolAddress,
+                        currentPrice: "2000000000000000000",
+                        expirationTime: 1234567890,
+                        paymentToken: WETH,
+                    },
                     {
                         orderHash,
                         maker: { address: "0xmaker" },
@@ -650,7 +660,7 @@ describe("OpenSeaBiddingService", () => {
     it("uses cached token snapshot discovery for collection-wide and applicable criteria offers", async () => {
         const sdk = new MockOpenSeaSdk();
         let collectionOfferCalls = 0;
-        sdk.api.getOrders = async () => ({ orders: [] });
+        sdk.api.getOffersByNFT = async () => ({ offers: [] });
         sdk.api.getCollectionOffers = async () => {
             collectionOfferCalls++;
             return { offers: [] };

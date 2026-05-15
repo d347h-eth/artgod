@@ -67,10 +67,9 @@ export interface OpenSeaBiddingServiceOptions {
 
 const OPENSEA_WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const OPENSEA_MAINNET_CHAIN = "ethereum";
-const OPENSEA_ORDER_SIDE_OFFER = "bid";
 
 const sdkCallCosts: Record<string, { get: number; post: number }> = {
-    getOrders: { get: 1, post: 0 },
+    getOffersByNFT: { get: 1, post: 0 },
     getCollectionOffers: { get: 1, post: 0 },
     getTraitOffers: { get: 1, post: 0 },
     getTraits: { get: 1, post: 0 },
@@ -141,21 +140,13 @@ export class OpenSeaBiddingService implements BiddingService {
             const tokenTarget = job.target;
             try {
                 // 1. Fetch live item-specific offers for the exact token because this path must stay latency-sensitive.
-                const response = await this.withRetry(
-                    "getOrders",
+                const itemOffers = await this.fetchNftOffers(
+                    job.collectionSlug,
+                    tokenTarget.tokenId,
                     "item offers",
-                    () =>
-                        this.sdk.api.getOrders({
-                            assetContractAddress: job.collectionAddress,
-                            tokenIds: [tokenTarget.tokenId],
-                            side: OPENSEA_ORDER_SIDE_OFFER,
-                            orderBy: "eth_price",
-                            orderDirection: "desc",
-                            paymentTokenAddress: OPENSEA_WETH_ADDRESS,
-                        }),
                 );
 
-                for (const rawOrder of asArray(response?.orders)) {
+                for (const rawOrder of itemOffers) {
                     const parsed = this.parseRawOffer(
                         rawOrder,
                         job.collectionAddress,
@@ -348,28 +339,19 @@ export class OpenSeaBiddingService implements BiddingService {
         const tokenTarget = job.target;
 
         try {
-            const response = await this.withRetry(
-                "getOrders",
+            const tokenOffers = await this.fetchNftOffers(
+                job.collectionSlug,
+                tokenTarget.tokenId,
                 "maker token offers",
-                () =>
-                    this.sdk.api.getOrders({
-                        assetContractAddress: job.collectionAddress,
-                        tokenIds: [tokenTarget.tokenId],
-                        side: OPENSEA_ORDER_SIDE_OFFER,
-                        orderBy: "eth_price",
-                        orderDirection: "desc",
-                        paymentTokenAddress: OPENSEA_WETH_ADDRESS,
-                        maker: makerAddress,
-                    }),
             );
 
-            for (const rawOrder of asArray(response?.orders)) {
+            for (const rawOrder of tokenOffers) {
                 const parsed = this.parseRawOffer(
                     rawOrder,
                     job.collectionAddress,
                     "itemOffers",
                 );
-                if (parsed) {
+                if (parsed?.maker.toLowerCase() === makerAddress.toLowerCase()) {
                     return parsed;
                 }
             }
@@ -690,6 +672,52 @@ export class OpenSeaBiddingService implements BiddingService {
                 },
             },
         );
+    }
+
+    private async fetchNftOffers(
+        collectionSlug: string,
+        tokenId: string,
+        logLabel: string,
+    ): Promise<unknown[]> {
+        const offers: unknown[] = [];
+        let cursor: string | undefined;
+        let page = 0;
+        const seenCursors = new Set<string>();
+
+        while (page < this.orderLookupMaxPages) {
+            const response = await this.withRetry(
+                "getOffersByNFT",
+                `${logLabel} (page ${page + 1})`,
+                () =>
+                    this.sdk.api.getOffersByNFT(
+                        collectionSlug,
+                        tokenId,
+                        this.offersPageSize,
+                        cursor,
+                    ),
+            );
+
+            offers.push(...asArray(response?.offers));
+
+            const next =
+                typeof response?.next === "string" ? response.next : undefined;
+            if (!next) {
+                break;
+            }
+
+            if (seenCursors.has(next)) {
+                biddingLog.error(
+                    `[OpenSeaBiddingService] NFT offer pagination loop detected for ${collectionSlug}#${tokenId}. Stopping.`,
+                );
+                break;
+            }
+
+            seenCursors.add(next);
+            cursor = next;
+            page += 1;
+        }
+
+        return offers;
     }
 
     private tryParseNumber(value: unknown): number | null {

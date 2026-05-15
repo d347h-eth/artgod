@@ -1,20 +1,6 @@
-export interface OpenSeaGetOrdersQuery {
-    assetContractAddress: string;
-    tokenIds: string[];
-    side: string;
-    orderBy: string;
-    orderDirection: string;
-    paymentTokenAddress: string;
-    maker?: string;
-}
-
 export interface OpenSeaOffersPage {
     offers?: unknown[];
     next?: string;
-}
-
-export interface OpenSeaGetOrdersResponse {
-    orders?: unknown[];
 }
 
 export interface OpenSeaTraitsResponse {
@@ -23,7 +9,12 @@ export interface OpenSeaTraitsResponse {
 
 // OpenSeaApiClient is the minimal API surface the bidding adapters need from the SDK.
 export interface OpenSeaApiClient {
-    getOrders(query: OpenSeaGetOrdersQuery): Promise<OpenSeaGetOrdersResponse>;
+    getOffersByNFT(
+        collectionSlug: string,
+        tokenId: string,
+        limit?: number,
+        next?: string,
+    ): Promise<OpenSeaOffersPage>;
     getAllOffers(
         collectionSlug: string,
         limit?: number,

@@ -129,14 +129,13 @@ __metadata:
   resolution: "@artgod/trading@workspace:trading"
   dependencies:
     "@artgod/shared": "workspace:*"
+    "@opensea/sdk": "npm:10.5.0"
     "@opensea/stream-js": "npm:^0.2.0"
     "@types/node": "npm:^24.0.0"
     async-mutex: "npm:0.5.0"
     better-sqlite3: "npm:^v12.2.0"
     dotenv: "npm:^16.4.5"
-    ethers: "npm:^6.0.0"
     nats: "npm:^2.29.1"
-    opensea-js: "npm:^8.0.0"
     typescript: "npm:^5.8.3"
     viem: "npm:2.41.2"
     vitest: "npm:4.0.13"
@@ -986,6 +985,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@noble/hashes@npm:^2.0.1":
+  version: 2.2.0
+  resolution: "@noble/hashes@npm:2.2.0"
+  checksum: 10/b1b78bedc2a01394be047429f3d888905015fe8a09f1b7e43e0b5736b54133df62f73dcc73ede43af38e96e86156afb45b86973fdeaa95d9f0880333c3fc0907
+  languageName: node
+  linkType: hard
+
 "@nodelib/fs.scandir@npm:2.1.5":
   version: 2.1.5
   resolution: "@nodelib/fs.scandir@npm:2.1.5"
@@ -1035,6 +1041,30 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@opensea/api-types@npm:^0.4.0":
+  version: 0.4.0
+  resolution: "@opensea/api-types@npm:0.4.0"
+  checksum: 10/ceadab75d5f6362aa302dc9e0674af2bb015f592b0c5f7229baa7d8bff17f0d282f7c214179e70cb1d9f6ffa405cbbb10a1937e8a0efab329beae4d34416647e
+  languageName: node
+  linkType: hard
+
+"@opensea/sdk@npm:10.5.0":
+  version: 10.5.0
+  resolution: "@opensea/sdk@npm:10.5.0"
+  dependencies:
+    "@noble/hashes": "npm:^2.0.1"
+    "@opensea/api-types": "npm:^0.4.0"
+    "@opensea/seaport-js": "npm:^4.1.1"
+    ethers: "npm:^6.16.0"
+  peerDependencies:
+    viem: ^2.0.0
+  peerDependenciesMeta:
+    viem:
+      optional: true
+  checksum: 10/04952196577ba43a2f05c90c9bb9c69fdfa4f1014cfed329649e08ef22e659a089d159065066f127df365d773642a942e2ac6e3e928cfba92f9e062f141d330c
+  languageName: node
+  linkType: hard
+
 "@opensea/seaport-js@npm:^4.0.6":
   version: 4.0.6
   resolution: "@opensea/seaport-js@npm:4.0.6"
@@ -1045,13 +1075,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opensea/seaport-js@npm:^4.0.7":
-  version: 4.0.7
-  resolution: "@opensea/seaport-js@npm:4.0.7"
+"@opensea/seaport-js@npm:^4.1.1":
+  version: 4.1.3
+  resolution: "@opensea/seaport-js@npm:4.1.3"
   dependencies:
     ethers: "npm:^6.16.0"
     merkletreejs: "npm:^0.6.0"
-  checksum: 10/034747f5ab718f3bddf5d910b0cf2f89fb52538cc8dd0a00ced12fda0711a4e52a80df2cc47c135b148695c1d11818f66cda6553f21ee8d4d6f849930b10251b
+  checksum: 10/c5060abf960f0386e0adb0da87747d30ca3db70e6a615e6b2d021fea8b2f34701d534edd71cbb4ed1300c7944d397656e496433d7abf8888c6276c4a09cc68d2
   languageName: node
   linkType: hard
 
@@ -4751,7 +4781,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ethers@npm:^6.0.0, ethers@npm:^6.16.0, ethers@npm:^6.9.0":
+"ethers@npm:^6.16.0, ethers@npm:^6.9.0":
   version: 6.16.0
   resolution: "ethers@npm:6.16.0"
   dependencies:
@@ -6324,16 +6354,6 @@ __metadata:
     "@opensea/seaport-js": "npm:^4.0.6"
     ethers: "npm:^6.9.0"
   checksum: 10/5f043560eb02a7fab74e5450fb8a9791be637f3af19b34de1be5e2e40f0157a8df2caac240b8bc3e645097b7abc4e8327b0f8263d76295fb51f61c7b88f24a59
-  languageName: node
-  linkType: hard
-
-"opensea-js@npm:^8.0.0":
-  version: 8.0.20
-  resolution: "opensea-js@npm:8.0.20"
-  dependencies:
-    "@opensea/seaport-js": "npm:^4.0.7"
-    ethers: "npm:^6.16.0"
-  checksum: 10/2f6ccb61313e5378baf9836c5e7cdcb65f4910aed95c5a37dc2a6a2d8cf059d3512a73b3e37433e1b9ad5228186d98ad59ff6a328ebc1d00019524f48bc0b4cb
   languageName: node
   linkType: hard
 
