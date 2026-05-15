@@ -6,7 +6,10 @@ import {
     TraitCriterion,
 } from "../../../domain/market/event.js";
 import { TokenMetadataRepository } from "../../../domain/market/token-metadata-repository.js";
-import { BidderJob } from "../../../domain/market/strategy/job.js";
+import {
+    BidderJob,
+    formatBidderJobReference,
+} from "../../../domain/market/strategy/job.js";
 import { biddingLog } from "../../../utils/bidding-log.js";
 import { sleep } from "../../../utils/sleep.js";
 import {
@@ -162,8 +165,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     public async cancelActiveOffersForJob(job: BidderJob): Promise<number> {
         const jobMutex = this.getJobMutex(job.id);
         return await jobMutex.runExclusive(async () => {
+            const jobRef = formatBidderJobReference(job);
             biddingLog.info(
-                `[Bidder] Discovering active maker offers for cancellation. jobId=${job.id}`,
+                `[Bidder] Discovering active maker offers for cancellation for ${jobRef}.`,
             );
             // Fetch active offers through the bidding service so cancellation uses the same market scope as normal refreshes.
             const offers = await this.biddingService.getActiveOffers(job);
@@ -175,14 +179,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             );
             if (makerOffers.length === 0) {
                 biddingLog.info(
-                    `[Bidder] No active maker offers found for cancellation. jobId=${job.id}`,
+                    `[Bidder] No active maker offers found for cancellation for ${jobRef}.`,
                 );
                 this.clearTrackedOrderForJobId(job.id);
                 return 0;
             }
 
             biddingLog.info(
-                `[Bidder] Cancelling ${makerOffers.length} active maker offer(s). jobId=${job.id}`,
+                `[Bidder] Cancelling ${makerOffers.length} active maker offer(s) for ${jobRef}.`,
             );
             await this.cancelMakerOffers(job, makerOffers);
             this.clearTrackedOrderForJobId(job.id);
@@ -233,7 +237,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     public async bootstrapCurrentPrices(
         options: BidderBootstrapOptions = {},
     ): Promise<void> {
-        const tokenJobIds = Array.from(this.tokenJobIdByCollectionToken.values());
+        const tokenJobIds = Array.from(
+            this.tokenJobIdByCollectionToken.values(),
+        );
         const warmCandidates = tokenJobIds
             .map((jobId) => this.jobs.get(jobId))
             .filter(
@@ -447,7 +453,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         try {
             await this.tick();
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+                error instanceof Error ? error.message : String(error);
             biddingLog.error(`[Bidder] Tick failed: ${message}`);
         }
 
@@ -473,22 +480,27 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             const counter = context
                 ? ` [${context.sequence}/${context.total}]`
                 : "";
+            const jobRef = formatBidderJobReference(job);
             biddingLog.debug(
-                `[Bidder] Executing strategy for${counter} ${job.id}`,
+                `[Bidder] Executing strategy${counter} for ${jobRef}`,
             );
 
             const offers = await this.biddingService.getActiveOffers(job);
 
             if (job.state.activeOrderId) {
                 const activeId = job.state.activeOrderId;
-                const foundInMarket = offers.find((offer) => offer.id === activeId);
+                const foundInMarket = offers.find(
+                    (offer) => offer.id === activeId,
+                );
 
                 if (!foundInMarket) {
                     biddingLog.debug(
-                        `[Bidder] Active bid ${activeId} not found in market. Checking directly...`,
+                        `[Bidder] Active bid ${activeId} not found in market for ${jobRef}. Checking directly...`,
                     );
                     const tokenId =
-                        job.target.type === "token" ? job.target.tokenId : undefined;
+                        job.target.type === "token"
+                            ? job.target.tokenId
+                            : undefined;
                     const recovered = await this.biddingService.getOrder(
                         activeId,
                         job.state.activeProtocolAddress,
@@ -499,7 +511,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
                     if (recovered) {
                         biddingLog.info(
-                            `[Bidder] Recovered active bid ${activeId} from state.`,
+                            `[Bidder] Recovered active bid ${activeId} from state for ${jobRef}.`,
                         );
                         offers.push(recovered);
                         if (
@@ -511,7 +523,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                         }
                     } else {
                         biddingLog.info(
-                            `[Bidder] Active bid ${activeId} is invalid/missing. Clearing state.`,
+                            `[Bidder] Active bid ${activeId} is invalid/missing for ${jobRef}. Clearing state.`,
                         );
                         job.state.activeOrderId = undefined;
                         job.state.activeProtocolAddress = undefined;
@@ -571,11 +583,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                     : "None";
 
             biddingLog.debug(
-                `[Bidder] State for ${job.id}: MyHigh=${formatOffer(myHighest)}, Competitor=${formatOffer(competitorHighest)}, ConfiguredFloor=${formatOptionalUnit(configuredFloor)}, EffectiveFloor=${formatOptionalUnit(floor)}, ConfiguredCeiling=${formatOptionalUnit(configuredCeiling)}, EffectiveCeiling=${formatOptionalUnit(ceiling)}, CachedWeth=${formatOptionalUnit(this.cachedMakerWethBalance)}`,
+                `[Bidder] State for ${jobRef}: MyHigh=${formatOffer(myHighest)}, Competitor=${formatOffer(competitorHighest)}, ConfiguredFloor=${formatOptionalUnit(configuredFloor)}, EffectiveFloor=${formatOptionalUnit(floor)}, ConfiguredCeiling=${formatOptionalUnit(configuredCeiling)}, EffectiveCeiling=${formatOptionalUnit(ceiling)}, CachedWeth=${formatOptionalUnit(this.cachedMakerWethBalance)}`,
             );
             if (runtimeOverride) {
                 biddingLog.debug(
-                    `[Bidder] Runtime override active for ${job.id}: baseFloor=${formatOptionalUnit(job.config.floor)}, baseCeiling=${formatOptionalUnit(job.config.ceiling)}, overrideExpiresAt=${new Date(runtimeOverride.expiresAt).toISOString()}, reason=${runtimeOverride.reason ?? "unspecified"}`,
+                    `[Bidder] Runtime override active for ${jobRef}: baseFloor=${formatOptionalUnit(job.config.floor)}, baseCeiling=${formatOptionalUnit(job.config.ceiling)}, overrideExpiresAt=${new Date(runtimeOverride.expiresAt).toISOString()}, reason=${runtimeOverride.reason ?? "unspecified"}`,
                 );
             }
 
@@ -592,7 +604,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             if (desiredPrice <= 0n) {
                 if (myOffers.length > 0) {
                     biddingLog.info(
-                        `[Bidder] Effective ceiling is zero for ${job.id}. Cancelling ${myOffers.length} maker offer(s).`,
+                        `[Bidder] Effective ceiling is zero for ${jobRef}. Cancelling ${myOffers.length} maker offer(s).`,
                     );
                     await this.cancelMakerOffers(job, myOffers);
                     this.clearTrackedOrder(job);
@@ -600,14 +612,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 }
 
                 biddingLog.debug(
-                    `[Bidder] Skipping ${job.id}. Effective ceiling after WETH balance clamp is zero.`,
+                    `[Bidder] Skipping ${jobRef}. Effective ceiling after WETH balance clamp is zero.`,
                 );
                 return;
             }
 
             if (!myHighest) {
                 biddingLog.debug(
-                    `[Bidder] No active bid. Placing target: ${formatOptionalUnit(desiredPrice)}`,
+                    `[Bidder] No active bid for ${jobRef}. Placing target: ${formatOptionalUnit(desiredPrice)}`,
                 );
                 await this.placeAndTrack(job, desiredPrice);
                 return;
@@ -620,7 +632,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
             if (renewalReason) {
                 biddingLog.info(
-                    `[Bidder] Renewing bid for ${job.id}. Current: ${formatOptionalUnit(myPrice)}, New: ${formatOptionalUnit(desiredPrice)}, Reason: ${renewalReason}`,
+                    `[Bidder] Renewing bid for ${jobRef}. Current: ${formatOptionalUnit(myPrice)}, New: ${formatOptionalUnit(desiredPrice)}, Reason: ${renewalReason}`,
                 );
                 await this.placeAndTrack(job, desiredPrice);
                 await this.cancelMakerOffers(job, myOffers);
@@ -637,15 +649,15 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
                 if (matchingMakerOffer.id !== myHighest.id) {
                     biddingLog.info(
-                        `[Bidder] Reverting to target bid for ${job.id}. Target: ${formatOptionalUnit(desiredPrice)}, Competitor: ${formatOptionalUnit(competitorPrice)}`,
+                        `[Bidder] Reverting to target bid for ${jobRef}. Target: ${formatOptionalUnit(desiredPrice)}, Competitor: ${formatOptionalUnit(competitorPrice)}`,
                     );
                 } else if (desiredPrice > competitorPrice) {
                     biddingLog.debug(
-                        `[Bidder] Maintaining winning position for ${job.id}. Current: ${formatOptionalUnit(desiredPrice)}`,
+                        `[Bidder] Maintaining winning position for ${jobRef}. Current: ${formatOptionalUnit(desiredPrice)}`,
                     );
                 } else {
                     biddingLog.debug(
-                        `[Bidder] Maintaining capped position for ${job.id}. Current: ${formatOptionalUnit(desiredPrice)}, Competitor: ${formatOptionalUnit(competitorPrice)}`,
+                        `[Bidder] Maintaining capped position for ${jobRef}. Current: ${formatOptionalUnit(desiredPrice)}, Competitor: ${formatOptionalUnit(competitorPrice)}`,
                     );
                 }
 
@@ -654,12 +666,13 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
             const direction = desiredPrice > myPrice ? "upward" : "downward";
             biddingLog.info(
-                `[Bidder] Adjusting bid ${direction} for ${job.id}. Current: ${formatOptionalUnit(myPrice)}, New: ${formatOptionalUnit(desiredPrice)}, Competitor: ${formatOptionalUnit(competitorPrice)}`,
+                `[Bidder] Adjusting bid ${direction} for ${jobRef}. Current: ${formatOptionalUnit(myPrice)}, New: ${formatOptionalUnit(desiredPrice)}, Competitor: ${formatOptionalUnit(competitorPrice)}`,
             );
             await this.placeAndTrack(job, desiredPrice);
             await this.cancelMakerOffers(job, myOffers);
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+                error instanceof Error ? error.message : String(error);
             biddingLog.error(
                 `[Bidder] Error refreshing job ${jobId}: ${message}`,
             );
@@ -691,28 +704,35 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         jobId: string,
         override: RuntimeJobOverride,
     ): ReturnType<typeof setTimeout> {
-        return setTimeout(() => {
-            const currentOverride = this.runtimeOverrides.get(jobId);
-            if (
-                !currentOverride ||
-                currentOverride.activationId !== override.activationId
-            ) {
-                return;
-            }
+        return setTimeout(
+            () => {
+                const currentOverride = this.runtimeOverrides.get(jobId);
+                if (
+                    !currentOverride ||
+                    currentOverride.activationId !== override.activationId
+                ) {
+                    return;
+                }
 
-            this.clearRuntimeOverride(jobId);
-            biddingLog.info(
-                `[Bidder] Runtime override expired for ${jobId}: reason=${override.reason ?? "unspecified"}`,
-            );
-
-            void this.refreshJobImmediately(jobId).catch((error: unknown) => {
-                const message =
-                    error instanceof Error ? error.message : String(error);
-                biddingLog.error(
-                    `[Bidder] Failed to refresh ${jobId} after runtime override expiry: ${message}`,
+                this.clearRuntimeOverride(jobId);
+                biddingLog.info(
+                    `[Bidder] Runtime override expired for ${jobId}: reason=${override.reason ?? "unspecified"}`,
                 );
-            });
-        }, Math.max(0, override.expiresAt - Date.now()));
+
+                void this.refreshJobImmediately(jobId).catch(
+                    (error: unknown) => {
+                        const message =
+                            error instanceof Error
+                                ? error.message
+                                : String(error);
+                        biddingLog.error(
+                            `[Bidder] Failed to refresh ${jobId} after runtime override expiry: ${message}`,
+                        );
+                    },
+                );
+            },
+            Math.max(0, override.expiresAt - Date.now()),
+        );
     }
 
     private getRuntimeOverride(jobId: string): RuntimeJobOverride | undefined {
@@ -764,9 +784,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         return evaluations;
     }
 
-    private getHotRefreshCandidateJobs(
-        marketEvent: MarketEvent,
-    ): BidderJob[] {
+    private getHotRefreshCandidateJobs(marketEvent: MarketEvent): BidderJob[] {
         if (marketEvent.getScope() === Scope.Item) {
             if (!marketEvent.hasExplicitTokenId()) {
                 return [];
@@ -931,17 +949,18 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         }
 
         try {
-            const activeOffer = await this.biddingService.getActiveTokenOfferByMaker(
-                job,
-                this.makerAddress,
-            );
+            const activeOffer =
+                await this.biddingService.getActiveTokenOfferByMaker(
+                    job,
+                    this.makerAddress,
+                );
             if (!activeOffer) {
                 return false;
             }
 
             if (activeOffer.expirationTime === undefined) {
                 biddingLog.info(
-                    `[Bidder] Skipping bootstrap warm for ${job.id}: active offer expiration is unavailable; the next runtime refresh will place a fresh bid.`,
+                    `[Bidder] Skipping bootstrap warm for ${formatBidderJobReference(job)}: active offer expiration is unavailable; the next runtime refresh will place a fresh bid.`,
                 );
                 return false;
             }
@@ -960,13 +979,14 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 ? ` [${context.sequence}/${context.total}]`
                 : "";
             biddingLog.debug(
-                `[Bidder] Warmed currentPrice${counter}: target=${job.collectionSlug}#${job.target.tokenId}, jobId=${job.id}, price=${this.formatPriceForLog(activeOffer.price)}, orderHash=${activeOffer.id}, protocol=${activeOffer.protocolAddress ?? "unknown"}, expiresAt=${activeExpirationForLog}`,
+                `[Bidder] Warmed currentPrice${counter} for ${formatBidderJobReference(job)}: price=${this.formatPriceForLog(activeOffer.price)}, orderHash=${activeOffer.id}, protocol=${activeOffer.protocolAddress ?? "unknown"}, expiresAt=${activeExpirationForLog}`,
             );
             return true;
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+                error instanceof Error ? error.message : String(error);
             biddingLog.error(
-                `[Bidder] Failed to warm currentPrice for ${job.id}: ${message}`,
+                `[Bidder] Failed to warm currentPrice for ${formatBidderJobReference(job)}: ${message}`,
             );
             return false;
         }
@@ -1049,7 +1069,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 );
             return true;
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+                error instanceof Error ? error.message : String(error);
             biddingLog.error(
                 `[Bidder] Failed to refresh maker WETH balance: ${message}`,
             );
@@ -1163,7 +1184,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             this.tokenJobIdByCollectionToken.get(collectionTokenKey);
         if (existingJobId && existingJobId !== job.id) {
             throw new Error(
-                `[Bidder] Duplicate token job detected for ${collectionTokenKey}: ${existingJobId}, ${job.id}`,
+                `[Bidder] Duplicate token job detected for ${formatBidderJobReference(job)}: existingJobId=${existingJobId}`,
             );
         }
 
@@ -1184,7 +1205,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             job.collectionSlug,
             job.target.tokenId,
         );
-        if (this.tokenJobIdByCollectionToken.get(collectionTokenKey) === job.id) {
+        if (
+            this.tokenJobIdByCollectionToken.get(collectionTokenKey) === job.id
+        ) {
             this.tokenJobIdByCollectionToken.delete(collectionTokenKey);
         }
 
@@ -1269,7 +1292,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 return [{ type, value: String(value) }];
             });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+                error instanceof Error ? error.message : String(error);
             biddingLog.error(
                 `[Bidder] Failed to parse cached token metadata: ${message}`,
             );
@@ -1279,23 +1303,29 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
     private normalizeOrderTraitTargets(order: Order): TraitCriterion[] {
         const rawCriteria =
-            (order.rawOrder as
-                | {
-                      criteria?: unknown;
-                      protocolData?: { criteria?: unknown };
-                      protocol_data?: { criteria?: unknown };
-                  }
-                | undefined)?.criteria ??
-            (order.rawOrder as
-                | {
-                      protocolData?: { criteria?: unknown };
-                  }
-                | undefined)?.protocolData?.criteria ??
-            (order.rawOrder as
-                | {
-                      protocol_data?: { criteria?: unknown };
-                  }
-                | undefined)?.protocol_data?.criteria;
+            (
+                order.rawOrder as
+                    | {
+                          criteria?: unknown;
+                          protocolData?: { criteria?: unknown };
+                          protocol_data?: { criteria?: unknown };
+                      }
+                    | undefined
+            )?.criteria ??
+            (
+                order.rawOrder as
+                    | {
+                          protocolData?: { criteria?: unknown };
+                      }
+                    | undefined
+            )?.protocolData?.criteria ??
+            (
+                order.rawOrder as
+                    | {
+                          protocol_data?: { criteria?: unknown };
+                      }
+                    | undefined
+            )?.protocol_data?.criteria;
 
         return this.normalizeTraitTargets(rawCriteria);
     }
@@ -1327,11 +1357,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
         const type = candidate.type ?? candidate.trait_type;
         const value = candidate.value ?? candidate.trait_value;
-        if (
-            typeof type === "string" &&
-            value !== undefined &&
-            value !== null
-        ) {
+        if (typeof type === "string" && value !== undefined && value !== null) {
             return [{ type, value: String(value) }];
         }
 
@@ -1424,6 +1450,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
 
     private async placeAndTrack(job: BidderJob, amount: bigint): Promise<void> {
         job.state.lastRun = Date.now();
+        const jobRef = formatBidderJobReference(job);
 
         if (this.isDryRun()) {
             if (
@@ -1433,11 +1460,11 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 const qty = Math.max(1, Math.floor(job.target.quantity));
                 const totalWei = amount * BigInt(qty);
                 biddingLog.info(
-                    `[Bidder] DRY RUN: Would place collection offer for ${job.id}: Unit=${formatUnits(amount, 18)}, Qty=${qty}, Total=${formatUnits(totalWei, 18)}`,
+                    `[Bidder] DRY RUN: Would place collection offer for ${jobRef}: Unit=${formatUnits(amount, 18)}, Qty=${qty}, Total=${formatUnits(totalWei, 18)}`,
                 );
             } else {
                 biddingLog.info(
-                    `[Bidder] DRY RUN: Would place offer for ${job.id}: ${formatUnits(amount, 18)}`,
+                    `[Bidder] DRY RUN: Would place offer for ${jobRef}: ${formatUnits(amount, 18)}`,
                 );
             }
             return;
@@ -1457,28 +1484,29 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             const qty = Math.max(1, Math.floor(job.target.quantity));
             const totalWei = amount * BigInt(qty);
             biddingLog.info(
-                `[Bidder] Placed collection offer for ${job.id}: Unit=${formatUnits(amount, 18)}, Qty=${qty}, Total=${formatUnits(totalWei, 18)} (Hash: ${orderHash}, Protocol: ${protocolAddress}, ExpiresAt: ${this.formatExpirationForLog(job.state.activeExpirationTimeMs)})`,
+                `[Bidder] Placed collection offer for ${jobRef}: Unit=${formatUnits(amount, 18)}, Qty=${qty}, Total=${formatUnits(totalWei, 18)} (Hash: ${orderHash}, Protocol: ${protocolAddress}, ExpiresAt: ${this.formatExpirationForLog(job.state.activeExpirationTimeMs)})`,
             );
         } else {
             biddingLog.info(
-                `[Bidder] Placed offer for ${job.id}: ${formatUnits(amount, 18)} (Hash: ${orderHash}, Protocol: ${protocolAddress}, ExpiresAt: ${this.formatExpirationForLog(job.state.activeExpirationTimeMs)})`,
+                `[Bidder] Placed offer for ${jobRef}: ${formatUnits(amount, 18)} (Hash: ${orderHash}, Protocol: ${protocolAddress}, ExpiresAt: ${this.formatExpirationForLog(job.state.activeExpirationTimeMs)})`,
             );
         }
     }
 
     private async cancelAndTrack(job: BidderJob, order: Order): Promise<void> {
+        const jobRef = formatBidderJobReference(job);
         if (this.isDryRun()) {
             biddingLog.info(
-                `[Bidder] DRY RUN: Would cancel offer for ${job.id}: ${order.id}`,
+                `[Bidder] DRY RUN: Would cancel offer for ${jobRef}: ${order.id}`,
             );
             return;
         }
 
         biddingLog.info(
-            `[Bidder] Cancelling offer for ${job.id}: ${order.id} (source=${order.offerScope ?? "unknown"}, price=${formatUnits(order.price, 18)}, priceSource=${order.priceSource ?? order.source ?? "unknown"}, qty=${order.quantity ?? 1n})`,
+            `[Bidder] Cancelling offer for ${jobRef}: ${order.id} (source=${order.offerScope ?? "unknown"}, price=${formatUnits(order.price, 18)}, priceSource=${order.priceSource ?? order.source ?? "unknown"}, qty=${order.quantity ?? 1n})`,
         );
         await this.biddingService.cancelOffer(job, order);
-        biddingLog.info(`[Bidder] Cancelled offer for ${job.id}: ${order.id}`);
+        biddingLog.info(`[Bidder] Cancelled offer for ${jobRef}: ${order.id}`);
     }
 
     private trackCurrentWinningOrder(job: BidderJob, order: Order): void {
