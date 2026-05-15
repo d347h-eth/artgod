@@ -27,6 +27,9 @@ import {
 import {
     UpsertBatchTokenBiddingJobsHttpAdapter,
 } from "./upsert-batch-token-bidding-jobs.js";
+import {
+    UpsertTraitBiddingJobHttpAdapter,
+} from "./upsert-trait-bidding-job.js";
 
 describe("trading HTTP adapters", () => {
     it("parses price-tier DTOs across supported config kinds", () => {
@@ -394,6 +397,130 @@ describe("trading HTTP adapters", () => {
                     }),
                 ),
             /target\.quantity must be an integer > 0/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            target: {
+                                type: "trait",
+                                targetTraits: [],
+                            },
+                        },
+                    }),
+                ),
+            /target\.targetTraits is required/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            target: {
+                                type: "trait",
+                                targetTraits: [null],
+                            },
+                        },
+                    }),
+                ),
+            /target\.targetTraits entries must be objects/,
+        );
+    });
+
+    it("maps trait job DTOs and rejects malformed trait targets", async () => {
+        let captured: unknown;
+        const adapter = new UpsertTraitBiddingJobHttpAdapter({
+            upsertTraitBiddingJob: (input) => {
+                captured = input;
+                return input as never;
+            },
+        });
+
+        await adapter.handle(
+            request({
+                params: { chain_ref: "ethereum", collection_ref: "terraforms" },
+                body: {
+                    status: TRADING_JOB_STATUS.Enabled,
+                    floorEth: "0.1",
+                    ceilingEth: "0.2",
+                    deltaEth: "0.001",
+                    quantity: 2,
+                    targetTraits: [{ type: "Mode", value: "Terrain" }],
+                },
+            }),
+        );
+
+        assert.deepEqual(captured, {
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorEth: "0.1",
+            ceilingEth: "0.2",
+            deltaEth: "0.001",
+            priceTierId: undefined,
+            quantity: 2,
+            targetTraits: [{ type: "Mode", value: "Terrain" }],
+        });
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            quantity: 0,
+                            targetTraits: [{ type: "Mode", value: "Terrain" }],
+                        },
+                    }),
+                ),
+            /quantity must be an integer > 0/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            targetTraits: [],
+                        },
+                    }),
+                ),
+            /targetTraits is required/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            targetTraits: [null],
+                        },
+                    }),
+                ),
+            /targetTraits entries must be objects/,
         );
     });
 

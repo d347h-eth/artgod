@@ -6,6 +6,9 @@ import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+} from "@artgod/shared/trading/runtime-state";
+import {
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
@@ -127,6 +130,14 @@ describe("SqliteBiddingBidBookRepository", () => {
         });
         insertProjectedBid({
             collectionId,
+            orderId: "token-set-malformed-tail",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+            scopeLabel: "malformed token set",
+            encodedTokenIds: "4,bad,5",
+            priceWei: "252",
+        });
+        insertProjectedBid({
+            collectionId,
             orderId: "token-set-no-match",
             scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
             scopeLabel: "nonmatching token set",
@@ -190,6 +201,49 @@ describe("SqliteBiddingBidBookRepository", () => {
                 "opponent-collection",
                 "own-collection",
             ],
+        );
+    });
+
+    it("falls back to indexed orders when enabled bot projections are stale", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        const staleSnapshotMs =
+            Date.now() - TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS - 1;
+        insertProjectedState(collectionId, staleSnapshotMs);
+        insertProjectedBid({
+            collectionId,
+            orderId: "stale-projection",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            scopeLabel: "collection",
+            priceWei: "999000000000000000",
+        });
+        insertIndexedOrder({
+            collectionId,
+            id: "fresh-indexed-order",
+            rawRestData: makeOpenSeaBuyOrderPayload({
+                orderId: "fresh-indexed-order",
+                maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                priceWei: "100000000000000000",
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+            rawStreamData: null,
+            updatedAt: "2026-05-15T02:00:00Z",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.equal(bidBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.Orders);
+        assert.deepEqual(
+            bidBook.bids.map((bid) => bid.orderId),
+            ["fresh-indexed-order"],
         );
     });
 
