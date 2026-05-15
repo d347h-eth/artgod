@@ -238,6 +238,117 @@ describe("trading HTTP adapters", () => {
                 ),
             ReadModelBadRequestError,
         );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            selection: {
+                                type: "token_offer_filter",
+                                traitJoinMode:
+                                    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+                                makerAddress: 123,
+                            },
+                        },
+                    }),
+                ),
+            /selection\.makerAddress must be a string/,
+        );
+    });
+
+    it("rejects malformed batch token selection filters", async () => {
+        const adapter = new UpsertBatchTokenBiddingJobsHttpAdapter({
+            upsertBatchTokenBiddingJobs: (input) => input as never,
+        });
+
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            selection: {
+                                type: "filter",
+                                tokenStatus: "owned",
+                            },
+                        },
+                    }),
+                ),
+            /selection\.tokenStatus is invalid/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            selection: {
+                                type: "filter",
+                                tokenStatus: "all",
+                                traits: [null],
+                            },
+                        },
+                    }),
+                ),
+            /selection\.traits entries must be objects/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            selection: {
+                                type: "filter",
+                                tokenStatus: "all",
+                                traitRanges: [null],
+                            },
+                        },
+                    }),
+                ),
+            /selection\.traitRanges entries must be objects/,
+        );
+        await assert.rejects(
+            () =>
+                adapter.handle(
+                    request({
+                        params: {
+                            chain_ref: "ethereum",
+                            collection_ref: "terraforms",
+                        },
+                        body: {
+                            status: TRADING_JOB_STATUS.Enabled,
+                            deltaEth: "0.001",
+                            selection: {
+                                type: "token_ids",
+                                tokenIds: "1",
+                            },
+                        },
+                    }),
+                ),
+            /selection\.tokenIds must be an array/,
+        );
     });
 
     it("maps target lookup DTOs and rejects invalid targets", async () => {

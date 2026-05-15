@@ -103,6 +103,38 @@ describe("SqliteBiddingBidBookRepository", () => {
         });
         insertProjectedBid({
             collectionId,
+            orderId: "token-set-all",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+            scopeLabel: "all tokens",
+            encodedTokenIds: "*",
+            priceWei: "260",
+        });
+        insertProjectedBid({
+            collectionId,
+            orderId: "token-set-empty",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+            scopeLabel: "empty token set",
+            encodedTokenIds: "",
+            priceWei: "255",
+        });
+        insertProjectedBid({
+            collectionId,
+            orderId: "token-set-invalid-range",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+            scopeLabel: "invalid token set",
+            encodedTokenIds: "bad:10",
+            priceWei: "254",
+        });
+        insertProjectedBid({
+            collectionId,
+            orderId: "token-set-no-match",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.TokenSet,
+            scopeLabel: "nonmatching token set",
+            encodedTokenIds: "99",
+            priceWei: "253",
+        });
+        insertProjectedBid({
+            collectionId,
             orderId: "trait-mode",
             scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
             scopeLabel: "Mode=Terrain",
@@ -152,6 +184,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             tokenBook.bids.map((bid) => bid.orderId),
             [
                 "token-5",
+                "token-set-all",
                 "token-set",
                 "trait-mode",
                 "opponent-collection",

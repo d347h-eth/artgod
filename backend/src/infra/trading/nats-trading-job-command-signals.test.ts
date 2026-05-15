@@ -73,6 +73,25 @@ describe("NatsTradingJobCommandSignalPublisher", () => {
         assert.equal(natsMocks.connect.mock.calls.length, 0);
     });
 
+    it("clears the cached connection promise when background publish fails", async () => {
+        natsMocks.connect.mockRejectedValueOnce(new Error("offline"));
+        const { NatsTradingJobCommandSignalPublisher } = await import(
+            "./nats-trading-job-command-signals.js"
+        );
+        const publisher = new NatsTradingJobCommandSignalPublisher(
+            "nats://127.0.0.1:4222",
+            "artgod",
+        );
+
+        publisher.publishBiddingJobCommandsChanged([
+            command({ commandId: 7, jobId: "job-a" }),
+        ]);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        assert.equal(natsMocks.connect.mock.calls.length, 1);
+        await publisher.close();
+    });
+
     it("ensures the stream and publishes compact bidding command wake-ups", async () => {
         natsMocks.streamInfo.mockRejectedValueOnce(new Error("missing"));
         const { NatsTradingJobCommandSignalPublisher } = await import(
