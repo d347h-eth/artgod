@@ -30,6 +30,83 @@ describe("loadBackendConfig", () => {
         });
     });
 
+    it("defaults backend observability to disabled runtime endpoints", () => {
+        const config = loadBackendConfig(createBaseEnv());
+
+        expect(config.metrics).toEqual({
+            enabled: false,
+            host: "0.0.0.0",
+            port: 9480,
+        });
+        expect(config.apm).toEqual({
+            enabled: false,
+            serviceNamespace: "artgod.backend",
+            spanProfiles: {
+                enabled: true,
+            },
+            traces: {
+                enabled: true,
+                otlpHttpUrl: "http://127.0.0.1:4318/v1/traces",
+            },
+            profiles: {
+                enabled: true,
+                pyroscopeUrl: "http://127.0.0.1:4040",
+            },
+        });
+    });
+
+    it("parses backend observability overrides", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            BACKEND_METRICS_ENABLED: "true",
+            BACKEND_METRICS_HOST: "127.0.0.1",
+            BACKEND_METRICS_PORT: "9481",
+            BACKEND_APM_ENABLED: "true",
+            BACKEND_APM_SERVICE_NAMESPACE: "artgod.backend-public",
+            BACKEND_APM_SPAN_PROFILES_ENABLED: "false",
+            BACKEND_APM_TRACES_ENABLED: "false",
+            BACKEND_APM_OTLP_HTTP_URL: "http://tempo:4318/v1/traces",
+            BACKEND_APM_PROFILES_ENABLED: "false",
+            BACKEND_APM_PYROSCOPE_URL: "http://pyroscope:4040",
+        });
+
+        expect(config.metrics).toEqual({
+            enabled: true,
+            host: "127.0.0.1",
+            port: 9481,
+        });
+        expect(config.apm).toEqual({
+            enabled: true,
+            serviceNamespace: "artgod.backend-public",
+            spanProfiles: {
+                enabled: false,
+            },
+            traces: {
+                enabled: false,
+                otlpHttpUrl: "http://tempo:4318/v1/traces",
+            },
+            profiles: {
+                enabled: false,
+                pyroscopeUrl: "http://pyroscope:4040",
+            },
+        });
+    });
+
+    it("uses composition-level observability endpoints when backend-specific endpoints are omitted", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:4318/v1/traces",
+            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:4040",
+        });
+
+        expect(config.apm.traces.otlpHttpUrl).toBe(
+            "http://tempo:4318/v1/traces",
+        );
+        expect(config.apm.profiles.pyroscopeUrl).toBe(
+            "http://pyroscope:4040",
+        );
+    });
+
     it("parses memory backend query cache config", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),

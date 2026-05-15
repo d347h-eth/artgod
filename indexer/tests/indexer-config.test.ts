@@ -38,4 +38,40 @@ describe("Indexer config", () => {
 
         expect(config.offchain.persistRawObservations).toBe(false);
     });
+
+    it("parses canonical indexer observability config", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            INDEXER_METRICS_ENABLED: "true",
+            INDEXER_METRICS_HOST: "127.0.0.1",
+            INDEXER_METRICS_PORT_SYNC_WORKER: "9565",
+            INDEXER_APM_ENABLED: "true",
+            INDEXER_APM_SERVICE_NAMESPACE: "artgod.indexer-custom",
+            INDEXER_APM_SPAN_PROFILES_ENABLED: "false",
+            INDEXER_APM_TRACES_ENABLED: "false",
+            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:4318/v1/traces",
+            INDEXER_APM_PROFILES_ENABLED: "false",
+            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:4040",
+        });
+
+        expect(config.metrics.enabled).toBe(true);
+        expect(config.metrics.host).toBe("127.0.0.1");
+        expect(config.metrics.ports.syncWorker).toBe(9565);
+        expect(config.apm).toMatchObject({
+            enabled: true,
+            serviceNamespace: "artgod.indexer-custom",
+            spanProfiles: {
+                enabled: false,
+            },
+            traces: {
+                enabled: false,
+                otlpHttpUrl: "http://tempo:4318/v1/traces",
+            },
+            profiles: {
+                enabled: false,
+                pyroscopeUrl: "http://pyroscope:4040",
+            },
+        });
+    });
+
 });

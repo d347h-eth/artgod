@@ -1,5 +1,5 @@
 import { logger } from "@artgod/shared/utils";
-import type { Metrics } from "../../metrics/types.js";
+import type { Metrics } from "@artgod/shared/observability/metrics";
 import type { MetadataFetcherPort } from "../../ports/metadata.js";
 import type {
     MetadataAttribute,

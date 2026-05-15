@@ -134,10 +134,12 @@ cp .env.deploy.example .env.deploy
 
 If enabling deploy observability, also set:
 
-- `METRICS_ENABLED=true`
-- `APM_ENABLED=true`
-- `APM_OTLP_HTTP_URL=http://tempo:4318/v1/traces`
-- `APM_PYROSCOPE_URL=http://pyroscope:4040`
+- `INDEXER_METRICS_ENABLED=true`
+- `BACKEND_METRICS_ENABLED=true`
+- `INDEXER_APM_ENABLED=true`
+- `BACKEND_APM_ENABLED=true`
+- `OBSERVABILITY_OTLP_HTTP_URL=http://tempo:4318/v1/traces`
+- `OBSERVABILITY_PYROSCOPE_URL=http://pyroscope:4040`
 - `OBSERVABILITY_GRAFANA_ADMIN_PASSWORD` to a non-default value before routing Grafana from a public subdomain
 
 3. Build and start the stack:
@@ -180,7 +182,7 @@ The deploy compose defines an `observability` profile with:
 
 - Loki for log storage.
 - Alloy for Docker log discovery and forwarding to Loki.
-- Prometheus scraping indexer worker `/metrics` endpoints over the compose network.
+- Prometheus scraping backend and indexer worker `/metrics` endpoints over the compose network.
 - Tempo receiving OTLP HTTP traces at `http://tempo:4318/v1/traces`.
 - Pyroscope receiving profiles at `http://pyroscope:4040`.
 - Grafana exposed only inside `public-edge` as `artgod-grafana:3000`.
@@ -208,8 +210,9 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS` controls how often the backend refreshes the cached public collection page (`listed`, first page, no filters) in the background.
 - `BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS` controls how often those background collection refreshes also trigger preview warmup for the current 250 visible tokens.
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` controls the preview-modal cache itself. That cache stores only default-media token previews, serves stale responses during the grace window, and refreshes them in the background when an individual preview entry goes stale.
-- `METRICS_ENABLED=true` starts per-worker Prometheus HTTP endpoints; `METRICS_HOST=0.0.0.0` is required so Prometheus can scrape them across the compose network.
-- `APM_ENABLED=true` starts trace/profile exporters; in deploy mode the endpoints must be the service-name URLs `http://tempo:4318/v1/traces` and `http://pyroscope:4040`, not localhost.
+- `INDEXER_METRICS_ENABLED=true` starts per-worker Prometheus HTTP endpoints; `BACKEND_METRICS_ENABLED=true` starts the backend API Prometheus endpoint on `BACKEND_METRICS_PORT` (`9480` by default).
+- `INDEXER_METRICS_HOST=0.0.0.0` and `BACKEND_METRICS_HOST=0.0.0.0` are required so Prometheus can scrape across the compose network.
+- `INDEXER_APM_ENABLED=true` starts indexer trace/profile exporters; `BACKEND_APM_ENABLED=true` starts backend API trace/profile exporters. In deploy mode `OBSERVABILITY_OTLP_HTTP_URL` and `OBSERVABILITY_PYROSCOPE_URL` must be the service-name URLs `http://tempo:4318/v1/traces` and `http://pyroscope:4040`, not localhost.
 - The deploy image relies on the repo’s Yarn allowlist policy during `yarn install --immutable --inline-builds`: `enableScripts: false` stays in effect globally, while allowlisted packages such as `esbuild` are still built through `dependenciesMeta.built: true`. `better-sqlite3` is then built explicitly and narrowly by invoking its trusted package-local `install` script from inside the unplugged package directory, and the image hard-fails if the native SQLite binding is still missing from `.yarn/unplugged`.
 - The deploy image reuses the same backend/indexer runtime artifacts and Yarn PnP Node launch shape as the desktop supervisor.
 - SQLite is persisted in the named Docker volume mounted at `/data`.

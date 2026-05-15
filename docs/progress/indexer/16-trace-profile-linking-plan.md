@@ -35,7 +35,7 @@ Root issue:
 ## Constraints
 
 - Keep existing behavior backward compatible for current users of `@pyroscope/nodejs`.
-- Preserve ArtGod "no-op by default" observability model (`APM_ENABLED=false` remains cheap).
+- Preserve ArtGod "no-op by default" observability model (`INDEXER_APM_ENABLED=false` remains cheap).
 - Do not break heap profiling.
 - Add strict guardrails for high-cardinality `profile_id` labels.
 
@@ -200,10 +200,10 @@ Files:
 
 New env proposal:
 
-- `APM_SPAN_PROFILES_ENABLED=true` (already exists)
-- `APM_SPAN_PROFILE_LABEL_KEY=profile_id`
-- `APM_SPAN_PROFILES_KEEP_AGGREGATE=true`
-- `APM_SPAN_PROFILES_MAX_SERIES_PER_FLUSH=100`
+- `INDEXER_APM_SPAN_PROFILES_ENABLED=true` (already exists)
+- `INDEXER_APM_SPAN_PROFILE_LABEL_KEY=profile_id`
+- `INDEXER_APM_SPAN_PROFILES_KEEP_AGGREGATE=true`
+- `INDEXER_APM_SPAN_PROFILES_MAX_SERIES_PER_FLUSH=100`
 
 Pass these values into `initRuntimeApm` and down to Pyroscope init config.
 

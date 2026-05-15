@@ -1,10 +1,12 @@
 import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
+import { parseNumber, parseRequiredString } from "@artgod/shared/utils/env";
 import {
-    parseBoolean,
-    parseNumber,
-    parseRequiredString,
-} from "@artgod/shared/utils/env";
+    parseIndexerApmConfig,
+    parseOpenSeaMetricsConfig,
+    type IndexerApmConfig,
+    type OpenSeaMetricsConfig,
+} from "./observability-env.js";
 
 export type OpenSeaRuntimeConfig = {
     dbPath: string;
@@ -32,30 +34,16 @@ export type OpenSeaRuntimeConfig = {
             postRefillPerSecond: number;
         };
     };
-    apm: {
-        enabled: boolean;
-        serviceNamespace: string;
-        spanProfiles: {
-            enabled: boolean;
-        };
-        traces: {
-            enabled: boolean;
-            otlpHttpUrl: string;
-        };
-        profiles: {
-            enabled: boolean;
-            pyroscopeUrl: string;
-        };
-    };
-    metrics: {
-        enabled: boolean;
-        host: string;
-        ports: {
-            streamWorker: number;
-            bootstrapWorker: number;
-            reconcileWorker: number;
-            reconcileSchedulerWorker: number;
-        };
+    apm: IndexerApmConfig;
+    metrics: OpenSeaRuntimeMetricsConfig;
+};
+
+type OpenSeaRuntimeMetricsConfig = Omit<OpenSeaMetricsConfig, "ports"> & {
+    ports: {
+        streamWorker: number;
+        bootstrapWorker: number;
+        reconcileWorker: number;
+        reconcileSchedulerWorker: number;
     };
 };
 
@@ -142,63 +130,24 @@ export function loadOpenSeaConfig(
                 ),
             },
         },
-        apm: {
-            enabled: parseBoolean(env.APM_ENABLED, "APM_ENABLED", false),
-            serviceNamespace: env.APM_SERVICE_NAMESPACE ?? "artgod.indexer",
-            spanProfiles: {
-                enabled: parseBoolean(
-                    env.APM_SPAN_PROFILES_ENABLED,
-                    "APM_SPAN_PROFILES_ENABLED",
-                    true,
-                ),
-            },
-            traces: {
-                enabled: parseBoolean(
-                    env.APM_TRACES_ENABLED,
-                    "APM_TRACES_ENABLED",
-                    true,
-                ),
-                otlpHttpUrl:
-                    env.APM_OTLP_HTTP_URL ?? "http://127.0.0.1:4318/v1/traces",
-            },
-            profiles: {
-                enabled: parseBoolean(
-                    env.APM_PROFILES_ENABLED,
-                    "APM_PROFILES_ENABLED",
-                    true,
-                ),
-                pyroscopeUrl: env.APM_PYROSCOPE_URL ?? "http://127.0.0.1:4040",
-            },
-        },
-        metrics: {
-            enabled: parseBoolean(
-                env.METRICS_ENABLED,
-                "METRICS_ENABLED",
-                false,
-            ),
-            host: env.METRICS_HOST ?? "0.0.0.0",
-            ports: {
-                streamWorker: parseNumber(
-                    env.METRICS_PORT_OPENSEA_STREAM_WORKER,
-                    "METRICS_PORT_OPENSEA_STREAM_WORKER",
-                    9469,
-                ),
-                bootstrapWorker: parseNumber(
-                    env.METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
-                    "METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-                    9472,
-                ),
-                reconcileWorker: parseNumber(
-                    env.METRICS_PORT_OPENSEA_RECONCILE_WORKER,
-                    "METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-                    9473,
-                ),
-                reconcileSchedulerWorker: parseNumber(
-                    env.METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
-                    "METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-                    9474,
-                ),
-            },
+        apm: parseIndexerApmConfig(env),
+        metrics: parseOpenSeaRuntimeMetricsConfig(env),
+    };
+}
+
+function parseOpenSeaRuntimeMetricsConfig(
+    env: Record<string, string | undefined>,
+): OpenSeaRuntimeMetricsConfig {
+    const metrics = parseOpenSeaMetricsConfig(env);
+    return {
+        enabled: metrics.enabled,
+        host: metrics.host,
+        ports: {
+            streamWorker: metrics.ports.openseaStreamWorker,
+            bootstrapWorker: metrics.ports.openseaBootstrapWorker,
+            reconcileWorker: metrics.ports.openseaReconcileWorker,
+            reconcileSchedulerWorker:
+                metrics.ports.openseaReconcileSchedulerWorker,
         },
     };
 }

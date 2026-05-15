@@ -1,4 +1,4 @@
-import { logger } from "@artgod/shared/utils";
+import { logger } from "../../utils/logger.js";
 import { noopMetrics } from "./noop.js";
 import { createPrometheusMetrics } from "./prometheus.js";
 import { startMetricsServer } from "./server.js";
@@ -8,8 +8,10 @@ export type RuntimeMetricsConfig = {
     enabled: boolean;
     host: string;
     port: number;
+    prefix?: string;
     worker: string;
     chainId: number;
+    logComponent?: string;
 };
 
 export type RuntimeMetricsHandle = {
@@ -28,6 +30,7 @@ export async function initRuntimeMetrics(
     }
 
     const metrics = await createPrometheusMetrics({
+        prefix: config.prefix,
         defaultLabels: {
             worker: config.worker,
             chain_id: String(config.chainId),
@@ -35,7 +38,7 @@ export async function initRuntimeMetrics(
     });
     if (!metrics) {
         logger.warn("Metrics disabled (prom-client unavailable)", {
-            component: "IndexerMetrics",
+            component: metricsLogComponent(config),
             action: "initRuntimeMetrics",
             worker: config.worker,
             reason: "missing_prom_client",
@@ -53,7 +56,7 @@ export async function initRuntimeMetrics(
     });
 
     logger.info("Metrics endpoint ready", {
-        component: "IndexerMetrics",
+        component: metricsLogComponent(config),
         action: "initRuntimeMetrics",
         worker: config.worker,
         host: config.host,
@@ -64,4 +67,8 @@ export async function initRuntimeMetrics(
         metrics,
         stop,
     };
+}
+
+function metricsLogComponent(config: RuntimeMetricsConfig): string {
+    return config.logComponent ?? "RuntimeMetrics";
 }

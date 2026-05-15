@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 import {
     SqliteActivitiesReadModel,
     SqliteChainsReadModel,
@@ -63,6 +64,7 @@ import { ArchiveCollectionBiddingPriceTierUseCase } from "./application/use-case
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
+import type { BackendHttpObservability } from "./http/common/observability.js";
 import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
 import { MemoryQueryCache } from "./infra/cache/memory.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
@@ -85,6 +87,7 @@ import {
     QUERY_CACHE_PROVIDERS,
     type QueryCachePort,
 } from "./ports/query-cache.js";
+import { initBackendMetrics } from "./observability/metrics.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -95,15 +98,51 @@ export async function startBackendServer(
     const migrationRunner = createMigrationRunner();
     await migrationRunner.runMigrations();
 
-    const app = createBackendApp(config);
-    await app.listen({
-        port: config.port,
-        host: config.host,
+    const runtimeApm = await initRuntimeApm({
+        enabled: config.apm.enabled,
+        serviceNamespace: config.apm.serviceNamespace,
+        chainId: config.defaultChainId,
+        worker: "api",
+        logComponent: "BackendApm",
+        tracerName: "artgod.backend",
+        spanProfiles: config.apm.spanProfiles,
+        traces: config.apm.traces,
+        profiles: config.apm.profiles,
     });
-    return app;
+    const runtimeMetrics = await initBackendMetrics({
+        enabled: config.metrics.enabled,
+        host: config.metrics.host,
+        port: config.metrics.port,
+        chainId: config.defaultChainId,
+        deploymentMode: config.deployment.mode,
+    });
+
+    try {
+        const app = createBackendApp(config, {
+            apm: runtimeApm.apm,
+            metrics: runtimeMetrics.metrics,
+            deploymentMode: config.deployment.mode,
+        });
+        app.addHook("onClose", async () => {
+            await runtimeMetrics.stop();
+            await runtimeApm.stop();
+        });
+        await app.listen({
+            port: config.port,
+            host: config.host,
+        });
+        return app;
+    } catch (error) {
+        await runtimeMetrics.stop();
+        await runtimeApm.stop();
+        throw error;
+    }
 }
 
-export function createBackendApp(config: BackendConfig): FastifyInstance {
+export function createBackendApp(
+    config: BackendConfig,
+    observability?: BackendHttpObservability,
+): FastifyInstance {
     const chainsReadModel = new SqliteChainsReadModel();
     const collectionsReadModel = new SqliteCollectionsReadModel([
         ZERO_ADDRESS,
@@ -446,6 +485,7 @@ export function createBackendApp(config: BackendConfig): FastifyInstance {
         config.userlandUiDistDir,
         config.security,
         config.deployment,
+        observability,
     );
     collectionDetail.lifecycle?.start();
     app.addHook("onClose", async () => {

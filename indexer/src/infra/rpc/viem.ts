@@ -1,7 +1,7 @@
 import { createPublicClient, http } from "viem";
 import type { RetryPolicy } from "../../domain/retry.js";
 import { defaultRetryPolicy, getRetryDelayMs } from "../../domain/retry.js";
-import type { Metrics } from "../../metrics/types.js";
+import type { Metrics } from "@artgod/shared/observability/metrics";
 import type { CachePort } from "../../ports/cache.js";
 import type {
     Hex,

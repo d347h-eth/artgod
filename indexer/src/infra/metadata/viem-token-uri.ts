@@ -1,5 +1,5 @@
 import { createPublicClient, http } from "viem";
-import type { Metrics } from "../../metrics/types.js";
+import type { Metrics } from "@artgod/shared/observability/metrics";
 import type { TokenStandard } from "../../domain/metadata.js";
 import type { TokenUriResolverPort } from "../../ports/metadata.js";
 

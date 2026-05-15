@@ -646,6 +646,26 @@ beforeAll(async () => {
                 warmupConcurrency: 2,
             },
         },
+        metrics: {
+            enabled: false,
+            host: "127.0.0.1",
+            port: 9480,
+        },
+        apm: {
+            enabled: false,
+            serviceNamespace: "artgod.backend",
+            spanProfiles: {
+                enabled: true,
+            },
+            traces: {
+                enabled: true,
+                otlpHttpUrl: "http://127.0.0.1:4318/v1/traces",
+            },
+            profiles: {
+                enabled: true,
+                pyroscopeUrl: "http://127.0.0.1:4040",
+            },
+        },
     });
     await app.ready();
     await publicApp.ready();

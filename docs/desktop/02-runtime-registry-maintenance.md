@@ -103,8 +103,8 @@ They are desktop-managed only.
 Files:
 
 - `indexer/src/runtime/*.ts` (worker string in APM/Metrics setup)
-- `indexer/src/config/index.ts` (`metrics.ports.*` map)
-- `.env.example` (matching `METRICS_PORT_*` vars)
+- `indexer/src/config/observability-env.ts` (`metrics.ports.*` map)
+- `.env.example` (matching `INDEXER_METRICS_PORT_*` vars)
 - `observability/prometheus/prometheus.yml` (static scrape targets + runtime labels)
 
 What is explicit here:
@@ -219,7 +219,7 @@ rg -n "dev:.*worker" indexer/package.json
 rg -n "start_worker" scripts/indexer-dev.sh
 rg -n "entryPoints|worker" scripts/build/build-runtime-artifacts.mjs
 rg -n "INDEXER_WORKERS|BACKEND_ARTIFACT" src-tauri/src/runtime/supervisor.rs
-rg -n "METRICS_PORT_|metrics\\.ports" indexer/src/config/index.ts .env.example
+rg -n "INDEXER_METRICS_PORT_|metrics\\.ports" indexer/src/config/observability-env.ts .env.example
 rg -n "runtime:|946" observability/prometheus/prometheus.yml
 ```
 

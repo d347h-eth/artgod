@@ -18,8 +18,8 @@ import {
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { OpenSeaStreamAdapter } from "../infra/offchain/opensea-stream.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 type SubscriptionRecord = {
     unsubscribe: () => void;

@@ -428,7 +428,9 @@
             "options": {
                 "footer": {
                     "fields": "",
-                    "reducer": ["lastNotNull"],
+                    "reducer": [
+                        "lastNotNull"
+                    ],
                     "show": false
                 },
                 "showHeader": true
@@ -487,7 +489,9 @@
             "options": {
                 "footer": {
                     "fields": "",
-                    "reducer": ["lastNotNull"],
+                    "reducer": [
+                        "lastNotNull"
+                    ],
                     "show": false
                 },
                 "showHeader": true
@@ -521,20 +525,364 @@
                 }
             ],
             "type": "table"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "reqps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 33
+            },
+            "id": 11,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (method, route, status_class) (rate(artgod_backend_http_requests_total{chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{method}} {{route}} {{status_class}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend Request Rate",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 33
+            },
+            "id": 12,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, method, route) (rate(artgod_backend_http_request_duration_ms_bucket{chain_id=~\"$chain_id\"}[5m])))",
+                    "legendFormat": "{{method}} {{route}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend Total Latency p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 33
+            },
+            "id": 13,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(artgod_backend_http_pre_handler_duration_ms_bucket{chain_id=~\"$chain_id\"}[5m])))",
+                    "legendFormat": "pre_handler",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(artgod_backend_http_handler_duration_ms_bucket{chain_id=~\"$chain_id\"}[5m])))",
+                    "legendFormat": "handler",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(artgod_backend_http_response_send_duration_ms_bucket{chain_id=~\"$chain_id\"}[5m])))",
+                    "legendFormat": "response_send",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Backend Phase Latency p95",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "reqps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 41
+            },
+            "id": 14,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (method, route) (rate(artgod_backend_http_requests_total{chain_id=~\"$chain_id\", status_class=\"5xx\"}[5m]))",
+                    "legendFormat": "{{method}} {{route}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend 5xx Rate",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "reqps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 41
+            },
+            "id": 17,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (method, route) (rate(artgod_backend_http_requests_total{chain_id=~\"$chain_id\", status_class=\"4xx\"}[5m]))",
+                    "legendFormat": "{{method}} {{route}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend 4xx Rate",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "reqps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 41
+            },
+            "id": 15,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (route, status) (rate(artgod_backend_query_cache_requests_total{chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{route}} {{status}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend Query Cache Rate",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 49
+            },
+            "id": 16,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "max by (method, route) (artgod_backend_http_inflight_requests{chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{method}} {{route}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend In-Flight Requests",
+            "type": "timeseries"
         }
     ],
     "refresh": "10s",
     "schemaVersion": 39,
     "style": "dark",
-    "tags": ["artgod", "indexer", "metrics"],
+    "tags": [
+        "artgod",
+        "indexer",
+        "metrics"
+    ],
     "templating": {
         "list": [
             {
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": ["All"],
-                    "value": ["$__all"]
+                    "text": [
+                        "All"
+                    ],
+                    "value": [
+                        "$__all"
+                    ]
                 },
                 "datasource": {
                     "type": "prometheus",
@@ -556,8 +904,12 @@
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": ["All"],
-                    "value": ["$__all"]
+                    "text": [
+                        "All"
+                    ],
+                    "value": [
+                        "$__all"
+                    ]
                 },
                 "datasource": {
                     "type": "prometheus",
@@ -583,7 +935,7 @@
     },
     "timepicker": {},
     "timezone": "",
-    "title": "ArtGod Indexer Metrics Overview",
+    "title": "ArtGod Runtime Metrics Overview",
     "uid": "artgod-indexer-metrics",
     "version": 1,
     "weekStart": ""

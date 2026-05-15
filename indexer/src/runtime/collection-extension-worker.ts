@@ -14,8 +14,8 @@ import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlit
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 async function main() {
     try {

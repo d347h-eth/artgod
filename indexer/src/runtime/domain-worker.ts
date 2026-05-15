@@ -26,7 +26,7 @@ import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { SqliteMetadataStatsDomain } from "../infra/domain/metadata-stats.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { SqliteActivityDomain } from "../infra/domain/activities.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
@@ -40,7 +40,7 @@ import {
     type OrderUpdateByMakerPayload,
     type OrderUpsertPayload,
 } from "../domain/order-jobs.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 async function main() {
     try {

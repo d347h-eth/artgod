@@ -30,7 +30,7 @@ describe('KeyboardShortcutsHelp', () => {
 		expect(body).toContain('keyboard shortcuts');
 		expect(body).toContain('Token Browser Preview Navigation');
 		expect(body).toContain('Collection Navigation');
-		expect(body).toContain('Bidding Page');
+		expect(body).toContain('Bidding');
 		expect(body).toContain(APP_VERSION);
 		expect(body).toContain('artgod.network');
 		expect(body).toContain('x.com/artgod_eth');
