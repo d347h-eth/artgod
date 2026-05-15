@@ -174,7 +174,7 @@ All admin mutation endpoints are protected by local admin CSRF/host/origin check
 ## Backend Test Coverage Snapshot
 
 Snapshot date: `2026-05-15`.
-Measured commit: `b69bcbf33865cd12cfcf597439758fe0b060319b`.
+Measured commit: `e8773eca29257b2d48b452b80d72bf825a76ed87`.
 
 Coverage command:
 
@@ -186,10 +186,10 @@ Overall backend result:
 
 | Scope | Files | Statements | Branches | Functions | Lines |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| All backend coverage report files | 120 | 81.62% | 65.03% | 90.46% | 82.01% |
-| `backend/src/application/use-cases/trading/` | 24 | 91.85% | 77.39% | 97.47% | 91.72% |
-| `backend/src/http/handlers/trading/` | 19 | 89.67% | 82.68% | 100.00% | 89.56% |
-| `backend/src/infra/trading/` | 4 | 85.18% | 70.59% | 93.89% | 85.28% |
+| All backend coverage report files | 120 | 82.13% | 65.87% | 90.45% | 82.53% |
+| `backend/src/application/use-cases/trading/` | 24 | 93.53% | 81.21% | 97.46% | 93.43% |
+| `backend/src/http/handlers/trading/` | 19 | 91.84% | 85.82% | 100.00% | 91.75% |
+| `backend/src/infra/trading/` | 4 | 85.57% | 70.58% | 93.89% | 85.68% |
 
 Backend file coverage report:
 
@@ -204,11 +204,11 @@ Remaining gaps are recorded inline in the same row as the measured file instead 
 | Use case | `backend/src/application/use-cases/trading/archive-token-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Exact-token archive and cancellation command path are covered. |
 | Use case | `backend/src/application/use-cases/trading/bidding-bid-book.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Bid-book scope/filter constants and helpers are exercised. |
 | Use case | `backend/src/application/use-cases/trading/bidding-collection-settings.ts` | 86.36% | 85.71% | 100.00% | 86.36% | Bidding collection setting parse/default behavior is covered. |
-| Use case | `backend/src/application/use-cases/trading/bidding-job-pricing.ts` | 83.33% | 70.00% | 100.00% | 83.33% | Manual and tier pricing resolution are covered; some invalid pricing branches remain. |
+| Use case | `backend/src/application/use-cases/trading/bidding-job-pricing.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Manual missing floor/ceiling, missing tier, invalid tier graph, and valid tier-backed scalar output are covered. |
 | Use case | `backend/src/application/use-cases/trading/bidding-job-target-lookup.ts` | 94.44% | 90.91% | 100.00% | 94.44% | Token, trait, and collection target lookup variants are covered; only small null/empty edge branches remain. |
 | Use case | `backend/src/application/use-cases/trading/bidding-price-tier-ports.ts` | n/a | n/a | n/a | n/a | Port/type contract only; no runtime statements emitted into coverage. |
 | Use case | `backend/src/application/use-cases/trading/bidding-price-tier-reapply.ts` | 100.00% | 50.00% | 100.00% | 100.00% | Shared staged reapply calculation, changed diff, pricing source output, and unknown-tier error are covered; unchanged comparison branch remains thin. |
-| Use case | `backend/src/application/use-cases/trading/bidding-price-tiers.ts` | 84.21% | 67.65% | 100.00% | 84.04% | Tier graph resolution, invalid Ether, and cycle rejection are covered. |
+| Use case | `backend/src/application/use-cases/trading/bidding-price-tiers.ts` | 86.31% | 70.58% | 100.00% | 86.17% | Tier graph resolution, invalid Ether, missing parents, invalid graph output, and cycle rejection are covered; a few numeric parser branches remain. |
 | Use case | `backend/src/application/use-cases/trading/bidding-token-offer-cards.ts` | 93.06% | 83.58% | 92.00% | 93.06% | Token-offer card grouping, pagination, and muted-offer behavior are covered; only small optional-field branches remain. |
 | Use case | `backend/src/application/use-cases/trading/get-token-bidding-bid-book.ts` | 100.00% | n/a | 100.00% | 100.00% | Token bid-book API path is covered through API tests. |
 | Use case | `backend/src/application/use-cases/trading/get-token-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Exact-token job lookup is covered. |
@@ -222,9 +222,9 @@ Remaining gaps are recorded inline in the same row as the measured file instead 
 | Use case | `backend/src/application/use-cases/trading/update-collection-bidding-settings.ts` | 100.00% | n/a | 100.00% | 100.00% | Bidding settings update API path is covered. |
 | Use case | `backend/src/application/use-cases/trading/upsert-batch-token-bidding-jobs.ts` | 92.06% | 77.27% | 100.00% | 91.67% | Filtered, explicit, and token-offer selections are covered at use-case level. |
 | Use case | `backend/src/application/use-cases/trading/upsert-collection-bidding-job.ts` | 88.89% | 66.67% | 100.00% | 88.89% | Collection job create/update API path is covered; some invalid branches remain. |
-| Use case | `backend/src/application/use-cases/trading/upsert-collection-bidding-price-tier.ts` | 84.85% | 60.00% | 87.50% | 84.38% | Tier create/update API path is covered; parser/error branches remain. |
+| Use case | `backend/src/application/use-cases/trading/upsert-collection-bidding-price-tier.ts` | 90.90% | 80.00% | 87.50% | 90.62% | Tier create/update, blank name, invalid sort order, missing parent, invalid graph, and resolution refresh behavior are covered. |
 | Use case | `backend/src/application/use-cases/trading/upsert-token-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Exact-token create/update and tier-backed token job paths are covered. |
-| Use case | `backend/src/application/use-cases/trading/upsert-trait-bidding-job.ts` | 88.24% | 64.29% | 100.00% | 88.24% | Trait job create/update and canonicalization are covered. |
+| Use case | `backend/src/application/use-cases/trading/upsert-trait-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Trait job create/update, quantity validation, trait target validation, canonicalization, duplicate rejection, and durable command publish are covered. |
 | HTTP handler | `backend/src/http/handlers/trading/apply-bidding-price-tier-reapply.ts` | 88.89% | 83.33% | 100.00% | 88.89% | Reapply route mapping and invalid request branches are covered. |
 | HTTP handler | `backend/src/http/handlers/trading/archive-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Archive-by-job-id route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/archive-collection-bidding-price-tier.ts` | 100.00% | n/a | 100.00% | 100.00% | Price-tier archive route is covered. |
@@ -235,7 +235,7 @@ Remaining gaps are recorded inline in the same row as the measured file instead 
 | HTTP handler | `backend/src/http/handlers/trading/list-collection-bidding-bid-book.ts` | 100.00% | n/a | 100.00% | 100.00% | Collection bid-book route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/list-collection-bidding-jobs.ts` | 100.00% | n/a | 100.00% | 100.00% | Job-list route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/list-collection-bidding-price-tiers.ts` | 100.00% | n/a | 100.00% | 100.00% | Price-tier list route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/lookup-bidding-job-target.ts` | 75.00% | 72.73% | 100.00% | 75.00% | Target lookup DTO mapping is covered for core variants; some malformed target branches remain. |
+| HTTP handler | `backend/src/http/handlers/trading/lookup-bidding-job-target.ts` | 83.33% | 81.81% | 100.00% | 83.33% | Target lookup DTO mapping covers core variants, invalid quantity, empty trait target, and non-object trait entries. |
 | HTTP handler | `backend/src/http/handlers/trading/preview-bidding-price-tier-reapply.ts` | 100.00% | n/a | 100.00% | 100.00% | Reapply preview route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/trading-job-http.ts` | 93.75% | 95.00% | 100.00% | 93.75% | Shared job transport mapping and status validation are exercised by mutation routes. |
 | HTTP handler | `backend/src/http/handlers/trading/update-collection-bidding-settings.ts` | 100.00% | 50.00% | 100.00% | 100.00% | Settings update route is covered; branch coverage needs invalid settings cases. |
@@ -243,10 +243,10 @@ Remaining gaps are recorded inline in the same row as the measured file instead 
 | HTTP handler | `backend/src/http/handlers/trading/upsert-collection-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Collection job route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/upsert-collection-bidding-price-tier.ts` | 100.00% | 50.00% | 100.00% | 100.00% | Tier upsert route is covered; branch coverage needs invalid input cases. |
 | HTTP handler | `backend/src/http/handlers/trading/upsert-token-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Exact-token upsert route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/upsert-trait-bidding-job.ts` | 83.33% | 75.00% | 100.00% | 83.33% | Trait job route is covered; parse/error branches remain. |
+| HTTP handler | `backend/src/http/handlers/trading/upsert-trait-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Trait job route mapping covers valid payloads, invalid quantity, empty trait targets, and non-object trait entries. |
 | Infra | `backend/src/infra/collections/sqlite-collection-settings-repository.ts` | 90.00% | 75.00% | 100.00% | 90.00% | Generic collection settings persistence is covered. |
 | Infra | `backend/src/infra/trading/nats-trading-job-command-signals.ts` | 93.75% | 66.67% | 84.62% | 100.00% | Disabled publisher, stream creation, publish payload, close, and failed background publish recovery are covered. |
-| Infra | `backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts` | 81.78% | 72.49% | 90.48% | 81.39% | Bid-book source selection, fallback parsing, projected rows, token-set matching, and SQL edge paths are covered; a few malformed token-set branches remain. |
+| Infra | `backend/src/infra/trading/sqlite-bidding-bid-book-repository.ts` | 82.62% | 72.48% | 90.47% | 82.25% | Fresh/stale snapshot source selection, orders fallback retry, projected rows, token-set matching, malformed token-set exclusions, and SQL edge paths are covered; only narrow parser/logging branches remain. |
 | Infra | `backend/src/infra/trading/sqlite-bidding-jobs-repository.ts` | 86.70% | 66.14% | 100.00% | 86.57% | Job persistence, commands, runtime joins, batch, and archive behavior are covered. |
 | Infra | `backend/src/infra/trading/sqlite-bidding-price-tiers-repository.ts` | 91.43% | 83.33% | 100.00% | 91.18% | Tier persistence, reload, parent-child graph persistence, resolved scalar values, archive paths, and edge branches are covered. |
 
