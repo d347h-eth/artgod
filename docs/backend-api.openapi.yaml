@@ -468,6 +468,364 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/bidding/price-tiers:
+        get:
+            tags: [Trading]
+            summary: List collection bidding price tiers
+            description: Returns collection-scoped tier definitions plus bidding UI defaults used by job drafting.
+            operationId: listCollectionBiddingPriceTiers
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            responses:
+                "200":
+                    description: Collection bidding price tiers and settings
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ListCollectionBiddingPriceTiersResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+        put:
+            tags: [Trading]
+            summary: Create or update a collection bidding price tier
+            description: Mutating endpoint protected by host/origin/CSRF checks.
+            operationId: upsertCollectionBiddingPriceTier
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/UpsertCollectionBiddingPriceTierRequest"
+            responses:
+                "200":
+                    description: Price tier created or updated, with the resolved active tier list
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CollectionBiddingPriceTierMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/price-tiers/{tier_id}:
+        delete:
+            tags: [Trading]
+            summary: Archive a collection bidding price tier
+            description: Mutating endpoint protected by host/origin/CSRF checks.
+            operationId: archiveCollectionBiddingPriceTier
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TierId"
+            responses:
+                "200":
+                    description: Price tier archived, with the remaining resolved active tier list
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CollectionBiddingPriceTierMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/price-tiers/{tier_id}/reapply-preview:
+        get:
+            tags: [Trading]
+            summary: Preview a price tier reapply
+            description: Builds a staged diff for all current jobs backed by the selected tier without mutating jobs.
+            operationId: previewBiddingPriceTierReapply
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TierId"
+            responses:
+                "200":
+                    description: Price tier reapply preview
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BiddingPriceTierReapplyPreviewResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/price-tiers/{tier_id}/reapply:
+        post:
+            tags: [Trading]
+            summary: Apply selected price tier changes to jobs
+            description: Mutating endpoint protected by host/origin/CSRF checks. Applies only the selected changed jobs and publishes runtime wake-ups.
+            operationId: applyBiddingPriceTierReapply
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/TierId"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/ApplyBiddingPriceTierReapplyRequest"
+            responses:
+                "200":
+                    description: Selected tier-backed jobs updated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BiddingPriceTierReapplyApplyResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/settings:
+        put:
+            tags: [Trading]
+            summary: Update collection bidding settings
+            description: Mutating endpoint protected by host/origin/CSRF checks. Settings are stored in generic collection-scoped settings and interpreted by the bidding domain.
+            operationId: updateCollectionBiddingSettings
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/UpdateCollectionBiddingSettingsRequest"
+            responses:
+                "200":
+                    description: Updated collection bidding settings
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CollectionBiddingSettingsMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/jobs/target-lookup:
+        post:
+            tags: [Trading]
+            summary: Look up an existing bidding job by draft target
+            description: Protected admin endpoint. POST is used because target descriptors are structured; the call is read-only but still requires CSRF because all `/api/*` POST requests are guarded.
+            operationId: lookupBiddingJobTarget
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/BiddingJobTargetLookupRequest"
+            responses:
+                "200":
+                    description: Matching declared job, if any
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BiddingJobTargetLookupResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/jobs/traits:
+        put:
+            tags: [Trading]
+            summary: Create or update a trait-scoped bidding job
+            description: Mutating endpoint protected by host/origin/CSRF checks. Trait criteria are canonicalized by the backend before job identity lookup.
+            operationId: upsertTraitBiddingJob
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/UpsertTraitBiddingJobRequest"
+            responses:
+                "200":
+                    description: Trait-scoped bidding job created or updated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BiddingJobMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/jobs/tokens/batch:
+        put:
+            tags: [Trading]
+            summary: Create or update many token-scoped bidding jobs
+            description: Mutating endpoint protected by host/origin/CSRF checks. Supports explicit token ids, token-browser filters, and token-offer filters.
+            operationId: upsertBatchTokenBiddingJobs
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/UpsertBatchTokenBiddingJobsRequest"
+            responses:
+                "200":
+                    description: Token-scoped bidding jobs created or updated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BatchTokenBiddingJobMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/jobs/collection:
+        put:
+            tags: [Trading]
+            summary: Create or update the collection-wide bidding job
+            description: Mutating endpoint protected by host/origin/CSRF checks.
+            operationId: upsertCollectionBiddingJob
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/UpsertCollectionBiddingJobRequest"
+            responses:
+                "200":
+                    description: Collection-wide bidding job created or updated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BiddingJobMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "422":
+                    $ref: "#/components/responses/ValidationError"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/{collection_ref}/bidding/jobs/{job_id}:
+        delete:
+            tags: [Trading]
+            summary: Archive a bidding job by id
+            description: Mutating endpoint protected by host/origin/CSRF checks. Archives token, trait, or collection jobs and enqueues any required runtime cleanup commands.
+            operationId: archiveBiddingJob
+            security:
+                - csrfHeader: []
+                  csrfCookie: []
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - $ref: "#/components/parameters/JobId"
+            responses:
+                "200":
+                    description: Bidding job archived
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BiddingJobMutationResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "403":
+                    $ref: "#/components/responses/Forbidden"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/holders:
         get:
             tags: [Collections]
@@ -872,6 +1230,20 @@ components:
             schema:
                 type: string
             description: Token id reference
+        JobId:
+            name: job_id
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Declared trading job id
+        TierId:
+            name: tier_id
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Collection bidding price tier id
         RunId:
             name: run_id
             in: path
@@ -1007,14 +1379,14 @@ components:
                         error: conflict
                         message: Collection already bootstrapping
         ValidationError:
-            description: Bootstrap validation failed
+            description: Request validation failed after transport parsing
             content:
                 application/json:
                     schema:
                         $ref: "#/components/schemas/ErrorResponse"
                     example:
                         error: validation_error
-                        message: Invalid metadata mode
+                        message: floorEth must be <= ceilingEth
         InternalError:
             description: Internal server error
             content:
@@ -1358,6 +1730,16 @@ components:
                     type: string
                     nullable: true
 
+        TradingTraitCriterion:
+            type: object
+            required: [type, value]
+            additionalProperties: false
+            properties:
+                type:
+                    type: string
+                value:
+                    type: string
+
         TraitFilterDisplayKind:
             type: string
             enum: [set, range]
@@ -1396,9 +1778,49 @@ components:
             type: string
             enum: [enabled, paused, archived]
 
-        TokenBiddingJobMutationStatus:
+        BiddingJobMutationStatus:
             type: string
             enum: [enabled, paused]
+
+        BiddingJobPricingSource:
+            oneOf:
+                - type: object
+                  required: [kind]
+                  additionalProperties: false
+                  properties:
+                      kind:
+                          type: string
+                          enum: [manual]
+                - type: object
+                  required:
+                      [
+                          kind,
+                          tierId,
+                          tierName,
+                          resolvedAt,
+                          resolvedFloorWei,
+                          resolvedCeilingWei,
+                          deltaWei,
+                      ]
+                  additionalProperties: false
+                  properties:
+                      kind:
+                          type: string
+                          enum: [price_tier]
+                      tierId:
+                          type: string
+                      tierName:
+                          type: string
+                      resolvedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                      resolvedFloorWei:
+                          type: string
+                      resolvedCeilingWei:
+                          type: string
+                      deltaWei:
+                          type: string
 
         BiddingJobRuntimeState:
             type: object
@@ -1410,6 +1832,7 @@ components:
                     activeExpirationTimeMs,
                     lastRunAt,
                     lastError,
+                    updatedAt,
                 ]
             additionalProperties: false
             nullable: true
@@ -1433,6 +1856,9 @@ components:
                 lastError:
                     type: string
                     nullable: true
+                updatedAt:
+                    type: string
+                    format: date-time
 
         BiddingJobTarget:
             oneOf:
@@ -1457,7 +1883,7 @@ components:
                       targetTraits:
                           type: array
                           items:
-                              $ref: "#/components/schemas/TraitFilter"
+                              $ref: "#/components/schemas/TradingTraitCriterion"
                 - type: object
                   required: [type, quantity, targetTraits, competitorTraits]
                   additionalProperties: false
@@ -1470,11 +1896,11 @@ components:
                       targetTraits:
                           type: array
                           items:
-                              $ref: "#/components/schemas/TraitFilter"
+                              $ref: "#/components/schemas/TradingTraitCriterion"
                       competitorTraits:
                           type: array
                           items:
-                              $ref: "#/components/schemas/TraitFilter"
+                              $ref: "#/components/schemas/TradingTraitCriterion"
 
         BiddingJob:
             type: object
@@ -1512,7 +1938,7 @@ components:
                     $ref: "#/components/schemas/BiddingJobTarget"
                 config:
                     type: object
-                    required: [floorEth, ceilingEth, deltaEth]
+                    required: [floorEth, ceilingEth, deltaEth, pricingSource]
                     additionalProperties: false
                     properties:
                         floorEth:
@@ -1521,22 +1947,204 @@ components:
                             type: string
                         deltaEth:
                             type: string
+                        pricingSource:
+                            allOf:
+                                - $ref: "#/components/schemas/BiddingJobPricingSource"
+                            nullable: true
                 runtime:
                     $ref: "#/components/schemas/BiddingJobRuntimeState"
 
         UpsertTokenBiddingJobRequest:
             type: object
-            required: [status, floorEth, ceilingEth, deltaEth]
+            required: [status, deltaEth]
             additionalProperties: false
             properties:
                 status:
-                    $ref: "#/components/schemas/TokenBiddingJobMutationStatus"
+                    $ref: "#/components/schemas/BiddingJobMutationStatus"
                 floorEth:
                     type: string
                 ceilingEth:
                     type: string
                 deltaEth:
                     type: string
+                priceTierId:
+                    type: string
+                    nullable: true
+
+        UpsertTraitBiddingJobRequest:
+            type: object
+            required: [status, deltaEth, targetTraits]
+            additionalProperties: false
+            properties:
+                status:
+                    $ref: "#/components/schemas/BiddingJobMutationStatus"
+                floorEth:
+                    type: string
+                ceilingEth:
+                    type: string
+                deltaEth:
+                    type: string
+                priceTierId:
+                    type: string
+                    nullable: true
+                quantity:
+                    type: integer
+                    minimum: 1
+                targetTraits:
+                    type: array
+                    minItems: 1
+                    items:
+                        $ref: "#/components/schemas/TradingTraitCriterion"
+
+        UpsertCollectionBiddingJobRequest:
+            type: object
+            required: [status, deltaEth]
+            additionalProperties: false
+            properties:
+                status:
+                    $ref: "#/components/schemas/BiddingJobMutationStatus"
+                floorEth:
+                    type: string
+                ceilingEth:
+                    type: string
+                deltaEth:
+                    type: string
+                priceTierId:
+                    type: string
+                    nullable: true
+                quantity:
+                    type: integer
+                    minimum: 1
+
+        BiddingTokenBatchSelection:
+            oneOf:
+                - type: object
+                  required: [type, tokenIds]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [token_ids]
+                      tokenIds:
+                          type: array
+                          items:
+                              type: string
+                - type: object
+                  required: [type, tokenStatus]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [filter]
+                      tokenStatus:
+                          $ref: "#/components/schemas/TokenBrowserStatus"
+                      traits:
+                          type: array
+                          items:
+                              $ref: "#/components/schemas/TraitFilter"
+                      traitRanges:
+                          type: array
+                          items:
+                              $ref: "#/components/schemas/TraitRangeFilter"
+                - type: object
+                  required: [type, traitJoinMode]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [token_offer_filter]
+                      traits:
+                          type: array
+                          items:
+                              $ref: "#/components/schemas/TraitFilter"
+                      traitRanges:
+                          type: array
+                          items:
+                              $ref: "#/components/schemas/TraitRangeFilter"
+                      traitJoinMode:
+                          type: string
+                          enum: [or, and]
+                      makerAddress:
+                          type: string
+                          nullable: true
+
+        UpsertBatchTokenBiddingJobsRequest:
+            type: object
+            required: [status, deltaEth, selection]
+            additionalProperties: false
+            properties:
+                status:
+                    $ref: "#/components/schemas/BiddingJobMutationStatus"
+                floorEth:
+                    type: string
+                ceilingEth:
+                    type: string
+                deltaEth:
+                    type: string
+                priceTierId:
+                    type: string
+                    nullable: true
+                selection:
+                    $ref: "#/components/schemas/BiddingTokenBatchSelection"
+
+        BiddingJobTargetLookupTarget:
+            oneOf:
+                - type: object
+                  required: [type, tokenId]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [token]
+                      tokenId:
+                          type: string
+                - type: object
+                  required: [type]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [collection]
+                      quantity:
+                          type: integer
+                          minimum: 1
+                - type: object
+                  required: [type, targetTraits]
+                  additionalProperties: false
+                  properties:
+                      type:
+                          type: string
+                          enum: [trait]
+                      quantity:
+                          type: integer
+                          minimum: 1
+                      targetTraits:
+                          type: array
+                          minItems: 1
+                          items:
+                              $ref: "#/components/schemas/TradingTraitCriterion"
+
+        BiddingJobTargetLookupRequest:
+            type: object
+            required: [target]
+            additionalProperties: false
+            properties:
+                target:
+                    $ref: "#/components/schemas/BiddingJobTargetLookupTarget"
+
+        BiddingJobTargetLookupResponse:
+            type: object
+            required: [chain, collection, job]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                job:
+                    allOf:
+                        - $ref: "#/components/schemas/BiddingJob"
+                    nullable: true
 
         BiddingBidBookSource:
             type: string
@@ -1545,6 +2153,39 @@ components:
         BiddingBidScopeKind:
             type: string
             enum: [collection, trait, token, token_set, unknown]
+
+        BiddingBidBookOwnPosition:
+            type: string
+            enum: [winning, draw, losing]
+
+        BiddingBidBookOwnConstraint:
+            type: string
+            enum: [ceiling, floor, balance, allowance]
+
+        BiddingBidBookOwnStatus:
+            type: object
+            required: [position, constraints, job]
+            additionalProperties: false
+            nullable: true
+            properties:
+                position:
+                    $ref: "#/components/schemas/BiddingBidBookOwnPosition"
+                constraints:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingBidBookOwnConstraint"
+                job:
+                    type: object
+                    required: [jobId, revision, status]
+                    additionalProperties: false
+                    nullable: true
+                    properties:
+                        jobId:
+                            type: string
+                        revision:
+                            type: integer
+                        status:
+                            $ref: "#/components/schemas/TradingJobStatus"
 
         BiddingBidBookState:
             type: object
@@ -1600,6 +2241,7 @@ components:
                     placedAt,
                     snapshotRefreshedAtMs,
                     seenAt,
+                    ownStatus,
                 ]
             additionalProperties: false
             properties:
@@ -1622,7 +2264,7 @@ components:
                         traits:
                             type: array
                             items:
-                                $ref: "#/components/schemas/TraitFilter"
+                                $ref: "#/components/schemas/TradingTraitCriterion"
                 maker:
                     type: object
                     required: [address, label, isOwn]
@@ -1663,14 +2305,19 @@ components:
                     type: string
                     format: date-time
                     nullable: true
+                ownStatus:
+                    $ref: "#/components/schemas/BiddingBidBookOwnStatus"
 
         BiddingBidBook:
             type: object
-            required: [state, bids]
+            required: [state, ownMakerAddress, bids]
             additionalProperties: false
             properties:
                 state:
                     $ref: "#/components/schemas/BiddingBidBookState"
+                ownMakerAddress:
+                    type: string
+                    nullable: true
                 bids:
                     type: array
                     items:
@@ -1767,6 +2414,244 @@ components:
                 totalPages:
                     type: integer
 
+        BiddingPriceTierFloorConfig:
+            oneOf:
+                - type: object
+                  required: [kind, valueEth]
+                  additionalProperties: false
+                  properties:
+                      kind:
+                          type: string
+                          enum: [fixed]
+                      valueEth:
+                          type: string
+                - type: object
+                  required: [kind, deltaKind, deltaEth]
+                  additionalProperties: false
+                  properties:
+                      kind:
+                          type: string
+                          enum: [parent_delta]
+                      deltaKind:
+                          type: string
+                          enum: [absolute]
+                      deltaEth:
+                          type: string
+                - type: object
+                  required: [kind, deltaKind, percent]
+                  additionalProperties: false
+                  properties:
+                      kind:
+                          type: string
+                          enum: [parent_delta]
+                      deltaKind:
+                          type: string
+                          enum: [percent]
+                      percent:
+                          type: string
+
+        BiddingPriceTierCeilingConfig:
+            oneOf:
+                - type: object
+                  required: [kind, valueEth]
+                  additionalProperties: false
+                  properties:
+                      kind:
+                          type: string
+                          enum: [fixed]
+                      valueEth:
+                          type: string
+                - type: object
+                  required: [kind, deltaKind, deltaEth]
+                  additionalProperties: false
+                  properties:
+                      kind:
+                          type: string
+                          enum: [floor_delta, parent_delta]
+                      deltaKind:
+                          type: string
+                          enum: [absolute]
+                      deltaEth:
+                          type: string
+                - type: object
+                  required: [kind, deltaKind, percent]
+                  additionalProperties: false
+                  properties:
+                      kind:
+                          type: string
+                          enum: [floor_delta, parent_delta]
+                      deltaKind:
+                          type: string
+                          enum: [percent]
+                      percent:
+                          type: string
+
+        BiddingTierSelectionMode:
+            type: string
+            enum: [buttons, dropdown]
+
+        BiddingCollectionSettings:
+            type: object
+            required: [tierSelectionMode, defaultDeltaEth, updatedAt]
+            additionalProperties: false
+            properties:
+                tierSelectionMode:
+                    $ref: "#/components/schemas/BiddingTierSelectionMode"
+                defaultDeltaEth:
+                    type: string
+                updatedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+
+        BiddingPriceTier:
+            type: object
+            required:
+                [
+                    tierId,
+                    name,
+                    status,
+                    sortOrder,
+                    parentTierId,
+                    floorConfig,
+                    ceilingConfig,
+                    deltaEth,
+                    resolvedFloorEth,
+                    resolvedCeilingEth,
+                    resolvedAt,
+                    lastError,
+                    revision,
+                    createdAt,
+                    updatedAt,
+                    archivedAt,
+                ]
+            additionalProperties: false
+            properties:
+                tierId:
+                    type: string
+                name:
+                    type: string
+                status:
+                    $ref: "#/components/schemas/TradingJobStatus"
+                sortOrder:
+                    type: integer
+                parentTierId:
+                    type: string
+                    nullable: true
+                floorConfig:
+                    $ref: "#/components/schemas/BiddingPriceTierFloorConfig"
+                ceilingConfig:
+                    $ref: "#/components/schemas/BiddingPriceTierCeilingConfig"
+                deltaEth:
+                    type: string
+                resolvedFloorEth:
+                    type: string
+                    nullable: true
+                resolvedCeilingEth:
+                    type: string
+                    nullable: true
+                resolvedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                lastError:
+                    type: string
+                    nullable: true
+                revision:
+                    type: integer
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+                archivedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+
+        UpsertCollectionBiddingPriceTierRequest:
+            type: object
+            required:
+                [
+                    name,
+                    status,
+                    sortOrder,
+                    parentTierId,
+                    floorConfig,
+                    ceilingConfig,
+                    deltaEth,
+                ]
+            additionalProperties: false
+            properties:
+                tierId:
+                    type: string
+                name:
+                    type: string
+                status:
+                    $ref: "#/components/schemas/BiddingJobMutationStatus"
+                sortOrder:
+                    type: integer
+                parentTierId:
+                    type: string
+                    nullable: true
+                floorConfig:
+                    $ref: "#/components/schemas/BiddingPriceTierFloorConfig"
+                ceilingConfig:
+                    $ref: "#/components/schemas/BiddingPriceTierCeilingConfig"
+                deltaEth:
+                    type: string
+
+        UpdateCollectionBiddingSettingsRequest:
+            type: object
+            required: [tierSelectionMode, defaultDeltaEth]
+            additionalProperties: false
+            properties:
+                tierSelectionMode:
+                    $ref: "#/components/schemas/BiddingTierSelectionMode"
+                defaultDeltaEth:
+                    type: string
+
+        ApplyBiddingPriceTierReapplyRequest:
+            type: object
+            required: [jobIds]
+            additionalProperties: false
+            properties:
+                jobIds:
+                    type: array
+                    items:
+                        type: string
+
+        BiddingPriceTierReapplyPricePreview:
+            type: object
+            required: [floorEth, ceilingEth, deltaEth, pricingSource]
+            additionalProperties: false
+            properties:
+                floorEth:
+                    type: string
+                ceilingEth:
+                    type: string
+                deltaEth:
+                    type: string
+                pricingSource:
+                    allOf:
+                        - $ref: "#/components/schemas/BiddingJobPricingSource"
+                    nullable: true
+
+        BiddingPriceTierReapplyJobPreview:
+            type: object
+            required: [job, before, after, changed]
+            additionalProperties: false
+            properties:
+                job:
+                    $ref: "#/components/schemas/BiddingJob"
+                before:
+                    $ref: "#/components/schemas/BiddingPriceTierReapplyPricePreview"
+                after:
+                    $ref: "#/components/schemas/BiddingPriceTierReapplyPricePreview"
+                changed:
+                    type: boolean
+
         ListCollectionBiddingJobsResponse:
             type: object
             required: [chain, collection, media, jobs, included]
@@ -1784,6 +2669,116 @@ components:
                         $ref: "#/components/schemas/BiddingJob"
                 included:
                     $ref: "#/components/schemas/ActivityFeedIncludes"
+
+        BiddingJobMutationResponse:
+            type: object
+            required: [chain, collection, job]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                job:
+                    $ref: "#/components/schemas/BiddingJob"
+
+        BatchTokenBiddingJobMutationResponse:
+            type: object
+            required: [chain, collection, tokenIds, jobs]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                tokenIds:
+                    type: array
+                    items:
+                        type: string
+                jobs:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingJob"
+
+        ListCollectionBiddingPriceTiersResponse:
+            type: object
+            required: [chain, collection, settings, tiers]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                settings:
+                    $ref: "#/components/schemas/BiddingCollectionSettings"
+                tiers:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingPriceTier"
+
+        CollectionBiddingSettingsMutationResponse:
+            type: object
+            required: [chain, collection, settings]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                settings:
+                    $ref: "#/components/schemas/BiddingCollectionSettings"
+
+        CollectionBiddingPriceTierMutationResponse:
+            type: object
+            required: [chain, collection, tier, tiers]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                tier:
+                    $ref: "#/components/schemas/BiddingPriceTier"
+                tiers:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingPriceTier"
+
+        BiddingPriceTierReapplyPreviewResponse:
+            type: object
+            required: [chain, collection, tier, jobs]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                tier:
+                    $ref: "#/components/schemas/BiddingPriceTier"
+                jobs:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingPriceTierReapplyJobPreview"
+
+        BiddingPriceTierReapplyApplyResponse:
+            type: object
+            required: [chain, collection, tier, jobs, preview]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                tier:
+                    $ref: "#/components/schemas/BiddingPriceTier"
+                jobs:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingJob"
+                preview:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BiddingPriceTierReapplyJobPreview"
 
         ListCollectionBiddingBidBookResponse:
             type: object

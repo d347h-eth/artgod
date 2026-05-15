@@ -252,5 +252,4 @@ Remaining gaps are recorded inline in the same row as the measured file instead 
 
 Documentation coverage note:
 
-- `docs/backend-api.openapi.yaml` documents bid-book reads, job listing, and exact-token job CRUD.
-- It does not yet document all newer admin endpoints for trait jobs, batch token jobs, collection jobs, target lookup, price tiers, bidding settings, or tier reapply.
+- `docs/backend-api.openapi.yaml` documents bid-book reads, job listing, exact-token job CRUD, trait jobs, batch token jobs, collection jobs, target lookup, price tiers, bidding settings, and tier reapply.
