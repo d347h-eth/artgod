@@ -11,6 +11,7 @@ import {
     type TradingJobCommandRecord,
 } from "@artgod/shared/types";
 import { UpsertTraitBiddingJobUseCase } from "./upsert-trait-bidding-job.js";
+import { TradingValidationError } from "./types.js";
 
 const CHAIN: ChainRecord = {
     id: 1,
@@ -115,6 +116,79 @@ describe("UpsertTraitBiddingJobUseCase", () => {
         assert.equal(result.job.target.type, "collection");
         assert.deepEqual(result.job.target.targetTraits, persistedInput.targetTraits);
         assert.deepEqual(publishedCommands, commands);
+    });
+
+    it("rejects bad trait targets and quantities before persistence", () => {
+        let persistenceCalls = 0;
+        const useCase = new UpsertTraitBiddingJobUseCase(
+            1,
+            {
+                resolveChainRef: () => CHAIN,
+            },
+            {
+                resolveCollectionRef: () => COLLECTION,
+            },
+            {
+                upsertCollectionJob: () => {
+                    persistenceCalls += 1;
+                    throw new Error("Unexpected trait job persistence");
+                },
+            },
+            {
+                listCollectionPriceTiers: () => [],
+            },
+            {
+                publishBiddingJobCommandsChanged: () => {
+                    throw new Error("Unexpected command publish");
+                },
+            },
+        );
+        const validInput = {
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            status: TRADING_JOB_STATUS.Enabled,
+            floorEth: "0.1",
+            ceilingEth: "0.2",
+            deltaEth: "0.001",
+            targetTraits: [{ type: "Mode", value: "Terrain" }],
+        };
+
+        assert.throws(
+            () =>
+                useCase.upsertTraitBiddingJob({
+                    ...validInput,
+                    quantity: 0,
+                }),
+            /quantity must be an integer > 0/,
+        );
+        assert.throws(
+            () =>
+                useCase.upsertTraitBiddingJob({
+                    ...validInput,
+                    targetTraits: [],
+                }),
+            /targetTraits is required/,
+        );
+        assert.throws(
+            () =>
+                useCase.upsertTraitBiddingJob({
+                    ...validInput,
+                    targetTraits: [{ type: " ", value: "Terrain" }],
+                }),
+            /targetTraits\.type is required/,
+        );
+        assert.throws(
+            () =>
+                useCase.upsertTraitBiddingJob({
+                    ...validInput,
+                    targetTraits: [
+                        { type: "Mode", value: "Terrain" },
+                        { type: "Mode", value: "Terrain" },
+                    ],
+                }),
+            TradingValidationError,
+        );
+        assert.equal(persistenceCalls, 0);
     });
 });
 

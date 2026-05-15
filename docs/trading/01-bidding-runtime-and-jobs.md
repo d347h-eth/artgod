@@ -2,6 +2,7 @@
 
 This document is the current-state reference for ArtGod bidding.
 Progress/history notes remain in `docs/progress/trading/*`.
+User-facing automation capabilities and backend/API coverage are detailed in `docs/trading/02-bidding-automation-capabilities.md`.
 
 ## Status
 
