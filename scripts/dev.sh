@@ -10,6 +10,6 @@ exec yarn concurrently \
   --kill-others-on-fail \
   --names "backend,indexer,frontend" \
   --prefix-colors "blue,green,yellow" \
-  "yarn workspace @artgod/backend run dev" \
+  "./scripts/backend-dev.sh" \
   "yarn workspace @artgod/indexer run dev" \
   "yarn workspace @artgod/frontend run dev"

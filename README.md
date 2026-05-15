@@ -138,9 +138,10 @@ docker compose --profile observability up -d loki tempo pyroscope alloy promethe
 
 Open Grafana at `http://localhost:42701` (default `admin` / `admin`).
 
-Use the indexer launcher to produce runtime log files under `tmp/logs/*.log`:
+Use the local launchers to produce runtime log files under `tmp/logs/*.log`:
 
 ```sh
+./scripts/backend-dev.sh
 ./scripts/indexer-dev.sh
 ```
 
@@ -395,6 +396,9 @@ cargo tauri dev
 
 # Start only the backend workspace dev server.
 yarn workspace @artgod/backend run dev
+
+# Start only the backend workspace dev server with a local observability log file.
+./scripts/backend-dev.sh
 
 # Start only the frontend workspace dev server.
 yarn workspace @artgod/frontend run dev

@@ -13,7 +13,7 @@ It also records known limitations and what is still missing for complete trace-t
 
 Current setup is local-first and split by signal type:
 
-- Logs: local indexer runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
+- Logs: local backend API and indexer runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
 - Metrics: backend API and indexer runtimes expose `/metrics` over HTTP; Prometheus scrapes them and Grafana reads Prometheus.
 - Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:4318`), and Grafana reads Tempo.
 - Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:4040`), and Grafana reads Pyroscope.
@@ -42,9 +42,10 @@ Observability containers run behind the `observability` compose profile in `dock
 
 ### Log Pipeline
 
-- Runtime launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
+- Backend launcher script `scripts/backend-dev.sh` truncates and rewrites `tmp/logs/backend-api.log`.
+- Indexer launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
 - Alloy config in `observability/alloy/config.alloy`:
-    - `local.file_match` targets `/var/log/artgod/*.log`.
+    - `local.file_match` targets `/var/log/artgod/backend-api.log` and `/var/log/artgod/indexer-*.log`.
     - `loki.source.file` tails from end.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
@@ -218,7 +219,7 @@ Provisioned datasources:
 
 Provisioned dashboard:
 
-- `observability/grafana/provisioning/dashboards/indexer-metrics-overview.json`
+- `observability/grafana/provisioning/dashboards/runtime-metrics-overview.json`
 
 Current Tempo `tracesToProfiles` mapping is:
 
@@ -234,7 +235,7 @@ The profile type is intentionally `wall:cpu...` for Node workers, not `process_c
 
 ### Logs
 
-- If logs do not appear in Grafana Explore, verify `scripts/indexer-dev.sh` is writing into `tmp/logs` and Alloy is mounted to that same host path.
+- If logs do not appear in Grafana Explore, verify `scripts/backend-dev.sh` and/or `scripts/indexer-dev.sh` are writing into `tmp/logs` and Alloy is mounted to that same host path.
 - Because worker logs are truncated on worker start, tail behavior is easiest to reason about when observability stack is already running before worker startup.
 
 ### Metrics
@@ -284,7 +285,8 @@ To reach full trace-profile correlation:
 
 - Start stack:
     - `docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana`
-- Start workers with file logs:
+- Start runtimes with file logs:
+    - `./scripts/backend-dev.sh`
     - `./scripts/indexer-dev.sh`
 - Check metrics endpoint:
     - `curl http://127.0.0.1:9480/metrics`

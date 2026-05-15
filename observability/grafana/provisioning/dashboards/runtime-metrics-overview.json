@@ -868,7 +868,7 @@
     "style": "dark",
     "tags": [
         "artgod",
-        "indexer",
+        "runtime",
         "metrics"
     ],
     "templating": {
@@ -936,7 +936,7 @@
     "timepicker": {},
     "timezone": "",
     "title": "ArtGod Runtime Metrics Overview",
-    "uid": "artgod-indexer-metrics",
+    "uid": "artgod-runtime-metrics",
     "version": 1,
     "weekStart": ""
 }
