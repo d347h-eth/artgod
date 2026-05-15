@@ -1,7 +1,6 @@
 import { logger } from "@artgod/shared/utils";
-import { OpenSeaAPI } from "opensea-js/lib/api/api.js";
+import { Chain, OpenSeaAPI } from "@opensea/sdk";
 import { normalizeOpenSeaOfferTraitCriteria } from "@artgod/shared/trading/open-sea-bidding-offers";
-import { Chain } from "opensea-js/lib/types.js";
 
 type RetryPolicy = {
     maxAttempts: number;

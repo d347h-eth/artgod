@@ -220,26 +220,22 @@ Rules:
 
 ## SDK Compatibility Note
 
-The upstream repo used a local `opensea-js` portal dependency only because of a logger-injection bug in the SDK.
+The bidding runtime now targets the renamed public `@opensea/sdk` package.
 
-Current planning assumption:
+Current compatibility decisions:
 
-- use the public `opensea-js` package in ArtGod
-- do not depend on a private local portal fork
-- if logger wiring still needs a workaround, solve it with a thin ArtGod-local adapter or wrapper, not a custom long-lived fork unless strictly necessary
+- use `@opensea/sdk/viem` in the runtime composition path
+- keep SDK concrete types behind the trading OpenSea adapter interfaces
+- keep the direct OpenSea stream, snapshot, placement, and cancellation lanes separate
+- use `getOffersByNFT(collectionSlug, tokenId, limit, next)` for exact-token offer discovery because SDK v10 removed the old `getOrders` endpoint wrapper
+- filter maker-specific token offers client-side after paginated `getOffersByNFT` reads because the replacement endpoint is slug/token based and does not expose the old maker-filtered `getOrders` shape
+- read created offer identity from the SDK v10 `Offer` / `CollectionOffer` response (`order_hash`, `protocol_address`, and nested protocol `endTime`)
 
 Ethereum library preference:
 
-- avoid adding `ethers` as a direct project dependency
+- avoid adding `ethers` as a direct ArtGod trading dependency
 - prefer `viem` and other Paradigm-led Ethereum/EVM libraries
-- known planned exception: OpenSea SDK order-fulfillment flow inside the sniping bot may still require `ethers`
-- treat that sniping fulfillment usage as a narrow compatibility exception, not a general dependency choice
-
-Current bidder-runtime compatibility note:
-
-- the age-gated public `opensea-js` line currently available to ArtGod still requires ethers-native signer wiring
-- ArtGod therefore keeps `viem` for independent EVM reads and wallet-adjacent helpers where possible
-- any direct `ethers` usage is isolated to the runtime-only OpenSea SDK composition layer, not the bidding core or its ports
+- the SDK may still depend on ethers internally through Seaport, but ArtGod runtime code should not import ethers directly for bidding
 
 ## Recommended Trading Workspace Shape
 

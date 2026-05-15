@@ -30,6 +30,40 @@ Current implementation:
 - Human-readable config, API, UI, and logs use Ether units; low-level EVM calls and persisted amount columns may use wei strings.
 - Wallet secrets never enter env, CLI args, SQLite, frontend state, or logs.
 
+## OpenSea SDK / API Surface
+
+The bidding runtime uses `@opensea/sdk` through the SDK's viem entrypoint.
+SDK concrete types remain isolated in runtime composition and the OpenSea adapters; the bidding core consumes local ports.
+
+Current REST/SDK calls:
+
+- exact-token offer discovery: `api.getOffersByNFT(collectionSlug, tokenId, limit, next)`
+- collection snapshot and recovery: `api.getAllOffers(collectionSlug, limit, next)`
+- collection/trait discovery: `api.getCollectionOffers(...)`, `api.getTraitOffers(...)`, `api.getTraits(...)`
+- fallback best-offer lookup: `api.getBestOffer(collectionSlug, tokenId)`
+- direct order recovery: `api.getOrderByHash(orderHash, protocolAddress)`
+- placement: `sdk.createOffer(...)`, `sdk.createCollectionOffer(...)`
+- cancellation: `sdk.offchainCancelOrder(...)`
+
+The old `getOrders` API shape is not part of the bidding runtime contract anymore.
+Maker-specific token offer recovery filters the paginated NFT-offer response in the adapter.
+
+## OpenSea Stream Surface
+
+The bidding runtime uses `@opensea/stream-js` for wake-up events only.
+The current package version is `0.3.1`, whose public subscription methods remain compatible with the bot's adapter.
+
+Current stream calls:
+
+- `onCollectionOffer(collectionSlug, callback)`
+- `onItemListed(collectionSlug, callback)`
+- `onItemSold(collectionSlug, callback)`
+- `onItemTransferred(collectionSlug, callback)`
+- `onItemReceivedBid(collectionSlug, callback)`
+- `onTraitOffer(collectionSlug, callback)`
+
+Stream events can include a `version` field, but bidding decisions still come from the authoritative REST snapshot lane.
+
 ## Runtime Bootstrap
 
 The desktop supervisor starts wallet-bound trading bots only after an explicit operator unlock.
