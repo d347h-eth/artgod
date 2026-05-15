@@ -2,7 +2,7 @@
 
 Status: Implemented for trading runtime
 
-This note captures the compatibility decision for moving the bidding bot from the old `opensea-js` package/API shape to `@opensea/sdk` v10.
+This note captures the compatibility decision for moving the bidding bot from the old `opensea-js` package/API shape to `@opensea/sdk` v10 and aligning `@opensea/stream-js` with the current OpenSea stream package.
 
 ## Compatibility Assessment
 
@@ -22,6 +22,8 @@ Equivalent-enough surfaces:
 - `getAllOffers(...)`, `getCollectionOffers(...)`, `getTraitOffers(...)`, `getTraits(...)`, `getBestOffer(...)`, and `getOrderByHash(...)` still exist
 - `sdk.createOffer(...)`, `sdk.createCollectionOffer(...)`, and `sdk.offchainCancelOrder(...)` still exist
 - collection and trait offer criteria payloads still include `criteria`, `protocol_data`, and Seaport parameters required by the shared bidding parser
+- `@opensea/stream-js@0.3.1` keeps the subscription methods used by the bot and moves the default websocket endpoint to `wss://stream-api.opensea.io/socket`
+- Stream JS `0.3.x` adds `event.version`; the bot keeps treating stream events as wake-up hints and does not depend on the version field for placement decisions
 
 ## Decision
 
@@ -38,9 +40,8 @@ Implementation decisions:
 - keep OpenSea concrete types out of the bidding core by preserving local `OpenSeaApiClient` and `OpenSeaBiddingSdkClient` interfaces
 - normalize SDK v10 offer responses from `order_hash`, `protocol_address`, and nested protocol `endTime`
 - keep snapshot, bidding, and stream key lanes separate
+- pin `@opensea/stream-js` to `0.3.1` in the trading workspace
 
 ## Remaining Risk
 
-The indexer workspace still has its own OpenSea REST adapter dependency path. This migration intentionally targets the trading bidding bot only.
-
-Live API verification is still required with real OpenSea credentials before merge because the local tests cover adapter shape and parser compatibility, not production rate limits or endpoint ordering guarantees.
+Live API and stream verification is still required with real OpenSea credentials before merge because the local tests cover adapter shape and parser compatibility, not production rate limits, stream delivery, or endpoint ordering guarantees.

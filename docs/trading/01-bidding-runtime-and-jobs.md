@@ -48,6 +48,22 @@ Current REST/SDK calls:
 The old `getOrders` API shape is not part of the bidding runtime contract anymore.
 Maker-specific token offer recovery filters the paginated NFT-offer response in the adapter.
 
+## OpenSea Stream Surface
+
+The bidding runtime uses `@opensea/stream-js` for wake-up events only.
+The current package version is `0.3.1`, whose public subscription methods remain compatible with the bot's adapter.
+
+Current stream calls:
+
+- `onCollectionOffer(collectionSlug, callback)`
+- `onItemListed(collectionSlug, callback)`
+- `onItemSold(collectionSlug, callback)`
+- `onItemTransferred(collectionSlug, callback)`
+- `onItemReceivedBid(collectionSlug, callback)`
+- `onTraitOffer(collectionSlug, callback)`
+
+Stream events can include a `version` field, but bidding decisions still come from the authoritative REST snapshot lane.
+
 ## Runtime Bootstrap
 
 The desktop supervisor starts wallet-bound trading bots only after an explicit operator unlock.
