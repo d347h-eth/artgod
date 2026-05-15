@@ -368,6 +368,7 @@ Use these as primary references for design and implementation details:
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
 - `docs/trading/01-bidding-runtime-and-jobs.md`
+- `docs/trading/02-bidding-automation-capabilities.md`
 - `docs/progress/trading/01-bidder-integration-plan.md`
 - `docs/progress/trading/02-db-backed-trading-jobs-plan.md`
 - `docs/progress/desktop/01-wallet-keystore-implementation-plan.md`
