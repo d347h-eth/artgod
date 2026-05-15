@@ -168,4 +168,56 @@ describe("SqliteBiddingPriceTiersRepository", () => {
             }),
         );
     });
+
+    it("archives tiers, hides them from active lists, and keeps archive idempotent", () => {
+        const repository = new SqliteBiddingPriceTiersRepository();
+        const tier = repository.upsertPriceTier({
+            chainId: 1,
+            collectionId,
+            name: "Archive Me",
+            status: TRADING_JOB_STATUS.Enabled,
+            sortOrder: 1,
+            parentTierId: null,
+            floorConfig: {
+                kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed,
+                valueEth: "1",
+            },
+            ceilingConfig: {
+                kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed,
+                valueEth: "1.2",
+            },
+            deltaWei: "1000000000000000",
+            resolvedFloorWei: "1000000000000000000",
+            resolvedCeilingWei: "1200000000000000000",
+            resolvedAt: "2026-05-12T01:00:00Z",
+            lastError: null,
+        });
+
+        const archived = repository.archivePriceTier(tier.tierId);
+
+        assert.equal(archived?.status, TRADING_JOB_STATUS.Archived);
+        assert.equal(archived?.revision, tier.revision + 1);
+        assert.ok(archived?.archivedAt);
+        assert.deepEqual(
+            repository.listCollectionPriceTiers({
+                chainId: 1,
+                collectionId,
+            }),
+            [],
+        );
+        assert.deepEqual(
+            repository
+                .listCollectionPriceTiers({
+                    chainId: 1,
+                    collectionId,
+                    includeArchived: true,
+                })
+                .map((listedTier) => listedTier.tierId),
+            [tier.tierId],
+        );
+
+        const archivedAgain = repository.archivePriceTier(tier.tierId);
+        assert.equal(archivedAgain?.revision, archived?.revision);
+        assert.equal(repository.archivePriceTier("missing"), null);
+    });
 });
