@@ -47,6 +47,8 @@ What is explicit here:
 
 Supervisor uses these lists to spawn, monitor, and log runtime processes.
 
+OpenSea indexer workers are still part of this registry and staged artifacts, but their launch is capability-gated by `OPENSEA_INTEGRATION_MODE` + `OPENSEA_API_KEY`. Keep registry membership separate from launch eligibility: removing a worker from the registry means it cannot run; disabling OpenSea means the supervisor intentionally skips that worker at startup.
+
 If a worker is missing here, desktop app will not start it even if artifact exists.
 
 ### 3) Tauri Build Composition Hook

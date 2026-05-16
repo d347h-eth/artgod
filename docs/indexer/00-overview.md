@@ -20,6 +20,8 @@ Current scope:
 
 Each runtime is an independent Node.js process. There is no shared memory across runtimes.
 
+OpenSea runtimes are optional in desktop composition. `OPENSEA_INTEGRATION_MODE=auto` starts them only when `OPENSEA_API_KEY` is configured; `enabled` makes the key mandatory; `disabled` always skips them.
+
 - Scheduler-worker runtime (`indexer/src/runtime/scheduler-worker.ts`)
     - Tracks chain head via WebSocket (optional) and HTTP polling.
     - Schedules realtime block sync and block-check (reorg) jobs.
@@ -27,7 +29,7 @@ Each runtime is an independent Node.js process. There is no shared memory across
 - Collection bootstrap runtime (`indexer/src/runtime/bootstrap-worker.ts`)
     - Consumes collection bootstrap jobs.
     - Auto-installs embedded collection extensions during bootstrap start when the bootstrap request matches a known embedded extension by contract plus token scope.
-    - Orchestrates per-collection metadata snapshot, ownership snapshot, short backfill, and OpenSea bootstrap job emission.
+    - Orchestrates per-collection metadata snapshot, ownership snapshot, short backfill, and conditional OpenSea bootstrap job emission.
 
 - Collection extension runtime (`indexer/src/runtime/collection-extension-worker.ts`)
     - Consumes collection-extension artifact refresh jobs.

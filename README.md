@@ -91,6 +91,7 @@ Desktop-first path defaults:
 
 - `ARTGOD_DB_PATH=sqlite/main/db` (resolved relative to app-data dir unless absolute)
 - `USERLAND_UI_DIST_DIR=frontend/userland` (resolved relative to desktop runtime resources dir unless absolute)
+- `OPENSEA_INTEGRATION_MODE=auto` (OpenSea workers start only when `OPENSEA_API_KEY` is configured)
 
 VSCode (Yarn PnP):
 
@@ -188,7 +189,7 @@ Desktop executable lifecycle:
 3. Admin UI runs in the native Tauri window and exposes the privileged desktop control plane (`lifecycle`, `wallets`, `bots`, `logs`, `status` + userland-open action).
 4. Userland UI runs in a regular browser tab and is served by the local backend origin.
 5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`.
-6. Supervisor starts local NATS from bundled `nats-server`, then backend, then all indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; wallet-bound trading bots are staged too but start only on explicit operator action after unlock.
+6. Supervisor starts local NATS from bundled `nats-server`, then backend, then enabled indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; OpenSea workers are skipped when OpenSea integration is disabled, and wallet-bound trading bots are staged too but start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe succeeds (not merely until process state is `running`).
 8. Any core composition process exit triggers fail-fast full stack restart; wallet-bound trading bots are supervised separately and stop only when they crash or when one of their declared critical dependencies becomes unhealthy.
 9. Closing the admin window hides it (runtime keeps running in tray). Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app exit.
@@ -234,6 +235,7 @@ Useful optional env groups:
 - RPC resilience (`RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
 - Metadata refresh/batch tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
+- OpenSea integration (`OPENSEA_INTEGRATION_MODE`, `OPENSEA_API_KEY`)
 - Trading bot OpenSea lanes (`OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`)
 - Trading bot command reconciliation and bid-book projection (`BIDDING_COMMAND_*`, `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`)
 - Trading bot transaction policy (`BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_*`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, `BIDDING_TX_PENDING_NONCE_POLICY`)
@@ -319,7 +321,7 @@ Per-collection bootstrap flow:
 5. Fan out collection-extension artifact refresh jobs as non-blocking side-effects behind canonical metadata writes.
 6. Run ownership snapshot at the same anchor.
 7. Schedule short backfill (`anchor + 1` to head).
-8. Enqueue OpenSea bootstrap once local metadata + ownership are ready.
+8. Enqueue OpenSea bootstrap once local metadata + ownership are ready, only when OpenSea integration is enabled and the collection has an OpenSea slug.
 9. Mark collection `live` once short backfill completes.
 10. Mark OpenSea offchain `ready` once the first full snapshot succeeds; periodic reconcile maintains eventual consistency after that.
 

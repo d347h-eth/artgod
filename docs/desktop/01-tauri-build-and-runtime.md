@@ -269,6 +269,13 @@ Trading bot runtime keys:
 - `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS` (minimum interval between bot snapshot bid-book projections per collection)
 - `BIDDING_*` tuning keys for dry-run mode, poll intervals, bootstrap concurrency, offer expiration, snapshot cadence, and trait-refresh maps
 
+OpenSea capability keys:
+
+- `OPENSEA_INTEGRATION_MODE=auto|enabled|disabled` controls whether OpenSea indexer workers and OpenSea-dependent bot starts are allowed.
+- `OPENSEA_API_KEY` enables OpenSea integration in `auto` mode. In `enabled` mode it is mandatory and missing config fails desktop runtime startup.
+- With `auto` and no `OPENSEA_API_KEY`, desktop startup continues; the supervisor skips OpenSea indexer workers, backend/userland report OpenSea disabled, and Admin bots show the disabled reason instead of starting.
+- Bidding additionally requires `OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`, and `BIDDING_ENABLED=true`.
+
 Core runtime keys are also validated (for backend/indexer startup), for example:
 
 - `ARTGOD_DB_PATH`
@@ -292,6 +299,8 @@ Important:
 - desktop runtime sets `ARTGOD_ENV_FILE` for child processes, so backend/indexer read this desktop config path explicitly
 - runtime artifact paths are resolved from bundled app resources, not from a workspace root path
 
+Startup-critical config remains env-file based. Do not move supervisor bootstrap config into the main SQLite database until Rust-owned startup and TS migrations have a shared ordering contract; the backend/indexer still own DB migrations. Dynamic user-managed provider choices can live in an Admin-owned config store later, but the first-launch `.env` must stay sufficient to start NATS, backend, indexer, and userland.
+
 ## Supervisor Runtime Composition
 
 Runtime composition code lives in:
@@ -312,7 +321,7 @@ Supervisor startup order:
 2. wait for NATS port readiness
 3. start backend artifact
 4. wait for backend port readiness
-5. start all indexer worker artifacts
+5. start enabled indexer worker artifacts; OpenSea workers are skipped when the resolved OpenSea capability is disabled
 6. wait for backend semantic readiness via `GET /health/runtime`
    : checks backend process + DB ping + NATS/JetStream jobs stream readiness details
    : NATS connectivity errors are fatal; "jobs stream not yet created" is reported as warning (`warn`) and does not block startup
