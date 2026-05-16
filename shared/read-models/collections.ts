@@ -43,6 +43,7 @@ import {
     buildTokenTraitRangeJoinClauses,
     groupTraitFilters,
     groupTraitRangeFilters,
+    listExactTraitFilterTokenIds,
     normalizeTraitFilters,
     normalizeTraitRangeFilters,
     type TraitFilterGroup,
@@ -1659,56 +1660,6 @@ function emptyTokenCursorPage(limit: number): TokenCursorPage {
         currentPage: 0,
         totalPages: 0,
     };
-}
-
-function listExactTraitFilterTokenIds(params: {
-    chainId: number;
-    collectionId: number;
-    traitFilterGroups: TraitFilterGroup[];
-}): string[] {
-    if (params.traitFilterGroups.length === 0) {
-        return [];
-    }
-
-    const traitClauses: string[] = [];
-    const values: unknown[] = [params.chainId, params.collectionId];
-    for (const filterGroup of params.traitFilterGroups) {
-        const valuePlaceholders = filterGroup.values.map(() => "?").join(", ");
-        traitClauses.push(
-            `(ak.key = ? AND a.value IN (${valuePlaceholders}))`,
-        );
-        values.push(filterGroup.key, ...filterGroup.values);
-    }
-    values.push(
-        params.chainId,
-        params.collectionId,
-        params.traitFilterGroups.length,
-    );
-
-    // Resolve exact trait matches once so listed-token queries can avoid per-token correlated checks.
-    const rows = db.raw
-        .prepare(
-            "WITH matching_attributes AS (" +
-                "SELECT ak.key, a.id AS attribute_id " +
-                "FROM attribute_keys ak " +
-                "JOIN attributes a ON a.attribute_key_id = ak.id " +
-                "AND a.chain_id = ak.chain_id " +
-                "AND a.collection_id = ak.collection_id " +
-                "WHERE ak.chain_id = ? " +
-                "AND ak.collection_id = ? " +
-                `AND (${traitClauses.join(" OR ")})` +
-                ") " +
-                "SELECT ta.token_id " +
-                "FROM matching_attributes ma " +
-                "JOIN token_attributes ta ON ta.attribute_id = ma.attribute_id " +
-                "WHERE ta.chain_id = ? " +
-                "AND ta.collection_id = ? " +
-                "GROUP BY ta.token_id " +
-                "HAVING COUNT(DISTINCT ma.key) = ? " +
-                "ORDER BY ta.token_id",
-        )
-        .all(...values) as TokenIdRow[];
-    return rows.map((row) => row.token_id);
 }
 
 function hydrateTokenRowsWithCheapestListings(params: {

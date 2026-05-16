@@ -24,6 +24,7 @@ import {
     buildTokenTraitRangeWhereClauses,
     groupTraitFilters,
     groupTraitRangeFilters,
+    listExactTraitFilterTokenIds,
     normalizeTraitFilters,
     normalizeTraitRangeFilters,
     type TraitFilterGroup,
@@ -282,17 +283,42 @@ export class SqliteActivitiesReadModel {
             });
         }
 
+        const exactTraitTokenIds =
+            !params.tokenId && traitFilterGroups.length > 0
+                ? this.apm.withSyncSpan(
+                      "backend.activity.db.trait_filter_token_candidates",
+                      {
+                          [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                          [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
+                              params.collectionId,
+                          [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount]:
+                              traitFilterGroups.length,
+                      },
+                      () =>
+                          listExactTraitFilterTokenIds({
+                              chainId: params.chainId,
+                              collectionId: params.collectionId,
+                              traitFilterGroups,
+                          }),
+                  )
+                : null;
+        if (exactTraitTokenIds?.length === 0) {
+            return emptyActivityFeedPage(limit);
+        }
+
         const { whereClauses: baseWhereClauses, values: baseValues } =
             buildActivityWhereClauses({
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 tokenId: params.tokenId,
+                tokenIds: exactTraitTokenIds ?? undefined,
                 kind: filterKind,
                 extensionEvent: params.extensionEvent,
                 maker: params.maker,
                 contentHash: params.contentHash,
                 eventGroup: params.eventGroup,
-                traitFilterGroups,
+                traitFilterGroups:
+                    exactTraitTokenIds === null ? traitFilterGroups : [],
                 traitRangeFilterGroups,
             });
 
@@ -344,6 +370,7 @@ function buildActivityWhereClauses(params: {
     chainId: number;
     collectionId: number;
     tokenId?: string;
+    tokenIds?: string[];
     kind: ActivityFeedFilterKind | null;
     extensionEvent?: ActivityExtensionEventFilter;
     maker?: string;
@@ -359,11 +386,15 @@ function buildActivityWhereClauses(params: {
         "chain_id = ?",
         "collection_id = ?",
         ...(params.tokenId ? ["token_id = ?"] : []),
+        ...(params.tokenIds
+            ? [buildTokenIdInClause(params.tokenIds.length)]
+            : []),
     ];
     const values: unknown[] = [
         params.chainId,
         params.collectionId,
         ...(params.tokenId ? [params.tokenId] : []),
+        ...(params.tokenIds ?? []),
     ];
 
     const { whereClauses: traitWhereClauses, values: traitValues } =
@@ -451,6 +482,24 @@ function buildActivityBeforeCursorWhereClause(): string {
 
 function buildActivityBeforeOrAtCursorWhereClause(): string {
     return "(occurred_at > ? OR (occurred_at = ? AND id >= ?))";
+}
+
+function buildTokenIdInClause(tokenIdCount: number): string {
+    return `token_id IN (${new Array(tokenIdCount).fill("?").join(", ")})`;
+}
+
+function emptyActivityFeedPage(limit: number): ActivityFeedPage {
+    return {
+        items: [],
+        prevCursor: null,
+        nextCursor: null,
+        limit,
+        totalItems: 0,
+        rangeStart: 0,
+        rangeEnd: 0,
+        currentPage: 0,
+        totalPages: 0,
+    };
 }
 
 function shouldCollapseCollectionListings(
@@ -553,13 +602,16 @@ function listActivitiesFromSource(params: {
         filterKind,
         extensionEvent,
     });
-    const totalItems = countMatchingActivities(
-        apm,
-        source,
-        baseWhereClauses,
-        baseValues,
-        ARTGOD_ACTIVITY_COUNT_KIND.Total,
-    );
+    const totalItems =
+        !cursor && !hasNext
+            ? items.length
+            : countMatchingActivities(
+                  apm,
+                  source,
+                  baseWhereClauses,
+                  baseValues,
+                  ARTGOD_ACTIVITY_COUNT_KIND.Total,
+              );
     const beforeItems = cursor
         ? countMatchingActivities(
               apm,
