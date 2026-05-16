@@ -310,7 +310,7 @@ export class SqliteCollectionsReadModel {
             "WHERE b.chain_id = ta.chain_id " +
             "AND b.collection_id = ta.collection_id " +
             "AND b.token_id = ta.token_id " +
-            "AND lower(b.owner) = ? " +
+            "AND b.owner = ? " +
             "AND CAST(b.amount AS INTEGER) > 0" +
             ") " +
             "GROUP BY ak.key, a.value " +
@@ -318,11 +318,11 @@ export class SqliteCollectionsReadModel {
     );
 
     private selectTokenCurrentHolderRow = db.prepare<[number, number, string]>(
-        "SELECT lower(owner) AS owner " +
+        "SELECT owner AS owner " +
             "FROM nft_balances " +
             "WHERE chain_id = ? AND collection_id = ? AND token_id = ? " +
             "AND CAST(amount AS INTEGER) > 0 " +
-            "ORDER BY lower(owner) ASC " +
+            "ORDER BY owner ASC " +
             "LIMIT 1",
     );
 
@@ -1205,7 +1205,7 @@ export class SqliteCollectionsReadModel {
                     "WHERE b.chain_id = ta.chain_id " +
                     "AND b.collection_id = ta.collection_id " +
                     "AND b.token_id = ta.token_id " +
-                    "AND lower(b.owner) = ? " +
+                    "AND b.owner = ? " +
                     "AND CAST(b.amount AS INTEGER) > 0" +
                     ") " +
                     "GROUP BY ak.key, a.value " +
@@ -1327,7 +1327,7 @@ export class SqliteCollectionsReadModel {
                     "WHERE b.chain_id = ta.chain_id " +
                     "AND b.collection_id = ta.collection_id " +
                     "AND b.token_id = ta.token_id " +
-                    "AND lower(b.owner) = ? " +
+                    "AND b.owner = ? " +
                     "AND CAST(b.amount AS INTEGER) > 0" +
                     ") " +
                     `ORDER BY LENGTH(${ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL}) ${params.direction}, ` +
@@ -2006,11 +2006,11 @@ function buildCollectionHoldersSql(): string {
     return `
         WITH holder_totals AS (
             SELECT
-                lower(owner) AS owner,
+                owner AS owner,
                 SUM(CAST(amount AS INTEGER)) AS token_count_int
             FROM nft_balances
             WHERE chain_id = ? AND collection_id = ?
-            GROUP BY lower(owner)
+            GROUP BY owner
             HAVING SUM(CAST(amount AS INTEGER)) > 0
         ),
         holder_sort_keys AS (
@@ -2254,7 +2254,7 @@ function buildTokenQueryParts(params: {
                 "WHERE b.chain_id = t.chain_id " +
                 "AND b.collection_id = t.collection_id " +
                 "AND b.token_id = t.token_id " +
-                "AND lower(b.owner) = ? " +
+                "AND b.owner = ? " +
                 "AND CAST(b.amount AS INTEGER) > 0" +
                 ")",
         );
