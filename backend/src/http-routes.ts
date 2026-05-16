@@ -57,6 +57,7 @@ import type {
     GetCollectionDetailHttpAdapter,
     GetCollectionDetailRoute,
 } from "./http/handlers/collections/get-collection-detail.js";
+import { getCollectionDetailSpanAttributes } from "./http/handlers/collections/get-collection-detail.js";
 import type {
     GetCollectionHoldersHttpAdapter,
     GetCollectionHoldersRoute,
@@ -305,6 +306,7 @@ export function registerApiRoutes(
         getCollectionDetailAdapter.handle,
         {
             preHandler: publicCollectionScopeGuard,
+            spanAttributes: getCollectionDetailSpanAttributes,
         },
     );
     registerObservedGet<GetCollectionHoldersRoute>(

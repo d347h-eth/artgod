@@ -97,4 +97,61 @@ export class SqliteCollectionExtensionRecords {
             htmlContent: row.html_content,
         };
     }
+
+    listArtifactsByTokenIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+        extensionKey: CollectionExtensionKey;
+        artifactRef: string;
+    }): Map<string, BackendCollectionExtensionArtifactRecord> {
+        const tokenIds = normalizeTokenIds(params.tokenIds);
+        if (tokenIds.length === 0) {
+            return new Map();
+        }
+
+        const placeholders = tokenIds.map(() => "?").join(", ");
+        const rows = db.raw
+            .prepare(
+                "SELECT token_id, extension_key, artifact_ref, image, animation_url, html_content " +
+                    "FROM token_extension_artifacts " +
+                    "WHERE chain_id = ? AND collection_id = ? " +
+                    "AND extension_key = ? AND artifact_ref = ? " +
+                    `AND token_id IN (${placeholders})`,
+            )
+            .all(
+                params.chainId,
+                params.collectionId,
+                params.extensionKey,
+                params.artifactRef,
+                ...tokenIds,
+            ) as Array<ArtifactRow & { token_id: string }>;
+
+        return new Map(
+            rows.map((row) => [
+                row.token_id,
+                {
+                    extensionKey: row.extension_key,
+                    artifactRef: row.artifact_ref,
+                    image: row.image,
+                    animationUrl: row.animation_url,
+                    htmlContent: row.html_content,
+                },
+            ]),
+        );
+    }
+}
+
+function normalizeTokenIds(tokenIds: string[]): string[] {
+    const normalized: string[] = [];
+    const seen = new Set<string>();
+    for (const rawTokenId of tokenIds) {
+        const tokenId = rawTokenId.trim();
+        if (!tokenId || seen.has(tokenId)) {
+            continue;
+        }
+        seen.add(tokenId);
+        normalized.push(tokenId);
+    }
+    return normalized;
 }

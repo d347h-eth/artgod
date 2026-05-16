@@ -3,7 +3,9 @@ import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 import type {
     CollectionListItem,
+    TokenCard,
     TokenBrowserStatus,
+    TraitFacet,
 } from "@artgod/shared/types";
 import { ExtensionAwareCollectionDetailRead } from "./extension-aware-collection-detail-read.js";
 
@@ -44,6 +46,9 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
                 },
                 getArtifact() {
                     return null;
+                },
+                listArtifactsByTokenIds() {
+                    return new Map();
                 },
             },
             apm,
@@ -88,7 +93,133 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
             },
         ]);
     });
+
+    it("batches extension artifacts when resolving token cards", () => {
+        const apm = new CapturingApm();
+        const requestedTokenIds: string[][] = [];
+        const readModel = new ExtensionAwareCollectionDetailRead(
+            {
+                ...createBaseReadPort(),
+                listCollectionTokens() {
+                    return {
+                        items: [
+                            tokenCard("1", "snapshot-1"),
+                            tokenCard("2", "snapshot-2"),
+                        ],
+                        prevCursor: null,
+                        nextCursor: null,
+                        limit: 250,
+                        totalItems: 2,
+                        rangeStart: 1,
+                        rangeEnd: 2,
+                        currentPage: 1,
+                        totalPages: 1,
+                    };
+                },
+            },
+            {
+                ...createExtensionRecords(),
+                listArtifactsByTokenIds(params) {
+                    requestedTokenIds.push(params.tokenIds);
+                    return new Map([
+                        [
+                            "1",
+                            {
+                                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                                artifactRef: params.artifactRef,
+                                image: "artifact-1",
+                                animationUrl: null,
+                                htmlContent: null,
+                            },
+                        ],
+                    ]);
+                },
+            },
+            apm,
+        );
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 7,
+            tokenStatus: "listed",
+            limit: 250,
+        });
+
+        expect(requestedTokenIds).toEqual([["1", "2"]]);
+        expect(page.items.map((token) => token.image)).toEqual([
+            "artifact-1",
+            "snapshot-2",
+        ]);
+        expect(apm.spans).toContainEqual({
+            name: "backend.extension.artifacts_batch",
+            attributes: expect.objectContaining({
+                "artgod.chain_id": 1,
+                "artgod.collection_id": 7,
+                "artgod.extension.key": TERRAFORMS_EXTENSION_KEY,
+                "artgod.tokens.count": 2,
+            }),
+        });
+    });
+
+    it("excludes extension-hidden trait facets before reading stats", () => {
+        let receivedExcludeKeys: string[] | undefined;
+        const readModel = new ExtensionAwareCollectionDetailRead(
+            {
+                ...createBaseReadPort(),
+                listCollectionTraitFacets(
+                    _chainId: number,
+                    _collectionId: number,
+                    _owner?: string,
+                    options?: { excludeKeys?: string[] },
+                ): TraitFacet[] {
+                    receivedExcludeKeys = options?.excludeKeys;
+                    return [];
+                },
+            },
+            createExtensionRecords(),
+        );
+
+        readModel.listCollectionTraitFacets(1, 7);
+
+        expect(receivedExcludeKeys).toEqual(["???"]);
+    });
 });
+
+function createExtensionRecords() {
+    return {
+        getInstallByCollectionId() {
+            return {
+                chainId: 1,
+                collectionId: 7,
+                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                enabled: true,
+                configJson: "{}",
+                createdAt: "2026-01-01T00:00:00Z",
+                updatedAt: "2026-01-01T00:00:00Z",
+            };
+        },
+        getArtifact() {
+            return null;
+        },
+        listArtifactsByTokenIds() {
+            return new Map();
+        },
+    };
+}
+
+function tokenCard(tokenId: string, image: string): TokenCard {
+    return {
+        tokenId,
+        name: null,
+        image,
+        traitSummary: null,
+        hasMetadata: true,
+        metadataUpdatedAt: "2026-01-01T00:00:00Z",
+        listingPrice: null,
+        listingCurrency: null,
+        attributes: [],
+    };
+}
 
 function createBaseReadPort() {
     const collection: CollectionListItem = {

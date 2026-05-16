@@ -151,10 +151,10 @@ export function createBackendApp(
         observability ??
         createNoopBackendHttpObservability(config.deployment.mode);
     const chainsReadModel = new SqliteChainsReadModel();
-    const collectionsReadModel = new SqliteCollectionsReadModel([
-        ZERO_ADDRESS,
-        config.wethAddress,
-    ]);
+    const collectionsReadModel = new SqliteCollectionsReadModel(
+        [ZERO_ADDRESS, config.wethAddress],
+        backendObservability.apm,
+    );
     const activitiesReadModel = new SqliteActivitiesReadModel(
         backendObservability.apm,
     );
@@ -253,6 +253,7 @@ export function createBackendApp(
         chainsReadModel,
         extensionAwareCollectionsReadModel,
         extensionAwareCollectionCustomization,
+        backendObservability.apm,
     );
     const getTokenPreviewUseCase = new GetTokenPreviewUseCase(
         config.defaultChainId,

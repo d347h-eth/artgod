@@ -76,6 +76,10 @@ export interface BackendCollectionExtension {
     resolveTraitFilterPresentationConfig(
         install: CollectionExtensionInstall,
     ): TraitFilterPresentationConfig | null;
+    // Lets extensions suppress high-cardinality internal facets from generic stats.
+    resolveExcludedTraitFacetKeys?(
+        install: CollectionExtensionInstall,
+    ): string[];
     resolveTokenCardTraitSummaryTemplateConfig(
         install: CollectionExtensionInstall,
     ): TraitSummaryTemplateConfig | null;

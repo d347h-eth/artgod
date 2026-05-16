@@ -149,6 +149,17 @@ Registered backend API and health handlers are wrapped in `backend.http.route` s
 - `http.route`
 - `artgod.deployment_mode`
 
+The collection detail route adds low-cardinality request-shape attributes:
+
+- `artgod.collection.limit`
+- `artgod.collection.limit_present`
+- `artgod.collection.cursor_present`
+- `artgod.collection.token_status`
+- `artgod.collection.owner_present`
+- `artgod.collection.trait_filters_count`
+- `artgod.collection.trait_ranges_count`
+- `artgod.collection.media_mode_present`
+
 The collection activity route also adds low-cardinality request-shape attributes:
 
 - `artgod.activity.limit`
@@ -194,6 +205,22 @@ Collection-extension activity feed and preview paths add child spans around exte
 - `backend.extension.activity_event_preview.install_lookup`
 - `backend.extension.activity_event_preview.modes`
 - `backend.extension.activity_event_preview.resolve`
+
+The collection detail use case and SQLite read model add child spans around the token-browser slow path:
+
+- `backend.collection_detail.chain`
+- `backend.collection_detail.collection`
+- `backend.collection_detail.media_state`
+- `backend.collection_detail.tokens`
+- `backend.collection_detail.trait_facets`
+- `backend.collection_detail.trait_filter_presentation`
+- `backend.collection_detail.token_summary_template`
+- `backend.collection_detail.token_summary_render`
+- `backend.collection.db.tokens_page`
+- `backend.collection.db.tokens_prev_cursor`
+- `backend.collection.db.tokens_count`
+- `backend.collection.db.trait_facets`
+- `backend.extension.artifacts_batch`
 
 The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 

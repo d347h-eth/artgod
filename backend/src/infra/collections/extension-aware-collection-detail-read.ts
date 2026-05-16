@@ -5,6 +5,7 @@ import {
     type CollectionMediaPresentation,
 } from "@artgod/shared/extensions";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
+import { normalizeTraitKeyList } from "@artgod/shared/types";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 import type {
     CollectionMediaState,
@@ -33,6 +34,13 @@ type CollectionExtensionRecordsPort = {
         extensionKey: CollectionExtensionInstall["extensionKey"];
         artifactRef: string;
     }): BackendCollectionExtensionArtifactRecord | null;
+    listArtifactsByTokenIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+        extensionKey: CollectionExtensionInstall["extensionKey"];
+        artifactRef: string;
+    }): Map<string, BackendCollectionExtensionArtifactRecord>;
 };
 
 type CollectionDetailReadPort = {
@@ -55,6 +63,9 @@ type CollectionDetailReadPort = {
         chainId: number,
         collectionId: number,
         owner?: string,
+        options?: {
+            excludeKeys?: string[];
+        },
     ): TraitFacet[];
     listCollectionHolders(params: {
         chainId: number;
@@ -147,22 +158,38 @@ export class ExtensionAwareCollectionDetailRead {
         if (!extension) {
             return page;
         }
+        const artifactRef = extension.resolveArtifactRef(
+            install,
+            mediaState.selectedMode,
+        );
+        const artifactsByTokenId = artifactRef
+            ? this.apm.withSyncSpan(
+                  "backend.extension.artifacts_batch",
+                  {
+                      "artgod.chain_id": params.chainId,
+                      "artgod.collection_id": params.collectionId,
+                      "artgod.extension.key": install.extensionKey,
+                      "artgod.extension.artifact_ref": artifactRef,
+                      "artgod.tokens.count": page.items.length,
+                  },
+                  () =>
+                      this.extensionRecords.listArtifactsByTokenIds({
+                          chainId: params.chainId,
+                          collectionId: params.collectionId,
+                          tokenIds: page.items.map((token) => token.tokenId),
+                          extensionKey: install.extensionKey,
+                          artifactRef,
+                      }),
+              )
+            : new Map<string, BackendCollectionExtensionArtifactRecord>();
 
         return {
             ...page,
             items: page.items.map((token) =>
-                extension.resolveTokenCard(
-                    install,
-                    token,
-                    this.resolveMediaContext(
-                        install,
-                        extension,
-                        params.chainId,
-                        params.collectionId,
-                        token.tokenId,
-                        mediaState.selectedMode,
-                    ),
-                ),
+                extension.resolveTokenCard(install, token, {
+                    mediaMode: mediaState.selectedMode,
+                    artifact: artifactsByTokenId.get(token.tokenId) ?? null,
+                }),
             ),
         };
     }
@@ -171,11 +198,24 @@ export class ExtensionAwareCollectionDetailRead {
         chainId: number,
         collectionId: number,
         owner?: string,
+        options?: {
+            excludeKeys?: string[];
+        },
     ): TraitFacet[] {
+        const excludeKeys = normalizeTraitKeyList([
+            ...(options?.excludeKeys ?? []),
+            ...this.resolveExtensionExcludedTraitFacetKeys(
+                chainId,
+                collectionId,
+            ),
+        ]);
         return this.baseReadPort.listCollectionTraitFacets(
             chainId,
             collectionId,
             owner,
+            {
+                excludeKeys,
+            },
         );
     }
 
@@ -401,6 +441,24 @@ export class ExtensionAwareCollectionDetailRead {
             extensions: [{ key: install.extensionKey }],
             activityEventFeeds,
         };
+    }
+
+    private resolveExtensionExcludedTraitFacetKeys(
+        chainId: number,
+        collectionId: number,
+    ): string[] {
+        const install = this.extensionRecords.getInstallByCollectionId(
+            chainId,
+            collectionId,
+        );
+        if (!install?.enabled) {
+            return [];
+        }
+
+        const extension = resolveBackendCollectionExtension(install);
+        return normalizeTraitKeyList(
+            extension?.resolveExcludedTraitFacetKeys?.(install) ?? [],
+        );
     }
 
     private resolveTokenMediaState(params: {

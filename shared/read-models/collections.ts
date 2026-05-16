@@ -1,5 +1,10 @@
 import { db } from "../database/db.js";
 import { MAX_PAGE_LIMIT } from "../config/pagination.js";
+import {
+    NOOP_APM,
+    type ApmPort,
+    type SpanAttributes,
+} from "../observability/apm.js";
 import type {
     CollectionHolder,
     CollectionHolderPage,
@@ -19,6 +24,7 @@ import type {
     TraitRangeFilter,
 } from "../types/browse.js";
 import {
+    normalizeTraitKeyList,
     TRAIT_FILTER_DISPLAY_KIND,
     type TraitFilterPresentationConfig,
 } from "../types/customization.js";
@@ -173,7 +179,8 @@ const LISTING_PRICE_LENGTH_SQL = `LENGTH(${LISTING_PRICE_NORMALIZED_SQL})`;
 const LISTED_TOKEN_SORT_KEY_SQL = `(l.price_sort_length, l.price_sort_value, ${TOKEN_SORT_BUCKET_SQL}, ${TOKEN_SORT_LENGTH_SQL}, ${TOKEN_SORT_VALUE_SQL}, t.token_id)`;
 const LISTED_ORDER_BY_ASC_SQL = `l.price_sort_length ASC, l.price_sort_value ASC, ${TOKEN_ORDER_BY_ASC_SQL}`;
 const LISTED_ORDER_BY_DESC_SQL = `l.price_sort_length DESC, l.price_sort_value DESC, ${TOKEN_ORDER_BY_DESC_SQL}`;
-const LISTED_THEN_UNLISTED_BLOCK_SQL = "CASE WHEN l.price IS NULL THEN 1 ELSE 0 END";
+const LISTED_THEN_UNLISTED_BLOCK_SQL =
+    "CASE WHEN l.price IS NULL THEN 1 ELSE 0 END";
 const LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL =
     "CASE WHEN l.price IS NULL THEN 0 ELSE l.price_sort_length END";
 const LISTED_THEN_UNLISTED_PRICE_VALUE_SQL =
@@ -200,6 +207,10 @@ export type ListCollectionTokensParams = {
     owner?: string;
 };
 
+export type ListCollectionTraitFacetsOptions = {
+    excludeKeys?: string[];
+};
+
 export type GetCollectionTokenDetailParams = {
     chainId: number;
     collectionId: number;
@@ -223,7 +234,10 @@ export type ListCollectionHoldersParams = {
 export class SqliteCollectionsReadModel {
     private readonly supportedListingCurrencies: string[];
 
-    constructor(supportedListingCurrencies: string[]) {
+    constructor(
+        supportedListingCurrencies: string[],
+        private readonly apm: ApmPort = NOOP_APM,
+    ) {
         const normalized = [
             ...new Set(
                 supportedListingCurrencies.map((value) =>
@@ -476,6 +490,16 @@ export class SqliteCollectionsReadModel {
         traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
+        const spanAttributes = buildTokenQuerySpanAttributes({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenStatus: "all",
+            limit: params.limit,
+            cursorPresent: Boolean(params.cursor),
+            traitFilterGroups: params.traitFilterGroups,
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
+            owner: params.owner,
+        });
         const {
             baseJoinClauses,
             baseJoinValues,
@@ -524,40 +548,67 @@ export class SqliteCollectionsReadModel {
 
         values.push(params.limit + 1);
 
-        const rows = db.raw.prepare(sql).all(...values) as TokenRow[];
+        const rows = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_page",
+            spanAttributes,
+            () => db.raw.prepare(sql).all(...values) as TokenRow[],
+        );
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
         const items = pageRows.map(mapTokenRow);
 
-        const prevCursor = derivePrevCursor({
-            baseJoinClauses,
-            baseJoinValues,
-            baseWhereClauses,
-            baseWhereValues,
-            cursor: params.cursor,
-            pageRows,
-            limit: params.limit,
-        });
+        const prevCursor = params.cursor
+            ? this.apm.withSyncSpan(
+                  "backend.collection.db.tokens_prev_cursor",
+                  spanAttributes,
+                  () =>
+                      derivePrevCursor({
+                          baseJoinClauses,
+                          baseJoinValues,
+                          baseWhereClauses,
+                          baseWhereValues,
+                          cursor: params.cursor,
+                          pageRows,
+                          limit: params.limit,
+                      }),
+              )
+            : null;
 
-        const totalItems = countMatchingTokens({
-            joinClauses: baseJoinClauses,
-            joinValues: baseJoinValues,
-            whereClauses: baseWhereClauses,
-            whereValues: baseWhereValues,
-        });
+        const totalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...spanAttributes,
+                "artgod.collection.count_kind": "total",
+            },
+            () =>
+                countMatchingTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    whereClauses: baseWhereClauses,
+                    whereValues: baseWhereValues,
+                }),
+        );
         const beforeItems = cursorSortKey
-            ? countMatchingTokens({
-                  joinClauses: baseJoinClauses,
-                  joinValues: baseJoinValues,
-                  whereClauses: [
-                      ...baseWhereClauses,
-                      `${TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?)`,
-                  ],
-                  whereValues: [
-                      ...baseWhereValues,
-                      ...tokenSortKeyParams(cursorSortKey),
-                  ],
-              })
+            ? this.apm.withSyncSpan(
+                  "backend.collection.db.tokens_count",
+                  {
+                      ...spanAttributes,
+                      "artgod.collection.count_kind": "before_cursor",
+                  },
+                  () =>
+                      countMatchingTokens({
+                          joinClauses: baseJoinClauses,
+                          joinValues: baseJoinValues,
+                          whereClauses: [
+                              ...baseWhereClauses,
+                              `${TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?)`,
+                          ],
+                          whereValues: [
+                              ...baseWhereValues,
+                              ...tokenSortKeyParams(cursorSortKey),
+                          ],
+                      }),
+              )
             : 0;
         const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
         const rangeEnd = beforeItems + items.length;
@@ -596,6 +647,16 @@ export class SqliteCollectionsReadModel {
         traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
+        const spanAttributes = buildTokenQuerySpanAttributes({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenStatus: "listed",
+            limit: params.limit,
+            cursorPresent: Boolean(params.cursor),
+            traitFilterGroups: params.traitFilterGroups,
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
+            owner: params.owner,
+        });
         const {
             baseJoinClauses,
             baseJoinValues,
@@ -648,54 +709,82 @@ export class SqliteCollectionsReadModel {
             `ORDER BY ${LISTED_ORDER_BY_ASC_SQL} ` +
             "LIMIT ?";
 
-        const rows = db.raw
-            .prepare(sql)
-            .all(...values, params.limit + 1) as TokenRow[];
+        const rows = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_page",
+            spanAttributes,
+            () =>
+                db.raw
+                    .prepare(sql)
+                    .all(...values, params.limit + 1) as TokenRow[],
+        );
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
         const items = pageRows.map(mapTokenRow);
 
-        const prevCursor = deriveListedPrevCursor({
-            listingSql: buildCheapestListingSql(
-                this.supportedListingCurrencies.length,
-            ),
-            baseJoinClauses,
-            baseJoinValues,
-            listingValues,
-            baseWhereClauses,
-            baseWhereValues,
-            cursor: params.cursor,
-            pageRows,
-            limit: params.limit,
-        });
+        const prevCursor = params.cursor
+            ? this.apm.withSyncSpan(
+                  "backend.collection.db.tokens_prev_cursor",
+                  spanAttributes,
+                  () =>
+                      deriveListedPrevCursor({
+                          listingSql: buildCheapestListingSql(
+                              this.supportedListingCurrencies.length,
+                          ),
+                          baseJoinClauses,
+                          baseJoinValues,
+                          listingValues,
+                          baseWhereClauses,
+                          baseWhereValues,
+                          cursor: params.cursor,
+                          pageRows,
+                          limit: params.limit,
+                      }),
+              )
+            : null;
 
-        const totalItems = countMatchingListedTokens({
-            joinClauses: baseJoinClauses,
-            joinValues: baseJoinValues,
-            listingSql: buildCheapestListingSql(
-                this.supportedListingCurrencies.length,
-            ),
-            listingValues,
-            whereClauses: baseWhereClauses,
-            whereValues: baseWhereValues,
-        });
+        const totalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...spanAttributes,
+                "artgod.collection.count_kind": "total",
+            },
+            () =>
+                countMatchingListedTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    listingSql: buildCheapestListingSql(
+                        this.supportedListingCurrencies.length,
+                    ),
+                    listingValues,
+                    whereClauses: baseWhereClauses,
+                    whereValues: baseWhereValues,
+                }),
+        );
         const beforeItems = cursorKey
-            ? countMatchingListedTokens({
-                  joinClauses: baseJoinClauses,
-                  joinValues: baseJoinValues,
-                  listingSql: buildCheapestListingSql(
-                      this.supportedListingCurrencies.length,
-                  ),
-                  listingValues,
-                  whereClauses: [
-                      ...baseWhereClauses,
-                      `${LISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?)`,
-                  ],
-                  whereValues: [
-                      ...baseWhereValues,
-                      ...listingCursorKeyParams(cursorKey),
-                  ],
-              })
+            ? this.apm.withSyncSpan(
+                  "backend.collection.db.tokens_count",
+                  {
+                      ...spanAttributes,
+                      "artgod.collection.count_kind": "before_cursor",
+                  },
+                  () =>
+                      countMatchingListedTokens({
+                          joinClauses: baseJoinClauses,
+                          joinValues: baseJoinValues,
+                          listingSql: buildCheapestListingSql(
+                              this.supportedListingCurrencies.length,
+                          ),
+                          listingValues,
+                          whereClauses: [
+                              ...baseWhereClauses,
+                              `${LISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?)`,
+                          ],
+                          whereValues: [
+                              ...baseWhereValues,
+                              ...listingCursorKeyParams(cursorKey),
+                          ],
+                      }),
+              )
             : 0;
         const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
         const rangeEnd = beforeItems + items.length;
@@ -735,6 +824,16 @@ export class SqliteCollectionsReadModel {
         traitRangeFilterGroups: TraitRangeFilterGroup[];
         owner?: string;
     }): TokenCursorPage {
+        const spanAttributes = buildTokenQuerySpanAttributes({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenStatus: "listed_then_unlisted",
+            limit: params.limit,
+            cursorPresent: Boolean(params.cursor),
+            traitFilterGroups: params.traitFilterGroups,
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
+            owner: params.owner,
+        });
         const {
             baseJoinClauses,
             baseJoinValues,
@@ -790,46 +889,74 @@ export class SqliteCollectionsReadModel {
             `ORDER BY ${LISTED_THEN_UNLISTED_ORDER_BY_ASC_SQL} ` +
             "LIMIT ?";
 
-        const rows = db.raw
-            .prepare(sql)
-            .all(...values, params.limit + 1) as TokenRow[];
+        const rows = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_page",
+            spanAttributes,
+            () =>
+                db.raw
+                    .prepare(sql)
+                    .all(...values, params.limit + 1) as TokenRow[],
+        );
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
         const items = pageRows.map(mapTokenRow);
 
-        const prevCursor = deriveListedThenUnlistedPrevCursor({
-            listingSql,
-            listingValues,
-            baseJoinClauses,
-            baseJoinValues,
-            baseWhereClauses,
-            baseWhereValues,
-            cursor: params.cursor,
-            pageRows,
-            limit: params.limit,
-        });
+        const prevCursor = params.cursor
+            ? this.apm.withSyncSpan(
+                  "backend.collection.db.tokens_prev_cursor",
+                  spanAttributes,
+                  () =>
+                      deriveListedThenUnlistedPrevCursor({
+                          listingSql,
+                          listingValues,
+                          baseJoinClauses,
+                          baseJoinValues,
+                          baseWhereClauses,
+                          baseWhereValues,
+                          cursor: params.cursor,
+                          pageRows,
+                          limit: params.limit,
+                      }),
+              )
+            : null;
 
-        const totalItems = countMatchingTokens({
-            joinClauses: baseJoinClauses,
-            joinValues: baseJoinValues,
-            whereClauses: baseWhereClauses,
-            whereValues: baseWhereValues,
-        });
+        const totalItems = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_count",
+            {
+                ...spanAttributes,
+                "artgod.collection.count_kind": "total",
+            },
+            () =>
+                countMatchingTokens({
+                    joinClauses: baseJoinClauses,
+                    joinValues: baseJoinValues,
+                    whereClauses: baseWhereClauses,
+                    whereValues: baseWhereValues,
+                }),
+        );
         const beforeItems = cursorKey
-            ? countMatchingMixedTokens({
-                  joinClauses: baseJoinClauses,
-                  joinValues: baseJoinValues,
-                  listingSql,
-                  listingValues,
-                  whereClauses: [
-                      ...baseWhereClauses,
-                      `${LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?, ?)`,
-                  ],
-                  whereValues: [
-                      ...baseWhereValues,
-                      ...listedThenUnlistedCursorKeyParams(cursorKey),
-                  ],
-              })
+            ? this.apm.withSyncSpan(
+                  "backend.collection.db.tokens_count",
+                  {
+                      ...spanAttributes,
+                      "artgod.collection.count_kind": "before_cursor",
+                  },
+                  () =>
+                      countMatchingMixedTokens({
+                          joinClauses: baseJoinClauses,
+                          joinValues: baseJoinValues,
+                          listingSql,
+                          listingValues,
+                          whereClauses: [
+                              ...baseWhereClauses,
+                              `${LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?, ?)`,
+                          ],
+                          whereValues: [
+                              ...baseWhereValues,
+                              ...listedThenUnlistedCursorKeyParams(cursorKey),
+                          ],
+                      }),
+              )
             : 0;
         const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
         const rangeEnd = beforeItems + items.length;
@@ -864,17 +991,31 @@ export class SqliteCollectionsReadModel {
         chainId: number,
         collectionId: number,
         owner?: string,
+        options: ListCollectionTraitFacetsOptions = {},
     ): TraitFacet[] {
-        const rows = owner
-            ? (this.selectOwnerScopedTraitFacetRows.all(
-                  chainId,
-                  collectionId,
-                  normalizeAddressRef(owner),
-              ) as TraitFacetRow[])
-            : (this.selectTraitFacetRows.all(
-                  chainId,
-                  collectionId,
-              ) as TraitFacetRow[]);
+        const excludeKeys = normalizeTraitKeyList(options.excludeKeys);
+        const rows = this.apm.withSyncSpan(
+            "backend.collection.db.trait_facets",
+            {
+                "artgod.chain_id": chainId,
+                "artgod.collection_id": collectionId,
+                "artgod.collection.owner_present": Boolean(owner),
+                "artgod.collection.exclude_keys_count": excludeKeys.length,
+            },
+            () =>
+                owner
+                    ? this.selectOwnerScopedTraitFacetRowsWithOptions(
+                          chainId,
+                          collectionId,
+                          normalizeAddressRef(owner),
+                          excludeKeys,
+                      )
+                    : this.selectTraitFacetRowsWithOptions(
+                          chainId,
+                          collectionId,
+                          excludeKeys,
+                      ),
+        );
 
         const facets: TraitFacet[] = [];
         const byKey = new Map<string, TraitFacet>();
@@ -897,6 +1038,83 @@ export class SqliteCollectionsReadModel {
             });
         }
         return facets;
+    }
+
+    private selectTraitFacetRowsWithOptions(
+        chainId: number,
+        collectionId: number,
+        excludeKeys: string[],
+    ): TraitFacetRow[] {
+        if (excludeKeys.length === 0) {
+            return this.selectTraitFacetRows.all(
+                chainId,
+                collectionId,
+            ) as TraitFacetRow[];
+        }
+
+        const placeholders = excludeKeys.map(() => "?").join(", ");
+        return db.raw
+            .prepare(
+                "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count " +
+                    "FROM collection_trait_stats " +
+                    "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
+                    "AND attributes.chain_id = collection_trait_stats.chain_id " +
+                    "AND attributes.collection_id = collection_trait_stats.collection_id " +
+                    "JOIN attribute_keys ON attribute_keys.id = collection_trait_stats.attribute_key_id " +
+                    "AND attribute_keys.chain_id = collection_trait_stats.chain_id " +
+                    "AND attribute_keys.collection_id = collection_trait_stats.collection_id " +
+                    "WHERE collection_trait_stats.chain_id = ? AND collection_trait_stats.collection_id = ? " +
+                    `AND attribute_keys.key NOT IN (${placeholders}) ` +
+                    "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
+            )
+            .all(chainId, collectionId, ...excludeKeys) as TraitFacetRow[];
+    }
+
+    private selectOwnerScopedTraitFacetRowsWithOptions(
+        chainId: number,
+        collectionId: number,
+        owner: string,
+        excludeKeys: string[],
+    ): TraitFacetRow[] {
+        if (excludeKeys.length === 0) {
+            return this.selectOwnerScopedTraitFacetRows.all(
+                chainId,
+                collectionId,
+                owner,
+            ) as TraitFacetRow[];
+        }
+
+        const placeholders = excludeKeys.map(() => "?").join(", ");
+        return db.raw
+            .prepare(
+                "SELECT ak.key AS key, a.value AS value, COUNT(*) AS token_count " +
+                    "FROM token_attributes ta " +
+                    "JOIN attributes a ON a.id = ta.attribute_id " +
+                    "AND a.chain_id = ta.chain_id " +
+                    "AND a.collection_id = ta.collection_id " +
+                    "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+                    "AND ak.chain_id = a.chain_id " +
+                    "AND ak.collection_id = a.collection_id " +
+                    "WHERE ta.chain_id = ? " +
+                    "AND ta.collection_id = ? " +
+                    `AND ak.key NOT IN (${placeholders}) ` +
+                    "AND EXISTS ( " +
+                    "SELECT 1 FROM nft_balances b " +
+                    "WHERE b.chain_id = ta.chain_id " +
+                    "AND b.collection_id = ta.collection_id " +
+                    "AND b.token_id = ta.token_id " +
+                    "AND lower(b.owner) = ? " +
+                    "AND CAST(b.amount AS INTEGER) > 0" +
+                    ") " +
+                    "GROUP BY ak.key, a.value " +
+                    "ORDER BY ak.key ASC, token_count ASC, a.value ASC",
+            )
+            .all(
+                chainId,
+                collectionId,
+                ...excludeKeys,
+                owner,
+            ) as TraitFacetRow[];
     }
 
     getCollectionTokenDetail(
@@ -937,11 +1155,13 @@ export class SqliteCollectionsReadModel {
             listingPrice: row.listing_price ?? null,
             listingCurrency: row.listing_currency ?? null,
             currentHolder:
-                (this.selectTokenCurrentHolderRow.get(
-                    params.chainId,
-                    params.collectionId,
-                    tokenId,
-                ) as TokenCurrentHolderRow | undefined)?.owner ?? null,
+                (
+                    this.selectTokenCurrentHolderRow.get(
+                        params.chainId,
+                        params.collectionId,
+                        tokenId,
+                    ) as TokenCurrentHolderRow | undefined
+                )?.owner ?? null,
             attributes,
             hasMetadata: row.metadata_updated_at !== null,
             metadataUpdatedAt: row.metadata_updated_at ?? null,
@@ -1336,17 +1556,15 @@ function deriveListedThenUnlistedPrevCursor(params: {
     } = params;
 
     const anchorTokenId =
-        pageRows.length > 0
-            ? pageRows[0]!.token_id
-            : cursor?.tokenId ?? null;
+        pageRows.length > 0 ? pageRows[0]!.token_id : (cursor?.tokenId ?? null);
     if (!anchorTokenId) {
         return null;
     }
 
     const anchorKey = toListedThenUnlistedCursorKey(
         pageRows.length > 0
-            ? pageRows[0]!.listing_price ?? null
-            : cursor?.listingPrice ?? null,
+            ? (pageRows[0]!.listing_price ?? null)
+            : (cursor?.listingPrice ?? null),
         anchorTokenId,
     );
 
@@ -1691,6 +1909,30 @@ function normalizeTokenIds(tokenIds: string[]): string[] {
     return normalized;
 }
 
+function buildTokenQuerySpanAttributes(params: {
+    chainId: number;
+    collectionId: number;
+    tokenStatus: TokenBrowserStatus;
+    limit: number;
+    cursorPresent: boolean;
+    traitFilterGroups: TraitFilterGroup[];
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
+    owner?: string;
+}): SpanAttributes {
+    return {
+        "artgod.chain_id": params.chainId,
+        "artgod.collection_id": params.collectionId,
+        "artgod.collection.token_status": params.tokenStatus,
+        "artgod.collection.limit": params.limit,
+        "artgod.collection.cursor_present": params.cursorPresent,
+        "artgod.collection.trait_filters_count":
+            params.traitFilterGroups.length,
+        "artgod.collection.trait_ranges_count":
+            params.traitRangeFilterGroups.length,
+        "artgod.collection.owner_present": Boolean(params.owner),
+    };
+}
+
 function buildTokenQueryParts(params: {
     chainId: number;
     collectionId: number;
@@ -1725,27 +1967,23 @@ function buildTokenQueryParts(params: {
         baseWhereValues.push(params.owner);
     }
 
-    const {
-        whereClauses: traitWhereClauses,
-        values: traitValues,
-    } = buildTokenTraitFilterWhereClauses({
-        traitFilterGroups: params.traitFilterGroups,
-        chainColumnSql: "t.chain_id",
-        collectionColumnSql: "t.collection_id",
-        tokenColumnSql: "t.token_id",
-    });
+    const { whereClauses: traitWhereClauses, values: traitValues } =
+        buildTokenTraitFilterWhereClauses({
+            traitFilterGroups: params.traitFilterGroups,
+            chainColumnSql: "t.chain_id",
+            collectionColumnSql: "t.collection_id",
+            tokenColumnSql: "t.token_id",
+        });
     baseWhereClauses.push(...traitWhereClauses);
     baseWhereValues.push(...traitValues);
 
-    const {
-        joinClauses: traitRangeJoinClauses,
-        values: traitRangeValues,
-    } = buildTokenTraitRangeJoinClauses({
-        traitRangeFilterGroups: params.traitRangeFilterGroups,
-        tokenColumnSql: "t.token_id",
-        chainId: params.chainId,
-        collectionId: params.collectionId,
-    });
+    const { joinClauses: traitRangeJoinClauses, values: traitRangeValues } =
+        buildTokenTraitRangeJoinClauses({
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
+            tokenColumnSql: "t.token_id",
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+        });
     baseJoinClauses.push(...traitRangeJoinClauses);
     baseJoinValues.push(...traitRangeValues);
 
