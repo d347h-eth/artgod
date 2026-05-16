@@ -12,6 +12,7 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "@artgod/shared/types";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 import {
     buildActivityFeedIncludes,
@@ -120,6 +121,7 @@ export class GetCollectionActivityUseCase {
                 };
             };
         },
+        readonly apm: ApmPort = NOOP_APM,
     ) {}
 
     getCollectionActivity(
@@ -133,57 +135,115 @@ export class GetCollectionActivityUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        const media = this.collectionReadPort.getCollectionMediaState({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            mediaMode: input.mediaMode,
-        });
-        const activities = this.activityReadPort.listCollectionActivities({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            limit: input.limit,
-            cursor: input.cursor,
-            kind: input.kind,
-            extensionEvent: input.extensionEvent,
-            tokenId: input.tokenId,
-            maker: input.maker,
-            contentHash: input.contentHash,
-            eventGroup: input.eventGroup,
-            traitFilters: input.traits,
-            traitRangeFilters: input.traitRanges,
-        });
-        const rawFacets = this.collectionReadPort.listCollectionTraitFacets(
-            chain.publicChainId,
-            collection.collectionId,
+        const activityAttributes = {
+            "artgod.chain_id": chain.publicChainId,
+            "artgod.collection_id": collection.collectionId,
+        };
+        const media = this.apm.withSyncSpan(
+            "backend.activity.media_state",
+            activityAttributes,
+            () =>
+                this.collectionReadPort.getCollectionMediaState({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    mediaMode: input.mediaMode,
+                }),
         );
-        const traitFilterPresentation =
-            this.customizationReadPort.getTraitFilterPresentationState({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-                availableTraitKeys: rawFacets.map((facet) => facet.key),
-            });
+        const activities = this.apm.withSyncSpan(
+            "backend.activity.feed",
+            {
+                ...activityAttributes,
+                "artgod.activity.limit": input.limit,
+                "artgod.activity.cursor_present": Boolean(input.cursor),
+                "artgod.activity.traits_count": input.traits.length,
+                "artgod.activity.trait_ranges_count": input.traitRanges.length,
+            },
+            () =>
+                this.activityReadPort.listCollectionActivities({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    limit: input.limit,
+                    cursor: input.cursor,
+                    kind: input.kind,
+                    extensionEvent: input.extensionEvent,
+                    tokenId: input.tokenId,
+                    maker: input.maker,
+                    contentHash: input.contentHash,
+                    eventGroup: input.eventGroup,
+                    traitFilters: input.traits,
+                    traitRangeFilters: input.traitRanges,
+                }),
+        );
+        const rawFacets = this.apm.withSyncSpan(
+            "backend.activity.trait_facets",
+            activityAttributes,
+            () =>
+                this.collectionReadPort.listCollectionTraitFacets(
+                    chain.publicChainId,
+                    collection.collectionId,
+                ),
+        );
+        const traitFilterPresentation = this.apm.withSyncSpan(
+            "backend.activity.trait_filter_presentation",
+            {
+                ...activityAttributes,
+                "artgod.activity.facet_keys_count": rawFacets.length,
+            },
+            () =>
+                this.customizationReadPort.getTraitFilterPresentationState({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    availableTraitKeys: rawFacets.map((facet) => facet.key),
+                }),
+        );
         const facets = applyTraitFilterPresentationToFacets({
             facets: rawFacets,
             config: traitFilterPresentation.effectiveConfig,
         });
-        const activityRowTraitSummaryTemplate =
-            this.customizationReadPort.getActivityRowTraitSummaryTemplateState({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-            });
+        const activityRowTraitSummaryTemplate = this.apm.withSyncSpan(
+            "backend.activity.trait_summary_template",
+            activityAttributes,
+            () =>
+                this.customizationReadPort.getActivityRowTraitSummaryTemplateState(
+                    {
+                        chainId: chain.publicChainId,
+                        collectionId: collection.collectionId,
+                    },
+                ),
+        );
+        const activityTokenIds = collectActivityTokenIds(activities.items);
+        const activityIds = activities.items.map((activity) => activity.id);
+        const tokenCards = this.apm.withSyncSpan(
+            "backend.activity.token_includes",
+            {
+                ...activityAttributes,
+                "artgod.activity.token_ids_count": activityTokenIds.length,
+            },
+            () =>
+                this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    tokenIds: activityTokenIds,
+                    mediaMode: media.selectedMode,
+                }),
+        );
+        const eventMediaByActivityId = this.apm.withSyncSpan(
+            "backend.activity.event_media",
+            {
+                ...activityAttributes,
+                "artgod.activity.activity_ids_count": activityIds.length,
+            },
+            () =>
+                this.activityReadPort.listCollectionActivityEventMedia({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    activityIds,
+                }),
+        );
         const included = buildActivityFeedIncludes(
-            this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-                tokenIds: collectActivityTokenIds(activities.items),
-                mediaMode: media.selectedMode,
-            }),
+            tokenCards,
             activityRowTraitSummaryTemplate.effectiveConfig.template,
-            this.activityReadPort.listCollectionActivityEventMedia({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-                activityIds: activities.items.map((activity) => activity.id),
-            }),
+            eventMediaByActivityId,
         );
 
         return {

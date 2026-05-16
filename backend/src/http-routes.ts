@@ -43,6 +43,7 @@ import type {
     GetCollectionActivityHttpAdapter,
     GetCollectionActivityRoute,
 } from "./http/handlers/activities/get-collection-activity.js";
+import { getCollectionActivitySpanAttributes } from "./http/handlers/activities/get-collection-activity.js";
 import type {
     GetTokenActivityHttpAdapter,
     GetTokenActivityRoute,
@@ -160,6 +161,7 @@ import {
     observeRouteHandler,
     type BackendHttpObservability,
     type BackendRouteMetadata,
+    type BackendRouteSpanAttributesResolver,
 } from "./http/common/observability.js";
 
 type PublicCollectionScope = {
@@ -186,6 +188,7 @@ type ApiRoutePreHandler<Route extends RouteGenericInterface> = (
 
 type ObservedRouteSettings<Route extends RouteGenericInterface> = {
     preHandler?: ApiRoutePreHandler<Route>;
+    spanAttributes?: BackendRouteSpanAttributesResolver<Route>;
 };
 
 type ObservedRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "OPTIONS";
@@ -243,24 +246,16 @@ export function registerApiRoutes(
         options.publicCollectionScope,
     );
 
-    registerObservedGet(
-        app,
-        options,
-        "/health",
-        async () => ({ status: "ok" }),
-    );
+    registerObservedGet(app, options, "/health", async () => ({
+        status: "ok",
+    }));
     registerObservedGet<GetRuntimeHealthRoute>(
         app,
         options,
         "/health/runtime",
         getRuntimeHealthAdapter.handle,
     );
-    registerObservedOptions(
-        app,
-        options,
-        "/api/*",
-        commonHandlers.optionsApi,
-    );
+    registerObservedOptions(app, options, "/api/*", commonHandlers.optionsApi);
     registerObservedGet<GetDefaultChainRoute>(
         app,
         options,
@@ -289,6 +284,7 @@ export function registerApiRoutes(
         getCollectionActivityAdapter.handle,
         {
             preHandler: publicCollectionScopeGuard,
+            spanAttributes: getCollectionActivitySpanAttributes,
         },
     );
     registerObservedGet<GetActivityEventPreviewRoute>(
@@ -584,7 +580,8 @@ function registerObservedRoute<Route extends RouteGenericInterface>(
     const metadata = {
         method,
         route,
-    } satisfies BackendRouteMetadata;
+        spanAttributes: settings.spanAttributes,
+    } satisfies BackendRouteMetadata<Route>;
     const observedHandler = observeRouteHandler(
         options.observability,
         metadata,
@@ -595,24 +592,30 @@ function registerObservedRoute<Route extends RouteGenericInterface>(
         RawReplyDefaultExpression<RawServerDefault>,
         Route
     >;
+    const routeSettings =
+        settings.preHandler === undefined
+            ? {}
+            : {
+                  preHandler: settings.preHandler,
+              };
 
     if (method === "GET") {
-        app.get<Route>(route, settings, observedHandler);
+        app.get<Route>(route, routeSettings, observedHandler);
         return;
     }
     if (method === "POST") {
-        app.post<Route>(route, settings, observedHandler);
+        app.post<Route>(route, routeSettings, observedHandler);
         return;
     }
     if (method === "PUT") {
-        app.put<Route>(route, settings, observedHandler);
+        app.put<Route>(route, routeSettings, observedHandler);
         return;
     }
     if (method === "DELETE") {
-        app.delete<Route>(route, settings, observedHandler);
+        app.delete<Route>(route, routeSettings, observedHandler);
         return;
     }
-    app.options<Route>(route, settings, observedHandler);
+    app.options<Route>(route, routeSettings, observedHandler);
 }
 
 function createPublicChainScopeGuard(scope: PublicCollectionScope) {

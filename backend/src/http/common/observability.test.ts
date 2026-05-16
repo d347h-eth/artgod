@@ -1,7 +1,10 @@
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
-import type { MetricLabels, Metrics } from "@artgod/shared/observability/metrics";
+import type {
+    MetricLabels,
+    Metrics,
+} from "@artgod/shared/observability/metrics";
 import {
     observeRouteHandler,
     registerBackendHttpObservabilityHooks,
@@ -49,6 +52,11 @@ class CapturingApm implements ApmPort {
         attributes: SpanAttributes,
         run: () => Promise<T>,
     ): Promise<T> {
+        this.spans.push({ name, attributes });
+        return run();
+    }
+
+    withSyncSpan<T>(name: string, attributes: SpanAttributes, run: () => T): T {
         this.spans.push({ name, attributes });
         return run();
     }
@@ -176,6 +184,53 @@ describe("backend http observability", () => {
                 (metric) => metric.name === "http.request.errors",
             ),
         ).toBe(false);
+    });
+
+    it("adds route-specific span attributes without adding metric label cardinality", async () => {
+        const { app, apm, metrics, observability } = createObservedApp(apps);
+
+        app.get(
+            "/api/activity",
+            observeRouteHandler(
+                observability,
+                {
+                    method: "GET",
+                    route: "/api/activity",
+                    spanAttributes: (request) => ({
+                        "artgod.activity.cursor_present": new URL(
+                            request.raw.url ?? "/",
+                            "http://localhost",
+                        ).searchParams.has("cursor"),
+                    }),
+                },
+                async () => ({ ok: true }),
+            ),
+        );
+
+        const response = await app.inject({
+            method: "GET",
+            url: "/api/activity?cursor=abc",
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(apm.spans[0]).toEqual({
+            name: "backend.http.route",
+            attributes: {
+                "http.method": "GET",
+                "http.route": "/api/activity",
+                "artgod.deployment_mode": "standard",
+                "artgod.activity.cursor_present": true,
+            },
+        });
+        expect(metrics.increments).toContainEqual({
+            name: "http.requests",
+            value: 1,
+            labels: {
+                method: "GET",
+                route: "/api/activity",
+                status_class: "2xx",
+            },
+        });
     });
 
     it("records thrown handler errors and decrements inflight requests", async () => {

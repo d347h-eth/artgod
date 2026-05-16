@@ -65,7 +65,10 @@ import { ArchiveCollectionBiddingPriceTierUseCase } from "./application/use-case
 import type { BackendConfig } from "./config.js";
 import { loadBackendConfig } from "./config.js";
 import { createApiApp } from "./http-app.js";
-import type { BackendHttpObservability } from "./http/common/observability.js";
+import {
+    createNoopBackendHttpObservability,
+    type BackendHttpObservability,
+} from "./http/common/observability.js";
 import { NatsBootstrapCommandQueue } from "./infra/bootstrap/nats-bootstrap-command-queue.js";
 import { MemoryQueryCache } from "./infra/cache/memory.js";
 import { SqliteBootstrapRunsRepository } from "./infra/bootstrap/sqlite-bootstrap-runs.js";
@@ -144,12 +147,17 @@ export function createBackendApp(
     config: BackendConfig,
     observability?: BackendHttpObservability,
 ): FastifyInstance {
+    const backendObservability =
+        observability ??
+        createNoopBackendHttpObservability(config.deployment.mode);
     const chainsReadModel = new SqliteChainsReadModel();
     const collectionsReadModel = new SqliteCollectionsReadModel([
         ZERO_ADDRESS,
         config.wethAddress,
     ]);
-    const activitiesReadModel = new SqliteActivitiesReadModel();
+    const activitiesReadModel = new SqliteActivitiesReadModel(
+        backendObservability.apm,
+    );
     const backendRpcClient = new ViemBackendRpcClient(config.rpcUrl);
     const collectionExtensionRecords = new SqliteCollectionExtensionRecords();
     const collectionCustomizationRecords =
@@ -176,7 +184,8 @@ export function createBackendApp(
     const biddingJobsRepository = new SqliteBiddingJobsRepository();
     const biddingBidBookRepository = new SqliteBiddingBidBookRepository();
     const biddingPriceTiersRepository = new SqliteBiddingPriceTiersRepository();
-    const collectionSettingsRepository = new SqliteCollectionSettingsRepository();
+    const collectionSettingsRepository =
+        new SqliteCollectionSettingsRepository();
     const tradingJobCommandSignalPublisher =
         new NatsTradingJobCommandSignalPublisher(
             config.natsUrl,
@@ -269,14 +278,14 @@ export function createBackendApp(
         activitiesReadModel,
         extensionAwareCollectionsReadModel,
         extensionAwareCollectionCustomization,
+        backendObservability.apm,
     );
-    const getActivityEventPreviewUseCase =
-        new GetActivityEventPreviewUseCase(
-            config.defaultChainId,
-            chainsReadModel,
-            extensionAwareCollectionsReadModel,
-            extensionActivityEventPreviewRead,
-        );
+    const getActivityEventPreviewUseCase = new GetActivityEventPreviewUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        extensionActivityEventPreviewRead,
+    );
     const getCollectionCustomizationUseCase =
         new GetCollectionCustomizationUseCase(
             config.defaultChainId,
@@ -352,13 +361,12 @@ export function createBackendApp(
         extensionAwareCollectionsReadModel,
         biddingBidBookRepository,
     );
-    const biddingJobTargetLookupUseCase =
-        new BiddingJobTargetLookupUseCase(
-            config.defaultChainId,
-            chainsReadModel,
-            extensionAwareCollectionsReadModel,
-            biddingJobsRepository,
-        );
+    const biddingJobTargetLookupUseCase = new BiddingJobTargetLookupUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        extensionAwareCollectionsReadModel,
+        biddingJobsRepository,
+    );
     const upsertTokenBiddingJobUseCase = new UpsertTokenBiddingJobUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -492,7 +500,7 @@ export function createBackendApp(
         config.userlandUiDistDir,
         config.security,
         config.deployment,
-        observability,
+        backendObservability,
     );
     collectionDetail.lifecycle?.start();
     app.addHook("onClose", async () => {
@@ -553,10 +561,7 @@ function maybeCreateCachedGetTokenPreviewPort(
         config.queryCache.provider,
         config.queryCache.tokenPreview.maxEntries,
     );
-    if (
-        config.deployment.mode !== "public_single_collection" ||
-        !cache
-    ) {
+    if (config.deployment.mode !== "public_single_collection" || !cache) {
         return {
             port,
             warmup: null,

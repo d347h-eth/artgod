@@ -1,8 +1,6 @@
-import {
-    DEFAULT_PAGE_LIMIT,
-    MAX_PAGE_LIMIT,
-} from "../config/pagination.js";
+import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "../config/pagination.js";
 import { db } from "../database/db.js";
+import { NOOP_APM, type ApmPort } from "../observability/apm.js";
 import {
     ACTIVITY_SOURCE_KIND,
     type ActivityEventMedia,
@@ -60,6 +58,7 @@ type ActivityCursorKey = {
 };
 
 type ActivityQuerySource = {
+    name: string;
     cteSql: string;
     relationSql: string;
     selectColumnsSql: string;
@@ -83,12 +82,15 @@ const COLLAPSED_ACTIVITY_SELECT_COLUMNS =
     "is_collapsed, collapsed_event_count, collapsed_window_start_utc, collapsed_window_end_utc";
 
 const RAW_ACTIVITY_SOURCE: ActivityQuerySource = {
+    name: "raw",
     cteSql: "",
     relationSql: "FROM activities a",
     selectColumnsSql: RAW_ACTIVITY_SELECT_COLUMNS,
 };
 
 export class SqliteActivitiesReadModel {
+    constructor(private readonly apm: ApmPort = NOOP_APM) {}
+
     listCollectionActivities(params: {
         chainId: number;
         collectionId: number;
@@ -153,23 +155,35 @@ export class SqliteActivitiesReadModel {
         if (activityIds.length === 0) return {};
 
         const placeholders = activityIds.map(() => "?").join(", ");
-        const rows = db.raw
-            .prepare(
-                "SELECT a.id AS activity_id, m.media_ref, m.image, m.animation_url, m.html_content, m.render_modes_json " +
-                    "FROM activities a " +
-                    "INNER JOIN collection_extension_event_media m ON " +
-                    "m.chain_id = a.chain_id AND m.collection_id = a.collection_id AND " +
-                    "m.extension_key = a.source_name AND " +
-                    "m.event_key = json_extract(a.payload_json, '$.eventKey') AND " +
-                    "m.tx_hash = a.tx_hash AND m.log_index = a.log_index AND " +
-                    "m.token_id = COALESCE(a.token_id, '') " +
-                    "WHERE a.chain_id = ? AND a.collection_id = ? AND a.id IN (" +
-                    placeholders +
-                    ") " +
-                    "ORDER BY a.id ASC, m.media_ref ASC",
-            )
-            .all(params.chainId, params.collectionId, ...activityIds) as
-            ActivityEventMediaRow[];
+        const rows = this.apm.withSyncSpan(
+            "backend.activity.db.event_media",
+            {
+                "artgod.chain_id": params.chainId,
+                "artgod.collection_id": params.collectionId,
+                "artgod.activity.activity_ids_count": activityIds.length,
+            },
+            () =>
+                db.raw
+                    .prepare(
+                        "SELECT a.id AS activity_id, m.media_ref, m.image, m.animation_url, m.html_content, m.render_modes_json " +
+                            "FROM activities a " +
+                            "INNER JOIN collection_extension_event_media m ON " +
+                            "m.chain_id = a.chain_id AND m.collection_id = a.collection_id AND " +
+                            "m.extension_key = a.source_name AND " +
+                            "m.event_key = json_extract(a.payload_json, '$.eventKey') AND " +
+                            "m.tx_hash = a.tx_hash AND m.log_index = a.log_index AND " +
+                            "m.token_id = COALESCE(a.token_id, '') " +
+                            "WHERE a.chain_id = ? AND a.collection_id = ? AND a.id IN (" +
+                            placeholders +
+                            ") " +
+                            "ORDER BY a.id ASC, m.media_ref ASC",
+                    )
+                    .all(
+                        params.chainId,
+                        params.collectionId,
+                        ...activityIds,
+                    ) as ActivityEventMediaRow[],
+        );
         const byActivityId: Record<string, ActivityEventMedia> = {};
         for (const row of rows) {
             const key = String(row.activity_id);
@@ -225,15 +239,13 @@ export class SqliteActivitiesReadModel {
                 params.eventGroup,
             )
         ) {
-            const {
-                whereClauses: traitWhereClauses,
-                values: traitValues,
-            } = buildTokenTraitFilterWhereClauses({
-                traitFilterGroups,
-                chainColumnSql: "a.chain_id",
-                collectionColumnSql: "a.collection_id",
-                tokenColumnSql: "a.token_id",
-            });
+            const { whereClauses: traitWhereClauses, values: traitValues } =
+                buildTokenTraitFilterWhereClauses({
+                    traitFilterGroups,
+                    chainColumnSql: "a.chain_id",
+                    collectionColumnSql: "a.collection_id",
+                    tokenColumnSql: "a.token_id",
+                });
             const {
                 whereClauses: traitRangeWhereClauses,
                 values: traitRangeValues,
@@ -244,6 +256,7 @@ export class SqliteActivitiesReadModel {
                 tokenColumnSql: "a.token_id",
             });
             return listActivitiesFromSource({
+                apm: this.apm,
                 source: buildCollapsedCollectionListingsSource([
                     ...traitWhereClauses,
                     ...traitRangeWhereClauses,
@@ -276,6 +289,7 @@ export class SqliteActivitiesReadModel {
             });
 
         return listActivitiesFromSource({
+            apm: this.apm,
             source: RAW_ACTIVITY_SOURCE,
             baseWhereClauses,
             baseValues,
@@ -344,27 +358,23 @@ function buildActivityWhereClauses(params: {
         ...(params.tokenId ? [params.tokenId] : []),
     ];
 
-    const {
-        whereClauses: traitWhereClauses,
-        values: traitValues,
-    } = buildTokenTraitFilterWhereClauses({
-        traitFilterGroups: params.traitFilterGroups,
-        chainColumnSql: "a.chain_id",
-        collectionColumnSql: "a.collection_id",
-        tokenColumnSql: "a.token_id",
-    });
+    const { whereClauses: traitWhereClauses, values: traitValues } =
+        buildTokenTraitFilterWhereClauses({
+            traitFilterGroups: params.traitFilterGroups,
+            chainColumnSql: "a.chain_id",
+            collectionColumnSql: "a.collection_id",
+            tokenColumnSql: "a.token_id",
+        });
     whereClauses.push(...traitWhereClauses);
     values.push(...traitValues);
 
-    const {
-        whereClauses: traitRangeWhereClauses,
-        values: traitRangeValues,
-    } = buildTokenTraitRangeWhereClauses({
-        traitRangeFilterGroups: params.traitRangeFilterGroups,
-        chainColumnSql: "a.chain_id",
-        collectionColumnSql: "a.collection_id",
-        tokenColumnSql: "a.token_id",
-    });
+    const { whereClauses: traitRangeWhereClauses, values: traitRangeValues } =
+        buildTokenTraitRangeWhereClauses({
+            traitRangeFilterGroups: params.traitRangeFilterGroups,
+            chainColumnSql: "a.chain_id",
+            collectionColumnSql: "a.collection_id",
+            tokenColumnSql: "a.token_id",
+        });
     whereClauses.push(...traitRangeWhereClauses);
     values.push(...traitRangeValues);
 
@@ -457,6 +467,7 @@ function buildCollapsedCollectionListingsSource(
             ? ""
             : ` AND ${traitWhereClauses.join(" AND ")}`;
     return {
+        name: "collapsed_collection_listings",
         cteSql:
             "WITH filtered_listing_activities AS (" +
             "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
@@ -482,6 +493,7 @@ function buildCollapsedCollectionListingsSource(
 }
 
 function listActivitiesFromSource(params: {
+    apm: ApmPort;
     source: ActivityQuerySource;
     baseWhereClauses: string[];
     baseValues: unknown[];
@@ -492,6 +504,7 @@ function listActivitiesFromSource(params: {
 }): ActivityFeedPage {
     const {
         source,
+        apm,
         baseWhereClauses,
         baseValues,
         limit,
@@ -507,11 +520,18 @@ function listActivitiesFromSource(params: {
         values.push(cursor.occurredAt, cursor.occurredAt, cursor.id);
     }
 
-    const rows = queryActivityRows(source, whereClauses, values, limit + 1);
+    const rows = queryActivityRows(
+        apm,
+        source,
+        whereClauses,
+        values,
+        limit + 1,
+    );
     const hasNext = rows.length > limit;
     const pageRows = hasNext ? rows.slice(0, limit) : rows;
     const items = pageRows.map(mapActivityRow);
     const prevCursor = deriveActivityPrevCursor({
+        apm,
         source,
         baseWhereClauses,
         baseValues,
@@ -521,18 +541,27 @@ function listActivitiesFromSource(params: {
         filterKind,
         extensionEvent,
     });
-    const totalItems = countMatchingActivities(source, baseWhereClauses, baseValues);
+    const totalItems = countMatchingActivities(
+        apm,
+        source,
+        baseWhereClauses,
+        baseValues,
+        "total",
+    );
     const beforeItems = cursor
         ? countMatchingActivities(
+              apm,
               source,
               [...baseWhereClauses, buildActivityBeforeOrAtCursorWhereClause()],
               [...baseValues, cursor.occurredAt, cursor.occurredAt, cursor.id],
+              "before_cursor",
           )
         : 0;
     const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
     const rangeEnd = beforeItems + items.length;
     const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
-    const currentPage = totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
+    const currentPage =
+        totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
     const nextCursor = hasNext
         ? encodeActivityCursor({
               filterKind,
@@ -558,33 +587,53 @@ function listActivitiesFromSource(params: {
 }
 
 function queryActivityRows(
+    apm: ApmPort,
     source: ActivityQuerySource,
     whereClauses: string[],
     values: unknown[],
     limit: number,
 ): ActivityRow[] {
-    return db.raw
-        .prepare(
-            `${source.cteSql}SELECT ${source.selectColumnsSql} ${source.relationSql}${buildWhereSql(whereClauses)} ORDER BY occurred_at DESC, id DESC LIMIT ?`,
-        )
-        .all(...values, limit) as ActivityRow[];
+    return apm.withSyncSpan(
+        "backend.activity.db.query_rows",
+        {
+            "artgod.activity.query_source": source.name,
+            "artgod.activity.limit": limit,
+        },
+        () =>
+            db.raw
+                .prepare(
+                    `${source.cteSql}SELECT ${source.selectColumnsSql} ${source.relationSql}${buildWhereSql(whereClauses)} ORDER BY occurred_at DESC, id DESC LIMIT ?`,
+                )
+                .all(...values, limit) as ActivityRow[],
+    );
 }
 
 function countMatchingActivities(
+    apm: ApmPort,
     source: ActivityQuerySource,
     whereClauses: string[],
     values: unknown[],
+    countKind: "total" | "before_cursor",
 ): number {
-    const row = db.raw
-        .prepare(
-            `${source.cteSql}SELECT COUNT(*) AS count ${source.relationSql}${buildWhereSql(whereClauses)}`,
-        )
-        .get(...values) as { count: number | bigint } | undefined;
+    const row = apm.withSyncSpan(
+        "backend.activity.db.count",
+        {
+            "artgod.activity.query_source": source.name,
+            "artgod.activity.count_kind": countKind,
+        },
+        () =>
+            db.raw
+                .prepare(
+                    `${source.cteSql}SELECT COUNT(*) AS count ${source.relationSql}${buildWhereSql(whereClauses)}`,
+                )
+                .get(...values) as { count: number | bigint } | undefined,
+    );
     if (!row) return 0;
     return typeof row.count === "bigint" ? Number(row.count) : row.count;
 }
 
 function deriveActivityPrevCursor(params: {
+    apm: ApmPort;
     source: ActivityQuerySource;
     baseWhereClauses: string[];
     baseValues: unknown[];
@@ -596,6 +645,7 @@ function deriveActivityPrevCursor(params: {
 }): string | null {
     const {
         source,
+        apm,
         baseWhereClauses,
         baseValues,
         cursor,
@@ -603,23 +653,35 @@ function deriveActivityPrevCursor(params: {
         limit,
         filterKind,
     } = params;
+    if (!cursor) return null;
+
     const anchor = toAnchorCursorKey(pageRows, cursor);
     if (!anchor) return null;
 
-    const previousRows = db.raw
-        .prepare(
-            `${source.cteSql}SELECT id, occurred_at ${source.relationSql}${buildWhereSql([
-                ...baseWhereClauses,
-                buildActivityBeforeCursorWhereClause(),
-            ])} ORDER BY occurred_at ASC, id ASC LIMIT ?`,
-        )
-        .all(
-            ...baseValues,
-            anchor.occurredAt,
-            anchor.occurredAt,
-            anchor.id,
-            limit + 1,
-        ) as Array<{ id: number; occurred_at: number }>;
+    const previousRows = apm.withSyncSpan(
+        "backend.activity.db.prev_cursor",
+        {
+            "artgod.activity.query_source": source.name,
+            "artgod.activity.limit": limit + 1,
+        },
+        () =>
+            db.raw
+                .prepare(
+                    `${source.cteSql}SELECT id, occurred_at ${source.relationSql}${buildWhereSql(
+                        [
+                            ...baseWhereClauses,
+                            buildActivityBeforeCursorWhereClause(),
+                        ],
+                    )} ORDER BY occurred_at ASC, id ASC LIMIT ?`,
+                )
+                .all(
+                    ...baseValues,
+                    anchor.occurredAt,
+                    anchor.occurredAt,
+                    anchor.id,
+                    limit + 1,
+                ) as Array<{ id: number; occurred_at: number }>,
+    );
 
     if (previousRows.length <= limit) {
         return null;
@@ -634,7 +696,9 @@ function deriveActivityPrevCursor(params: {
 }
 
 function buildWhereSql(whereClauses: string[]): string {
-    return whereClauses.length === 0 ? " " : ` WHERE ${whereClauses.join(" AND ")} `;
+    return whereClauses.length === 0
+        ? " "
+        : ` WHERE ${whereClauses.join(" AND ")} `;
 }
 
 function toAnchorCursorKey(

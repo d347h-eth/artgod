@@ -149,6 +149,35 @@ Registered backend API and health handlers are wrapped in `backend.http.route` s
 - `http.route`
 - `artgod.deployment_mode`
 
+The collection activity route also adds low-cardinality request-shape attributes:
+
+- `artgod.activity.limit`
+- `artgod.activity.cursor_present`
+- `artgod.activity.kind`
+- `artgod.activity.extension_event`
+- `artgod.activity.extension_event_present`
+- `artgod.activity.traits_count`
+- `artgod.activity.trait_ranges_count`
+- `artgod.activity.token_filter_present`
+- `artgod.activity.maker_filter_present`
+- `artgod.activity.content_hash_filter_present`
+- `artgod.activity.event_group_filter_present`
+- `artgod.activity.media_mode_present`
+
+The activity use case and SQLite read model add child spans for the slow path:
+
+- `backend.activity.media_state`
+- `backend.activity.feed`
+- `backend.activity.trait_facets`
+- `backend.activity.trait_filter_presentation`
+- `backend.activity.trait_summary_template`
+- `backend.activity.token_includes`
+- `backend.activity.event_media`
+- `backend.activity.db.query_rows`
+- `backend.activity.db.count`
+- `backend.activity.db.prev_cursor`
+- `backend.activity.db.event_media`
+
 The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 
 ### Metrics (current hooks)
