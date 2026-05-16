@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import { ACTIVITY_SOURCE_KIND } from "@artgod/shared/types";
 import {
@@ -95,13 +96,13 @@ describe("ExtensionActivityEventPreviewRead observability", () => {
             "backend.extension.activity_event_preview.resolve",
         ]);
         expect(apm.spans[3]?.attributes).toMatchObject({
-            "artgod.chain_id": 1,
-            "artgod.collection_id": 7,
-            "artgod.activity.id": 33,
-            "artgod.extension.key": TERRAFORMS_EXTENSION_KEY,
-            "artgod.extension.event_key":
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityId]: 33,
+            [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]: TERRAFORMS_EXTENSION_KEY,
+            [ARTGOD_SPAN_ATTRIBUTE.ExtensionEventKey]:
                 TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
-            "artgod.activity.render_mode":
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityRenderMode]:
                 TERRAFORMS_EVENT_RENDER_MODES.Artifact,
         });
     });

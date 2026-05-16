@@ -12,24 +12,18 @@ import type {
     TradingBiddingBidScopeKind,
     TradingJobStatus,
     TradingTraitCriterion,
+    CollectionBiddingBidScopeFilter,
+    CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
 
-export const COLLECTION_BIDDING_BID_SCOPE_FILTER = {
-    Token: "token",
-    Traits: "traits",
-    Collection: "collection",
-} as const;
-
-export const COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE = {
-    Or: "or",
-    And: "and",
-} as const;
-
-export type CollectionBiddingBidScopeFilter =
-    (typeof COLLECTION_BIDDING_BID_SCOPE_FILTER)[keyof typeof COLLECTION_BIDDING_BID_SCOPE_FILTER];
-
-export type CollectionBiddingTraitFilterJoinMode =
-    (typeof COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE)[keyof typeof COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE];
+export {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+} from "@artgod/shared/types";
+export type {
+    CollectionBiddingBidScopeFilter,
+    CollectionBiddingTraitFilterJoinMode,
+} from "@artgod/shared/types";
 
 export type PersistedBiddingBidBookRow = {
     orderId: string;

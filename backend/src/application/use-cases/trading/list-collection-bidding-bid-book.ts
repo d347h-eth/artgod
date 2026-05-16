@@ -32,6 +32,7 @@ import {
     mapPersistedBidBookToView,
     mapPersistedBidRowsToView,
 } from "./bidding-bid-book.js";
+import { BIDDING_SPAN_ATTRIBUTE } from "./bidding-observability.js";
 import {
     buildPersistedTokenOfferCards,
     buildTokenOfferGroups,
@@ -123,7 +124,7 @@ export class ListCollectionBiddingBidBookUseCase {
         const collection = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.collection",
             {
-                "artgod.chain_id": chain.publicChainId,
+                [BIDDING_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
             },
             () =>
                 this.collectionReadPort.resolveCollectionRef(
@@ -132,8 +133,8 @@ export class ListCollectionBiddingBidBookUseCase {
                 ),
         );
         const attributes = {
-            "artgod.chain_id": chain.publicChainId,
-            "artgod.collection_id": collection.collectionId,
+            [BIDDING_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
+            [BIDDING_SPAN_ATTRIBUTE.CollectionId]: collection.collectionId,
             ...buildBiddingRequestSpanAttributes(input),
         };
         const traitFilterPresentation = this.apm.withSyncSpan(
@@ -150,7 +151,7 @@ export class ListCollectionBiddingBidBookUseCase {
             "backend.bidding.collection_bid_book.trait_facets",
             {
                 ...attributes,
-                "artgod.bidding.range_only_keys_count":
+                [BIDDING_SPAN_ATTRIBUTE.RangeOnlyKeysCount]:
                     traitFilterPresentation.effectiveConfig.rangeKeys.length,
             },
             () =>
@@ -168,8 +169,8 @@ export class ListCollectionBiddingBidBookUseCase {
             "backend.bidding.collection_bid_book.trait_facets_apply",
             {
                 ...attributes,
-                "artgod.bidding.facets_count": rawFacets.length,
-                "artgod.bidding.range_only_keys_count":
+                [BIDDING_SPAN_ATTRIBUTE.FacetsCount]: rawFacets.length,
+                [BIDDING_SPAN_ATTRIBUTE.RangeOnlyKeysCount]:
                     traitFilterPresentation.effectiveConfig.rangeKeys.length,
             },
             () =>
@@ -200,11 +201,11 @@ export class ListCollectionBiddingBidBookUseCase {
                 "backend.bidding.collection_bid_book.collection_floor_bid_book",
                 {
                     ...attributes,
-                    "artgod.bidding.scope_filter":
+                    [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]:
                         COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
-                    "artgod.bidding.trait_filters_count": 0,
-                    "artgod.bidding.trait_ranges_count": 0,
-                    "artgod.bidding.maker_filter_present": false,
+                    [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]: 0,
+                    [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]: 0,
+                    [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]: false,
                 },
                 () =>
                     this.bidBookRepositoryPort.listCollectionBidBook({
@@ -222,9 +223,9 @@ export class ListCollectionBiddingBidBookUseCase {
                 "backend.bidding.collection_bid_book.token_offer_cards",
                 {
                     ...attributes,
-                    "artgod.bidding.token_bids_count":
+                    [BIDDING_SPAN_ATTRIBUTE.TokenBidsCount]:
                         persistedBidBook.bids.length,
-                    "artgod.bidding.collection_bids_count":
+                    [BIDDING_SPAN_ATTRIBUTE.CollectionBidsCount]:
                         collectionBidBook.bids.length,
                 },
                 () =>
@@ -242,7 +243,7 @@ export class ListCollectionBiddingBidBookUseCase {
                 "backend.bidding.collection_bid_book.token_offer_cards_page",
                 {
                     ...attributes,
-                    "artgod.bidding.token_offer_cards_count":
+                    [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsCount]:
                         tokenOfferCards.length,
                 },
                 () =>
@@ -269,13 +270,13 @@ export class ListCollectionBiddingBidBookUseCase {
             "backend.bidding.collection_bid_book.response_map",
             {
                 ...attributes,
-                "artgod.bidding.visible_bids_count":
+                [BIDDING_SPAN_ATTRIBUTE.VisibleBidsCount]:
                     visibleBidBook.bids.length,
-                "artgod.bidding.token_offer_cards_count":
+                [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsCount]:
                     tokenOfferCardsPage.items.length,
-                "artgod.bidding.token_offer_cards_total_items":
+                [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalItems]:
                     tokenOfferCardsPage.totalItems,
-                "artgod.bidding.token_offer_cards_total_offers":
+                [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalOffers]:
                     tokenOfferCardsPage.totalOffers,
             },
             () => ({
@@ -309,16 +310,19 @@ export class ListCollectionBiddingBidBookUseCase {
         selectedTraitRanges: TraitRangeFilter[];
     }): PersistedTokenOfferCard[] {
         const attributes = {
-            "artgod.chain_id": params.chainId,
-            "artgod.collection_id": params.collectionId,
-            "artgod.bidding.token_bids_count": params.tokenBidBook.bids.length,
-            "artgod.bidding.collection_bids_count":
+            [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+            [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+            [BIDDING_SPAN_ATTRIBUTE.TokenBidsCount]:
+                params.tokenBidBook.bids.length,
+            [BIDDING_SPAN_ATTRIBUTE.CollectionBidsCount]:
                 params.collectionBidBook.bids.length,
-            "artgod.bidding.trait_filters_count":
+            [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]:
                 params.selectedTraits.length,
-            "artgod.bidding.trait_ranges_count":
+            [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]:
                 params.selectedTraitRanges.length,
-            "artgod.bidding.media_mode_present": Boolean(params.mediaMode),
+            [BIDDING_SPAN_ATTRIBUTE.MediaModePresent]: Boolean(
+                params.mediaMode,
+            ),
         };
         const offersByTokenId = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.token_offer_grouping",
@@ -333,7 +337,7 @@ export class ListCollectionBiddingBidBookUseCase {
             "backend.bidding.collection_bid_book.token_offer_sort",
             {
                 ...attributes,
-                "artgod.bidding.token_offer_groups_count":
+                [BIDDING_SPAN_ATTRIBUTE.TokenOfferGroupsCount]:
                     offersByTokenId.size,
             },
             () => sortTokenIdsByTopOffer(offersByTokenId),
@@ -347,8 +351,8 @@ export class ListCollectionBiddingBidBookUseCase {
             "backend.bidding.collection_bid_book.token_offer_token_cards",
             {
                 ...attributes,
-                "artgod.tokens.count": tokenIds.length,
-                "artgod.collection.include_listings": true,
+                [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenIds.length,
+                [BIDDING_SPAN_ATTRIBUTE.CollectionIncludeListings]: true,
             },
             () =>
                 this.collectionReadPort.listCollectionTokenCardsByIds({
@@ -375,8 +379,8 @@ export class ListCollectionBiddingBidBookUseCase {
             "backend.bidding.collection_bid_book.token_offer_card_build",
             {
                 ...attributes,
-                "artgod.tokens.count": tokenCards.length,
-                "artgod.bidding.token_offer_groups_count":
+                [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenCards.length,
+                [BIDDING_SPAN_ATTRIBUTE.TokenOfferGroupsCount]:
                     offersByTokenId.size,
             },
             () =>
@@ -396,14 +400,16 @@ function buildBiddingRequestSpanAttributes(
     input: ListCollectionBiddingBidBookInput,
 ): SpanAttributes {
     return {
-        "artgod.bidding.scope_filter": input.scopeFilter,
-        "artgod.bidding.trait_join": input.traitFilterJoinMode,
-        "artgod.bidding.trait_filters_count": input.traits.length,
-        "artgod.bidding.trait_ranges_count": input.traitRanges.length,
-        "artgod.bidding.maker_filter_present": Boolean(input.makerAddress),
-        "artgod.bidding.media_mode_present": Boolean(input.mediaMode),
-        "artgod.bidding.limit": input.limit,
-        "artgod.bidding.cursor_present": Boolean(input.cursor),
+        [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]: input.scopeFilter,
+        [BIDDING_SPAN_ATTRIBUTE.TraitJoin]: input.traitFilterJoinMode,
+        [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]: input.traits.length,
+        [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]: input.traitRanges.length,
+        [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]: Boolean(
+            input.makerAddress,
+        ),
+        [BIDDING_SPAN_ATTRIBUTE.MediaModePresent]: Boolean(input.mediaMode),
+        [BIDDING_SPAN_ATTRIBUTE.Limit]: input.limit,
+        [BIDDING_SPAN_ATTRIBUTE.CursorPresent]: Boolean(input.cursor),
     };
 }
 
@@ -414,8 +420,10 @@ type PersistedTokenOfferCardsPage = Omit<
     items: PersistedTokenOfferCard[];
 };
 
+const TOKEN_OFFER_CURSOR_KIND = "bidding_token_offers";
+
 type TokenOfferCursor = {
-    kind: "bidding_token_offers";
+    kind: typeof TOKEN_OFFER_CURSOR_KIND;
     offset: number;
 };
 
@@ -499,7 +507,7 @@ function decodeTokenOfferCursorOffset(cursor: string | null): number {
     try {
         const decoded = decodeOpaqueCursor<TokenOfferCursor>(cursor);
         if (
-            decoded.kind !== "bidding_token_offers" ||
+            decoded.kind !== TOKEN_OFFER_CURSOR_KIND ||
             !Number.isInteger(decoded.offset) ||
             decoded.offset < 0
         ) {
@@ -513,7 +521,7 @@ function decodeTokenOfferCursorOffset(cursor: string | null): number {
 
 function encodeTokenOfferCursor(offset: number): string {
     return encodeOpaqueCursor({
-        kind: "bidding_token_offers",
+        kind: TOKEN_OFFER_CURSOR_KIND,
         offset,
     } satisfies TokenOfferCursor);
 }

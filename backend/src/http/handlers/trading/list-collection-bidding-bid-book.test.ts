@@ -1,5 +1,13 @@
 import type { FastifyRequest } from "fastify";
+import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+} from "@artgod/shared/types";
 import { describe, expect, it } from "vitest";
+import {
+    BIDDING_SPAN_ATTRIBUTE,
+    TRACE_ATTRIBUTE_VALUE,
+} from "../../../application/use-cases/trading/bidding-observability.js";
 import {
     getCollectionBiddingBidBookSpanAttributes,
     type ListCollectionBiddingBidBookRoute,
@@ -14,15 +22,17 @@ describe("get collection bidding bid-book span attributes", () => {
         );
 
         expect(attributes).toEqual({
-            "artgod.bidding.scope_filter": "traits",
-            "artgod.bidding.trait_join": "and",
-            "artgod.bidding.limit": 50,
-            "artgod.bidding.limit_present": true,
-            "artgod.bidding.cursor_present": true,
-            "artgod.bidding.maker_filter_present": true,
-            "artgod.bidding.trait_filters_count": 2,
-            "artgod.bidding.trait_ranges_count": 1,
-            "artgod.bidding.media_mode_present": true,
+            [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]:
+                COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            [BIDDING_SPAN_ATTRIBUTE.TraitJoin]:
+                COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            [BIDDING_SPAN_ATTRIBUTE.Limit]: 50,
+            [BIDDING_SPAN_ATTRIBUTE.LimitPresent]: true,
+            [BIDDING_SPAN_ATTRIBUTE.CursorPresent]: true,
+            [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]: true,
+            [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]: 2,
+            [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]: 1,
+            [BIDDING_SPAN_ATTRIBUTE.MediaModePresent]: true,
         });
     });
 
@@ -34,12 +44,14 @@ describe("get collection bidding bid-book span attributes", () => {
         );
 
         expect(attributes).toMatchObject({
-            "artgod.bidding.scope_filter": "invalid",
-            "artgod.bidding.trait_join": "invalid",
-            "artgod.bidding.limit": undefined,
-            "artgod.bidding.limit_present": true,
-            "artgod.bidding.cursor_present": false,
-            "artgod.bidding.media_mode_present": false,
+            [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]:
+                TRACE_ATTRIBUTE_VALUE.Invalid,
+            [BIDDING_SPAN_ATTRIBUTE.TraitJoin]:
+                TRACE_ATTRIBUTE_VALUE.Invalid,
+            [BIDDING_SPAN_ATTRIBUTE.Limit]: undefined,
+            [BIDDING_SPAN_ATTRIBUTE.LimitPresent]: true,
+            [BIDDING_SPAN_ATTRIBUTE.CursorPresent]: false,
+            [BIDDING_SPAN_ATTRIBUTE.MediaModePresent]: false,
         });
     });
 });

@@ -8,6 +8,7 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "@artgod/shared/types/browse";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 import { renderTraitSummaryTemplate } from "@artgod/shared/types";
@@ -119,7 +120,7 @@ export class GetCollectionDetailUseCase {
         const collection = this.apm.withSyncSpan(
             "backend.collection_detail.collection",
             {
-                "artgod.chain_id": chain.publicChainId,
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
             },
             () =>
                 this.collectionDetailReadPort.resolveCollectionRef(
@@ -128,8 +129,8 @@ export class GetCollectionDetailUseCase {
                 ),
         );
         const attributes = {
-            "artgod.chain_id": chain.publicChainId,
-            "artgod.collection_id": collection.collectionId,
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: collection.collectionId,
         };
 
         const media = this.apm.withSyncSpan(
@@ -147,13 +148,17 @@ export class GetCollectionDetailUseCase {
             "backend.collection_detail.tokens",
             {
                 ...attributes,
-                "artgod.collection.token_status": input.tokenStatus,
-                "artgod.collection.limit": input.limit,
-                "artgod.collection.cursor_present": Boolean(input.cursor),
-                "artgod.collection.trait_filters_count": input.traits.length,
-                "artgod.collection.trait_ranges_count":
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
+                    input.tokenStatus,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionLimit]: input.limit,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]:
+                    Boolean(input.cursor),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]:
+                    input.traits.length,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitRangesCount]:
                     input.traitRanges.length,
-                "artgod.collection.owner_present": Boolean(input.owner),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                    Boolean(input.owner),
             },
             () =>
                 this.collectionDetailReadPort.listCollectionTokens({
@@ -181,8 +186,9 @@ export class GetCollectionDetailUseCase {
             "backend.collection_detail.trait_facets",
             {
                 ...attributes,
-                "artgod.collection.owner_present": Boolean(input.owner),
-                "artgod.collection.range_only_keys_count":
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                    Boolean(input.owner),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
                     traitFilterPresentation.effectiveConfig.rangeKeys.length,
             },
             () =>
@@ -215,7 +221,7 @@ export class GetCollectionDetailUseCase {
             "backend.collection_detail.token_summary_render",
             {
                 ...attributes,
-                "artgod.tokens.count": tokens.items.length,
+                [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: tokens.items.length,
             },
             () =>
                 applyTokenCardTraitSummaryTemplate(

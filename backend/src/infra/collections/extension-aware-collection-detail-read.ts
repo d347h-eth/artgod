@@ -4,6 +4,7 @@ import {
     type CollectionMediaMode,
     type CollectionMediaPresentation,
 } from "@artgod/shared/extensions";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 import type {
@@ -166,11 +167,15 @@ export class ExtensionAwareCollectionDetailRead {
             ? this.apm.withSyncSpan(
                   "backend.extension.artifacts_batch",
                   {
-                      "artgod.chain_id": params.chainId,
-                      "artgod.collection_id": params.collectionId,
-                      "artgod.extension.key": install.extensionKey,
-                      "artgod.extension.artifact_ref": artifactRef,
-                      "artgod.tokens.count": page.items.length,
+                      [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                      [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
+                          params.collectionId,
+                      [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
+                          install.extensionKey,
+                      [ARTGOD_SPAN_ATTRIBUTE.ExtensionArtifactRef]:
+                          artifactRef,
+                      [ARTGOD_SPAN_ATTRIBUTE.TokensCount]:
+                          page.items.length,
                   },
                   () =>
                       this.extensionRecords.listTokenCardArtifactsByTokenIds({
@@ -398,8 +403,9 @@ export class ExtensionAwareCollectionDetailRead {
         collection: CollectionListItem,
     ): CollectionListItem {
         const attributes = {
-            "artgod.chain_id": collection.chainId,
-            "artgod.collection_id": collection.collectionId,
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: collection.chainId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
+                collection.collectionId,
         };
         const install = this.apm.withSyncSpan(
             "backend.extension.install_lookup",
@@ -416,7 +422,7 @@ export class ExtensionAwareCollectionDetailRead {
 
         const extensionAttributes = {
             ...attributes,
-            "artgod.extension.key": install.extensionKey,
+            [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]: install.extensionKey,
         };
         const extension = this.apm.withSyncSpan(
             "backend.extension.resolve",

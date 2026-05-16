@@ -1,6 +1,10 @@
 import { db } from "../database/db.js";
 import { MAX_PAGE_LIMIT } from "../config/pagination.js";
 import {
+    ARTGOD_COLLECTION_COUNT_KIND,
+    ARTGOD_SPAN_ATTRIBUTE,
+} from "../observability/artgod-span-attributes.js";
+import {
     NOOP_APM,
     type ApmPort,
     type SpanAttributes,
@@ -558,7 +562,7 @@ export class SqliteCollectionsReadModel {
             "backend.collection.db.tokens_listing_hydration",
             {
                 ...spanAttributes,
-                "artgod.tokens.count": pageRows.length,
+                [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: pageRows.length,
             },
             () =>
                 hydrateTokenRowsWithCheapestListings({
@@ -592,7 +596,8 @@ export class SqliteCollectionsReadModel {
             "backend.collection.db.tokens_count",
             {
                 ...spanAttributes,
-                "artgod.collection.count_kind": "total",
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
             },
             () =>
                 countMatchingTokens({
@@ -607,7 +612,8 @@ export class SqliteCollectionsReadModel {
                   "backend.collection.db.tokens_count",
                   {
                       ...spanAttributes,
-                      "artgod.collection.count_kind": "before_cursor",
+                      [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                          ARTGOD_COLLECTION_COUNT_KIND.BeforeCursor,
                   },
                   () =>
                       countMatchingTokens({
@@ -760,7 +766,8 @@ export class SqliteCollectionsReadModel {
             "backend.collection.db.tokens_count",
             {
                 ...spanAttributes,
-                "artgod.collection.count_kind": "total",
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
             },
             () =>
                 countMatchingListedTokens({
@@ -779,7 +786,8 @@ export class SqliteCollectionsReadModel {
                   "backend.collection.db.tokens_count",
                   {
                       ...spanAttributes,
-                      "artgod.collection.count_kind": "before_cursor",
+                      [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                          ARTGOD_COLLECTION_COUNT_KIND.BeforeCursor,
                   },
                   () =>
                       countMatchingListedTokens({
@@ -938,7 +946,8 @@ export class SqliteCollectionsReadModel {
             "backend.collection.db.tokens_count",
             {
                 ...spanAttributes,
-                "artgod.collection.count_kind": "total",
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                    ARTGOD_COLLECTION_COUNT_KIND.Total,
             },
             () =>
                 countMatchingTokens({
@@ -953,7 +962,8 @@ export class SqliteCollectionsReadModel {
                   "backend.collection.db.tokens_count",
                   {
                       ...spanAttributes,
-                      "artgod.collection.count_kind": "before_cursor",
+                      [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                          ARTGOD_COLLECTION_COUNT_KIND.BeforeCursor,
                   },
                   () =>
                       countMatchingMixedTokens({
@@ -1018,11 +1028,14 @@ export class SqliteCollectionsReadModel {
         const rows = this.apm.withSyncSpan(
             "backend.collection.db.trait_facets",
             {
-                "artgod.chain_id": chainId,
-                "artgod.collection_id": collectionId,
-                "artgod.collection.owner_present": Boolean(owner),
-                "artgod.collection.exclude_keys_count": valueExcludeKeys.length,
-                "artgod.collection.range_only_keys_count": rangeOnlyKeys.length,
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chainId,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: collectionId,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                    Boolean(owner),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionExcludeKeysCount]:
+                    valueExcludeKeys.length,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
+                    rangeOnlyKeys.length,
             },
             () =>
                 owner
@@ -1044,10 +1057,12 @@ export class SqliteCollectionsReadModel {
                 : this.apm.withSyncSpan(
                       "backend.collection.db.trait_range_facets",
                       {
-                          "artgod.chain_id": chainId,
-                          "artgod.collection_id": collectionId,
-                          "artgod.collection.owner_present": Boolean(owner),
-                          "artgod.collection.range_only_keys_count":
+                          [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chainId,
+                          [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
+                              collectionId,
+                          [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                              Boolean(owner),
+                          [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
                               rangeOnlyKeys.length,
                       },
                       () =>
@@ -2158,16 +2173,18 @@ function buildTokenQuerySpanAttributes(params: {
     owner?: string;
 }): SpanAttributes {
     return {
-        "artgod.chain_id": params.chainId,
-        "artgod.collection_id": params.collectionId,
-        "artgod.collection.token_status": params.tokenStatus,
-        "artgod.collection.limit": params.limit,
-        "artgod.collection.cursor_present": params.cursorPresent,
-        "artgod.collection.trait_filters_count":
+        [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]: params.tokenStatus,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionLimit]: params.limit,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]:
+            params.cursorPresent,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]:
             params.traitFilterGroups.length,
-        "artgod.collection.trait_ranges_count":
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitRangesCount]:
             params.traitRangeFilterGroups.length,
-        "artgod.collection.owner_present": Boolean(params.owner),
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+            Boolean(params.owner),
     };
 }
 

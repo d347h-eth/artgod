@@ -18,6 +18,7 @@ import {
     type PersistedBiddingBidBook,
     type PersistedBiddingBidBookRow,
 } from "./bidding-bid-book.js";
+import { BIDDING_SPAN_ATTRIBUTE } from "./bidding-observability.js";
 import { ListCollectionBiddingBidBookUseCase } from "./list-collection-bidding-bid-book.js";
 
 class CapturingApm implements ApmPort {
@@ -117,26 +118,28 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
                 expect.objectContaining({
                     name: "backend.bidding.collection_bid_book.bid_book",
                     attributes: expect.objectContaining({
-                        "artgod.chain_id": 1,
-                        "artgod.collection_id": 7,
-                        "artgod.bidding.scope_filter": "token",
-                        "artgod.bidding.trait_filters_count": 1,
-                        "artgod.bidding.maker_filter_present": true,
+                        [BIDDING_SPAN_ATTRIBUTE.ChainId]: 1,
+                        [BIDDING_SPAN_ATTRIBUTE.CollectionId]: 7,
+                        [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]:
+                            COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+                        [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]: 1,
+                        [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]: true,
                     }),
                 }),
                 expect.objectContaining({
                     name: "backend.bidding.collection_bid_book.token_offer_cards",
                     attributes: expect.objectContaining({
-                        "artgod.bidding.token_bids_count": 1,
-                        "artgod.bidding.collection_bids_count": 1,
+                        [BIDDING_SPAN_ATTRIBUTE.TokenBidsCount]: 1,
+                        [BIDDING_SPAN_ATTRIBUTE.CollectionBidsCount]: 1,
                     }),
                 }),
                 expect.objectContaining({
                     name: "backend.bidding.collection_bid_book.response_map",
                     attributes: expect.objectContaining({
-                        "artgod.bidding.visible_bids_count": 1,
-                        "artgod.bidding.token_offer_cards_count": 1,
-                        "artgod.bidding.token_offer_cards_total_offers": 1,
+                        [BIDDING_SPAN_ATTRIBUTE.VisibleBidsCount]: 1,
+                        [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsCount]: 1,
+                        [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalOffers]:
+                            1,
                     }),
                 }),
             ]),

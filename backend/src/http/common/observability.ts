@@ -10,6 +10,7 @@ import {
     type ApmPort,
     type SpanAttributes,
 } from "@artgod/shared/observability/apm";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import {
     noopMetrics,
     type MetricLabels,
@@ -166,7 +167,8 @@ export function observeRouteHandler<Route extends RouteGenericInterface>(
         const attributes: SpanAttributes = {
             "http.method": metadata.method,
             "http.route": metadata.route,
-            "artgod.deployment_mode": observability.deploymentMode,
+            [ARTGOD_SPAN_ATTRIBUTE.DeploymentMode]:
+                observability.deploymentMode,
             ...metadata.spanAttributes?.(request),
         };
 

@@ -58,7 +58,29 @@ export type TokenCursor =
           listingPrice: string | null;
       };
 
-export type TokenBrowserStatus = "listed" | "all" | "listed_then_unlisted";
+// Names token-browser status filters shared by route parsing and frontend links.
+export const TOKEN_BROWSER_STATUS = {
+    Listed: "listed",
+    All: "all",
+    ListedThenUnlisted: "listed_then_unlisted",
+} as const;
+
+export type TokenBrowserStatus =
+    (typeof TOKEN_BROWSER_STATUS)[keyof typeof TOKEN_BROWSER_STATUS];
+
+// Names collection detail query parameters shared by backend and frontend adapters.
+export const COLLECTION_DETAIL_QUERY_PARAMS = {
+    TokenStatus: "token_status",
+    Owner: "owner",
+} as const;
+
+// Names shared trait filter query parameters for collection browse-like routes.
+export const TRAIT_FILTER_QUERY_PARAMS = {
+    Trait: "trait",
+    Traits: "traits",
+    TraitRange: "trait_range",
+    TraitRanges: "trait_ranges",
+} as const;
 
 export type TraitFilter = {
     key: string;

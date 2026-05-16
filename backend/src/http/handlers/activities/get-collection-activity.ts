@@ -1,10 +1,16 @@
 import type { FastifyRequest } from "fastify";
+import { PAGINATION_QUERY_PARAMS } from "@artgod/shared/config/pagination";
 import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
 import {
     ACTIVITY_FEED_FILTER_KIND,
     ACTIVITY_FEED_QUERY_PARAMS,
+    TRAIT_FILTER_QUERY_PARAMS,
 } from "@artgod/shared/types";
 import type { SpanAttributes } from "@artgod/shared/observability/apm";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_TRACE_ATTRIBUTE_VALUE,
+} from "@artgod/shared/observability";
 import type {
     GetCollectionActivityInput,
     GetCollectionActivityOutput,
@@ -33,7 +39,27 @@ export type GetCollectionActivityRoute = {
 
 type MaybePromise<T> = T | Promise<T>;
 
-const ACTIVITY_TRACE_ABSENT = "none";
+const ACTIVITY_TRACE_ABSENT = ARTGOD_TRACE_ATTRIBUTE_VALUE.None;
+const ACTIVITY_TRACE_INVALID = ARTGOD_TRACE_ATTRIBUTE_VALUE.Invalid;
+
+const ACTIVITY_SPAN_ATTRIBUTE = {
+    Limit: ARTGOD_SPAN_ATTRIBUTE.ActivityLimit,
+    LimitPresent: ARTGOD_SPAN_ATTRIBUTE.ActivityLimitPresent,
+    CursorPresent: ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent,
+    Kind: ARTGOD_SPAN_ATTRIBUTE.ActivityKind,
+    ExtensionEvent: ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEvent,
+    ExtensionEventPresent:
+        ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEventPresent,
+    TraitsCount: ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount,
+    TraitRangesCount: ARTGOD_SPAN_ATTRIBUTE.ActivityTraitRangesCount,
+    TokenFilterPresent: ARTGOD_SPAN_ATTRIBUTE.ActivityTokenFilterPresent,
+    MakerFilterPresent: ARTGOD_SPAN_ATTRIBUTE.ActivityMakerFilterPresent,
+    ContentHashFilterPresent:
+        ARTGOD_SPAN_ATTRIBUTE.ActivityContentHashFilterPresent,
+    EventGroupFilterPresent:
+        ARTGOD_SPAN_ATTRIBUTE.ActivityEventGroupFilterPresent,
+    MediaModePresent: ARTGOD_SPAN_ATTRIBUTE.ActivityMediaModePresent,
+} as const;
 
 export class GetCollectionActivityHttpAdapter {
     constructor(
@@ -57,8 +83,12 @@ export class GetCollectionActivityHttpAdapter {
         request: FastifyRequest<GetCollectionActivityRoute>,
     ): GetCollectionActivityInput {
         const searchParams = getSearchParams(request);
-        const limit = parseLimit(searchParams.get("limit"));
-        const cursor = parseCursor(searchParams.get("cursor"));
+        const limit = parseLimit(
+            searchParams.get(PAGINATION_QUERY_PARAMS.Limit),
+        );
+        const cursor = parseCursor(
+            searchParams.get(PAGINATION_QUERY_PARAMS.Cursor),
+        );
         const extensionEvent = parseExtensionEventRef(
             searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.ExtensionEvent),
         );
@@ -114,48 +144,60 @@ export function getCollectionActivitySpanAttributes(
     request: FastifyRequest<GetCollectionActivityRoute>,
 ): SpanAttributes {
     const searchParams = getSearchParams(request);
-    const limit = parseLimitAttribute(searchParams.get("limit"));
+    const limit = parseLimitAttribute(
+        searchParams.get(PAGINATION_QUERY_PARAMS.Limit),
+    );
     const extensionEvent = normalizeExtensionEventAttribute(
         searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.ExtensionEvent),
     );
 
     return {
-        "artgod.activity.limit": limit,
-        "artgod.activity.limit_present": hasQueryValue(searchParams, "limit"),
-        "artgod.activity.cursor_present": hasQueryValue(searchParams, "cursor"),
-        "artgod.activity.kind": extensionEvent
+        [ACTIVITY_SPAN_ATTRIBUTE.Limit]: limit,
+        [ACTIVITY_SPAN_ATTRIBUTE.LimitPresent]: hasQueryValue(
+            searchParams,
+            PAGINATION_QUERY_PARAMS.Limit,
+        ),
+        [ACTIVITY_SPAN_ATTRIBUTE.CursorPresent]: hasQueryValue(
+            searchParams,
+            PAGINATION_QUERY_PARAMS.Cursor,
+        ),
+        [ACTIVITY_SPAN_ATTRIBUTE.Kind]: extensionEvent
             ? ACTIVITY_TRACE_ABSENT
             : normalizeKindAttribute(
                   searchParams.get(ACTIVITY_FEED_QUERY_PARAMS.Kind),
               ),
-        "artgod.activity.extension_event":
+        [ACTIVITY_SPAN_ATTRIBUTE.ExtensionEvent]:
             extensionEvent ?? ACTIVITY_TRACE_ABSENT,
-        "artgod.activity.extension_event_present": Boolean(extensionEvent),
-        "artgod.activity.traits_count": countDelimitedQuerySegments(
+        [ACTIVITY_SPAN_ATTRIBUTE.ExtensionEventPresent]:
+            Boolean(extensionEvent),
+        [ACTIVITY_SPAN_ATTRIBUTE.TraitsCount]: countDelimitedQuerySegments(
             searchParams,
-            ["traits", "trait"],
+            [TRAIT_FILTER_QUERY_PARAMS.Traits, TRAIT_FILTER_QUERY_PARAMS.Trait],
         ),
-        "artgod.activity.trait_ranges_count": countDelimitedQuerySegments(
+        [ACTIVITY_SPAN_ATTRIBUTE.TraitRangesCount]: countDelimitedQuerySegments(
             searchParams,
-            ["trait_ranges", "trait_range"],
+            [
+                TRAIT_FILTER_QUERY_PARAMS.TraitRanges,
+                TRAIT_FILTER_QUERY_PARAMS.TraitRange,
+            ],
         ),
-        "artgod.activity.token_filter_present": hasQueryValue(
+        [ACTIVITY_SPAN_ATTRIBUTE.TokenFilterPresent]: hasQueryValue(
             searchParams,
             ACTIVITY_FEED_QUERY_PARAMS.TokenId,
         ),
-        "artgod.activity.maker_filter_present": hasQueryValue(
+        [ACTIVITY_SPAN_ATTRIBUTE.MakerFilterPresent]: hasQueryValue(
             searchParams,
             ACTIVITY_FEED_QUERY_PARAMS.Maker,
         ),
-        "artgod.activity.content_hash_filter_present": hasQueryValue(
+        [ACTIVITY_SPAN_ATTRIBUTE.ContentHashFilterPresent]: hasQueryValue(
             searchParams,
             ACTIVITY_FEED_QUERY_PARAMS.ContentHash,
         ),
-        "artgod.activity.event_group_filter_present": hasQueryValue(
+        [ACTIVITY_SPAN_ATTRIBUTE.EventGroupFilterPresent]: hasQueryValue(
             searchParams,
             ACTIVITY_FEED_QUERY_PARAMS.EventGroup,
         ),
-        "artgod.activity.media_mode_present": hasQueryValue(
+        [ACTIVITY_SPAN_ATTRIBUTE.MediaModePresent]: hasQueryValue(
             searchParams,
             COLLECTION_MEDIA_QUERY_PARAMS.MediaMode,
         ),
@@ -179,14 +221,16 @@ function normalizeKindAttribute(raw: string | null): string {
     ) {
         return value;
     }
-    return "invalid";
+    return ACTIVITY_TRACE_INVALID;
 }
 
 function normalizeExtensionEventAttribute(raw: string | null): string | null {
     const value = raw?.trim();
     if (!value) return null;
     const [extensionKey, eventKey, extra] = value.split(":");
-    if (extra !== undefined || !extensionKey || !eventKey) return "invalid";
+    if (extra !== undefined || !extensionKey || !eventKey) {
+        return ACTIVITY_TRACE_INVALID;
+    }
     return `${extensionKey.toLowerCase()}:${eventKey}`;
 }
 

@@ -1,4 +1,8 @@
 import { db } from "@artgod/shared/database";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_TRACE_ATTRIBUTE_VALUE,
+} from "@artgod/shared/observability";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import type {
@@ -57,9 +61,9 @@ export class ExtensionActivityEventPreviewRead {
         renderMode?: string;
     }): Promise<GetActivityEventPreviewOutput> {
         const attributes = {
-            "artgod.chain_id": params.chainId,
-            "artgod.collection_id": params.collectionId,
-            "artgod.activity.id": params.activityId,
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityId]: params.activityId,
         };
         const row = this.apm.withSyncSpan(
             "backend.extension.activity_event_preview.db_activity",
@@ -101,8 +105,9 @@ export class ExtensionActivityEventPreviewRead {
         const event = mapActivityRow(row);
         const eventAttributes = {
             ...attributes,
-            "artgod.extension.key": install.extensionKey,
-            "artgod.extension.event_key": payloadEventKey(event.payload),
+            [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]: install.extensionKey,
+            [ARTGOD_SPAN_ATTRIBUTE.ExtensionEventKey]:
+                payloadEventKey(event.payload),
         };
         const modes = this.apm.withSyncSpan(
             "backend.extension.activity_event_preview.modes",
@@ -139,8 +144,9 @@ export class ExtensionActivityEventPreviewRead {
             "backend.extension.activity_event_preview.resolve",
             {
                 ...eventAttributes,
-                "artgod.activity.render_mode": modes.selectedMode,
-                "artgod.activity.preview_modes_count":
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityRenderMode]:
+                    modes.selectedMode,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityPreviewModesCount]:
                     modes.availableModes.length,
             },
             () =>
@@ -201,7 +207,9 @@ function payloadEventKey(payload: Record<string, unknown> | null): string {
         return "unknown";
     }
     const normalized = value.trim().toLowerCase();
-    return /^[a-z0-9_.-]{1,64}$/.test(normalized) ? normalized : "invalid";
+    return /^[a-z0-9_.-]{1,64}$/.test(normalized)
+        ? normalized
+        : ARTGOD_TRACE_ATTRIBUTE_VALUE.Invalid;
 }
 
 function normalizeRenderMode(

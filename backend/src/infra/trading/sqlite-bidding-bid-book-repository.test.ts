@@ -21,6 +21,7 @@ import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
+import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidding-observability.js";
 import { SqliteBiddingBidBookRepository } from "./sqlite-bidding-bid-book-repository.js";
 
 const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
@@ -135,18 +136,20 @@ describe("SqliteBiddingBidBookRepository", () => {
                 (span) => span.name === "backend.bidding.repository.orders_map",
             )?.attributes,
             {
-                "artgod.chain_id": 1,
-                "artgod.collection_id": collectionId,
-                "artgod.bidding.source": "orders",
-                "artgod.bidding.orders_rows_count": 1,
-                "artgod.bidding.orders_collection_scope_rows_count": 1,
-                "artgod.bidding.orders_attribute_scope_rows_count": 0,
-                "artgod.bidding.orders_token_scope_rows_count": 0,
-                "artgod.bidding.orders_token_set_scope_rows_count": 0,
-                "artgod.bidding.orders_raw_rest_rows_count": 1,
-                "artgod.bidding.orders_raw_stream_rows_count": 1,
-                "artgod.bidding.orders_seaport_json_rows_count": 0,
-                "artgod.bidding.orders_valid_until_rows_count": 1,
+                [BIDDING_SPAN_ATTRIBUTE.ChainId]: 1,
+                [BIDDING_SPAN_ATTRIBUTE.CollectionId]: collectionId,
+                [BIDDING_SPAN_ATTRIBUTE.Source]:
+                    TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersRowsCount]: 1,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersCollectionScopeRowsCount]:
+                    1,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersAttributeScopeRowsCount]: 0,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersTokenScopeRowsCount]: 0,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersTokenSetScopeRowsCount]: 0,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersRawRestRowsCount]: 1,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersRawStreamRowsCount]: 1,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersSeaportJsonRowsCount]: 0,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersValidUntilRowsCount]: 1,
             },
         );
         assert.equal(
@@ -154,14 +157,14 @@ describe("SqliteBiddingBidBookRepository", () => {
                 (span) =>
                     span.name ===
                     "backend.bidding.repository.collection_filter_sort",
-            )?.attributes["artgod.bidding.bids_count"],
+            )?.attributes[BIDDING_SPAN_ATTRIBUTE.BidsCount],
             1,
         );
         assert.equal(
             apm.spans.find(
                 (span) =>
                     span.name === "backend.bidding.repository.own_signals",
-            )?.attributes["artgod.bidding.jobs_count"],
+            )?.attributes[BIDDING_SPAN_ATTRIBUTE.JobsCount],
             0,
         );
     });

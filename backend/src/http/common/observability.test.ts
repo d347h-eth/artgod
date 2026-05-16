@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import type {
     MetricLabels,
@@ -93,7 +94,7 @@ describe("backend http observability", () => {
                 attributes: {
                     "http.method": "GET",
                     "http.route": "/api/example",
-                    "artgod.deployment_mode": "standard",
+                    [ARTGOD_SPAN_ATTRIBUTE.DeploymentMode]: "standard",
                 },
             },
         ]);
@@ -197,7 +198,7 @@ describe("backend http observability", () => {
                     method: "GET",
                     route: "/api/activity",
                     spanAttributes: (request) => ({
-                        "artgod.activity.cursor_present": new URL(
+                        [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]: new URL(
                             request.raw.url ?? "/",
                             "http://localhost",
                         ).searchParams.has("cursor"),
@@ -218,8 +219,8 @@ describe("backend http observability", () => {
             attributes: {
                 "http.method": "GET",
                 "http.route": "/api/activity",
-                "artgod.deployment_mode": "standard",
-                "artgod.activity.cursor_present": true,
+                [ARTGOD_SPAN_ATTRIBUTE.DeploymentMode]: "standard",
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]: true,
             },
         });
         expect(metrics.increments).toContainEqual({

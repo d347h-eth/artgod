@@ -1,4 +1,8 @@
 import type { FastifyRequest } from "fastify";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_TRACE_ATTRIBUTE_VALUE,
+} from "@artgod/shared/observability";
 import { describe, expect, it } from "vitest";
 import {
     getActivityEventPreviewSpanAttributes,
@@ -15,9 +19,9 @@ describe("get activity event preview span attributes", () => {
         );
 
         expect(attributes).toEqual({
-            "artgod.activity.id": 33,
-            "artgod.activity.render_mode": "artifact",
-            "artgod.activity.render_mode_present": true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityId]: 33,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityRenderMode]: "artifact",
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityRenderModePresent]: true,
         });
     });
 
@@ -30,9 +34,10 @@ describe("get activity event preview span attributes", () => {
         );
 
         expect(attributes).toEqual({
-            "artgod.activity.id": undefined,
-            "artgod.activity.render_mode": "invalid",
-            "artgod.activity.render_mode_present": true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityId]: undefined,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityRenderMode]:
+                ARTGOD_TRACE_ATTRIBUTE_VALUE.Invalid,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityRenderModePresent]: true,
         });
     });
 });

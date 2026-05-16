@@ -1,7 +1,13 @@
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "../config/pagination.js";
 import { db } from "../database/db.js";
+import {
+    ARTGOD_ACTIVITY_COUNT_KIND,
+    ARTGOD_SPAN_ATTRIBUTE,
+} from "../observability/artgod-span-attributes.js";
 import { NOOP_APM, type ApmPort } from "../observability/apm.js";
 import {
+    ACTIVITY_FEED_FILTER_KIND,
+    ACTIVITY_KIND,
     ACTIVITY_SOURCE_KIND,
     type ActivityEventMedia,
     type ActivityFeedCursor,
@@ -158,9 +164,10 @@ export class SqliteActivitiesReadModel {
         const rows = this.apm.withSyncSpan(
             "backend.activity.db.event_media",
             {
-                "artgod.chain_id": params.chainId,
-                "artgod.collection_id": params.collectionId,
-                "artgod.activity.activity_ids_count": activityIds.length,
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityActivityIdsCount]:
+                    activityIds.length,
             },
             () =>
                 db.raw
@@ -265,6 +272,7 @@ export class SqliteActivitiesReadModel {
                 baseValues: [
                     params.chainId,
                     params.collectionId,
+                    ACTIVITY_KIND.ListingCreated,
                     ...traitValues,
                     ...traitRangeValues,
                 ],
@@ -380,26 +388,30 @@ function buildActivityWhereClauses(params: {
 
     if (params.extensionEvent) {
         whereClauses.push(
-            "kind = 'custom'",
+            "kind = ?",
             "source_kind = ?",
             "source_name = ?",
             "json_extract(payload_json, '$.eventKey') = ?",
         );
         values.push(
+            ACTIVITY_KIND.Custom,
             ACTIVITY_SOURCE_KIND.Extension,
             params.extensionEvent.extensionKey.toLowerCase(),
             params.extensionEvent.eventKey,
         );
     } else {
         switch (params.kind) {
-            case "sales":
-                whereClauses.push("kind = 'sale'");
+            case ACTIVITY_FEED_FILTER_KIND.Sales:
+                whereClauses.push("kind = ?");
+                values.push(ACTIVITY_KIND.Sale);
                 break;
-            case "listings":
-                whereClauses.push("kind = 'listing_created'");
+            case ACTIVITY_FEED_FILTER_KIND.Listings:
+                whereClauses.push("kind = ?");
+                values.push(ACTIVITY_KIND.ListingCreated);
                 break;
-            case "transfers":
-                whereClauses.push("kind = 'transfer'");
+            case ACTIVITY_FEED_FILTER_KIND.Transfers:
+                whereClauses.push("kind = ?");
+                values.push(ACTIVITY_KIND.Transfer);
                 break;
         }
     }
@@ -455,7 +467,7 @@ function shouldCollapseCollectionListings(
         !maker &&
         !contentHash &&
         !eventGroup &&
-        filterKind === "listings"
+        filterKind === ACTIVITY_FEED_FILTER_KIND.Listings
     );
 }
 
@@ -473,7 +485,7 @@ function buildCollapsedCollectionListingsSource(
             "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
             "CAST(occurred_at / 86400 AS INTEGER) AS collapsed_day_bucket " +
             "FROM activities a " +
-            "WHERE a.chain_id = ? AND a.collection_id = ? AND a.kind = 'listing_created'" +
+            "WHERE a.chain_id = ? AND a.collection_id = ? AND a.kind = ?" +
             traitWhereSql +
             "), ranked_listing_activities AS (" +
             "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
@@ -546,7 +558,7 @@ function listActivitiesFromSource(params: {
         source,
         baseWhereClauses,
         baseValues,
-        "total",
+        ARTGOD_ACTIVITY_COUNT_KIND.Total,
     );
     const beforeItems = cursor
         ? countMatchingActivities(
@@ -554,7 +566,7 @@ function listActivitiesFromSource(params: {
               source,
               [...baseWhereClauses, buildActivityBeforeOrAtCursorWhereClause()],
               [...baseValues, cursor.occurredAt, cursor.occurredAt, cursor.id],
-              "before_cursor",
+              ARTGOD_ACTIVITY_COUNT_KIND.BeforeCursor,
           )
         : 0;
     const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
@@ -596,8 +608,8 @@ function queryActivityRows(
     return apm.withSyncSpan(
         "backend.activity.db.query_rows",
         {
-            "artgod.activity.query_source": source.name,
-            "artgod.activity.limit": limit,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: limit,
         },
         () =>
             db.raw
@@ -613,13 +625,15 @@ function countMatchingActivities(
     source: ActivityQuerySource,
     whereClauses: string[],
     values: unknown[],
-    countKind: "total" | "before_cursor",
+    countKind:
+        | typeof ARTGOD_ACTIVITY_COUNT_KIND.Total
+        | typeof ARTGOD_ACTIVITY_COUNT_KIND.BeforeCursor,
 ): number {
     const row = apm.withSyncSpan(
         "backend.activity.db.count",
         {
-            "artgod.activity.query_source": source.name,
-            "artgod.activity.count_kind": countKind,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityCountKind]: countKind,
         },
         () =>
             db.raw
@@ -661,8 +675,8 @@ function deriveActivityPrevCursor(params: {
     const previousRows = apm.withSyncSpan(
         "backend.activity.db.prev_cursor",
         {
-            "artgod.activity.query_source": source.name,
-            "artgod.activity.limit": limit + 1,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: limit + 1,
         },
         () =>
             db.raw
@@ -767,7 +781,9 @@ function decodeActivityCursor(
 function normalizeFilterKind(
     value: ActivityFeedFilterKind | null | undefined,
 ): ActivityFeedFilterKind | null {
-    return value === "sales" || value === "listings" || value === "transfers"
+    return value === ACTIVITY_FEED_FILTER_KIND.Sales ||
+        value === ACTIVITY_FEED_FILTER_KIND.Listings ||
+        value === ACTIVITY_FEED_FILTER_KIND.Transfers
         ? value
         : null;
 }

@@ -1,27 +1,35 @@
+import { PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
+import {
+	COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
+	COLLECTION_BIDDING_BID_SCOPE_FILTER,
+	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	COLLECTION_BIDDING_VIEW_MODE,
+	COLLECTION_BIDDING_VIEW_MODES,
+	COLLECTION_BIDDING_VIEW_QUERY_PARAMS,
+	type CollectionBiddingBidScopeFilter,
+	type CollectionBiddingTraitFilterJoinMode,
+	type CollectionBiddingViewMode
+} from '@artgod/shared/types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 import { appendMediaModeParam } from '$lib/media-mode';
 import { joinPath, withQuery } from '$lib/route-paths';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 
-export const COLLECTION_BIDDING_BID_SCOPE_FILTERS = [
-	'token',
-	'traits',
-	'collection'
-] as const;
-export const COLLECTION_BIDDING_VIEW_MODES = [
-	'bid_book',
-	'jobs'
-] as const;
+export {
+	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
+	COLLECTION_BIDDING_VIEW_MODES
+};
+export type {
+	CollectionBiddingBidScopeFilter,
+	CollectionBiddingTraitFilterJoinMode,
+	CollectionBiddingViewMode
+};
 
-export type CollectionBiddingBidScopeFilter =
-	(typeof COLLECTION_BIDDING_BID_SCOPE_FILTERS)[number];
-export type CollectionBiddingTraitFilterJoinMode = 'or' | 'and';
-export type CollectionBiddingViewMode = (typeof COLLECTION_BIDDING_VIEW_MODES)[number];
-
-export const BID_SCOPE_QUERY_PARAM = 'bid_scope';
-export const BIDDING_VIEW_QUERY_PARAM = 'bidding_view';
-export const BID_BOOK_MAKER_QUERY_PARAM = 'maker';
-const SHOW_MUTED_BID_BOOK_QUERY_PARAM = 'show_muted';
+export const BID_SCOPE_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope;
+export const BIDDING_VIEW_QUERY_PARAM = COLLECTION_BIDDING_VIEW_QUERY_PARAMS.View;
+export const BID_BOOK_MAKER_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker;
+const SHOW_MUTED_BID_BOOK_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted;
 
 type OrderedQueryControlValues<T extends string> = readonly [T, ...T[]];
 
@@ -39,14 +47,18 @@ export function buildCollectionBiddingQuery(params: {
 }): URLSearchParams {
 	const query = new URLSearchParams();
 	appendMediaModeParam(query, params.mediaMode ?? null);
-	if (params.viewMode && params.viewMode !== 'bid_book') {
+	if (params.viewMode && params.viewMode !== COLLECTION_BIDDING_VIEW_MODE.BidBook) {
 		query.set(BIDDING_VIEW_QUERY_PARAM, params.viewMode);
 	}
-	if (params.bidScope && params.bidScope !== 'token') {
+	if (params.bidScope && params.bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 		query.set(BID_SCOPE_QUERY_PARAM, params.bidScope);
 	}
-	if (params.bidScope === 'traits' && params.traitJoinMode && params.traitJoinMode !== 'or') {
-		query.set('trait_join', params.traitJoinMode);
+	if (
+		params.bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits &&
+		params.traitJoinMode &&
+		params.traitJoinMode !== COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
+	) {
+		query.set(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin, params.traitJoinMode);
 	}
 	if (params.showMuted) {
 		query.set(SHOW_MUTED_BID_BOOK_QUERY_PARAM, 'true');
@@ -55,10 +67,10 @@ export function buildCollectionBiddingQuery(params: {
 		query.set(BID_BOOK_MAKER_QUERY_PARAM, params.maker.trim());
 	}
 	if (params.limit && Number.isInteger(params.limit) && params.limit > 0) {
-		query.set('limit', String(params.limit));
+		query.set(PAGINATION_QUERY_PARAMS.Limit, String(params.limit));
 	}
 	if (params.cursor?.trim()) {
-		query.set('cursor', params.cursor.trim());
+		query.set(PAGINATION_QUERY_PARAMS.Cursor, params.cursor.trim());
 	}
 	appendTraitParams(query, params.selectedTraits);
 	appendTraitRangeParams(query, params.selectedTraitRanges);
@@ -114,7 +126,10 @@ export function parseCollectionBiddingView(
 export function parseCollectionBiddingTraitFilterJoinMode(
 	searchParams: URLSearchParams
 ): CollectionBiddingTraitFilterJoinMode {
-	return searchParams.get('trait_join') === 'and' ? 'and' : 'or';
+	return searchParams.get(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin) ===
+		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+		? COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+		: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or;
 }
 
 export function nextCollectionBiddingBidScopeFilter(

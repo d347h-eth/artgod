@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db, setDbPath } from "../database/db.js";
+import { ARTGOD_SPAN_ATTRIBUTE } from "../observability/artgod-span-attributes.js";
 import type { ApmPort, SpanAttributes } from "../observability/apm.js";
+import { TOKEN_BROWSER_STATUS } from "../types/browse.js";
 import { SqliteCollectionsReadModel } from "./collections.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -49,7 +51,7 @@ describe("SqliteCollectionsReadModel observability", () => {
         const page = readModel.listCollectionTokens({
             chainId: 1,
             collectionId: 1,
-            tokenStatus: "listed",
+            tokenStatus: TOKEN_BROWSER_STATUS.Listed,
             limit: 1,
         });
 
@@ -63,8 +65,10 @@ describe("SqliteCollectionsReadModel observability", () => {
                 expect.objectContaining({
                     name: "backend.collection.db.tokens_page",
                     attributes: expect.objectContaining({
-                        "artgod.collection.token_status": "listed",
-                        "artgod.collection.cursor_present": false,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
+                            TOKEN_BROWSER_STATUS.Listed,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]:
+                            false,
                     }),
                 }),
             ]),
@@ -81,7 +85,7 @@ describe("SqliteCollectionsReadModel observability", () => {
         const page = readModel.listCollectionTokens({
             chainId: 1,
             collectionId: 1,
-            tokenStatus: "all",
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
             limit: 3,
         });
 
@@ -100,8 +104,9 @@ describe("SqliteCollectionsReadModel observability", () => {
                 expect.objectContaining({
                     name: "backend.collection.db.tokens_listing_hydration",
                     attributes: expect.objectContaining({
-                        "artgod.collection.token_status": "all",
-                        "artgod.tokens.count": 3,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
+                            TOKEN_BROWSER_STATUS.All,
+                        [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: 3,
                     }),
                 }),
             ]),
@@ -137,20 +142,25 @@ describe("SqliteCollectionsReadModel observability", () => {
                 {
                     name: "backend.collection.db.trait_facets",
                     attributes: {
-                        "artgod.chain_id": 1,
-                        "artgod.collection_id": 1,
-                        "artgod.collection.owner_present": false,
-                        "artgod.collection.exclude_keys_count": 1,
-                        "artgod.collection.range_only_keys_count": 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                            false,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionExcludeKeysCount]:
+                            1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
+                            1,
                     },
                 },
                 {
                     name: "backend.collection.db.trait_range_facets",
                     attributes: {
-                        "artgod.chain_id": 1,
-                        "artgod.collection_id": 1,
-                        "artgod.collection.owner_present": false,
-                        "artgod.collection.range_only_keys_count": 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                            false,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
+                            1,
                     },
                 },
             ]),

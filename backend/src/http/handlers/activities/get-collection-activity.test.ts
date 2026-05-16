@@ -1,4 +1,9 @@
 import type { FastifyRequest } from "fastify";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_TRACE_ATTRIBUTE_VALUE,
+} from "@artgod/shared/observability";
+import { ACTIVITY_FEED_FILTER_KIND } from "@artgod/shared/types";
 import { describe, expect, it } from "vitest";
 import {
     getCollectionActivitySpanAttributes,
@@ -14,19 +19,21 @@ describe("get collection activity span attributes", () => {
         );
 
         expect(attributes).toEqual({
-            "artgod.activity.limit": 250,
-            "artgod.activity.limit_present": true,
-            "artgod.activity.cursor_present": true,
-            "artgod.activity.kind": "sales",
-            "artgod.activity.extension_event": "none",
-            "artgod.activity.extension_event_present": false,
-            "artgod.activity.traits_count": 2,
-            "artgod.activity.trait_ranges_count": 1,
-            "artgod.activity.token_filter_present": true,
-            "artgod.activity.maker_filter_present": true,
-            "artgod.activity.content_hash_filter_present": true,
-            "artgod.activity.event_group_filter_present": true,
-            "artgod.activity.media_mode_present": true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: 250,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityLimitPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityKind]:
+                ACTIVITY_FEED_FILTER_KIND.Sales,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEvent]:
+                ARTGOD_TRACE_ATTRIBUTE_VALUE.None,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEventPresent]: false,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount]: 2,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitRangesCount]: 1,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityTokenFilterPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityMakerFilterPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityContentHashFilterPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityEventGroupFilterPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityMediaModePresent]: true,
         });
     });
 
@@ -38,9 +45,11 @@ describe("get collection activity span attributes", () => {
         );
 
         expect(attributes).toMatchObject({
-            "artgod.activity.kind": "none",
-            "artgod.activity.extension_event": "terraforms:beacon",
-            "artgod.activity.extension_event_present": true,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityKind]:
+                ARTGOD_TRACE_ATTRIBUTE_VALUE.None,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEvent]:
+                "terraforms:beacon",
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityExtensionEventPresent]: true,
         });
     });
 });

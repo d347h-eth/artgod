@@ -1,4 +1,9 @@
 import type { FastifyRequest } from "fastify";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_TRACE_ATTRIBUTE_VALUE,
+} from "@artgod/shared/observability";
+import { TOKEN_BROWSER_STATUS } from "@artgod/shared/types";
 import { describe, expect, it } from "vitest";
 import {
     getCollectionDetailSpanAttributes,
@@ -14,14 +19,15 @@ describe("get collection detail span attributes", () => {
         );
 
         expect(attributes).toEqual({
-            "artgod.collection.limit": 250,
-            "artgod.collection.limit_present": true,
-            "artgod.collection.cursor_present": true,
-            "artgod.collection.token_status": "all",
-            "artgod.collection.owner_present": true,
-            "artgod.collection.trait_filters_count": 2,
-            "artgod.collection.trait_ranges_count": 1,
-            "artgod.collection.media_mode_present": true,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionLimit]: 250,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionLimitPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
+                TOKEN_BROWSER_STATUS.All,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]: true,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]: 2,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitRangesCount]: 1,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionMediaModePresent]: true,
         });
     });
 
@@ -31,10 +37,11 @@ describe("get collection detail span attributes", () => {
         );
 
         expect(attributes).toMatchObject({
-            "artgod.collection.limit": undefined,
-            "artgod.collection.limit_present": false,
-            "artgod.collection.token_status": "invalid",
-            "artgod.collection.media_mode_present": false,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionLimit]: undefined,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionLimitPresent]: false,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
+                ARTGOD_TRACE_ATTRIBUTE_VALUE.Invalid,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionMediaModePresent]: false,
         });
     });
 });

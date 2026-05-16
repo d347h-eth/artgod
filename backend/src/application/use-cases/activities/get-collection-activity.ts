@@ -12,6 +12,7 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "@artgod/shared/types";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 import {
@@ -140,8 +141,8 @@ export class GetCollectionActivityUseCase {
             input.collectionRef,
         );
         const activityAttributes = {
-            "artgod.chain_id": chain.publicChainId,
-            "artgod.collection_id": collection.collectionId,
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: collection.collectionId,
         };
         const media = this.apm.withSyncSpan(
             "backend.activity.media_state",
@@ -157,10 +158,13 @@ export class GetCollectionActivityUseCase {
             "backend.activity.feed",
             {
                 ...activityAttributes,
-                "artgod.activity.limit": input.limit,
-                "artgod.activity.cursor_present": Boolean(input.cursor),
-                "artgod.activity.traits_count": input.traits.length,
-                "artgod.activity.trait_ranges_count": input.traitRanges.length,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: input.limit,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]:
+                    Boolean(input.cursor),
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount]:
+                    input.traits.length,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitRangesCount]:
+                    input.traitRanges.length,
             },
             () =>
                 this.activityReadPort.listCollectionActivities({
@@ -191,7 +195,7 @@ export class GetCollectionActivityUseCase {
             "backend.activity.trait_facets",
             {
                 ...activityAttributes,
-                "artgod.activity.range_only_keys_count":
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityRangeOnlyKeysCount]:
                     traitFilterPresentation.effectiveConfig.rangeKeys.length,
             },
             () =>
@@ -226,7 +230,8 @@ export class GetCollectionActivityUseCase {
             "backend.activity.token_includes",
             {
                 ...activityAttributes,
-                "artgod.activity.token_ids_count": activityTokenIds.length,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityTokenIdsCount]:
+                    activityTokenIds.length,
             },
             () =>
                 this.tokenPresentationReadPort.listCollectionTokenCardsByIds({
@@ -240,7 +245,8 @@ export class GetCollectionActivityUseCase {
             "backend.activity.event_media",
             {
                 ...activityAttributes,
-                "artgod.activity.activity_ids_count": activityIds.length,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityActivityIdsCount]:
+                    activityIds.length,
             },
             () =>
                 this.activityReadPort.listCollectionActivityEventMedia({

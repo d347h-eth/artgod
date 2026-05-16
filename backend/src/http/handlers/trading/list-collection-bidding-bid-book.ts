@@ -1,10 +1,19 @@
 import type { FastifyRequest } from "fastify";
+import { PAGINATION_QUERY_PARAMS } from "@artgod/shared/config/pagination";
 import { COLLECTION_MEDIA_QUERY_PARAMS } from "@artgod/shared/extensions";
 import type { SpanAttributes } from "@artgod/shared/observability/apm";
+import {
+    COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
+    TRAIT_FILTER_QUERY_PARAMS,
+} from "@artgod/shared/types";
 import type {
     ListCollectionBiddingBidBookInput,
     ListCollectionBiddingBidBookOutput,
 } from "../../../application/use-cases/trading/list-collection-bidding-bid-book.js";
+import {
+    BIDDING_SPAN_ATTRIBUTE,
+    TRACE_ATTRIBUTE_VALUE,
+} from "../../../application/use-cases/trading/bidding-observability.js";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
@@ -27,16 +36,16 @@ export type ListCollectionBiddingBidBookRoute = {
         collection_ref: string;
     };
     Querystring: {
-        bid_scope?: string;
-        cursor?: string;
-        limit?: string;
-        maker?: string;
-        media_mode?: string;
-        trait_join?: string;
-        traits?: string | string[];
-        trait?: string | string[];
-        trait_ranges?: string | string[];
-        trait_range?: string | string[];
+        [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope]?: string;
+        [PAGINATION_QUERY_PARAMS.Cursor]?: string;
+        [PAGINATION_QUERY_PARAMS.Limit]?: string;
+        [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker]?: string;
+        [COLLECTION_MEDIA_QUERY_PARAMS.MediaMode]?: string;
+        [COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin]?: string;
+        [TRAIT_FILTER_QUERY_PARAMS.Traits]?: string | string[];
+        [TRAIT_FILTER_QUERY_PARAMS.Trait]?: string | string[];
+        [TRAIT_FILTER_QUERY_PARAMS.TraitRanges]?: string | string[];
+        [TRAIT_FILTER_QUERY_PARAMS.TraitRange]?: string | string[];
     };
 };
 
@@ -60,17 +69,31 @@ export class ListCollectionBiddingBidBookHttpAdapter {
                 chainRef: request.params.chain_ref,
                 collectionRef: request.params.collection_ref,
                 scopeFilter: parseCollectionBiddingBidScopeFilter(
-                    searchParams.get("bid_scope"),
+                    searchParams.get(
+                        COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope,
+                    ),
                 ),
                 traitFilterJoinMode: parseCollectionBiddingTraitFilterJoinMode(
-                    searchParams.get("trait_join"),
+                    searchParams.get(
+                        COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin,
+                    ),
                 ),
                 traits: parseTraits(searchParams),
                 traitRanges: parseTraitRanges(searchParams),
-                makerAddress: parseMaker(searchParams.get("maker")),
-                mediaMode: parseMediaMode(searchParams.get("media_mode")),
-                limit: parseLimit(searchParams.get("limit")),
-                cursor: parseCursor(searchParams.get("cursor")),
+                makerAddress: parseMaker(
+                    searchParams.get(
+                        COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker,
+                    ),
+                ),
+                mediaMode: parseMediaMode(
+                    searchParams.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode),
+                ),
+                limit: parseLimit(
+                    searchParams.get(PAGINATION_QUERY_PARAMS.Limit),
+                ),
+                cursor: parseCursor(
+                    searchParams.get(PAGINATION_QUERY_PARAMS.Cursor),
+                ),
             },
         );
     };
@@ -82,28 +105,44 @@ export function getCollectionBiddingBidBookSpanAttributes(
 ): SpanAttributes {
     const searchParams = getSearchParams(request);
     return {
-        "artgod.bidding.scope_filter": normalizeScopeFilterAttribute(
-            searchParams.get("bid_scope"),
+        [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]: normalizeScopeFilterAttribute(
+            searchParams.get(
+                COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope,
+            ),
         ),
-        "artgod.bidding.trait_join": normalizeTraitJoinAttribute(
-            searchParams.get("trait_join"),
+        [BIDDING_SPAN_ATTRIBUTE.TraitJoin]: normalizeTraitJoinAttribute(
+            searchParams.get(
+                COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.TraitJoin,
+            ),
         ),
-        "artgod.bidding.limit": parseLimitAttribute(searchParams.get("limit")),
-        "artgod.bidding.limit_present": hasQueryValue(searchParams, "limit"),
-        "artgod.bidding.cursor_present": hasQueryValue(searchParams, "cursor"),
-        "artgod.bidding.maker_filter_present": hasQueryValue(
+        [BIDDING_SPAN_ATTRIBUTE.Limit]: parseLimitAttribute(
+            searchParams.get(PAGINATION_QUERY_PARAMS.Limit),
+        ),
+        [BIDDING_SPAN_ATTRIBUTE.LimitPresent]: hasQueryValue(
             searchParams,
-            "maker",
+            PAGINATION_QUERY_PARAMS.Limit,
         ),
-        "artgod.bidding.trait_filters_count": countDelimitedQuerySegments(
+        [BIDDING_SPAN_ATTRIBUTE.CursorPresent]: hasQueryValue(
             searchParams,
-            ["traits", "trait"],
+            PAGINATION_QUERY_PARAMS.Cursor,
         ),
-        "artgod.bidding.trait_ranges_count": countDelimitedQuerySegments(
+        [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]: hasQueryValue(
             searchParams,
-            ["trait_ranges", "trait_range"],
+            COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker,
         ),
-        "artgod.bidding.media_mode_present": hasQueryValue(
+        [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]:
+            countDelimitedQuerySegments(
+                searchParams,
+                [TRAIT_FILTER_QUERY_PARAMS.Traits, TRAIT_FILTER_QUERY_PARAMS.Trait],
+            ),
+        [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]: countDelimitedQuerySegments(
+            searchParams,
+            [
+                TRAIT_FILTER_QUERY_PARAMS.TraitRanges,
+                TRAIT_FILTER_QUERY_PARAMS.TraitRange,
+            ],
+        ),
+        [BIDDING_SPAN_ATTRIBUTE.MediaModePresent]: hasQueryValue(
             searchParams,
             COLLECTION_MEDIA_QUERY_PARAMS.MediaMode,
         ),
@@ -117,7 +156,7 @@ function normalizeScopeFilterAttribute(raw: string | null): string {
         value === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection ||
         value === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
         ? value
-        : "invalid";
+        : TRACE_ATTRIBUTE_VALUE.Invalid;
 }
 
 function normalizeTraitJoinAttribute(raw: string | null): string {
@@ -126,7 +165,7 @@ function normalizeTraitJoinAttribute(raw: string | null): string {
     return value === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or ||
         value === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
         ? value
-        : "invalid";
+        : TRACE_ATTRIBUTE_VALUE.Invalid;
 }
 
 function parseLimitAttribute(raw: string | null): number | undefined {

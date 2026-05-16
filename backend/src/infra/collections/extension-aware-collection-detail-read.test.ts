@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import { TERRAFORMS_EXTENSION_KEY } from "@artgod/shared/extensions/terraforms";
 import type {
@@ -71,24 +72,26 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
             {
                 name: "backend.extension.install_lookup",
                 attributes: {
-                    "artgod.chain_id": 1,
-                    "artgod.collection_id": 7,
+                    [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
                 },
             },
             {
                 name: "backend.extension.resolve",
                 attributes: {
-                    "artgod.chain_id": 1,
-                    "artgod.collection_id": 7,
-                    "artgod.extension.key": TERRAFORMS_EXTENSION_KEY,
+                    [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
+                    [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
+                        TERRAFORMS_EXTENSION_KEY,
                 },
             },
             {
                 name: "backend.extension.activity_event_feeds",
                 attributes: {
-                    "artgod.chain_id": 1,
-                    "artgod.collection_id": 7,
-                    "artgod.extension.key": TERRAFORMS_EXTENSION_KEY,
+                    [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
+                    [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
+                        TERRAFORMS_EXTENSION_KEY,
                 },
             },
         ]);
@@ -153,10 +156,11 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
         expect(apm.spans).toContainEqual({
             name: "backend.extension.artifacts_batch",
             attributes: expect.objectContaining({
-                "artgod.chain_id": 1,
-                "artgod.collection_id": 7,
-                "artgod.extension.key": TERRAFORMS_EXTENSION_KEY,
-                "artgod.tokens.count": 2,
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
+                [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
+                    TERRAFORMS_EXTENSION_KEY,
+                [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: 2,
             }),
         });
     });

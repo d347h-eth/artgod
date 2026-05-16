@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
-import { TRAIT_FILTER_DISPLAY_KIND } from "@artgod/shared/types";
+import {
+    TOKEN_BROWSER_STATUS,
+    TRAIT_FILTER_DISPLAY_KIND,
+} from "@artgod/shared/types";
 import type {
     ChainRecord,
     CollectionListItem,
@@ -71,7 +75,7 @@ describe("GetCollectionDetailUseCase observability", () => {
         const output = useCase.getCollectionDetail({
             chainRef: "ethereum",
             collectionRef: "terraforms",
-            tokenStatus: "listed",
+            tokenStatus: TOKEN_BROWSER_STATUS.Listed,
             limit: 50,
             traits: [],
             traitRanges: [],
@@ -94,16 +98,18 @@ describe("GetCollectionDetailUseCase observability", () => {
                 expect.objectContaining({
                     name: "backend.collection_detail.tokens",
                     attributes: expect.objectContaining({
-                        "artgod.chain_id": 1,
-                        "artgod.collection_id": 7,
-                        "artgod.collection.token_status": "listed",
-                        "artgod.collection.limit": 50,
+                        [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
+                            TOKEN_BROWSER_STATUS.Listed,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionLimit]: 50,
                     }),
                 }),
                 expect.objectContaining({
                     name: "backend.collection_detail.trait_facets",
                     attributes: expect.objectContaining({
-                        "artgod.collection.range_only_keys_count": 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
+                            1,
                     }),
                 }),
             ]),

@@ -1,5 +1,10 @@
-import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import type { TokenBrowserStatus } from '@artgod/shared/types/browse';
+import { DEFAULT_PAGE_LIMIT, PAGINATION_QUERY_PARAMS } from '@artgod/shared/config/pagination';
+import { COLLECTION_MEDIA_QUERY_PARAMS } from '@artgod/shared/extensions';
+import {
+	COLLECTION_DETAIL_QUERY_PARAMS,
+	TOKEN_BROWSER_STATUS,
+	type TokenBrowserStatus
+} from '@artgod/shared/types/browse';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 import { appendMediaModeParam, normalizeMediaMode } from '$lib/media-mode';
 import { normalizeBasePath, withQuery } from '$lib/route-paths';
@@ -10,8 +15,11 @@ import {
 	appendTraitRangeParams
 } from '$lib/trait-filters';
 
-export const TOKEN_STATUS_QUERY_PARAM = 'token_status';
-export const COLLECTION_TOKEN_STATUS_FILTERS = ['listed', 'all'] as const;
+export const TOKEN_STATUS_QUERY_PARAM = COLLECTION_DETAIL_QUERY_PARAMS.TokenStatus;
+export const COLLECTION_TOKEN_STATUS_FILTERS = [
+	TOKEN_BROWSER_STATUS.Listed,
+	TOKEN_BROWSER_STATUS.All
+] as const;
 export type CollectionTokenStatus = (typeof COLLECTION_TOKEN_STATUS_FILTERS)[number];
 
 export function normalizeTokenBrowserParams(
@@ -20,16 +28,22 @@ export function normalizeTokenBrowserParams(
 ): URLSearchParams {
 	const params = new URLSearchParams();
 
-	const limit = raw.get('limit');
-	params.set('limit', limit && /^\d+$/.test(limit) ? limit : String(DEFAULT_PAGE_LIMIT));
+	const limit = raw.get(PAGINATION_QUERY_PARAMS.Limit);
+	params.set(
+		PAGINATION_QUERY_PARAMS.Limit,
+		limit && /^\d+$/.test(limit) ? limit : String(DEFAULT_PAGE_LIMIT)
+	);
 
-	const cursor = raw.get('cursor');
+	const cursor = raw.get(PAGINATION_QUERY_PARAMS.Cursor);
 	if (cursor && cursor.trim()) {
-		params.set('cursor', cursor.trim());
+		params.set(PAGINATION_QUERY_PARAMS.Cursor, cursor.trim());
 	}
 
 	params.set(TOKEN_STATUS_QUERY_PARAM, tokenStatus);
-	appendMediaModeParam(params, normalizeMediaMode(raw.get('media_mode')));
+	appendMediaModeParam(
+		params,
+		normalizeMediaMode(raw.get(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode))
+	);
 	appendNormalizedTraitParams(params, raw);
 	appendNormalizedTraitRangeParams(params, raw);
 
@@ -46,12 +60,12 @@ export function buildTokenBrowserQuery(params: {
 	cursor?: string | null;
 }): URLSearchParams {
 	const query = new URLSearchParams();
-	query.set('limit', String(params.limit));
+	query.set(PAGINATION_QUERY_PARAMS.Limit, String(params.limit));
 	query.set('mode', params.displayMode);
 	query.set(TOKEN_STATUS_QUERY_PARAM, params.tokenStatus);
 	appendMediaModeParam(query, params.mediaMode ?? null);
 	if (params.cursor?.trim()) {
-		query.set('cursor', params.cursor.trim());
+		query.set(PAGINATION_QUERY_PARAMS.Cursor, params.cursor.trim());
 	}
 	appendTraitParams(query, params.selectedTraits);
 	appendTraitRangeParams(query, params.selectedTraitRanges);
@@ -99,7 +113,7 @@ export function buildOwnerTokensHref(params: {
 		basePath: params.basePath,
 		limit,
 		displayMode,
-		tokenStatus: 'listed_then_unlisted',
+		tokenStatus: TOKEN_BROWSER_STATUS.ListedThenUnlisted,
 		selectedTraits: params.selectedTraits,
 		selectedTraitRanges: params.selectedTraitRanges,
 		mediaMode: params.mediaMode ?? null,
@@ -136,7 +150,9 @@ export function parseDisplayMode(raw: string | null): 'grid' | 'table' {
 	return 'grid';
 }
 
-export function parseCollectionTokenStatus(raw: string | null): 'listed' | 'all' {
-	if (raw?.trim().toLowerCase() === 'all') return 'all';
-	return 'listed';
+export function parseCollectionTokenStatus(raw: string | null): CollectionTokenStatus {
+	if (raw?.trim().toLowerCase() === TOKEN_BROWSER_STATUS.All) {
+		return TOKEN_BROWSER_STATUS.All;
+	}
+	return TOKEN_BROWSER_STATUS.Listed;
 }

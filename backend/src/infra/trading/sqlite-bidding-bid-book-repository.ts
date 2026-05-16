@@ -42,6 +42,7 @@ import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
+import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidding-observability.js";
 
 type ProjectedBidBookRow = {
     order_id: string;
@@ -104,9 +105,19 @@ type BiddingJobSignal = {
     targetTraits: TradingTraitCriterion[];
 };
 
+const INDEXED_ORDER_SOURCE_SCOPE_KIND = {
+    Token: "token",
+    Collection: "collection",
+    Attribute: "attribute",
+    TokenSet: "token_set",
+} as const;
+
+type IndexedOrderSourceScopeKind =
+    (typeof INDEXED_ORDER_SOURCE_SCOPE_KIND)[keyof typeof INDEXED_ORDER_SOURCE_SCOPE_KIND];
+
 type IndexedOrderRow = {
     id: string;
-    source_scope_kind: "token" | "collection" | "attribute" | "token_set";
+    source_scope_kind: IndexedOrderSourceScopeKind;
     contract_address: string;
     price: string | null;
     currency: string | null;
@@ -298,9 +309,9 @@ export class SqliteBiddingBidBookRepository
         return this.apm.withSyncSpan(
             "backend.bidding.repository.token_bid_book",
             {
-                "artgod.chain_id": params.chainId,
-                "artgod.collection_id": params.collectionId,
-                "artgod.bidding.token_traits_count":
+                [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+                [BIDDING_SPAN_ATTRIBUTE.TokenTraitsCount]:
                     params.tokenTraits.length,
             },
             () => this.listTokenBidBookInner(params),
@@ -342,8 +353,8 @@ export class SqliteBiddingBidBookRepository
             {
                 ...attributes,
                 ...bidSummarySpanAttributes(rawBidBook.bids),
-                "artgod.bidding.source": source,
-                "artgod.bidding.own_maker_present":
+                [BIDDING_SPAN_ATTRIBUTE.Source]: source,
+                [BIDDING_SPAN_ATTRIBUTE.OwnMakerPresent]:
                     knownMakerAddress !== null,
             },
             () => markOwnBids(rawBidBook, knownMakerAddress),
@@ -354,7 +365,7 @@ export class SqliteBiddingBidBookRepository
             {
                 ...attributes,
                 ...bidSummarySpanAttributes(bidBook.bids),
-                "artgod.bidding.source": source,
+                [BIDDING_SPAN_ATTRIBUTE.Source]: source,
             },
             () =>
                 sortBidsDesc(
@@ -379,7 +390,7 @@ export class SqliteBiddingBidBookRepository
                 ...attributes,
                 ...bidSummarySpanAttributes(scopedBids),
                 ...jobSummarySpanAttributes(jobs),
-                "artgod.bidding.source": source,
+                [BIDDING_SPAN_ATTRIBUTE.Source]: source,
             },
             () => attachOwnBidRuntimeSignals(scopedBids, jobs),
         );
@@ -388,8 +399,8 @@ export class SqliteBiddingBidBookRepository
             {
                 ...attributes,
                 ...bidSummarySpanAttributes(signaledBids),
-                "artgod.bidding.source": source,
-                "artgod.bidding.maker_filter_present":
+                [BIDDING_SPAN_ATTRIBUTE.Source]: source,
+                [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]:
                     makerAddress !== null,
             },
             () =>
@@ -411,9 +422,10 @@ export class SqliteBiddingBidBookRepository
         tokenTraits: TradingTraitCriterion[];
     }): PersistedBiddingBidBook {
         const attributes = {
-            "artgod.chain_id": params.chainId,
-            "artgod.collection_id": params.collectionId,
-            "artgod.bidding.token_traits_count": params.tokenTraits.length,
+            [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+            [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+            [BIDDING_SPAN_ATTRIBUTE.TokenTraitsCount]:
+                params.tokenTraits.length,
         };
         const knownMakerAddress = this.apm.withSyncSpan(
             "backend.bidding.repository.known_maker",
@@ -440,8 +452,8 @@ export class SqliteBiddingBidBookRepository
             {
                 ...attributes,
                 ...bidSummarySpanAttributes(rawBidBook.bids),
-                "artgod.bidding.source": source,
-                "artgod.bidding.own_maker_present":
+                [BIDDING_SPAN_ATTRIBUTE.Source]: source,
+                [BIDDING_SPAN_ATTRIBUTE.OwnMakerPresent]:
                     knownMakerAddress !== null,
             },
             () => markOwnBids(rawBidBook, knownMakerAddress),
@@ -451,7 +463,7 @@ export class SqliteBiddingBidBookRepository
             {
                 ...attributes,
                 ...bidSummarySpanAttributes(bidBook.bids),
-                "artgod.bidding.source": source,
+                [BIDDING_SPAN_ATTRIBUTE.Source]: source,
             },
             () =>
                 sortBidsDesc(
@@ -477,7 +489,7 @@ export class SqliteBiddingBidBookRepository
                     ...attributes,
                     ...bidSummarySpanAttributes(bids),
                     ...jobSummarySpanAttributes(jobs),
-                    "artgod.bidding.source": source,
+                    [BIDDING_SPAN_ATTRIBUTE.Source]: source,
                 },
                 () => attachOwnBidRuntimeSignals(bids, jobs),
             ),
@@ -527,7 +539,7 @@ export class SqliteBiddingBidBookRepository
             "backend.bidding.repository.source_projection_state",
             {
                 ...attributes,
-                "artgod.bidding.snapshot_stale_ms":
+                [BIDDING_SPAN_ATTRIBUTE.SnapshotStaleMs]:
                     TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
             },
             () =>
@@ -610,7 +622,7 @@ export class SqliteBiddingBidBookRepository
     ): PersistedBiddingBidBook {
         const attributes = {
             ...baseCollectionSpanAttributes({ chainId, collectionId }),
-            "artgod.bidding.source":
+            [BIDDING_SPAN_ATTRIBUTE.Source]:
                 TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
         };
         const rows = this.apm.withSyncSpan(
@@ -658,7 +670,8 @@ export class SqliteBiddingBidBookRepository
         // Load active indexed OpenSea buy orders as the passive bid-book source.
         const attributes = {
             ...baseCollectionSpanAttributes({ chainId, collectionId }),
-            "artgod.bidding.source": TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+            [BIDDING_SPAN_ATTRIBUTE.Source]:
+                TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
         };
         const rows = this.apm.withSyncSpan(
             "backend.bidding.repository.orders_query",
@@ -682,7 +695,7 @@ export class SqliteBiddingBidBookRepository
             "backend.bidding.repository.orders_updated_at",
             {
                 ...attributes,
-                "artgod.bidding.orders_rows_count": rows.length,
+                [BIDDING_SPAN_ATTRIBUTE.OrdersRowsCount]: rows.length,
             },
             () => latestIsoTimestamp(rows.map((row) => row.updated_at)),
         );
@@ -703,8 +716,8 @@ function baseCollectionSpanAttributes(params: {
     collectionId: number;
 }): SpanAttributes {
     return {
-        "artgod.chain_id": params.chainId,
-        "artgod.collection_id": params.collectionId,
+        [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+        [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
     };
 }
 
@@ -719,12 +732,15 @@ function collectionBidBookSpanAttributes(params: {
 }): SpanAttributes {
     return {
         ...baseCollectionSpanAttributes(params),
-        "artgod.bidding.scope_filter": params.scopeFilter,
-        "artgod.bidding.trait_join": params.traitFilterJoinMode,
-        "artgod.bidding.trait_filters_count": params.selectedTraits.length,
-        "artgod.bidding.trait_ranges_count":
+        [BIDDING_SPAN_ATTRIBUTE.ScopeFilter]: params.scopeFilter,
+        [BIDDING_SPAN_ATTRIBUTE.TraitJoin]: params.traitFilterJoinMode,
+        [BIDDING_SPAN_ATTRIBUTE.TraitFiltersCount]:
+            params.selectedTraits.length,
+        [BIDDING_SPAN_ATTRIBUTE.TraitRangesCount]:
             params.selectedTraitRanges.length,
-        "artgod.bidding.maker_filter_present": Boolean(params.makerAddress),
+        [BIDDING_SPAN_ATTRIBUTE.MakerFilterPresent]: Boolean(
+            params.makerAddress,
+        ),
     };
 }
 
@@ -744,15 +760,17 @@ function bidSummarySpanAttributes(
     }
 
     return {
-        "artgod.bidding.bids_count": bids.length,
-        "artgod.bidding.collection_scope_bids_count": scopeCounts.collection,
-        "artgod.bidding.trait_scope_bids_count": scopeCounts.trait,
-        "artgod.bidding.token_scope_bids_count": scopeCounts.token,
-        "artgod.bidding.token_set_scope_bids_count": scopeCounts.tokenSet,
-        "artgod.bidding.unknown_scope_bids_count": scopeCounts.unknown,
-        "artgod.bidding.own_bids_count": ownBids,
-        "artgod.bidding.encoded_token_id_bids_count": encodedTokenIdBids,
-        "artgod.bidding.trait_criteria_count": traitCriteria,
+        [BIDDING_SPAN_ATTRIBUTE.BidsCount]: bids.length,
+        [BIDDING_SPAN_ATTRIBUTE.CollectionScopeBidsCount]:
+            scopeCounts.collection,
+        [BIDDING_SPAN_ATTRIBUTE.TraitScopeBidsCount]: scopeCounts.trait,
+        [BIDDING_SPAN_ATTRIBUTE.TokenScopeBidsCount]: scopeCounts.token,
+        [BIDDING_SPAN_ATTRIBUTE.TokenSetScopeBidsCount]: scopeCounts.tokenSet,
+        [BIDDING_SPAN_ATTRIBUTE.UnknownScopeBidsCount]: scopeCounts.unknown,
+        [BIDDING_SPAN_ATTRIBUTE.OwnBidsCount]: ownBids,
+        [BIDDING_SPAN_ATTRIBUTE.EncodedTokenIdBidsCount]:
+            encodedTokenIdBids,
+        [BIDDING_SPAN_ATTRIBUTE.TraitCriteriaCount]: traitCriteria,
     };
 }
 
@@ -772,19 +790,21 @@ function projectionRowSummarySpanAttributes(
     }
 
     return {
-        "artgod.bidding.projection_rows_count": rows.length,
-        "artgod.bidding.projection_collection_scope_rows_count":
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionRowsCount]: rows.length,
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionCollectionScopeRowsCount]:
             scopeCounts.collection,
-        "artgod.bidding.projection_trait_scope_rows_count": scopeCounts.trait,
-        "artgod.bidding.projection_token_scope_rows_count": scopeCounts.token,
-        "artgod.bidding.projection_token_set_scope_rows_count":
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionTraitScopeRowsCount]:
+            scopeCounts.trait,
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionTokenScopeRowsCount]:
+            scopeCounts.token,
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionTokenSetScopeRowsCount]:
             scopeCounts.tokenSet,
-        "artgod.bidding.projection_unknown_scope_rows_count":
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionUnknownScopeRowsCount]:
             scopeCounts.unknown,
-        "artgod.bidding.projection_own_rows_count": ownRows,
-        "artgod.bidding.projection_encoded_token_id_rows_count":
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionOwnRowsCount]: ownRows,
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionEncodedTokenIdRowsCount]:
             encodedTokenIdRows,
-        "artgod.bidding.projection_trait_json_rows_count": traitJsonRows,
+        [BIDDING_SPAN_ATTRIBUTE.ProjectionTraitJsonRowsCount]: traitJsonRows,
     };
 }
 
@@ -806,18 +826,20 @@ function indexedOrderRowSummarySpanAttributes(
     }
 
     return {
-        "artgod.bidding.orders_rows_count": rows.length,
-        "artgod.bidding.orders_collection_scope_rows_count":
+        [BIDDING_SPAN_ATTRIBUTE.OrdersRowsCount]: rows.length,
+        [BIDDING_SPAN_ATTRIBUTE.OrdersCollectionScopeRowsCount]:
             scopeCounts.collection,
-        "artgod.bidding.orders_attribute_scope_rows_count":
+        [BIDDING_SPAN_ATTRIBUTE.OrdersAttributeScopeRowsCount]:
             scopeCounts.attribute,
-        "artgod.bidding.orders_token_scope_rows_count": scopeCounts.token,
-        "artgod.bidding.orders_token_set_scope_rows_count":
+        [BIDDING_SPAN_ATTRIBUTE.OrdersTokenScopeRowsCount]:
+            scopeCounts.token,
+        [BIDDING_SPAN_ATTRIBUTE.OrdersTokenSetScopeRowsCount]:
             scopeCounts.tokenSet,
-        "artgod.bidding.orders_raw_rest_rows_count": rawRestRows,
-        "artgod.bidding.orders_raw_stream_rows_count": rawStreamRows,
-        "artgod.bidding.orders_seaport_json_rows_count": seaportJsonRows,
-        "artgod.bidding.orders_valid_until_rows_count": validUntilRows,
+        [BIDDING_SPAN_ATTRIBUTE.OrdersRawRestRowsCount]: rawRestRows,
+        [BIDDING_SPAN_ATTRIBUTE.OrdersRawStreamRowsCount]: rawStreamRows,
+        [BIDDING_SPAN_ATTRIBUTE.OrdersSeaportJsonRowsCount]:
+            seaportJsonRows,
+        [BIDDING_SPAN_ATTRIBUTE.OrdersValidUntilRowsCount]: validUntilRows,
     };
 }
 
@@ -835,14 +857,15 @@ function jobRowSummarySpanAttributes(
     }
 
     return {
-        "artgod.bidding.jobs_count": rows.length,
-        "artgod.bidding.enabled_jobs_count": statusCounts.enabled,
-        "artgod.bidding.paused_jobs_count": statusCounts.paused,
-        "artgod.bidding.token_jobs_count": targetCounts.token,
-        "artgod.bidding.collection_jobs_count": targetCounts.collection,
-        "artgod.bidding.competitive_trait_jobs_count":
+        [BIDDING_SPAN_ATTRIBUTE.JobsCount]: rows.length,
+        [BIDDING_SPAN_ATTRIBUTE.EnabledJobsCount]: statusCounts.enabled,
+        [BIDDING_SPAN_ATTRIBUTE.PausedJobsCount]: statusCounts.paused,
+        [BIDDING_SPAN_ATTRIBUTE.TokenJobsCount]: targetCounts.token,
+        [BIDDING_SPAN_ATTRIBUTE.CollectionJobsCount]:
+            targetCounts.collection,
+        [BIDDING_SPAN_ATTRIBUTE.CompetitiveTraitJobsCount]:
             targetCounts.competitiveTrait,
-        "artgod.bidding.job_trait_json_rows_count": traitJsonRows,
+        [BIDDING_SPAN_ATTRIBUTE.JobTraitJsonRowsCount]: traitJsonRows,
     };
 }
 
@@ -858,14 +881,15 @@ function jobSummarySpanAttributes(jobs: BiddingJobSignal[]): SpanAttributes {
     }
 
     return {
-        "artgod.bidding.jobs_count": jobs.length,
-        "artgod.bidding.enabled_jobs_count": statusCounts.enabled,
-        "artgod.bidding.paused_jobs_count": statusCounts.paused,
-        "artgod.bidding.token_jobs_count": targetCounts.token,
-        "artgod.bidding.collection_jobs_count": targetCounts.collection,
-        "artgod.bidding.competitive_trait_jobs_count":
+        [BIDDING_SPAN_ATTRIBUTE.JobsCount]: jobs.length,
+        [BIDDING_SPAN_ATTRIBUTE.EnabledJobsCount]: statusCounts.enabled,
+        [BIDDING_SPAN_ATTRIBUTE.PausedJobsCount]: statusCounts.paused,
+        [BIDDING_SPAN_ATTRIBUTE.TokenJobsCount]: targetCounts.token,
+        [BIDDING_SPAN_ATTRIBUTE.CollectionJobsCount]:
+            targetCounts.collection,
+        [BIDDING_SPAN_ATTRIBUTE.CompetitiveTraitJobsCount]:
             targetCounts.competitiveTrait,
-        "artgod.bidding.job_target_traits_count": targetTraits,
+        [BIDDING_SPAN_ATTRIBUTE.JobTargetTraitsCount]: targetTraits,
     };
 }
 
@@ -930,16 +954,16 @@ function tallyIndexedOrderScope(
     scopeKind: IndexedOrderRow["source_scope_kind"],
 ): void {
     switch (scopeKind) {
-        case "collection":
+        case INDEXED_ORDER_SOURCE_SCOPE_KIND.Collection:
             counts.collection += 1;
             return;
-        case "attribute":
+        case INDEXED_ORDER_SOURCE_SCOPE_KIND.Attribute:
             counts.attribute += 1;
             return;
-        case "token":
+        case INDEXED_ORDER_SOURCE_SCOPE_KIND.Token:
             counts.token += 1;
             return;
-        case "token_set":
+        case INDEXED_ORDER_SOURCE_SCOPE_KIND.TokenSet:
             counts.tokenSet += 1;
     }
 }
