@@ -113,6 +113,97 @@ describe("SqliteCollectionsReadModel observability", () => {
         );
     });
 
+    it("short-circuits listed-token trait filters when no tokens match", () => {
+        insertToken("1", "100");
+        insertToken("2", "200");
+        insertTokenTrait("1", "Hat", "Beanie");
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.Listed,
+            traitFilters: [{ key: "Mode", value: "Terrain" }],
+            limit: 250,
+        });
+
+        expect(page.items).toEqual([]);
+        expect(page.totalItems).toBe(0);
+        expect(page.rangeStart).toBe(0);
+        expect(apm.spans.map((span) => span.name)).toContain(
+            "backend.collection.db.trait_filter_token_candidates",
+        );
+        expect(apm.spans.map((span) => span.name)).not.toContain(
+            "backend.collection.db.tokens_page",
+        );
+        expect(apm.spans.map((span) => span.name)).not.toContain(
+            "backend.collection.db.tokens_count",
+        );
+    });
+
+    it("uses exact trait candidates for listed-token pagination", () => {
+        insertToken("1", "300");
+        insertToken("2", "100");
+        insertToken("3", "200");
+        insertToken("4", "150");
+        insertTokenTrait("1", "Hat", "Beanie");
+        insertTokenTrait("1", "Mode", "Terrain");
+        insertTokenTrait("2", "Hat", "Cap");
+        insertTokenTrait("2", "Mode", "Terrain");
+        insertTokenTrait("3", "Hat", "Beanie");
+        insertTokenTrait("3", "Mode", "Space");
+        insertTokenTrait("4", "Hat", "Beanie");
+        insertTokenTrait("4", "Mode", "Terrain");
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.Listed,
+            traitFilters: [
+                { key: "Hat", value: "Beanie" },
+                { key: "Mode", value: "Terrain" },
+            ],
+            limit: 250,
+        });
+
+        expect(page.items.map((token) => token.tokenId)).toEqual(["4", "1"]);
+        expect(page.items.map((token) => token.listingPrice)).toEqual([
+            "150",
+            "300",
+        ]);
+        expect(page.totalItems).toBe(2);
+        expect(apm.spans.map((span) => span.name)).toEqual(
+            expect.arrayContaining([
+                "backend.collection.db.trait_filter_token_candidates",
+                "backend.collection.db.tokens_page",
+                "backend.collection.db.tokens_count",
+            ]),
+        );
+    });
+
+    it("hydrates explicit token-card listings without changing caller order", () => {
+        insertToken("1", "100");
+        insertToken("2", "200");
+        insertToken("3", "1");
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
+
+        const cards = readModel.listCollectionTokenCardsByIds({
+            chainId: 1,
+            collectionId: 1,
+            tokenIds: ["2", "1"],
+            includeListings: true,
+        });
+
+        expect(cards.map((token) => token.tokenId)).toEqual(["2", "1"]);
+        expect(cards.map((token) => token.listingPrice)).toEqual([
+            "200",
+            "100",
+        ]);
+    });
+
     it("returns range-only trait facets without high-cardinality values", () => {
         insertTraitStat("Hat", "Beanie", 2);
         insertTraitStat("???", "123456789", 1);
@@ -291,6 +382,48 @@ function insertToken(tokenId: string, price: string): void {
         null,
         null,
     );
+}
+
+function insertTokenTrait(tokenId: string, key: string, value: string): void {
+    const keyId = getOrCreateAttributeKey(key);
+    const attributeId = getOrCreateAttribute(keyId, value);
+    db.prepare(
+        "INSERT INTO token_attributes (chain_id, collection_id, token_id, attribute_id) VALUES (?, ?, ?, ?)",
+    ).run(1, 1, tokenId, attributeId);
+}
+
+function getOrCreateAttributeKey(key: string): number {
+    const row = db
+        .prepare(
+            "SELECT id FROM attribute_keys WHERE chain_id = ? AND collection_id = ? AND key = ?",
+        )
+        .get(1, 1, key) as { id: number } | undefined;
+    if (row) {
+        return row.id;
+    }
+    const result = db
+        .prepare(
+            "INSERT INTO attribute_keys (chain_id, collection_id, key) VALUES (?, ?, ?)",
+        )
+        .run(1, 1, key);
+    return Number(result.lastInsertRowid);
+}
+
+function getOrCreateAttribute(attributeKeyId: number, value: string): number {
+    const row = db
+        .prepare(
+            "SELECT id FROM attributes WHERE chain_id = ? AND collection_id = ? AND attribute_key_id = ? AND value = ?",
+        )
+        .get(1, 1, attributeKeyId, value) as { id: number } | undefined;
+    if (row) {
+        return row.id;
+    }
+    const result = db
+        .prepare(
+            "INSERT INTO attributes (chain_id, collection_id, attribute_key_id, value) VALUES (?, ?, ?, ?)",
+        )
+        .run(1, 1, attributeKeyId, value);
+    return Number(result.lastInsertRowid);
 }
 
 function insertTraitStat(key: string, value: string, tokenCount: number): void {

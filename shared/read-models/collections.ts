@@ -685,16 +685,40 @@ export class SqliteCollectionsReadModel {
         } = buildTokenQueryParts({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            traitFilterGroups: params.traitFilterGroups,
+            traitFilterGroups: [],
             traitRangeFilterGroups: params.traitRangeFilterGroups,
             owner: params.owner,
         });
+        const exactTraitTokenIds =
+            params.traitFilterGroups.length > 0
+                ? this.apm.withSyncSpan(
+                      "backend.collection.db.trait_filter_token_candidates",
+                      spanAttributes,
+                      () =>
+                          listExactTraitFilterTokenIds({
+                              chainId: params.chainId,
+                              collectionId: params.collectionId,
+                              traitFilterGroups: params.traitFilterGroups,
+                          }),
+                  )
+                : null;
+        if (exactTraitTokenIds?.length === 0) {
+            return emptyTokenCursorPage(params.limit);
+        }
         const listingValues = buildCheapestListingValues({
             chainId: params.chainId,
             collectionId: params.collectionId,
             supportedCurrencies: this.supportedListingCurrencies,
             nowSeconds: params.nowSeconds,
         });
+        const constrainedListingValues =
+            exactTraitTokenIds === null
+                ? listingValues
+                : [...listingValues, ...exactTraitTokenIds];
+        const listingSql = buildCheapestListingSql(
+            this.supportedListingCurrencies.length,
+            exactTraitTokenIds?.length ?? 0,
+        );
         const cursorKey = params.cursor
             ? toListingCursorKey(
                   params.cursor.listingPrice,
@@ -704,7 +728,7 @@ export class SqliteCollectionsReadModel {
         const whereClauses = [...baseWhereClauses];
         const values: unknown[] = [
             ...baseJoinValues,
-            ...listingValues,
+            ...constrainedListingValues,
             ...baseWhereValues,
         ];
 
@@ -719,7 +743,7 @@ export class SqliteCollectionsReadModel {
             "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
-            `JOIN (${buildCheapestListingSql(this.supportedListingCurrencies.length)}) l ` +
+            `JOIN (${listingSql}) l ` +
             "ON l.collection_id = t.collection_id " +
             "AND l.token_id = t.token_id " +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
@@ -747,12 +771,10 @@ export class SqliteCollectionsReadModel {
                   spanAttributes,
                   () =>
                       deriveListedPrevCursor({
-                          listingSql: buildCheapestListingSql(
-                              this.supportedListingCurrencies.length,
-                          ),
+                          listingSql,
                           baseJoinClauses,
                           baseJoinValues,
-                          listingValues,
+                          listingValues: constrainedListingValues,
                           baseWhereClauses,
                           baseWhereValues,
                           cursor: params.cursor,
@@ -773,10 +795,8 @@ export class SqliteCollectionsReadModel {
                 countMatchingListedTokens({
                     joinClauses: baseJoinClauses,
                     joinValues: baseJoinValues,
-                    listingSql: buildCheapestListingSql(
-                        this.supportedListingCurrencies.length,
-                    ),
-                    listingValues,
+                    listingSql,
+                    listingValues: constrainedListingValues,
                     whereClauses: baseWhereClauses,
                     whereValues: baseWhereValues,
                 }),
@@ -793,10 +813,8 @@ export class SqliteCollectionsReadModel {
                       countMatchingListedTokens({
                           joinClauses: baseJoinClauses,
                           joinValues: baseJoinValues,
-                          listingSql: buildCheapestListingSql(
-                              this.supportedListingCurrencies.length,
-                          ),
-                          listingValues,
+                          listingSql,
+                          listingValues: constrainedListingValues,
                           whereClauses: [
                               ...baseWhereClauses,
                               `${LISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?)`,
@@ -1402,6 +1420,7 @@ export class SqliteCollectionsReadModel {
     }): TokenDetailRow | undefined {
         const listingSql = buildCheapestListingSql(
             this.supportedListingCurrencies.length,
+            1,
         );
         const listingValues = buildCheapestListingValues({
             chainId: params.chainId,
@@ -1425,6 +1444,7 @@ export class SqliteCollectionsReadModel {
             )
             .get(
                 ...listingValues,
+                params.tokenId,
                 params.chainId,
                 params.collectionId,
                 params.tokenId,
@@ -1441,7 +1461,10 @@ export class SqliteCollectionsReadModel {
 
         const includeListings = params.includeListings === true;
         const listingSql = includeListings
-            ? buildCheapestListingSql(this.supportedListingCurrencies.length)
+            ? buildCheapestListingSql(
+                  this.supportedListingCurrencies.length,
+                  tokenIds.length,
+              )
             : null;
         const listingValues = includeListings
             ? buildCheapestListingValues({
@@ -1471,6 +1494,7 @@ export class SqliteCollectionsReadModel {
             )
             .all(
                 ...listingValues,
+                ...(includeListings ? tokenIds : []),
                 params.chainId,
                 params.collectionId,
                 ...tokenIds,
@@ -1621,6 +1645,70 @@ function countCollectionTokens(chainId: number, collectionId: number): number {
         )
         .get(chainId, collectionId) as { count: number };
     return row.count;
+}
+
+function emptyTokenCursorPage(limit: number): TokenCursorPage {
+    return {
+        items: [],
+        prevCursor: null,
+        nextCursor: null,
+        limit,
+        totalItems: 0,
+        rangeStart: 0,
+        rangeEnd: 0,
+        currentPage: 0,
+        totalPages: 0,
+    };
+}
+
+function listExactTraitFilterTokenIds(params: {
+    chainId: number;
+    collectionId: number;
+    traitFilterGroups: TraitFilterGroup[];
+}): string[] {
+    if (params.traitFilterGroups.length === 0) {
+        return [];
+    }
+
+    const traitClauses: string[] = [];
+    const values: unknown[] = [params.chainId, params.collectionId];
+    for (const filterGroup of params.traitFilterGroups) {
+        const valuePlaceholders = filterGroup.values.map(() => "?").join(", ");
+        traitClauses.push(
+            `(ak.key = ? AND a.value IN (${valuePlaceholders}))`,
+        );
+        values.push(filterGroup.key, ...filterGroup.values);
+    }
+    values.push(
+        params.chainId,
+        params.collectionId,
+        params.traitFilterGroups.length,
+    );
+
+    // Resolve exact trait matches once so listed-token queries can avoid per-token correlated checks.
+    const rows = db.raw
+        .prepare(
+            "WITH matching_attributes AS (" +
+                "SELECT ak.key, a.id AS attribute_id " +
+                "FROM attribute_keys ak " +
+                "JOIN attributes a ON a.attribute_key_id = ak.id " +
+                "AND a.chain_id = ak.chain_id " +
+                "AND a.collection_id = ak.collection_id " +
+                "WHERE ak.chain_id = ? " +
+                "AND ak.collection_id = ? " +
+                `AND (${traitClauses.join(" OR ")})` +
+                ") " +
+                "SELECT ta.token_id " +
+                "FROM matching_attributes ma " +
+                "JOIN token_attributes ta ON ta.attribute_id = ma.attribute_id " +
+                "WHERE ta.chain_id = ? " +
+                "AND ta.collection_id = ? " +
+                "GROUP BY ta.token_id " +
+                "HAVING COUNT(DISTINCT ma.key) = ? " +
+                "ORDER BY ta.token_id",
+        )
+        .all(...values) as TokenIdRow[];
+    return rows.map((row) => row.token_id);
 }
 
 function hydrateTokenRowsWithCheapestListings(params: {
