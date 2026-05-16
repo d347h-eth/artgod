@@ -635,6 +635,20 @@ export type DefaultChainResponse = {
 	chain: ApiChain;
 };
 
+export type ApiOpenSeaIntegrationStatus = {
+	enabled: boolean;
+	mode: 'auto' | 'enabled' | 'disabled';
+	reason: string | null;
+	missingKeys: string[];
+	requiredKeys: string[];
+};
+
+export type RuntimeConfigApiResponse = {
+	integrations: {
+		opensea: ApiOpenSeaIntegrationStatus;
+	};
+};
+
 export type ApiBootstrapRun = {
 	runId: number;
 	chainId: number;

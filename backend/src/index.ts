@@ -16,6 +16,7 @@ import { ListBootstrapRunsUseCase } from "./application/use-cases/bootstrap/list
 import { RetryBootstrapRunFailedTasksUseCase } from "./application/use-cases/bootstrap/retry-bootstrap-run-failed-tasks.js";
 import { logger } from "@artgod/shared/utils";
 import { GetDefaultChainUseCase } from "./application/use-cases/chains/get-default-chain.js";
+import { GetRuntimeConfigUseCase } from "./application/use-cases/config/get-runtime-config.js";
 import { GetCollectionActivityUseCase } from "./application/use-cases/activities/get-collection-activity.js";
 import { GetActivityEventPreviewUseCase } from "./application/use-cases/activities/get-activity-event-preview.js";
 import { GetTokenActivityUseCase } from "./application/use-cases/activities/get-token-activity.js";
@@ -190,6 +191,7 @@ export function createBackendApp(
         new BuiltInCollectionExtensionResolver();
     const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
         config.defaultChainId,
+        config.integrations.opensea,
         chainsReadModel,
         bootstrapRunsRepository,
         builtInCollectionExtensionResolver,
@@ -207,6 +209,7 @@ export function createBackendApp(
     );
     const getBootstrapRunDetailUseCase = new GetBootstrapRunDetailUseCase(
         config.defaultChainId,
+        config.integrations.opensea,
         chainsReadModel,
         bootstrapRunsRepository,
     );
@@ -220,6 +223,9 @@ export function createBackendApp(
     const getDefaultChainUseCase = new GetDefaultChainUseCase(
         config.defaultChainId,
         chainsReadModel,
+    );
+    const getRuntimeConfigUseCase = new GetRuntimeConfigUseCase(
+        config.integrations.opensea,
     );
     const listCollectionsUseCase = new ListCollectionsUseCase(
         config.defaultChainId,
@@ -452,6 +458,7 @@ export function createBackendApp(
         getBootstrapStatusUseCase,
         retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
+        getRuntimeConfigUseCase,
         listCollectionsUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,

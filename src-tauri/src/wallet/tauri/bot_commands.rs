@@ -20,6 +20,12 @@ use crate::wallet::infra::storage::FsWalletStore;
 use super::WalletCommandState;
 use crate::DesktopState;
 
+const BIDDING_OPEN_SEA_SECRET_KEYS: &[&str] = &[
+    "OPENSEA_STREAM_SECRET_KEY",
+    "OPENSEA_BIDDING_SECRET_KEY",
+    "OPENSEA_SNAPSHOT_SECRET_KEY",
+];
+
 /// Tauri-managed bot command state for wallet-bound runtime control.
 #[derive(Clone)]
 pub struct BotCommandState {
@@ -56,16 +62,22 @@ impl BotCommandState {
         )
     }
 
-    fn list_bots(&self, runtime: &RuntimeManager) -> Result<Vec<BotRuntimeDto>, String> {
+    fn list_bots(
+        &self,
+        app: &AppHandle,
+        runtime: &RuntimeManager,
+    ) -> Result<Vec<BotRuntimeDto>, String> {
         let wallets = self
             .store
             .list_wallets()
             .map_err(|error| format!("Wallet metadata could not be loaded: {error}"))?;
         let runtime_snapshots = runtime.list_bot_runtime_snapshots()?;
-        Ok(runtime_snapshots
-            .iter()
-            .map(|snapshot| self.to_bot_runtime_dto(snapshot, &wallets))
-            .collect())
+        let mut bot_dtos = Vec::with_capacity(runtime_snapshots.len());
+        for snapshot in &runtime_snapshots {
+            let disabled_reason = resolve_bot_disabled_reason(app, snapshot.bot_kind)?;
+            bot_dtos.push(self.to_bot_runtime_dto(snapshot, &wallets, disabled_reason));
+        }
+        Ok(bot_dtos)
     }
 
     fn assign_wallet(
@@ -102,7 +114,8 @@ impl BotCommandState {
             .store
             .list_wallets()
             .map_err(|error| format!("Wallet metadata could not be loaded: {error}"))?;
-        Ok(self.to_bot_runtime_dto(&snapshot, &wallets))
+        let disabled_reason = resolve_bot_disabled_reason(app, bot_kind)?;
+        Ok(self.to_bot_runtime_dto(&snapshot, &wallets, disabled_reason))
     }
 
     async fn start_bot(
@@ -111,6 +124,16 @@ impl BotCommandState {
         runtime: &RuntimeManager,
         bot_kind: BotKind,
     ) -> Result<BotRuntimeDto, String> {
+        if let Some(reason) = resolve_bot_disabled_reason(app, bot_kind)? {
+            runtime.set_bot_runtime_state(
+                app,
+                bot_kind,
+                BotRuntimeState::Disabled,
+                Some(reason.clone()),
+            )?;
+            return Err(reason);
+        }
+
         let wallets = self
             .store
             .list_wallets()
@@ -150,7 +173,7 @@ impl BotCommandState {
                     &format!("{bot_kind:?} bot unlock prompt cancelled"),
                 );
                 runtime.set_bot_runtime_state(app, bot_kind, BotRuntimeState::Locked, None)?;
-                return self.get_bot_runtime_dto(runtime, bot_kind);
+                return self.get_bot_runtime_dto(app, runtime, bot_kind);
             }
             Err(error) => {
                 append_desktop_log(app, "error", &format!("Bot unlock prompt failed: {error}"));
@@ -219,7 +242,7 @@ impl BotCommandState {
                 "Trading bot failed to start. See desktop-app logs.".to_owned()
             })?;
 
-        self.get_bot_runtime_dto(runtime, bot_kind)
+        self.get_bot_runtime_dto(app, runtime, bot_kind)
     }
 
     fn stop_bot(
@@ -229,11 +252,12 @@ impl BotCommandState {
         bot_kind: BotKind,
     ) -> Result<BotRuntimeDto, String> {
         runtime.stop_bot_runtime(app, bot_kind)?;
-        self.get_bot_runtime_dto(runtime, bot_kind)
+        self.get_bot_runtime_dto(app, runtime, bot_kind)
     }
 
     fn get_bot_runtime_dto(
         &self,
+        app: &AppHandle,
         runtime: &RuntimeManager,
         bot_kind: BotKind,
     ) -> Result<BotRuntimeDto, String> {
@@ -244,13 +268,15 @@ impl BotCommandState {
         let snapshot = runtime
             .bot_runtime_state(bot_kind)?
             .ok_or_else(|| "Bot runtime snapshot is unavailable.".to_owned())?;
-        Ok(self.to_bot_runtime_dto(&snapshot, &wallets))
+        let disabled_reason = resolve_bot_disabled_reason(app, bot_kind)?;
+        Ok(self.to_bot_runtime_dto(&snapshot, &wallets, disabled_reason))
     }
 
     fn to_bot_runtime_dto(
         &self,
         snapshot: &BotRuntimeSnapshot,
         wallets: &[WalletMetadata],
+        disabled_reason: Option<String>,
     ) -> BotRuntimeDto {
         let assigned_wallet = wallets
             .iter()
@@ -260,11 +286,13 @@ impl BotCommandState {
         BotRuntimeDto {
             bot_kind: BotKindDto::from_domain(snapshot.bot_kind),
             process_name: snapshot.process_name.clone(),
-            state: BotRuntimeStateDto::from_runtime_state(
+            state: BotRuntimeStateDto::from_runtime_snapshot(
                 snapshot.state,
                 assigned_wallet.is_some(),
+                disabled_reason.as_deref(),
             ),
             last_error: snapshot.last_error.clone(),
+            disabled_reason,
             critical_dependencies: snapshot
                 .critical_dependencies
                 .iter()
@@ -324,6 +352,7 @@ pub struct BotRuntimeDto {
     process_name: String,
     state: BotRuntimeStateDto,
     last_error: Option<String>,
+    disabled_reason: Option<String>,
     critical_dependencies: Vec<BotCriticalDependencyStatusDto>,
     assigned_wallet: Option<BotAssignedWalletDto>,
 }
@@ -345,7 +374,14 @@ impl BotKindDto {
 }
 
 impl BotRuntimeStateDto {
-    fn from_runtime_state(state: BotRuntimeState, has_assignment: bool) -> Self {
+    fn from_runtime_snapshot(
+        state: BotRuntimeState,
+        has_assignment: bool,
+        disabled_reason: Option<&str>,
+    ) -> Self {
+        if disabled_reason.is_some() && !is_runtime_state_active(state) {
+            return Self::Disabled;
+        }
         match state {
             BotRuntimeState::Disabled if has_assignment => Self::Locked,
             BotRuntimeState::Disabled => Self::Disabled,
@@ -358,6 +394,16 @@ impl BotRuntimeStateDto {
             BotRuntimeState::Error => Self::Error,
         }
     }
+}
+
+fn is_runtime_state_active(state: BotRuntimeState) -> bool {
+    matches!(
+        state,
+        BotRuntimeState::AwaitingUnlock
+            | BotRuntimeState::Starting
+            | BotRuntimeState::Bootstrapping
+            | BotRuntimeState::Running
+    )
 }
 
 impl BotAssignedWalletDto {
@@ -389,13 +435,84 @@ impl BotCriticalDependencyStatusDto {
 }
 
 fn is_bot_runtime_busy(snapshot: &BotRuntimeSnapshot) -> bool {
-    matches!(
-        snapshot.state,
-        BotRuntimeState::AwaitingUnlock
-            | BotRuntimeState::Starting
-            | BotRuntimeState::Bootstrapping
-            | BotRuntimeState::Running
-    )
+    is_runtime_state_active(snapshot.state)
+}
+
+fn resolve_bot_disabled_reason(
+    app: &AppHandle,
+    bot_kind: BotKind,
+) -> Result<Option<String>, String> {
+    let capabilities = DesktopRuntimeConfig::load_capabilities(app)?;
+    if !capabilities.opensea.enabled {
+        return Ok(Some(
+            capabilities
+                .opensea
+                .reason
+                .unwrap_or_else(|| "OpenSea integration is disabled".to_owned()),
+        ));
+    }
+
+    let process_env = DesktopRuntimeConfig::load_process_env(app)?;
+    if bot_kind == BotKind::Bidding {
+        if !parse_optional_bool(&process_env, "BIDDING_ENABLED", true)? {
+            return Ok(Some("BIDDING_ENABLED=false".to_owned()));
+        }
+        let missing = missing_env_keys(&process_env, BIDDING_OPEN_SEA_SECRET_KEYS);
+        if !missing.is_empty() {
+            return Ok(Some(format!(
+                "Bidding bot disabled because {} {} not configured",
+                join_key_list(&missing),
+                if missing.len() == 1 { "is" } else { "are" }
+            )));
+        }
+    }
+
+    Ok(None)
+}
+
+fn missing_env_keys(
+    process_env: &std::collections::HashMap<String, String>,
+    keys: &[&str],
+) -> Vec<String> {
+    keys.iter()
+        .filter(|key| {
+            process_env
+                .get(**key)
+                .map(String::as_str)
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+        })
+        .map(|key| (*key).to_owned())
+        .collect()
+}
+
+fn parse_optional_bool(
+    process_env: &std::collections::HashMap<String, String>,
+    key: &str,
+    default_value: bool,
+) -> Result<bool, String> {
+    let Some(value) = process_env.get(key) else {
+        return Ok(default_value);
+    };
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Ok(default_value);
+    }
+    match normalized.as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(format!(
+            "Invalid {key}: {value}. Use true/false, 1/0, yes/no, on/off."
+        )),
+    }
+}
+
+fn join_key_list(keys: &[String]) -> String {
+    if keys.len() == 1 {
+        return keys[0].clone();
+    }
+    keys.join(", ")
 }
 
 fn sanitize_assign_wallet_error(error: AssignWalletToBotError) -> String {
@@ -437,10 +554,11 @@ fn sanitize_prompt_error(error: &SecretPromptError) -> String {
 
 #[tauri::command]
 pub fn bot_list(
+    app: AppHandle,
     desktop: State<'_, DesktopState>,
     state: State<'_, BotCommandState>,
 ) -> Result<Vec<BotRuntimeDto>, String> {
-    state.list_bots(&desktop.runtime)
+    state.list_bots(&app, &desktop.runtime)
 }
 
 #[tauri::command]

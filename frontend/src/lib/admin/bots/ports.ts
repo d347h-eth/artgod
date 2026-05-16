@@ -26,6 +26,7 @@ export type AdminBotRecord = {
 	processName: string;
 	state: AdminBotState;
 	lastError: string | null;
+	disabledReason: string | null;
 	criticalDependencies: AdminBotCriticalDependency[];
 	assignedWallet: AdminBotAssignedWallet | null;
 };

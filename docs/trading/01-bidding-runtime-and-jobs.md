@@ -19,6 +19,8 @@ Current implementation:
 - collection-scoped price tiers can resolve reusable floor/ceiling/delta settings into scalar job specs
 - sniping remains staged but not functionally ported
 
+Admin start eligibility depends on OpenSea capability. If `OPENSEA_INTEGRATION_MODE=disabled`, or `auto` has no `OPENSEA_API_KEY`, the Admin UI reports the OpenSea disabled reason and the native command refuses to start the bot. Bidding also stays disabled until `OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, and `OPENSEA_SNAPSHOT_SECRET_KEY` are configured.
+
 ## Hard Invariants
 
 - The bidding runtime keeps direct OpenSea stream, REST, SDK, and snapshot lanes.

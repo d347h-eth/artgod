@@ -2,6 +2,11 @@ import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import {
+    assertOpenSeaIntegrationModeSatisfied,
+    resolveOpenSeaIntegrationStatus,
+    type OpenSeaIntegrationStatus,
+} from "@artgod/shared/config/opensea-integration";
+import {
     parseBoolean,
     parsePositiveInteger,
     parseRequiredString,
@@ -25,7 +30,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
     "tauri://localhost",
 ];
 const DEFAULT_BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS = 30 * 1000;
-const DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS = 10 * 60 * 1000;
+const DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS =
+    10 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES = 250;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS = 10 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS = 20 * 60 * 1000;
@@ -105,6 +111,9 @@ export type BackendConfig = {
     queryCache: BackendQueryCacheConfig;
     metrics: BackendMetricsConfig;
     apm: BackendApmConfig;
+    integrations: {
+        opensea: OpenSeaIntegrationStatus;
+    };
 };
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -145,6 +154,11 @@ export function loadBackendConfig(
     const queryCache = parseQueryCacheConfig(env);
     const metrics = parseBackendMetricsConfig(env);
     const apm = parseBackendApmConfig(env);
+    const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
+    assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
+    const integrations = {
+        opensea: openseaIntegration,
+    };
 
     return {
         host,
@@ -161,6 +175,7 @@ export function loadBackendConfig(
         queryCache,
         metrics,
         apm,
+        integrations,
     };
 }
 

@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
-	import type { ApiChain, BootstrapRunsApiResponse } from '$lib/api-types';
+	import type {
+		ApiChain,
+		ApiOpenSeaIntegrationStatus,
+		BootstrapRunsApiResponse
+	} from '$lib/api-types';
 	import { createBootstrapRun } from '$lib/backend-api';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
@@ -9,12 +13,14 @@
 		chain,
 		page,
 		status,
-		basePath
+		basePath,
+		openseaIntegration
 	}: {
 		chain: ApiChain | null;
 		page: BootstrapRunsApiResponse['page'];
 		status: string;
 		basePath: string;
+		openseaIntegration: ApiOpenSeaIntegrationStatus | null;
 	} = $props();
 
 	const statusOptions = ['', 'requested', 'queued', 'metadata', 'ownership', 'backfill', 'completed', 'failed'];
@@ -35,6 +41,12 @@
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
 	let submitSuccess = $state<string | null>(null);
+	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
+	let openSeaDisabledReason = $derived(
+		openseaIntegration && !openseaIntegration.enabled
+			? (openseaIntegration.reason ?? 'OpenSea integration disabled')
+			: null
+	);
 
 	function normalizeFieldValue(value: unknown): string {
 		if (typeof value === 'string') return value.trim();
@@ -86,7 +98,9 @@
 
 		const slug = normalizeFieldValue(bootstrapSlug).toLowerCase();
 		const address = normalizeFieldValue(bootstrapAddress).toLowerCase();
-		const openseaSlug = normalizeFieldValue(bootstrapOpenSeaSlug).toLowerCase();
+		const openseaSlug = openSeaEnabled
+			? normalizeFieldValue(bootstrapOpenSeaSlug).toLowerCase()
+			: '';
 		if (!slug || !address) {
 			submitError = 'slug and address are required';
 			return;
@@ -220,11 +234,17 @@
 				</label>
 				<label class="bootstrap-form-row">
 					<span>opensea slug</span>
-					<input
-						bind:value={bootstrapOpenSeaSlug}
-						class={`${bootstrapInputClass} bootstrap-input-slug`}
-						type="text"
-					/>
+					<div class="bootstrap-input-with-note">
+						<input
+							bind:value={bootstrapOpenSeaSlug}
+							class={`${bootstrapInputClass} bootstrap-input-slug`}
+							type="text"
+							disabled={!openSeaEnabled}
+						/>
+						{#if openSeaDisabledReason}
+							<span class="muted">{openSeaDisabledReason}</span>
+						{/if}
+					</div>
 				</label>
 				<label class="bootstrap-form-row">
 					<span>metadata mode</span>

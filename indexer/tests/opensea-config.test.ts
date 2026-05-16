@@ -34,4 +34,14 @@ describe("OpenSea config", () => {
         expect(config.metrics.enabled).toBe(true);
         expect(config.metrics.ports.reconcileWorker).toBe(9573);
     });
+
+    it("fails when an OpenSea worker starts without enabled integration", () => {
+        expect(() =>
+            loadOpenSeaConfig({
+                ARTGOD_DB_PATH: "database/sqlite/test/db",
+            }),
+        ).toThrow(
+            "OpenSea integration disabled because OPENSEA_API_KEY is not configured",
+        );
+    });
 });

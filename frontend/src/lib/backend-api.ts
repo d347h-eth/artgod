@@ -22,6 +22,7 @@ import type {
 	CollectionsApiResponse,
 	DefaultChainResponse,
 	OwnerRefResolutionApiResponse,
+	RuntimeConfigApiResponse,
 	TokenBiddingBidBookApiResponse,
 	TokenBiddingJobApiResponse,
 	TokenBiddingJobMutationApiResponse,
@@ -51,6 +52,10 @@ export class BackendApiError extends Error {
 
 export async function getDefaultChain(fetchFn: typeof fetch): Promise<DefaultChainResponse> {
 	return requestJson<DefaultChainResponse>(fetchFn, '/api/chains/default');
+}
+
+export async function getRuntimeConfig(fetchFn: typeof fetch): Promise<RuntimeConfigApiResponse> {
+	return requestJson<RuntimeConfigApiResponse>(fetchFn, '/api/runtime/config');
 }
 
 export async function getCollectionsPage(

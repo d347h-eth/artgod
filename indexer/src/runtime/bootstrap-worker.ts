@@ -1,6 +1,7 @@
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
+import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
@@ -156,6 +157,7 @@ async function main() {
                             config.bootstrap.metadataConcurrency,
                             config.bootstrap.metadataProcessPollMs,
                             config.bootstrap.metadataRetryPolicy,
+                            config.integrations.opensea,
                             job.payload as BootstrapMetadataProcessPayload,
                             job.traceId ?? job.jobId,
                             job.jobId,
@@ -616,6 +618,7 @@ async function handleBootstrapMetadataProcess(
     metadataConcurrency: number,
     metadataPollMs: number,
     metadataRetryPolicy: RetryPolicy,
+    openSeaIntegration: OpenSeaIntegrationStatus,
     payload: BootstrapMetadataProcessPayload,
     traceId: string,
     sourceJobId: string,
@@ -759,6 +762,7 @@ async function handleBootstrapMetadataProcess(
         bootstrapRuns,
         payload,
         backfillBatchSize,
+        openSeaIntegration,
         traceId,
         sourceJobId,
     );
@@ -954,14 +958,17 @@ async function ensureBackfillScheduled(
     bootstrapRuns: BootstrapRunsPort,
     payload: BootstrapMetadataProcessPayload,
     backfillBatchSize: number,
+    openSeaIntegration: OpenSeaIntegrationStatus,
     traceId: string,
     sourceJobId: string,
 ): Promise<void> {
-    collections.markOpenSeaPending(payload.chainId, payload.collectionId);
-    await scheduleOpenSeaBootstrap(queue, {
-        chainId: payload.chainId,
-        collectionId: payload.collectionId,
-    });
+    await maybeScheduleOpenSeaBootstrap(
+        queue,
+        collections,
+        bootstrapRuns,
+        payload,
+        openSeaIntegration,
+    );
 
     const fromBlock = payload.anchorBlock + 1;
     if (fromBlock <= 0) {
@@ -1059,6 +1066,55 @@ async function ensureBackfillScheduled(
         collectionId: payload.collectionId,
         fromBlock,
         toBlock: head,
+    });
+}
+
+async function maybeScheduleOpenSeaBootstrap(
+    queue: QueuePort,
+    collections: CollectionRegistryPort,
+    bootstrapRuns: BootstrapRunsPort,
+    payload: BootstrapMetadataProcessPayload,
+    openSeaIntegration: OpenSeaIntegrationStatus,
+): Promise<void> {
+    if (!openSeaIntegration.enabled) {
+        bootstrapRuns.appendRunEvent({
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            eventCode: "opensea.skipped",
+            eventLevel: "info",
+            message:
+                "OpenSea bootstrap skipped because integration is disabled",
+            payloadJson: JSON.stringify({
+                reason: openSeaIntegration.reason,
+                missingKeys: openSeaIntegration.missingKeys,
+            }),
+        });
+        return;
+    }
+
+    const collection = collections.getCollection(
+        payload.chainId,
+        payload.collectionId,
+    );
+    if (!collection?.openseaSlug) {
+        bootstrapRuns.appendRunEvent({
+            runId: payload.runId,
+            chainId: payload.chainId,
+            collectionId: payload.collectionId,
+            eventCode: "opensea.skipped",
+            eventLevel: "info",
+            message:
+                "OpenSea bootstrap skipped because no OpenSea slug is configured",
+            payloadJson: null,
+        });
+        return;
+    }
+
+    collections.markOpenSeaPending(payload.chainId, payload.collectionId);
+    await scheduleOpenSeaBootstrap(queue, {
+        chainId: payload.chainId,
+        collectionId: payload.collectionId,
     });
 }
 

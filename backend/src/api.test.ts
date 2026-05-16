@@ -38,6 +38,7 @@ import {
     QUERY_CACHE_DEBUG_HEADER_NAME,
     QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
 } from "./utils/query-cache-debug.js";
+import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 
 const MILADY_ADDRESS = "0x1111111111111111111111111111111111111111";
 const TERRAFORMS_ADDRESS = "0x2222222222222222222222222222222222222222";
@@ -57,6 +58,13 @@ const API_SECURITY_CONFIG: BackendSecurityConfig = {
         "https://artgod.network",
     ],
     csrfCookieSecure: false,
+};
+const ENABLED_OPENSEA_INTEGRATION: OpenSeaIntegrationStatus = {
+    enabled: true,
+    mode: "auto",
+    reason: null,
+    missingKeys: [],
+    requiredKeys: ["OPENSEA_API_KEY"],
 };
 
 let dbPath = "";
@@ -80,6 +88,8 @@ beforeAll(async () => {
     const backendAppModule = await import("./index.js");
     const chainsUseCaseModule =
         await import("./application/use-cases/chains/get-default-chain.js");
+    const runtimeConfigUseCaseModule =
+        await import("./application/use-cases/config/get-runtime-config.js");
     const listCollectionsUseCaseModule =
         await import("./application/use-cases/collections/list-collections.js");
     const collectionDetailUseCaseModule =
@@ -87,9 +97,7 @@ beforeAll(async () => {
     const collectionActivityUseCaseModule =
         await import("./application/use-cases/activities/get-collection-activity.js");
     const activityEventPreviewUseCaseModule =
-        await import(
-            "./application/use-cases/activities/get-activity-event-preview.js"
-        );
+        await import("./application/use-cases/activities/get-activity-event-preview.js");
     const collectionHoldersUseCaseModule =
         await import("./application/use-cases/collections/get-collection-holders.js");
     const tokenDetailUseCaseModule =
@@ -142,6 +150,10 @@ beforeAll(async () => {
     const activitiesReadModel = new readModels.SqliteActivitiesReadModel();
     const getDefaultChainUseCase =
         new chainsUseCaseModule.GetDefaultChainUseCase(1, chainsReadModel);
+    const getRuntimeConfigUseCase =
+        new runtimeConfigUseCaseModule.GetRuntimeConfigUseCase(
+            ENABLED_OPENSEA_INTEGRATION,
+        );
     const listCollectionsUseCase =
         new listCollectionsUseCaseModule.ListCollectionsUseCase(
             1,
@@ -315,7 +327,7 @@ beforeAll(async () => {
     const archiveTokenBiddingJobUseCaseModule =
         await import(
             "./application/use-cases/trading/archive-token-bidding-job.js"
-        );
+    );
     const archiveCollectionBiddingPriceTierUseCaseModule = await import(
         "./application/use-cases/trading/archive-collection-bidding-price-tier.js"
     );
@@ -468,9 +480,8 @@ beforeAll(async () => {
         );
     const bootstrapRepositoryModule =
         await import("./infra/bootstrap/sqlite-bootstrap-runs.js");
-    const collectionExtensionResolverModule = await import(
-        "./infra/collection-extensions/built-in-collection-extension-resolver.js"
-    );
+    const collectionExtensionResolverModule =
+        await import("./infra/collection-extensions/built-in-collection-extension-resolver.js");
     const createBootstrapUseCaseModule =
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
     const getBootstrapStatusUseCaseModule =
@@ -493,6 +504,7 @@ beforeAll(async () => {
     const createBootstrapRunUseCase =
         new createBootstrapUseCaseModule.CreateBootstrapRunUseCase(
             1,
+            ENABLED_OPENSEA_INTEGRATION,
             chainsReadModel,
             bootstrapRepository,
             builtInCollectionExtensionResolver,
@@ -513,6 +525,7 @@ beforeAll(async () => {
     const getBootstrapRunDetailUseCase =
         new getBootstrapRunDetailUseCaseModule.GetBootstrapRunDetailUseCase(
             1,
+            ENABLED_OPENSEA_INTEGRATION,
             chainsReadModel,
             bootstrapRepository,
         );
@@ -531,6 +544,7 @@ beforeAll(async () => {
         getBootstrapStatusUseCase,
         retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
+        getRuntimeConfigUseCase,
         listCollectionsUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
@@ -575,6 +589,7 @@ beforeAll(async () => {
         getBootstrapStatusUseCase,
         retryBootstrapRunFailedTasksUseCase,
         getDefaultChainUseCase,
+        getRuntimeConfigUseCase,
         listCollectionsUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
@@ -666,6 +681,9 @@ beforeAll(async () => {
                 pyroscopeUrl: "http://127.0.0.1:4040",
             },
         },
+        integrations: {
+            opensea: ENABLED_OPENSEA_INTEGRATION,
+        },
     });
     await app.ready();
     await publicApp.ready();
@@ -689,6 +707,14 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.chain.publicChainId).toBe(1);
         expect(result.payload.chain.slug).toBe("ethereum");
+    });
+
+    it("returns runtime integration config", async () => {
+        const result = await resolve("GET", "/api/runtime/config");
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.integrations.opensea).toEqual(
+            ENABLED_OPENSEA_INTEGRATION,
+        );
     });
 
     it("resolves ENS owner refs on the public API", async () => {
@@ -876,13 +902,11 @@ describe("backend api routes", () => {
             validUntil: 4_000_000_000,
             rawRestData: {
                 order_hash: "bid-book-raw-biome-42",
-                protocol_address:
-                    "0x0000000000000068f116a894984e2db1123eb395",
+                protocol_address: "0x0000000000000068f116a894984e2db1123eb395",
                 remaining_quantity: 2,
                 protocol_data: {
                     parameters: {
-                        offerer:
-                            "0x9999999999999999999999999999999999999999",
+                        offerer: "0x9999999999999999999999999999999999999999",
                         offer: [
                             {
                                 itemType: 1,
@@ -981,17 +1005,14 @@ describe("backend api routes", () => {
         );
         expect(tokenScopedBidBook.statusCode).toBe(200);
         expect(tokenScopedBidBook.payload.scopeFilter).toBe("token");
-        const tokenScopedOrderIds =
-            tokenScopedBidBook.payload.bidBook.bids.map(
-                (bid: { orderId: string }) => bid.orderId,
-            );
+        const tokenScopedOrderIds = tokenScopedBidBook.payload.bidBook.bids.map(
+            (bid: { orderId: string }) => bid.orderId,
+        );
         expect(tokenScopedOrderIds).toContain("bid-book-token-1");
         expect(tokenScopedOrderIds).not.toContain("bid-book-token-1-low");
         expect(tokenScopedOrderIds).not.toContain("bid-book-collection");
         expect(tokenScopedOrderIds).not.toContain("bid-book-raw-biome-42");
-        expect(tokenScopedOrderIds).not.toContain(
-            "bid-book-biome-42-terrain",
-        );
+        expect(tokenScopedOrderIds).not.toContain("bid-book-biome-42-terrain");
         const tokenOneOfferCard =
             tokenScopedBidBook.payload.tokenOfferCards.items.find(
                 (card: { tokenId: string }) => card.tokenId === "1",
@@ -1070,9 +1091,7 @@ describe("backend api routes", () => {
             (bid: { orderId: string }) => bid.orderId,
         );
         expect(strictTraitOrderIds).toContain("bid-book-raw-biome-42");
-        expect(strictTraitOrderIds).not.toContain(
-            "bid-book-biome-42-terrain",
-        );
+        expect(strictTraitOrderIds).not.toContain("bid-book-biome-42-terrain");
 
         const exactMultiTraitBidBook = await resolve(
             "GET",
@@ -1084,9 +1103,7 @@ describe("backend api routes", () => {
                 (bid: { orderId: string }) => bid.orderId,
             );
         expect(exactMultiTraitOrderIds).toContain("bid-book-biome-42-terrain");
-        expect(exactMultiTraitOrderIds).not.toContain(
-            "bid-book-raw-biome-42",
-        );
+        expect(exactMultiTraitOrderIds).not.toContain("bid-book-raw-biome-42");
 
         const tokenBidBook = await resolve(
             "GET",
@@ -2001,9 +2018,7 @@ describe("backend api routes", () => {
         ).toBe("5000");
         expect(
             Number(
-                warmed.headers[
-                    QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()
-                ],
+                warmed.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()],
             ),
         ).toBeGreaterThanOrEqual(0);
 
@@ -2117,13 +2132,16 @@ describe("backend api routes", () => {
             33.3333,
             3,
         );
-        expect(result.payload.traitFilterPresentation.effectiveConfig.rangeKeys).toEqual(
-            [],
-        );
+        expect(
+            result.payload.traitFilterPresentation.effectiveConfig.rangeKeys,
+        ).toEqual([]);
     });
 
     it("returns token preview with only media payload needed by the modal", async () => {
-        const result = await resolve("GET", "/api/ethereum/terraforms/7710/preview");
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/terraforms/7710/preview",
+        );
 
         expect(result.statusCode).toBe(200);
         expect(Object.keys(result.payload)).toEqual(["media", "token"]);
@@ -2189,7 +2207,9 @@ describe("backend api routes", () => {
     });
 
     it("warms preview cache from the default collection page", async () => {
-        const page = await waitForCachedHit("/api/ethereum/terraforms?limit=250");
+        const page = await waitForCachedHit(
+            "/api/ethereum/terraforms?limit=250",
+        );
         expect(page.statusCode).toBe(200);
         await waitForAsyncTasks();
 
@@ -3021,9 +3041,7 @@ describe("backend api routes", () => {
         );
         expect(activity).toBeDefined();
         expect(
-            result.payload.included.eventMediaByActivityId[
-                String(activity.id)
-            ],
+            result.payload.included.eventMediaByActivityId[String(activity.id)],
         ).toMatchObject({
             image: "data:image/svg+xml;base64,event-canvas",
             mediaRef: TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS.TerraformedPreview,
@@ -3663,10 +3681,15 @@ describe("backend api routes", () => {
     });
 
     it("returns CORS headers for local desktop WebView origins", async () => {
-        const response = await resolve("GET", "/api/chains/default", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "tauri://localhost",
-        });
+        const response = await resolve(
+            "GET",
+            "/api/chains/default",
+            undefined,
+            {
+                host: "127.0.0.1:3000",
+                origin: "tauri://localhost",
+            },
+        );
 
         expect(response.statusCode).toBe(200);
         expect(response.headers["access-control-allow-origin"]).toBe(
@@ -3712,9 +3735,7 @@ describe("backend api routes", () => {
             .get(create.payload.runId) as
             | { request_extension_key: string | null }
             | undefined;
-        expect(row?.request_extension_key).toBe(
-            TERRAFORMS_EXTENSION_KEY,
-        );
+        expect(row?.request_extension_key).toBe(TERRAFORMS_EXTENSION_KEY);
     });
 
     it("lists bootstrap runs and returns run detail", async () => {
@@ -4109,7 +4130,9 @@ async function issueAdminCsrf(): Promise<Record<string, string>> {
         origin: "http://127.0.0.1:5173",
     });
     if (csrf.statusCode !== 200) {
-        throw new Error(`Expected CSRF token request to succeed: ${csrf.statusCode}`);
+        throw new Error(
+            `Expected CSRF token request to succeed: ${csrf.statusCode}`,
+        );
     }
 
     return {
@@ -4731,7 +4754,9 @@ function clearTradingJobFixtures(): void {
 
 function listTradingCommandKinds(): string[] {
     const rows = db
-        .prepare("SELECT command_kind FROM trading_job_commands ORDER BY command_id ASC")
+        .prepare(
+            "SELECT command_kind FROM trading_job_commands ORDER BY command_id ASC",
+        )
         .all() as { command_kind: string }[];
     return rows.map((row) => row.command_kind);
 }

@@ -1608,6 +1608,21 @@ fn spawn_runtime_processes(
             stop_all_processes(&mut processes);
             return Err(SpawnRuntimeError::Cancelled);
         }
+        if is_opensea_worker(name) && !config.capabilities.opensea.enabled {
+            let reason = config
+                .capabilities
+                .opensea
+                .reason
+                .as_deref()
+                .unwrap_or("OpenSea integration is disabled");
+            emit_supervisor_log(
+                app,
+                &config.logs_dir,
+                "info",
+                &format!("Skipping process {name}: {reason}"),
+            );
+            continue;
+        }
         let process = match spawn_node_process(app, config, name, artifact) {
             Ok(process) => process,
             Err(error) => {
@@ -1635,6 +1650,16 @@ fn spawn_runtime_processes(
     }
 
     Ok(processes)
+}
+
+fn is_opensea_worker(process_name: &str) -> bool {
+    matches!(
+        process_name,
+        "indexer-opensea-stream-worker"
+            | "indexer-opensea-bootstrap-worker"
+            | "indexer-opensea-reconcile-worker"
+            | "indexer-opensea-reconcile-scheduler-worker"
+    )
 }
 
 fn sleep_with_stop(stop_rx: &Receiver<()>, stop_signal: &AtomicBool, duration: Duration) -> bool {
@@ -2156,7 +2181,9 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
-    use crate::runtime::config::DesktopWalletConfig;
+    use crate::runtime::config::{
+        DesktopRuntimeCapabilities, DesktopWalletConfig, RuntimeCapability,
+    };
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -2196,6 +2223,14 @@ mod tests {
                 ("NODE_ENV".to_owned(), "production".to_owned()),
             ]),
             logs_dir: PathBuf::from("/runtime/logs"),
+            capabilities: DesktopRuntimeCapabilities {
+                opensea: RuntimeCapability {
+                    enabled: true,
+                    mode: "auto".to_owned(),
+                    reason: None,
+                    missing_keys: Vec::new(),
+                },
+            },
             wallet: DesktopWalletConfig {
                 store_dir: PathBuf::from("/runtime/wallets"),
                 index_path: PathBuf::from("/runtime/wallets/index.json"),

@@ -4,11 +4,11 @@ This document describes the explicit configuration model used by the indexer and
 
 ## Runtime Config Loader
 
-Config is loaded in `indexer/src/config/index.ts` (core indexer workers) and `indexer/src/config/opensea.ts` (OpenSea bootstrap/stream/reconcile workers). There are no scattered `process.env` reads in runtime logic; values are pulled once and passed through.
+Config is loaded in `indexer/src/config/index.ts` (core indexer workers) and `indexer/src/config/opensea.ts` (OpenSea bootstrap/stream/reconcile workers). Backend uses `backend/src/config.ts`, and shared integration capability semantics live in `shared/config/opensea-integration.ts`. There are no scattered `process.env` reads in runtime logic; values are pulled once and passed through.
 
 - `.env` is loaded at startup via `dotenv`.
 - `loadConfig()` reads the current environment and produces a typed config object.
-- Errors are thrown immediately for missing required values.
+- Errors are thrown immediately for missing required values. Optional integrations are represented as typed capability state instead of implicit defaults.
 
 - `IndexerConfig`:
     - `chainId`
@@ -46,11 +46,22 @@ The indexer reads these variables from the root `.env`:
 
 `RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
 
+### OpenSea Integration Mode (.env)
+
+OpenSea integration is controlled by `OPENSEA_INTEGRATION_MODE`:
+
+- `auto` (default): OpenSea is enabled only when `OPENSEA_API_KEY` is present. Missing key disables OpenSea workers, OpenSea bootstrap, and OpenSea-dependent Admin bot starts without failing core backend/indexer startup.
+- `enabled`: OpenSea is mandatory. Missing `OPENSEA_API_KEY` is a startup configuration error.
+- `disabled`: OpenSea is intentionally disabled even if `OPENSEA_API_KEY` is present.
+
+Backend exposes the resolved capability at `GET /api/runtime/config` so userland can disable OpenSea-only bootstrap fields. Desktop Rust resolves the same capability before supervisor composition and before Admin bot starts.
+
 ### OpenSea Offchain (.env)
 
-The OpenSea workers use a separate config loader (`indexer/src/config/opensea.ts`) and require:
+The OpenSea workers use a separate config loader (`indexer/src/config/opensea.ts`) and require enabled OpenSea integration:
 
-- `OPENSEA_API_KEY` (required)
+- `OPENSEA_INTEGRATION_MODE` (default: `auto`)
+- `OPENSEA_API_KEY` (required when OpenSea integration is enabled)
 - `OPENSEA_SNAPSHOT_PAGE_SIZE` (default: `100`)
 - `OPENSEA_RECONCILE_INTERVAL_MS` (default: `900000`)
 - `OPENSEA_STALE_START_THRESHOLD_MS` (default: `1800000`)
@@ -81,6 +92,7 @@ CACHE_TTL_MS=30000
 OFFCHAIN_PERSIST_RAW_OBSERVATIONS=true
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
+OPENSEA_INTEGRATION_MODE=auto
 OPENSEA_API_KEY=
 OPENSEA_SNAPSHOT_PAGE_SIZE=100
 OPENSEA_RECONCILE_INTERVAL_MS=900000
@@ -116,6 +128,7 @@ Example (from `.env.test.example`):
 
 ```
 ARTGOD_DB_PATH=database/sqlite/test/db
+OPENSEA_INTEGRATION_MODE=auto
 OPENSEA_API_KEY=test-opensea-api-key
 SMOKE_NATS_PORT=10247
 SMOKE_RPC_URL=http://127.0.0.1:8545

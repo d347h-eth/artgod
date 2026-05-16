@@ -89,9 +89,9 @@ The first embedded extension, Terraforms, uses this shadow path to cache version
 
 ### 7. Schedule OpenSea bootstrap
 
-After local metadata + ownership are available, bootstrap enqueues an OpenSea bootstrap job.
+After local metadata + ownership are available, bootstrap enqueues an OpenSea bootstrap job only when OpenSea integration is enabled and the collection has an explicit OpenSea slug.
 
-That OpenSea flow does:
+When enabled, that OpenSea flow does:
 
 1. read the persisted `collections.opensea_slug`
 2. mark OpenSea lifecycle state pending/running for that collection
@@ -99,6 +99,8 @@ That OpenSea flow does:
 4. let the stream worker subscribe using the persisted slug when the snapshot path completes
 
 This OpenSea work runs in parallel with the short onchain backfill.
+
+When OpenSea is disabled (`OPENSEA_INTEGRATION_MODE=disabled` or `auto` with no `OPENSEA_API_KEY`), bootstrap records an `opensea.skipped` run event and does not mark collection OpenSea state pending. When OpenSea is enabled but no slug was configured, bootstrap also records `opensea.skipped` and continues onchain bootstrap without OpenSea work.
 
 ### 8. Mark collection `live`
 
@@ -157,10 +159,13 @@ Manual historical backfill before `bootstrap_anchor_block` does not improve or c
 A collection should be considered OpenSea-ready once:
 
 - an explicit OpenSea slug was provided and persisted
+- OpenSea integration is enabled
 - initial snapshot succeeded
 - `collections.opensea_status = ready`
 
 Stream health is tracked separately. Stream degradation does not unset OpenSea readiness; reconcile is the recovery path.
+
+If OpenSea integration is disabled, there is no OpenSea-ready target for bootstrap. The collection can still become onchain-live, and run-detail polling treats the OpenSea steps as out of scope.
 
 ## Eventual Consistency Note
 
@@ -204,3 +209,5 @@ Workers:
 - `opensea-reconcile-scheduler-worker`
 - `offchain-ingest-worker`
 - `domain-worker`
+
+In desktop composition, OpenSea workers are staged but not launched when the resolved OpenSea capability is disabled. In standalone dev, starting an OpenSea worker directly still fails fast unless OpenSea integration is enabled.

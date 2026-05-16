@@ -9,6 +9,7 @@ import {
     type CollectionExtensionKey,
     type EmbeddedCollectionExtensionScope,
 } from "@artgod/shared/extensions";
+import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type {
     BootstrapCommandQueuePort,
     BootstrapRunsWritePort,
@@ -30,10 +31,10 @@ export interface EmbeddedCollectionExtensionResolverPort {
 export class CreateBootstrapRunUseCase {
     constructor(
         private readonly defaultChainId: number,
+        private readonly openseaIntegration: OpenSeaIntegrationStatus,
         private readonly chainRefResolverPort: ChainRefResolverPort,
         private readonly bootstrapRunsPort: BootstrapRunsWritePort,
-        private readonly embeddedExtensionResolverPort:
-            EmbeddedCollectionExtensionResolverPort,
+        private readonly embeddedExtensionResolverPort: EmbeddedCollectionExtensionResolverPort,
         private readonly bootstrapQueuePort: BootstrapCommandQueuePort,
     ) {}
 
@@ -48,6 +49,7 @@ export class CreateBootstrapRunUseCase {
         const slug = normalizeSlug(input.slug);
         const address = normalizeAddress(input.address);
         const openseaSlug = normalizeOptionalSlug(input.openseaSlug);
+        assertOpenSeaSlugIsAllowed(openseaSlug, this.openseaIntegration);
         const metadataMode = input.metadataMode;
         if (metadataMode !== "best_effort" && metadataMode !== "strict") {
             throw new BootstrapValidationError("Invalid metadata mode");
@@ -175,6 +177,19 @@ export class CreateBootstrapRunUseCase {
             createdAt,
         };
     }
+}
+
+function assertOpenSeaSlugIsAllowed(
+    openseaSlug: string | null,
+    openseaIntegration: OpenSeaIntegrationStatus,
+): void {
+    if (!openseaSlug || openseaIntegration.enabled) {
+        return;
+    }
+
+    throw new BootstrapValidationError(
+        openseaIntegration.reason ?? "OpenSea integration is disabled",
+    );
 }
 
 function resolveRequestedExtensionKey(
