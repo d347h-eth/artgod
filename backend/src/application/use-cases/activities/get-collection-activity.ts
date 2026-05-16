@@ -65,6 +65,10 @@ export class GetCollectionActivityUseCase {
             listCollectionTraitFacets(
                 chainId: number,
                 collectionId: number,
+                owner?: string,
+                options?: {
+                    rangeOnlyKeys?: string[];
+                },
             ): TraitFacet[];
             getCollectionMediaState(params: {
                 chainId: number;
@@ -174,27 +178,32 @@ export class GetCollectionActivityUseCase {
                     traitRangeFilters: input.traitRanges,
                 }),
         );
-        const rawFacets = this.apm.withSyncSpan(
-            "backend.activity.trait_facets",
-            activityAttributes,
-            () =>
-                this.collectionReadPort.listCollectionTraitFacets(
-                    chain.publicChainId,
-                    collection.collectionId,
-                ),
-        );
         const traitFilterPresentation = this.apm.withSyncSpan(
             "backend.activity.trait_filter_presentation",
-            {
-                ...activityAttributes,
-                "artgod.activity.facet_keys_count": rawFacets.length,
-            },
+            activityAttributes,
             () =>
                 this.customizationReadPort.getTraitFilterPresentationState({
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
-                    availableTraitKeys: rawFacets.map((facet) => facet.key),
                 }),
+        );
+        const rawFacets = this.apm.withSyncSpan(
+            "backend.activity.trait_facets",
+            {
+                ...activityAttributes,
+                "artgod.activity.range_only_keys_count":
+                    traitFilterPresentation.effectiveConfig.rangeKeys.length,
+            },
+            () =>
+                this.collectionReadPort.listCollectionTraitFacets(
+                    chain.publicChainId,
+                    collection.collectionId,
+                    undefined,
+                    {
+                        rangeOnlyKeys:
+                            traitFilterPresentation.effectiveConfig.rangeKeys,
+                    },
+                ),
         );
         const facets = applyTraitFilterPresentationToFacets({
             facets: rawFacets,

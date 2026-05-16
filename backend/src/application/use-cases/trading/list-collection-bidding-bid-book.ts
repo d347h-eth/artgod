@@ -65,6 +65,10 @@ export class ListCollectionBiddingBidBookUseCase {
             listCollectionTraitFacets(
                 chainId: number,
                 collectionId: number,
+                owner?: string,
+                options?: {
+                    rangeOnlyKeys?: string[];
+                },
             ): TraitFacet[];
             listCollectionTokenCardsByIds(params: {
                 chainId: number;
@@ -109,31 +113,36 @@ export class ListCollectionBiddingBidBookUseCase {
             chain.publicChainId,
             input.collectionRef,
         );
-        // Load facets for the bidding page filter panel without fetching token cards.
-        const rawFacets = this.collectionReadPort.listCollectionTraitFacets(
-            chain.publicChainId,
-            collection.collectionId,
-        );
         const traitFilterPresentation =
             this.customizationReadPort.getTraitFilterPresentationState({
                 chainId: chain.publicChainId,
                 collectionId: collection.collectionId,
-                availableTraitKeys: rawFacets.map((facet) => facet.key),
             });
+        // Load facets for the bidding page filter panel without fetching token cards.
+        const rawFacets = this.collectionReadPort.listCollectionTraitFacets(
+            chain.publicChainId,
+            collection.collectionId,
+            undefined,
+            {
+                rangeOnlyKeys:
+                    traitFilterPresentation.effectiveConfig.rangeKeys,
+            },
+        );
         const facets = applyTraitFilterPresentationToFacets({
             facets: rawFacets,
             config: traitFilterPresentation.effectiveConfig,
         });
         // Read the source-selected bid book: bot snapshot for enabled jobs, canonical orders otherwise.
-        const persistedBidBook = this.bidBookRepositoryPort.listCollectionBidBook({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            scopeFilter: input.scopeFilter,
-            traitFilterJoinMode: input.traitFilterJoinMode,
-            selectedTraits: input.traits,
-            selectedTraitRanges: input.traitRanges,
-            makerAddress: input.makerAddress ?? null,
-        });
+        const persistedBidBook =
+            this.bidBookRepositoryPort.listCollectionBidBook({
+                chainId: chain.publicChainId,
+                collectionId: collection.collectionId,
+                scopeFilter: input.scopeFilter,
+                traitFilterJoinMode: input.traitFilterJoinMode,
+                selectedTraits: input.traits,
+                selectedTraitRanges: input.traitRanges,
+                makerAddress: input.makerAddress ?? null,
+            });
         let tokenOfferCardsPage = emptyTokenOfferCardsPage(input.limit);
         if (input.scopeFilter === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
             // Read collection-wide bids from the same source to derive the low-signal token-bid floor.
@@ -207,13 +216,14 @@ export class ListCollectionBiddingBidBookUseCase {
         }
 
         // Load compact token cards for explicit token bids so the UI can reuse token-browser previews.
-        const tokenCards = this.collectionReadPort.listCollectionTokenCardsByIds({
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            tokenIds,
-            mediaMode: params.mediaMode,
-            includeListings: true,
-        });
+        const tokenCards =
+            this.collectionReadPort.listCollectionTokenCardsByIds({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                tokenIds,
+                mediaMode: params.mediaMode,
+                includeListings: true,
+            });
         const traitSummaryTemplate =
             this.customizationReadPort.getTokenCardTraitSummaryTemplateState({
                 chainId: params.chainId,

@@ -217,10 +217,16 @@ The collection detail use case and SQLite read model add child spans around the 
 - `backend.collection_detail.token_summary_template`
 - `backend.collection_detail.token_summary_render`
 - `backend.collection.db.tokens_page`
+- `backend.collection.db.tokens_listing_hydration`
 - `backend.collection.db.tokens_prev_cursor`
 - `backend.collection.db.tokens_count`
 - `backend.collection.db.trait_facets`
+- `backend.collection.db.trait_range_facets`
 - `backend.extension.artifacts_batch`
+
+Effective range facets, whether selected from extension defaults or user
+customization, skip the high-cardinality value list and return only numeric range
+bounds for UI range filtering.
 
 The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 

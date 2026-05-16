@@ -71,26 +71,83 @@ describe("SqliteCollectionsReadModel observability", () => {
         );
     });
 
-    it("excludes hidden trait facet keys in SQL-facing facet reads", () => {
+    it("hydrates listing prices after all-token page selection", () => {
+        insertToken("1", "100");
+        insertToken("2", "200");
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: "all",
+            limit: 2,
+        });
+
+        expect(page.items.map((token) => token.listingPrice)).toEqual([
+            "100",
+            "200",
+        ]);
+        expect(apm.spans).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    name: "backend.collection.db.tokens_listing_hydration",
+                    attributes: expect.objectContaining({
+                        "artgod.collection.token_status": "all",
+                        "artgod.tokens.count": 2,
+                    }),
+                }),
+            ]),
+        );
+    });
+
+    it("returns range-only trait facets without high-cardinality values", () => {
         insertTraitStat("Hat", "Beanie", 2);
         insertTraitStat("???", "123456789", 1);
+        insertTraitStat("???", "42", 1);
         const apm = new CapturingApm();
         const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
 
         const facets = readModel.listCollectionTraitFacets(1, 1, undefined, {
-            excludeKeys: ["???"],
+            rangeOnlyKeys: ["???"],
         });
 
-        expect(facets.map((facet) => facet.key)).toEqual(["Hat"]);
-        expect(apm.spans).toContainEqual({
-            name: "backend.collection.db.trait_facets",
-            attributes: {
-                "artgod.chain_id": 1,
-                "artgod.collection_id": 1,
-                "artgod.collection.owner_present": false,
-                "artgod.collection.exclude_keys_count": 1,
+        expect(facets).toEqual([
+            expect.objectContaining({
+                key: "Hat",
+                values: [{ value: "Beanie", tokenCount: 2 }],
+            }),
+            {
+                key: "???",
+                displayKind: "range",
+                minValue: "42",
+                maxValue: "123456789",
+                values: [],
             },
-        });
+        ]);
+        expect(apm.spans).toEqual(
+            expect.arrayContaining([
+                {
+                    name: "backend.collection.db.trait_facets",
+                    attributes: {
+                        "artgod.chain_id": 1,
+                        "artgod.collection_id": 1,
+                        "artgod.collection.owner_present": false,
+                        "artgod.collection.exclude_keys_count": 1,
+                        "artgod.collection.range_only_keys_count": 1,
+                    },
+                },
+                {
+                    name: "backend.collection.db.trait_range_facets",
+                    attributes: {
+                        "artgod.chain_id": 1,
+                        "artgod.collection_id": 1,
+                        "artgod.collection.owner_present": false,
+                        "artgod.collection.range_only_keys_count": 1,
+                    },
+                },
+            ]),
+        );
     });
 });
 

@@ -112,9 +112,6 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
                 rangeKeys: ["???"],
             };
         },
-        resolveExcludedTraitFacetKeys() {
-            return ["???"];
-        },
         resolveTokenCardTraitSummaryTemplateConfig() {
             return {
                 template: TERRAFORMS_TRAIT_SUMMARY_TEMPLATE,

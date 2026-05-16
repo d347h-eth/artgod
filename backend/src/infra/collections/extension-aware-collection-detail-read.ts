@@ -5,7 +5,6 @@ import {
     type CollectionMediaPresentation,
 } from "@artgod/shared/extensions";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
-import { normalizeTraitKeyList } from "@artgod/shared/types";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 import type {
     CollectionMediaState,
@@ -34,7 +33,7 @@ type CollectionExtensionRecordsPort = {
         extensionKey: CollectionExtensionInstall["extensionKey"];
         artifactRef: string;
     }): BackendCollectionExtensionArtifactRecord | null;
-    listArtifactsByTokenIds(params: {
+    listTokenCardArtifactsByTokenIds(params: {
         chainId: number;
         collectionId: number;
         tokenIds: string[];
@@ -65,6 +64,7 @@ type CollectionDetailReadPort = {
         owner?: string,
         options?: {
             excludeKeys?: string[];
+            rangeOnlyKeys?: string[];
         },
     ): TraitFacet[];
     listCollectionHolders(params: {
@@ -173,7 +173,7 @@ export class ExtensionAwareCollectionDetailRead {
                       "artgod.tokens.count": page.items.length,
                   },
                   () =>
-                      this.extensionRecords.listArtifactsByTokenIds({
+                      this.extensionRecords.listTokenCardArtifactsByTokenIds({
                           chainId: params.chainId,
                           collectionId: params.collectionId,
                           tokenIds: page.items.map((token) => token.tokenId),
@@ -200,21 +200,16 @@ export class ExtensionAwareCollectionDetailRead {
         owner?: string,
         options?: {
             excludeKeys?: string[];
+            rangeOnlyKeys?: string[];
         },
     ): TraitFacet[] {
-        const excludeKeys = normalizeTraitKeyList([
-            ...(options?.excludeKeys ?? []),
-            ...this.resolveExtensionExcludedTraitFacetKeys(
-                chainId,
-                collectionId,
-            ),
-        ]);
         return this.baseReadPort.listCollectionTraitFacets(
             chainId,
             collectionId,
             owner,
             {
-                excludeKeys,
+                excludeKeys: options?.excludeKeys,
+                rangeOnlyKeys: options?.rangeOnlyKeys,
             },
         );
     }
@@ -441,24 +436,6 @@ export class ExtensionAwareCollectionDetailRead {
             extensions: [{ key: install.extensionKey }],
             activityEventFeeds,
         };
-    }
-
-    private resolveExtensionExcludedTraitFacetKeys(
-        chainId: number,
-        collectionId: number,
-    ): string[] {
-        const install = this.extensionRecords.getInstallByCollectionId(
-            chainId,
-            collectionId,
-        );
-        if (!install?.enabled) {
-            return [];
-        }
-
-        const extension = resolveBackendCollectionExtension(install);
-        return normalizeTraitKeyList(
-            extension?.resolveExcludedTraitFacetKeys?.(install) ?? [],
-        );
     }
 
     private resolveTokenMediaState(params: {

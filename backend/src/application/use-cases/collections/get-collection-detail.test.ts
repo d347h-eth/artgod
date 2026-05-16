@@ -29,9 +29,9 @@ class CapturingApm implements ApmPort {
 }
 
 describe("GetCollectionDetailUseCase observability", () => {
-    it("wraps collection-detail phases and passes available facet keys to customization", () => {
+    it("wraps collection-detail phases and uses effective range keys for facet reads", () => {
         const apm = new CapturingApm();
-        let availableTraitKeys: string[] | undefined;
+        let receivedRangeOnlyKeys: string[] | undefined;
         const useCase = new GetCollectionDetailUseCase(
             1,
             {
@@ -41,14 +41,21 @@ describe("GetCollectionDetailUseCase observability", () => {
                 resolveCollectionRef: () => collection(),
                 getCollectionMediaState: () => mediaState(),
                 listCollectionTokens: () => tokenPage(),
-                listCollectionTraitFacets: () => [traitFacet("Hat")],
+                listCollectionTraitFacets: (
+                    _chainId,
+                    _collectionId,
+                    _owner,
+                    options,
+                ) => {
+                    receivedRangeOnlyKeys = options?.rangeOnlyKeys;
+                    return [traitFacet("Power")];
+                },
             },
             {
-                getTraitFilterPresentationState: (params) => {
-                    availableTraitKeys = params.availableTraitKeys;
+                getTraitFilterPresentationState: () => {
                     return {
                         effectiveConfig: {
-                            rangeKeys: [],
+                            rangeKeys: ["Power"],
                         },
                     };
                 },
@@ -70,15 +77,15 @@ describe("GetCollectionDetailUseCase observability", () => {
             traitRanges: [],
         });
 
-        expect(availableTraitKeys).toEqual(["Hat"]);
+        expect(receivedRangeOnlyKeys).toEqual(["Power"]);
         expect(output.tokens.items[0]?.traitSummary).toBe("7");
         expect(apm.spans.map((span) => span.name)).toEqual([
             "backend.collection_detail.chain",
             "backend.collection_detail.collection",
             "backend.collection_detail.media_state",
             "backend.collection_detail.tokens",
-            "backend.collection_detail.trait_facets",
             "backend.collection_detail.trait_filter_presentation",
+            "backend.collection_detail.trait_facets",
             "backend.collection_detail.token_summary_template",
             "backend.collection_detail.token_summary_render",
         ]);
@@ -94,9 +101,9 @@ describe("GetCollectionDetailUseCase observability", () => {
                     }),
                 }),
                 expect.objectContaining({
-                    name: "backend.collection_detail.trait_filter_presentation",
+                    name: "backend.collection_detail.trait_facets",
                     attributes: expect.objectContaining({
-                        "artgod.collection.facet_keys_count": 1,
+                        "artgod.collection.range_only_keys_count": 1,
                     }),
                 }),
             ]),

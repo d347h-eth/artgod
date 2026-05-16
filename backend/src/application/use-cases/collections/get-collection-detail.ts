@@ -71,6 +71,9 @@ export class GetCollectionDetailUseCase {
                 chainId: number,
                 collectionId: number,
                 owner?: string,
+                options?: {
+                    rangeOnlyKeys?: string[];
+                },
             ): TraitFacet[];
             getCollectionMediaState(params: {
                 chainId: number;
@@ -165,31 +168,33 @@ export class GetCollectionDetailUseCase {
                     mediaMode: media.selectedMode,
                 }),
         );
+        const traitFilterPresentation = this.apm.withSyncSpan(
+            "backend.collection_detail.trait_filter_presentation",
+            attributes,
+            () =>
+                this.customizationReadPort.getTraitFilterPresentationState({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                }),
+        );
         const rawFacets = this.apm.withSyncSpan(
             "backend.collection_detail.trait_facets",
             {
                 ...attributes,
                 "artgod.collection.owner_present": Boolean(input.owner),
+                "artgod.collection.range_only_keys_count":
+                    traitFilterPresentation.effectiveConfig.rangeKeys.length,
             },
             () =>
                 this.collectionDetailReadPort.listCollectionTraitFacets(
                     chain.publicChainId,
                     collection.collectionId,
                     input.owner,
+                    {
+                        rangeOnlyKeys:
+                            traitFilterPresentation.effectiveConfig.rangeKeys,
+                    },
                 ),
-        );
-        const traitFilterPresentation = this.apm.withSyncSpan(
-            "backend.collection_detail.trait_filter_presentation",
-            {
-                ...attributes,
-                "artgod.collection.facet_keys_count": rawFacets.length,
-            },
-            () =>
-                this.customizationReadPort.getTraitFilterPresentationState({
-                    chainId: chain.publicChainId,
-                    collectionId: collection.collectionId,
-                    availableTraitKeys: rawFacets.map((facet) => facet.key),
-                }),
         );
         const facets = applyTraitFilterPresentationToFacets({
             facets: rawFacets,

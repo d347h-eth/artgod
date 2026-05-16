@@ -47,7 +47,7 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
                 getArtifact() {
                     return null;
                 },
-                listArtifactsByTokenIds() {
+                listTokenCardArtifactsByTokenIds() {
                     return new Map();
                 },
             },
@@ -119,7 +119,7 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
             },
             {
                 ...createExtensionRecords(),
-                listArtifactsByTokenIds(params) {
+                listTokenCardArtifactsByTokenIds(params) {
                     requestedTokenIds.push(params.tokenIds);
                     return new Map([
                         [
@@ -161,8 +161,8 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
         });
     });
 
-    it("excludes extension-hidden trait facets before reading stats", () => {
-        let receivedExcludeKeys: string[] | undefined;
+    it("passes caller range-only trait facets before reading stats", () => {
+        let receivedRangeOnlyKeys: string[] | undefined;
         const readModel = new ExtensionAwareCollectionDetailRead(
             {
                 ...createBaseReadPort(),
@@ -170,18 +170,20 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
                     _chainId: number,
                     _collectionId: number,
                     _owner?: string,
-                    options?: { excludeKeys?: string[] },
+                    options?: { rangeOnlyKeys?: string[] },
                 ): TraitFacet[] {
-                    receivedExcludeKeys = options?.excludeKeys;
+                    receivedRangeOnlyKeys = options?.rangeOnlyKeys;
                     return [];
                 },
             },
             createExtensionRecords(),
         );
 
-        readModel.listCollectionTraitFacets(1, 7);
+        readModel.listCollectionTraitFacets(1, 7, undefined, {
+            rangeOnlyKeys: ["Power"],
+        });
 
-        expect(receivedExcludeKeys).toEqual(["???"]);
+        expect(receivedRangeOnlyKeys).toEqual(["Power"]);
     });
 });
 
@@ -201,7 +203,7 @@ function createExtensionRecords() {
         getArtifact() {
             return null;
         },
-        listArtifactsByTokenIds() {
+        listTokenCardArtifactsByTokenIds() {
             return new Map();
         },
     };

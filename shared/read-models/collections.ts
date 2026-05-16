@@ -94,6 +94,12 @@ type TokenListingRow = {
     listing_price: string | null;
 };
 
+type TokenListingHydrationRow = {
+    token_id: string;
+    price: string | null;
+    currency: string | null;
+};
+
 type TokenCurrentHolderRow = {
     owner: string;
 };
@@ -102,6 +108,12 @@ type TraitFacetRow = {
     key: string;
     value: string;
     token_count: number;
+};
+
+type TraitFacetRangeRow = {
+    key: string;
+    min_value: string | null;
+    max_value: string | null;
 };
 
 type HolderRow = {
@@ -188,6 +200,8 @@ const LISTED_THEN_UNLISTED_PRICE_VALUE_SQL =
 const LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL = `(${LISTED_THEN_UNLISTED_BLOCK_SQL}, ${LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL}, ${LISTED_THEN_UNLISTED_PRICE_VALUE_SQL}, ${TOKEN_SORT_BUCKET_SQL}, ${TOKEN_SORT_LENGTH_SQL}, ${TOKEN_SORT_VALUE_SQL}, t.token_id)`;
 const LISTED_THEN_UNLISTED_ORDER_BY_ASC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL} ASC, ${LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL} ASC, ${LISTED_THEN_UNLISTED_PRICE_VALUE_SQL} ASC, ${TOKEN_ORDER_BY_ASC_SQL}`;
 const LISTED_THEN_UNLISTED_ORDER_BY_DESC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL} DESC, ${LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL} DESC, ${LISTED_THEN_UNLISTED_PRICE_VALUE_SQL} DESC, ${TOKEN_ORDER_BY_DESC_SQL}`;
+const ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL =
+    "CASE WHEN LTRIM(a.value, '0') = '' THEN '0' ELSE LTRIM(a.value, '0') END";
 
 export type ListCollectionsParams = {
     chainId: number;
@@ -209,6 +223,7 @@ export type ListCollectionTokensParams = {
 
 export type ListCollectionTraitFacetsOptions = {
     excludeKeys?: string[];
+    rangeOnlyKeys?: string[];
 };
 
 export type GetCollectionTokenDetailParams = {
@@ -516,16 +531,7 @@ export class SqliteCollectionsReadModel {
             ? toTokenSortKey(params.cursor.tokenId)
             : null;
         const whereClauses = [...baseWhereClauses];
-        const values = [
-            ...baseJoinValues,
-            ...buildCheapestListingValues({
-                chainId: params.chainId,
-                collectionId: params.collectionId,
-                supportedCurrencies: this.supportedListingCurrencies,
-                nowSeconds: params.nowSeconds,
-            }),
-            ...baseWhereValues,
-        ];
+        const values = [...baseJoinValues, ...baseWhereValues];
 
         if (cursorSortKey) {
             whereClauses.push(`${TOKEN_SORT_KEY_SQL} > (?, ?, ?, ?)`);
@@ -533,15 +539,12 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+            "SELECT t.token_id, m.name, m.image, NULL AS listing_price, NULL AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             "LEFT JOIN token_metadata m ON m.chain_id = t.chain_id " +
             "AND m.collection_id = t.collection_id " +
             "AND m.token_id = t.token_id " +
-            `LEFT JOIN (${buildCheapestListingSql(this.supportedListingCurrencies.length)}) l ` +
-            "ON l.collection_id = t.collection_id " +
-            "AND l.token_id = t.token_id " +
             `WHERE ${whereClauses.join(" AND ")} ` +
             `ORDER BY ${TOKEN_ORDER_BY_ASC_SQL} ` +
             "LIMIT ?";
@@ -555,7 +558,22 @@ export class SqliteCollectionsReadModel {
         );
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
-        const items = pageRows.map(mapTokenRow);
+        const hydratedPageRows = this.apm.withSyncSpan(
+            "backend.collection.db.tokens_listing_hydration",
+            {
+                ...spanAttributes,
+                "artgod.tokens.count": pageRows.length,
+            },
+            () =>
+                hydrateTokenRowsWithCheapestListings({
+                    rows: pageRows,
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    supportedCurrencies: this.supportedListingCurrencies,
+                    nowSeconds: params.nowSeconds,
+                }),
+        );
+        const items = hydratedPageRows.map(mapTokenRow);
 
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
@@ -994,13 +1012,21 @@ export class SqliteCollectionsReadModel {
         options: ListCollectionTraitFacetsOptions = {},
     ): TraitFacet[] {
         const excludeKeys = normalizeTraitKeyList(options.excludeKeys);
+        const rangeOnlyKeys = normalizeTraitKeyList(
+            options.rangeOnlyKeys,
+        ).filter((key) => !excludeKeys.includes(key));
+        const valueExcludeKeys = normalizeTraitKeyList([
+            ...excludeKeys,
+            ...rangeOnlyKeys,
+        ]);
         const rows = this.apm.withSyncSpan(
             "backend.collection.db.trait_facets",
             {
                 "artgod.chain_id": chainId,
                 "artgod.collection_id": collectionId,
                 "artgod.collection.owner_present": Boolean(owner),
-                "artgod.collection.exclude_keys_count": excludeKeys.length,
+                "artgod.collection.exclude_keys_count": valueExcludeKeys.length,
+                "artgod.collection.range_only_keys_count": rangeOnlyKeys.length,
             },
             () =>
                 owner
@@ -1008,14 +1034,40 @@ export class SqliteCollectionsReadModel {
                           chainId,
                           collectionId,
                           normalizeAddressRef(owner),
-                          excludeKeys,
+                          valueExcludeKeys,
                       )
                     : this.selectTraitFacetRowsWithOptions(
                           chainId,
                           collectionId,
-                          excludeKeys,
+                          valueExcludeKeys,
                       ),
         );
+        const rangeRows =
+            rangeOnlyKeys.length === 0
+                ? []
+                : this.apm.withSyncSpan(
+                      "backend.collection.db.trait_range_facets",
+                      {
+                          "artgod.chain_id": chainId,
+                          "artgod.collection_id": collectionId,
+                          "artgod.collection.owner_present": Boolean(owner),
+                          "artgod.collection.range_only_keys_count":
+                              rangeOnlyKeys.length,
+                      },
+                      () =>
+                          owner
+                              ? this.selectOwnerScopedTraitRangeRowsWithOptions(
+                                    chainId,
+                                    collectionId,
+                                    normalizeAddressRef(owner),
+                                    rangeOnlyKeys,
+                                )
+                              : this.selectTraitRangeRowsWithOptions(
+                                    chainId,
+                                    collectionId,
+                                    rangeOnlyKeys,
+                                ),
+                  );
 
         const facets: TraitFacet[] = [];
         const byKey = new Map<string, TraitFacet>();
@@ -1036,6 +1088,26 @@ export class SqliteCollectionsReadModel {
                 value: row.value,
                 tokenCount: row.token_count,
             });
+        }
+        for (const row of rangeRows) {
+            if (byKey.has(row.key)) {
+                continue;
+            }
+            const minValue = normalizeRangeBound(row.min_value);
+            const maxValue = normalizeRangeBound(row.max_value);
+            if (minValue === null && maxValue === null) {
+                continue;
+            }
+
+            const facet = {
+                key: row.key,
+                displayKind: TRAIT_FILTER_DISPLAY_KIND.Range,
+                minValue,
+                maxValue,
+                values: [],
+            };
+            byKey.set(row.key, facet);
+            facets.push(facet);
         }
         return facets;
     }
@@ -1115,6 +1187,130 @@ export class SqliteCollectionsReadModel {
                 ...excludeKeys,
                 owner,
             ) as TraitFacetRow[];
+    }
+
+    private selectTraitRangeRowsWithOptions(
+        chainId: number,
+        collectionId: number,
+        rangeOnlyKeys: string[],
+    ): TraitFacetRangeRow[] {
+        return rangeOnlyKeys.flatMap((key) => {
+            const minValue = this.selectTraitRangeBound({
+                chainId,
+                collectionId,
+                key,
+                direction: "ASC",
+            });
+            const maxValue = this.selectTraitRangeBound({
+                chainId,
+                collectionId,
+                key,
+                direction: "DESC",
+            });
+
+            return minValue === null && maxValue === null
+                ? []
+                : [{ key, min_value: minValue, max_value: maxValue }];
+        });
+    }
+
+    private selectOwnerScopedTraitRangeRowsWithOptions(
+        chainId: number,
+        collectionId: number,
+        owner: string,
+        rangeOnlyKeys: string[],
+    ): TraitFacetRangeRow[] {
+        return rangeOnlyKeys.flatMap((key) => {
+            const minValue = this.selectOwnerScopedTraitRangeBound({
+                chainId,
+                collectionId,
+                owner,
+                key,
+                direction: "ASC",
+            });
+            const maxValue = this.selectOwnerScopedTraitRangeBound({
+                chainId,
+                collectionId,
+                owner,
+                key,
+                direction: "DESC",
+            });
+
+            return minValue === null && maxValue === null
+                ? []
+                : [{ key, min_value: minValue, max_value: maxValue }];
+        });
+    }
+
+    private selectTraitRangeBound(params: {
+        chainId: number;
+        collectionId: number;
+        key: string;
+        direction: "ASC" | "DESC";
+    }): string | null {
+        const row = db.raw
+            .prepare(
+                "SELECT a.value AS value " +
+                    "FROM attribute_keys ak " +
+                    "JOIN collection_trait_stats cts ON cts.attribute_key_id = ak.id " +
+                    "AND cts.chain_id = ak.chain_id " +
+                    "AND cts.collection_id = ak.collection_id " +
+                    "JOIN attributes a ON a.id = cts.attribute_id " +
+                    "AND a.chain_id = cts.chain_id " +
+                    "AND a.collection_id = cts.collection_id " +
+                    "WHERE ak.chain_id = ? AND ak.collection_id = ? " +
+                    "AND ak.key = ? " +
+                    "AND a.value <> '' AND a.value NOT GLOB '*[^0-9]*' " +
+                    `ORDER BY LENGTH(${ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL}) ${params.direction}, ` +
+                    `${ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL} ${params.direction} ` +
+                    "LIMIT 1",
+            )
+            .get(params.chainId, params.collectionId, params.key) as
+            | { value: string }
+            | undefined;
+        return row?.value ?? null;
+    }
+
+    private selectOwnerScopedTraitRangeBound(params: {
+        chainId: number;
+        collectionId: number;
+        owner: string;
+        key: string;
+        direction: "ASC" | "DESC";
+    }): string | null {
+        const row = db.raw
+            .prepare(
+                "SELECT a.value AS value " +
+                    "FROM attribute_keys ak " +
+                    "JOIN attributes a ON a.attribute_key_id = ak.id " +
+                    "AND a.chain_id = ak.chain_id " +
+                    "AND a.collection_id = ak.collection_id " +
+                    "JOIN token_attributes ta ON ta.attribute_id = a.id " +
+                    "AND ta.chain_id = a.chain_id " +
+                    "AND ta.collection_id = a.collection_id " +
+                    "WHERE ak.chain_id = ? " +
+                    "AND ak.collection_id = ? " +
+                    "AND ak.key = ? " +
+                    "AND a.value <> '' AND a.value NOT GLOB '*[^0-9]*' " +
+                    "AND EXISTS ( " +
+                    "SELECT 1 FROM nft_balances b " +
+                    "WHERE b.chain_id = ta.chain_id " +
+                    "AND b.collection_id = ta.collection_id " +
+                    "AND b.token_id = ta.token_id " +
+                    "AND lower(b.owner) = ? " +
+                    "AND CAST(b.amount AS INTEGER) > 0" +
+                    ") " +
+                    `ORDER BY LENGTH(${ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL}) ${params.direction}, ` +
+                    `${ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL} ${params.direction} ` +
+                    "LIMIT 1",
+            )
+            .get(
+                params.chainId,
+                params.collectionId,
+                params.key,
+                params.owner,
+            ) as { value: string } | undefined;
+        return row?.value ?? null;
     }
 
     getCollectionTokenDetail(
@@ -1414,6 +1610,52 @@ function countCollectionTokens(chainId: number, collectionId: number): number {
         )
         .get(chainId, collectionId) as { count: number };
     return row.count;
+}
+
+function hydrateTokenRowsWithCheapestListings(params: {
+    rows: TokenRow[];
+    chainId: number;
+    collectionId: number;
+    supportedCurrencies: string[];
+    nowSeconds: number;
+}): TokenRow[] {
+    const tokenIds = params.rows.map((row) => row.token_id);
+    if (tokenIds.length === 0) {
+        return params.rows;
+    }
+
+    const listingRows = db.raw
+        .prepare(
+            buildCheapestListingSql(
+                params.supportedCurrencies.length,
+                tokenIds.length,
+            ),
+        )
+        .all(
+            ...buildCheapestListingValues({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                supportedCurrencies: params.supportedCurrencies,
+                nowSeconds: params.nowSeconds,
+            }),
+            ...tokenIds,
+        ) as TokenListingHydrationRow[];
+    const listingsByTokenId = new Map(
+        listingRows.map((row) => [row.token_id, row]),
+    );
+
+    return params.rows.map((row) => {
+        const listing = listingsByTokenId.get(row.token_id);
+        if (!listing) {
+            return row;
+        }
+
+        return {
+            ...row,
+            listing_price: listing.price,
+            listing_currency: listing.currency,
+        };
+    });
 }
 
 function derivePrevCursor(params: {
@@ -2004,7 +2246,7 @@ export function applyTraitFilterPresentationToFacets(params: {
     return params.facets.map((facet) => {
         const isRange = rangeKeys.has(facet.key);
         const { minValue, maxValue } = isRange
-            ? resolveNumericTraitBounds(facet.values)
+            ? resolveNumericTraitBounds(facet)
             : { minValue: null, maxValue: null };
 
         return {
@@ -2018,14 +2260,21 @@ export function applyTraitFilterPresentationToFacets(params: {
     });
 }
 
-function resolveNumericTraitBounds(values: TraitFacet["values"]): {
+function resolveNumericTraitBounds(facet: TraitFacet): {
     minValue: string | null;
     maxValue: string | null;
 } {
+    if (facet.minValue !== null || facet.maxValue !== null) {
+        return {
+            minValue: facet.minValue,
+            maxValue: facet.maxValue,
+        };
+    }
+
     let minValue: bigint | null = null;
     let maxValue: bigint | null = null;
 
-    for (const value of values) {
+    for (const value of facet.values) {
         if (!/^\d+$/.test(value.value)) {
             continue;
         }
@@ -2040,10 +2289,25 @@ function resolveNumericTraitBounds(values: TraitFacet["values"]): {
     };
 }
 
-function buildCheapestListingSql(supportedCurrencyCount: number): string {
+function normalizeRangeBound(value: string | null): string | null {
+    if (value === null) {
+        return null;
+    }
+    const normalized = value.replace(/^0+/, "");
+    return normalized || "0";
+}
+
+function buildCheapestListingSql(
+    supportedCurrencyCount: number,
+    tokenIdCount = 0,
+): string {
     const currencyPlaceholders = new Array(supportedCurrencyCount)
         .fill("?")
         .join(", ");
+    const tokenIdFilter =
+        tokenIdCount > 0
+            ? `AND o.token_id IN (${new Array(tokenIdCount).fill("?").join(", ")}) `
+            : "";
     return (
         "SELECT ranked.collection_id, ranked.token_id, ranked.price, ranked.currency, ranked.price_sort_length, ranked.price_sort_value " +
         "FROM (" +
@@ -2066,6 +2330,7 @@ function buildCheapestListingSql(supportedCurrencyCount: number): string {
         `AND ${LISTING_PRICE_IS_NUMERIC_SQL} ` +
         "AND (o.valid_from IS NULL OR o.valid_from <= ?) " +
         "AND (o.valid_until IS NULL OR o.valid_until >= ?) " +
+        tokenIdFilter +
         ") ranked " +
         "WHERE ranked.row_number = 1"
     );

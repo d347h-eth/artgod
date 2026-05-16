@@ -23,6 +23,13 @@ type ArtifactRow = {
     html_content: string | null;
 };
 
+type TokenCardArtifactRow = {
+    token_id: string;
+    extension_key: CollectionExtensionKey;
+    artifact_ref: string;
+    image: string | null;
+};
+
 export class SqliteCollectionExtensionRecords {
     private selectInstallByCollectionId = db.prepare<{
         chainId: number;
@@ -98,7 +105,7 @@ export class SqliteCollectionExtensionRecords {
         };
     }
 
-    listArtifactsByTokenIds(params: {
+    listTokenCardArtifactsByTokenIds(params: {
         chainId: number;
         collectionId: number;
         tokenIds: string[];
@@ -113,7 +120,7 @@ export class SqliteCollectionExtensionRecords {
         const placeholders = tokenIds.map(() => "?").join(", ");
         const rows = db.raw
             .prepare(
-                "SELECT token_id, extension_key, artifact_ref, image, animation_url, html_content " +
+                "SELECT token_id, extension_key, artifact_ref, image " +
                     "FROM token_extension_artifacts " +
                     "WHERE chain_id = ? AND collection_id = ? " +
                     "AND extension_key = ? AND artifact_ref = ? " +
@@ -125,7 +132,7 @@ export class SqliteCollectionExtensionRecords {
                 params.extensionKey,
                 params.artifactRef,
                 ...tokenIds,
-            ) as Array<ArtifactRow & { token_id: string }>;
+            ) as TokenCardArtifactRow[];
 
         return new Map(
             rows.map((row) => [
@@ -134,8 +141,8 @@ export class SqliteCollectionExtensionRecords {
                     extensionKey: row.extension_key,
                     artifactRef: row.artifact_ref,
                     image: row.image,
-                    animationUrl: row.animation_url,
-                    htmlContent: row.html_content,
+                    animationUrl: null,
+                    htmlContent: null,
                 },
             ]),
         );
