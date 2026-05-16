@@ -39,6 +39,7 @@ import type {
     GetActivityEventPreviewHttpAdapter,
     GetActivityEventPreviewRoute,
 } from "./http/handlers/activities/get-activity-event-preview.js";
+import { getActivityEventPreviewSpanAttributes } from "./http/handlers/activities/get-activity-event-preview.js";
 import type {
     GetCollectionActivityHttpAdapter,
     GetCollectionActivityRoute,
@@ -294,6 +295,7 @@ export function registerApiRoutes(
         getActivityEventPreviewAdapter.handle,
         {
             preHandler: publicCollectionScopeGuard,
+            spanAttributes: getActivityEventPreviewSpanAttributes,
         },
     );
     registerObservedGet<GetCollectionDetailRoute>(

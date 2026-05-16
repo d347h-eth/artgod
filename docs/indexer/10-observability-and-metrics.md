@@ -152,6 +152,7 @@ Registered backend API and health handlers are wrapped in `backend.http.route` s
 The collection activity route also adds low-cardinality request-shape attributes:
 
 - `artgod.activity.limit`
+- `artgod.activity.limit_present`
 - `artgod.activity.cursor_present`
 - `artgod.activity.kind`
 - `artgod.activity.extension_event`
@@ -163,6 +164,12 @@ The collection activity route also adds low-cardinality request-shape attributes
 - `artgod.activity.content_hash_filter_present`
 - `artgod.activity.event_group_filter_present`
 - `artgod.activity.media_mode_present`
+
+The activity event preview route adds request-shape attributes for extension-owned preview rendering:
+
+- `artgod.activity.id`
+- `artgod.activity.render_mode`
+- `artgod.activity.render_mode_present`
 
 The activity use case and SQLite read model add child spans for the slow path:
 
@@ -177,6 +184,16 @@ The activity use case and SQLite read model add child spans for the slow path:
 - `backend.activity.db.count`
 - `backend.activity.db.prev_cursor`
 - `backend.activity.db.event_media`
+
+Collection-extension activity feed and preview paths add child spans around extension-specific work:
+
+- `backend.extension.install_lookup`
+- `backend.extension.resolve`
+- `backend.extension.activity_event_feeds`
+- `backend.extension.activity_event_preview.db_activity`
+- `backend.extension.activity_event_preview.install_lookup`
+- `backend.extension.activity_event_preview.modes`
+- `backend.extension.activity_event_preview.resolve`
 
 The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 

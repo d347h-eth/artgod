@@ -166,6 +166,7 @@ export function createBackendApp(
         new ExtensionAwareCollectionDetailRead(
             collectionsReadModel,
             collectionExtensionRecords,
+            backendObservability.apm,
         );
     const extensionAwareCollectionCustomization =
         new ExtensionAwareCollectionCustomization(
@@ -176,6 +177,7 @@ export function createBackendApp(
         new ExtensionActivityEventPreviewRead(
             collectionExtensionRecords,
             backendRpcClient,
+            backendObservability.apm,
         );
     const extensionAwareTokenUriRead = new ExtensionAwareTokenUriRead(
         collectionExtensionRecords,

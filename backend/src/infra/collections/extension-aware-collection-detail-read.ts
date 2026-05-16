@@ -4,6 +4,7 @@ import {
     type CollectionMediaMode,
     type CollectionMediaPresentation,
 } from "@artgod/shared/extensions";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 import type {
     CollectionMediaState,
@@ -86,6 +87,7 @@ export class ExtensionAwareCollectionDetailRead {
     constructor(
         private readonly baseReadPort: CollectionDetailReadPort,
         private readonly extensionRecords: CollectionExtensionRecordsPort,
+        private readonly apm: ApmPort = NOOP_APM,
     ) {}
 
     resolveCollectionRef(
@@ -360,21 +362,44 @@ export class ExtensionAwareCollectionDetailRead {
     private resolveCollectionExtensionPresentation(
         collection: CollectionListItem,
     ): CollectionListItem {
-        const install = this.extensionRecords.getInstallByCollectionId(
-            collection.chainId,
-            collection.collectionId,
+        const attributes = {
+            "artgod.chain_id": collection.chainId,
+            "artgod.collection_id": collection.collectionId,
+        };
+        const install = this.apm.withSyncSpan(
+            "backend.extension.install_lookup",
+            attributes,
+            () =>
+                this.extensionRecords.getInstallByCollectionId(
+                    collection.chainId,
+                    collection.collectionId,
+                ),
         );
         if (!install?.enabled) {
             return collection;
         }
 
-        const extension = resolveBackendCollectionExtension(install);
+        const extensionAttributes = {
+            ...attributes,
+            "artgod.extension.key": install.extensionKey,
+        };
+        const extension = this.apm.withSyncSpan(
+            "backend.extension.resolve",
+            extensionAttributes,
+            () => resolveBackendCollectionExtension(install),
+        );
+        const activityEventFeeds = extension
+            ? this.apm.withSyncSpan(
+                  "backend.extension.activity_event_feeds",
+                  extensionAttributes,
+                  () => extension.listActivityEventFeeds(install),
+              )
+            : collection.activityEventFeeds;
+
         return {
             ...collection,
             extensions: [{ key: install.extensionKey }],
-            activityEventFeeds:
-                extension?.listActivityEventFeeds(install) ??
-                collection.activityEventFeeds,
+            activityEventFeeds,
         };
     }
 
@@ -436,12 +461,12 @@ export class ExtensionAwareCollectionDetailRead {
         const artifactRef = extension.resolveArtifactRef(install, mediaMode);
         const artifact = artifactRef
             ? this.extensionRecords.getArtifact({
-                chainId,
-                collectionId,
-                tokenId,
-                extensionKey: install.extensionKey,
-                artifactRef,
-            })
+                  chainId,
+                  collectionId,
+                  tokenId,
+                  extensionKey: install.extensionKey,
+                  artifactRef,
+              })
             : null;
 
         return {

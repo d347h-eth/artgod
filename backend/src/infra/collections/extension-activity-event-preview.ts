@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
 import type {
     CollectionExtensionInstall,
@@ -46,6 +47,7 @@ export class ExtensionActivityEventPreviewRead {
     constructor(
         private readonly extensionRecords: CollectionExtensionRecordsPort,
         private readonly rpc: BackendCollectionExtensionRenderContext["rpc"],
+        private readonly apm: ApmPort = NOOP_APM,
     ) {}
 
     async getActivityEventPreview(params: {
@@ -54,18 +56,33 @@ export class ExtensionActivityEventPreviewRead {
         activityId: number;
         renderMode?: string;
     }): Promise<GetActivityEventPreviewOutput> {
-        const row = this.selectActivity.get({
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            activityId: params.activityId,
-        }) as ActivityEventRow | undefined;
+        const attributes = {
+            "artgod.chain_id": params.chainId,
+            "artgod.collection_id": params.collectionId,
+            "artgod.activity.id": params.activityId,
+        };
+        const row = this.apm.withSyncSpan(
+            "backend.extension.activity_event_preview.db_activity",
+            attributes,
+            () =>
+                this.selectActivity.get({
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    activityId: params.activityId,
+                }) as ActivityEventRow | undefined,
+        );
         if (!row || !row.token_id) {
             throw new ReadModelNotFoundError("Activity event not found");
         }
 
-        const install = this.extensionRecords.getInstallByCollectionId(
-            params.chainId,
-            params.collectionId,
+        const install = this.apm.withSyncSpan(
+            "backend.extension.activity_event_preview.install_lookup",
+            attributes,
+            () =>
+                this.extensionRecords.getInstallByCollectionId(
+                    params.chainId,
+                    params.collectionId,
+                ),
         );
         const extension = install?.enabled
             ? resolveBackendCollectionExtension(install)
@@ -76,40 +93,73 @@ export class ExtensionActivityEventPreviewRead {
             row.source_kind !== ACTIVITY_SOURCE_KIND.Extension ||
             row.source_name !== install.extensionKey
         ) {
-            throw new ReadModelNotFoundError("Activity event preview not found");
+            throw new ReadModelNotFoundError(
+                "Activity event preview not found",
+            );
         }
 
         const event = mapActivityRow(row);
-        const availableModes =
-            extension.listActivityEventPreviewModes?.(install, event) ?? [];
-        if (availableModes.length === 0) {
-            throw new ReadModelNotFoundError("Activity event preview not found");
-        }
-        const defaultMode =
-            extension.defaultActivityEventPreviewMode?.(install, event) ??
-            availableModes[0]!.key;
-        const selectedMode = normalizeRenderMode(
-            params.renderMode,
-            availableModes,
-            defaultMode,
-        );
-        const token = await extension.resolveActivityEventPreview(
-            install,
-            event,
-            {
-                renderMode: selectedMode,
-                rpc: this.rpc,
+        const eventAttributes = {
+            ...attributes,
+            "artgod.extension.key": install.extensionKey,
+            "artgod.extension.event_key": payloadEventKey(event.payload),
+        };
+        const modes = this.apm.withSyncSpan(
+            "backend.extension.activity_event_preview.modes",
+            eventAttributes,
+            () => {
+                const availableModes =
+                    extension.listActivityEventPreviewModes?.(install, event) ??
+                    [];
+                if (availableModes.length === 0) {
+                    return null;
+                }
+                const defaultMode =
+                    extension.defaultActivityEventPreviewMode?.(
+                        install,
+                        event,
+                    ) ?? availableModes[0]!.key;
+                return {
+                    availableModes,
+                    defaultMode,
+                    selectedMode: normalizeRenderMode(
+                        params.renderMode,
+                        availableModes,
+                        defaultMode,
+                    ),
+                };
             },
         );
+        if (!modes) {
+            throw new ReadModelNotFoundError(
+                "Activity event preview not found",
+            );
+        }
+        const token = await this.apm.withSpan(
+            "backend.extension.activity_event_preview.resolve",
+            {
+                ...eventAttributes,
+                "artgod.activity.render_mode": modes.selectedMode,
+                "artgod.activity.preview_modes_count":
+                    modes.availableModes.length,
+            },
+            () =>
+                extension.resolveActivityEventPreview!(install, event, {
+                    renderMode: modes.selectedMode,
+                    rpc: this.rpc,
+                }),
+        );
         if (!token) {
-            throw new ReadModelNotFoundError("Activity event preview not found");
+            throw new ReadModelNotFoundError(
+                "Activity event preview not found",
+            );
         }
 
         return {
             media: {
-                selectedMode,
-                defaultMode,
-                availableModes,
+                selectedMode: modes.selectedMode,
+                defaultMode: modes.defaultMode,
+                availableModes: modes.availableModes,
             },
             token,
         };
@@ -143,6 +193,15 @@ function parsePayload(value: string | null): Record<string, unknown> | null {
     } catch {
         return null;
     }
+}
+
+function payloadEventKey(payload: Record<string, unknown> | null): string {
+    const value = payload?.eventKey;
+    if (typeof value !== "string" || !value.trim()) {
+        return "unknown";
+    }
+    const normalized = value.trim().toLowerCase();
+    return /^[a-z0-9_.-]{1,64}$/.test(normalized) ? normalized : "invalid";
 }
 
 function normalizeRenderMode(
