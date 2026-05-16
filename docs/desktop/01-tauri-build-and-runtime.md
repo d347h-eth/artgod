@@ -277,6 +277,7 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:4222`)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
+- observability keys use the canonical desktop/runtime names: `OBSERVABILITY_OTLP_HTTP_URL`, `OBSERVABILITY_PYROSCOPE_URL`, `BACKEND_METRICS_*`, `BACKEND_APM_*`, `INDEXER_METRICS_*`, and `INDEXER_APM_*`
 
 Desktop-first default path behavior:
 
