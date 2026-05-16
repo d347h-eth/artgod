@@ -74,6 +74,7 @@ describe("SqliteCollectionsReadModel observability", () => {
     it("hydrates listing prices after all-token page selection", () => {
         insertToken("1", "100");
         insertToken("2", "200");
+        insertToken("10", "1000");
         const apm = new CapturingApm();
         const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
 
@@ -81,12 +82,18 @@ describe("SqliteCollectionsReadModel observability", () => {
             chainId: 1,
             collectionId: 1,
             tokenStatus: "all",
-            limit: 2,
+            limit: 3,
         });
 
+        expect(page.items.map((token) => token.tokenId)).toEqual([
+            "1",
+            "2",
+            "10",
+        ]);
         expect(page.items.map((token) => token.listingPrice)).toEqual([
             "100",
             "200",
+            "1000",
         ]);
         expect(apm.spans).toEqual(
             expect.arrayContaining([
@@ -94,7 +101,7 @@ describe("SqliteCollectionsReadModel observability", () => {
                     name: "backend.collection.db.tokens_listing_hydration",
                     attributes: expect.objectContaining({
                         "artgod.collection.token_status": "all",
-                        "artgod.tokens.count": 2,
+                        "artgod.tokens.count": 3,
                     }),
                 }),
             ]),
@@ -170,8 +177,25 @@ function createSchema(): void {
             chain_id INTEGER NOT NULL,
             collection_id INTEGER NOT NULL,
             token_id TEXT NOT NULL,
+            token_sort_bucket INTEGER GENERATED ALWAYS AS (
+                CASE WHEN token_id <> '' AND token_id NOT GLOB '*[^0-9]*' THEN 0 ELSE 1 END
+            ) VIRTUAL,
+            token_sort_length INTEGER GENERATED ALWAYS AS (
+                CASE WHEN token_id <> '' AND token_id NOT GLOB '*[^0-9]*'
+                    THEN LENGTH(CASE WHEN LTRIM(token_id, '0') = '' THEN '0' ELSE LTRIM(token_id, '0') END)
+                    ELSE 0
+                END
+            ) VIRTUAL,
+            token_sort_value TEXT GENERATED ALWAYS AS (
+                CASE WHEN token_id <> '' AND token_id NOT GLOB '*[^0-9]*'
+                    THEN CASE WHEN LTRIM(token_id, '0') = '' THEN '0' ELSE LTRIM(token_id, '0') END
+                    ELSE token_id
+                END
+            ) VIRTUAL,
             PRIMARY KEY (chain_id, collection_id, token_id)
         );
+        CREATE INDEX tokens_collection_numeric_sort_idx
+            ON tokens (chain_id, collection_id, token_sort_bucket, token_sort_length, token_sort_value, token_id);
         CREATE TABLE token_metadata (
             chain_id INTEGER NOT NULL,
             collection_id INTEGER NOT NULL,

@@ -99,6 +99,21 @@ nft_balances(chain_id, collection_id, contract_address, token_id, owner, amount,
 
 ## Collection and Bootstrap Tables
 
+### `tokens`
+
+Defined in `010_token_sets_schema.sql` and extended by `030_tokens_numeric_sort_keys.sql`.
+
+Purpose:
+
+- stores the canonical token universe for each indexed collection
+- exposes generated numeric sort columns used by backend token-browser pages
+
+Important indexes:
+
+- primary key on `(chain_id, collection_id, token_id)`
+- unique lookup on `(chain_id, contract_address, token_id)`
+- browser sort index on `(chain_id, collection_id, token_sort_bucket, token_sort_length, token_sort_value, token_id)`
+
 ### `collections`
 
 Tracked by `database/migrations/007_collections_schema.sql`, `008_bootstrap_schema.sql`, and `015_opensea_offchain_schema.sql`.
