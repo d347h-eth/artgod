@@ -1,7 +1,7 @@
 {
     "name": "@artgod/frontend",
     "private": true,
-    "version": "0.0.1-pre-alpha.19",
+    "version": "0.0.1-pre-alpha.20",
     "type": "module",
     "scripts": {
         "dev": "vite dev --host 127.0.0.1 --port 5173 --strictPort",
