@@ -4,6 +4,7 @@ import {
     chmod,
     cp,
     mkdir,
+    readdir,
     readFile,
     rm,
     stat,
@@ -102,6 +103,9 @@ for (const spec of copySpecs) {
     await cp(spec.source, spec.target, { recursive: true });
 }
 
+// Keep only native prebuilds that match the bundled desktop runtime target.
+await pruneNativePrebuilds(resourcesRootDir, nodeDistTarget);
+
 await bundleNodeRuntime({
     cacheRootDir: nodeCacheRoot,
     nodeVersion,
@@ -158,6 +162,66 @@ function inferNodeDistTarget(platform, arch) {
     throw new Error(
         `Unsupported platform/arch for automatic Node runtime target: ${platform}/${arch}. Set DESKTOP_NODE_DIST_TARGET and DESKTOP_NATS_DIST_TARGET explicitly.`,
     );
+}
+
+async function pruneNativePrebuilds(targetRootDir, target) {
+    const allowedTargets = getNativePrebuildTargets(target);
+    const unpluggedDir = path.join(targetRootDir, ".yarn", "unplugged");
+    const prebuildDirs = await findDirectoriesNamed(unpluggedDir, "prebuilds");
+
+    for (const prebuildDir of prebuildDirs) {
+        const entries = await readdir(prebuildDir, { withFileTypes: true });
+        await Promise.all(
+            entries
+                .filter(
+                    (entry) =>
+                        entry.isDirectory() && !allowedTargets.has(entry.name),
+                )
+                .map((entry) =>
+                    rm(path.join(prebuildDir, entry.name), {
+                        recursive: true,
+                        force: true,
+                    }),
+                ),
+        );
+    }
+}
+
+function getNativePrebuildTargets(target) {
+    const targets = {
+        "linux-x64": ["linux-x64", "linuxglibc-x64"],
+        "linux-arm64": ["linux-arm64", "linuxglibc-arm64"],
+        "darwin-x64": ["darwin-x64"],
+        "darwin-arm64": ["darwin-arm64"],
+        "win-x64": ["win32-x64"],
+        "win-arm64": ["win32-arm64"],
+    };
+    const allowedTargets = targets[target];
+    if (!allowedTargets) {
+        throw new Error(
+            `Unsupported DESKTOP_NODE_DIST_TARGET "${target}" for native prebuild pruning.`,
+        );
+    }
+    return new Set(allowedTargets);
+}
+
+async function findDirectoriesNamed(rootDir, targetName) {
+    const matches = [];
+    const entries = await readdir(rootDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const entryPath = path.join(rootDir, entry.name);
+        if (entry.name === targetName) {
+            matches.push(entryPath);
+            continue;
+        }
+
+        matches.push(...(await findDirectoriesNamed(entryPath, targetName)));
+    }
+
+    return matches;
 }
 
 function getNodeArchiveSpec(nodeVersion, target) {
