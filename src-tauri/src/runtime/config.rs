@@ -20,8 +20,23 @@ pub struct DesktopRuntimeConfig {
     pub restart_backoff_ms: u64,
     pub process_env: HashMap<String, String>,
     pub logs_dir: PathBuf,
+    pub capabilities: DesktopRuntimeCapabilities,
     #[allow(dead_code)]
     pub wallet: DesktopWalletConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct DesktopRuntimeCapabilities {
+    pub opensea: RuntimeCapability,
+}
+
+#[derive(Clone, Debug)]
+pub struct RuntimeCapability {
+    pub enabled: bool,
+    pub mode: String,
+    pub reason: Option<String>,
+    #[allow(dead_code)]
+    pub missing_keys: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +62,17 @@ impl DesktopWalletConfig {
 }
 
 impl DesktopRuntimeConfig {
+    pub fn load_process_env(app: &AppHandle) -> Result<HashMap<String, String>, String> {
+        let local_paths = ensure_desktop_local_paths(app)?;
+        parse_env_file(&local_paths.env_file_path)
+    }
+
+    pub fn load_capabilities(app: &AppHandle) -> Result<DesktopRuntimeCapabilities, String> {
+        let local_paths = ensure_desktop_local_paths(app)?;
+        let process_env = parse_env_file(&local_paths.env_file_path)?;
+        build_runtime_capabilities(&process_env)
+    }
+
     pub fn load_or_create(app: &AppHandle) -> Result<Self, String> {
         let local_paths = ensure_desktop_local_paths(app)?;
         let app_data_dir = local_paths.app_data_dir.clone();
@@ -114,6 +140,8 @@ impl DesktopRuntimeConfig {
         let restart_backoff_ms =
             parse_u64(get_required(&process_env, "DESKTOP_RESTART_BACKOFF_MS")?)?;
         let wallet = build_wallet_config(&app_data_dir, &process_env)?;
+        let capabilities = build_runtime_capabilities(&process_env)?;
+        validate_runtime_capabilities(&capabilities)?;
 
         // Core runtime env is required for backend/indexer startup.
         get_required(&process_env, "ARTGOD_DB_PATH")?;
@@ -179,6 +207,7 @@ impl DesktopRuntimeConfig {
             restart_backoff_ms,
             process_env: merged_env,
             logs_dir: local_paths.logs_dir,
+            capabilities,
             wallet,
         })
     }
@@ -260,6 +289,84 @@ fn build_wallet_config(
         index_path: wallet_store_dir.join("index.json"),
         bot_unlock_stabilization_delay_ms,
     })
+}
+
+fn build_runtime_capabilities(
+    process_env: &HashMap<String, String>,
+) -> Result<DesktopRuntimeCapabilities, String> {
+    Ok(DesktopRuntimeCapabilities {
+        opensea: resolve_opensea_capability(process_env)?,
+    })
+}
+
+fn validate_runtime_capabilities(capabilities: &DesktopRuntimeCapabilities) -> Result<(), String> {
+    if capabilities.opensea.mode == "enabled" && !capabilities.opensea.enabled {
+        return Err(capabilities
+            .opensea
+            .reason
+            .clone()
+            .unwrap_or_else(|| "OpenSea integration is enabled but unavailable".to_owned()));
+    }
+    Ok(())
+}
+
+fn resolve_opensea_capability(
+    process_env: &HashMap<String, String>,
+) -> Result<RuntimeCapability, String> {
+    let mode = parse_opensea_integration_mode(process_env.get("OPENSEA_INTEGRATION_MODE"))?;
+    let api_key = process_env
+        .get("OPENSEA_API_KEY")
+        .map(String::as_str)
+        .unwrap_or("")
+        .trim();
+
+    if mode == "disabled" {
+        return Ok(RuntimeCapability {
+            enabled: false,
+            mode,
+            reason: Some("OPENSEA_INTEGRATION_MODE=disabled".to_owned()),
+            missing_keys: Vec::new(),
+        });
+    }
+
+    if !api_key.is_empty() {
+        return Ok(RuntimeCapability {
+            enabled: true,
+            mode,
+            reason: None,
+            missing_keys: Vec::new(),
+        });
+    }
+
+    let reason = if mode == "enabled" {
+        "OpenSea integration is enabled but OPENSEA_API_KEY is not configured"
+    } else {
+        "OpenSea integration disabled because OPENSEA_API_KEY is not configured"
+    };
+    Ok(RuntimeCapability {
+        enabled: false,
+        mode,
+        reason: Some(reason.to_owned()),
+        missing_keys: vec!["OPENSEA_API_KEY".to_owned()],
+    })
+}
+
+fn parse_opensea_integration_mode(raw: Option<&String>) -> Result<String, String> {
+    let normalized = raw
+        .map(String::as_str)
+        .unwrap_or("auto")
+        .trim()
+        .to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Ok("auto".to_owned());
+    }
+    match normalized.as_str() {
+        "auto" | "enabled" | "disabled" => Ok(normalized),
+        _ => Err(format!(
+            "Invalid OPENSEA_INTEGRATION_MODE: {}. Use auto, enabled, or disabled.",
+            raw.map(String::as_str).unwrap_or("")
+        )),
+    }
 }
 
 fn parse_env_file(path: &Path) -> Result<HashMap<String, String>, String> {
@@ -533,6 +640,7 @@ fn build_default_env_template() -> String {
         "BACKEND_CSRF_COOKIE_SECURE=false\n",
         "PUBLIC_BACKEND_ORIGIN=http://127.0.0.1:3000\n",
         "NATS_STREAM_PREFIX=artgod\n",
+        "OPENSEA_INTEGRATION_MODE=auto\n",
         "OPENSEA_API_KEY=\n",
         "OPENSEA_SNAPSHOT_PAGE_SIZE=100\n",
         "OPENSEA_RECONCILE_INTERVAL_MS=900000\n",
@@ -612,4 +720,53 @@ fn build_default_env_template() -> String {
         "LOG_CHUNK_SIZE=2000\n"
     )
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opensea_auto_without_api_key_is_disabled() {
+        let capabilities =
+            build_runtime_capabilities(&HashMap::new()).expect("capabilities should resolve");
+
+        assert!(!capabilities.opensea.enabled);
+        assert_eq!(capabilities.opensea.mode, "auto");
+        assert_eq!(
+            capabilities.opensea.reason.as_deref(),
+            Some("OpenSea integration disabled because OPENSEA_API_KEY is not configured")
+        );
+        assert_eq!(capabilities.opensea.missing_keys, vec!["OPENSEA_API_KEY"]);
+    }
+
+    #[test]
+    fn opensea_enabled_without_api_key_is_invalid() {
+        let capabilities = build_runtime_capabilities(&HashMap::from([(
+            "OPENSEA_INTEGRATION_MODE".to_owned(),
+            "enabled".to_owned(),
+        )]))
+        .expect("capabilities should parse");
+
+        let error = validate_runtime_capabilities(&capabilities)
+            .expect_err("enabled OpenSea without an API key should fail");
+
+        assert_eq!(
+            error,
+            "OpenSea integration is enabled but OPENSEA_API_KEY is not configured"
+        );
+    }
+
+    #[test]
+    fn opensea_auto_with_api_key_is_enabled() {
+        let capabilities = build_runtime_capabilities(&HashMap::from([(
+            "OPENSEA_API_KEY".to_owned(),
+            "test-opensea-api-key".to_owned(),
+        )]))
+        .expect("capabilities should resolve");
+
+        assert!(capabilities.opensea.enabled);
+        assert_eq!(capabilities.opensea.mode, "auto");
+        assert!(capabilities.opensea.reason.is_none());
+    }
 }

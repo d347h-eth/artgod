@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, listBootstrapRuns } from '$lib/backend-api';
+import { BackendApiError, getRuntimeConfig, listBootstrapRuns } from '$lib/backend-api';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
@@ -19,18 +19,23 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				limit: DEFAULT_PAGE_LIMIT
 			},
 			status: '',
-			basePath: '/'
+			basePath: '/',
+			openseaIntegration: null
 		};
 	}
 
 	const query = normalizeBootstrapRunsParams(url.searchParams);
 	try {
-		const response = await listBootstrapRuns(fetch, params.chain_ref, query);
+		const [runtimeConfig, response] = await Promise.all([
+			getRuntimeConfig(fetch),
+			listBootstrapRuns(fetch, params.chain_ref, query)
+		]);
 		return {
 			chain: response.chain,
 			page: response.page,
 			status: response.filters.status ?? '',
-			basePath: `/${response.chain.slug}/bootstrap-runs`
+			basePath: `/${response.chain.slug}/bootstrap-runs`,
+			openseaIntegration: runtimeConfig.integrations.opensea
 		};
 	} catch (cause) {
 		toKitError(cause);

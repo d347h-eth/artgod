@@ -206,6 +206,11 @@ fn runtime_preflight(app: AppHandle, state: State<'_, DesktopState>) -> RuntimeP
     push_env_check(&mut checks, &config, "RPC_RATE_LIMIT_BURST");
     push_env_check(&mut checks, &config, "WETH_ADDRESS");
     push_env_check(&mut checks, &config, "SEAPORT_CONDUIT_CONTROLLER");
+    push_opensea_integration_check(
+        &mut checks,
+        config.capabilities.opensea.enabled,
+        config.capabilities.opensea.reason.as_deref(),
+    );
     if let Some(userland_dist) = config.process_env.get("USERLAND_UI_DIST_DIR") {
         push_exists_check(
             &mut checks,
@@ -685,6 +690,26 @@ fn push_env_check(
             key: key.to_owned(),
             status: "pass".to_owned(),
             message: format!("{key} configured"),
+        });
+    }
+}
+
+fn push_opensea_integration_check(
+    checks: &mut Vec<RuntimePreflightCheck>,
+    enabled: bool,
+    reason: Option<&str>,
+) {
+    if enabled {
+        checks.push(RuntimePreflightCheck {
+            key: "openseaIntegration".to_owned(),
+            status: "pass".to_owned(),
+            message: "OpenSea integration enabled".to_owned(),
+        });
+    } else {
+        checks.push(RuntimePreflightCheck {
+            key: "openseaIntegration".to_owned(),
+            status: "warn".to_owned(),
+            message: reason.unwrap_or("OpenSea integration disabled").to_owned(),
         });
     }
 }

@@ -1,13 +1,18 @@
 <script lang="ts">
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import BootstrapRunsPageView from '$lib/components/BootstrapRunsPageView.svelte';
-	import type { ApiChain, BootstrapRunsApiResponse } from '$lib/api-types';
+	import type {
+		ApiChain,
+		ApiOpenSeaIntegrationStatus,
+		BootstrapRunsApiResponse
+	} from '$lib/api-types';
 
 	type PageData = {
-		chain: ApiChain;
+		chain: ApiChain | null;
 		page: BootstrapRunsApiResponse['page'];
 		status: string;
 		basePath: string;
+		openseaIntegration: ApiOpenSeaIntegrationStatus | null;
 	};
 
 	let { data }: { data?: PageData } = $props();
@@ -24,4 +29,5 @@
 	page={data?.page ?? fallbackPage}
 	status={data?.status ?? ''}
 	basePath={data?.basePath ?? '/'}
+	openseaIntegration={data?.openseaIntegration ?? null}
 />

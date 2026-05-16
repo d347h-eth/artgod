@@ -298,6 +298,22 @@ a:hover {
 	justify-self: start;
 }
 
+.bootstrap-control:disabled,
+.bootstrap-control-select:disabled,
+.bootstrap-control-textarea:disabled {
+	color: var(--c-muted);
+	border-color: var(--c-line);
+	cursor: not-allowed;
+	opacity: 0.75;
+}
+
+.bootstrap-input-with-note {
+	display: grid;
+	gap: 0.25rem;
+	width: fit-content;
+	max-width: 100%;
+}
+
 .bootstrap-input-slug {
 	width: 24ch;
 }

@@ -88,6 +88,7 @@
 
 	function canStart(bot: AdminBotRecord): boolean {
 		return (
+			bot.disabledReason === null &&
 			bot.assignedWallet !== null &&
 			bot.state !== 'awaiting_unlock' &&
 			bot.state !== 'starting' &&
@@ -211,8 +212,11 @@
 								</div>
 							</div>
 
-							{#if bot.lastError}
+							{#if bot.lastError && bot.lastError !== bot.disabledReason}
 								<p class="runtime-error" role="alert">{bot.lastError}</p>
+							{/if}
+							{#if bot.disabledReason}
+								<p class="runtime-error" role="alert">{bot.disabledReason}</p>
 							{/if}
 
 							<div class="runtime-controls admin-bot-controls">
