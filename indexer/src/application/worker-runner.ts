@@ -5,7 +5,7 @@ import {
     DEAD_LETTER_KIND,
     type DeadLetterPayload,
 } from "../domain/dead-letter.js";
-import { NOOP_APM, type ApmPort } from "../observability/apm.js";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 
 export type WorkerOptions = {
     queue: QueueName;

@@ -12,8 +12,8 @@ import {
     TRADING_JOB_TARGET_KIND,
     type ChainRecord,
     type CollectionListItem,
-    type PersistedBiddingJobRecord,
     type PersistedBiddingPriceTierRecord,
+    type PersistedTokenBiddingJobRecord,
     type TradingJobCommandRecord,
 } from "@artgod/shared/types";
 import {
@@ -264,8 +264,8 @@ function priceTier(): PersistedBiddingPriceTierRecord {
 }
 
 function biddingJob(
-    overrides: Partial<PersistedBiddingJobRecord>,
-): PersistedBiddingJobRecord {
+    overrides: Partial<PersistedTokenBiddingJobRecord>,
+): PersistedTokenBiddingJobRecord {
     return {
         jobId: "job-tier",
         botKind: TRADING_BOT_KIND.Bidding,

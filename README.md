@@ -138,9 +138,10 @@ docker compose --profile observability up -d loki tempo pyroscope alloy promethe
 
 Open Grafana at `http://localhost:42701` (default `admin` / `admin`).
 
-Use the indexer launcher to produce runtime log files under `tmp/logs/*.log`:
+Use the local launchers to produce runtime log files under `tmp/logs/*.log`:
 
 ```sh
+./scripts/backend-dev.sh
 ./scripts/indexer-dev.sh
 ```
 
@@ -228,14 +229,16 @@ Useful optional env groups:
 
 - Backend HTTP/security (`BACKEND_HOST`, `BACKEND_ALLOWED_HOSTS`, `BACKEND_ALLOWED_ORIGINS`, `BACKEND_CSRF_COOKIE_SECURE`, `PUBLIC_BACKEND_ORIGIN`)
 - Backend query cache (`BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*`)
+- Observability signal-store endpoints (`OBSERVABILITY_OTLP_HTTP_URL`, `OBSERVABILITY_PYROSCOPE_URL`)
+- Backend observability (`BACKEND_METRICS_*`, `BACKEND_APM_*`)
 - RPC resilience (`RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
 - Metadata refresh/batch tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
 - Trading bot OpenSea lanes (`OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`)
 - Trading bot command reconciliation and bid-book projection (`BIDDING_COMMAND_*`, `BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS`)
 - Trading bot transaction policy (`BIDDING_TX_MIN_PRIORITY_FEE_GWEI`, `BIDDING_TX_FEE_HISTORY_*`, `BIDDING_TX_BASE_FEE_MULTIPLIER`, `BIDDING_TX_MAX_FEE_GWEI`, `BIDDING_TX_PENDING_NONCE_POLICY`)
-- Metrics (`METRICS_ENABLED`, `METRICS_HOST`, `METRICS_PORT_*`)
-- APM (`APM_ENABLED`, `APM_*`)
+- Indexer metrics (`INDEXER_METRICS_ENABLED`, `INDEXER_METRICS_HOST`, `INDEXER_METRICS_PORT_*`)
+- Indexer APM (`INDEXER_APM_ENABLED`, `INDEXER_APM_*`)
 
 See `.env.example` and `docs/indexer/01-config-and-env.md` for full definitions.
 
@@ -347,8 +350,8 @@ Historical backfill for blocks at or before the bootstrap anchor is facts-only: 
 Signal paths:
 
 - Logs: runtime file logs -> Alloy -> Loki -> Grafana
-- Metrics: per-runtime `/metrics` -> Prometheus -> Grafana
-- Traces: OTLP -> Tempo -> Grafana
+- Metrics: backend/indexer `/metrics` endpoints -> Prometheus -> Grafana
+- Traces: backend/indexer OTLP -> Tempo -> Grafana
 - Profiles: Pyroscope -> Grafana
 
 The public deploy compose exposes the same stack behind its `observability` profile, with Grafana reachable inside the shared Docker edge network as `artgod-grafana:3000`.
@@ -393,6 +396,9 @@ cargo tauri dev
 
 # Start only the backend workspace dev server.
 yarn workspace @artgod/backend run dev
+
+# Start only the backend workspace dev server with a local observability log file.
+./scripts/backend-dev.sh
 
 # Start only the frontend workspace dev server.
 yarn workspace @artgod/frontend run dev

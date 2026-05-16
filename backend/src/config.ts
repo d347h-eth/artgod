@@ -30,6 +30,11 @@ const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES = 250;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS = 10 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS = 20 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY = 3;
+const DEFAULT_BACKEND_METRICS_HOST = "0.0.0.0";
+const DEFAULT_BACKEND_METRICS_PORT = 9480;
+const DEFAULT_BACKEND_APM_SERVICE_NAMESPACE = "artgod.backend";
+const DEFAULT_OBSERVABILITY_OTLP_HTTP_URL = "http://127.0.0.1:4318/v1/traces";
+const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = "http://127.0.0.1:4040";
 
 export type BackendSecurityConfig = {
     allowedHosts: string[];
@@ -63,6 +68,28 @@ export type BackendQueryCacheConfig = {
     };
 };
 
+export type BackendMetricsConfig = {
+    enabled: boolean;
+    host: string;
+    port: number;
+};
+
+export type BackendApmConfig = {
+    enabled: boolean;
+    serviceNamespace: string;
+    spanProfiles: {
+        enabled: boolean;
+    };
+    traces: {
+        enabled: boolean;
+        otlpHttpUrl: string;
+    };
+    profiles: {
+        enabled: boolean;
+        pyroscopeUrl: string;
+    };
+};
+
 export type BackendConfig = {
     host: string;
     port: number;
@@ -76,6 +103,8 @@ export type BackendConfig = {
     security: BackendSecurityConfig;
     deployment: BackendDeploymentConfig;
     queryCache: BackendQueryCacheConfig;
+    metrics: BackendMetricsConfig;
+    apm: BackendApmConfig;
 };
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -114,6 +143,8 @@ export function loadBackendConfig(
     };
     const deployment = parseDeploymentConfig(env);
     const queryCache = parseQueryCacheConfig(env);
+    const metrics = parseBackendMetricsConfig(env);
+    const apm = parseBackendApmConfig(env);
 
     return {
         host,
@@ -128,6 +159,70 @@ export function loadBackendConfig(
         security,
         deployment,
         queryCache,
+        metrics,
+        apm,
+    };
+}
+
+function parseBackendMetricsConfig(
+    env: Record<string, string | undefined>,
+): BackendMetricsConfig {
+    return {
+        enabled: parseBoolean(
+            env.BACKEND_METRICS_ENABLED,
+            "BACKEND_METRICS_ENABLED",
+            false,
+        ),
+        host: env.BACKEND_METRICS_HOST?.trim() || DEFAULT_BACKEND_METRICS_HOST,
+        port: parsePositiveInteger(
+            env.BACKEND_METRICS_PORT,
+            "BACKEND_METRICS_PORT",
+            DEFAULT_BACKEND_METRICS_PORT,
+        ),
+    };
+}
+
+function parseBackendApmConfig(
+    env: Record<string, string | undefined>,
+): BackendApmConfig {
+    return {
+        enabled: parseBoolean(
+            env.BACKEND_APM_ENABLED,
+            "BACKEND_APM_ENABLED",
+            false,
+        ),
+        serviceNamespace:
+            env.BACKEND_APM_SERVICE_NAMESPACE?.trim() ||
+            DEFAULT_BACKEND_APM_SERVICE_NAMESPACE,
+        spanProfiles: {
+            enabled: parseBoolean(
+                env.BACKEND_APM_SPAN_PROFILES_ENABLED,
+                "BACKEND_APM_SPAN_PROFILES_ENABLED",
+                true,
+            ),
+        },
+        traces: {
+            enabled: parseBoolean(
+                env.BACKEND_APM_TRACES_ENABLED,
+                "BACKEND_APM_TRACES_ENABLED",
+                true,
+            ),
+            otlpHttpUrl:
+                env.BACKEND_APM_OTLP_HTTP_URL?.trim() ||
+                env.OBSERVABILITY_OTLP_HTTP_URL?.trim() ||
+                DEFAULT_OBSERVABILITY_OTLP_HTTP_URL,
+        },
+        profiles: {
+            enabled: parseBoolean(
+                env.BACKEND_APM_PROFILES_ENABLED,
+                "BACKEND_APM_PROFILES_ENABLED",
+                true,
+            ),
+            pyroscopeUrl:
+                env.BACKEND_APM_PYROSCOPE_URL?.trim() ||
+                env.OBSERVABILITY_PYROSCOPE_URL?.trim() ||
+                DEFAULT_OBSERVABILITY_PYROSCOPE_URL,
+        },
     };
 }
 

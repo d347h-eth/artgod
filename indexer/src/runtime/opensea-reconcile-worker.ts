@@ -15,8 +15,8 @@ import { SqliteOpenSeaOrderbookRuns } from "../infra/offchain/sqlite-orderbook-r
 import { SqliteOrderSourceStateStore } from "../infra/offchain/sqlite-order-source-state.js";
 import { OpenSeaApiAdapter } from "../infra/offchain/opensea-api.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 async function main() {
     try {

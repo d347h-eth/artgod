@@ -9,8 +9,8 @@ import {
     type DeadLetterPayload,
 } from "../domain/dead-letter.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 async function main() {
     try {

@@ -1,4 +1,13 @@
-import type { FastifyInstance } from "fastify";
+import type {
+    FastifyInstance,
+    FastifyReply,
+    FastifyRequest,
+    RawReplyDefaultExpression,
+    RawRequestDefaultExpression,
+    RawServerDefault,
+    RouteGenericInterface,
+    RouteHandlerMethod,
+} from "fastify";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import type {
     CreateBootstrapRunHttpAdapter,
@@ -143,7 +152,11 @@ import type {
     ArchiveCollectionBiddingPriceTierRoute,
 } from "./http/handlers/trading/archive-collection-bidding-price-tier.js";
 import type { CommonHttpHandlers } from "./http/common/handlers.js";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import {
+    observeRouteHandler,
+    type BackendHttpObservability,
+    type BackendRouteMetadata,
+} from "./http/common/observability.js";
 
 type PublicCollectionScope = {
     chainRef: string;
@@ -154,7 +167,24 @@ type ApiRouteRegistrationOptions = {
     publicCollectionScope: PublicCollectionScope;
     includeAdminRoutes: boolean;
     includeCsrfRoute: boolean;
+    observability: BackendHttpObservability;
 };
+
+type ApiRouteHandler<Route extends RouteGenericInterface> = (
+    request: FastifyRequest<Route>,
+    reply: FastifyReply,
+) => Promise<unknown> | unknown;
+
+type ApiRoutePreHandler<Route extends RouteGenericInterface> = (
+    request: FastifyRequest<Route>,
+    reply: FastifyReply,
+) => Promise<void> | void;
+
+type ObservedRouteSettings<Route extends RouteGenericInterface> = {
+    preHandler?: ApiRoutePreHandler<Route>;
+};
+
+type ObservedRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "OPTIONS";
 
 export function registerApiRoutes(
     app: FastifyInstance,
@@ -208,193 +238,370 @@ export function registerApiRoutes(
         options.publicCollectionScope,
     );
 
-    app.get("/health", async () => ({ status: "ok" }));
-    app.get<GetRuntimeHealthRoute>(
+    registerObservedGet(
+        app,
+        options,
+        "/health",
+        async () => ({ status: "ok" }),
+    );
+    registerObservedGet<GetRuntimeHealthRoute>(
+        app,
+        options,
         "/health/runtime",
         getRuntimeHealthAdapter.handle,
     );
-    app.options("/api/*", commonHandlers.optionsApi);
-    app.get<GetDefaultChainRoute>(
+    registerObservedOptions(
+        app,
+        options,
+        "/api/*",
+        commonHandlers.optionsApi,
+    );
+    registerObservedGet<GetDefaultChainRoute>(
+        app,
+        options,
         "/api/chains/default",
         getDefaultChainAdapter.handle,
     );
-    app.get<ResolveOwnerRefRoute>(
+    registerObservedGet<ResolveOwnerRefRoute>(
+        app,
+        options,
         "/api/:chain_ref/resolve-owner-ref",
+        resolveOwnerRefAdapter.handle,
         {
             preHandler: publicChainScopeGuard,
         },
-        resolveOwnerRefAdapter.handle,
     );
-    app.get<GetCollectionActivityRoute>(
+    registerObservedGet<GetCollectionActivityRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/activity",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         getCollectionActivityAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
-    app.get<GetActivityEventPreviewRoute>(
+    registerObservedGet<GetActivityEventPreviewRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/activity/:activity_id/preview",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         getActivityEventPreviewAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
-    app.get<GetCollectionDetailRoute>(
+    registerObservedGet<GetCollectionDetailRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         getCollectionDetailAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
-    app.get<GetCollectionHoldersRoute>(
+    registerObservedGet<GetCollectionHoldersRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/holders",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         getCollectionHoldersAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
-    app.get<GetTokenActivityRoute>(
+    registerObservedGet<GetTokenActivityRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/:token_ref/activity",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         getTokenActivityAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
-    app.get<ListCollectionBiddingBidBookRoute>(
+    registerObservedGet<ListCollectionBiddingBidBookRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/bids",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         listCollectionBiddingBidBookAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
-    app.get<GetTokenPreviewRoute>(
+    registerObservedGet<GetTokenPreviewRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/:token_ref/preview",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         getTokenPreviewAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
-    app.get<GetTokenUriRoute>(
+    registerObservedGet<GetTokenUriRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/:token_ref/token-uri",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         getTokenUriAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
-    app.get<GetTokenBiddingBidBookRoute>(
+    registerObservedGet<GetTokenBiddingBidBookRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/bids",
-        {
-            preHandler: publicCollectionScopeGuard,
-        },
         getTokenBiddingBidBookAdapter.handle,
-    );
-    app.get<GetTokenDetailRoute>(
-        "/api/:chain_ref/:collection_ref/:token_ref",
         {
             preHandler: publicCollectionScopeGuard,
         },
+    );
+    registerObservedGet<GetTokenDetailRoute>(
+        app,
+        options,
+        "/api/:chain_ref/:collection_ref/:token_ref",
         getTokenDetailAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+        },
     );
     if (options.includeCsrfRoute) {
-        app.get("/api/security/csrf", issueCsrfTokenHandler);
+        registerObservedGet(
+            app,
+            options,
+            "/api/security/csrf",
+            issueCsrfTokenHandler,
+        );
     }
 
     if (!options.includeAdminRoutes) {
         return;
     }
 
-    app.get<ListCollectionsRoute>(
+    registerObservedGet<ListCollectionsRoute>(
+        app,
+        options,
         "/api/:chain_ref/collections",
         listCollectionsAdapter.handle,
     );
-    app.get<GetCollectionCustomizationRoute>(
+    registerObservedGet<GetCollectionCustomizationRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/customization",
         getCollectionCustomizationAdapter.handle,
     );
-    app.get<ListCollectionBiddingJobsRoute>(
+    registerObservedGet<ListCollectionBiddingJobsRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/jobs",
         listCollectionBiddingJobsAdapter.handle,
     );
-    app.get<ListCollectionBiddingPriceTiersRoute>(
+    registerObservedGet<ListCollectionBiddingPriceTiersRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/price-tiers",
         listCollectionBiddingPriceTiersAdapter.handle,
     );
-    app.get<PreviewBiddingPriceTierReapplyRoute>(
+    registerObservedGet<PreviewBiddingPriceTierReapplyRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply-preview",
         previewBiddingPriceTierReapplyAdapter.handle,
     );
-    app.get<GetTokenBiddingJobRoute>(
+    registerObservedGet<GetTokenBiddingJobRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         getTokenBiddingJobAdapter.handle,
     );
-    app.post<LookupBiddingJobTargetRoute>(
+    registerObservedPost<LookupBiddingJobTargetRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup",
         lookupBiddingJobTargetAdapter.handle,
     );
-    app.post<CreateBootstrapRunRoute>(
+    registerObservedPost<CreateBootstrapRunRoute>(
+        app,
+        options,
         "/api/:chain_ref/collections/bootstrap",
         createBootstrapRunAdapter.handle,
     );
-    app.get<ListBootstrapRunsRoute>(
+    registerObservedGet<ListBootstrapRunsRoute>(
+        app,
+        options,
         "/api/:chain_ref/bootstrap-runs",
         listBootstrapRunsAdapter.handle,
     );
-    app.get<GetBootstrapRunDetailRoute>(
+    registerObservedGet<GetBootstrapRunDetailRoute>(
+        app,
+        options,
         "/api/:chain_ref/bootstrap-runs/:run_id",
         getBootstrapRunDetailAdapter.handle,
     );
-    app.get<GetBootstrapStatusRoute>(
+    registerObservedGet<GetBootstrapStatusRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bootstrap",
         getBootstrapStatusAdapter.handle,
     );
-    app.put<UpdateCollectionCustomizationRoute>(
+    registerObservedPut<UpdateCollectionCustomizationRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/customization",
         updateCollectionCustomizationAdapter.handle,
     );
-    app.put<UpsertTokenBiddingJobRoute>(
+    registerObservedPut<UpsertTokenBiddingJobRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         upsertTokenBiddingJobAdapter.handle,
     );
-    app.put<UpsertTraitBiddingJobRoute>(
+    registerObservedPut<UpsertTraitBiddingJobRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/jobs/traits",
         upsertTraitBiddingJobAdapter.handle,
     );
-    app.put<UpsertBatchTokenBiddingJobsRoute>(
+    registerObservedPut<UpsertBatchTokenBiddingJobsRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/jobs/tokens/batch",
         upsertBatchTokenBiddingJobsAdapter.handle,
     );
-    app.put<UpsertCollectionBiddingJobRoute>(
+    registerObservedPut<UpsertCollectionBiddingJobRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/jobs/collection",
         upsertCollectionBiddingJobAdapter.handle,
     );
-    app.put<UpsertCollectionBiddingPriceTierRoute>(
+    registerObservedPut<UpsertCollectionBiddingPriceTierRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/price-tiers",
         upsertCollectionBiddingPriceTierAdapter.handle,
     );
-    app.put<UpdateCollectionBiddingSettingsRoute>(
+    registerObservedPut<UpdateCollectionBiddingSettingsRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/settings",
         updateCollectionBiddingSettingsAdapter.handle,
     );
-    app.post<ApplyBiddingPriceTierReapplyRoute>(
+    registerObservedPost<ApplyBiddingPriceTierReapplyRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id/reapply",
         applyBiddingPriceTierReapplyAdapter.handle,
     );
-    app.delete<ArchiveTokenBiddingJobRoute>(
+    registerObservedDelete<ArchiveTokenBiddingJobRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/:token_ref/bidding/job",
         archiveTokenBiddingJobAdapter.handle,
     );
-    app.delete<ArchiveBiddingJobRoute>(
+    registerObservedDelete<ArchiveBiddingJobRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/jobs/:job_id",
         archiveBiddingJobAdapter.handle,
     );
-    app.delete<ArchiveCollectionBiddingPriceTierRoute>(
+    registerObservedDelete<ArchiveCollectionBiddingPriceTierRoute>(
+        app,
+        options,
         "/api/:chain_ref/:collection_ref/bidding/price-tiers/:tier_id",
         archiveCollectionBiddingPriceTierAdapter.handle,
     );
-    app.post<RetryBootstrapRunFailedTasksRoute>(
+    registerObservedPost<RetryBootstrapRunFailedTasksRoute>(
+        app,
+        options,
         "/api/:chain_ref/bootstrap-runs/:run_id/retry-failed",
         retryBootstrapRunFailedTasksAdapter.handle,
     );
+}
+
+function registerObservedGet<
+    Route extends RouteGenericInterface = RouteGenericInterface,
+>(
+    app: FastifyInstance,
+    options: ApiRouteRegistrationOptions,
+    route: string,
+    handler: ApiRouteHandler<Route>,
+    settings: ObservedRouteSettings<Route> = {},
+): void {
+    registerObservedRoute(app, options, "GET", route, handler, settings);
+}
+
+function registerObservedPost<Route extends RouteGenericInterface>(
+    app: FastifyInstance,
+    options: ApiRouteRegistrationOptions,
+    route: string,
+    handler: ApiRouteHandler<Route>,
+): void {
+    registerObservedRoute(app, options, "POST", route, handler);
+}
+
+function registerObservedPut<Route extends RouteGenericInterface>(
+    app: FastifyInstance,
+    options: ApiRouteRegistrationOptions,
+    route: string,
+    handler: ApiRouteHandler<Route>,
+): void {
+    registerObservedRoute(app, options, "PUT", route, handler);
+}
+
+function registerObservedDelete<Route extends RouteGenericInterface>(
+    app: FastifyInstance,
+    options: ApiRouteRegistrationOptions,
+    route: string,
+    handler: ApiRouteHandler<Route>,
+): void {
+    registerObservedRoute(app, options, "DELETE", route, handler);
+}
+
+function registerObservedOptions(
+    app: FastifyInstance,
+    options: ApiRouteRegistrationOptions,
+    route: string,
+    handler: ApiRouteHandler<RouteGenericInterface>,
+): void {
+    registerObservedRoute(app, options, "OPTIONS", route, handler);
+}
+
+function registerObservedRoute<Route extends RouteGenericInterface>(
+    app: FastifyInstance,
+    options: ApiRouteRegistrationOptions,
+    method: ObservedRouteMethod,
+    route: string,
+    handler: ApiRouteHandler<Route>,
+    settings: ObservedRouteSettings<Route> = {},
+): void {
+    const metadata = {
+        method,
+        route,
+    } satisfies BackendRouteMetadata;
+    const observedHandler = observeRouteHandler(
+        options.observability,
+        metadata,
+        handler,
+    ) as RouteHandlerMethod<
+        RawServerDefault,
+        RawRequestDefaultExpression<RawServerDefault>,
+        RawReplyDefaultExpression<RawServerDefault>,
+        Route
+    >;
+
+    if (method === "GET") {
+        app.get<Route>(route, settings, observedHandler);
+        return;
+    }
+    if (method === "POST") {
+        app.post<Route>(route, settings, observedHandler);
+        return;
+    }
+    if (method === "PUT") {
+        app.put<Route>(route, settings, observedHandler);
+        return;
+    }
+    if (method === "DELETE") {
+        app.delete<Route>(route, settings, observedHandler);
+        return;
+    }
+    app.options<Route>(route, settings, observedHandler);
 }
 
 function createPublicChainScopeGuard(scope: PublicCollectionScope) {

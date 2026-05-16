@@ -14,8 +14,8 @@ import { SqliteOffchainObservationStore } from "../infra/offchain/sqlite-observa
 import { SqliteOrderActivityLookup } from "../infra/offchain/sqlite-order-activity-lookup.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { SqliteTokenSetRegistry } from "../infra/token-sets/sqlite.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 async function main() {
     try {

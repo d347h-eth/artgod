@@ -3,10 +3,22 @@ logging {
   format = "logfmt"
 }
 
+local.file_match "artgod_backend_logs" {
+  path_targets = [
+    {
+      __path__ = "/var/log/artgod/backend-api.log",
+      app      = "artgod",
+      runtime  = "backend-api",
+      host     = "local-dev",
+    },
+  ]
+  sync_period = "5s"
+}
+
 local.file_match "artgod_indexer_logs" {
   path_targets = [
     {
-      __path__ = "/var/log/artgod/*.log",
+      __path__ = "/var/log/artgod/indexer-*.log",
       app      = "artgod",
       runtime  = "indexer",
       host     = "local-dev",
@@ -15,15 +27,23 @@ local.file_match "artgod_indexer_logs" {
   sync_period = "5s"
 }
 
+loki.source.file "artgod_backend" {
+  targets = local.file_match.artgod_backend_logs.targets
+
+  // Backend logs are tailed from the host launcher log file.
+  forward_to    = [loki.process.artgod_runtime.receiver]
+  tail_from_end = true
+}
+
 loki.source.file "artgod_indexer" {
   targets = local.file_match.artgod_indexer_logs.targets
 
   // Worker logs are tailed from host files and streamed to Loki.
-  forward_to    = [loki.process.artgod_indexer.receiver]
+  forward_to    = [loki.process.artgod_runtime.receiver]
   tail_from_end = true
 }
 
-loki.process "artgod_indexer" {
+loki.process "artgod_runtime" {
   // Parse structured JSON logs emitted by the shared logger.
   stage.json {
     expressions = {

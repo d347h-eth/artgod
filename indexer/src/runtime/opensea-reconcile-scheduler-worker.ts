@@ -10,8 +10,8 @@ import {
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 async function main() {
     try {

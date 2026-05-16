@@ -35,7 +35,7 @@ import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import { SqliteMetadataDomain } from "../infra/domain/metadata.js";
 import { HttpMetadataFetcher } from "../infra/metadata/http-fetcher.js";
 import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import type {
     BootstrapMetadataTask,
     BootstrapMetadataTaskSeed,
@@ -51,7 +51,7 @@ import type { StoragePort } from "../ports/storage.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 const BOOTSTRAP_BACKFILL_CHECK_DELAY_MS = 5_000;
 const TOKEN_ENUMERATION_HEARTBEAT_MS = 15_000;

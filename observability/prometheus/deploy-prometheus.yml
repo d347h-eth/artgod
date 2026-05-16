@@ -3,6 +3,13 @@ global:
     evaluation_interval: 5s
 
 scrape_configs:
+    - job_name: "artgod-backend"
+      metrics_path: /metrics
+      static_configs:
+          - targets: ["backend:9480"]
+            labels:
+                runtime: "backend-api"
+
     - job_name: "artgod-indexer"
       metrics_path: /metrics
       static_configs:

@@ -6,6 +6,12 @@ import {
     parseRequiredString,
 } from "@artgod/shared/utils/env";
 import { defaultRetryPolicy } from "../domain/retry.js";
+import {
+    parseIndexerApmConfig,
+    parseIndexerMetricsConfig,
+    type IndexerApmConfig,
+    type IndexerMetricsConfig,
+} from "./observability-env.js";
 
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
@@ -69,39 +75,8 @@ export type IndexerConfig = {
     seaport: {
         conduitController: string;
     };
-    apm: {
-        enabled: boolean;
-        serviceNamespace: string;
-        spanProfiles: {
-            enabled: boolean;
-        };
-        traces: {
-            enabled: boolean;
-            otlpHttpUrl: string;
-        };
-        profiles: {
-            enabled: boolean;
-            pyroscopeUrl: string;
-        };
-    };
-    metrics: {
-        enabled: boolean;
-        host: string;
-        ports: {
-            schedulerWorker: number;
-            syncWorker: number;
-            reorgWorker: number;
-            domainWorker: number;
-            offchainIngestWorker: number;
-            openseaStreamWorker: number;
-            openseaBootstrapWorker: number;
-            openseaReconcileWorker: number;
-            openseaReconcileSchedulerWorker: number;
-            bootstrapWorker: number;
-            collectionExtensionWorker: number;
-            deadLetterWorker: number;
-        };
-    };
+    apm: IndexerApmConfig;
+    metrics: IndexerMetricsConfig;
 };
 
 function parseAddress(value: string | undefined, name: string): string {
@@ -267,103 +242,7 @@ export function loadConfig(
                 "SEAPORT_CONDUIT_CONTROLLER",
             ),
         },
-        apm: {
-            enabled: parseBoolean(env.APM_ENABLED, "APM_ENABLED", false),
-            serviceNamespace: env.APM_SERVICE_NAMESPACE ?? "artgod.indexer",
-            spanProfiles: {
-                enabled: parseBoolean(
-                    env.APM_SPAN_PROFILES_ENABLED,
-                    "APM_SPAN_PROFILES_ENABLED",
-                    true,
-                ),
-            },
-            traces: {
-                enabled: parseBoolean(
-                    env.APM_TRACES_ENABLED,
-                    "APM_TRACES_ENABLED",
-                    true,
-                ),
-                otlpHttpUrl:
-                    env.APM_OTLP_HTTP_URL ?? "http://127.0.0.1:4318/v1/traces",
-            },
-            profiles: {
-                enabled: parseBoolean(
-                    env.APM_PROFILES_ENABLED,
-                    "APM_PROFILES_ENABLED",
-                    true,
-                ),
-                pyroscopeUrl: env.APM_PYROSCOPE_URL ?? "http://127.0.0.1:4040",
-            },
-        },
-        metrics: {
-            enabled: parseBoolean(
-                env.METRICS_ENABLED,
-                "METRICS_ENABLED",
-                false,
-            ),
-            host: env.METRICS_HOST ?? "0.0.0.0",
-            ports: {
-                schedulerWorker: parseNumber(
-                    env.METRICS_PORT_SCHEDULER_WORKER,
-                    "METRICS_PORT_SCHEDULER_WORKER",
-                    9464,
-                ),
-                syncWorker: parseNumber(
-                    env.METRICS_PORT_SYNC_WORKER,
-                    "METRICS_PORT_SYNC_WORKER",
-                    9465,
-                ),
-                reorgWorker: parseNumber(
-                    env.METRICS_PORT_REORG_WORKER,
-                    "METRICS_PORT_REORG_WORKER",
-                    9466,
-                ),
-                domainWorker: parseNumber(
-                    env.METRICS_PORT_DOMAIN_WORKER,
-                    "METRICS_PORT_DOMAIN_WORKER",
-                    9467,
-                ),
-                offchainIngestWorker: parseNumber(
-                    env.METRICS_PORT_OFFCHAIN_INGEST_WORKER,
-                    "METRICS_PORT_OFFCHAIN_INGEST_WORKER",
-                    9468,
-                ),
-                openseaStreamWorker: parseNumber(
-                    env.METRICS_PORT_OPENSEA_STREAM_WORKER,
-                    "METRICS_PORT_OPENSEA_STREAM_WORKER",
-                    9469,
-                ),
-                openseaBootstrapWorker: parseNumber(
-                    env.METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
-                    "METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-                    9472,
-                ),
-                openseaReconcileWorker: parseNumber(
-                    env.METRICS_PORT_OPENSEA_RECONCILE_WORKER,
-                    "METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-                    9473,
-                ),
-                openseaReconcileSchedulerWorker: parseNumber(
-                    env.METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
-                    "METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-                    9474,
-                ),
-                bootstrapWorker: parseNumber(
-                    env.METRICS_PORT_BOOTSTRAP_WORKER,
-                    "METRICS_PORT_BOOTSTRAP_WORKER",
-                    9470,
-                ),
-                collectionExtensionWorker: parseNumber(
-                    env.METRICS_PORT_COLLECTION_EXTENSION_WORKER,
-                    "METRICS_PORT_COLLECTION_EXTENSION_WORKER",
-                    9475,
-                ),
-                deadLetterWorker: parseNumber(
-                    env.METRICS_PORT_DEAD_LETTER_WORKER,
-                    "METRICS_PORT_DEAD_LETTER_WORKER",
-                    9471,
-                ),
-            },
-        },
+        apm: parseIndexerApmConfig(env),
+        metrics: parseIndexerMetricsConfig(env),
     };
 }

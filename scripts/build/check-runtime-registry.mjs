@@ -42,14 +42,15 @@ const PROMETHEUS_CONFIG_PATH = path.join(
     "prometheus",
     "prometheus.yml",
 );
-const INDEXER_CONFIG_PATH = path.join(
+const INDEXER_OBSERVABILITY_CONFIG_PATH = path.join(
     rootDir,
     "indexer",
     "src",
     "config",
-    "index.ts",
+    "observability-env.ts",
 );
 const ENV_EXAMPLE_PATH = path.join(rootDir, ".env.example");
+const NON_INDEXER_PROMETHEUS_RUNTIMES = new Set(["backend-api"]);
 
 function stableSorted(values) {
     return [...values].sort((a, b) => a.localeCompare(b));
@@ -57,6 +58,10 @@ function stableSorted(values) {
 
 function formatSet(values) {
     return stableSorted(values).join(", ");
+}
+
+function withoutSet(values, excluded) {
+    return new Set([...values].filter((value) => !excluded.has(value)));
 }
 
 function toMetricsRuntime(workerArtifactName) {
@@ -70,7 +75,7 @@ function toMetricsConfigKey(workerArtifactName) {
 }
 
 function toMetricsEnvVar(workerArtifactName) {
-    return `METRICS_PORT_${workerArtifactName
+    return `INDEXER_METRICS_PORT_${workerArtifactName
         .replace(/-/g, "_")
         .toUpperCase()}`;
 }
@@ -241,7 +246,7 @@ async function parsePrometheusRuntimes() {
 }
 
 async function parseMetricsConfigKeys() {
-    const source = await readFile(INDEXER_CONFIG_PATH, "utf8");
+    const source = await readFile(INDEXER_OBSERVABILITY_CONFIG_PATH, "utf8");
     const keys = new Set();
     const pattern = /\b([a-zA-Z][a-zA-Z0-9]*)\s*:\s*parseNumber\(/g;
 
@@ -255,7 +260,7 @@ async function parseMetricsConfigKeys() {
 async function parseMetricsEnvVars() {
     const source = await readFile(ENV_EXAMPLE_PATH, "utf8");
     const vars = new Set();
-    const pattern = /^(METRICS_PORT_[A-Z0-9_]+)=/gm;
+    const pattern = /^(INDEXER_METRICS_PORT_[A-Z0-9_]+)=/gm;
 
     for (const match of source.matchAll(pattern)) {
         vars.add(match[1]);
@@ -380,16 +385,20 @@ async function main() {
     const expectedPrometheusRuntimes = new Set(
         [...runtimeWorkers].map((name) => toMetricsRuntime(name)),
     );
+    const prometheusIndexerRuntimes = withoutSet(
+        prometheusRuntimes,
+        NON_INDEXER_PROMETHEUS_RUNTIMES,
+    );
     assertNoMissingEntries({
         source: "observability/prometheus runtime labels",
         expected: expectedPrometheusRuntimes,
-        actual: prometheusRuntimes,
+        actual: prometheusIndexerRuntimes,
         errors,
     });
     assertNoUnknownEntries({
         source: "observability/prometheus runtime labels",
         expected: expectedPrometheusRuntimes,
-        actual: prometheusRuntimes,
+        actual: prometheusIndexerRuntimes,
         errors,
     });
 

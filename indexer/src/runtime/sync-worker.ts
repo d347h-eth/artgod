@@ -34,7 +34,7 @@ import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import {
     MAKER_TRIGGER_SCOPE,
     ORDER_JOB_KIND,
@@ -47,7 +47,7 @@ import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
 import type { CollectionRecord } from "../domain/collections.js";
 import type { CollectionExtensionInstallPort } from "../ports/collection-extensions.js";
 import type { CollectionScopeResolverPort } from "../ports/collections.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 const BIDDER_INDEX_REFRESH_MS = 30_000;
 

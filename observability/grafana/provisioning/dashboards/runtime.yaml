@@ -1,7 +1,7 @@
 apiVersion: 1
 
 providers:
-    - name: "ArtGod Indexer"
+    - name: "ArtGod Runtime"
       orgId: 1
       folder: "ArtGod"
       type: file

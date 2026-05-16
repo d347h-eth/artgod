@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import type { FastifyRequest, RouteGenericInterface } from "fastify";
 import { describe, it } from "vitest";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import {
@@ -634,6 +635,8 @@ describe("trading HTTP adapters", () => {
     });
 });
 
-function request<T extends object>(value: T): T {
-    return value;
+function request<T extends object>(
+    value: T,
+): T & FastifyRequest<RouteGenericInterface> {
+    return value as T & FastifyRequest<RouteGenericInterface>;
 }

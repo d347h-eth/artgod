@@ -1,4 +1,8 @@
-import { logger } from "@artgod/shared/utils";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { logger } from "../utils/logger.js";
 
 export type SpanAttributeValue = string | number | boolean | null | undefined;
 
@@ -17,6 +21,8 @@ export type RuntimeApmConfig = {
     serviceNamespace: string;
     chainId: number;
     worker: string;
+    logComponent?: string;
+    tracerName?: string;
     spanProfiles: {
         enabled: boolean;
     };
@@ -83,6 +89,12 @@ type OTelNodeSdk = {
     shutdown: () => Promise<void>;
 };
 
+type PnpApi = {
+    resolveRequest: (request: string, issuer: string) => string | null;
+};
+
+let cachedPnpApi: PnpApi | null | undefined;
+
 export const NOOP_APM: ApmPort = {
     async withSpan<T>(
         _name: string,
@@ -115,7 +127,7 @@ export async function initRuntimeApm(
 
     if (!tracing && !profiling) {
         logger.warn("APM enabled but no runtime initialized", {
-            component: "IndexerApm",
+            component: apmLogComponent(config),
             action: "initRuntimeApm",
             worker: config.worker,
             chainId: config.chainId,
@@ -132,7 +144,7 @@ export async function initRuntimeApm(
                     profiling.stop();
                 } catch (error) {
                     logger.warn("APM profiling stop failed", {
-                        component: "IndexerApm",
+                        component: apmLogComponent(config),
                         action: "stop",
                         worker: config.worker,
                         error: String(error),
@@ -158,7 +170,7 @@ async function startTracing(
         ]);
         if (!sdkModule || !exporterModule || !otelModule) {
             logger.warn("Tracing disabled (OpenTelemetry packages missing)", {
-                component: "IndexerApm",
+                component: apmLogComponent(config),
                 action: "startTracing",
                 worker: config.worker,
                 chainId: config.chainId,
@@ -166,21 +178,23 @@ async function startTracing(
             return null;
         }
 
-        const NodeSDK = sdkModule.NodeSDK as
+        const sdkRuntime = sdkModule.default ?? sdkModule;
+        const exporterRuntime = exporterModule.default ?? exporterModule;
+        const NodeSDK = sdkRuntime.NodeSDK as
             | (new (args: {
                   serviceName?: string;
                   traceExporter: unknown;
                   autoDetectResources?: boolean;
               }) => OTelNodeSdk)
             | undefined;
-        const OTLPTraceExporter = exporterModule.OTLPTraceExporter as
+        const OTLPTraceExporter = exporterRuntime.OTLPTraceExporter as
             | (new (args: { url: string }) => unknown)
             | undefined;
         const otel = otelModule as OTelModule;
 
         if (!NodeSDK || !OTLPTraceExporter || !otel.trace?.getTracer) {
             logger.warn("Tracing disabled (OpenTelemetry API mismatch)", {
-                component: "IndexerApm",
+                component: apmLogComponent(config),
                 action: "startTracing",
                 worker: config.worker,
                 chainId: config.chainId,
@@ -200,7 +214,7 @@ async function startTracing(
         await sdk.start();
 
         logger.info("Tracing runtime ready", {
-            component: "IndexerApm",
+            component: apmLogComponent(config),
             action: "startTracing",
             worker: config.worker,
             chainId: config.chainId,
@@ -215,7 +229,9 @@ async function startTracing(
                 attributes: SpanAttributes,
                 run: () => Promise<T>,
             ): Promise<T> => {
-                const tracer = otel.trace.getTracer("artgod.indexer");
+                const tracer = otel.trace.getTracer(
+                    config.tracerName ?? "artgod.runtime",
+                );
                 return tracer.startActiveSpan(
                     name,
                     { attributes: toOtelAttributes(attributes) },
@@ -268,7 +284,7 @@ async function startTracing(
         };
     } catch (error) {
         logger.warn("Tracing disabled (OpenTelemetry init failed)", {
-            component: "IndexerApm",
+            component: apmLogComponent(config),
             action: "startTracing",
             worker: config.worker,
             chainId: config.chainId,
@@ -285,7 +301,7 @@ async function startProfiling(
         const pyroscopeModule = await importModule("@pyroscope/nodejs");
         if (!pyroscopeModule) {
             logger.warn("Profiling disabled (Pyroscope package missing)", {
-                component: "IndexerApm",
+                component: apmLogComponent(config),
                 action: "startProfiling",
                 worker: config.worker,
                 chainId: config.chainId,
@@ -319,7 +335,7 @@ async function startProfiling(
 
         if (!init || !start) {
             logger.warn("Profiling disabled (Pyroscope API mismatch)", {
-                component: "IndexerApm",
+                component: apmLogComponent(config),
                 action: "startProfiling",
                 worker: config.worker,
                 chainId: config.chainId,
@@ -344,7 +360,7 @@ async function startProfiling(
         start();
 
         logger.info("Profiling runtime ready", {
-            component: "IndexerApm",
+            component: apmLogComponent(config),
             action: "startProfiling",
             worker: config.worker,
             chainId: config.chainId,
@@ -376,7 +392,7 @@ async function startProfiling(
         };
     } catch (error) {
         logger.warn("Profiling disabled (Pyroscope init failed)", {
-            component: "IndexerApm",
+            component: apmLogComponent(config),
             action: "startProfiling",
             worker: config.worker,
             chainId: config.chainId,
@@ -386,13 +402,83 @@ async function startProfiling(
     }
 }
 
-async function importModule(name: string): Promise<any | null> {
+type OptionalApmPackage =
+    | "@opentelemetry/sdk-node"
+    | "@opentelemetry/exporter-trace-otlp-http"
+    | "@opentelemetry/api"
+    | "@pyroscope/nodejs";
+
+async function importModule(name: OptionalApmPackage): Promise<any | null> {
     try {
-        const packageName = name;
-        return await import(packageName);
+        switch (name) {
+            case "@opentelemetry/sdk-node":
+                return await import("@opentelemetry/sdk-node");
+            case "@opentelemetry/exporter-trace-otlp-http":
+                return await import("@opentelemetry/exporter-trace-otlp-http");
+            case "@opentelemetry/api":
+                return await import("@opentelemetry/api");
+            case "@pyroscope/nodejs":
+                return await importPyroscopeModule();
+        }
     } catch {
         return null;
     }
+}
+
+async function importPyroscopeModule(): Promise<any | null> {
+    const resolved = resolveFromSharedPackage("@pyroscope/nodejs");
+    if (resolved) {
+        return await import(pathToFileURL(resolved).href);
+    }
+
+    const packageName = "@pyroscope/nodejs";
+    return await import(packageName);
+}
+
+function resolveFromSharedPackage(packageName: string): string | null {
+    const pnpApi = loadPnpApi();
+    if (!pnpApi) return null;
+
+    // Resolve native optional packages from the shared package that owns them.
+    for (const issuer of sharedPackageIssuerCandidates()) {
+        try {
+            const resolved = pnpApi.resolveRequest(packageName, issuer);
+            if (resolved) return resolved;
+        } catch {
+            continue;
+        }
+    }
+    return null;
+}
+
+function loadPnpApi(): PnpApi | null {
+    if (cachedPnpApi !== undefined) return cachedPnpApi;
+
+    try {
+        const runtimeRequire = createRequire(import.meta.url);
+        const packageName = "pnpapi";
+        cachedPnpApi = runtimeRequire(packageName) as PnpApi;
+    } catch {
+        cachedPnpApi = null;
+    }
+    return cachedPnpApi;
+}
+
+function sharedPackageIssuerCandidates(): string[] {
+    const modulePath = fileURLToPath(import.meta.url);
+    return [
+        modulePath,
+        join(process.cwd(), "shared", "observability", "apm.js"),
+        join(process.cwd(), "..", "shared", "observability", "apm.js"),
+        join(
+            dirname(modulePath),
+            "..",
+            "..",
+            "shared",
+            "observability",
+            "apm.js",
+        ),
+    ];
 }
 
 function toOtelAttributes(
@@ -432,4 +518,8 @@ function buildSpanProfileLabels(
         chain_id: String(config.chainId),
         service_name: `${config.serviceNamespace}.${config.worker}`,
     };
+}
+
+function apmLogComponent(config: RuntimeApmConfig): string {
+    return config.logComponent ?? "RuntimeApm";
 }

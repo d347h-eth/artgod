@@ -78,6 +78,11 @@ import {
     createIssueCsrfTokenHandler,
     registerApiSecurityHooks,
 } from "./http/common/security.js";
+import {
+    createNoopBackendHttpObservability,
+    registerBackendHttpObservabilityHooks,
+    type BackendHttpObservability,
+} from "./http/common/observability.js";
 import { registerUserlandStaticRoutes } from "./http/common/userland-static.js";
 import { registerApiRoutes } from "./http-routes.js";
 import type {
@@ -125,6 +130,9 @@ export function createApiApp(
     userlandUiDistDir: string | null,
     securityConfig: BackendSecurityConfig,
     deploymentConfig: BackendDeploymentConfig,
+    observability: BackendHttpObservability = createNoopBackendHttpObservability(
+        deploymentConfig.mode,
+    ),
 ): FastifyInstance {
     const app = Fastify({
         logger: false,
@@ -254,6 +262,7 @@ export function createApiApp(
     const issueCsrfTokenHandler = createIssueCsrfTokenHandler(securityConfig);
 
     registerApiResponseHeaders(app, securityConfig);
+    registerBackendHttpObservabilityHooks(app, observability);
     registerApiSecurityHooks(app, securityConfig);
     registerApiRoutes(
         app,
@@ -301,6 +310,7 @@ export function createApiApp(
                 deploymentConfig.mode !== "public_single_collection",
             includeCsrfRoute:
                 deploymentConfig.mode !== "public_single_collection",
+            observability,
         },
     );
     if (userlandUiDistDir) {

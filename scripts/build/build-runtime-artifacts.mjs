@@ -25,13 +25,16 @@ const baseBuildConfig = {
     outExtension: { ".js": ".mjs" },
     bundle: true,
     format: "esm",
+    // Emit dynamic observability imports as lazy chunks for desktop runtime builds.
+    splitting: true,
     platform: "node",
     target: "node24",
+    chunkNames: "chunks/[name]-[hash]",
     sourcemap: false,
     minify: false,
     external: ["better-sqlite3"],
     banner: {
-        js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
+        js: 'import { createRequire as __createRequire } from "node:module"; import { dirname as __dirnameOf } from "node:path"; import { fileURLToPath as __fileURLToPath } from "node:url"; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __dirnameOf(__filename);',
     },
     legalComments: "none",
     logLevel: "info",

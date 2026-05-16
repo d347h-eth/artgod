@@ -220,12 +220,34 @@ export async function createPrometheusMetrics(
 
 async function loadPromClient(): Promise<PromClientRuntime | null> {
     if (!cachedPromClient) {
-        const packageName = "prom-client";
-        cachedPromClient = import(packageName)
-            .then((module) => module as unknown as PromClientRuntime)
+        cachedPromClient = import("prom-client")
+            .then(toPromClientRuntime)
             .catch(() => null);
     }
     return cachedPromClient;
+}
+
+function toPromClientRuntime(module: unknown): PromClientRuntime | null {
+    const candidate = module as
+        | (Partial<PromClientRuntime> & {
+              default?: Partial<PromClientRuntime>;
+          })
+        | null
+        | undefined;
+    if (isPromClientRuntime(candidate)) return candidate;
+    if (isPromClientRuntime(candidate?.default)) return candidate.default;
+    return null;
+}
+
+function isPromClientRuntime(value: unknown): value is PromClientRuntime {
+    const runtime = value as Partial<PromClientRuntime> | null | undefined;
+    return (
+        typeof runtime?.Registry === "function" &&
+        typeof runtime.Counter === "function" &&
+        typeof runtime.Gauge === "function" &&
+        typeof runtime.Histogram === "function" &&
+        typeof runtime.collectDefaultMetrics === "function"
+    );
 }
 
 function normalizeMetricPrefix(prefix: string): string {

@@ -16,8 +16,8 @@ import {
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
-import { initRuntimeMetrics } from "../metrics/runtime.js";
-import { initRuntimeApm } from "../observability/apm.js";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
+import { initRuntimeApm } from "@artgod/shared/observability/apm";
 import type { RpcProviderPort } from "../ports/rpc.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { StoragePort } from "../ports/storage.js";

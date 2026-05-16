@@ -1,6 +1,6 @@
 # Observability, Metrics, Tracing, and Profiling
 
-This document captures the current observability implementation for the indexer after these recent commits:
+This document captures the current observability implementation for the backend API and indexer after these recent commits:
 
 - `1fa7406` - observability stack (Loki/Grafana/Alloy).
 - `a5271fc` - Prometheus metrics export + dashboard wiring.
@@ -13,10 +13,10 @@ It also records known limitations and what is still missing for complete trace-t
 
 Current setup is local-first and split by signal type:
 
-- Logs: indexer runtimes write JSON log files to `tmp/logs/*.log` on host, Alloy tails files, pushes to Loki, Grafana reads Loki.
-- Metrics: each runtime exposes `/metrics` over HTTP on host ports `9464..9475`, Prometheus scrapes, Grafana reads Prometheus.
-- Traces: runtimes send OTLP traces directly to Tempo (`:4318`), Grafana reads Tempo.
-- Profiles: runtimes send profiles directly to Pyroscope (`:4040`), Grafana reads Pyroscope.
+- Logs: local backend API and indexer runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
+- Metrics: backend API and indexer runtimes expose `/metrics` over HTTP; Prometheus scrapes them and Grafana reads Prometheus.
+- Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:4318`), and Grafana reads Tempo.
+- Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:4040`), and Grafana reads Pyroscope.
 
 Observability containers run behind the `observability` compose profile in `docker-compose.yml` for local dev and `docker-compose.deploy.yml` for the public deploy stack.
 
@@ -36,15 +36,16 @@ Observability containers run behind the `observability` compose profile in `dock
 `docker-compose.deploy.yml` defines the same signal stores behind its own `observability` profile, but uses deploy-specific wiring:
 
 - `grafana` joins the external `public-edge` network with alias `artgod-grafana` and listens on container port `3000`.
-- Prometheus scrapes indexer worker service names such as `indexer-sync-worker:9465` using `observability/prometheus/deploy-prometheus.yml`.
+- Prometheus scrapes `backend:9480` and indexer worker service names such as `indexer-sync-worker:9465` using `observability/prometheus/deploy-prometheus.yml`.
 - Grafana datasources use compose service names from `observability/grafana/provisioning-deploy/datasources`.
 - Alloy uses Docker discovery through a read-only Docker socket and keeps only containers labeled `com.artgod.observability.logs=true`.
 
 ### Log Pipeline
 
-- Runtime launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
+- Backend launcher script `scripts/backend-dev.sh` truncates and rewrites `tmp/logs/backend-api.log`.
+- Indexer launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
 - Alloy config in `observability/alloy/config.alloy`:
-    - `local.file_match` targets `/var/log/artgod/*.log`.
+    - `local.file_match` targets `/var/log/artgod/backend-api.log` and `/var/log/artgod/indexer-*.log`.
     - `loki.source.file` tails from end.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
@@ -52,6 +53,7 @@ Observability containers run behind the `observability` compose profile in `dock
 ### Metrics Pipeline
 
 - Prometheus config in `observability/prometheus/prometheus.yml` scrapes:
+    - `9480` backend-api
     - `9464` scheduler-worker
     - `9465` sync-worker
     - `9466` reorg-worker
@@ -65,22 +67,24 @@ Observability containers run behind the `observability` compose profile in `dock
     - `9474` opensea-reconcile-scheduler-worker
     - `9475` collection-extension-worker
 - Runtime metrics bootstrap:
-    - `indexer/src/metrics/runtime.ts` initializes metrics only when enabled.
-    - `indexer/src/metrics/prometheus.ts` lazily imports `prom-client`.
-    - `indexer/src/metrics/server.ts` exposes `/metrics` and `/healthz`.
+    - `shared/observability/metrics/runtime.ts` initializes generic runtime metrics only when enabled.
+    - `backend/src/observability/metrics.ts` initializes backend-specific metrics with the `artgod_backend_` prefix.
+    - `shared/observability/metrics/prometheus.ts` lazily imports `prom-client`.
+    - `shared/observability/metrics/server.ts` exposes `/metrics` and `/healthz`.
 
 ### Trace Pipeline
 
 - Runtime APM bootstrap:
-    - `indexer/src/observability/apm.ts` lazily imports OpenTelemetry packages.
+    - `shared/observability/apm.ts` lazily imports OpenTelemetry packages.
     - `withSpan(name, attributes, run)` is the single tracing API.
-    - spans are created around scheduler-worker actions and queue-consumer handlers.
-    - exports via OTLP HTTP to `APM_OTLP_HTTP_URL` (default Tempo).
+    - backend spans wrap registered API route handlers.
+    - indexer spans are created around scheduler-worker actions and queue-consumer handlers.
+    - exports via OTLP HTTP to `INDEXER_APM_OTLP_HTTP_URL`, or the composition-level `OBSERVABILITY_OTLP_HTTP_URL` when the indexer-specific override is omitted.
 
 ### Profile Pipeline
 
 - Same `apm.ts` lazily imports `@pyroscope/nodejs`.
-- profiler uses app name `${APM_SERVICE_NAMESPACE}.${worker}`.
+- profiler uses app name `${INDEXER_APM_SERVICE_NAMESPACE}.${worker}`.
 - base tags: `service_name`, `worker`, `chain_id`.
 - span profile linking mode adds dynamic labels via `wrapWithLabels`:
     - `profile_id=<spanId>`
@@ -91,23 +95,61 @@ Observability containers run behind the `observability` compose profile in `dock
 
 Main env flags (in `.env.example` and loaded through typed config):
 
-- `METRICS_ENABLED`
-- `METRICS_HOST` (default `0.0.0.0`)
-- `METRICS_PORT_*` for each runtime
-- `APM_ENABLED`
-- `APM_SERVICE_NAMESPACE`
-- `APM_TRACES_ENABLED`
-- `APM_OTLP_HTTP_URL`
-- `APM_PROFILES_ENABLED`
-- `APM_PYROSCOPE_URL`
-- `APM_SPAN_PROFILES_ENABLED`
+- `OBSERVABILITY_OTLP_HTTP_URL`
+- `OBSERVABILITY_PYROSCOPE_URL`
+- `INDEXER_METRICS_ENABLED`
+- `INDEXER_METRICS_HOST` (default `0.0.0.0`)
+- `INDEXER_METRICS_PORT_*` for each runtime
+- `BACKEND_METRICS_ENABLED`
+- `BACKEND_METRICS_HOST`
+- `BACKEND_METRICS_PORT`
+- `INDEXER_APM_ENABLED`
+- `INDEXER_APM_SERVICE_NAMESPACE`
+- `INDEXER_APM_TRACES_ENABLED`
+- `INDEXER_APM_OTLP_HTTP_URL` (optional override)
+- `INDEXER_APM_PROFILES_ENABLED`
+- `INDEXER_APM_PYROSCOPE_URL` (optional override)
+- `INDEXER_APM_SPAN_PROFILES_ENABLED`
+- `BACKEND_APM_ENABLED`
+- `BACKEND_APM_SERVICE_NAMESPACE`
+- `BACKEND_APM_TRACES_ENABLED`
+- `BACKEND_APM_OTLP_HTTP_URL` (optional override)
+- `BACKEND_APM_PROFILES_ENABLED`
+- `BACKEND_APM_PYROSCOPE_URL` (optional override)
+- `BACKEND_APM_SPAN_PROFILES_ENABLED`
 
 Design notes:
 
 - metrics and APM exporters are optional and degrade to no-op paths when disabled.
 - packages are loaded lazily at runtime; missing packages do not crash observability-disabled runs.
+- Observability config accepts workspace-specific names (`INDEXER_*`, `BACKEND_*`) and composition-level endpoint names (`OBSERVABILITY_*`) only.
 
 ## What Is Instrumented Today
+
+### Backend API Metrics
+
+Fastify lifecycle hooks in `backend/src/http/common/observability.ts` emit:
+
+- `http.requests` counter by method, route, and status class
+- `http.request.duration_ms` histogram for total request latency
+- `http.pre_handler.duration_ms` histogram for routing, security, and pre-handler work
+- `http.handler.duration_ms` histogram for HTTP adapter and use-case work
+- `http.response_send.duration_ms` histogram for response serialization/send time
+- `http.inflight.requests` gauge by method and route
+- `http.request.errors` exception counter by method, route, and error class
+- `query_cache.requests`, `query_cache.age_ms`, `query_cache.ttl_ms` for cached backend query paths that set cache debug context
+
+These export with the `artgod_backend_` Prometheus prefix.
+
+### Backend API Traces
+
+Registered backend API and health handlers are wrapped in `backend.http.route` spans with:
+
+- `http.method`
+- `http.route`
+- `artgod.deployment_mode`
+
+The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 
 ### Metrics (current hooks)
 
@@ -177,7 +219,7 @@ Provisioned datasources:
 
 Provisioned dashboard:
 
-- `observability/grafana/provisioning/dashboards/indexer-metrics-overview.json`
+- `observability/grafana/provisioning/dashboards/runtime-metrics-overview.json`
 
 Current Tempo `tracesToProfiles` mapping is:
 
@@ -193,14 +235,15 @@ The profile type is intentionally `wall:cpu...` for Node workers, not `process_c
 
 ### Logs
 
-- If logs do not appear in Grafana Explore, verify `scripts/indexer-dev.sh` is writing into `tmp/logs` and Alloy is mounted to that same host path.
+- If logs do not appear in Grafana Explore, verify `scripts/backend-dev.sh` and/or `scripts/indexer-dev.sh` are writing into `tmp/logs` and Alloy is mounted to that same host path.
 - Because worker logs are truncated on worker start, tail behavior is easiest to reason about when observability stack is already running before worker startup.
 
 ### Metrics
 
-- `up{job="artgod-indexer"}` should show runtimes as healthy once workers are up and `METRICS_ENABLED=true`.
+- `up{job="artgod-backend"}` should show the backend API scrape target when `BACKEND_METRICS_ENABLED=true`.
+- `up{job="artgod-indexer"}` should show runtimes as healthy once workers are up and `INDEXER_METRICS_ENABLED=true`.
 - if `/metrics` works locally but Prometheus is empty, check host/container networking and host firewall policy (especially custom Docker/DOCKER-USER rules).
-- `METRICS_HOST=0.0.0.0` is required for host-based scraping setups used here.
+- `INDEXER_METRICS_HOST=0.0.0.0` is required for host-based scraping setups used here.
 
 ### Pyroscope and Explore
 
@@ -242,13 +285,16 @@ To reach full trace-profile correlation:
 
 - Start stack:
     - `docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana`
-- Start workers with file logs:
+- Start runtimes with file logs:
+    - `./scripts/backend-dev.sh`
     - `./scripts/indexer-dev.sh`
 - Check metrics endpoint:
+    - `curl http://127.0.0.1:9480/metrics`
     - `curl http://127.0.0.1:9465/metrics`
     - `curl http://127.0.0.1:9475/metrics`
 - Check Grafana:
     - logs in Loki Explore
+    - `up{job="artgod-backend"}` in Prometheus Explore
     - `up{job="artgod-indexer"}` in Prometheus Explore
     - traces visible in Tempo
     - profiles visible in Pyroscope with `wall:cpu` profile type

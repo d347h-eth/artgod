@@ -10,7 +10,7 @@ import type { JobEnvelope } from "../domain/jobs.js";
 import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
 import type { RpcProviderPort } from "../ports/rpc.js";
-import { NOOP_APM, type ApmPort } from "../observability/apm.js";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import {
     REORG_JOB_KIND,
     type BlockCheckPayload,
