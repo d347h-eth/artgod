@@ -30,6 +30,29 @@ describe("Indexer config", () => {
         expect(config.offchain.persistRawObservations).toBe(true);
     });
 
+    it("treats missing OpenSea API key as disabled in auto mode", () => {
+        const config = loadConfig(REQUIRED_ENV);
+
+        expect(config.integrations.opensea).toEqual({
+            enabled: false,
+            mode: "auto",
+            reason: "OpenSea integration disabled because OPENSEA_API_KEY is not configured",
+            missingKeys: ["OPENSEA_API_KEY"],
+            requiredKeys: ["OPENSEA_API_KEY"],
+        });
+    });
+
+    it("fails fast when OpenSea integration is required without an API key", () => {
+        expect(() =>
+            loadConfig({
+                ...REQUIRED_ENV,
+                OPENSEA_INTEGRATION_MODE: "enabled",
+            }),
+        ).toThrow(
+            "OpenSea integration is enabled but OPENSEA_API_KEY is not configured",
+        );
+    });
+
     it("allows disabling raw offchain observation persistence", () => {
         const config = loadConfig({
             ...REQUIRED_ENV,

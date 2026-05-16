@@ -1,6 +1,11 @@
 import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils";
 import {
+    assertOpenSeaIntegrationModeSatisfied,
+    resolveOpenSeaIntegrationStatus,
+    type OpenSeaIntegrationStatus,
+} from "@artgod/shared/config/opensea-integration";
+import {
     parseBoolean,
     parseNumber,
     parseRequiredString,
@@ -72,6 +77,9 @@ export type IndexerConfig = {
     offchain: {
         persistRawObservations: boolean;
     };
+    integrations: {
+        opensea: OpenSeaIntegrationStatus;
+    };
     seaport: {
         conduitController: string;
     };
@@ -98,6 +106,8 @@ export function loadConfig(
     if (!rpcUrl) {
         throw new Error("Missing RPC_URL");
     }
+    const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
+    assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
 
     return {
         dbPath,
@@ -235,6 +245,9 @@ export function loadConfig(
                 "OFFCHAIN_PERSIST_RAW_OBSERVATIONS",
                 true,
             ),
+        },
+        integrations: {
+            opensea: openseaIntegration,
         },
         seaport: {
             conduitController: parseAddress(

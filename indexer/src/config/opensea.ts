@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import { parseNumber, parseRequiredString } from "@artgod/shared/utils/env";
+import { requireOpenSeaIntegrationEnabled } from "@artgod/shared/config/opensea-integration";
 import {
     parseIndexerApmConfig,
     parseOpenSeaMetricsConfig,
@@ -54,6 +55,7 @@ export function loadOpenSeaConfig(
 ): OpenSeaRuntimeConfig {
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", 1);
+    requireOpenSeaIntegrationEnabled(env);
     const apiKey = parseRequiredString(env.OPENSEA_API_KEY, "OPENSEA_API_KEY");
 
     return {
