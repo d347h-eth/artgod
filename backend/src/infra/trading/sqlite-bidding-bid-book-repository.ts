@@ -1,6 +1,11 @@
 import { db } from "@artgod/shared/database";
 import type { BetterSqlite3NamedStatement } from "@artgod/shared/database";
 import {
+    NOOP_APM,
+    type ApmPort,
+    type SpanAttributes,
+} from "@artgod/shared/observability/apm";
+import {
     parseOpenSeaBiddingOffer,
     type ParsedOpenSeaBiddingOffer,
 } from "@artgod/shared/trading/open-sea-bidding-offers";
@@ -153,7 +158,7 @@ export class SqliteBiddingBidBookRepository
         nowSeconds: number;
     }>;
 
-    constructor() {
+    constructor(private readonly apm: ApmPort = NOOP_APM) {
         this.selectEnabledJob = db.prepare<{
             chainId: number;
             collectionId: number;
@@ -277,40 +282,11 @@ export class SqliteBiddingBidBookRepository
         selectedTraitRanges: TraitRangeFilter[];
         makerAddress?: string | null;
     }): PersistedBiddingBidBook {
-        const knownMakerAddress = this.loadKnownBiddingMakerAddress(
-            params.chainId,
+        return this.apm.withSyncSpan(
+            "backend.bidding.repository.collection_bid_book",
+            collectionBidBookSpanAttributes(params),
+            () => this.listCollectionBidBookInner(params),
         );
-        const useProjection = this.shouldUseBotSnapshot(params);
-        const bidBook = markOwnBids(
-            useProjection
-                ? this.loadProjectedBidBook(params.chainId, params.collectionId)
-                : this.loadIndexedOrdersBidBook(
-                      params.chainId,
-                      params.collectionId,
-                  ),
-            knownMakerAddress,
-        );
-        const makerAddress = params.makerAddress?.toLowerCase() ?? null;
-        const scopedBids = sortBidsDesc(
-            bidBook.bids.filter(
-                (bid) =>
-                    collectionBidMatchesFilters(
-                        bid,
-                        params.scopeFilter,
-                        params.traitFilterJoinMode,
-                        params.selectedTraits,
-                        params.selectedTraitRanges,
-                    ),
-            ),
-        );
-        return {
-            state: bidBook.state,
-            ownMakerAddress: bidBook.ownMakerAddress,
-            bids: attachOwnBidRuntimeSignals(
-                scopedBids,
-                this.loadActiveBiddingJobs(params.chainId, params.collectionId),
-            ).filter((bid) => makerMatchesFilter(bid, makerAddress)),
-        };
     }
 
     listTokenBidBook(params: {
@@ -319,30 +295,191 @@ export class SqliteBiddingBidBookRepository
         tokenId: string;
         tokenTraits: TradingTraitCriterion[];
     }): PersistedBiddingBidBook {
-        const knownMakerAddress = this.loadKnownBiddingMakerAddress(
-            params.chainId,
+        return this.apm.withSyncSpan(
+            "backend.bidding.repository.token_bid_book",
+            {
+                "artgod.chain_id": params.chainId,
+                "artgod.collection_id": params.collectionId,
+                "artgod.bidding.token_traits_count":
+                    params.tokenTraits.length,
+            },
+            () => this.listTokenBidBookInner(params),
         );
-        const useProjection = this.shouldUseBotSnapshot(params);
-        const bidBook = markOwnBids(
-            useProjection
+    }
+
+    private listCollectionBidBookInner(params: {
+        chainId: number;
+        collectionId: number;
+        scopeFilter: CollectionBiddingBidScopeFilter;
+        traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
+        selectedTraits: TraitFilter[];
+        selectedTraitRanges: TraitRangeFilter[];
+        makerAddress?: string | null;
+    }): PersistedBiddingBidBook {
+        const attributes = collectionBidBookSpanAttributes(params);
+        const knownMakerAddress = this.apm.withSyncSpan(
+            "backend.bidding.repository.known_maker",
+            baseCollectionSpanAttributes(params),
+            () => this.loadKnownBiddingMakerAddress(params.chainId),
+        );
+        const source = this.apm.withSyncSpan(
+            "backend.bidding.repository.source_select",
+            attributes,
+            () =>
+                this.shouldUseBotSnapshot(params)
+                    ? TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
+                    : TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
+        const rawBidBook =
+            source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
                 ? this.loadProjectedBidBook(params.chainId, params.collectionId)
                 : this.loadIndexedOrdersBidBook(
                       params.chainId,
                       params.collectionId,
-                  ),
-            knownMakerAddress,
+                  );
+        const bidBook = this.apm.withSyncSpan(
+            "backend.bidding.repository.mark_own",
+            {
+                ...attributes,
+                ...bidSummarySpanAttributes(rawBidBook.bids),
+                "artgod.bidding.source": source,
+                "artgod.bidding.own_maker_present":
+                    knownMakerAddress !== null,
+            },
+            () => markOwnBids(rawBidBook, knownMakerAddress),
         );
-        const bids = sortBidsDesc(
-            bidBook.bids.filter((bid) =>
-                tokenBidApplies(bid, params.tokenId, params.tokenTraits),
-            ),
+        const makerAddress = params.makerAddress?.toLowerCase() ?? null;
+        const scopedBids = this.apm.withSyncSpan(
+            "backend.bidding.repository.collection_filter_sort",
+            {
+                ...attributes,
+                ...bidSummarySpanAttributes(bidBook.bids),
+                "artgod.bidding.source": source,
+            },
+            () =>
+                sortBidsDesc(
+                    bidBook.bids.filter((bid) =>
+                        collectionBidMatchesFilters(
+                            bid,
+                            params.scopeFilter,
+                            params.traitFilterJoinMode,
+                            params.selectedTraits,
+                            params.selectedTraitRanges,
+                        ),
+                    ),
+                ),
+        );
+        const jobs = this.loadActiveBiddingJobs(
+            params.chainId,
+            params.collectionId,
+        );
+        const signaledBids = this.apm.withSyncSpan(
+            "backend.bidding.repository.own_signals",
+            {
+                ...attributes,
+                ...bidSummarySpanAttributes(scopedBids),
+                ...jobSummarySpanAttributes(jobs),
+                "artgod.bidding.source": source,
+            },
+            () => attachOwnBidRuntimeSignals(scopedBids, jobs),
+        );
+        const finalBids = this.apm.withSyncSpan(
+            "backend.bidding.repository.maker_filter",
+            {
+                ...attributes,
+                ...bidSummarySpanAttributes(signaledBids),
+                "artgod.bidding.source": source,
+                "artgod.bidding.maker_filter_present":
+                    makerAddress !== null,
+            },
+            () =>
+                signaledBids.filter((bid) =>
+                    makerMatchesFilter(bid, makerAddress),
+                ),
         );
         return {
             state: bidBook.state,
             ownMakerAddress: bidBook.ownMakerAddress,
-            bids: attachOwnBidRuntimeSignals(
-                bids,
-                this.loadActiveBiddingJobs(params.chainId, params.collectionId),
+            bids: finalBids,
+        };
+    }
+
+    private listTokenBidBookInner(params: {
+        chainId: number;
+        collectionId: number;
+        tokenId: string;
+        tokenTraits: TradingTraitCriterion[];
+    }): PersistedBiddingBidBook {
+        const attributes = {
+            "artgod.chain_id": params.chainId,
+            "artgod.collection_id": params.collectionId,
+            "artgod.bidding.token_traits_count": params.tokenTraits.length,
+        };
+        const knownMakerAddress = this.apm.withSyncSpan(
+            "backend.bidding.repository.known_maker",
+            baseCollectionSpanAttributes(params),
+            () => this.loadKnownBiddingMakerAddress(params.chainId),
+        );
+        const source = this.apm.withSyncSpan(
+            "backend.bidding.repository.source_select",
+            attributes,
+            () =>
+                this.shouldUseBotSnapshot(params)
+                    ? TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
+                    : TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        );
+        const rawBidBook =
+            source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot
+                ? this.loadProjectedBidBook(params.chainId, params.collectionId)
+                : this.loadIndexedOrdersBidBook(
+                      params.chainId,
+                      params.collectionId,
+                  );
+        const bidBook = this.apm.withSyncSpan(
+            "backend.bidding.repository.mark_own",
+            {
+                ...attributes,
+                ...bidSummarySpanAttributes(rawBidBook.bids),
+                "artgod.bidding.source": source,
+                "artgod.bidding.own_maker_present":
+                    knownMakerAddress !== null,
+            },
+            () => markOwnBids(rawBidBook, knownMakerAddress),
+        );
+        const bids = this.apm.withSyncSpan(
+            "backend.bidding.repository.token_filter_sort",
+            {
+                ...attributes,
+                ...bidSummarySpanAttributes(bidBook.bids),
+                "artgod.bidding.source": source,
+            },
+            () =>
+                sortBidsDesc(
+                    bidBook.bids.filter((bid) =>
+                        tokenBidApplies(
+                            bid,
+                            params.tokenId,
+                            params.tokenTraits,
+                        ),
+                    ),
+                ),
+        );
+        const jobs = this.loadActiveBiddingJobs(
+            params.chainId,
+            params.collectionId,
+        );
+        return {
+            state: bidBook.state,
+            ownMakerAddress: bidBook.ownMakerAddress,
+            bids: this.apm.withSyncSpan(
+                "backend.bidding.repository.own_signals",
+                {
+                    ...attributes,
+                    ...bidSummarySpanAttributes(bids),
+                    ...jobSummarySpanAttributes(jobs),
+                    "artgod.bidding.source": source,
+                },
+                () => attachOwnBidRuntimeSignals(bids, jobs),
             ),
         };
     }
@@ -351,16 +488,27 @@ export class SqliteBiddingBidBookRepository
         chainId: number;
         collectionId: number;
     }): boolean {
-        if (!this.hasEnabledBiddingJobs(params)) {
+        const attributes = baseCollectionSpanAttributes(params);
+        const hasEnabledJobs = this.apm.withSyncSpan(
+            "backend.bidding.repository.source_enabled_jobs",
+            attributes,
+            () => this.hasEnabledBiddingJobs(params),
+        );
+        if (!hasEnabledJobs) {
             return false;
         }
 
         // Check the bot-owned heartbeat before trusting snapshot rows that stop updating when the bot exits.
-        const runtimeState = this.selectBiddingBotRuntimeState.get({
-            chainId: params.chainId,
-            botKind: TRADING_BOT_KIND.Bidding,
-            state: TRADING_BOT_RUNTIME_STATE.Running,
-        }) as BotRuntimeStateRow | undefined;
+        const runtimeState = this.apm.withSyncSpan(
+            "backend.bidding.repository.source_runtime_state",
+            attributes,
+            () =>
+                this.selectBiddingBotRuntimeState.get({
+                    chainId: params.chainId,
+                    botKind: TRADING_BOT_KIND.Bidding,
+                    state: TRADING_BOT_RUNTIME_STATE.Running,
+                }) as BotRuntimeStateRow | undefined,
+        );
         if (
             !isTradingBotRuntimeHeartbeatLive(
                 runtimeState
@@ -375,11 +523,20 @@ export class SqliteBiddingBidBookRepository
         }
 
         // Check projection metadata before loading bot-snapshot rows so stale data falls back to indexed orders.
-        const projectionState = this.selectProjectionState.get({
-            chainId: params.chainId,
-            collectionId: params.collectionId,
-            source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
-        }) as ProjectionStateRow | undefined;
+        const projectionState = this.apm.withSyncSpan(
+            "backend.bidding.repository.source_projection_state",
+            {
+                ...attributes,
+                "artgod.bidding.snapshot_stale_ms":
+                    TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
+            },
+            () =>
+                this.selectProjectionState.get({
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+                }) as ProjectionStateRow | undefined,
+        );
         return isFreshProjectionState(projectionState);
     }
 
@@ -412,45 +569,85 @@ export class SqliteBiddingBidBookRepository
         collectionId: number,
     ): BiddingJobSignal[] {
         // Load declared jobs once so own-bid row signals can be computed from backend read models.
-        const rows = this.selectActiveBiddingJobs.all({
+        const attributes = {
             chainId,
             collectionId,
-            botKind: TRADING_BOT_KIND.Bidding,
-            archivedStatus: TRADING_JOB_STATUS.Archived,
-        }) as BiddingJobSignalRow[];
-        return rows.map((row) => ({
-            jobId: row.job_id,
-            status: row.status,
-            targetKind: row.target_kind,
-            tokenId: row.token_id,
-            floorWei: row.floor_wei,
-            ceilingWei: row.ceiling_wei,
-            revision: row.revision,
-            targetTraits: parseTraitArray(row.target_traits_json),
-        }));
+        };
+        const rows = this.apm.withSyncSpan(
+            "backend.bidding.repository.active_jobs_query",
+            baseCollectionSpanAttributes(attributes),
+            () =>
+                this.selectActiveBiddingJobs.all({
+                    chainId,
+                    collectionId,
+                    botKind: TRADING_BOT_KIND.Bidding,
+                    archivedStatus: TRADING_JOB_STATUS.Archived,
+                }) as BiddingJobSignalRow[],
+        );
+        return this.apm.withSyncSpan(
+            "backend.bidding.repository.active_jobs_map",
+            {
+                ...baseCollectionSpanAttributes(attributes),
+                ...jobRowSummarySpanAttributes(rows),
+            },
+            () =>
+                rows.map((row) => ({
+                    jobId: row.job_id,
+                    status: row.status,
+                    targetKind: row.target_kind,
+                    tokenId: row.token_id,
+                    floorWei: row.floor_wei,
+                    ceilingWei: row.ceiling_wei,
+                    revision: row.revision,
+                    targetTraits: parseTraitArray(row.target_traits_json),
+                })),
+        );
     }
 
     private loadProjectedBidBook(
         chainId: number,
         collectionId: number,
     ): PersistedBiddingBidBook {
-        const rows = this.selectProjectionRows.all({
-            chainId,
-            collectionId,
-            source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
-        }) as ProjectedBidBookRow[];
-        const stateRow = this.selectProjectionState.get({
-            chainId,
-            collectionId,
-            source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
-        }) as ProjectionStateRow | undefined;
+        const attributes = {
+            ...baseCollectionSpanAttributes({ chainId, collectionId }),
+            "artgod.bidding.source":
+                TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+        };
+        const rows = this.apm.withSyncSpan(
+            "backend.bidding.repository.projection_rows_query",
+            attributes,
+            () =>
+                this.selectProjectionRows.all({
+                    chainId,
+                    collectionId,
+                    source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+                }) as ProjectedBidBookRow[],
+        );
+        const stateRow = this.apm.withSyncSpan(
+            "backend.bidding.repository.projection_state_query",
+            attributes,
+            () =>
+                this.selectProjectionState.get({
+                    chainId,
+                    collectionId,
+                    source: TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+                }) as ProjectionStateRow | undefined,
+        );
+        const bids = this.apm.withSyncSpan(
+            "backend.bidding.repository.projection_rows_map",
+            {
+                ...attributes,
+                ...projectionRowSummarySpanAttributes(rows),
+            },
+            () => rows.flatMap((row) => mapProjectedRow(row)),
+        );
 
         return {
             state: stateRow
                 ? mapProjectionStateRow(stateRow)
                 : emptyState(TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot),
             ownMakerAddress: null,
-            bids: rows.flatMap((row) => mapProjectedRow(row)),
+            bids,
         };
     }
 
@@ -459,13 +656,36 @@ export class SqliteBiddingBidBookRepository
         collectionId: number,
     ): PersistedBiddingBidBook {
         // Load active indexed OpenSea buy orders as the passive bid-book source.
-        const rows = this.selectActiveIndexedOrders.all({
-            chainId,
-            collectionId,
-            nowSeconds: Math.floor(Date.now() / 1000),
-        }) as IndexedOrderRow[];
-        const bids = rows.flatMap((row) => mapIndexedOrderRow(row));
-        const updatedAt = latestIsoTimestamp(rows.map((row) => row.updated_at));
+        const attributes = {
+            ...baseCollectionSpanAttributes({ chainId, collectionId }),
+            "artgod.bidding.source": TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        };
+        const rows = this.apm.withSyncSpan(
+            "backend.bidding.repository.orders_query",
+            attributes,
+            () =>
+                this.selectActiveIndexedOrders.all({
+                    chainId,
+                    collectionId,
+                    nowSeconds: Math.floor(Date.now() / 1000),
+                }) as IndexedOrderRow[],
+        );
+        const bids = this.apm.withSyncSpan(
+            "backend.bidding.repository.orders_map",
+            {
+                ...attributes,
+                ...indexedOrderRowSummarySpanAttributes(rows),
+            },
+            () => rows.flatMap((row) => mapIndexedOrderRow(row)),
+        );
+        const updatedAt = this.apm.withSyncSpan(
+            "backend.bidding.repository.orders_updated_at",
+            {
+                ...attributes,
+                "artgod.bidding.orders_rows_count": rows.length,
+            },
+            () => latestIsoTimestamp(rows.map((row) => row.updated_at)),
+        );
         return {
             state: {
                 ...emptyState(TRADING_BIDDING_BID_BOOK_SOURCE.Orders),
@@ -475,6 +695,307 @@ export class SqliteBiddingBidBookRepository
             ownMakerAddress: null,
             bids,
         };
+    }
+}
+
+function baseCollectionSpanAttributes(params: {
+    chainId: number;
+    collectionId: number;
+}): SpanAttributes {
+    return {
+        "artgod.chain_id": params.chainId,
+        "artgod.collection_id": params.collectionId,
+    };
+}
+
+function collectionBidBookSpanAttributes(params: {
+    chainId: number;
+    collectionId: number;
+    scopeFilter: CollectionBiddingBidScopeFilter;
+    traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
+    selectedTraits: TraitFilter[];
+    selectedTraitRanges: TraitRangeFilter[];
+    makerAddress?: string | null;
+}): SpanAttributes {
+    return {
+        ...baseCollectionSpanAttributes(params),
+        "artgod.bidding.scope_filter": params.scopeFilter,
+        "artgod.bidding.trait_join": params.traitFilterJoinMode,
+        "artgod.bidding.trait_filters_count": params.selectedTraits.length,
+        "artgod.bidding.trait_ranges_count":
+            params.selectedTraitRanges.length,
+        "artgod.bidding.maker_filter_present": Boolean(params.makerAddress),
+    };
+}
+
+function bidSummarySpanAttributes(
+    bids: PersistedBiddingBidBookRow[],
+): SpanAttributes {
+    const scopeCounts = createBiddingScopeCounts();
+    let ownBids = 0;
+    let encodedTokenIdBids = 0;
+    let traitCriteria = 0;
+
+    for (const bid of bids) {
+        tallyBiddingScope(scopeCounts, bid.scopeKind);
+        if (bid.isOwn) ownBids += 1;
+        if (bid.encodedTokenIds) encodedTokenIdBids += 1;
+        traitCriteria += bid.scopeTraits.length;
+    }
+
+    return {
+        "artgod.bidding.bids_count": bids.length,
+        "artgod.bidding.collection_scope_bids_count": scopeCounts.collection,
+        "artgod.bidding.trait_scope_bids_count": scopeCounts.trait,
+        "artgod.bidding.token_scope_bids_count": scopeCounts.token,
+        "artgod.bidding.token_set_scope_bids_count": scopeCounts.tokenSet,
+        "artgod.bidding.unknown_scope_bids_count": scopeCounts.unknown,
+        "artgod.bidding.own_bids_count": ownBids,
+        "artgod.bidding.encoded_token_id_bids_count": encodedTokenIdBids,
+        "artgod.bidding.trait_criteria_count": traitCriteria,
+    };
+}
+
+function projectionRowSummarySpanAttributes(
+    rows: ProjectedBidBookRow[],
+): SpanAttributes {
+    const scopeCounts = createBiddingScopeCounts();
+    let ownRows = 0;
+    let encodedTokenIdRows = 0;
+    let traitJsonRows = 0;
+
+    for (const row of rows) {
+        tallyBiddingScope(scopeCounts, row.scope_kind);
+        if (row.is_own === 1) ownRows += 1;
+        if (row.encoded_token_ids) encodedTokenIdRows += 1;
+        if (row.scope_traits_json) traitJsonRows += 1;
+    }
+
+    return {
+        "artgod.bidding.projection_rows_count": rows.length,
+        "artgod.bidding.projection_collection_scope_rows_count":
+            scopeCounts.collection,
+        "artgod.bidding.projection_trait_scope_rows_count": scopeCounts.trait,
+        "artgod.bidding.projection_token_scope_rows_count": scopeCounts.token,
+        "artgod.bidding.projection_token_set_scope_rows_count":
+            scopeCounts.tokenSet,
+        "artgod.bidding.projection_unknown_scope_rows_count":
+            scopeCounts.unknown,
+        "artgod.bidding.projection_own_rows_count": ownRows,
+        "artgod.bidding.projection_encoded_token_id_rows_count":
+            encodedTokenIdRows,
+        "artgod.bidding.projection_trait_json_rows_count": traitJsonRows,
+    };
+}
+
+function indexedOrderRowSummarySpanAttributes(
+    rows: IndexedOrderRow[],
+): SpanAttributes {
+    const scopeCounts = createIndexedOrderScopeCounts();
+    let rawRestRows = 0;
+    let rawStreamRows = 0;
+    let seaportJsonRows = 0;
+    let validUntilRows = 0;
+
+    for (const row of rows) {
+        tallyIndexedOrderScope(scopeCounts, row.source_scope_kind);
+        if (row.raw_rest_data) rawRestRows += 1;
+        if (row.raw_stream_data) rawStreamRows += 1;
+        if (row.seaport_data_json) seaportJsonRows += 1;
+        if (row.valid_until !== null) validUntilRows += 1;
+    }
+
+    return {
+        "artgod.bidding.orders_rows_count": rows.length,
+        "artgod.bidding.orders_collection_scope_rows_count":
+            scopeCounts.collection,
+        "artgod.bidding.orders_attribute_scope_rows_count":
+            scopeCounts.attribute,
+        "artgod.bidding.orders_token_scope_rows_count": scopeCounts.token,
+        "artgod.bidding.orders_token_set_scope_rows_count":
+            scopeCounts.tokenSet,
+        "artgod.bidding.orders_raw_rest_rows_count": rawRestRows,
+        "artgod.bidding.orders_raw_stream_rows_count": rawStreamRows,
+        "artgod.bidding.orders_seaport_json_rows_count": seaportJsonRows,
+        "artgod.bidding.orders_valid_until_rows_count": validUntilRows,
+    };
+}
+
+function jobRowSummarySpanAttributes(
+    rows: BiddingJobSignalRow[],
+): SpanAttributes {
+    const statusCounts = createJobStatusCounts();
+    const targetCounts = createJobTargetCounts();
+    let traitJsonRows = 0;
+
+    for (const row of rows) {
+        tallyJobStatus(statusCounts, row.status);
+        tallyJobTarget(targetCounts, row.target_kind);
+        if (row.target_traits_json) traitJsonRows += 1;
+    }
+
+    return {
+        "artgod.bidding.jobs_count": rows.length,
+        "artgod.bidding.enabled_jobs_count": statusCounts.enabled,
+        "artgod.bidding.paused_jobs_count": statusCounts.paused,
+        "artgod.bidding.token_jobs_count": targetCounts.token,
+        "artgod.bidding.collection_jobs_count": targetCounts.collection,
+        "artgod.bidding.competitive_trait_jobs_count":
+            targetCounts.competitiveTrait,
+        "artgod.bidding.job_trait_json_rows_count": traitJsonRows,
+    };
+}
+
+function jobSummarySpanAttributes(jobs: BiddingJobSignal[]): SpanAttributes {
+    const statusCounts = createJobStatusCounts();
+    const targetCounts = createJobTargetCounts();
+    let targetTraits = 0;
+
+    for (const job of jobs) {
+        tallyJobStatus(statusCounts, job.status);
+        tallyJobTarget(targetCounts, job.targetKind);
+        targetTraits += job.targetTraits.length;
+    }
+
+    return {
+        "artgod.bidding.jobs_count": jobs.length,
+        "artgod.bidding.enabled_jobs_count": statusCounts.enabled,
+        "artgod.bidding.paused_jobs_count": statusCounts.paused,
+        "artgod.bidding.token_jobs_count": targetCounts.token,
+        "artgod.bidding.collection_jobs_count": targetCounts.collection,
+        "artgod.bidding.competitive_trait_jobs_count":
+            targetCounts.competitiveTrait,
+        "artgod.bidding.job_target_traits_count": targetTraits,
+    };
+}
+
+type BiddingScopeCounts = {
+    collection: number;
+    trait: number;
+    token: number;
+    tokenSet: number;
+    unknown: number;
+};
+
+function createBiddingScopeCounts(): BiddingScopeCounts {
+    return {
+        collection: 0,
+        trait: 0,
+        token: 0,
+        tokenSet: 0,
+        unknown: 0,
+    };
+}
+
+function tallyBiddingScope(
+    counts: BiddingScopeCounts,
+    scopeKind: TradingBiddingBidScopeKind,
+): void {
+    switch (scopeKind) {
+        case TRADING_BIDDING_BID_SCOPE_KIND.Collection:
+            counts.collection += 1;
+            return;
+        case TRADING_BIDDING_BID_SCOPE_KIND.Trait:
+            counts.trait += 1;
+            return;
+        case TRADING_BIDDING_BID_SCOPE_KIND.Token:
+            counts.token += 1;
+            return;
+        case TRADING_BIDDING_BID_SCOPE_KIND.TokenSet:
+            counts.tokenSet += 1;
+            return;
+        default:
+            counts.unknown += 1;
+    }
+}
+
+type IndexedOrderScopeCounts = {
+    collection: number;
+    attribute: number;
+    token: number;
+    tokenSet: number;
+};
+
+function createIndexedOrderScopeCounts(): IndexedOrderScopeCounts {
+    return {
+        collection: 0,
+        attribute: 0,
+        token: 0,
+        tokenSet: 0,
+    };
+}
+
+function tallyIndexedOrderScope(
+    counts: IndexedOrderScopeCounts,
+    scopeKind: IndexedOrderRow["source_scope_kind"],
+): void {
+    switch (scopeKind) {
+        case "collection":
+            counts.collection += 1;
+            return;
+        case "attribute":
+            counts.attribute += 1;
+            return;
+        case "token":
+            counts.token += 1;
+            return;
+        case "token_set":
+            counts.tokenSet += 1;
+    }
+}
+
+type JobStatusCounts = {
+    enabled: number;
+    paused: number;
+};
+
+function createJobStatusCounts(): JobStatusCounts {
+    return {
+        enabled: 0,
+        paused: 0,
+    };
+}
+
+function tallyJobStatus(
+    counts: JobStatusCounts,
+    status: TradingJobStatus,
+): void {
+    switch (status) {
+        case TRADING_JOB_STATUS.Enabled:
+            counts.enabled += 1;
+            return;
+        case TRADING_JOB_STATUS.Paused:
+            counts.paused += 1;
+    }
+}
+
+type JobTargetCounts = {
+    token: number;
+    collection: number;
+    competitiveTrait: number;
+};
+
+function createJobTargetCounts(): JobTargetCounts {
+    return {
+        token: 0,
+        collection: 0,
+        competitiveTrait: 0,
+    };
+}
+
+function tallyJobTarget(
+    counts: JobTargetCounts,
+    targetKind: BiddingJobSignal["targetKind"],
+): void {
+    switch (targetKind) {
+        case TRADING_JOB_TARGET_KIND.Token:
+            counts.token += 1;
+            return;
+        case TRADING_JOB_TARGET_KIND.Collection:
+            counts.collection += 1;
+            return;
+        case TRADING_JOB_TARGET_KIND.CompetitiveTrait:
+            counts.competitiveTrait += 1;
     }
 }
 

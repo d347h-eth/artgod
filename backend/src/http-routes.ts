@@ -98,6 +98,9 @@ import type {
     ListCollectionBiddingBidBookHttpAdapter,
     ListCollectionBiddingBidBookRoute,
 } from "./http/handlers/trading/list-collection-bidding-bid-book.js";
+import {
+    getCollectionBiddingBidBookSpanAttributes,
+} from "./http/handlers/trading/list-collection-bidding-bid-book.js";
 import type {
     ListCollectionBiddingPriceTiersHttpAdapter,
     ListCollectionBiddingPriceTiersRoute,
@@ -334,6 +337,7 @@ export function registerApiRoutes(
         listCollectionBiddingBidBookAdapter.handle,
         {
             preHandler: publicCollectionScopeGuard,
+            spanAttributes: getCollectionBiddingBidBookSpanAttributes,
         },
     );
     registerObservedGet<GetTokenPreviewRoute>(

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
+import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
     TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
@@ -24,6 +25,24 @@ import { SqliteBiddingBidBookRepository } from "./sqlite-bidding-bid-book-reposi
 
 const COLLECTION_ADDRESS = "0x1111111111111111111111111111111111111111";
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+
+class CapturingApm implements ApmPort {
+    readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
+
+    async withSpan<T>(
+        name: string,
+        attributes: SpanAttributes,
+        run: () => Promise<T>,
+    ): Promise<T> {
+        this.spans.push({ name, attributes });
+        return run();
+    }
+
+    withSyncSpan<T>(name: string, attributes: SpanAttributes, run: () => T): T {
+        this.spans.push({ name, attributes });
+        return run();
+    }
+}
 
 async function createTempDbPath(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "artgod-bidding-bid-book-"));
@@ -66,6 +85,85 @@ describe("SqliteBiddingBidBookRepository", () => {
         const migrationRunner = createMigrationRunner();
         await migrationRunner.runMigrations();
         collectionId = seedCollection();
+    });
+
+    it("records source selection, orders mapping, filtering, and enrichment spans", () => {
+        const apm = new CapturingApm();
+        const repository = new SqliteBiddingBidBookRepository(apm);
+        insertIndexedOrder({
+            collectionId,
+            id: "fallback-order",
+            rawRestData: makeOpenSeaBuyOrderPayload({
+                orderId: "fallback-order",
+                maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                priceWei: "100000000000000000",
+                validFrom: 1,
+                validUntil: 4_000_000_000,
+            }),
+            rawStreamData: null,
+            updatedAt: "2026-05-15T02:00:00Z",
+        });
+
+        const bidBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+
+        assert.deepEqual(
+            bidBook.bids.map((bid) => bid.orderId),
+            ["fallback-order"],
+        );
+        assert.ok(
+            apm.spans.some(
+                (span) =>
+                    span.name ===
+                    "backend.bidding.repository.source_enabled_jobs",
+            ),
+        );
+        assert.ok(
+            apm.spans.some(
+                (span) =>
+                    span.name === "backend.bidding.repository.orders_query",
+            ),
+        );
+        assert.deepEqual(
+            apm.spans.find(
+                (span) => span.name === "backend.bidding.repository.orders_map",
+            )?.attributes,
+            {
+                "artgod.chain_id": 1,
+                "artgod.collection_id": collectionId,
+                "artgod.bidding.source": "orders",
+                "artgod.bidding.orders_rows_count": 1,
+                "artgod.bidding.orders_collection_scope_rows_count": 1,
+                "artgod.bidding.orders_attribute_scope_rows_count": 0,
+                "artgod.bidding.orders_token_scope_rows_count": 0,
+                "artgod.bidding.orders_token_set_scope_rows_count": 0,
+                "artgod.bidding.orders_raw_rest_rows_count": 1,
+                "artgod.bidding.orders_raw_stream_rows_count": 1,
+                "artgod.bidding.orders_seaport_json_rows_count": 0,
+                "artgod.bidding.orders_valid_until_rows_count": 1,
+            },
+        );
+        assert.equal(
+            apm.spans.find(
+                (span) =>
+                    span.name ===
+                    "backend.bidding.repository.collection_filter_sort",
+            )?.attributes["artgod.bidding.bids_count"],
+            1,
+        );
+        assert.equal(
+            apm.spans.find(
+                (span) =>
+                    span.name === "backend.bidding.repository.own_signals",
+            )?.attributes["artgod.bidding.jobs_count"],
+            0,
+        );
     });
 
     it("uses fresh bot projections and enriches own bid state without losing token applicability", () => {

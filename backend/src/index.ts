@@ -184,7 +184,9 @@ export function createBackendApp(
         backendRpcClient,
     );
     const biddingJobsRepository = new SqliteBiddingJobsRepository();
-    const biddingBidBookRepository = new SqliteBiddingBidBookRepository();
+    const biddingBidBookRepository = new SqliteBiddingBidBookRepository(
+        backendObservability.apm,
+    );
     const biddingPriceTiersRepository = new SqliteBiddingPriceTiersRepository();
     const collectionSettingsRepository =
         new SqliteCollectionSettingsRepository();
@@ -343,6 +345,7 @@ export function createBackendApp(
             extensionAwareCollectionsReadModel,
             extensionAwareCollectionCustomization,
             biddingBidBookRepository,
+            backendObservability.apm,
         );
     const listCollectionBiddingPriceTiersUseCase =
         new ListCollectionBiddingPriceTiersUseCase(
