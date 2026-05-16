@@ -107,6 +107,44 @@ describe("loadBackendConfig", () => {
         );
     });
 
+    it("defaults OpenSea integration to disabled when no API key is configured", () => {
+        const config = loadBackendConfig(createBaseEnv());
+
+        expect(config.integrations.opensea).toEqual({
+            enabled: false,
+            mode: "auto",
+            reason: "OpenSea integration disabled because OPENSEA_API_KEY is not configured",
+            missingKeys: ["OPENSEA_API_KEY"],
+            requiredKeys: ["OPENSEA_API_KEY"],
+        });
+    });
+
+    it("enables OpenSea integration when auto mode has an API key", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            OPENSEA_API_KEY: "test-opensea-key",
+        });
+
+        expect(config.integrations.opensea).toEqual({
+            enabled: true,
+            mode: "auto",
+            reason: null,
+            missingKeys: [],
+            requiredKeys: ["OPENSEA_API_KEY"],
+        });
+    });
+
+    it("fails fast when OpenSea integration is required without an API key", () => {
+        expect(() =>
+            loadBackendConfig({
+                ...createBaseEnv(),
+                OPENSEA_INTEGRATION_MODE: "enabled",
+            }),
+        ).toThrow(
+            "OpenSea integration is enabled but OPENSEA_API_KEY is not configured",
+        );
+    });
+
     it("parses memory backend query cache config", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),

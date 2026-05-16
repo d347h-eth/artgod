@@ -1,4 +1,5 @@
 import { ReadModelNotFoundError } from "@artgod/shared/read-models/errors";
+import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type {
     BootstrapFlowStep,
     BootstrapFlowStepState,
@@ -23,6 +24,7 @@ const FAILED_TASKS_PREVIEW_LIMIT = 50;
 export class GetBootstrapRunDetailUseCase {
     constructor(
         private readonly defaultChainId: number,
+        private readonly openseaIntegration: OpenSeaIntegrationStatus,
         private readonly chainRefResolverPort: ChainRefResolverPort,
         private readonly bootstrapRunsPort: BootstrapRunsWritePort,
     ) {}
@@ -74,6 +76,7 @@ export class GetBootstrapRunDetailUseCase {
                 metadataTasks: counts,
                 events,
                 isLatestForCollection,
+                openseaIntegration: this.openseaIntegration,
             }),
             failedMetadataTasksPreview: failedTasksPreview.items,
             failedMetadataTasksPreviewLimit: FAILED_TASKS_PREVIEW_LIMIT,
@@ -104,6 +107,7 @@ function buildBootstrapRunFlow(input: {
     metadataTasks: BootstrapRunTaskCounts;
     events: BootstrapRunEventRecord[];
     isLatestForCollection: boolean;
+    openseaIntegration: OpenSeaIntegrationStatus;
 }): BootstrapRunDetailOutput["flow"] {
     const eventCodes = new Set(input.events.map((event) => event.eventCode));
 
@@ -245,7 +249,7 @@ function buildBootstrapRunFlow(input: {
         },
     ];
 
-    if (input.isLatestForCollection) {
+    if (shouldTrackOpenSeaFlow(input)) {
         const openseaIdentityCompleted = Boolean(input.collection.openseaSlug);
         const openseaSnapshotCompleted =
             input.collection.openseaSnapshotCompletedAt !== null ||
@@ -325,6 +329,19 @@ function buildBootstrapRunFlow(input: {
     };
 }
 
+function shouldTrackOpenSeaFlow(input: {
+    collection: CollectionBootstrapState;
+    isLatestForCollection: boolean;
+    openseaIntegration: OpenSeaIntegrationStatus;
+}): boolean {
+    if (!input.isLatestForCollection || !input.openseaIntegration.enabled) {
+        return false;
+    }
+    return Boolean(
+        input.collection.openseaSlug || input.collection.openseaStatus,
+    );
+}
+
 function resolveStepState(input: {
     completed: boolean;
     active: boolean;
@@ -385,6 +402,7 @@ function resolveShouldPoll(input: {
     run: BootstrapRunRow;
     collection: CollectionBootstrapState;
     isLatestForCollection: boolean;
+    openseaIntegration: OpenSeaIntegrationStatus;
 }): boolean {
     if (input.run.status === "failed") {
         return false;
@@ -395,6 +413,10 @@ function resolveShouldPoll(input: {
     }
 
     if (!input.isLatestForCollection) {
+        return false;
+    }
+
+    if (!shouldTrackOpenSeaFlow(input)) {
         return false;
     }
 

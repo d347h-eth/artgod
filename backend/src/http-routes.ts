@@ -32,6 +32,10 @@ import type {
 import type { GetDefaultChainHttpAdapter } from "./http/handlers/chains/get-default-chain.js";
 import type { GetDefaultChainRoute } from "./http/handlers/chains/get-default-chain.js";
 import type {
+    GetRuntimeConfigHttpAdapter,
+    GetRuntimeConfigRoute,
+} from "./http/handlers/config/get-runtime-config.js";
+import type {
     GetActivityEventPreviewHttpAdapter,
     GetActivityEventPreviewRoute,
 } from "./http/handlers/activities/get-activity-event-preview.js";
@@ -199,6 +203,7 @@ export function registerApiRoutes(
     getBootstrapStatusAdapter: GetBootstrapStatusHttpAdapter,
     retryBootstrapRunFailedTasksAdapter: RetryBootstrapRunFailedTasksHttpAdapter,
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
+    getRuntimeConfigAdapter: GetRuntimeConfigHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
@@ -261,6 +266,12 @@ export function registerApiRoutes(
         options,
         "/api/chains/default",
         getDefaultChainAdapter.handle,
+    );
+    registerObservedGet<GetRuntimeConfigRoute>(
+        app,
+        options,
+        "/api/runtime/config",
+        getRuntimeConfigAdapter.handle,
     );
     registerObservedGet<ResolveOwnerRefRoute>(
         app,
