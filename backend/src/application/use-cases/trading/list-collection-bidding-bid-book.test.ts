@@ -145,6 +145,72 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
             ]),
         );
     });
+
+    it("paginates unfiltered token offers before hydrating token cards", () => {
+        const hydratedTokenIds: string[][] = [];
+        const repository: BiddingBidBookRepositoryPort = {
+            listCollectionBidBook: (params) =>
+                params.scopeFilter ===
+                COLLECTION_BIDDING_BID_SCOPE_FILTER.Token
+                    ? bidBook([
+                          bidRow("token-1-offer", "300", "1"),
+                          bidRow("token-2-offer", "200", "2"),
+                          bidRow("token-3-offer", "100", "3"),
+                      ])
+                    : bidBook([bidRow("collection-floor", "1")]),
+            listTokenBidBook: () => bidBook([]),
+        };
+        const useCase = new ListCollectionBiddingBidBookUseCase(
+            1,
+            {
+                resolveChainRef: () => chain(),
+            },
+            {
+                resolveCollectionRef: () => collection(),
+                listCollectionTraitFacets: () => [],
+                listCollectionTokenCardsByIds: (params) => {
+                    hydratedTokenIds.push(params.tokenIds);
+                    return params.tokenIds.map((tokenId) =>
+                        tokenCard(tokenId),
+                    );
+                },
+            },
+            {
+                getTraitFilterPresentationState: () => ({
+                    effectiveConfig: {
+                        rangeKeys: [],
+                    },
+                }),
+                getTokenCardTraitSummaryTemplateState: () => ({
+                    effectiveConfig: {
+                        template: "{Mode}",
+                    },
+                }),
+            },
+            repository,
+        );
+
+        const output = useCase.listCollectionBiddingBidBook({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+            traits: [],
+            traitRanges: [],
+            limit: 2,
+        });
+
+        expect(hydratedTokenIds).toEqual([["1", "2"]]);
+        expect(output.tokenOfferCards.totalItems).toBe(3);
+        expect(output.tokenOfferCards.totalOffers).toBe(3);
+        expect(output.tokenOfferCards.items.map((card) => card.tokenId)).toEqual(
+            ["1", "2"],
+        );
+        expect(output.bidBook.bids.map((bid) => bid.orderId)).toEqual([
+            "token-1-offer",
+            "token-2-offer",
+        ]);
+    });
 });
 
 function chain(): ChainRecord {
@@ -215,16 +281,16 @@ function bidBook(bids: PersistedBiddingBidBookRow[]): PersistedBiddingBidBook {
 function bidRow(
     orderId: string,
     priceWei: string,
+    tokenId: string | null = orderId === "token-offer" ? "7" : null,
 ): PersistedBiddingBidBookRow {
     return {
         orderId,
         source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
-        scopeKind:
-            orderId === "token-offer"
-                ? TRADING_BIDDING_BID_SCOPE_KIND.Token
-                : TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+        scopeKind: tokenId
+            ? TRADING_BIDDING_BID_SCOPE_KIND.Token
+            : TRADING_BIDDING_BID_SCOPE_KIND.Collection,
         scopeLabel: orderId,
-        tokenId: orderId === "token-offer" ? "7" : null,
+        tokenId,
         scopeTraits: [],
         encodedTokenIds: null,
         maker: "0x2222222222222222222222222222222222222222",

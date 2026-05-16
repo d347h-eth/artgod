@@ -164,28 +164,13 @@ export class ExtensionAwareCollectionDetailRead {
             mediaState.selectedMode,
         );
         const artifactsByTokenId = artifactRef
-            ? this.apm.withSyncSpan(
-                  "backend.extension.artifacts_batch",
-                  {
-                      [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
-                      [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
-                          params.collectionId,
-                      [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
-                          install.extensionKey,
-                      [ARTGOD_SPAN_ATTRIBUTE.ExtensionArtifactRef]:
-                          artifactRef,
-                      [ARTGOD_SPAN_ATTRIBUTE.TokensCount]:
-                          page.items.length,
-                  },
-                  () =>
-                      this.extensionRecords.listTokenCardArtifactsByTokenIds({
-                          chainId: params.chainId,
-                          collectionId: params.collectionId,
-                          tokenIds: page.items.map((token) => token.tokenId),
-                          extensionKey: install.extensionKey,
-                          artifactRef,
-                      }),
-              )
+            ? this.listTokenCardArtifactsByTokenIds({
+                  chainId: params.chainId,
+                  collectionId: params.collectionId,
+                  tokenIds: page.items.map((token) => token.tokenId),
+                  install,
+                  artifactRef,
+              })
             : new Map<string, BackendCollectionExtensionArtifactRecord>();
 
         return {
@@ -332,19 +317,55 @@ export class ExtensionAwareCollectionDetailRead {
             return tokens;
         }
 
+        const artifactRef = extension.resolveArtifactRef(
+            install,
+            mediaState.selectedMode,
+        );
+        const artifactsByTokenId = artifactRef
+            ? this.listTokenCardArtifactsByTokenIds({
+                  chainId: params.chainId,
+                  collectionId: params.collectionId,
+                  tokenIds: tokens.map((token) => token.tokenId),
+                  install,
+                  artifactRef,
+              })
+            : new Map<string, BackendCollectionExtensionArtifactRecord>();
+
         return tokens.map((token) =>
-            extension.resolveTokenCard(
-                install,
-                token,
-                this.resolveMediaContext(
-                    install,
-                    extension,
-                    params.chainId,
-                    params.collectionId,
-                    token.tokenId,
-                    mediaState.selectedMode,
-                ),
-            ),
+            extension.resolveTokenCard(install, token, {
+                mediaMode: mediaState.selectedMode,
+                artifact: artifactsByTokenId.get(token.tokenId) ?? null,
+            }),
+        );
+    }
+
+    private listTokenCardArtifactsByTokenIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+        install: CollectionExtensionInstall;
+        artifactRef: string;
+    }): Map<string, BackendCollectionExtensionArtifactRecord> {
+        // Batch artifact lookup keeps token-card hydration from issuing one extension query per token.
+        return this.apm.withSyncSpan(
+            "backend.extension.artifacts_batch",
+            {
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+                [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
+                    params.install.extensionKey,
+                [ARTGOD_SPAN_ATTRIBUTE.ExtensionArtifactRef]:
+                    params.artifactRef,
+                [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: params.tokenIds.length,
+            },
+            () =>
+                this.extensionRecords.listTokenCardArtifactsByTokenIds({
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    tokenIds: params.tokenIds,
+                    extensionKey: params.install.extensionKey,
+                    artifactRef: params.artifactRef,
+                }),
         );
     }
 

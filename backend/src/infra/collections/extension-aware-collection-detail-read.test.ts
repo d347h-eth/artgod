@@ -165,6 +165,66 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
         });
     });
 
+    it("batches extension artifacts when resolving token cards by explicit ids", () => {
+        const apm = new CapturingApm();
+        const requestedTokenIds: string[][] = [];
+        const readModel = new ExtensionAwareCollectionDetailRead(
+            {
+                ...createBaseReadPort(),
+                listCollectionTokenCardsByIds(params) {
+                    return params.tokenIds.map((tokenId) =>
+                        tokenCard(tokenId, `snapshot-${tokenId}`),
+                    );
+                },
+            },
+            {
+                ...createExtensionRecords(),
+                getArtifact() {
+                    throw new Error("Unexpected getArtifact call");
+                },
+                listTokenCardArtifactsByTokenIds(params) {
+                    requestedTokenIds.push(params.tokenIds);
+                    return new Map([
+                        [
+                            "1",
+                            {
+                                extensionKey: TERRAFORMS_EXTENSION_KEY,
+                                artifactRef: params.artifactRef,
+                                image: "artifact-1",
+                                animationUrl: null,
+                                htmlContent: null,
+                            },
+                        ],
+                    ]);
+                },
+            },
+            apm,
+        );
+
+        const tokens = readModel.listCollectionTokenCardsByIds({
+            chainId: 1,
+            collectionId: 7,
+            tokenIds: ["1", "2"],
+            includeListings: true,
+        });
+
+        expect(requestedTokenIds).toEqual([["1", "2"]]);
+        expect(tokens.map((token) => token.image)).toEqual([
+            "artifact-1",
+            "snapshot-2",
+        ]);
+        expect(apm.spans).toContainEqual({
+            name: "backend.extension.artifacts_batch",
+            attributes: expect.objectContaining({
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
+                [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
+                    TERRAFORMS_EXTENSION_KEY,
+                [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: 2,
+            }),
+        });
+    });
+
     it("passes caller range-only trait facets before reading stats", () => {
         let receivedRangeOnlyKeys: string[] | undefined;
         const readModel = new ExtensionAwareCollectionDetailRead(

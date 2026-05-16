@@ -26,6 +26,7 @@ import type {
     CollectionBiddingTraitFilterJoinMode,
     ListCollectionBiddingBidBookOutput,
     PersistedBiddingBidBook,
+    PersistedBiddingBidBookRow,
 } from "./bidding-bid-book.js";
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
@@ -219,7 +220,7 @@ export class ListCollectionBiddingBidBookUseCase {
                         makerAddress: null,
                     }),
             );
-            const tokenOfferCards = this.apm.withSyncSpan(
+            tokenOfferCardsPage = this.apm.withSyncSpan(
                 "backend.bidding.collection_bid_book.token_offer_cards",
                 {
                     ...attributes,
@@ -229,7 +230,7 @@ export class ListCollectionBiddingBidBookUseCase {
                         collectionBidBook.bids.length,
                 },
                 () =>
-                    this.buildTokenOfferCards({
+                    this.buildTokenOfferCardsPage({
                         chainId: chain.publicChainId,
                         collectionId: collection.collectionId,
                         mediaMode: input.mediaMode,
@@ -237,18 +238,6 @@ export class ListCollectionBiddingBidBookUseCase {
                         collectionBidBook,
                         selectedTraits: input.traits,
                         selectedTraitRanges: input.traitRanges,
-                    }),
-            );
-            tokenOfferCardsPage = this.apm.withSyncSpan(
-                "backend.bidding.collection_bid_book.token_offer_cards_page",
-                {
-                    ...attributes,
-                    [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsCount]:
-                        tokenOfferCards.length,
-                },
-                () =>
-                    paginateTokenOfferCards({
-                        cards: tokenOfferCards,
                         limit: input.limit,
                         cursor: input.cursor ?? null,
                     }),
@@ -300,7 +289,7 @@ export class ListCollectionBiddingBidBookUseCase {
         };
     }
 
-    private buildTokenOfferCards(params: {
+    private buildTokenOfferCardsPage(params: {
         chainId: number;
         collectionId: number;
         mediaMode?: string;
@@ -308,7 +297,9 @@ export class ListCollectionBiddingBidBookUseCase {
         collectionBidBook: PersistedBiddingBidBook;
         selectedTraits: TraitFilter[];
         selectedTraitRanges: TraitRangeFilter[];
-    }): PersistedTokenOfferCard[] {
+        limit: number;
+        cursor: string | null;
+    }): PersistedTokenOfferCardsPage {
         const attributes = {
             [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
             [BIDDING_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
@@ -343,6 +334,76 @@ export class ListCollectionBiddingBidBookUseCase {
             () => sortTokenIdsByTopOffer(offersByTokenId),
         );
         if (tokenIds.length === 0) {
+            return emptyTokenOfferCardsPage(params.limit);
+        }
+
+        if (!hasTokenOfferCardTraitFilters(params)) {
+            const tokenIdPage = this.apm.withSyncSpan(
+                "backend.bidding.collection_bid_book.token_offer_cards_page",
+                {
+                    ...attributes,
+                    [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsCount]:
+                        tokenIds.length,
+                    [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalItems]:
+                        tokenIds.length,
+                    [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsTotalOffers]:
+                        countTokenOffers(tokenIds, offersByTokenId),
+                },
+                () =>
+                    paginateTokenOfferTokenIds({
+                        tokenIds,
+                        offersByTokenId,
+                        limit: params.limit,
+                        cursor: params.cursor,
+                    }),
+            );
+            return {
+                ...tokenIdPage,
+                items: this.hydrateTokenOfferCards({
+                    ...params,
+                    attributes,
+                    tokenIds: tokenIdPage.items,
+                    offersByTokenId,
+                    tokenOfferGroupsCount: tokenIdPage.items.length,
+                }),
+            };
+        }
+
+        const tokenOfferCards = this.hydrateTokenOfferCards({
+            ...params,
+            attributes,
+            tokenIds,
+            offersByTokenId,
+            tokenOfferGroupsCount: tokenIds.length,
+        });
+        return this.apm.withSyncSpan(
+            "backend.bidding.collection_bid_book.token_offer_cards_page",
+            {
+                ...attributes,
+                [BIDDING_SPAN_ATTRIBUTE.TokenOfferCardsCount]:
+                    tokenOfferCards.length,
+            },
+            () =>
+                paginateTokenOfferCards({
+                    cards: tokenOfferCards,
+                    limit: params.limit,
+                    cursor: params.cursor,
+                }),
+        );
+    }
+
+    private hydrateTokenOfferCards(params: {
+        chainId: number;
+        collectionId: number;
+        mediaMode?: string;
+        attributes: SpanAttributes;
+        tokenIds: string[];
+        offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>;
+        tokenOfferGroupsCount: number;
+        selectedTraits: TraitFilter[];
+        selectedTraitRanges: TraitRangeFilter[];
+    }): PersistedTokenOfferCard[] {
+        if (params.tokenIds.length === 0) {
             return [];
         }
 
@@ -350,22 +411,23 @@ export class ListCollectionBiddingBidBookUseCase {
         const tokenCards = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.token_offer_token_cards",
             {
-                ...attributes,
-                [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenIds.length,
+                ...params.attributes,
+                [BIDDING_SPAN_ATTRIBUTE.TokensCount]:
+                    params.tokenIds.length,
                 [BIDDING_SPAN_ATTRIBUTE.CollectionIncludeListings]: true,
             },
             () =>
                 this.collectionReadPort.listCollectionTokenCardsByIds({
                     chainId: params.chainId,
                     collectionId: params.collectionId,
-                    tokenIds,
+                    tokenIds: params.tokenIds,
                     mediaMode: params.mediaMode,
                     includeListings: true,
                 }),
         );
         const traitSummaryTemplate = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.token_offer_trait_summary_template",
-            attributes,
+            params.attributes,
             () =>
                 this.customizationReadPort.getTokenCardTraitSummaryTemplateState(
                     {
@@ -378,15 +440,15 @@ export class ListCollectionBiddingBidBookUseCase {
         return this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.token_offer_card_build",
             {
-                ...attributes,
+                ...params.attributes,
                 [BIDDING_SPAN_ATTRIBUTE.TokensCount]: tokenCards.length,
                 [BIDDING_SPAN_ATTRIBUTE.TokenOfferGroupsCount]:
-                    offersByTokenId.size,
+                    params.tokenOfferGroupsCount,
             },
             () =>
                 buildPersistedTokenOfferCards({
                     tokenCards,
-                    offersByTokenId,
+                    offersByTokenId: params.offersByTokenId,
                     selectedTraits: params.selectedTraits,
                     selectedTraitRanges: params.selectedTraitRanges,
                     traitSummaryTemplate:
@@ -418,6 +480,10 @@ type PersistedTokenOfferCardsPage = Omit<
     "items"
 > & {
     items: PersistedTokenOfferCard[];
+};
+
+type TokenOfferTokenIdPage = Omit<PersistedTokenOfferCardsPage, "items"> & {
+    items: string[];
 };
 
 const TOKEN_OFFER_CURSOR_KIND = "bidding_token_offers";
@@ -479,6 +545,63 @@ function paginateTokenOfferCards(params: {
         currentPage,
         totalPages,
     };
+}
+
+function paginateTokenOfferTokenIds(params: {
+    tokenIds: string[];
+    offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>;
+    limit: number;
+    cursor: string | null;
+}): TokenOfferTokenIdPage {
+    const offset = decodeTokenOfferCursorOffset(params.cursor);
+    const totalItems = params.tokenIds.length;
+    const pageItems = params.tokenIds.slice(offset, offset + params.limit);
+    const rangeStart = pageItems.length === 0 ? 0 : offset + 1;
+    const rangeEnd = offset + pageItems.length;
+    const totalPages =
+        totalItems === 0 ? 0 : Math.ceil(totalItems / params.limit);
+    const currentPage =
+        totalItems === 0 ? 0 : Math.floor(offset / params.limit) + 1;
+
+    return {
+        items: pageItems,
+        prevCursor:
+            offset > 0
+                ? encodeTokenOfferCursor(Math.max(0, offset - params.limit))
+                : null,
+        nextCursor:
+            offset + params.limit < totalItems
+                ? encodeTokenOfferCursor(offset + params.limit)
+                : null,
+        limit: params.limit,
+        totalItems,
+        totalOffers: countTokenOffers(params.tokenIds, params.offersByTokenId),
+        rangeStart,
+        rangeEnd,
+        currentPage,
+        totalPages,
+    };
+}
+
+function hasTokenOfferCardTraitFilters(params: {
+    selectedTraits: TraitFilter[];
+    selectedTraitRanges: TraitRangeFilter[];
+}): boolean {
+    return (
+        params.selectedTraits.length > 0 ||
+        params.selectedTraitRanges.length > 0
+    );
+}
+
+function countTokenOffers(
+    tokenIds: string[],
+    offersByTokenId: Map<string, PersistedBiddingBidBookRow[]>,
+): number {
+    return tokenIds.reduce(
+        (count, tokenId) =>
+            count + (offersByTokenId.get(tokenId)?.length ?? 0),
+        0,
+    );
 }
 
 function mapTokenOfferCardsPageToView(
