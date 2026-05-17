@@ -1,4 +1,8 @@
 import { db } from "../database/db.js";
+import type {
+    ApmPort,
+    SpanAttributes,
+} from "../observability/apm.js";
 import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { ReadModelBadRequestError } from "./errors.js";
 
@@ -15,6 +19,12 @@ export type TraitRangeFilterGroup = {
 
 type TokenIdRow = {
     token_id: string;
+};
+
+export type TraitFilterTokenCandidates = {
+    tokenIds: string[] | null;
+    isEmpty: boolean;
+    candidateTokenIdsCount?: number;
 };
 
 export function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {
@@ -104,46 +114,6 @@ export function groupTraitRangeFilters(
     }));
 }
 
-export function buildTokenTraitFilterWhereClauses(params: {
-    traitFilterGroups: TraitFilterGroup[];
-    chainColumnSql: string;
-    collectionColumnSql: string;
-    tokenColumnSql: string;
-}): {
-    whereClauses: string[];
-    values: unknown[];
-} {
-    const whereClauses: string[] = [];
-    const values: unknown[] = [];
-
-    for (const filterGroup of params.traitFilterGroups) {
-        const valuePlaceholders = filterGroup.values.map(() => "?").join(", ");
-        whereClauses.push(
-            "EXISTS (" +
-                "SELECT 1 " +
-                "FROM token_attributes ta " +
-                "JOIN attributes a ON a.id = ta.attribute_id " +
-                "AND a.chain_id = ta.chain_id " +
-                "AND a.collection_id = ta.collection_id " +
-                "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
-                "AND ak.chain_id = a.chain_id " +
-                "AND ak.collection_id = a.collection_id " +
-                `WHERE ta.chain_id = ${params.chainColumnSql} ` +
-                `AND ta.collection_id = ${params.collectionColumnSql} ` +
-                `AND ta.token_id = ${params.tokenColumnSql} ` +
-                "AND ak.key = ? " +
-                `AND a.value IN (${valuePlaceholders}) ` +
-                ")",
-        );
-        values.push(filterGroup.key, ...filterGroup.values);
-    }
-
-    return {
-        whereClauses,
-        values,
-    };
-}
-
 export function buildTokenTraitRangeJoinClauses(params: {
     traitRangeFilterGroups: TraitRangeFilterGroup[];
     tokenColumnSql: string;
@@ -164,10 +134,14 @@ export function buildTokenTraitRangeJoinClauses(params: {
         ];
 
         if (filterGroup.fromValue !== null) {
-            numericComparisons.push("CAST(a.value AS INTEGER) >= CAST(? AS INTEGER)");
+            numericComparisons.push(
+                "CAST(a.value AS INTEGER) >= CAST(? AS INTEGER)",
+            );
         }
         if (filterGroup.toValue !== null) {
-            numericComparisons.push("CAST(a.value AS INTEGER) <= CAST(? AS INTEGER)");
+            numericComparisons.push(
+                "CAST(a.value AS INTEGER) <= CAST(? AS INTEGER)",
+            );
         }
 
         joinClauses.push(
@@ -202,68 +176,115 @@ export function buildTokenTraitRangeJoinClauses(params: {
     };
 }
 
-export function buildTokenTraitRangeWhereClauses(params: {
+// Resolves trait filters once so callers can avoid correlated trait checks.
+export function resolveTraitFilterTokenCandidatesWithSpan(params: {
+    apm: ApmPort;
+    spanName: string;
+    spanAttributes: SpanAttributes;
+    chainId: number;
+    collectionId: number;
+    tokenId?: string;
+    traitFilterGroups: TraitFilterGroup[];
     traitRangeFilterGroups: TraitRangeFilterGroup[];
-    chainColumnSql: string;
-    collectionColumnSql: string;
+}): TraitFilterTokenCandidates {
+    if (
+        params.traitFilterGroups.length === 0 &&
+        params.traitRangeFilterGroups.length === 0
+    ) {
+        return {
+            tokenIds: null,
+            isEmpty: false,
+        };
+    }
+
+    return params.apm.withSyncSpan(
+        params.spanName,
+        params.spanAttributes,
+        () =>
+            resolveTraitFilterTokenCandidates({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                tokenId: params.tokenId,
+                traitFilterGroups: params.traitFilterGroups,
+                traitRangeFilterGroups: params.traitRangeFilterGroups,
+            }),
+    );
+}
+
+export function buildTokenCandidateWhereClauses(params: {
+    tokenIds: string[] | null;
     tokenColumnSql: string;
 }): {
     whereClauses: string[];
     values: unknown[];
 } {
-    const whereClauses: string[] = [];
-    const values: unknown[] = [];
-
-    for (const filterGroup of params.traitRangeFilterGroups) {
-        const numericComparisons: string[] = [
-            "a.value <> ''",
-            "a.value NOT GLOB '*[^0-9]*'",
-        ];
-
-        if (filterGroup.fromValue !== null) {
-            numericComparisons.push("CAST(a.value AS INTEGER) >= CAST(? AS INTEGER)");
-        }
-        if (filterGroup.toValue !== null) {
-            numericComparisons.push("CAST(a.value AS INTEGER) <= CAST(? AS INTEGER)");
-        }
-
-        whereClauses.push(
-            "EXISTS (" +
-                "SELECT 1 " +
-                "FROM token_attributes ta " +
-                "JOIN attributes a ON a.id = ta.attribute_id " +
-                "AND a.chain_id = ta.chain_id " +
-                "AND a.collection_id = ta.collection_id " +
-                "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
-                "AND ak.chain_id = a.chain_id " +
-                "AND ak.collection_id = a.collection_id " +
-                `WHERE ta.chain_id = ${params.chainColumnSql} ` +
-                `AND ta.collection_id = ${params.collectionColumnSql} ` +
-                `AND ta.token_id = ${params.tokenColumnSql} ` +
-                "AND ak.key = ? " +
-                `AND ${numericComparisons.join(" AND ")} ` +
-                ")",
-        );
-
-        values.push(filterGroup.key);
-        if (filterGroup.fromValue !== null) {
-            values.push(filterGroup.fromValue);
-        }
-        if (filterGroup.toValue !== null) {
-            values.push(filterGroup.toValue);
-        }
+    if (params.tokenIds === null) {
+        return { whereClauses: [], values: [] };
+    }
+    if (params.tokenIds.length === 0) {
+        return { whereClauses: ["1 = 0"], values: [] };
     }
 
     return {
-        whereClauses,
-        values,
+        whereClauses: [
+            `${params.tokenColumnSql} IN (${params.tokenIds
+                .map(() => "?")
+                .join(", ")})`,
+        ],
+        values: params.tokenIds,
     };
 }
 
-// Resolves exact trait filters to token ids once so callers can avoid correlated trait checks.
-export function listExactTraitFilterTokenIds(params: {
+function resolveTraitFilterTokenCandidates(params: {
     chainId: number;
     collectionId: number;
+    tokenId?: string;
+    traitFilterGroups: TraitFilterGroup[];
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
+}): TraitFilterTokenCandidates {
+    const candidateSets: string[][] = [];
+
+    if (params.traitFilterGroups.length > 0) {
+        candidateSets.push(
+            listExactTraitFilterTokenIds({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                tokenId: params.tokenId,
+                traitFilterGroups: params.traitFilterGroups,
+            }),
+        );
+    }
+
+    if (params.traitRangeFilterGroups.length > 0) {
+        candidateSets.push(
+            listTraitRangeFilterTokenIds({
+                chainId: params.chainId,
+                collectionId: params.collectionId,
+                tokenId: params.tokenId,
+                traitRangeFilterGroups: params.traitRangeFilterGroups,
+            }),
+        );
+    }
+
+    if (candidateSets.length === 0) {
+        return {
+            tokenIds: null,
+            isEmpty: false,
+        };
+    }
+
+    const tokenIds = intersectTokenIdSets(candidateSets);
+    return {
+        tokenIds,
+        isEmpty: tokenIds.length === 0,
+        candidateTokenIdsCount: tokenIds.length,
+    };
+}
+
+function listExactTraitFilterTokenIds(params: {
+    chainId: number;
+    collectionId: number;
+    tokenId?: string;
     traitFilterGroups: TraitFilterGroup[];
 }): string[] {
     if (params.traitFilterGroups.length === 0) {
@@ -282,6 +303,7 @@ export function listExactTraitFilterTokenIds(params: {
     values.push(
         params.chainId,
         params.collectionId,
+        ...(params.tokenId ? [params.tokenId] : []),
         params.traitFilterGroups.length,
     );
 
@@ -302,10 +324,100 @@ export function listExactTraitFilterTokenIds(params: {
                 "JOIN token_attributes ta ON ta.attribute_id = ma.attribute_id " +
                 "WHERE ta.chain_id = ? " +
                 "AND ta.collection_id = ? " +
+                (params.tokenId ? "AND ta.token_id = ? " : "") +
                 "GROUP BY ta.token_id " +
                 "HAVING COUNT(DISTINCT ma.key) = ? " +
                 "ORDER BY ta.token_id",
         )
         .all(...values) as TokenIdRow[];
     return rows.map((row) => row.token_id);
+}
+
+function listTraitRangeFilterTokenIds(params: {
+    chainId: number;
+    collectionId: number;
+    tokenId?: string;
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
+}): string[] {
+    if (params.traitRangeFilterGroups.length === 0) {
+        return [];
+    }
+
+    const rangeClauses: string[] = [];
+    const values: unknown[] = [params.chainId, params.collectionId];
+    for (const filterGroup of params.traitRangeFilterGroups) {
+        const numericComparisons: string[] = [
+            "a.value <> ''",
+            "a.value NOT GLOB '*[^0-9]*'",
+        ];
+
+        if (filterGroup.fromValue !== null) {
+            numericComparisons.push(
+                "CAST(a.value AS INTEGER) >= CAST(? AS INTEGER)",
+            );
+        }
+        if (filterGroup.toValue !== null) {
+            numericComparisons.push(
+                "CAST(a.value AS INTEGER) <= CAST(? AS INTEGER)",
+            );
+        }
+
+        rangeClauses.push(
+            `(ak.key = ? AND ${numericComparisons.join(" AND ")})`,
+        );
+        values.push(filterGroup.key);
+        if (filterGroup.fromValue !== null) {
+            values.push(filterGroup.fromValue);
+        }
+        if (filterGroup.toValue !== null) {
+            values.push(filterGroup.toValue);
+        }
+    }
+    values.push(
+        params.chainId,
+        params.collectionId,
+        ...(params.tokenId ? [params.tokenId] : []),
+        params.traitRangeFilterGroups.length,
+    );
+
+    const rows = db.raw
+        .prepare(
+            "WITH matching_ranges AS (" +
+                "SELECT ak.key, a.id AS attribute_id " +
+                "FROM attribute_keys ak " +
+                "JOIN attributes a ON a.attribute_key_id = ak.id " +
+                "AND a.chain_id = ak.chain_id " +
+                "AND a.collection_id = ak.collection_id " +
+                "WHERE ak.chain_id = ? " +
+                "AND ak.collection_id = ? " +
+                `AND (${rangeClauses.join(" OR ")})` +
+                ") " +
+                "SELECT ta.token_id " +
+                "FROM matching_ranges mr " +
+                "JOIN token_attributes ta ON ta.attribute_id = mr.attribute_id " +
+                "WHERE ta.chain_id = ? " +
+                "AND ta.collection_id = ? " +
+                (params.tokenId ? "AND ta.token_id = ? " : "") +
+                "GROUP BY ta.token_id " +
+                "HAVING COUNT(DISTINCT mr.key) = ? " +
+                "ORDER BY ta.token_id",
+        )
+        .all(...values) as TokenIdRow[];
+    return rows.map((row) => row.token_id);
+}
+
+function intersectTokenIdSets(candidateSets: string[][]): string[] {
+    const [firstSet, ...remainingSets] = candidateSets
+        .slice()
+        .sort((left, right) => left.length - right.length);
+    if (!firstSet) return [];
+
+    let tokenIds = firstSet;
+    for (const candidateSet of remainingSets) {
+        const allowed = new Set(candidateSet);
+        tokenIds = tokenIds.filter((tokenId) => allowed.has(tokenId));
+        if (tokenIds.length === 0) return [];
+    }
+
+    return tokenIds;
 }

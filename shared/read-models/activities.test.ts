@@ -10,6 +10,7 @@ import {
     ACTIVITY_KIND,
     ACTIVITY_SCOPE_KIND,
     ACTIVITY_SOURCE_KIND,
+    type ActivityKind,
 } from "../types/activity-feed.js";
 import { SqliteActivitiesReadModel } from "./activities.js";
 
@@ -106,6 +107,74 @@ describe("SqliteActivitiesReadModel observability", () => {
         );
     });
 
+    it("uses exact trait candidates for collapsed listing activities", () => {
+        insertActivity(1, "1", 100, ACTIVITY_KIND.ListingCreated);
+        insertActivity(2, "2", 200, ACTIVITY_KIND.ListingCreated);
+        insertActivity(3, "1", 300, ACTIVITY_KIND.ListingCreated);
+        insertTokenTrait("1", "Mode", "Terrain");
+        insertTokenTrait("2", "Mode", "Space");
+        const apm = new CapturingApm();
+        const readModel = new SqliteActivitiesReadModel(apm);
+
+        const page = readModel.listCollectionActivities({
+            chainId: 1,
+            collectionId: 1,
+            kind: ACTIVITY_FEED_FILTER_KIND.Listings,
+            traitFilters: [{ key: "Mode", value: "Terrain" }],
+            limit: 250,
+        });
+
+        expect(page.items.map((activity) => activity.id)).toEqual([3]);
+        expect(page.totalItems).toBe(1);
+        expect(apm.spans).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    name: "backend.activity.db.trait_filter_token_candidates",
+                }),
+                expect.objectContaining({
+                    name: "backend.activity.db.query_rows",
+                    attributes: expect.objectContaining({
+                        [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]:
+                            "collapsed_collection_listings",
+                        [ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount]:
+                            1,
+                    }),
+                }),
+            ]),
+        );
+    });
+
+    it("uses range trait candidates for activity filters", () => {
+        insertActivity(1, "1", 100);
+        insertActivity(2, "2", 200);
+        insertTokenTrait("1", "Rank", "10");
+        insertTokenTrait("2", "Rank", "30");
+        const apm = new CapturingApm();
+        const readModel = new SqliteActivitiesReadModel(apm);
+
+        const page = readModel.listCollectionActivities({
+            chainId: 1,
+            collectionId: 1,
+            kind: ACTIVITY_FEED_FILTER_KIND.Transfers,
+            traitRangeFilters: [
+                { key: "Rank", fromValue: "20", toValue: null },
+            ],
+            limit: 250,
+        });
+
+        expect(page.items.map((activity) => activity.id)).toEqual([2]);
+        expect(page.totalItems).toBe(1);
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.activity.db.query_rows",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount]:
+                        1,
+                }),
+            }),
+        );
+    });
+
     it("runs total count when the first activity page has a next cursor", () => {
         insertActivity(1, "1", 100);
         insertActivity(2, "1", 200);
@@ -189,7 +258,12 @@ function createSchema(): void {
     `);
 }
 
-function insertActivity(id: number, tokenId: string, occurredAt: number): void {
+function insertActivity(
+    id: number,
+    tokenId: string,
+    occurredAt: number,
+    kind: ActivityKind = ACTIVITY_KIND.Transfer,
+): void {
     db.prepare(
         "INSERT INTO activities (id, chain_id, collection_id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, dedupe_key) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -198,7 +272,7 @@ function insertActivity(id: number, tokenId: string, occurredAt: number): void {
         1,
         1,
         ACTIVITY_SCOPE_KIND.Token,
-        ACTIVITY_KIND.Transfer,
+        kind,
         CONTRACT_ADDRESS,
         tokenId,
         occurredAt,

@@ -57,8 +57,12 @@ describe("SqliteCollectionsReadModel observability", () => {
 
         expect(page.prevCursor).toBeNull();
         expect(page.nextCursor).toEqual(expect.any(String));
+        expect(page.totalItems).toBe(2);
         expect(apm.spans.map((span) => span.name)).not.toContain(
             "backend.collection.db.tokens_prev_cursor",
+        );
+        expect(apm.spans.map((span) => span.name)).not.toContain(
+            "backend.collection.db.tokens_count",
         );
         expect(apm.spans).toEqual(
             expect.arrayContaining([
@@ -175,12 +179,82 @@ describe("SqliteCollectionsReadModel observability", () => {
             "300",
         ]);
         expect(page.totalItems).toBe(2);
-        expect(apm.spans.map((span) => span.name)).toEqual(
-            expect.arrayContaining([
-                "backend.collection.db.trait_filter_token_candidates",
-                "backend.collection.db.tokens_page",
-                "backend.collection.db.tokens_count",
-            ]),
+        expect(apm.spans.map((span) => span.name)).toContain(
+            "backend.collection.db.trait_filter_token_candidates",
+        );
+        expect(apm.spans.map((span) => span.name)).not.toContain(
+            "backend.collection.db.tokens_count",
+        );
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.collection.db.tokens_page",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
+                        2,
+                }),
+            }),
+        );
+    });
+
+    it("uses exact trait candidates for all-token pagination", () => {
+        insertToken("1", "300");
+        insertToken("2", "100");
+        insertToken("3", "200");
+        insertTokenTrait("1", "Mode", "Terrain");
+        insertTokenTrait("2", "Mode", "Space");
+        insertTokenTrait("3", "Mode", "Terrain");
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            traitFilters: [{ key: "Mode", value: "Terrain" }],
+            limit: 250,
+        });
+
+        expect(page.items.map((token) => token.tokenId)).toEqual(["1", "3"]);
+        expect(page.totalItems).toBe(2);
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.collection.db.tokens_page",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
+                        2,
+                }),
+            }),
+        );
+    });
+
+    it("uses exact trait candidates for listed-then-unlisted pagination", () => {
+        insertToken("1", "300");
+        insertToken("2", "100");
+        insertToken("3", "200");
+        insertTokenTrait("1", "Mode", "Terrain");
+        insertTokenTrait("2", "Mode", "Space");
+        insertTokenTrait("3", "Mode", "Terrain");
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.ListedThenUnlisted,
+            traitFilters: [{ key: "Mode", value: "Terrain" }],
+            limit: 250,
+        });
+
+        expect(page.items.map((token) => token.tokenId)).toEqual(["3", "1"]);
+        expect(page.totalItems).toBe(2);
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.collection.db.tokens_page",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
+                        2,
+                }),
+            }),
         );
     });
 

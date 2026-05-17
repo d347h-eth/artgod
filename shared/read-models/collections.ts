@@ -39,13 +39,14 @@ import {
 } from "../utils/ref-resolver.js";
 import { ReadModelBadRequestError, ReadModelNotFoundError } from "./errors.js";
 import {
-    buildTokenTraitFilterWhereClauses,
+    buildTokenCandidateWhereClauses,
     buildTokenTraitRangeJoinClauses,
     groupTraitFilters,
     groupTraitRangeFilters,
-    listExactTraitFilterTokenIds,
     normalizeTraitFilters,
     normalizeTraitRangeFilters,
+    resolveTraitFilterTokenCandidatesWithSpan,
+    type TraitFilterTokenCandidates,
     type TraitFilterGroup,
     type TraitRangeFilterGroup,
 } from "./trait-filters.js";
@@ -71,6 +72,10 @@ type TokenRow = {
     listing_currency: string | null;
     attributes_json: string | null;
     metadata_updated_at: string | null;
+};
+
+type ListedTokenRow = TokenRow & {
+    total_count?: number | bigint | null;
 };
 
 type TokenDetailRow = {
@@ -524,15 +529,46 @@ export class SqliteCollectionsReadModel {
         } = buildTokenQueryParts({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            traitFilterGroups: params.traitFilterGroups,
             traitRangeFilterGroups: params.traitRangeFilterGroups,
             owner: params.owner,
         });
+        const traitTokenCandidates = resolveCollectionExactTraitTokenCandidates({
+            apm: this.apm,
+            spanAttributes,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            traitFilterGroups: params.traitFilterGroups,
+        });
+        if (traitTokenCandidates.isEmpty) {
+            return emptyTokenCursorPage(params.limit);
+        }
+        const {
+            whereClauses: tokenCandidateWhereClauses,
+            values: tokenCandidateValues,
+        } = buildTokenCandidateWhereClauses({
+            tokenIds: traitTokenCandidates.tokenIds,
+            tokenColumnSql: "t.token_id",
+        });
+        const querySpanAttributes = withCandidateSpanAttributes(
+            spanAttributes,
+            traitTokenCandidates,
+        );
         const cursorSortKey = params.cursor
             ? toTokenSortKey(params.cursor.tokenId)
             : null;
-        const whereClauses = [...baseWhereClauses];
-        const values = [...baseJoinValues, ...baseWhereValues];
+        const tokenWhereClauses = [
+            ...baseWhereClauses,
+            ...tokenCandidateWhereClauses,
+        ];
+        const whereClauses = [...tokenWhereClauses];
+        const tokenWhereValues = [
+            ...baseWhereValues,
+            ...tokenCandidateValues,
+        ];
+        const values = [
+            ...baseJoinValues,
+            ...tokenWhereValues,
+        ];
 
         if (cursorSortKey) {
             whereClauses.push(`${TOKEN_SORT_KEY_SQL} > (?, ?, ?, ?)`);
@@ -554,7 +590,7 @@ export class SqliteCollectionsReadModel {
 
         const rows = this.apm.withSyncSpan(
             "backend.collection.db.tokens_page",
-            spanAttributes,
+            querySpanAttributes,
             () => db.raw.prepare(sql).all(...values) as TokenRow[],
         );
         const hasNext = rows.length > params.limit;
@@ -562,7 +598,7 @@ export class SqliteCollectionsReadModel {
         const hydratedPageRows = this.apm.withSyncSpan(
             "backend.collection.db.tokens_listing_hydration",
             {
-                ...spanAttributes,
+                ...querySpanAttributes,
                 [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: pageRows.length,
             },
             () =>
@@ -579,13 +615,13 @@ export class SqliteCollectionsReadModel {
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_prev_cursor",
-                  spanAttributes,
+                  querySpanAttributes,
                   () =>
                       derivePrevCursor({
                           baseJoinClauses,
                           baseJoinValues,
-                          baseWhereClauses,
-                          baseWhereValues,
+                          baseWhereClauses: tokenWhereClauses,
+                          baseWhereValues: tokenWhereValues,
                           cursor: params.cursor,
                           pageRows,
                           limit: params.limit,
@@ -596,7 +632,7 @@ export class SqliteCollectionsReadModel {
         const totalItems = this.apm.withSyncSpan(
             "backend.collection.db.tokens_count",
             {
-                ...spanAttributes,
+                ...querySpanAttributes,
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
                     ARTGOD_COLLECTION_COUNT_KIND.Total,
             },
@@ -604,15 +640,15 @@ export class SqliteCollectionsReadModel {
                 countMatchingTokens({
                     joinClauses: baseJoinClauses,
                     joinValues: baseJoinValues,
-                    whereClauses: baseWhereClauses,
-                    whereValues: baseWhereValues,
+                    whereClauses: tokenWhereClauses,
+                    whereValues: tokenWhereValues,
                 }),
         );
         const beforeItems = cursorSortKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
                   {
-                      ...spanAttributes,
+                      ...querySpanAttributes,
                       [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
                           ARTGOD_COLLECTION_COUNT_KIND.BeforeCursor,
                   },
@@ -621,11 +657,11 @@ export class SqliteCollectionsReadModel {
                           joinClauses: baseJoinClauses,
                           joinValues: baseJoinValues,
                           whereClauses: [
-                              ...baseWhereClauses,
+                              ...tokenWhereClauses,
                               `${TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?)`,
                           ],
                           whereValues: [
-                              ...baseWhereValues,
+                              ...tokenWhereValues,
                               ...tokenSortKeyParams(cursorSortKey),
                           ],
                       }),
@@ -686,26 +722,23 @@ export class SqliteCollectionsReadModel {
         } = buildTokenQueryParts({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            traitFilterGroups: [],
             traitRangeFilterGroups: params.traitRangeFilterGroups,
             owner: params.owner,
         });
-        const exactTraitTokenIds =
-            params.traitFilterGroups.length > 0
-                ? this.apm.withSyncSpan(
-                      "backend.collection.db.trait_filter_token_candidates",
-                      spanAttributes,
-                      () =>
-                          listExactTraitFilterTokenIds({
-                              chainId: params.chainId,
-                              collectionId: params.collectionId,
-                              traitFilterGroups: params.traitFilterGroups,
-                          }),
-                  )
-                : null;
-        if (exactTraitTokenIds?.length === 0) {
+        const traitTokenCandidates = resolveCollectionExactTraitTokenCandidates({
+            apm: this.apm,
+            spanAttributes,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            traitFilterGroups: params.traitFilterGroups,
+        });
+        if (traitTokenCandidates.isEmpty) {
             return emptyTokenCursorPage(params.limit);
         }
+        const querySpanAttributes = withCandidateSpanAttributes(
+            spanAttributes,
+            traitTokenCandidates,
+        );
         const listingValues = buildCheapestListingValues({
             chainId: params.chainId,
             collectionId: params.collectionId,
@@ -713,12 +746,12 @@ export class SqliteCollectionsReadModel {
             nowSeconds: params.nowSeconds,
         });
         const constrainedListingValues =
-            exactTraitTokenIds === null
+            traitTokenCandidates.tokenIds === null
                 ? listingValues
-                : [...listingValues, ...exactTraitTokenIds];
+                : [...listingValues, ...traitTokenCandidates.tokenIds];
         const listingSql = buildCheapestListingSql(
             this.supportedListingCurrencies.length,
-            exactTraitTokenIds?.length ?? 0,
+            traitTokenCandidates.tokenIds?.length ?? 0,
         );
         const cursorKey = params.cursor
             ? toListingCursorKey(
@@ -740,8 +773,11 @@ export class SqliteCollectionsReadModel {
             values.push(...listingCursorKeyParams(cursorKey));
         }
 
+        const totalCountSelect =
+            cursorKey === null ? ", COUNT(*) OVER () AS total_count " : " ";
         const sql =
-            "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at " +
+            "SELECT t.token_id, m.name, m.image, l.price AS listing_price, l.currency AS listing_currency, m.attributes_json, m.updated_at AS metadata_updated_at" +
+            totalCountSelect +
             "FROM tokens t " +
             `${baseJoinClauses.join(" ")} ` +
             `JOIN (${listingSql}) l ` +
@@ -756,11 +792,11 @@ export class SqliteCollectionsReadModel {
 
         const rows = this.apm.withSyncSpan(
             "backend.collection.db.tokens_page",
-            spanAttributes,
+            querySpanAttributes,
             () =>
                 db.raw
                     .prepare(sql)
-                    .all(...values, params.limit + 1) as TokenRow[],
+                    .all(...values, params.limit + 1) as ListedTokenRow[],
         );
         const hasNext = rows.length > params.limit;
         const pageRows = hasNext ? rows.slice(0, params.limit) : rows;
@@ -769,7 +805,7 @@ export class SqliteCollectionsReadModel {
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_prev_cursor",
-                  spanAttributes,
+                  querySpanAttributes,
                   () =>
                       deriveListedPrevCursor({
                           listingSql,
@@ -785,28 +821,31 @@ export class SqliteCollectionsReadModel {
               )
             : null;
 
-        const totalItems = this.apm.withSyncSpan(
-            "backend.collection.db.tokens_count",
-            {
-                ...spanAttributes,
-                [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
-                    ARTGOD_COLLECTION_COUNT_KIND.Total,
-            },
-            () =>
-                countMatchingListedTokens({
-                    joinClauses: baseJoinClauses,
-                    joinValues: baseJoinValues,
-                    listingSql,
-                    listingValues: constrainedListingValues,
-                    whereClauses: baseWhereClauses,
-                    whereValues: baseWhereValues,
-                }),
-        );
+        const totalItems =
+            cursorKey === null
+                ? normalizeSqliteCount(rows[0]?.total_count)
+                : this.apm.withSyncSpan(
+                      "backend.collection.db.tokens_count",
+                      {
+                          ...querySpanAttributes,
+                          [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
+                              ARTGOD_COLLECTION_COUNT_KIND.Total,
+                      },
+                      () =>
+                          countMatchingListedTokens({
+                              joinClauses: baseJoinClauses,
+                              joinValues: baseJoinValues,
+                              listingSql,
+                              listingValues: constrainedListingValues,
+                              whereClauses: baseWhereClauses,
+                              whereValues: baseWhereValues,
+                          }),
+                  );
         const beforeItems = cursorKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
                   {
-                      ...spanAttributes,
+                      ...querySpanAttributes,
                       [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
                           ARTGOD_COLLECTION_COUNT_KIND.BeforeCursor,
                   },
@@ -883,30 +922,63 @@ export class SqliteCollectionsReadModel {
         } = buildTokenQueryParts({
             chainId: params.chainId,
             collectionId: params.collectionId,
-            traitFilterGroups: params.traitFilterGroups,
             traitRangeFilterGroups: params.traitRangeFilterGroups,
             owner: params.owner,
         });
+        const traitTokenCandidates = resolveCollectionExactTraitTokenCandidates({
+            apm: this.apm,
+            spanAttributes,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            traitFilterGroups: params.traitFilterGroups,
+        });
+        if (traitTokenCandidates.isEmpty) {
+            return emptyTokenCursorPage(params.limit);
+        }
+        const {
+            whereClauses: tokenCandidateWhereClauses,
+            values: tokenCandidateValues,
+        } = buildTokenCandidateWhereClauses({
+            tokenIds: traitTokenCandidates.tokenIds,
+            tokenColumnSql: "t.token_id",
+        });
+        const querySpanAttributes = withCandidateSpanAttributes(
+            spanAttributes,
+            traitTokenCandidates,
+        );
         const listingSql = buildCheapestListingSql(
             this.supportedListingCurrencies.length,
+            traitTokenCandidates.tokenIds?.length ?? 0,
         );
-        const listingValues = buildCheapestListingValues({
+        const baseListingValues = buildCheapestListingValues({
             chainId: params.chainId,
             collectionId: params.collectionId,
             supportedCurrencies: this.supportedListingCurrencies,
             nowSeconds: params.nowSeconds,
         });
+        const listingValues =
+            traitTokenCandidates.tokenIds === null
+                ? baseListingValues
+                : [...baseListingValues, ...traitTokenCandidates.tokenIds];
         const cursorKey = params.cursor
             ? toListedThenUnlistedCursorKey(
                   params.cursor.listingPrice,
                   params.cursor.tokenId,
               )
             : null;
-        const whereClauses = [...baseWhereClauses];
+        const tokenWhereClauses = [
+            ...baseWhereClauses,
+            ...tokenCandidateWhereClauses,
+        ];
+        const whereClauses = [...tokenWhereClauses];
+        const tokenWhereValues = [
+            ...baseWhereValues,
+            ...tokenCandidateValues,
+        ];
         const values: unknown[] = [
             ...baseJoinValues,
             ...listingValues,
-            ...baseWhereValues,
+            ...tokenWhereValues,
         ];
 
         if (cursorKey) {
@@ -932,7 +1004,7 @@ export class SqliteCollectionsReadModel {
 
         const rows = this.apm.withSyncSpan(
             "backend.collection.db.tokens_page",
-            spanAttributes,
+            querySpanAttributes,
             () =>
                 db.raw
                     .prepare(sql)
@@ -945,15 +1017,15 @@ export class SqliteCollectionsReadModel {
         const prevCursor = params.cursor
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_prev_cursor",
-                  spanAttributes,
+                  querySpanAttributes,
                   () =>
                       deriveListedThenUnlistedPrevCursor({
                           listingSql,
                           listingValues,
                           baseJoinClauses,
                           baseJoinValues,
-                          baseWhereClauses,
-                          baseWhereValues,
+                          baseWhereClauses: tokenWhereClauses,
+                          baseWhereValues: tokenWhereValues,
                           cursor: params.cursor,
                           pageRows,
                           limit: params.limit,
@@ -964,7 +1036,7 @@ export class SqliteCollectionsReadModel {
         const totalItems = this.apm.withSyncSpan(
             "backend.collection.db.tokens_count",
             {
-                ...spanAttributes,
+                ...querySpanAttributes,
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
                     ARTGOD_COLLECTION_COUNT_KIND.Total,
             },
@@ -972,15 +1044,15 @@ export class SqliteCollectionsReadModel {
                 countMatchingTokens({
                     joinClauses: baseJoinClauses,
                     joinValues: baseJoinValues,
-                    whereClauses: baseWhereClauses,
-                    whereValues: baseWhereValues,
+                    whereClauses: tokenWhereClauses,
+                    whereValues: tokenWhereValues,
                 }),
         );
         const beforeItems = cursorKey
             ? this.apm.withSyncSpan(
                   "backend.collection.db.tokens_count",
                   {
-                      ...spanAttributes,
+                      ...querySpanAttributes,
                       [ARTGOD_SPAN_ATTRIBUTE.CollectionCountKind]:
                           ARTGOD_COLLECTION_COUNT_KIND.BeforeCursor,
                   },
@@ -991,11 +1063,11 @@ export class SqliteCollectionsReadModel {
                           listingSql,
                           listingValues,
                           whereClauses: [
-                              ...baseWhereClauses,
+                              ...tokenWhereClauses,
                               `${LISTED_THEN_UNLISTED_TOKEN_SORT_KEY_SQL} <= (?, ?, ?, ?, ?, ?, ?)`,
                           ],
                           whereValues: [
-                              ...baseWhereValues,
+                              ...tokenWhereValues,
                               ...listedThenUnlistedCursorKeyParams(cursorKey),
                           ],
                       }),
@@ -1585,6 +1657,11 @@ function countMatchingTokens(params: {
         .prepare(sql)
         .get(...params.joinValues, ...params.whereValues) as { count: number };
     return row.count;
+}
+
+function normalizeSqliteCount(value: number | bigint | null | undefined): number {
+    if (value === undefined || value === null) return 0;
+    return typeof value === "bigint" ? Number(value) : value;
 }
 
 function countMatchingListedTokens(params: {
@@ -2227,10 +2304,41 @@ function buildTokenQuerySpanAttributes(params: {
     };
 }
 
-function buildTokenQueryParts(params: {
+function resolveCollectionExactTraitTokenCandidates(params: {
+    apm: ApmPort;
+    spanAttributes: SpanAttributes;
     chainId: number;
     collectionId: number;
     traitFilterGroups: TraitFilterGroup[];
+}): TraitFilterTokenCandidates {
+    return resolveTraitFilterTokenCandidatesWithSpan({
+        apm: params.apm,
+        spanName: "backend.collection.db.trait_filter_token_candidates",
+        spanAttributes: params.spanAttributes,
+        chainId: params.chainId,
+        collectionId: params.collectionId,
+        traitFilterGroups: params.traitFilterGroups,
+        traitRangeFilterGroups: [],
+    });
+}
+
+function withCandidateSpanAttributes(
+    spanAttributes: SpanAttributes,
+    candidates: TraitFilterTokenCandidates,
+): SpanAttributes {
+    if (candidates.candidateTokenIdsCount === undefined) {
+        return spanAttributes;
+    }
+    return {
+        ...spanAttributes,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
+            candidates.candidateTokenIdsCount,
+    };
+}
+
+function buildTokenQueryParts(params: {
+    chainId: number;
+    collectionId: number;
     traitRangeFilterGroups: TraitRangeFilterGroup[];
     owner?: string;
 }): {
@@ -2260,16 +2368,6 @@ function buildTokenQueryParts(params: {
         );
         baseWhereValues.push(params.owner);
     }
-
-    const { whereClauses: traitWhereClauses, values: traitValues } =
-        buildTokenTraitFilterWhereClauses({
-            traitFilterGroups: params.traitFilterGroups,
-            chainColumnSql: "t.chain_id",
-            collectionColumnSql: "t.collection_id",
-            tokenColumnSql: "t.token_id",
-        });
-    baseWhereClauses.push(...traitWhereClauses);
-    baseWhereValues.push(...traitValues);
 
     const { joinClauses: traitRangeJoinClauses, values: traitRangeValues } =
         buildTokenTraitRangeJoinClauses({

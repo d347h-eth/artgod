@@ -3,8 +3,13 @@ import { db } from "../database/db.js";
 import {
     ARTGOD_ACTIVITY_COUNT_KIND,
     ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_TRACE_ATTRIBUTE_VALUE,
 } from "../observability/artgod-span-attributes.js";
-import { NOOP_APM, type ApmPort } from "../observability/apm.js";
+import {
+    NOOP_APM,
+    type ApmPort,
+    type SpanAttributes,
+} from "../observability/apm.js";
 import {
     ACTIVITY_FEED_FILTER_KIND,
     ACTIVITY_KIND,
@@ -20,13 +25,12 @@ import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
 import { ReadModelBadRequestError } from "./errors.js";
 import {
-    buildTokenTraitFilterWhereClauses,
-    buildTokenTraitRangeWhereClauses,
+    buildTokenCandidateWhereClauses,
     groupTraitFilters,
     groupTraitRangeFilters,
-    listExactTraitFilterTokenIds,
     normalizeTraitFilters,
     normalizeTraitRangeFilters,
+    resolveTraitFilterTokenCandidatesWithSpan,
     type TraitFilterGroup,
     type TraitRangeFilterGroup,
 } from "./trait-filters.js";
@@ -237,6 +241,39 @@ export class SqliteActivitiesReadModel {
                       params.extensionEvent,
                   )
                 : null;
+        const baseSpanAttributes = buildActivityQuerySpanAttributes({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            filterKind,
+            cursorPresent: Boolean(cursor),
+            traitFilterGroups,
+            traitRangeFilterGroups,
+        });
+        const traitTokenCandidates = resolveTraitFilterTokenCandidatesWithSpan({
+            apm: this.apm,
+            spanName: "backend.activity.db.trait_filter_token_candidates",
+            spanAttributes: baseSpanAttributes,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenId: params.tokenId,
+            traitFilterGroups,
+            traitRangeFilterGroups,
+        });
+        if (traitTokenCandidates.isEmpty) {
+            return emptyActivityFeedPage(limit);
+        }
+
+        const spanAttributes = buildActivityQuerySpanAttributes({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            filterKind,
+            cursorPresent: Boolean(cursor),
+            traitFilterGroups,
+            traitRangeFilterGroups,
+            candidateTokenIdsCount:
+                traitTokenCandidates.candidateTokenIdsCount,
+        });
+
         if (
             shouldCollapseCollectionListings(
                 params.tokenId,
@@ -247,63 +284,30 @@ export class SqliteActivitiesReadModel {
                 params.eventGroup,
             )
         ) {
-            const { whereClauses: traitWhereClauses, values: traitValues } =
-                buildTokenTraitFilterWhereClauses({
-                    traitFilterGroups,
-                    chainColumnSql: "a.chain_id",
-                    collectionColumnSql: "a.collection_id",
-                    tokenColumnSql: "a.token_id",
-                });
             const {
-                whereClauses: traitRangeWhereClauses,
-                values: traitRangeValues,
-            } = buildTokenTraitRangeWhereClauses({
-                traitRangeFilterGroups,
-                chainColumnSql: "a.chain_id",
-                collectionColumnSql: "a.collection_id",
+                whereClauses: tokenCandidateWhereClauses,
+                values: tokenCandidateValues,
+            } = buildTokenCandidateWhereClauses({
+                tokenIds: traitTokenCandidates.tokenIds,
                 tokenColumnSql: "a.token_id",
             });
             return listActivitiesFromSource({
                 apm: this.apm,
                 source: buildCollapsedCollectionListingsSource([
-                    ...traitWhereClauses,
-                    ...traitRangeWhereClauses,
+                    ...tokenCandidateWhereClauses,
                 ]),
                 baseWhereClauses: [],
                 baseValues: [
                     params.chainId,
                     params.collectionId,
                     ACTIVITY_KIND.ListingCreated,
-                    ...traitValues,
-                    ...traitRangeValues,
+                    ...tokenCandidateValues,
                 ],
                 limit,
                 cursor,
                 filterKind,
+                spanAttributes,
             });
-        }
-
-        const exactTraitTokenIds =
-            !params.tokenId && traitFilterGroups.length > 0
-                ? this.apm.withSyncSpan(
-                      "backend.activity.db.trait_filter_token_candidates",
-                      {
-                          [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
-                          [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
-                              params.collectionId,
-                          [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount]:
-                              traitFilterGroups.length,
-                      },
-                      () =>
-                          listExactTraitFilterTokenIds({
-                              chainId: params.chainId,
-                              collectionId: params.collectionId,
-                              traitFilterGroups,
-                          }),
-                  )
-                : null;
-        if (exactTraitTokenIds?.length === 0) {
-            return emptyActivityFeedPage(limit);
         }
 
         const { whereClauses: baseWhereClauses, values: baseValues } =
@@ -311,15 +315,12 @@ export class SqliteActivitiesReadModel {
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 tokenId: params.tokenId,
-                tokenIds: exactTraitTokenIds ?? undefined,
+                tokenIds: traitTokenCandidates.tokenIds ?? undefined,
                 kind: filterKind,
                 extensionEvent: params.extensionEvent,
                 maker: params.maker,
                 contentHash: params.contentHash,
                 eventGroup: params.eventGroup,
-                traitFilterGroups:
-                    exactTraitTokenIds === null ? traitFilterGroups : [],
-                traitRangeFilterGroups,
             });
 
         return listActivitiesFromSource({
@@ -331,6 +332,7 @@ export class SqliteActivitiesReadModel {
             cursor,
             filterKind,
             extensionEvent: params.extensionEvent,
+            spanAttributes,
         });
     }
 }
@@ -376,46 +378,29 @@ function buildActivityWhereClauses(params: {
     maker?: string;
     contentHash?: string;
     eventGroup?: string;
-    traitFilterGroups: TraitFilterGroup[];
-    traitRangeFilterGroups: TraitRangeFilterGroup[];
 }): {
     whereClauses: string[];
     values: unknown[];
 } {
+    const {
+        whereClauses: tokenCandidateWhereClauses,
+        values: tokenCandidateValues,
+    } = buildTokenCandidateWhereClauses({
+        tokenIds: params.tokenIds ?? null,
+        tokenColumnSql: "token_id",
+    });
     const whereClauses = [
         "chain_id = ?",
         "collection_id = ?",
         ...(params.tokenId ? ["token_id = ?"] : []),
-        ...(params.tokenIds
-            ? [buildTokenIdInClause(params.tokenIds.length)]
-            : []),
+        ...tokenCandidateWhereClauses,
     ];
     const values: unknown[] = [
         params.chainId,
         params.collectionId,
         ...(params.tokenId ? [params.tokenId] : []),
-        ...(params.tokenIds ?? []),
+        ...tokenCandidateValues,
     ];
-
-    const { whereClauses: traitWhereClauses, values: traitValues } =
-        buildTokenTraitFilterWhereClauses({
-            traitFilterGroups: params.traitFilterGroups,
-            chainColumnSql: "a.chain_id",
-            collectionColumnSql: "a.collection_id",
-            tokenColumnSql: "a.token_id",
-        });
-    whereClauses.push(...traitWhereClauses);
-    values.push(...traitValues);
-
-    const { whereClauses: traitRangeWhereClauses, values: traitRangeValues } =
-        buildTokenTraitRangeWhereClauses({
-            traitRangeFilterGroups: params.traitRangeFilterGroups,
-            chainColumnSql: "a.chain_id",
-            collectionColumnSql: "a.collection_id",
-            tokenColumnSql: "a.token_id",
-        });
-    whereClauses.push(...traitRangeWhereClauses);
-    values.push(...traitRangeValues);
 
     if (params.extensionEvent) {
         whereClauses.push(
@@ -484,10 +469,6 @@ function buildActivityBeforeOrAtCursorWhereClause(): string {
     return "(occurred_at > ? OR (occurred_at = ? AND id >= ?))";
 }
 
-function buildTokenIdInClause(tokenIdCount: number): string {
-    return `token_id IN (${new Array(tokenIdCount).fill("?").join(", ")})`;
-}
-
 function emptyActivityFeedPage(limit: number): ActivityFeedPage {
     return {
         items: [],
@@ -553,6 +534,34 @@ function buildCollapsedCollectionListingsSource(
     };
 }
 
+function buildActivityQuerySpanAttributes(params: {
+    chainId: number;
+    collectionId: number;
+    filterKind: ActivityFeedFilterKind | null;
+    cursorPresent: boolean;
+    traitFilterGroups: TraitFilterGroup[];
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
+    candidateTokenIdsCount?: number;
+}): SpanAttributes {
+    const attributes: SpanAttributes = {
+        [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityKind]:
+            params.filterKind ?? ARTGOD_TRACE_ATTRIBUTE_VALUE.None,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]:
+            params.cursorPresent,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount]:
+            params.traitFilterGroups.length,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitRangesCount]:
+            params.traitRangeFilterGroups.length,
+    };
+    if (params.candidateTokenIdsCount !== undefined) {
+        attributes[ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount] =
+            params.candidateTokenIdsCount;
+    }
+    return attributes;
+}
+
 function listActivitiesFromSource(params: {
     apm: ApmPort;
     source: ActivityQuerySource;
@@ -562,6 +571,7 @@ function listActivitiesFromSource(params: {
     cursor: ActivityFeedCursor | null;
     filterKind: ActivityFeedFilterKind | null;
     extensionEvent?: ActivityExtensionEventFilter;
+    spanAttributes: SpanAttributes;
 }): ActivityFeedPage {
     const {
         source,
@@ -572,6 +582,7 @@ function listActivitiesFromSource(params: {
         cursor,
         filterKind,
         extensionEvent,
+        spanAttributes,
     } = params;
     const whereClauses = [...baseWhereClauses];
     const values: unknown[] = [...baseValues];
@@ -587,6 +598,7 @@ function listActivitiesFromSource(params: {
         whereClauses,
         values,
         limit + 1,
+        spanAttributes,
     );
     const hasNext = rows.length > limit;
     const pageRows = hasNext ? rows.slice(0, limit) : rows;
@@ -601,6 +613,7 @@ function listActivitiesFromSource(params: {
         limit,
         filterKind,
         extensionEvent,
+        spanAttributes,
     });
     const totalItems =
         !cursor && !hasNext
@@ -611,6 +624,7 @@ function listActivitiesFromSource(params: {
                   baseWhereClauses,
                   baseValues,
                   ARTGOD_ACTIVITY_COUNT_KIND.Total,
+                  spanAttributes,
               );
     const beforeItems = cursor
         ? countMatchingActivities(
@@ -619,6 +633,7 @@ function listActivitiesFromSource(params: {
               [...baseWhereClauses, buildActivityBeforeOrAtCursorWhereClause()],
               [...baseValues, cursor.occurredAt, cursor.occurredAt, cursor.id],
               ARTGOD_ACTIVITY_COUNT_KIND.BeforeCursor,
+              spanAttributes,
           )
         : 0;
     const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
@@ -656,10 +671,12 @@ function queryActivityRows(
     whereClauses: string[],
     values: unknown[],
     limit: number,
+    spanAttributes: SpanAttributes,
 ): ActivityRow[] {
     return apm.withSyncSpan(
         "backend.activity.db.query_rows",
         {
+            ...spanAttributes,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: limit,
         },
@@ -680,10 +697,12 @@ function countMatchingActivities(
     countKind:
         | typeof ARTGOD_ACTIVITY_COUNT_KIND.Total
         | typeof ARTGOD_ACTIVITY_COUNT_KIND.BeforeCursor,
+    spanAttributes: SpanAttributes,
 ): number {
     const row = apm.withSyncSpan(
         "backend.activity.db.count",
         {
+            ...spanAttributes,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityCountKind]: countKind,
         },
@@ -708,6 +727,7 @@ function deriveActivityPrevCursor(params: {
     limit: number;
     filterKind: ActivityFeedFilterKind | null;
     extensionEvent?: ActivityExtensionEventFilter;
+    spanAttributes: SpanAttributes;
 }): string | null {
     const {
         source,
@@ -718,6 +738,7 @@ function deriveActivityPrevCursor(params: {
         pageRows,
         limit,
         filterKind,
+        spanAttributes,
     } = params;
     if (!cursor) return null;
 
@@ -727,6 +748,7 @@ function deriveActivityPrevCursor(params: {
     const previousRows = apm.withSyncSpan(
         "backend.activity.db.prev_cursor",
         {
+            ...spanAttributes,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
             [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: limit + 1,
         },

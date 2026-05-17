@@ -26,6 +26,8 @@ export const ARTGOD_SPAN_ATTRIBUTE = {
     ActivityMediaModePresent: "artgod.activity.media_mode_present",
     ActivityRangeOnlyKeysCount: "artgod.activity.range_only_keys_count",
     ActivityTokenIdsCount: "artgod.activity.token_ids_count",
+    ActivityCandidateTokenIdsCount:
+        "artgod.activity.candidate_token_ids_count",
     ActivityActivityIdsCount: "artgod.activity.activity_ids_count",
     ActivityRenderMode: "artgod.activity.render_mode",
     ActivityRenderModePresent: "artgod.activity.render_mode_present",
@@ -47,6 +49,8 @@ export const ARTGOD_SPAN_ATTRIBUTE = {
     CollectionExcludeKeysCount: "artgod.collection.exclude_keys_count",
     CollectionCountKind: "artgod.collection.count_kind",
     CollectionIncludeListings: "artgod.collection.include_listings",
+    CollectionCandidateTokenIdsCount:
+        "artgod.collection.candidate_token_ids_count",
     BiddingScopeFilter: "artgod.bidding.scope_filter",
     BiddingTraitJoin: "artgod.bidding.trait_join",
     BiddingLimit: "artgod.bidding.limit",
