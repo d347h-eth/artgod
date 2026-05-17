@@ -20,6 +20,7 @@ import type {
 	CollectionCustomizationApiResponse,
 	CollectionDetailApiResponse,
 	CollectionHoldersApiResponse,
+	CollectionPurgeApiResponse,
 	CollectionTraitCatalogApiResponse,
 	CollectionsApiResponse,
 	DefaultChainResponse,
@@ -255,6 +256,21 @@ export async function getCollectionCustomization(
 	return requestJson<CollectionCustomizationApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`
+	);
+}
+
+export async function purgeCollection(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	confirmation: string
+): Promise<CollectionPurgeApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<CollectionPurgeApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}`,
+		'DELETE',
+		{ confirmation }
 	);
 }
 
