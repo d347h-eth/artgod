@@ -364,6 +364,34 @@ export const TRADING_BIDDING_BID_BOOK_SOURCE = {
 export type TradingBiddingBidBookSource =
     (typeof TRADING_BIDDING_BID_BOOK_SOURCE)[keyof typeof TRADING_BIDDING_BID_BOOK_SOURCE];
 
+// Distinguishes real marketplace rows from local job-intent rows rendered in admin bid books.
+export const TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND = {
+    MarketBid: "market_bid",
+    OwnJobIntent: "own_job_intent",
+} as const;
+
+export type TradingBiddingBidBookRowMaterializationKind =
+    (typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND)[keyof typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND];
+
+// Explains which local job/runtime phase produced an own-intent bid-book row.
+export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
+    Queued: "queued",
+    ActiveOrder: "active_order",
+    Paused: "paused",
+} as const;
+
+export type TradingBiddingBidBookOwnJobPhase =
+    (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE];
+
+// Identifies whether a bid-book row has one market price or a configured job price range.
+export const TRADING_BIDDING_BID_BOOK_PRICE_KIND = {
+    Exact: "exact",
+    Range: "range",
+} as const;
+
+export type TradingBiddingBidBookPriceKind =
+    (typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND)[keyof typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND];
+
 export const TRADING_BIDDING_BID_SCOPE_KIND = {
     Collection: "collection",
     Trait: "trait",

@@ -2187,6 +2187,82 @@ components:
                         status:
                             $ref: "#/components/schemas/TradingJobStatus"
 
+        BiddingBidBookOwnJobPhase:
+            type: string
+            enum: [queued, active_order, paused]
+
+        BiddingBidBookRowMaterialization:
+            type: object
+            required: [kind, jobId, status, phase]
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                    enum: [market_bid, own_job_intent]
+                jobId:
+                    type: string
+                    nullable: true
+                status:
+                    allOf:
+                        - $ref: "#/components/schemas/TradingJobStatus"
+                    nullable: true
+                phase:
+                    allOf:
+                        - $ref: "#/components/schemas/BiddingBidBookOwnJobPhase"
+                    nullable: true
+
+        BiddingBidBookExactPrice:
+            type: object
+            required: [kind, wei, eth, sortWei, sortEth]
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                    enum: [exact]
+                wei:
+                    type: string
+                eth:
+                    type: string
+                sortWei:
+                    type: string
+                sortEth:
+                    type: string
+
+        BiddingBidBookRangePrice:
+            type: object
+            required:
+                [
+                    kind,
+                    floorWei,
+                    floorEth,
+                    ceilingWei,
+                    ceilingEth,
+                    sortWei,
+                    sortEth,
+                ]
+            additionalProperties: false
+            properties:
+                kind:
+                    type: string
+                    enum: [range]
+                floorWei:
+                    type: string
+                floorEth:
+                    type: string
+                ceilingWei:
+                    type: string
+                ceilingEth:
+                    type: string
+                sortWei:
+                    type: string
+                sortEth:
+                    type: string
+
+        BiddingBidBookPrice:
+            oneOf:
+                - $ref: "#/components/schemas/BiddingBidBookExactPrice"
+                - $ref: "#/components/schemas/BiddingBidBookRangePrice"
+
         BiddingBidBookState:
             type: object
             required:
@@ -2229,10 +2305,12 @@ components:
                 [
                     orderId,
                     source,
+                    materialization,
                     scope,
                     maker,
                     priceWei,
                     priceEth,
+                    price,
                     quantity,
                     currencyAddress,
                     currencySymbol,
@@ -2249,6 +2327,8 @@ components:
                     type: string
                 source:
                     $ref: "#/components/schemas/BiddingBidBookSource"
+                materialization:
+                    $ref: "#/components/schemas/BiddingBidBookRowMaterialization"
                 scope:
                     type: object
                     required: [kind, label, tokenId, traits]
@@ -2280,6 +2360,8 @@ components:
                     type: string
                 priceEth:
                     type: string
+                price:
+                    $ref: "#/components/schemas/BiddingBidBookPrice"
                 quantity:
                     type: string
                 currencyAddress:

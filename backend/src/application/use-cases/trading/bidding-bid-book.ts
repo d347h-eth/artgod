@@ -9,11 +9,16 @@ import type {
 } from "@artgod/shared/types/browse";
 import type {
     TradingBiddingBidBookSource,
+    TradingBiddingBidBookOwnJobPhase,
     TradingBiddingBidScopeKind,
     TradingJobStatus,
     TradingTraitCriterion,
     CollectionBiddingBidScopeFilter,
     CollectionBiddingTraitFilterJoinMode,
+} from "@artgod/shared/types";
+import {
+    TRADING_BIDDING_BID_BOOK_PRICE_KIND,
+    TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 } from "@artgod/shared/types";
 
 export {
@@ -28,6 +33,7 @@ export type {
 export type PersistedBiddingBidBookRow = {
     orderId: string;
     source: TradingBiddingBidBookSource;
+    materialization: BiddingBidBookRowMaterialization;
     scopeKind: TradingBiddingBidScopeKind;
     scopeLabel: string;
     tokenId: string | null;
@@ -36,6 +42,7 @@ export type PersistedBiddingBidBookRow = {
     maker: string;
     isOwn: boolean;
     priceWei: string;
+    price: BiddingBidBookRowPrice;
     quantity: string;
     currencyAddress: string | null;
     currencySymbol: string | null;
@@ -46,6 +53,38 @@ export type PersistedBiddingBidBookRow = {
     seenAt: string | null;
     ownStatus: BiddingBidBookOwnStatus | null;
 };
+
+export type BiddingBidBookRowMaterialization =
+    | {
+          kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
+          jobId: null;
+          status: null;
+          phase: null;
+      }
+    | {
+          kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent;
+          jobId: string;
+          status: TradingJobStatus;
+          phase: TradingBiddingBidBookOwnJobPhase;
+      };
+
+export type BiddingBidBookRowPrice =
+    | {
+          kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact;
+          wei: string;
+          eth: string;
+          sortWei: string;
+          sortEth: string;
+      }
+    | {
+          kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range;
+          floorWei: string;
+          floorEth: string;
+          ceilingWei: string;
+          ceilingEth: string;
+          sortWei: string;
+          sortEth: string;
+      };
 
 export type PersistedBiddingBidBookState = {
     source: TradingBiddingBidBookSource;
@@ -88,6 +127,7 @@ export interface BiddingBidBookRepositoryPort {
     listCollectionBidBook(params: {
         chainId: number;
         collectionId: number;
+        includeOwnJobContext: boolean;
         scopeFilter: CollectionBiddingBidScopeFilter;
         traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
         selectedTraits: TraitFilter[];
@@ -99,12 +139,14 @@ export interface BiddingBidBookRepositoryPort {
         collectionId: number;
         tokenId: string;
         tokenTraits: TradingTraitCriterion[];
+        includeOwnJobContext: boolean;
     }): PersistedBiddingBidBook;
 }
 
 export type BiddingBidBookRowView = {
     orderId: string;
     source: TradingBiddingBidBookSource;
+    materialization: BiddingBidBookRowMaterialization;
     scope: {
         kind: TradingBiddingBidScopeKind;
         label: string;
@@ -118,6 +160,7 @@ export type BiddingBidBookRowView = {
     };
     priceWei: string;
     priceEth: string;
+    price: BiddingBidBookRowPrice;
     quantity: string;
     currencyAddress: string | null;
     currencySymbol: string | null;
@@ -188,6 +231,7 @@ export function mapPersistedBidRowsToView(
     return bids.map((bid) => ({
         orderId: bid.orderId,
         source: bid.source,
+        materialization: bid.materialization,
         scope: {
             kind: bid.scopeKind,
             label: bid.scopeLabel,
@@ -201,6 +245,7 @@ export function mapPersistedBidRowsToView(
         },
         priceWei: bid.priceWei,
         priceEth: formatEther(BigInt(bid.priceWei)),
+        price: bid.price,
         quantity: bid.quantity,
         currencyAddress: bid.currencyAddress,
         currencySymbol: bid.currencySymbol,
@@ -211,4 +256,44 @@ export function mapPersistedBidRowsToView(
         seenAt: bid.seenAt,
         ownStatus: bid.ownStatus,
     }));
+}
+
+// Builds the explicit price object for rows with one marketplace/runtime price.
+export function exactBidBookRowPrice(wei: string): BiddingBidBookRowPrice {
+    const eth = formatEther(BigInt(wei));
+    return {
+        kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact,
+        wei,
+        eth,
+        sortWei: wei,
+        sortEth: eth,
+    };
+}
+
+// Builds the explicit price object for declared jobs that have not produced a single order price yet.
+export function rangeBidBookRowPrice(params: {
+    floorWei: string;
+    ceilingWei: string;
+}): BiddingBidBookRowPrice {
+    const floorEth = formatEther(BigInt(params.floorWei));
+    const ceilingEth = formatEther(BigInt(params.ceilingWei));
+    return {
+        kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range,
+        floorWei: params.floorWei,
+        floorEth,
+        ceilingWei: params.ceilingWei,
+        ceilingEth,
+        sortWei: params.ceilingWei,
+        sortEth: ceilingEth,
+    };
+}
+
+// Marks a bid-book row as a real market/order-book row.
+export function marketBidMaterialization(): BiddingBidBookRowMaterialization {
+    return {
+        kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+        jobId: null,
+        status: null,
+        phase: null,
+    };
 }

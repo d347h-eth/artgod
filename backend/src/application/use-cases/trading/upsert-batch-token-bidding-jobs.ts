@@ -240,6 +240,7 @@ export class UpsertBatchTokenBiddingJobsUseCase {
         const tokenBidBook = this.bidBookRepositoryPort.listCollectionBidBook({
             chainId: params.chainId,
             collectionId: params.collectionId,
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
             selectedTraits: [],
@@ -251,6 +252,7 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             this.bidBookRepositoryPort.listCollectionBidBook({
                 chainId: params.chainId,
                 collectionId: params.collectionId,
+                includeOwnJobContext: false,
                 scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
                 traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
                 selectedTraits: [],

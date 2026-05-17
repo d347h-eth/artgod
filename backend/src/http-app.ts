@@ -206,6 +206,7 @@ export function createApiApp(
     const listCollectionBiddingBidBookAdapter =
         new ListCollectionBiddingBidBookHttpAdapter(
             listCollectionBiddingBidBookUseCase,
+            deploymentConfig.mode !== "public_single_collection",
         );
     const listCollectionBiddingPriceTiersAdapter =
         new ListCollectionBiddingPriceTiersHttpAdapter(
@@ -217,6 +218,7 @@ export function createApiApp(
     const getTokenBiddingBidBookAdapter =
         new GetTokenBiddingBidBookHttpAdapter(
             getTokenBiddingBidBookUseCase,
+            deploymentConfig.mode !== "public_single_collection",
         );
     const lookupBiddingJobTargetAdapter =
         new LookupBiddingJobTargetHttpAdapter(

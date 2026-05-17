@@ -17,6 +17,9 @@ import {
 } from "@artgod/shared/trading/runtime-state";
 import {
     TRADING_BIDDING_BID_BOOK_SOURCE,
+    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
+    TRADING_BIDDING_BID_BOOK_PRICE_KIND,
+    TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
@@ -41,6 +44,9 @@ import type {
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    exactBidBookRowPrice,
+    marketBidMaterialization,
+    rangeBidBookRowPrice,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidding-observability.js";
 
@@ -92,6 +98,13 @@ type BiddingJobSignalRow = {
     ceiling_wei: string;
     revision: number;
     target_traits_json: string | null;
+    quantity: number | null;
+    job_updated_at: string;
+    current_price_wei: string | null;
+    active_order_id: string | null;
+    active_protocol_address: string | null;
+    active_expiration_time_ms: number | null;
+    runtime_updated_at: string | null;
 };
 
 type BiddingJobSignal = {
@@ -103,6 +116,15 @@ type BiddingJobSignal = {
     ceilingWei: string;
     revision: number;
     targetTraits: TradingTraitCriterion[];
+    quantity: number | null;
+    jobUpdatedAt: string;
+    runtime: {
+        currentPriceWei: string | null;
+        activeOrderId: string | null;
+        activeProtocolAddress: string | null;
+        activeExpirationTimeMs: number | null;
+        updatedAt: string;
+    } | null;
 };
 
 const INDEXED_ORDER_SOURCE_SCOPE_KIND = {
@@ -253,9 +275,11 @@ export class SqliteBiddingBidBookRepository
             archivedStatus: typeof TRADING_JOB_STATUS.Archived;
         }>(
             "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
-                "s.floor_wei, s.ceiling_wei, s.target_traits_json " +
+                "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.quantity, s.target_traits_json, " +
+                "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_expiration_time_ms, r.updated_at AS runtime_updated_at " +
                 "FROM trading_jobs j " +
                 "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
+                "LEFT JOIN trading_bidding_job_runtime_state r ON r.job_id = j.job_id " +
                 "WHERE j.chain_id = @chainId AND j.collection_id = @collectionId " +
                 "AND j.bot_kind = @botKind AND j.status != @archivedStatus",
         ) as BetterSqlite3NamedStatement<{
@@ -287,6 +311,7 @@ export class SqliteBiddingBidBookRepository
     listCollectionBidBook(params: {
         chainId: number;
         collectionId: number;
+        includeOwnJobContext: boolean;
         scopeFilter: CollectionBiddingBidScopeFilter;
         traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
         selectedTraits: TraitFilter[];
@@ -305,6 +330,7 @@ export class SqliteBiddingBidBookRepository
         collectionId: number;
         tokenId: string;
         tokenTraits: TradingTraitCriterion[];
+        includeOwnJobContext: boolean;
     }): PersistedBiddingBidBook {
         return this.apm.withSyncSpan(
             "backend.bidding.repository.token_bid_book",
@@ -321,6 +347,7 @@ export class SqliteBiddingBidBookRepository
     private listCollectionBidBookInner(params: {
         chainId: number;
         collectionId: number;
+        includeOwnJobContext: boolean;
         scopeFilter: CollectionBiddingBidScopeFilter;
         traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
         selectedTraits: TraitFilter[];
@@ -328,11 +355,13 @@ export class SqliteBiddingBidBookRepository
         makerAddress?: string | null;
     }): PersistedBiddingBidBook {
         const attributes = collectionBidBookSpanAttributes(params);
-        const knownMakerAddress = this.apm.withSyncSpan(
-            "backend.bidding.repository.known_maker",
-            baseCollectionSpanAttributes(params),
-            () => this.loadKnownBiddingMakerAddress(params.chainId),
-        );
+        const knownMakerAddress = params.includeOwnJobContext
+            ? this.apm.withSyncSpan(
+                  "backend.bidding.repository.known_maker",
+                  baseCollectionSpanAttributes(params),
+                  () => this.loadKnownBiddingMakerAddress(params.chainId),
+              )
+            : null;
         const source = this.apm.withSyncSpan(
             "backend.bidding.repository.source_select",
             attributes,
@@ -348,7 +377,7 @@ export class SqliteBiddingBidBookRepository
                       params.chainId,
                       params.collectionId,
                   );
-        const bidBook = this.apm.withSyncSpan(
+        const markedBidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.mark_own",
             {
                 ...attributes,
@@ -358,6 +387,21 @@ export class SqliteBiddingBidBookRepository
                     knownMakerAddress !== null,
             },
             () => markOwnBids(rawBidBook, knownMakerAddress),
+        );
+        const jobs = params.includeOwnJobContext
+            ? this.loadActiveBiddingJobs(params.chainId, params.collectionId)
+            : [];
+        const bidBook = this.apm.withSyncSpan(
+            "backend.bidding.repository.own_overlays",
+            {
+                ...attributes,
+                ...bidSummarySpanAttributes(markedBidBook.bids),
+                ...jobSummarySpanAttributes(jobs),
+                [BIDDING_SPAN_ATTRIBUTE.Source]: source,
+                [BIDDING_SPAN_ATTRIBUTE.OwnMakerPresent]:
+                    knownMakerAddress !== null,
+            },
+            () => maybeAddOwnJobOverlays(markedBidBook, jobs, knownMakerAddress),
         );
         const makerAddress = params.makerAddress?.toLowerCase() ?? null;
         const scopedBids = this.apm.withSyncSpan(
@@ -379,10 +423,6 @@ export class SqliteBiddingBidBookRepository
                         ),
                     ),
                 ),
-        );
-        const jobs = this.loadActiveBiddingJobs(
-            params.chainId,
-            params.collectionId,
         );
         const signaledBids = this.apm.withSyncSpan(
             "backend.bidding.repository.own_signals",
@@ -420,6 +460,7 @@ export class SqliteBiddingBidBookRepository
         collectionId: number;
         tokenId: string;
         tokenTraits: TradingTraitCriterion[];
+        includeOwnJobContext: boolean;
     }): PersistedBiddingBidBook {
         const attributes = {
             [BIDDING_SPAN_ATTRIBUTE.ChainId]: params.chainId,
@@ -427,11 +468,13 @@ export class SqliteBiddingBidBookRepository
             [BIDDING_SPAN_ATTRIBUTE.TokenTraitsCount]:
                 params.tokenTraits.length,
         };
-        const knownMakerAddress = this.apm.withSyncSpan(
-            "backend.bidding.repository.known_maker",
-            baseCollectionSpanAttributes(params),
-            () => this.loadKnownBiddingMakerAddress(params.chainId),
-        );
+        const knownMakerAddress = params.includeOwnJobContext
+            ? this.apm.withSyncSpan(
+                  "backend.bidding.repository.known_maker",
+                  baseCollectionSpanAttributes(params),
+                  () => this.loadKnownBiddingMakerAddress(params.chainId),
+              )
+            : null;
         const source = this.apm.withSyncSpan(
             "backend.bidding.repository.source_select",
             attributes,
@@ -447,7 +490,7 @@ export class SqliteBiddingBidBookRepository
                       params.chainId,
                       params.collectionId,
                   );
-        const bidBook = this.apm.withSyncSpan(
+        const markedBidBook = this.apm.withSyncSpan(
             "backend.bidding.repository.mark_own",
             {
                 ...attributes,
@@ -457,6 +500,21 @@ export class SqliteBiddingBidBookRepository
                     knownMakerAddress !== null,
             },
             () => markOwnBids(rawBidBook, knownMakerAddress),
+        );
+        const jobs = params.includeOwnJobContext
+            ? this.loadActiveBiddingJobs(params.chainId, params.collectionId)
+            : [];
+        const bidBook = this.apm.withSyncSpan(
+            "backend.bidding.repository.own_overlays",
+            {
+                ...attributes,
+                ...bidSummarySpanAttributes(markedBidBook.bids),
+                ...jobSummarySpanAttributes(jobs),
+                [BIDDING_SPAN_ATTRIBUTE.Source]: source,
+                [BIDDING_SPAN_ATTRIBUTE.OwnMakerPresent]:
+                    knownMakerAddress !== null,
+            },
+            () => maybeAddOwnJobOverlays(markedBidBook, jobs, knownMakerAddress),
         );
         const bids = this.apm.withSyncSpan(
             "backend.bidding.repository.token_filter_sort",
@@ -475,10 +533,6 @@ export class SqliteBiddingBidBookRepository
                         ),
                     ),
                 ),
-        );
-        const jobs = this.loadActiveBiddingJobs(
-            params.chainId,
-            params.collectionId,
         );
         return {
             state: bidBook.state,
@@ -612,6 +666,19 @@ export class SqliteBiddingBidBookRepository
                     ceilingWei: row.ceiling_wei,
                     revision: row.revision,
                     targetTraits: parseTraitArray(row.target_traits_json),
+                    quantity: row.quantity,
+                    jobUpdatedAt: row.job_updated_at,
+                    runtime: row.runtime_updated_at
+                        ? {
+                              currentPriceWei: row.current_price_wei,
+                              activeOrderId: row.active_order_id,
+                              activeProtocolAddress:
+                                  row.active_protocol_address,
+                              activeExpirationTimeMs:
+                                  row.active_expiration_time_ms,
+                              updatedAt: row.runtime_updated_at,
+                          }
+                        : null,
                 })),
         );
     }
@@ -1044,6 +1111,142 @@ function markOwnBids(
     };
 }
 
+function maybeAddOwnJobOverlays(
+    bidBook: PersistedBiddingBidBook,
+    jobs: BiddingJobSignal[],
+    ownMakerAddress: string | null,
+): PersistedBiddingBidBook {
+    if (!ownMakerAddress) {
+        return bidBook;
+    }
+
+    const overlayRows = jobs.flatMap((job) =>
+        shouldCreateOwnJobOverlay(job, bidBook.bids)
+            ? [mapJobOverlayRow(job, bidBook.state.source, ownMakerAddress)]
+            : [],
+    );
+    if (overlayRows.length === 0) {
+        return bidBook;
+    }
+
+    const bids = [...bidBook.bids, ...overlayRows];
+    return {
+        ...bidBook,
+        ownMakerAddress,
+        state: {
+            ...bidBook.state,
+            rowCount: bids.length,
+        },
+        bids,
+    };
+}
+
+function shouldCreateOwnJobOverlay(
+    job: BiddingJobSignal,
+    bids: PersistedBiddingBidBookRow[],
+): boolean {
+    return !bids.some(
+        (bid) =>
+            bid.isOwn &&
+            ((job.runtime?.activeOrderId &&
+                bid.orderId === job.runtime.activeOrderId) ||
+                jobMatchesBid(job, bid)),
+    );
+}
+
+function mapJobOverlayRow(
+    job: BiddingJobSignal,
+    source: TradingBiddingBidBookSource,
+    ownMakerAddress: string,
+): PersistedBiddingBidBookRow {
+    const activeRuntime =
+        job.runtime?.activeOrderId && job.runtime.currentPriceWei
+            ? job.runtime
+            : null;
+    const scope = resolveJobBidScope(job);
+    const activePriceWei = activeRuntime?.currentPriceWei ?? null;
+    const price = activeRuntime
+        ? exactBidBookRowPrice(activePriceWei ?? job.ceilingWei)
+        : rangeBidBookRowPrice({
+              floorWei: job.floorWei,
+              ceilingWei: job.ceilingWei,
+          });
+
+    return {
+        orderId: activeRuntime?.activeOrderId ?? `job-intent:${job.jobId}`,
+        source,
+        materialization: {
+            kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+            jobId: job.jobId,
+            status: job.status,
+            phase:
+                job.status === TRADING_JOB_STATUS.Paused
+                    ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
+                    : activeRuntime
+                      ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder
+                      : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+        },
+        scopeKind: scope.kind,
+        scopeLabel: scope.label,
+        tokenId: scope.tokenId,
+        scopeTraits: scope.traits,
+        encodedTokenIds: null,
+        maker: ownMakerAddress,
+        isOwn: true,
+        priceWei: price.sortWei,
+        price,
+        quantity: String(Math.max(1, Math.floor(job.quantity ?? 1))),
+        currencyAddress: null,
+        currencySymbol: "WETH",
+        protocolAddress: activeRuntime?.activeProtocolAddress ?? null,
+        validUntil: activeRuntime?.activeExpirationTimeMs
+            ? Math.floor(activeRuntime.activeExpirationTimeMs / 1000)
+            : null,
+        placedAt: activeRuntime?.updatedAt ?? null,
+        snapshotRefreshedAtMs: null,
+        seenAt: activeRuntime?.updatedAt ?? job.jobUpdatedAt,
+        ownStatus: null,
+    };
+}
+
+function resolveJobBidScope(job: BiddingJobSignal): {
+    kind: TradingBiddingBidScopeKind;
+    label: string;
+    tokenId: string | null;
+    traits: TradingTraitCriterion[];
+} {
+    if (job.targetKind === TRADING_JOB_TARGET_KIND.Token) {
+        return {
+            kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+            label: job.tokenId ? `#${job.tokenId}` : "token",
+            tokenId: job.tokenId,
+            traits: [],
+        };
+    }
+
+    if (job.targetTraits.length > 0) {
+        return {
+            kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+            label: formatTraitScopeLabel(job.targetTraits),
+            tokenId: null,
+            traits: job.targetTraits,
+        };
+    }
+
+    return {
+        kind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+        label: "collection",
+        tokenId: null,
+        traits: [],
+    };
+}
+
+function formatTraitScopeLabel(traits: TradingTraitCriterion[]): string {
+    return traits
+        .map((trait) => `${trimTraitText(trait.type)}=${trimTraitText(trait.value)}`)
+        .join(" + ");
+}
+
 function attachOwnBidRuntimeSignals(
     bids: PersistedBiddingBidBookRow[],
     jobs: BiddingJobSignal[],
@@ -1117,6 +1320,10 @@ function resolveOwnBidConstraints(
     job: BiddingJobSignal,
     bid: PersistedBiddingBidBookRow,
 ): Array<"ceiling" | "floor" | "balance" | "allowance"> {
+    if (bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range) {
+        return [];
+    }
+
     const constraints: Array<"ceiling" | "floor" | "balance" | "allowance"> = [];
     const price = BigInt(bid.priceWei);
     if (price >= BigInt(job.ceilingWei)) {
@@ -1141,6 +1348,10 @@ function jobMatchesBid(
 
     if (job.targetKind === TRADING_JOB_TARGET_KIND.Collection) {
         return (
+            bid.scopeKind ===
+                (job.targetTraits.length > 0
+                    ? TRADING_BIDDING_BID_SCOPE_KIND.Trait
+                    : TRADING_BIDDING_BID_SCOPE_KIND.Collection) &&
             tradingTraitCriteriaKey(bid.scopeTraits) ===
             tradingTraitCriteriaKey(job.targetTraits)
         );
@@ -1148,6 +1359,7 @@ function jobMatchesBid(
 
     if (job.targetKind === TRADING_JOB_TARGET_KIND.CompetitiveTrait) {
         return (
+            bid.scopeKind === TRADING_BIDDING_BID_SCOPE_KIND.Trait &&
             tradingTraitCriteriaKey(bid.scopeTraits) ===
             tradingTraitCriteriaKey(job.targetTraits)
         );
@@ -1227,6 +1439,7 @@ function mapProjectedRow(row: ProjectedBidBookRow): PersistedBiddingBidBookRow[]
         {
             orderId: row.order_id,
             source: row.source,
+            materialization: marketBidMaterialization(),
             scopeKind: row.scope_kind,
             scopeLabel: row.scope_label,
             tokenId: row.token_id,
@@ -1235,6 +1448,7 @@ function mapProjectedRow(row: ProjectedBidBookRow): PersistedBiddingBidBookRow[]
             maker: row.maker,
             isOwn: row.is_own === 1,
             priceWei: row.price_wei,
+            price: exactBidBookRowPrice(row.price_wei),
             quantity: row.quantity,
             currencyAddress: row.currency_address,
             currencySymbol: row.currency_symbol,
@@ -1261,6 +1475,7 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
             {
                 orderId: row.id,
                 source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+                materialization: marketBidMaterialization(),
                 scopeKind: scope.kind,
                 scopeLabel: scope.label,
                 tokenId: scope.tokenId,
@@ -1269,6 +1484,7 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
                 maker: parsed.maker,
                 isOwn: false,
                 priceWei: parsed.price.toString(),
+                price: exactBidBookRowPrice(parsed.price.toString()),
                 quantity: parsed.quantity.toString(),
                 currencyAddress: row.currency,
                 currencySymbol: null,

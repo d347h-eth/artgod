@@ -58,6 +58,7 @@ export class ListCollectionBiddingBidBookHttpAdapter {
                 input: ListCollectionBiddingBidBookInput,
             ): MaybePromise<ListCollectionBiddingBidBookOutput>;
         },
+        private readonly includeOwnJobContext: boolean,
     ) {}
 
     readonly handle = async (
@@ -68,6 +69,7 @@ export class ListCollectionBiddingBidBookHttpAdapter {
             {
                 chainRef: request.params.chain_ref,
                 collectionRef: request.params.collection_ref,
+                includeOwnJobContext: this.includeOwnJobContext,
                 scopeFilter: parseCollectionBiddingBidScopeFilter(
                     searchParams.get(
                         COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope,

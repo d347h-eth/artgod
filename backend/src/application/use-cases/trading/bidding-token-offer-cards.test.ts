@@ -7,6 +7,8 @@ import {
 } from "@artgod/shared/types";
 import {
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    exactBidBookRowPrice,
+    marketBidMaterialization,
     type PersistedBiddingBidBookRow,
 } from "./bidding-bid-book.js";
 import {
@@ -165,6 +167,7 @@ function bid(
     return {
         orderId: "order-1",
         source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        materialization: marketBidMaterialization(),
         scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
         scopeLabel: "collection",
         tokenId: null,
@@ -173,6 +176,7 @@ function bid(
         maker: "0x1111111111111111111111111111111111111111",
         isOwn: false,
         priceWei: "1",
+        price: exactBidBookRowPrice("1"),
         quantity: "1",
         currencyAddress: null,
         currencySymbol: null,

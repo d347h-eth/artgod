@@ -11,6 +11,7 @@ export type GetTokenBiddingBidBookInput = {
     chainRef: string;
     collectionRef: string;
     tokenRef: string;
+    includeOwnJobContext: boolean;
 };
 
 export class GetTokenBiddingBidBookUseCase {
@@ -64,6 +65,7 @@ export class GetTokenBiddingBidBookUseCase {
                 type: trait.key,
                 value: trait.value,
             })),
+            includeOwnJobContext: input.includeOwnJobContext,
         });
 
         return {

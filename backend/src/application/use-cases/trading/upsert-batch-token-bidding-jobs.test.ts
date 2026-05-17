@@ -15,6 +15,10 @@ import {
     type TradingJobCommandRecord,
 } from "@artgod/shared/types";
 import { COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE } from "./bidding-bid-book.js";
+import {
+    exactBidBookRowPrice,
+    marketBidMaterialization,
+} from "./bidding-bid-book.js";
 import { UpsertBatchTokenBiddingJobsUseCase } from "./upsert-batch-token-bidding-jobs.js";
 
 const CHAIN: ChainRecord = {
@@ -415,6 +419,7 @@ function bidBookRow(input: {
     return {
         orderId: input.orderId,
         source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        materialization: marketBidMaterialization(),
         scopeKind: input.scopeKind,
         scopeLabel: input.scopeKind,
         tokenId: input.tokenId,
@@ -423,6 +428,7 @@ function bidBookRow(input: {
         maker: input.maker ?? "0x1111111111111111111111111111111111111111",
         isOwn: false,
         priceWei: input.priceWei,
+        price: exactBidBookRowPrice(input.priceWei),
         quantity: "1",
         currencyAddress: null,
         currencySymbol: "WETH",
