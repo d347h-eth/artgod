@@ -721,9 +721,13 @@ Expected artifacts:
 Current implementation notes:
 
 - Bid-book rows now carry backend-owned `ownStatus` for own bids instead of deriving row status in the frontend.
+- Bid-book rows now distinguish `market_bid` from `own_job_intent`, so queued or paused declared jobs can be shown before they are visible in OpenSea orders or the bot snapshot projection.
+- The bidding runtime persists active order feedback into `trading_bidding_job_runtime_state`, and backend reads use that feedback to turn own-intent rows into exact active-order rows when available.
+- Standard/admin bid-book reads may include own-intent overlays; public single-collection reads remain market-only and omit local own-job context.
 - The repository computes own-bid position by exact bid scope before applying the maker filter, so `my bids` can still show losing/draw/winning against hidden opponents.
 - Own bid rows are linked to matching non-archived declared jobs by token, collection, or exact trait target; the row status exposes job id, revision, and job status.
 - Floor and ceiling constraint labels are derived from the matching declared job scalar prices.
+- Price is now explicit: market and runtime-active rows use exact prices, while queued/paused own-intent rows use a floor-ceiling range with the ceiling as the sort price.
 - `balance` and `allowance` are included in the read-model constraint contract, but they intentionally remain unset until the bidding runtime persists explicit constraint flags. Do not infer them from free-form error strings.
 - The frontend only renders `ownStatus` from the API and no longer reimplements bid-row position or floor/ceiling decisions.
 

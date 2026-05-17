@@ -107,6 +107,8 @@ Backend source selection:
 
 - use `bot_snapshot` when the collection has enabled bidding jobs, the bidding bot heartbeat is live, and projection metadata is fresh
 - otherwise use `orders`
+- standard/admin bid-book reads include own declared-job overlays when the bot has not yet produced or reobserved the matching market bid
+- public single-collection mode keeps bid-book reads market-only and never exposes local own-job context
 
 Frontend refresh labels:
 
@@ -125,6 +127,8 @@ Own-bid display:
 
 - Rows from a live bot runtime can mark the configured bot wallet as `You`.
 - Own rows can carry position and job-constraint signals derived from backend/runtime read models.
+- Own declared jobs can appear as `own_job_intent` rows with `queued`, `active_order`, or `paused` phase.
+- Own-intent rows use range pricing until runtime feedback supplies a single active order price.
 - Balance and allowance constraint slots exist in the read-model contract but remain unset until the runtime persists explicit flags.
 
 Orders fallback parser:
