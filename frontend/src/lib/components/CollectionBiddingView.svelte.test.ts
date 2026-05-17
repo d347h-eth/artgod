@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import type { ApiBiddingBidBookRow } from '$lib/api-types';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import CollectionBiddingView from './CollectionBiddingView.svelte';
+
+function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
+	return {
+		kind: 'exact',
+		wei,
+		eth,
+		sortWei: wei,
+		sortEth: eth
+	};
+}
+
+function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
+	return {
+		kind: 'market_bid',
+		jobId: null,
+		status: null,
+		phase: null
+	};
+}
 
 describe('CollectionBiddingView', () => {
 	it('omits trait filtering chrome for the collection bid-book scope', () => {
@@ -43,6 +63,7 @@ describe('CollectionBiddingView', () => {
 						{
 							orderId: '0xcollection-bid',
 							source: 'orders',
+							materialization: marketMaterialization(),
 							scope: {
 								kind: 'collection',
 								label: 'collection',
@@ -56,6 +77,7 @@ describe('CollectionBiddingView', () => {
 							},
 							priceWei: '100000000000000000',
 							priceEth: '0.1',
+							price: exactPrice('100000000000000000', '0.1'),
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -154,6 +176,7 @@ describe('CollectionBiddingView', () => {
 						{
 							orderId: '0xtoken-bid-1',
 							source: 'orders',
+							materialization: marketMaterialization(),
 							scope: {
 								kind: 'token',
 								label: '#1',
@@ -167,6 +190,7 @@ describe('CollectionBiddingView', () => {
 							},
 							priceWei: '420000000000000000',
 							priceEth: '0.42',
+							price: exactPrice('420000000000000000', '0.42'),
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',
@@ -195,6 +219,7 @@ describe('CollectionBiddingView', () => {
 								{
 									orderId: '0xtoken-bid-1',
 									source: 'orders',
+									materialization: marketMaterialization(),
 									scope: {
 										kind: 'token',
 										label: '#1',
@@ -208,6 +233,7 @@ describe('CollectionBiddingView', () => {
 									},
 									priceWei: '420000000000000000',
 									priceEth: '0.42',
+									price: exactPrice('420000000000000000', '0.42'),
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -371,6 +397,7 @@ describe('CollectionBiddingView', () => {
 						{
 							orderId: '0xbid1',
 							source: 'bot_snapshot',
+							materialization: marketMaterialization(),
 							scope: {
 								kind: 'collection',
 								label: 'collection',
@@ -384,6 +411,7 @@ describe('CollectionBiddingView', () => {
 							},
 							priceWei: '100000000000000000',
 							priceEth: '0.1',
+							price: exactPrice('100000000000000000', '0.1'),
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 							currencySymbol: 'WETH',

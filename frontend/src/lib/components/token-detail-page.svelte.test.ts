@@ -7,10 +7,30 @@ import {
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
+import type { ApiBiddingBidBookRow } from '$lib/api-types';
 import { TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS } from '$lib/activity-extension-views/terraforms/constants';
 import TokenDetailPage from '../../routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte';
 
 installBuiltInCollectionExtensions();
+
+function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
+	return {
+		kind: 'exact',
+		wei,
+		eth,
+		sortWei: wei,
+		sortEth: eth
+	};
+}
+
+function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
+	return {
+		kind: 'market_bid',
+		jobId: null,
+		status: null,
+		phase: null
+	};
+}
 
 describe('token detail page', () => {
 	it('renders centered media with fallback title and traits table', () => {
@@ -92,6 +112,7 @@ describe('token detail page', () => {
 								{
 									orderId: '0xcollection-bid',
 									source: 'orders',
+									materialization: marketMaterialization(),
 									scope: {
 										kind: 'collection',
 										label: 'collection',
@@ -105,6 +126,7 @@ describe('token detail page', () => {
 									},
 									priceWei: '100000000000000000',
 									priceEth: '0.1',
+									price: exactPrice('100000000000000000', '0.1'),
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -118,6 +140,7 @@ describe('token detail page', () => {
 								{
 									orderId: '0xtrait-bid',
 									source: 'orders',
+									materialization: marketMaterialization(),
 									scope: {
 										kind: 'trait',
 										label: 'Hat=Beanie',
@@ -131,6 +154,7 @@ describe('token detail page', () => {
 									},
 									priceWei: '100000000000000000',
 									priceEth: '0.1',
+									price: exactPrice('100000000000000000', '0.1'),
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',

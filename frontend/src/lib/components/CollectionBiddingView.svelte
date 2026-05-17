@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import { TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND } from '@artgod/shared/types';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
@@ -767,7 +768,12 @@
 	}
 
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
-		const draft = buildBiddingAutomationDraftFromBid(bid);
+		const existingJob =
+			bid.materialization.kind ===
+			TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+				? collectionJobs.find((job) => job.jobId === bid.materialization.jobId) ?? null
+				: null;
+		const draft = buildBiddingAutomationDraftFromBid(bid, existingJob);
 		if (!draft) return;
 		biddingAutomation.clearSelection();
 		selectedBidDraft = draft;

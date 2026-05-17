@@ -21,6 +21,12 @@ import {
 const BASE_BID: ApiBiddingBidBookRow = {
 	orderId: '0xbase',
 	source: 'orders',
+	materialization: {
+		kind: 'market_bid',
+		jobId: null,
+		status: null,
+		phase: null
+	},
 	scope: {
 		kind: 'collection',
 		label: 'collection',
@@ -34,6 +40,7 @@ const BASE_BID: ApiBiddingBidBookRow = {
 	},
 	priceWei: '300000000000000000',
 	priceEth: '0.3',
+	price: exactPrice('300000000000000000', '0.3'),
 	quantity: '1',
 	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 	currencySymbol: 'WETH',
@@ -44,6 +51,16 @@ const BASE_BID: ApiBiddingBidBookRow = {
 	seenAt: '2026-01-02T00:00:00Z',
 	ownStatus: null
 };
+
+function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
+	return {
+		kind: 'exact',
+		wei,
+		eth,
+		sortWei: wei,
+		sortEth: eth
+	};
+}
 
 const EXISTING_TOKEN_JOB: ApiBiddingJob = {
 	jobId: 'job-token-42',
@@ -87,8 +104,8 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 		});
 		expect(draft?.pricing).toEqual({
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: '0.301',
-			ceilingEth: '0.301',
+			floorEth: '0.2',
+			ceilingEth: '0.4',
 			deltaEth: '0.01'
 		});
 		expect(biddingAutomationDraftTokenId(draft)).toBe('42');
@@ -142,7 +159,8 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 			const draft = buildBiddingAutomationDraftFromBid({
 				...BASE_BID,
 				priceWei: item.priceWei,
-				priceEth: item.priceEth
+				priceEth: item.priceEth,
+				price: exactPrice(item.priceWei, item.priceEth)
 			});
 			expect(draft?.pricing).toMatchObject({
 				mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
@@ -185,8 +203,20 @@ describe('buildTokenBiddingAutomationDraftFromBid', () => {
 
 describe('bestBiddingAutomationBid', () => {
 	it('selects the highest bid for draft pricing', () => {
-		const lower = { ...BASE_BID, orderId: '0xlower', priceWei: '100000000000000000' };
-		const higher = { ...BASE_BID, orderId: '0xhigher', priceWei: '200000000000000000' };
+		const lower = {
+			...BASE_BID,
+			orderId: '0xlower',
+			priceWei: '100000000000000000',
+			priceEth: '0.1',
+			price: exactPrice('100000000000000000', '0.1')
+		};
+		const higher = {
+			...BASE_BID,
+			orderId: '0xhigher',
+			priceWei: '200000000000000000',
+			priceEth: '0.2',
+			price: exactPrice('200000000000000000', '0.2')
+		};
 
 		expect(bestBiddingAutomationBid([lower, higher])?.orderId).toBe('0xhigher');
 	});

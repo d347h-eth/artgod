@@ -5,6 +5,11 @@
 		ApiBiddingJob
 	} from '$lib/api-types';
 	import {
+		TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
+		TRADING_BIDDING_BID_BOOK_PRICE_KIND,
+		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND
+	} from '@artgod/shared/types';
+	import {
 		formatCompactTime,
 		formatRfc3339,
 		oppositeCompactTimeTitle,
@@ -41,7 +46,17 @@
 		label: string;
 	};
 	type OwnBidStatusBadge = {
-		kind: 'winning' | 'draw' | 'losing' | 'ceiling' | 'floor' | 'balance' | 'allowance';
+		kind:
+			| 'winning'
+			| 'draw'
+			| 'losing'
+			| 'ceiling'
+			| 'floor'
+			| 'balance'
+			| 'allowance'
+			| 'queued'
+			| 'active_order'
+			| 'paused';
 		label: string;
 	};
 
@@ -138,8 +153,8 @@
 	});
 
 	function compareBidRows(left: ApiBiddingBidBookRow, right: ApiBiddingBidBookRow): number {
-		const leftPrice = BigInt(left.priceWei);
-		const rightPrice = BigInt(right.priceWei);
+		const leftPrice = bidSortPriceWei(left);
+		const rightPrice = bidSortPriceWei(right);
 		if (leftPrice === rightPrice) {
 			return left.orderId.localeCompare(right.orderId);
 		}
@@ -171,14 +186,14 @@
 		if (rows.length <= 1) {
 			return rows.length;
 		}
-		const maxPrice = BigInt(rows[0].priceWei);
-		const minPrice = BigInt(rows[rows.length - 1].priceWei);
+		const maxPrice = bidSortPriceWei(rows[0]);
+		const minPrice = bidSortPriceWei(rows[rows.length - 1]);
 		if (maxPrice === minPrice) {
 			return rows.length;
 		}
 		// Collapse the bottom half of the visible price range, not the bottom half of row count.
 		const cutoffPrice = minPrice + (maxPrice - minPrice) / 2n;
-		const firstHiddenIndex = rows.findIndex((bid) => BigInt(bid.priceWei) < cutoffPrice);
+		const firstHiddenIndex = rows.findIndex((bid) => bidSortPriceWei(bid) < cutoffPrice);
 		return firstHiddenIndex === -1 ? rows.length : Math.max(firstHiddenIndex, 1);
 	}
 
@@ -193,7 +208,7 @@
 		if (!bestOwn) {
 			return 'no active bid';
 		}
-		if (!bestOpponent || BigInt(bestOwn.priceWei) >= BigInt(bestOpponent.priceWei)) {
+		if (!bestOpponent || bidSortPriceWei(bestOwn) >= bidSortPriceWei(bestOpponent)) {
 			return 'winning';
 		}
 		return 'outbid';
@@ -208,8 +223,18 @@
 		return `The bid book is refreshed at a ${pace} pace using periodic order book polling and immediate updates from the inbound event stream.`;
 	}
 
+	function bidSortPriceWei(bid: ApiBiddingBidBookRow): bigint {
+		return BigInt(bid.price.sortWei);
+	}
+
 	function formatPriceAmount(bid: ApiBiddingBidBookRow): string {
-		const price = formatUnitPrice(bid);
+		const price =
+			bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range
+				? `${formatWeiValue(BigInt(bid.price.floorWei), priceFractionDigits)}-${formatWeiValue(
+						BigInt(bid.price.ceilingWei),
+						priceFractionDigits
+					)}`
+				: formatUnitPrice(bid);
 		const currency = shouldShowCurrency(bid.currencySymbol) ? ` ${bid.currencySymbol}` : '';
 		return `${price}${currency}`;
 	}
@@ -276,6 +301,25 @@
 		void onSelectBid?.(bid);
 	}
 
+	function hasOpenSeaOrderHash(bid: ApiBiddingBidBookRow): boolean {
+		return (
+			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid ||
+			bid.materialization.phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder
+		);
+	}
+
+	function ownIntentJobId(bid: ApiBiddingBidBookRow): string | null {
+		return bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+			? bid.materialization.jobId
+			: null;
+	}
+
+	function rowActionLabel(bid: ApiBiddingBidBookRow): string {
+		return bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
+			? 'edit'
+			: 'use';
+	}
+
 	function selectTraitDemandBid(group: BidBookDemandGroup): void {
 		if (onSelectTraitDemandBid) {
 			void onSelectTraitDemandBid({
@@ -295,7 +339,19 @@
 	function ownBidStatusBadges(
 		bid: ApiBiddingBidBookRow
 	): OwnBidStatusBadge[] {
-		if (!bid.maker.isOwn || !bid.ownStatus) {
+		if (!bid.maker.isOwn) {
+			return [];
+		}
+		if (bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent) {
+			const phase = bid.materialization.phase ?? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued;
+			return [
+				{
+					kind: phase,
+					label: ownJobIntentPhaseLabel(phase)
+				}
+			];
+		}
+		if (!bid.ownStatus) {
 			return [];
 		}
 		return [
@@ -307,8 +363,18 @@
 		];
 	}
 
+	function ownJobIntentPhaseLabel(phase: NonNullable<ApiBiddingBidBookRow['materialization']['phase']>): string {
+		if (phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder) {
+			return 'active';
+		}
+		if (phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused) {
+			return 'paused';
+		}
+		return 'queued';
+	}
+
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
-		return formatWeiValue(BigInt(bid.priceWei), priceFractionDigits);
+		return formatWeiValue(bidSortPriceWei(bid), priceFractionDigits);
 	}
 
 	function resolveDemandGroups(rows: ApiBiddingBidBookRow[]): BidBookDemandGroup[] {
@@ -337,7 +403,7 @@
 					bestBid,
 					tieBreakOfferCount: activeBids.length,
 					tieBreakTotalAmountWei: activeBids.reduce(
-						(total, bid) => total + BigInt(bid.priceWei) * parseQuantity(bid.quantity),
+						(total, bid) => total + bidSortPriceWei(bid) * parseQuantity(bid.quantity),
 						0n
 					),
 					traitKeys: demandGroupTraitKeys(traits)
@@ -348,7 +414,7 @@
 
 	function resolveMedianBidPriceWei(groups: BidBookDemandGroup[]): bigint | null {
 		const prices = groups
-			.flatMap((group) => group.bids.map((bid) => BigInt(bid.priceWei)))
+			.flatMap((group) => group.bids.map((bid) => bidSortPriceWei(bid)))
 			.sort(compareBigIntAscending);
 		if (prices.length === 0) {
 			return null;
@@ -458,7 +524,7 @@
 
 	function resolvePriceFractionDigits(rows: ApiBiddingBidBookRow[]): number {
 		return rows.reduce((maxDigits, bid) => {
-			const [, fraction = ''] = bid.priceEth.split('.');
+			const [, fraction = ''] = bid.price.sortEth.split('.');
 			return Math.max(maxDigits, fraction.replace(/0+$/, '').length);
 		}, 2);
 	}
@@ -468,15 +534,15 @@
 			return null;
 		}
 		const maxBid = rows.reduce((max, bid) => {
-			const price = BigInt(bid.priceWei);
-			return price > BigInt(max.priceWei) ? bid : max;
+			const price = bidSortPriceWei(bid);
+			return price > bidSortPriceWei(max) ? bid : max;
 		}, rows[0]);
-		const maxPriceWei = BigInt(maxBid.priceWei);
+		const maxPriceWei = bidSortPriceWei(maxBid);
 		if (maxPriceWei > WEI_PER_ETH) {
 			return WEI_PER_ETH;
 		}
 		// Group sub-ETH bids by the second significant digit of the current price magnitude.
-		const fractionDigits = resolveBucketFractionDigits(maxBid.priceEth);
+		const fractionDigits = resolveBucketFractionDigits(maxBid.price.sortEth);
 		if (fractionDigits === 0) {
 			return WEI_PER_ETH;
 		}
@@ -569,7 +635,7 @@
 
 	function activeDemandTotalAmountWei(group: BidBookDemandGroup): bigint {
 		return activeDemandBids(group).reduce(
-			(total, bid) => total + BigInt(bid.priceWei) * parseQuantity(bid.quantity),
+			(total, bid) => total + bidSortPriceWei(bid) * parseQuantity(bid.quantity),
 			0n
 		);
 	}
@@ -586,22 +652,22 @@
 		bestBid: ApiBiddingBidBookRow,
 		bid: ApiBiddingBidBookRow
 	): boolean {
-		const bestPriceWei = BigInt(bestBid.priceWei);
+		const bestPriceWei = bidSortPriceWei(bestBid);
 		if (bestPriceWei <= 0n) {
 			return false;
 		}
-		return BigInt(bid.priceWei) * LOW_BID_MUTE_RATIO_DENOMINATOR < bestPriceWei;
+		return bidSortPriceWei(bid) * LOW_BID_MUTE_RATIO_DENOMINATOR < bestPriceWei;
 	}
 
 	function isMutedBidForMedian(
 		medianPriceWei: bigint | null,
 		bid: ApiBiddingBidBookRow
 	): boolean {
-		return medianPriceWei !== null && BigInt(bid.priceWei) * 2n < medianPriceWei;
+		return medianPriceWei !== null && bidSortPriceWei(bid) * 2n < medianPriceWei;
 	}
 
 	function bidBucketIndex(bid: ApiBiddingBidBookRow, stepWei: bigint): bigint {
-		return BigInt(bid.priceWei) / stepWei;
+		return bidSortPriceWei(bid) / stepWei;
 	}
 
 	function resolveBucketFractionDigits(priceEth: string): number {
@@ -886,7 +952,11 @@
 								hidden={shouldHideMutedBid(bidMuted)}
 							>
 								<td class="mono bid-book-price bid-book-col-right">
-									<span hidden data-open-sea-order-hash={bid.orderId}></span>
+									{#if hasOpenSeaOrderHash(bid)}
+										<span hidden data-open-sea-order-hash={bid.orderId}></span>
+									{:else if ownIntentJobId(bid)}
+										<span hidden data-bidding-job-id={ownIntentJobId(bid)}></span>
+									{/if}
 									<span class="bid-book-price-value">
 										<span
 											class="bid-book-price-quantity"
@@ -979,7 +1049,11 @@
 							hidden={shouldHideMutedBid(bidMuted)}
 						>
 							<td class="mono bid-book-price bid-book-col-right">
-								<span hidden data-open-sea-order-hash={bid.orderId}></span>
+								{#if hasOpenSeaOrderHash(bid)}
+									<span hidden data-open-sea-order-hash={bid.orderId}></span>
+								{:else if ownIntentJobId(bid)}
+									<span hidden data-bidding-job-id={ownIntentJobId(bid)}></span>
+								{/if}
 								<span class="bid-book-price-value">
 									<span
 										class="bid-book-price-quantity"
@@ -995,7 +1069,7 @@
 										class="button-link bid-book-row-action"
 										onclick={() => selectBid(bid)}
 									>
-										use
+										{rowActionLabel(bid)}
 									</button>
 								{/if}
 							</td>

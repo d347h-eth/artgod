@@ -6,6 +6,12 @@ import BidBookPanel from './BidBookPanel.svelte';
 const BASE_BID: ApiBiddingBidBookRow = {
 	orderId: '0xbase',
 	source: 'orders',
+	materialization: {
+		kind: 'market_bid',
+		jobId: null,
+		status: null,
+		phase: null
+	},
 	scope: {
 		kind: 'trait',
 		label: 'Biome=42 + Mode=Terrain',
@@ -22,6 +28,7 @@ const BASE_BID: ApiBiddingBidBookRow = {
 	},
 	priceWei: '300000000000000000',
 	priceEth: '0.3',
+	price: exactPrice('300000000000000000', '0.3'),
 	quantity: '1',
 	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 	currencySymbol: 'WETH',
@@ -32,6 +39,16 @@ const BASE_BID: ApiBiddingBidBookRow = {
 	seenAt: '2026-01-02T00:00:00Z',
 	ownStatus: null
 };
+
+function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
+	return {
+		kind: 'exact',
+		wei,
+		eth,
+		sortWei: wei,
+		sortEth: eth
+	};
+}
 
 describe('BidBookPanel', () => {
 	it('renders individual bids under canonical trait-combination buckets', () => {
@@ -65,6 +82,7 @@ describe('BidBookPanel', () => {
 					},
 					priceWei: '290000000000000000',
 					priceEth: '0.29',
+					price: exactPrice('290000000000000000', '0.29'),
 					maker: {
 						address: '0x2222222222222222222222222222222222222222',
 						label: '0x2222222222222222222222222222222222222222',
@@ -76,6 +94,7 @@ describe('BidBookPanel', () => {
 					orderId: '0xtrait-low',
 					priceWei: '300000000000000',
 					priceEth: '0.0003',
+					price: exactPrice('300000000000000', '0.0003'),
 					maker: {
 						address: '0x3333333333333333333333333333333333333333',
 						label: '0x3333333333333333333333333333333333333333',
@@ -92,7 +111,8 @@ describe('BidBookPanel', () => {
 						traits: [{ type: 'Chroma', value: 'Plague' }]
 					},
 					priceWei: '800000000000000000',
-					priceEth: '0.8'
+					priceEth: '0.8',
+					price: exactPrice('800000000000000000', '0.8')
 				},
 				{
 					...BASE_BID,
@@ -104,7 +124,8 @@ describe('BidBookPanel', () => {
 						traits: [{ type: 'Zone', value: 'Low' }]
 					},
 					priceWei: '100000000000000000',
-					priceEth: '0.1'
+					priceEth: '0.1',
+					price: exactPrice('100000000000000000', '0.1')
 				}
 			]
 		};
@@ -204,7 +225,8 @@ describe('BidBookPanel', () => {
 						traits: []
 					},
 					priceWei: '200000000000000000',
-					priceEth: '0.2'
+					priceEth: '0.2',
+					price: exactPrice('200000000000000000', '0.2')
 				},
 				{
 					...BASE_BID,
@@ -216,7 +238,8 @@ describe('BidBookPanel', () => {
 						traits: []
 					},
 					priceWei: '190000000000000000',
-					priceEth: '0.19'
+					priceEth: '0.19',
+					price: exactPrice('190000000000000000', '0.19')
 				},
 				{
 					...BASE_BID,
@@ -228,7 +251,8 @@ describe('BidBookPanel', () => {
 						traits: []
 					},
 					priceWei: '345000000000000',
-					priceEth: '0.000345'
+					priceEth: '0.000345',
+					price: exactPrice('345000000000000', '0.000345')
 				}
 			]
 		};
@@ -328,6 +352,7 @@ describe('BidBookPanel', () => {
 			},
 			priceWei: '200000000000000000',
 			priceEth: '0.2',
+			price: exactPrice('200000000000000000', '0.2'),
 			ownStatus: {
 				position: 'winning' as const,
 				constraints: ['ceiling' as const],
@@ -354,6 +379,7 @@ describe('BidBookPanel', () => {
 					...ownBid,
 					priceWei: '190000000000000000',
 					priceEth: '0.19',
+					price: exactPrice('190000000000000000', '0.19'),
 					maker: {
 						address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 						label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',

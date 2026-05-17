@@ -1649,8 +1649,14 @@ th {
 }
 
 .bid-book-own-status-draw,
-.bid-book-own-status-floor {
+.bid-book-own-status-floor,
+.bid-book-own-status-queued,
+.bid-book-own-status-active_order {
 	color: var(--c-cyan);
+}
+
+.bid-book-own-status-paused {
+	color: var(--c-orange);
 }
 
 .bid-book-time-header {

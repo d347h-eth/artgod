@@ -208,8 +208,8 @@ export function buildBiddingAutomationDraftFromBid(
 		target,
 		pricing: {
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: nextWinningBidEth(bid),
-			ceilingEth: nextWinningBidEth(bid),
+			floorEth: existingJob?.config.floorEth ?? nextWinningBidEth(bid),
+			ceilingEth: existingJob?.config.ceilingEth ?? nextWinningBidEth(bid),
 			deltaEth: existingJob?.config.deltaEth ?? minimalBidDeltaEth(bid)
 		},
 		existingJob
@@ -237,8 +237,8 @@ export function buildTokenBiddingAutomationDraftFromBid(
 		},
 		pricing: {
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: nextWinningBidEth(bid),
-			ceilingEth: nextWinningBidEth(bid),
+			floorEth: existingJob?.config.floorEth ?? nextWinningBidEth(bid),
+			ceilingEth: existingJob?.config.ceilingEth ?? nextWinningBidEth(bid),
 			deltaEth: existingJob?.config.deltaEth ?? minimalBidDeltaEth(bid)
 		},
 		existingJob
@@ -387,8 +387,8 @@ function compareBiddingAutomationBidRows(
 	left: ApiBiddingBidBookRow,
 	right: ApiBiddingBidBookRow
 ): number {
-	const leftPrice = BigInt(left.priceWei);
-	const rightPrice = BigInt(right.priceWei);
+	const leftPrice = BigInt(left.price.sortWei);
+	const rightPrice = BigInt(right.price.sortWei);
 	if (leftPrice === rightPrice) {
 		return left.orderId.localeCompare(right.orderId);
 	}
@@ -467,7 +467,7 @@ function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined 
 const WEI_PER_ETH = 1_000_000_000_000_000_000n;
 
 function nextWinningBidEth(bid: ApiBiddingBidBookRow): string {
-	return formatWeiAsEth(BigInt(bid.priceWei) + minimalBidDeltaWei(bid));
+	return formatWeiAsEth(BigInt(bid.price.sortWei) + minimalBidDeltaWei(bid));
 }
 
 function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
@@ -475,7 +475,7 @@ function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
 }
 
 function minimalBidDeltaWei(bid: ApiBiddingBidBookRow): bigint {
-	const priceWei = BigInt(bid.priceWei);
+	const priceWei = BigInt(bid.price.sortWei);
 	if (priceWei <= 0n) {
 		return 1n;
 	}

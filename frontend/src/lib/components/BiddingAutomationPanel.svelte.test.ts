@@ -2,7 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import { TRADING_BIDDING_JOB_PRICING_SOURCE_KIND, TRADING_JOB_STATUS } from '@artgod/shared/types';
 import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
+import type { ApiBiddingBidBookRow } from '$lib/api-types';
 import BiddingAutomationPanel from './BiddingAutomationPanel.svelte';
+
+function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
+	return {
+		kind: 'exact',
+		wei,
+		eth,
+		sortWei: wei,
+		sortEth: eth
+	};
+}
 
 describe('BiddingAutomationPanel', () => {
 	it('renders token job runtime state and editable scalar fields when open', () => {
@@ -104,6 +115,12 @@ describe('BiddingAutomationPanel', () => {
 		const draft = buildBiddingAutomationDraftFromBid({
 			orderId: '0xtrait-bid',
 			source: 'orders',
+			materialization: {
+				kind: 'market_bid',
+				jobId: null,
+				status: null,
+				phase: null
+			},
 			scope: {
 				kind: 'trait',
 				label: 'Biome=42 + Mode=Terrain',
@@ -120,6 +137,7 @@ describe('BiddingAutomationPanel', () => {
 			},
 			priceWei: '300000000000000000',
 			priceEth: '0.3',
+			price: exactPrice('300000000000000000', '0.3'),
 			quantity: '1',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
@@ -195,6 +213,12 @@ describe('BiddingAutomationPanel', () => {
 		const draft = buildBiddingAutomationDraftFromBid({
 			orderId: '0xcollection-bid',
 			source: 'orders',
+			materialization: {
+				kind: 'market_bid',
+				jobId: null,
+				status: null,
+				phase: null
+			},
 			scope: {
 				kind: 'collection',
 				label: 'collection',
@@ -208,6 +232,7 @@ describe('BiddingAutomationPanel', () => {
 			},
 			priceWei: '300000000000000000',
 			priceEth: '0.3',
+			price: exactPrice('300000000000000000', '0.3'),
 			quantity: '2',
 			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 			currencySymbol: 'WETH',
