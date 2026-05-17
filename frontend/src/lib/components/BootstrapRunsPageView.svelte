@@ -1,13 +1,31 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto, invalidateAll } from '$app/navigation';
 	import type {
 		ApiChain,
 		ApiOpenSeaIntegrationStatus,
+		BootstrapContractProbeApiResponse,
 		BootstrapRunsApiResponse
 	} from '$lib/api-types';
-	import { createBootstrapRun } from '$lib/backend-api';
+	import {
+		createBootstrapRun,
+		probeBootstrapCollectionContract
+	} from '$lib/backend-api';
+	import {
+		bootstrapProbeFormPatch,
+		bootstrapProbeStatusLabel,
+		formatByteSize,
+		isBootstrapProbeableAddress,
+		normalizeBootstrapAddress
+	} from '$lib/bootstrap-contract-probe';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
+	import TokenMediaFrame from '$lib/components/TokenMediaFrame.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
+	import {
+		resolveTokenMediaIframeSource,
+		tokenMediaTitle,
+		type TokenMediaIframeSource
+	} from '$lib/token-media';
 
 	let {
 		chain,
@@ -41,12 +59,71 @@
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
 	let submitSuccess = $state<string | null>(null);
+	let probeStatus = $state<'idle' | 'waiting' | 'loading' | 'ready' | 'error'>('idle');
+	let probeResult = $state<BootstrapContractProbeApiResponse | null>(null);
+	let probeError = $state<string | null>(null);
+	let probeAddress = $state<string | null>(null);
 	let openSeaEnabled = $derived(openseaIntegration?.enabled === true);
 	let openSeaDisabledReason = $derived(
 		openseaIntegration && !openseaIntegration.enabled
 			? (openseaIntegration.reason ?? 'OpenSea integration disabled')
 			: null
 	);
+	let normalizedBootstrapAddress = $derived(normalizeBootstrapAddress(bootstrapAddress));
+	let addressCanBeProbed = $derived(isBootstrapProbeableAddress(bootstrapAddress));
+	let latestProbeMatchesAddress = $derived(
+		probeStatus === 'ready' && probeAddress === normalizedBootstrapAddress
+	);
+	let submitDisabled = $derived(
+		submitting ||
+			!chain ||
+			!addressCanBeProbed ||
+			!latestProbeMatchesAddress ||
+			probeStatus === 'waiting' ||
+			probeStatus === 'loading'
+	);
+	let firstTokenIframeSource = $derived(firstTokenMediaSource());
+
+	$effect(() => {
+		if (!browser) return;
+		const chainSlug = chain?.slug ?? null;
+		const address = normalizedBootstrapAddress;
+		if (!chainSlug || !isBootstrapProbeableAddress(address)) {
+			probeStatus = 'idle';
+			probeResult = null;
+			probeError = null;
+			probeAddress = null;
+			return;
+		}
+
+		probeStatus = 'waiting';
+		probeError = null;
+		let cancelled = false;
+		const timer = window.setTimeout(() => {
+			void (async () => {
+				probeStatus = 'loading';
+				try {
+					const result = await probeBootstrapCollectionContract(fetch, chainSlug, address);
+					if (cancelled) return;
+					probeStatus = 'ready';
+					probeResult = result;
+					probeAddress = result.address;
+					applyProbeResult(result);
+				} catch (error) {
+					if (cancelled) return;
+					probeStatus = 'error';
+					probeResult = null;
+					probeAddress = null;
+					probeError = error instanceof Error ? error.message : 'contract probe failed';
+				}
+			})();
+		}, 450);
+
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+	});
 
 	function normalizeFieldValue(value: unknown): string {
 		if (typeof value === 'string') return value.trim();
@@ -59,6 +136,65 @@
 	function runHref(runId: number): string {
 		if (!chain) return '#';
 		return `/${chain.slug}/bootstrap-runs/${runId}`;
+	}
+
+	function applyProbeResult(result: BootstrapContractProbeApiResponse): void {
+		const patch = bootstrapProbeFormPatch(result);
+		supportsEnumerable = patch.supportsEnumerable;
+		if (patch.manualMode === 'manual_range') {
+			manualMode = 'manual_range';
+			manualRangeStartTokenId = patch.manualRangeStartTokenId;
+			manualRangeTotalSupply = patch.manualRangeTotalSupply;
+		}
+	}
+
+	function probeStateLabel(): string {
+		if (probeStatus === 'waiting' || probeStatus === 'loading') return 'probing';
+		if (probeStatus === 'ready' && probeResult) return bootstrapProbeStatusLabel(probeResult);
+		if (probeStatus === 'error') return 'probe failed';
+		return '';
+	}
+
+	function interfaceLabel(value: boolean | null): string {
+		if (value === true) return 'yes';
+		if (value === false) return 'no';
+		return 'unknown';
+	}
+
+	function firstTokenMediaSource(): TokenMediaIframeSource | null {
+		const firstToken = probeResult?.firstToken;
+		if (!firstToken?.tokenId) return null;
+		return resolveTokenMediaIframeSource(
+			firstToken.animationUrl,
+			firstToken.image,
+			tokenMediaTitle(firstToken.tokenId)
+		);
+	}
+
+	function firstTokenLabel(): string {
+		const tokenId = probeResult?.firstToken.tokenId;
+		if (!tokenId) return '-';
+		const name = probeResult?.firstToken.name;
+		return name ? `${tokenId} / ${name}` : tokenId;
+	}
+
+	function probeSubmitGuard(address: string): string | null {
+		if (!isBootstrapProbeableAddress(address)) return 'valid address is required';
+		if (!latestProbeMatchesAddress) return 'contract probe must complete before queueing bootstrap';
+		if (supportsEnumerable && probeResult?.enumerable.supported !== true) {
+			return 'enumerable support was not confirmed';
+		}
+		if (!supportsEnumerable && manualMode === 'manual_range') {
+			const inferred = probeResult?.suggestedInput.manualInput;
+			if (
+				inferred &&
+				(inferred.startTokenId !== normalizeFieldValue(manualRangeStartTokenId) ||
+					String(inferred.totalSupply) !== normalizeFieldValue(manualRangeTotalSupply))
+			) {
+				return 'scope fields must match the latest contract probe';
+			}
+		}
+		return null;
 	}
 
 	function collectionHref(item: BootstrapRunsApiResponse['page']['items'][number]): string {
@@ -103,6 +239,11 @@
 			: '';
 		if (!slug || !address) {
 			submitError = 'slug and address are required';
+			return;
+		}
+		const probeGuardError = probeSubmitGuard(address);
+		if (probeGuardError) {
+			submitError = probeGuardError;
 			return;
 		}
 
@@ -255,6 +396,76 @@
 				</label>
 			</div>
 
+			{#if probeStatus !== 'idle'}
+				<div class="bootstrap-form-section bootstrap-probe-section">
+					<div class="bootstrap-form-row">
+						<span class="bootstrap-form-label">contract probe</span>
+						<div class="bootstrap-probe-status mono">{probeStateLabel()}</div>
+					</div>
+					{#if probeError}
+						<div class="bootstrap-form-row">
+							<span class="bootstrap-form-label">error</span>
+							<div class="muted">{probeError}</div>
+						</div>
+					{/if}
+					{#if probeResult}
+						<div class="bootstrap-probe-grid">
+							<div class="bootstrap-probe-facts">
+								<div class="bootstrap-form-row">
+									<span class="bootstrap-form-label">erc721</span>
+									<div class="mono">{interfaceLabel(probeResult.erc721.supported)}</div>
+								</div>
+								<div class="bootstrap-form-row">
+									<span class="bootstrap-form-label">enumerable</span>
+									<div class="mono">{interfaceLabel(probeResult.enumerable.supported)}</div>
+								</div>
+								<div class="bootstrap-form-row">
+									<span class="bootstrap-form-label">total supply</span>
+									<div class="mono">{probeResult.totalSupply.value ?? '-'}</div>
+								</div>
+								<div class="bootstrap-form-row">
+									<span class="bootstrap-form-label">first token</span>
+									<div class="mono">{firstTokenLabel()}</div>
+								</div>
+								<div class="bootstrap-form-row">
+									<span class="bootstrap-form-label">tokenURI size</span>
+									<div class="mono">
+										{formatByteSize(probeResult.firstToken.tokenUriPayloadBytes)}
+									</div>
+								</div>
+								<div class="bootstrap-form-row">
+									<span class="bootstrap-form-label">projected size</span>
+									<div class="mono">
+										{formatByteSize(probeResult.storageEstimate?.projectedBytes)}
+									</div>
+								</div>
+								{#if probeResult.suggestedInput.warnings.length > 0}
+									<div class="bootstrap-form-row bootstrap-probe-warning-row">
+										<span class="bootstrap-form-label">warnings</span>
+										<div class="bootstrap-probe-warnings">
+											{#each probeResult.suggestedInput.warnings as warning}
+												<span class="muted">{warning}</span>
+											{/each}
+										</div>
+									</div>
+								{/if}
+							</div>
+							<div class="bootstrap-probe-media">
+								{#if firstTokenIframeSource && probeResult.firstToken.tokenId}
+									<TokenMediaFrame
+										iframeSource={firstTokenIframeSource}
+										title={tokenMediaTitle(probeResult.firstToken.tokenId)}
+										className="bootstrap-probe-media-frame"
+									/>
+								{:else}
+									<div class="bootstrap-probe-media-empty muted">no media</div>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
 			<div class="bootstrap-form-section">
 				<label class="bootstrap-form-checkbox-row bootstrap-form-row">
 					<span>supports enumerable</span>
@@ -303,7 +514,7 @@
 			{/if}
 
 			<div class="bootstrap-form-actions">
-				<button type="submit" disabled={submitting}>
+				<button type="submit" disabled={submitDisabled}>
 					{submitting ? 'submitting...' : 'queue bootstrap'}
 				</button>
 			</div>
