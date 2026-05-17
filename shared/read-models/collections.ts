@@ -29,6 +29,7 @@ import type {
     TokenCursorPage,
     TokenCursor,
     TokenAttribute,
+    CollectionTokenScopeSummary,
     TraitCatalogFacet,
     TraitFacet,
     TraitFilter,
@@ -84,6 +85,10 @@ type CollectionRow = {
     status: string;
     deployment_block: number | null;
     bootstrap_anchor_block: number | null;
+    token_scope_kind: string;
+    scope_start_token_id: string | null;
+    scope_total_supply: number | null;
+    scope_token_count: number | null;
     created_at: string;
     updated_at: string;
 };
@@ -240,6 +245,13 @@ const LISTED_THEN_UNLISTED_ORDER_BY_ASC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL}
 const LISTED_THEN_UNLISTED_ORDER_BY_DESC_SQL = `${LISTED_THEN_UNLISTED_BLOCK_SQL} DESC, ${LISTED_THEN_UNLISTED_PRICE_LENGTH_SQL} DESC, ${LISTED_THEN_UNLISTED_PRICE_VALUE_SQL} DESC, ${TOKEN_ORDER_BY_DESC_SQL}`;
 const ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL =
     "CASE WHEN LTRIM(a.value, '0') = '' THEN '0' ELSE LTRIM(a.value, '0') END";
+const COLLECTION_SELECT_COLUMNS =
+    "chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, " +
+    "token_scope_kind, scope_start_token_id, scope_total_supply, " +
+    "(SELECT COUNT(1) FROM collection_scope_tokens " +
+    "WHERE collection_scope_tokens.chain_id = collections.chain_id " +
+    "AND collection_scope_tokens.collection_id = collections.collection_id) AS scope_token_count, " +
+    "created_at, updated_at";
 
 export type ListCollectionsParams = {
     chainId: number;
@@ -322,7 +334,7 @@ export class SqliteCollectionsReadModel {
         chainId: number;
         slug: string;
     }>(
-        "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
+        `SELECT ${COLLECTION_SELECT_COLUMNS} ` +
             "FROM collections " +
             "WHERE chain_id = @chainId AND slug = @slug " +
             "LIMIT 1",
@@ -407,7 +419,7 @@ export class SqliteCollectionsReadModel {
         }
 
         const sql =
-            "SELECT chain_id, collection_id, slug, address, standard, status, deployment_block, bootstrap_anchor_block, created_at, updated_at " +
+            `SELECT ${COLLECTION_SELECT_COLUMNS} ` +
             "FROM collections " +
             `WHERE ${whereClauses.join(" AND ")} ` +
             "ORDER BY created_at DESC, slug ASC " +
@@ -2764,6 +2776,47 @@ function mapCollectionRow(row: CollectionRow): CollectionListItem {
         bootstrapAnchorBlock: row.bootstrap_anchor_block,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        tokenScope: mapCollectionTokenScope(row),
+    };
+}
+
+function mapCollectionTokenScope(row: CollectionRow): CollectionTokenScopeSummary {
+    if (row.token_scope_kind === "token_range") {
+        return {
+            label: "token range",
+            items: [
+                { label: "scope", value: "token range" },
+                {
+                    label: "start token",
+                    value: row.scope_start_token_id ?? "unknown",
+                },
+                {
+                    label: "total supply",
+                    value:
+                        row.scope_total_supply !== null
+                            ? String(row.scope_total_supply)
+                            : "unknown",
+                },
+            ],
+        };
+    }
+
+    if (row.token_scope_kind === "explicit_token_ids") {
+        return {
+            label: "explicit token ids",
+            items: [
+                { label: "scope", value: "explicit token ids" },
+                {
+                    label: "token count",
+                    value: String(row.scope_token_count ?? 0),
+                },
+            ],
+        };
+    }
+
+    return {
+        label: "all contract tokens",
+        items: [{ label: "scope", value: "all contract tokens" }],
     };
 }
 

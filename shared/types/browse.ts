@@ -38,6 +38,15 @@ export type CollectionExtensionSummary = {
     key: CollectionExtensionKey;
 };
 
+// Display-only token scope summary for collection admin surfaces.
+export type CollectionTokenScopeSummary = {
+    label: string;
+    items: Array<{
+        label: string;
+        value: string;
+    }>;
+};
+
 export type ChainRecord = {
     id: number;
     type: string;
@@ -60,6 +69,7 @@ export type CollectionListItem = {
     bootstrapAnchorBlock: number | null;
     createdAt: string;
     updatedAt: string;
+    tokenScope?: CollectionTokenScopeSummary;
     extensions?: CollectionExtensionSummary[];
     activityEventFeeds?: ActivityExtensionEventFeed[];
 };
