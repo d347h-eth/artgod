@@ -414,21 +414,17 @@ export type ApiCollectionBiddingBidScopeFilter = 'token' | 'traits' | 'collectio
 export type ApiCollectionBiddingTraitFilterJoinMode = 'or' | 'and';
 export type ApiBiddingBidBookPrice =
 	| {
-			kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact;
-			wei: string;
-			eth: string;
-			sortWei: string;
-			sortEth: string;
-	  }
+				kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact;
+				wei: string;
+				eth: string;
+		  }
 	| {
 			kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range;
 			floorWei: string;
-			floorEth: string;
-			ceilingWei: string;
-			ceilingEth: string;
-			sortWei: string;
-			sortEth: string;
-	  };
+				floorEth: string;
+				ceilingWei: string;
+				ceilingEth: string;
+		  };
 export type ApiBiddingBidBookRowMaterialization =
 	| {
 			kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
@@ -469,8 +465,6 @@ export type ApiBiddingBidBookRow = {
 		label: string;
 		isOwn: boolean;
 	};
-	priceWei: string;
-	priceEth: string;
 	price: ApiBiddingBidBookPrice;
 	quantity: string;
 	currencyAddress: string | null;

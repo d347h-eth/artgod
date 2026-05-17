@@ -46,6 +46,7 @@ import {
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     exactBidBookRowPrice,
     marketBidMaterialization,
+    persistedBidBookRowEffectiveWei,
     rangeBidBookRowPrice,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidding-observability.js";
@@ -1163,10 +1164,10 @@ function mapJobOverlayRow(
         job.runtime?.activeOrderId && job.runtime.currentPriceWei
             ? job.runtime
             : null;
+    const activeRuntimePriceWei = activeRuntime?.currentPriceWei ?? null;
     const scope = resolveJobBidScope(job);
-    const activePriceWei = activeRuntime?.currentPriceWei ?? null;
-    const price = activeRuntime
-        ? exactBidBookRowPrice(activePriceWei ?? job.ceilingWei)
+    const price = activeRuntimePriceWei
+        ? exactBidBookRowPrice(activeRuntimePriceWei)
         : rangeBidBookRowPrice({
               floorWei: job.floorWei,
               ceilingWei: job.ceilingWei,
@@ -1193,7 +1194,6 @@ function mapJobOverlayRow(
         encodedTokenIds: null,
         maker: ownMakerAddress,
         isOwn: true,
-        priceWei: price.sortWei,
         price,
         quantity: String(Math.max(1, Math.floor(job.quantity ?? 1))),
         currencyAddress: null,
@@ -1308,12 +1308,17 @@ function resolveOwnBidPosition(
     bids: PersistedBiddingBidBookRow[],
     ownBid: PersistedBiddingBidBookRow,
 ): "winning" | "draw" | "losing" {
-    const ownPrice = BigInt(ownBid.priceWei);
+    const ownPrice = BigInt(persistedBidBookRowEffectiveWei(ownBid));
     const bestOpponent = bids.find((bid) => !bid.isOwn);
-    if (!bestOpponent || ownPrice > BigInt(bestOpponent.priceWei)) {
+    if (
+        !bestOpponent ||
+        ownPrice > BigInt(persistedBidBookRowEffectiveWei(bestOpponent))
+    ) {
         return "winning";
     }
-    return ownPrice === BigInt(bestOpponent.priceWei) ? "draw" : "losing";
+    return ownPrice === BigInt(persistedBidBookRowEffectiveWei(bestOpponent))
+        ? "draw"
+        : "losing";
 }
 
 function resolveOwnBidConstraints(
@@ -1325,7 +1330,7 @@ function resolveOwnBidConstraints(
     }
 
     const constraints: Array<"ceiling" | "floor" | "balance" | "allowance"> = [];
-    const price = BigInt(bid.priceWei);
+    const price = BigInt(persistedBidBookRowEffectiveWei(bid));
     if (price >= BigInt(job.ceilingWei)) {
         constraints.push("ceiling");
     }
@@ -1447,7 +1452,6 @@ function mapProjectedRow(row: ProjectedBidBookRow): PersistedBiddingBidBookRow[]
             encodedTokenIds: row.encoded_token_ids,
             maker: row.maker,
             isOwn: row.is_own === 1,
-            priceWei: row.price_wei,
             price: exactBidBookRowPrice(row.price_wei),
             quantity: row.quantity,
             currencyAddress: row.currency_address,
@@ -1483,7 +1487,6 @@ function mapIndexedOrderRow(row: IndexedOrderRow): PersistedBiddingBidBookRow[] 
                 encodedTokenIds: scope.encodedTokenIds,
                 maker: parsed.maker,
                 isOwn: false,
-                priceWei: parsed.price.toString(),
                 price: exactBidBookRowPrice(parsed.price.toString()),
                 quantity: parsed.quantity.toString(),
                 currencyAddress: row.currency,
@@ -1759,8 +1762,8 @@ function sortBidsDesc(
     bids: PersistedBiddingBidBookRow[],
 ): PersistedBiddingBidBookRow[] {
     return [...bids].sort((left, right) => {
-        const leftPrice = BigInt(left.priceWei);
-        const rightPrice = BigInt(right.priceWei);
+        const leftPrice = BigInt(persistedBidBookRowEffectiveWei(left));
+        const rightPrice = BigInt(persistedBidBookRowEffectiveWei(right));
         if (leftPrice === rightPrice) {
             return left.orderId.localeCompare(right.orderId);
         }

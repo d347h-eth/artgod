@@ -15,6 +15,10 @@
 		oppositeCompactTimeTitle,
 		type CompactTimeDisplayMode
 	} from '$lib/compact-time-display';
+	import {
+		bidBookPriceEffectiveEth,
+		bidBookRowEffectivePriceWei
+	} from '$lib/bidding-bid-book-price';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
@@ -224,7 +228,7 @@
 	}
 
 	function bidSortPriceWei(bid: ApiBiddingBidBookRow): bigint {
-		return BigInt(bid.price.sortWei);
+		return bidBookRowEffectivePriceWei(bid);
 	}
 
 	function formatPriceAmount(bid: ApiBiddingBidBookRow): string {
@@ -524,7 +528,7 @@
 
 	function resolvePriceFractionDigits(rows: ApiBiddingBidBookRow[]): number {
 		return rows.reduce((maxDigits, bid) => {
-			const [, fraction = ''] = bid.price.sortEth.split('.');
+			const [, fraction = ''] = bidBookPriceEffectiveEth(bid.price).split('.');
 			return Math.max(maxDigits, fraction.replace(/0+$/, '').length);
 		}, 2);
 	}
@@ -542,7 +546,7 @@
 			return WEI_PER_ETH;
 		}
 		// Group sub-ETH bids by the second significant digit of the current price magnitude.
-		const fractionDigits = resolveBucketFractionDigits(maxBid.price.sortEth);
+		const fractionDigits = resolveBucketFractionDigits(bidBookPriceEffectiveEth(maxBid.price));
 		if (fractionDigits === 0) {
 			return WEI_PER_ETH;
 		}

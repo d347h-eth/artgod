@@ -23,6 +23,8 @@ import {
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    exactBidBookRowPrice,
+    persistedBidBookRowEffectiveWei,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidding-observability.js";
 import { SqliteBiddingBidBookRepository } from "./sqlite-bidding-bid-book-repository.js";
@@ -366,8 +368,6 @@ describe("SqliteBiddingBidBookRepository", () => {
                         floorEth: "0.0000000000000001",
                         ceilingWei: "200",
                         ceilingEth: "0.0000000000000002",
-                        sortWei: "200",
-                        sortEth: "0.0000000000000002",
                     },
                     maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 },
@@ -390,7 +390,12 @@ describe("SqliteBiddingBidBookRepository", () => {
         });
         assert.equal(runtimeCollectionBook.bids[0]?.orderId, "0xruntime-order");
         assert.equal(runtimeCollectionBook.bids[0]?.price.kind, TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact);
-        assert.equal(runtimeCollectionBook.bids[0]?.priceWei, "150");
+        assert.equal(
+            runtimeCollectionBook.bids[0]
+                ? persistedBidBookRowEffectiveWei(runtimeCollectionBook.bids[0])
+                : null,
+            "150",
+        );
         assert.equal(
             runtimeCollectionBook.bids[0]?.materialization.phase,
             TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder,
@@ -575,7 +580,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                 orderId: bid.orderId,
                 maker: bid.maker,
                 isOwn: bid.isOwn,
-                priceWei: bid.priceWei,
+                price: bid.price,
                 placedAt: bid.placedAt,
             })),
             [
@@ -583,7 +588,7 @@ describe("SqliteBiddingBidBookRepository", () => {
                     orderId: "stream-fallback",
                     maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     isOwn: false,
-                    priceWei: "100000000000000000",
+                    price: exactBidBookRowPrice("100000000000000000"),
                     placedAt: "1970-01-01T00:00:01Z",
                 },
             ],

@@ -38,8 +38,6 @@ const BASE_BID: ApiBiddingBidBookRow = {
 		label: '0x1111111111111111111111111111111111111111',
 		isOwn: false
 	},
-	priceWei: '300000000000000000',
-	priceEth: '0.3',
 	price: exactPrice('300000000000000000', '0.3'),
 	quantity: '1',
 	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
@@ -56,9 +54,7 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 	return {
 		kind: 'exact',
 		wei,
-		eth,
-		sortWei: wei,
-		sortEth: eth
+		eth
 	};
 }
 
@@ -149,18 +145,16 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 
 	it('uses price-magnitude steps for default bid deltas', () => {
 		const cases = [
-			{ priceWei: '4000000000000000000', priceEth: '4', deltaEth: '0.01', nextEth: '4.01' },
-			{ priceWei: '20000000000000000000', priceEth: '20', deltaEth: '0.1', nextEth: '20.1' },
-			{ priceWei: '230000000000000000', priceEth: '0.23', deltaEth: '0.001', nextEth: '0.231' },
-			{ priceWei: '50000000000000000', priceEth: '0.05', deltaEth: '0.0001', nextEth: '0.0501' }
+			{ wei: '4000000000000000000', eth: '4', deltaEth: '0.01', nextEth: '4.01' },
+			{ wei: '20000000000000000000', eth: '20', deltaEth: '0.1', nextEth: '20.1' },
+			{ wei: '230000000000000000', eth: '0.23', deltaEth: '0.001', nextEth: '0.231' },
+			{ wei: '50000000000000000', eth: '0.05', deltaEth: '0.0001', nextEth: '0.0501' }
 		];
 
 		for (const item of cases) {
 			const draft = buildBiddingAutomationDraftFromBid({
 				...BASE_BID,
-				priceWei: item.priceWei,
-				priceEth: item.priceEth,
-				price: exactPrice(item.priceWei, item.priceEth)
+				price: exactPrice(item.wei, item.eth)
 			});
 			expect(draft?.pricing).toMatchObject({
 				mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
@@ -206,15 +200,11 @@ describe('bestBiddingAutomationBid', () => {
 		const lower = {
 			...BASE_BID,
 			orderId: '0xlower',
-			priceWei: '100000000000000000',
-			priceEth: '0.1',
 			price: exactPrice('100000000000000000', '0.1')
 		};
 		const higher = {
 			...BASE_BID,
 			orderId: '0xhigher',
-			priceWei: '200000000000000000',
-			priceEth: '0.2',
 			price: exactPrice('200000000000000000', '0.2')
 		};
 

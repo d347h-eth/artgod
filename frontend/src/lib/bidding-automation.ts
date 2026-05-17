@@ -6,6 +6,7 @@ import type {
 	ApiTokenAttribute,
 	ApiTraitRangeFilter
 } from '$lib/api-types';
+import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
 import type { TokenBrowserStatus } from '@artgod/shared/types/browse';
 
 export const BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE = {
@@ -387,8 +388,8 @@ function compareBiddingAutomationBidRows(
 	left: ApiBiddingBidBookRow,
 	right: ApiBiddingBidBookRow
 ): number {
-	const leftPrice = BigInt(left.price.sortWei);
-	const rightPrice = BigInt(right.price.sortWei);
+	const leftPrice = bidBookRowEffectivePriceWei(left);
+	const rightPrice = bidBookRowEffectivePriceWei(right);
 	if (leftPrice === rightPrice) {
 		return left.orderId.localeCompare(right.orderId);
 	}
@@ -467,7 +468,7 @@ function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined 
 const WEI_PER_ETH = 1_000_000_000_000_000_000n;
 
 function nextWinningBidEth(bid: ApiBiddingBidBookRow): string {
-	return formatWeiAsEth(BigInt(bid.price.sortWei) + minimalBidDeltaWei(bid));
+	return formatWeiAsEth(bidBookRowEffectivePriceWei(bid) + minimalBidDeltaWei(bid));
 }
 
 function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
@@ -475,20 +476,20 @@ function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
 }
 
 function minimalBidDeltaWei(bid: ApiBiddingBidBookRow): bigint {
-	const priceWei = BigInt(bid.price.sortWei);
-	if (priceWei <= 0n) {
+	const effectiveWei = bidBookRowEffectivePriceWei(bid);
+	if (effectiveWei <= 0n) {
 		return 1n;
 	}
-	const priceMagnitude = ethOrderOfMagnitude(priceWei);
+	const priceMagnitude = ethOrderOfMagnitude(effectiveWei);
 	const deltaWeiPower = 16 + priceMagnitude;
 	return deltaWeiPower >= 0 ? 10n ** BigInt(deltaWeiPower) : 1n;
 }
 
-function ethOrderOfMagnitude(priceWei: bigint): number {
-	if (priceWei >= WEI_PER_ETH) {
-		return (priceWei / WEI_PER_ETH).toString().length - 1;
+function ethOrderOfMagnitude(effectiveWei: bigint): number {
+	if (effectiveWei >= WEI_PER_ETH) {
+		return (effectiveWei / WEI_PER_ETH).toString().length - 1;
 	}
-	const fractionText = priceWei.toString().padStart(18, '0');
+	const fractionText = effectiveWei.toString().padStart(18, '0');
 	const firstSignificantIndex = fractionText.search(/[1-9]/);
 	return firstSignificantIndex === -1 ? -18 : -(firstSignificantIndex + 1);
 }

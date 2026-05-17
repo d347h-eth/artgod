@@ -192,7 +192,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                                   orderId: "collection-top",
                                   scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
                                   tokenId: null,
-                                  priceWei: "1000000000000000000",
+                                  wei: "1000000000000000000",
                               }),
                           ])
                         : bidBook([
@@ -200,19 +200,19 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                                   orderId: "token-7",
                                   scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                   tokenId: "7",
-                                  priceWei: "500000000000000000",
+                                  wei: "500000000000000000",
                               }),
                               bidBookRow({
                                   orderId: "token-8",
                                   scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                   tokenId: "8",
-                                  priceWei: "400000000000000000",
+                                  wei: "400000000000000000",
                               }),
                               bidBookRow({
                                   orderId: "muted-token-9",
                                   scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                   tokenId: "9",
-                                  priceWei: "90000000000000000",
+                                  wei: "90000000000000000",
                               }),
                           ]),
             },
@@ -287,7 +287,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                                       orderId: "collection-top",
                                       scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
                                       tokenId: null,
-                                      priceWei: "1000000000000000000",
+                                      wei: "1000000000000000000",
                                   }),
                               ]
                             : [
@@ -295,14 +295,14 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                                       orderId: "token-7",
                                       scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                       tokenId: "7",
-                                      priceWei: "500000000000000000",
+                                      wei: "500000000000000000",
                                       maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                                   }),
                                   bidBookRow({
                                       orderId: "token-8",
                                       scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
                                       tokenId: "8",
-                                      priceWei: "400000000000000000",
+                                      wei: "400000000000000000",
                                       maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                                   }),
                               ];
@@ -413,7 +413,7 @@ function bidBookRow(input: {
     orderId: string;
     scopeKind: typeof TRADING_BIDDING_BID_SCOPE_KIND.Collection | typeof TRADING_BIDDING_BID_SCOPE_KIND.Token;
     tokenId: string | null;
-    priceWei: string;
+    wei: string;
     maker?: string;
 }) {
     return {
@@ -427,8 +427,7 @@ function bidBookRow(input: {
         encodedTokenIds: null,
         maker: input.maker ?? "0x1111111111111111111111111111111111111111",
         isOwn: false,
-        priceWei: input.priceWei,
-        price: exactBidBookRowPrice(input.priceWei),
+        price: exactBidBookRowPrice(input.wei),
         quantity: "1",
         currencyAddress: null,
         currencySymbol: "WETH",

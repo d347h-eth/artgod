@@ -8,9 +8,7 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 	return {
 		kind: 'exact',
 		wei,
-		eth,
-		sortWei: wei,
-		sortEth: eth
+		eth
 	};
 }
 
@@ -75,8 +73,6 @@ describe('CollectionBiddingView', () => {
 								label: '0x9999999999999999999999999999999999999999',
 								isOwn: false
 							},
-							priceWei: '100000000000000000',
-							priceEth: '0.1',
 							price: exactPrice('100000000000000000', '0.1'),
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
@@ -188,8 +184,6 @@ describe('CollectionBiddingView', () => {
 								label: '0x9999999999999999999999999999999999999999',
 								isOwn: false
 							},
-							priceWei: '420000000000000000',
-							priceEth: '0.42',
 							price: exactPrice('420000000000000000', '0.42'),
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
@@ -231,8 +225,6 @@ describe('CollectionBiddingView', () => {
 										label: '0x9999999999999999999999999999999999999999',
 										isOwn: false
 									},
-									priceWei: '420000000000000000',
-									priceEth: '0.42',
 									price: exactPrice('420000000000000000', '0.42'),
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
@@ -409,8 +401,6 @@ describe('CollectionBiddingView', () => {
 								label: '0x9999999999999999999999999999999999999999',
 								isOwn: false
 							},
-							priceWei: '100000000000000000',
-							priceEth: '0.1',
 							price: exactPrice('100000000000000000', '0.1'),
 							quantity: '1',
 							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',

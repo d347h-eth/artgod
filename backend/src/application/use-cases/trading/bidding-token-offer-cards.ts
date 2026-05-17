@@ -8,6 +8,7 @@ import type { TraitFilter, TraitRangeFilter } from "@artgod/shared/types/browse"
 import type { PersistedBiddingBidBookRow } from "./bidding-bid-book.js";
 import {
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    persistedBidBookRowEffectiveWei,
     type CollectionBiddingTraitFilterJoinMode,
 } from "./bidding-bid-book.js";
 
@@ -171,13 +172,16 @@ function tokenOfferPassesCollectionBidFloor(
     if (topCollectionBidWei === null || topCollectionBidWei <= 0n) {
         return true;
     }
-    return BigInt(bid.priceWei) * 10n >= topCollectionBidWei;
+    return (
+        BigInt(persistedBidBookRowEffectiveWei(bid)) * 10n >=
+        topCollectionBidWei
+    );
 }
 
 function topBidPriceWei(bids: PersistedBiddingBidBookRow[]): bigint | null {
     let top: bigint | null = null;
     for (const bid of bids) {
-        const price = BigInt(bid.priceWei);
+        const price = BigInt(persistedBidBookRowEffectiveWei(bid));
         if (top === null || price > top) {
             top = price;
         }
@@ -186,15 +190,17 @@ function topBidPriceWei(bids: PersistedBiddingBidBookRow[]): bigint | null {
 }
 
 function topOfferPrice(offers: PersistedBiddingBidBookRow[]): bigint {
-    return offers.length === 0 ? 0n : BigInt(offers[0].priceWei);
+    return offers.length === 0
+        ? 0n
+        : BigInt(persistedBidBookRowEffectiveWei(offers[0]));
 }
 
 function sortOffersByPriceDesc(
     offers: PersistedBiddingBidBookRow[],
 ): PersistedBiddingBidBookRow[] {
     return [...offers].sort((left, right) => {
-        const leftPrice = BigInt(left.priceWei);
-        const rightPrice = BigInt(right.priceWei);
+        const leftPrice = BigInt(persistedBidBookRowEffectiveWei(left));
+        const rightPrice = BigInt(persistedBidBookRowEffectiveWei(right));
         if (leftPrice === rightPrice) {
             return left.orderId.localeCompare(right.orderId);
         }

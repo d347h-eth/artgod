@@ -41,7 +41,6 @@ export type PersistedBiddingBidBookRow = {
     encodedTokenIds: string | null;
     maker: string;
     isOwn: boolean;
-    priceWei: string;
     price: BiddingBidBookRowPrice;
     quantity: string;
     currencyAddress: string | null;
@@ -73,8 +72,6 @@ export type BiddingBidBookRowPrice =
           kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact;
           wei: string;
           eth: string;
-          sortWei: string;
-          sortEth: string;
       }
     | {
           kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range;
@@ -82,8 +79,6 @@ export type BiddingBidBookRowPrice =
           floorEth: string;
           ceilingWei: string;
           ceilingEth: string;
-          sortWei: string;
-          sortEth: string;
       };
 
 export type PersistedBiddingBidBookState = {
@@ -158,8 +153,6 @@ export type BiddingBidBookRowView = {
         label: string;
         isOwn: boolean;
     };
-    priceWei: string;
-    priceEth: string;
     price: BiddingBidBookRowPrice;
     quantity: string;
     currencyAddress: string | null;
@@ -243,8 +236,6 @@ export function mapPersistedBidRowsToView(
             label: bid.isOwn ? "You" : bid.maker,
             isOwn: bid.isOwn,
         },
-        priceWei: bid.priceWei,
-        priceEth: formatEther(BigInt(bid.priceWei)),
         price: bid.price,
         quantity: bid.quantity,
         currencyAddress: bid.currencyAddress,
@@ -265,8 +256,6 @@ export function exactBidBookRowPrice(wei: string): BiddingBidBookRowPrice {
         kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact,
         wei,
         eth,
-        sortWei: wei,
-        sortEth: eth,
     };
 }
 
@@ -283,9 +272,34 @@ export function rangeBidBookRowPrice(params: {
         floorEth,
         ceilingWei: params.ceilingWei,
         ceilingEth,
-        sortWei: params.ceilingWei,
-        sortEth: ceilingEth,
     };
+}
+
+// Resolves the comparable bid-book price for sorting and low-signal filtering.
+export function bidBookPriceEffectiveWei(
+    price: BiddingBidBookRowPrice,
+): string {
+    if (price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact) {
+        return price.wei;
+    }
+    return price.ceilingWei;
+}
+
+// Resolves the comparable bid-book price in Ether for display-only precision decisions.
+export function bidBookPriceEffectiveEth(
+    price: BiddingBidBookRowPrice,
+): string {
+    if (price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact) {
+        return price.eth;
+    }
+    return price.ceilingEth;
+}
+
+// Resolves the comparable bid-book price from a persisted row without leaking row internals.
+export function persistedBidBookRowEffectiveWei(
+    row: Pick<PersistedBiddingBidBookRow, "price">,
+): string {
+    return bidBookPriceEffectiveWei(row.price);
 }
 
 // Marks a bid-book row as a real market/order-book row.

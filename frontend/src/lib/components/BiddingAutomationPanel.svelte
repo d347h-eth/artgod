@@ -24,6 +24,7 @@
 		upsertTraitBiddingJob
 	} from '$lib/backend-api';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
+	import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
 	import {
 		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
@@ -597,7 +598,10 @@
 		}
 
 		const opponentBid = bestBid(currentBidBook.bids, (bid) => !bid.maker.isOwn);
-		if (!opponentBid || BigInt(ownBid.priceWei) >= BigInt(opponentBid.priceWei)) {
+		if (
+			!opponentBid ||
+			bidBookRowEffectivePriceWei(ownBid) >= bidBookRowEffectivePriceWei(opponentBid)
+		) {
 			return 'winning';
 		}
 		return 'outbid';
@@ -608,8 +612,8 @@
 		predicate: (bid: ApiBiddingBidBookRow) => boolean
 	): ApiBiddingBidBookRow | null {
 		return bids.filter(predicate).sort((left, right) => {
-			const leftPrice = BigInt(left.priceWei);
-			const rightPrice = BigInt(right.priceWei);
+			const leftPrice = bidBookRowEffectivePriceWei(left);
+			const rightPrice = bidBookRowEffectivePriceWei(right);
 			if (leftPrice === rightPrice) {
 				return left.orderId.localeCompare(right.orderId);
 			}

@@ -17,9 +17,7 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 	return {
 		kind: 'exact',
 		wei,
-		eth,
-		sortWei: wei,
-		sortEth: eth
+		eth
 	};
 }
 
@@ -124,8 +122,6 @@ describe('token detail page', () => {
 										label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 										isOwn: false
 									},
-									priceWei: '100000000000000000',
-									priceEth: '0.1',
 									price: exactPrice('100000000000000000', '0.1'),
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
@@ -152,8 +148,6 @@ describe('token detail page', () => {
 										label: '0xcccccccccccccccccccccccccccccccccccccccc',
 										isOwn: false
 									},
-									priceWei: '100000000000000000',
-									priceEth: '0.1',
 									price: exactPrice('100000000000000000', '0.1'),
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',

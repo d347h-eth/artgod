@@ -2213,7 +2213,7 @@ components:
 
         BiddingBidBookExactPrice:
             type: object
-            required: [kind, wei, eth, sortWei, sortEth]
+            required: [kind, wei, eth]
             additionalProperties: false
             properties:
                 kind:
@@ -2223,23 +2223,10 @@ components:
                     type: string
                 eth:
                     type: string
-                sortWei:
-                    type: string
-                sortEth:
-                    type: string
 
         BiddingBidBookRangePrice:
             type: object
-            required:
-                [
-                    kind,
-                    floorWei,
-                    floorEth,
-                    ceilingWei,
-                    ceilingEth,
-                    sortWei,
-                    sortEth,
-                ]
+            required: [kind, floorWei, floorEth, ceilingWei, ceilingEth]
             additionalProperties: false
             properties:
                 kind:
@@ -2252,10 +2239,6 @@ components:
                 ceilingWei:
                     type: string
                 ceilingEth:
-                    type: string
-                sortWei:
-                    type: string
-                sortEth:
                     type: string
 
         BiddingBidBookPrice:
@@ -2308,8 +2291,6 @@ components:
                     materialization,
                     scope,
                     maker,
-                    priceWei,
-                    priceEth,
                     price,
                     quantity,
                     currencyAddress,
@@ -2356,10 +2337,6 @@ components:
                             type: string
                         isOwn:
                             type: boolean
-                priceWei:
-                    type: string
-                priceEth:
-                    type: string
                 price:
                     $ref: "#/components/schemas/BiddingBidBookPrice"
                 quantity:

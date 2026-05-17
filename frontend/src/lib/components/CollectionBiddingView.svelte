@@ -28,6 +28,7 @@
 		nextCollectionBiddingBidScopeFilter,
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
+	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import {
@@ -635,7 +636,7 @@
 		const topOffer = card.offers[0];
 		if (topOffer) {
 			const bid = buildBidMarketPrice({
-				rawPrice: topOffer.priceWei,
+				rawPrice: bidBookPriceEffectiveWei(topOffer.price),
 				currencyAddress: topOffer.currencyAddress,
 				currencySymbol: topOffer.currencySymbol,
 				title: 'offer'
