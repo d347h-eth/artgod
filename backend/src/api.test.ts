@@ -146,6 +146,8 @@ beforeAll(async () => {
         await import("./application/use-cases/config/get-runtime-config.js");
     const listCollectionsUseCaseModule =
         await import("./application/use-cases/collections/list-collections.js");
+    const purgeCollectionUseCaseModule =
+        await import("./application/use-cases/collections/purge-collection.js");
     const collectionDetailUseCaseModule =
         await import("./application/use-cases/collections/get-collection-detail.js");
     const collectionTraitCatalogUseCaseModule =
@@ -173,6 +175,8 @@ beforeAll(async () => {
     const readModels = await import("@artgod/shared/read-models");
     const collectionExtensionRecordsModule =
         await import("./infra/collections/sqlite-collection-extension-records.js");
+    const collectionPurgeRepositoryModule =
+        await import("./infra/collections/sqlite-collection-purge-repository.js");
     const collectionCustomizationRecordsModule =
         await import("./infra/collections/sqlite-collection-customization-records.js");
     const extensionAwareCustomizationModule =
@@ -191,6 +195,8 @@ beforeAll(async () => {
     ]);
     const collectionExtensionRecords =
         new collectionExtensionRecordsModule.SqliteCollectionExtensionRecords();
+    const collectionPurgeRepository =
+        new collectionPurgeRepositoryModule.SqliteCollectionPurgeRepository();
     const collectionCustomizationRecords =
         new collectionCustomizationRecordsModule.SqliteCollectionCustomizationRecords();
     const collectionsReadModel =
@@ -215,6 +221,13 @@ beforeAll(async () => {
             1,
             chainsReadModel,
             baseCollectionsReadModel,
+        );
+    const purgeCollectionUseCase =
+        new purgeCollectionUseCaseModule.PurgeCollectionUseCase(
+            1,
+            chainsReadModel,
+            baseCollectionsReadModel,
+            collectionPurgeRepository,
         );
     const resolveOwnerRefUseCase =
         new resolveOwnerRefUseCaseModule.ResolveOwnerRefUseCase(
@@ -771,6 +784,7 @@ beforeAll(async () => {
         listCollectionsUseCase,
         getSyncBackfillStateUseCase,
         scheduleSyncBackfillUseCase,
+        purgeCollectionUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,
@@ -821,6 +835,7 @@ beforeAll(async () => {
         listCollectionsUseCase,
         getSyncBackfillStateUseCase,
         scheduleSyncBackfillUseCase,
+        purgeCollectionUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,
@@ -2322,6 +2337,10 @@ describe("backend api routes", () => {
         expect(first.statusCode).toBe(200);
         expect(first.payload.page.items).toHaveLength(1);
         expect(first.payload.page.items[0].slug).toBe("milady");
+        expect(first.payload.page.items[0].tokenScope).toEqual({
+            label: "all contract tokens",
+            items: [{ label: "scope", value: "all contract tokens" }],
+        });
         expect(first.payload.page.nextCursor).toEqual(expect.any(String));
 
         const second = await resolve(
@@ -5129,6 +5148,59 @@ describe("backend api routes", () => {
             await secureApp.close();
         }
     });
+
+    it("purges a collection through the secured admin endpoint", async () => {
+        const targetId = insertApiPurgeCollectionFixture();
+        const csrf = await issueAdminCsrf();
+
+        const rejected = await resolve(
+            "DELETE",
+            "/api/ethereum/purge-api-target",
+            { confirmation: "delete" },
+            {
+                ...csrf,
+                "content-type": "application/json",
+            },
+        );
+
+        expect(rejected.statusCode).toBe(422);
+        expect(countCollectionById(targetId)).toBe(1);
+
+        const purged = await resolve(
+            "DELETE",
+            "/api/ethereum/purge-api-target",
+            { confirmation: "purge" },
+            {
+                ...csrf,
+                "content-type": "application/json",
+            },
+        );
+
+        expect(purged.statusCode).toBe(200);
+        expect(purged.payload.collection.slug).toBe("purge-api-target");
+        expect(purged.payload.collection.tokenScope).toEqual({
+            label: "token range",
+            items: [
+                { label: "scope", value: "token range" },
+                { label: "start token", value: "10" },
+                { label: "total supply", value: "2" },
+            ],
+        });
+        expect(purged.payload.deletedRows).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    table: "collections",
+                    rowCount: 1,
+                }),
+                expect.objectContaining({
+                    table: "tokens",
+                    rowCount: 1,
+                }),
+            ]),
+        );
+        expect(countCollectionById(targetId)).toBe(0);
+        expect(countRowsByCollection("tokens", targetId)).toBe(0);
+    });
 });
 
 async function resolve(
@@ -5832,6 +5904,40 @@ function clearTradingJobFixtures(): void {
             "DELETE FROM trading_bidding_price_tiers;",
         ].join("\n"),
     );
+}
+
+function insertApiPurgeCollectionFixture(): number {
+    const result = db
+        .prepare(
+            "INSERT INTO collections " +
+                "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, deployment_block, bootstrap_anchor_block, created_at, updated_at) " +
+                "VALUES (1, 'purge-api-target', '0x6666666666666666666666666666666666666666', 'erc721', 'live', 'token_range', '10', 2, NULL, 100, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        )
+        .run();
+    const collectionId = Number(result.lastInsertRowid);
+    db.prepare(
+        "INSERT INTO tokens (chain_id, collection_id, contract_address, token_id) " +
+            "VALUES (1, ?, '0x6666666666666666666666666666666666666666', '10')",
+    ).run(collectionId);
+    return collectionId;
+}
+
+function countCollectionById(collectionId: number): number {
+    const row = db
+        .prepare<[number]>(
+            "SELECT COUNT(1) AS count FROM collections WHERE collection_id = ?",
+        )
+        .get(collectionId) as { count: number } | undefined;
+    return row?.count ?? 0;
+}
+
+function countRowsByCollection(table: string, collectionId: number): number {
+    const row = db
+        .prepare<[number]>(
+            `SELECT COUNT(1) AS count FROM "${table}" WHERE collection_id = ?`,
+        )
+        .get(collectionId) as { count: number } | undefined;
+    return row?.count ?? 0;
 }
 
 function listTradingCommandKinds(): string[] {

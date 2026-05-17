@@ -18,6 +18,7 @@ import type { GetCollectionTraitCatalogPort } from "./application/use-cases/coll
 import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import type { GetTokenPreviewPort } from "./application/use-cases/collections/get-token-preview.js";
 import type { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
+import type { PurgeCollectionUseCase } from "./application/use-cases/collections/purge-collection.js";
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type {
@@ -67,6 +68,7 @@ import { GetCollectionTraitCatalogHttpAdapter } from "./http/handlers/collection
 import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token-detail.js";
 import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-token-preview.js";
 import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-uri.js";
+import { PurgeCollectionHttpAdapter } from "./http/handlers/collections/purge-collection.js";
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
 import { GetBlockspaceRangeSummaryHttpAdapter } from "./http/handlers/blockspace/get-blockspace-range-summary.js";
@@ -140,6 +142,7 @@ export function createApiApp(
     listCollectionsUseCase: ListCollectionsUseCase,
     getSyncBackfillStateUseCase: GetSyncBackfillStatePort,
     scheduleSyncBackfillUseCase: ScheduleSyncBackfillPort,
+    purgeCollectionUseCase: PurgeCollectionUseCase,
     resolveOwnerRefUseCase: ResolveOwnerRefUseCase,
     getCollectionActivityUseCase: GetCollectionActivityUseCase,
     getActivityEventPreviewUseCase: GetActivityEventPreviewUseCase,
@@ -238,6 +241,9 @@ export function createApiApp(
         : null;
     const scheduleBlockspaceBackfillAdapter =
         new ScheduleBlockspaceBackfillHttpAdapter(scheduleSyncBackfillUseCase);
+    const purgeCollectionAdapter = new PurgeCollectionHttpAdapter(
+        purgeCollectionUseCase,
+    );
     const resolveOwnerRefAdapter = new ResolveOwnerRefHttpAdapter(
         resolveOwnerRefUseCase,
     );
@@ -360,6 +366,7 @@ export function createApiApp(
         publicGetBlockspaceStateAdapter,
         publicGetBlockspaceRangeSummaryAdapter,
         scheduleBlockspaceBackfillAdapter,
+        purgeCollectionAdapter,
         resolveOwnerRefAdapter,
         getCollectionActivityAdapter,
         getActivityEventPreviewAdapter,
