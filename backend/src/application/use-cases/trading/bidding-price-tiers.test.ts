@@ -70,6 +70,77 @@ describe("resolveBiddingPriceTierGraph", () => {
         assert.equal(resolved[1]?.resolvedAt, "2026-05-12T01:00:00Z");
     });
 
+    it("resolves sibling child tiers from one shared root", () => {
+        const zone: PersistedBiddingPriceTierRecord = {
+            ...BASE_TIER,
+            tierId: "zone",
+            name: "Zone",
+            sortOrder: 2,
+            parentTierId: "root",
+            floorConfig: {
+                kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.ParentDelta,
+                deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
+                deltaEth: "0.1",
+            },
+            ceilingConfig: {
+                kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.ParentDelta,
+                deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
+                deltaEth: "0.2",
+            },
+        };
+        const chroma: PersistedBiddingPriceTierRecord = {
+            ...BASE_TIER,
+            tierId: "chroma",
+            name: "Chroma",
+            sortOrder: 3,
+            parentTierId: "root",
+            floorConfig: {
+                kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.ParentDelta,
+                deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Percent,
+                percent: "5",
+            },
+            ceilingConfig: {
+                kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.ParentDelta,
+                deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Percent,
+                percent: "10",
+            },
+        };
+
+        const resolved = resolveBiddingPriceTierGraph(
+            [BASE_TIER, zone, chroma],
+            "2026-05-12T01:00:00Z",
+        );
+
+        assert.deepEqual(
+            resolved.map((tier) => ({
+                tierId: tier.tierId,
+                parentTierId: tier.parentTierId,
+                resolvedFloorWei: tier.resolvedFloorWei,
+                resolvedCeilingWei: tier.resolvedCeilingWei,
+            })),
+            [
+                {
+                    tierId: "root",
+                    parentTierId: null,
+                    resolvedFloorWei: "1000000000000000000",
+                    resolvedCeilingWei: "1250000000000000000",
+                },
+                {
+                    tierId: "zone",
+                    parentTierId: "root",
+                    resolvedFloorWei: "1100000000000000000",
+                    resolvedCeilingWei: "1450000000000000000",
+                },
+                {
+                    tierId: "chroma",
+                    parentTierId: "root",
+                    resolvedFloorWei: "1050000000000000000",
+                    resolvedCeilingWei: "1375000000000000000",
+                },
+            ],
+        );
+    });
+
     it("rejects invalid Ether strings while resolving scalar output", () => {
         assert.throws(
             () =>

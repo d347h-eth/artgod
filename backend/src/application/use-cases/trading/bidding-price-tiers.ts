@@ -54,8 +54,6 @@ export function resolveBiddingPriceTierGraph(
     const activeTiers = tiers.filter(
         (tier) => tier.status !== TRADING_JOB_STATUS.Archived,
     );
-    assertOneActiveChildPerParent(activeTiers);
-
     const tiersById = new Map(activeTiers.map((tier) => [tier.tierId, tier]));
     const resolvedById = new Map<string, TierResolutionState>();
     const visiting = new Set<string>();
@@ -278,24 +276,6 @@ function parseSignedPercent(value: string | undefined, field: string): bigint {
     const [whole, fraction = ""] = unsigned.split(".");
     const paddedFraction = fraction.padEnd(6, "0").slice(0, 6);
     return sign * (BigInt(whole) * PERCENT_SCALE + BigInt(paddedFraction));
-}
-
-function assertOneActiveChildPerParent(
-    tiers: PersistedBiddingPriceTierRecord[],
-): void {
-    const childByParent = new Map<string, string>();
-    for (const tier of tiers) {
-        if (!tier.parentTierId) {
-            continue;
-        }
-        const existingChild = childByParent.get(tier.parentTierId);
-        if (existingChild) {
-            throw new TradingValidationError(
-                `price tier parent ${tier.parentTierId} already has child ${existingChild}`,
-            );
-        }
-        childByParent.set(tier.parentTierId, tier.tierId);
-    }
 }
 
 function formatOptionalWeiAsEth(value: string | null): string | null {

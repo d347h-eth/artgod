@@ -94,7 +94,7 @@ describe("SqliteBiddingPriceTiersRepository", () => {
         assert.deepEqual(listed[0]?.floorConfig, tier.floorConfig);
     });
 
-    it("enforces only one active child per parent", () => {
+    it("allows multiple active child tiers to share one parent", () => {
         const repository = new SqliteBiddingPriceTiersRepository();
         const parent = repository.upsertPriceTier({
             chainId: 1,
@@ -142,30 +142,42 @@ describe("SqliteBiddingPriceTiersRepository", () => {
             lastError: null,
         });
 
-        assert.throws(() =>
-            repository.upsertPriceTier({
-                chainId: 1,
-                collectionId,
-                name: "Child B",
-                status: TRADING_JOB_STATUS.Enabled,
-                sortOrder: 3,
-                parentTierId: parent.tierId,
-                floorConfig: {
-                    kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.ParentDelta,
-                    deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
-                    deltaEth: "0.2",
-                },
-                ceilingConfig: {
-                    kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.ParentDelta,
-                    deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
-                    deltaEth: "0.2",
-                },
-                deltaWei: "1000000000000000",
-                resolvedFloorWei: "1200000000000000000",
-                resolvedCeilingWei: "1400000000000000000",
-                resolvedAt: "2026-05-12T01:00:00Z",
-                lastError: null,
-            }),
+        repository.upsertPriceTier({
+            chainId: 1,
+            collectionId,
+            name: "Child B",
+            status: TRADING_JOB_STATUS.Enabled,
+            sortOrder: 3,
+            parentTierId: parent.tierId,
+            floorConfig: {
+                kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.ParentDelta,
+                deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
+                deltaEth: "0.2",
+            },
+            ceilingConfig: {
+                kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.ParentDelta,
+                deltaKind: TRADING_BIDDING_PRICE_TIER_DELTA_KIND.Absolute,
+                deltaEth: "0.2",
+            },
+            deltaWei: "1000000000000000",
+            resolvedFloorWei: "1200000000000000000",
+            resolvedCeilingWei: "1400000000000000000",
+            resolvedAt: "2026-05-12T01:00:00Z",
+            lastError: null,
+        });
+
+        assert.deepEqual(
+            repository
+                .listCollectionPriceTiers({ chainId: 1, collectionId })
+                .map((tier) => ({
+                    name: tier.name,
+                    parentTierId: tier.parentTierId,
+                })),
+            [
+                { name: "Root", parentTierId: null },
+                { name: "Child A", parentTierId: parent.tierId },
+                { name: "Child B", parentTierId: parent.tierId },
+            ],
         );
     });
 

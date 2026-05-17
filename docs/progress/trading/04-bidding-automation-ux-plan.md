@@ -139,7 +139,7 @@ Core rules:
 
 - A collection can have multiple root tiers.
 - A tier can have one parent.
-- A tier can have at most one active child.
+- A tier can have multiple active children.
 - Tier resolution must detect cycles and invalid parent references.
 - Each tier stores the original pricing configuration and the latest resolved scalar values.
 - Human-facing inputs and displays use Ether units.
@@ -214,14 +214,10 @@ Useful indexes:
 ```sql
 CREATE INDEX trading_bidding_price_tiers_collection_idx
   ON trading_bidding_price_tiers (chain_id, collection_id, status, sort_order);
-
-CREATE UNIQUE INDEX trading_bidding_price_tiers_one_child_uq
-  ON trading_bidding_price_tiers (parent_tier_id)
-  WHERE parent_tier_id IS NOT NULL AND status != 'archived';
 ```
 
-The one-child invariant is enforced by the unique partial index.
-Multiple root tiers are allowed because `parent_tier_id IS NULL` rows do not participate in that unique index.
+Shared-parent child tiers are allowed.
+This supports one shared root strategy, such as `Base -> Zone`, `Base -> Chroma`, and `Base -> Level`, without forcing unrelated tiers into a serial chain.
 
 Collection-scoped UI settings use the generic collection settings persistence table, not a bidding-specific settings table:
 

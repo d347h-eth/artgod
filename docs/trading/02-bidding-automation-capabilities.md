@@ -88,6 +88,7 @@ Implemented tier capabilities:
 
 - Root tiers use user-entered scalar floor values.
 - Child tiers can derive floor and ceiling from a parent or from the tier floor by absolute or percent delta.
+- Multiple child tiers can share the same parent, so a shared root can anchor independent branches such as zone, chroma, and level.
 - Each tier owns an explicit delta.
 - Tiers can be created, modified, paused, activated, archived, and sorted.
 - Tier-backed jobs keep their own scalar values until the user explicitly reapplies a changed tier.

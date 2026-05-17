@@ -220,6 +220,7 @@ Implemented behavior:
 
 - root tiers are user-entered scalar floor values in Ether units
 - child tiers can derive floor/ceiling from parent or floor values by absolute or percent deltas
+- multiple child tiers can share the same parent, so one root can anchor independent strategy branches
 - each tier owns its own delta
 - collection settings store the default new-tier delta and tier selector presentation mode
 - automation panel can select `manual` or a tier
