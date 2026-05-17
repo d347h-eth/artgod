@@ -8,7 +8,13 @@ import {
 } from "@artgod/shared/utils/ref-resolver";
 import {
     ACTIVITY_FEED_FILTER_KIND,
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    TRAIT_FILTER_QUERY_PARAMS,
+    TOKEN_BROWSER_STATUS,
     type ActivityFeedFilterKind,
+    type CollectionBiddingBidScopeFilter,
+    type CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
 import type {
     CollectionStatus,
@@ -20,12 +26,6 @@ import type {
     BootstrapMetadataTaskStatus,
     BootstrapRunStatus,
 } from "../../application/use-cases/bootstrap/types.js";
-import {
-    COLLECTION_BIDDING_BID_SCOPE_FILTER,
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
-    type CollectionBiddingBidScopeFilter,
-    type CollectionBiddingTraitFilterJoinMode,
-} from "../../application/use-cases/trading/bidding-bid-book.js";
 
 const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
     "bootstrapping",
@@ -35,9 +35,9 @@ const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
 ]);
 
 const ALLOWED_TOKEN_BROWSER_STATUSES = new Set<TokenBrowserStatus>([
-    "listed",
-    "all",
-    "listed_then_unlisted",
+    TOKEN_BROWSER_STATUS.Listed,
+    TOKEN_BROWSER_STATUS.All,
+    TOKEN_BROWSER_STATUS.ListedThenUnlisted,
 ]);
 
 const ALLOWED_BOOTSTRAP_TASK_STATUSES = new Set<BootstrapMetadataTaskStatus>([
@@ -210,7 +210,7 @@ function parseOptionalAddressRef(
 export function parseTokenBrowserStatus(
     raw: string | null,
 ): TokenBrowserStatus {
-    if (!raw || !raw.trim()) return "listed";
+    if (!raw || !raw.trim()) return TOKEN_BROWSER_STATUS.Listed;
     if (!ALLOWED_TOKEN_BROWSER_STATUSES.has(raw as TokenBrowserStatus)) {
         throw new ReadModelBadRequestError("Invalid token_status");
     }
@@ -241,8 +241,8 @@ export function parseBootstrapRunStatus(
 
 export function parseTraits(searchParams: URLSearchParams): TraitFilter[] {
     const values = [
-        ...searchParams.getAll("traits"),
-        ...searchParams.getAll("trait"),
+        ...searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits),
+        ...searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Trait),
     ];
     if (values.length === 0) return [];
 
@@ -270,8 +270,8 @@ export function parseTraitRanges(
     searchParams: URLSearchParams,
 ): TraitRangeFilter[] {
     const values = [
-        ...searchParams.getAll("trait_ranges"),
-        ...searchParams.getAll("trait_range"),
+        ...searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.TraitRanges),
+        ...searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.TraitRange),
     ];
     if (values.length === 0) return [];
 

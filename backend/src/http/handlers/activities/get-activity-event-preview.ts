@@ -1,5 +1,10 @@
 import type { FastifyRequest } from "fastify";
 import { ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS } from "@artgod/shared/types";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_TRACE_ATTRIBUTE_VALUE,
+} from "@artgod/shared/observability";
+import type { SpanAttributes } from "@artgod/shared/observability/apm";
 import type {
     GetActivityEventPreviewInput,
     GetActivityEventPreviewOutput,
@@ -15,6 +20,17 @@ export type GetActivityEventPreviewRoute = {
 };
 
 type MaybePromise<T> = T | Promise<T>;
+
+const ACTIVITY_EVENT_PREVIEW_TRACE_VALUE = {
+    None: ARTGOD_TRACE_ATTRIBUTE_VALUE.None,
+    Invalid: ARTGOD_TRACE_ATTRIBUTE_VALUE.Invalid,
+} as const;
+
+const ACTIVITY_EVENT_PREVIEW_SPAN_ATTRIBUTE = {
+    ActivityId: ARTGOD_SPAN_ATTRIBUTE.ActivityId,
+    RenderMode: ARTGOD_SPAN_ATTRIBUTE.ActivityRenderMode,
+    RenderModePresent: ARTGOD_SPAN_ATTRIBUTE.ActivityRenderModePresent,
+} as const;
 
 export class GetActivityEventPreviewHttpAdapter {
     constructor(
@@ -50,4 +66,32 @@ export class GetActivityEventPreviewHttpAdapter {
             renderMode,
         };
     }
+}
+
+// Captures preview request shape without turning raw params into metric labels.
+export function getActivityEventPreviewSpanAttributes(
+    request: FastifyRequest<GetActivityEventPreviewRoute>,
+): SpanAttributes {
+    const renderMode =
+        getSearchParams(request)
+            .get(ACTIVITY_EVENT_PREVIEW_QUERY_PARAMS.RenderMode)
+            ?.trim() || null;
+    const activityId = Number(request.params.activity_id);
+    const safeActivityId = Number.isSafeInteger(activityId)
+        ? activityId
+        : undefined;
+    return {
+        [ACTIVITY_EVENT_PREVIEW_SPAN_ATTRIBUTE.ActivityId]: safeActivityId,
+        [ACTIVITY_EVENT_PREVIEW_SPAN_ATTRIBUTE.RenderMode]:
+            normalizeRenderModeAttribute(renderMode),
+        [ACTIVITY_EVENT_PREVIEW_SPAN_ATTRIBUTE.RenderModePresent]:
+            Boolean(renderMode),
+    };
+}
+
+function normalizeRenderModeAttribute(value: string | null): string {
+    if (!value) return ACTIVITY_EVENT_PREVIEW_TRACE_VALUE.None;
+    return /^[a-z0-9_.-]{1,64}$/i.test(value)
+        ? value.toLowerCase()
+        : ACTIVITY_EVENT_PREVIEW_TRACE_VALUE.Invalid;
 }

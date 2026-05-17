@@ -4,6 +4,8 @@ import {
     type CollectionMediaMode,
     type CollectionMediaPresentation,
 } from "@artgod/shared/extensions";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import type { BackendCollectionExtensionArtifactRecord } from "../../application/collection-extensions/types.js";
 import type {
     CollectionMediaState,
@@ -32,6 +34,13 @@ type CollectionExtensionRecordsPort = {
         extensionKey: CollectionExtensionInstall["extensionKey"];
         artifactRef: string;
     }): BackendCollectionExtensionArtifactRecord | null;
+    listTokenCardArtifactsByTokenIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+        extensionKey: CollectionExtensionInstall["extensionKey"];
+        artifactRef: string;
+    }): Map<string, BackendCollectionExtensionArtifactRecord>;
 };
 
 type CollectionDetailReadPort = {
@@ -54,6 +63,10 @@ type CollectionDetailReadPort = {
         chainId: number,
         collectionId: number,
         owner?: string,
+        options?: {
+            excludeKeys?: string[];
+            rangeOnlyKeys?: string[];
+        },
     ): TraitFacet[];
     listCollectionHolders(params: {
         chainId: number;
@@ -86,6 +99,7 @@ export class ExtensionAwareCollectionDetailRead {
     constructor(
         private readonly baseReadPort: CollectionDetailReadPort,
         private readonly extensionRecords: CollectionExtensionRecordsPort,
+        private readonly apm: ApmPort = NOOP_APM,
     ) {}
 
     resolveCollectionRef(
@@ -145,22 +159,27 @@ export class ExtensionAwareCollectionDetailRead {
         if (!extension) {
             return page;
         }
+        const artifactRef = extension.resolveArtifactRef(
+            install,
+            mediaState.selectedMode,
+        );
+        const artifactsByTokenId = artifactRef
+            ? this.listTokenCardArtifactsByTokenIds({
+                  chainId: params.chainId,
+                  collectionId: params.collectionId,
+                  tokenIds: page.items.map((token) => token.tokenId),
+                  install,
+                  artifactRef,
+              })
+            : new Map<string, BackendCollectionExtensionArtifactRecord>();
 
         return {
             ...page,
             items: page.items.map((token) =>
-                extension.resolveTokenCard(
-                    install,
-                    token,
-                    this.resolveMediaContext(
-                        install,
-                        extension,
-                        params.chainId,
-                        params.collectionId,
-                        token.tokenId,
-                        mediaState.selectedMode,
-                    ),
-                ),
+                extension.resolveTokenCard(install, token, {
+                    mediaMode: mediaState.selectedMode,
+                    artifact: artifactsByTokenId.get(token.tokenId) ?? null,
+                }),
             ),
         };
     }
@@ -169,11 +188,19 @@ export class ExtensionAwareCollectionDetailRead {
         chainId: number,
         collectionId: number,
         owner?: string,
+        options?: {
+            excludeKeys?: string[];
+            rangeOnlyKeys?: string[];
+        },
     ): TraitFacet[] {
         return this.baseReadPort.listCollectionTraitFacets(
             chainId,
             collectionId,
             owner,
+            {
+                excludeKeys: options?.excludeKeys,
+                rangeOnlyKeys: options?.rangeOnlyKeys,
+            },
         );
     }
 
@@ -290,19 +317,55 @@ export class ExtensionAwareCollectionDetailRead {
             return tokens;
         }
 
+        const artifactRef = extension.resolveArtifactRef(
+            install,
+            mediaState.selectedMode,
+        );
+        const artifactsByTokenId = artifactRef
+            ? this.listTokenCardArtifactsByTokenIds({
+                  chainId: params.chainId,
+                  collectionId: params.collectionId,
+                  tokenIds: tokens.map((token) => token.tokenId),
+                  install,
+                  artifactRef,
+              })
+            : new Map<string, BackendCollectionExtensionArtifactRecord>();
+
         return tokens.map((token) =>
-            extension.resolveTokenCard(
-                install,
-                token,
-                this.resolveMediaContext(
-                    install,
-                    extension,
-                    params.chainId,
-                    params.collectionId,
-                    token.tokenId,
-                    mediaState.selectedMode,
-                ),
-            ),
+            extension.resolveTokenCard(install, token, {
+                mediaMode: mediaState.selectedMode,
+                artifact: artifactsByTokenId.get(token.tokenId) ?? null,
+            }),
+        );
+    }
+
+    private listTokenCardArtifactsByTokenIds(params: {
+        chainId: number;
+        collectionId: number;
+        tokenIds: string[];
+        install: CollectionExtensionInstall;
+        artifactRef: string;
+    }): Map<string, BackendCollectionExtensionArtifactRecord> {
+        // Batch artifact lookup keeps token-card hydration from issuing one extension query per token.
+        return this.apm.withSyncSpan(
+            "backend.extension.artifacts_batch",
+            {
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+                [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
+                    params.install.extensionKey,
+                [ARTGOD_SPAN_ATTRIBUTE.ExtensionArtifactRef]:
+                    params.artifactRef,
+                [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: params.tokenIds.length,
+            },
+            () =>
+                this.extensionRecords.listTokenCardArtifactsByTokenIds({
+                    chainId: params.chainId,
+                    collectionId: params.collectionId,
+                    tokenIds: params.tokenIds,
+                    extensionKey: params.install.extensionKey,
+                    artifactRef: params.artifactRef,
+                }),
         );
     }
 
@@ -360,21 +423,45 @@ export class ExtensionAwareCollectionDetailRead {
     private resolveCollectionExtensionPresentation(
         collection: CollectionListItem,
     ): CollectionListItem {
-        const install = this.extensionRecords.getInstallByCollectionId(
-            collection.chainId,
-            collection.collectionId,
+        const attributes = {
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: collection.chainId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
+                collection.collectionId,
+        };
+        const install = this.apm.withSyncSpan(
+            "backend.extension.install_lookup",
+            attributes,
+            () =>
+                this.extensionRecords.getInstallByCollectionId(
+                    collection.chainId,
+                    collection.collectionId,
+                ),
         );
         if (!install?.enabled) {
             return collection;
         }
 
-        const extension = resolveBackendCollectionExtension(install);
+        const extensionAttributes = {
+            ...attributes,
+            [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]: install.extensionKey,
+        };
+        const extension = this.apm.withSyncSpan(
+            "backend.extension.resolve",
+            extensionAttributes,
+            () => resolveBackendCollectionExtension(install),
+        );
+        const activityEventFeeds = extension
+            ? this.apm.withSyncSpan(
+                  "backend.extension.activity_event_feeds",
+                  extensionAttributes,
+                  () => extension.listActivityEventFeeds(install),
+              )
+            : collection.activityEventFeeds;
+
         return {
             ...collection,
             extensions: [{ key: install.extensionKey }],
-            activityEventFeeds:
-                extension?.listActivityEventFeeds(install) ??
-                collection.activityEventFeeds,
+            activityEventFeeds,
         };
     }
 
@@ -436,12 +523,12 @@ export class ExtensionAwareCollectionDetailRead {
         const artifactRef = extension.resolveArtifactRef(install, mediaMode);
         const artifact = artifactRef
             ? this.extensionRecords.getArtifact({
-                chainId,
-                collectionId,
-                tokenId,
-                extensionKey: install.extensionKey,
-                artifactRef,
-            })
+                  chainId,
+                  collectionId,
+                  tokenId,
+                  extensionKey: install.extensionKey,
+                  artifactRef,
+              })
             : null;
 
         return {

@@ -194,7 +194,9 @@ export const terraformsBackendCollectionExtension: BackendCollectionExtension =
             const defaultMode = COLLECTION_MEDIA_MODES.Artifact;
             const selectedMode =
                 context.requestedMode &&
-                availableModes.some((mode) => mode.key === context.requestedMode)
+                availableModes.some(
+                    (mode) => mode.key === context.requestedMode,
+                )
                     ? context.requestedMode
                     : defaultMode;
             return {
@@ -472,7 +474,6 @@ function isTerraformsArtifact(
 } {
     return (
         artifact?.artifactRef === TERRAFORMS_EXTENSION_ARTIFACT_REFS.V2Media ||
-        artifact?.artifactRef ===
-            TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain
+        artifact?.artifactRef === TERRAFORMS_EXTENSION_ARTIFACT_REFS.LostTerrain
     );
 }

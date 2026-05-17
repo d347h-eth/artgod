@@ -8,6 +8,8 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "@artgod/shared/types/browse";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models/collections";
 import { renderTraitSummaryTemplate } from "@artgod/shared/types";
 
@@ -70,6 +72,9 @@ export class GetCollectionDetailUseCase {
                 chainId: number,
                 collectionId: number,
                 owner?: string,
+                options?: {
+                    rangeOnlyKeys?: string[];
+                },
             ): TraitFacet[];
             getCollectionMediaState(params: {
                 chainId: number;
@@ -96,62 +101,133 @@ export class GetCollectionDetailUseCase {
                 };
             };
         },
+        readonly apm: ApmPort = NOOP_APM,
     ) {}
 
     getCollectionDetail(
         input: GetCollectionDetailInput,
     ): GetCollectionDetailOutput {
-        const chain = this.chainRefResolverPort.resolveChainRef(
-            input.chainRef,
-            this.defaultChainId,
+        const chain = this.apm.withSyncSpan(
+            "backend.collection_detail.chain",
+            {},
+            () =>
+                this.chainRefResolverPort.resolveChainRef(
+                    input.chainRef,
+                    this.defaultChainId,
+                ),
         );
 
-        const collection = this.collectionDetailReadPort.resolveCollectionRef(
-            chain.publicChainId,
-            input.collectionRef,
+        const collection = this.apm.withSyncSpan(
+            "backend.collection_detail.collection",
+            {
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
+            },
+            () =>
+                this.collectionDetailReadPort.resolveCollectionRef(
+                    chain.publicChainId,
+                    input.collectionRef,
+                ),
+        );
+        const attributes = {
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: collection.collectionId,
+        };
+
+        const media = this.apm.withSyncSpan(
+            "backend.collection_detail.media_state",
+            attributes,
+            () =>
+                this.collectionDetailReadPort.getCollectionMediaState({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    mediaMode: input.mediaMode,
+                }),
         );
 
-        const media = this.collectionDetailReadPort.getCollectionMediaState({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            mediaMode: input.mediaMode,
-        });
-
-        const tokens = this.collectionDetailReadPort.listCollectionTokens({
-            chainId: chain.publicChainId,
-            collectionId: collection.collectionId,
-            tokenStatus: input.tokenStatus,
-            limit: input.limit,
-            cursor: input.cursor,
-            traitFilters: input.traits,
-            traitRangeFilters: input.traitRanges,
-            owner: input.owner,
-            mediaMode: media.selectedMode,
-        });
-
-        const rawFacets = this.collectionDetailReadPort.listCollectionTraitFacets(
-            chain.publicChainId,
-            collection.collectionId,
-            input.owner,
+        const tokens = this.apm.withSyncSpan(
+            "backend.collection_detail.tokens",
+            {
+                ...attributes,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
+                    input.tokenStatus,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionLimit]: input.limit,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]:
+                    Boolean(input.cursor),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]:
+                    input.traits.length,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitRangesCount]:
+                    input.traitRanges.length,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                    Boolean(input.owner),
+            },
+            () =>
+                this.collectionDetailReadPort.listCollectionTokens({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    tokenStatus: input.tokenStatus,
+                    limit: input.limit,
+                    cursor: input.cursor,
+                    traitFilters: input.traits,
+                    traitRangeFilters: input.traitRanges,
+                    owner: input.owner,
+                    mediaMode: media.selectedMode,
+                }),
         );
-        const traitFilterPresentation =
-            this.customizationReadPort.getTraitFilterPresentationState({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-                availableTraitKeys: rawFacets.map((facet) => facet.key),
-            });
+        const traitFilterPresentation = this.apm.withSyncSpan(
+            "backend.collection_detail.trait_filter_presentation",
+            attributes,
+            () =>
+                this.customizationReadPort.getTraitFilterPresentationState({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                }),
+        );
+        const rawFacets = this.apm.withSyncSpan(
+            "backend.collection_detail.trait_facets",
+            {
+                ...attributes,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                    Boolean(input.owner),
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
+                    traitFilterPresentation.effectiveConfig.rangeKeys.length,
+            },
+            () =>
+                this.collectionDetailReadPort.listCollectionTraitFacets(
+                    chain.publicChainId,
+                    collection.collectionId,
+                    input.owner,
+                    {
+                        rangeOnlyKeys:
+                            traitFilterPresentation.effectiveConfig.rangeKeys,
+                    },
+                ),
+        );
         const facets = applyTraitFilterPresentationToFacets({
             facets: rawFacets,
             config: traitFilterPresentation.effectiveConfig,
         });
-        const tokenCardTraitSummaryTemplate =
-            this.customizationReadPort.getTokenCardTraitSummaryTemplateState({
-                chainId: chain.publicChainId,
-                collectionId: collection.collectionId,
-            });
-        const tokensWithTraitSummary = applyTokenCardTraitSummaryTemplate(
-            tokens,
-            tokenCardTraitSummaryTemplate.effectiveConfig.template,
+        const tokenCardTraitSummaryTemplate = this.apm.withSyncSpan(
+            "backend.collection_detail.token_summary_template",
+            attributes,
+            () =>
+                this.customizationReadPort.getTokenCardTraitSummaryTemplateState(
+                    {
+                        chainId: chain.publicChainId,
+                        collectionId: collection.collectionId,
+                    },
+                ),
+        );
+        const tokensWithTraitSummary = this.apm.withSyncSpan(
+            "backend.collection_detail.token_summary_render",
+            {
+                ...attributes,
+                [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: tokens.items.length,
+            },
+            () =>
+                applyTokenCardTraitSummaryTemplate(
+                    tokens,
+                    tokenCardTraitSummaryTemplate.effectiveConfig.template,
+                ),
         );
 
         return {
@@ -176,7 +252,10 @@ function applyTokenCardTraitSummaryTemplate(
         ...page,
         items: page.items.map((token) => ({
             ...token,
-            traitSummary: renderTraitSummaryTemplate(template, token.attributes),
+            traitSummary: renderTraitSummaryTemplate(
+                template,
+                token.attributes,
+            ),
         })),
     };
 }

@@ -149,6 +149,85 @@ Registered backend API and health handlers are wrapped in `backend.http.route` s
 - `http.route`
 - `artgod.deployment_mode`
 
+The collection detail route adds low-cardinality request-shape attributes:
+
+- `artgod.collection.limit`
+- `artgod.collection.limit_present`
+- `artgod.collection.cursor_present`
+- `artgod.collection.token_status`
+- `artgod.collection.owner_present`
+- `artgod.collection.trait_filters_count`
+- `artgod.collection.trait_ranges_count`
+- `artgod.collection.media_mode_present`
+
+The collection activity route also adds low-cardinality request-shape attributes:
+
+- `artgod.activity.limit`
+- `artgod.activity.limit_present`
+- `artgod.activity.cursor_present`
+- `artgod.activity.kind`
+- `artgod.activity.extension_event`
+- `artgod.activity.extension_event_present`
+- `artgod.activity.traits_count`
+- `artgod.activity.trait_ranges_count`
+- `artgod.activity.token_filter_present`
+- `artgod.activity.maker_filter_present`
+- `artgod.activity.content_hash_filter_present`
+- `artgod.activity.event_group_filter_present`
+- `artgod.activity.media_mode_present`
+
+The activity event preview route adds request-shape attributes for extension-owned preview rendering:
+
+- `artgod.activity.id`
+- `artgod.activity.render_mode`
+- `artgod.activity.render_mode_present`
+
+The activity use case and SQLite read model add child spans for the slow path:
+
+- `backend.activity.media_state`
+- `backend.activity.feed`
+- `backend.activity.trait_facets`
+- `backend.activity.trait_filter_presentation`
+- `backend.activity.trait_summary_template`
+- `backend.activity.token_includes`
+- `backend.activity.event_media`
+- `backend.activity.db.query_rows`
+- `backend.activity.db.count`
+- `backend.activity.db.prev_cursor`
+- `backend.activity.db.event_media`
+
+Collection-extension activity feed and preview paths add child spans around extension-specific work:
+
+- `backend.extension.install_lookup`
+- `backend.extension.resolve`
+- `backend.extension.activity_event_feeds`
+- `backend.extension.activity_event_preview.db_activity`
+- `backend.extension.activity_event_preview.install_lookup`
+- `backend.extension.activity_event_preview.modes`
+- `backend.extension.activity_event_preview.resolve`
+
+The collection detail use case and SQLite read model add child spans around the token-browser slow path:
+
+- `backend.collection_detail.chain`
+- `backend.collection_detail.collection`
+- `backend.collection_detail.media_state`
+- `backend.collection_detail.tokens`
+- `backend.collection_detail.trait_facets`
+- `backend.collection_detail.trait_filter_presentation`
+- `backend.collection_detail.token_summary_template`
+- `backend.collection_detail.token_summary_render`
+- `backend.collection.db.tokens_page`
+- `backend.collection.db.tokens_listing_hydration`
+- `backend.collection.db.tokens_prev_cursor`
+- `backend.collection.db.tokens_count`
+- `backend.collection.db.trait_facets`
+- `backend.collection.db.trait_range_facets`
+- `backend.extension.artifacts_batch`
+
+Effective range facets, whether selected from extension defaults or user
+customization, skip the high-cardinality value list and return only numeric range
+bounds for UI range filtering.
+
 The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 
 ### Metrics (current hooks)

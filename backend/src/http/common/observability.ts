@@ -10,6 +10,7 @@ import {
     type ApmPort,
     type SpanAttributes,
 } from "@artgod/shared/observability/apm";
+import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
 import {
     noopMetrics,
     type MetricLabels,
@@ -23,9 +24,16 @@ export type BackendHttpObservability = {
     deploymentMode: string;
 };
 
-export type BackendRouteMetadata = {
+export type BackendRouteSpanAttributesResolver<
+    Route extends RouteGenericInterface = RouteGenericInterface,
+> = (request: FastifyRequest<Route>) => SpanAttributes;
+
+export type BackendRouteMetadata<
+    Route extends RouteGenericInterface = RouteGenericInterface,
+> = {
     method: string;
     route: string;
+    spanAttributes?: BackendRouteSpanAttributesResolver<Route>;
 };
 
 type ApiRouteHandler<Route extends RouteGenericInterface> = (
@@ -150,7 +158,7 @@ export function registerBackendHttpObservabilityHooks(
 // Wraps route handlers in an APM span and records adapter/use-case duration.
 export function observeRouteHandler<Route extends RouteGenericInterface>(
     observability: BackendHttpObservability,
-    metadata: BackendRouteMetadata,
+    metadata: BackendRouteMetadata<Route>,
     handler: ApiRouteHandler<Route>,
 ): ApiRouteHandler<Route> {
     return async (request, reply) => {
@@ -159,7 +167,9 @@ export function observeRouteHandler<Route extends RouteGenericInterface>(
         const attributes: SpanAttributes = {
             "http.method": metadata.method,
             "http.route": metadata.route,
-            "artgod.deployment_mode": observability.deploymentMode,
+            [ARTGOD_SPAN_ATTRIBUTE.DeploymentMode]:
+                observability.deploymentMode,
+            ...metadata.spanAttributes?.(request),
         };
 
         try {
@@ -185,7 +195,10 @@ function createRequestLabels(request: FastifyRequest): MetricLabels {
     });
 }
 
-function routeLabels(metadata: BackendRouteMetadata): MetricLabels {
+function routeLabels(metadata: {
+    method: string;
+    route: string;
+}): MetricLabels {
     return {
         method: metadata.method.toUpperCase(),
         route: metadata.route,

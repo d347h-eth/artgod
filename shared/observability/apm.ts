@@ -14,6 +14,7 @@ export interface ApmPort {
         attributes: SpanAttributes,
         run: () => Promise<T>,
     ): Promise<T>;
+    withSyncSpan<T>(name: string, attributes: SpanAttributes, run: () => T): T;
 }
 
 export type RuntimeApmConfig = {
@@ -44,6 +45,7 @@ export type RuntimeApmHandle = {
 type TracingRuntime = {
     shutdown: () => Promise<void>;
     withSpan: ApmPort["withSpan"];
+    withSyncSpan: ApmPort["withSyncSpan"];
 };
 
 type ProfilingRuntime = {
@@ -57,13 +59,13 @@ type ProfilingRuntime = {
 type OTelModule = {
     trace: {
         getTracer: (name: string) => {
-            startActiveSpan: (
+            startActiveSpan: <T>(
                 spanName: string,
                 options: {
                     attributes: Record<string, string | number | boolean>;
                 },
-                callback: (span: OTelSpan) => Promise<unknown>,
-            ) => Promise<unknown>;
+                callback: (span: OTelSpan) => T,
+            ) => T;
         };
     };
     SpanStatusCode?: {
@@ -103,6 +105,13 @@ export const NOOP_APM: ApmPort = {
     ): Promise<T> {
         return run();
     },
+    withSyncSpan<T>(
+        _name: string,
+        _attributes: SpanAttributes,
+        run: () => T,
+    ): T {
+        return run();
+    },
 };
 
 export async function initRuntimeApm(
@@ -137,7 +146,12 @@ export async function initRuntimeApm(
     }
 
     return {
-        apm: tracing ? { withSpan: tracing.withSpan } : NOOP_APM,
+        apm: tracing
+            ? {
+                  withSpan: tracing.withSpan,
+                  withSyncSpan: tracing.withSyncSpan,
+              }
+            : NOOP_APM,
         stop: async () => {
             if (profiling?.stop) {
                 try {
@@ -280,6 +294,41 @@ async function startTracing(
                         }
                     },
                 ) as Promise<T>;
+            },
+            withSyncSpan: <T>(
+                name: string,
+                attributes: SpanAttributes,
+                run: () => T,
+            ): T => {
+                const tracer = otel.trace.getTracer(
+                    config.tracerName ?? "artgod.runtime",
+                );
+                return tracer.startActiveSpan(
+                    name,
+                    { attributes: toOtelAttributes(attributes) },
+                    (span) => {
+                        try {
+                            const result = run();
+                            if (otel.SpanStatusCode?.OK !== undefined) {
+                                span.setStatus?.({
+                                    code: otel.SpanStatusCode.OK,
+                                });
+                            }
+                            return result;
+                        } catch (error) {
+                            span.recordException?.(error);
+                            if (otel.SpanStatusCode?.ERROR !== undefined) {
+                                span.setStatus?.({
+                                    code: otel.SpanStatusCode.ERROR,
+                                    message: String(error),
+                                });
+                            }
+                            throw error;
+                        } finally {
+                            span.end();
+                        }
+                    },
+                ) as T;
             },
         };
     } catch (error) {

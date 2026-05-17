@@ -1,9 +1,18 @@
-import {
-    DEFAULT_PAGE_LIMIT,
-    MAX_PAGE_LIMIT,
-} from "../config/pagination.js";
+import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "../config/pagination.js";
 import { db } from "../database/db.js";
 import {
+    ARTGOD_ACTIVITY_COUNT_KIND,
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_TRACE_ATTRIBUTE_VALUE,
+} from "../observability/artgod-span-attributes.js";
+import {
+    NOOP_APM,
+    type ApmPort,
+    type SpanAttributes,
+} from "../observability/apm.js";
+import {
+    ACTIVITY_FEED_FILTER_KIND,
+    ACTIVITY_KIND,
     ACTIVITY_SOURCE_KIND,
     type ActivityEventMedia,
     type ActivityFeedCursor,
@@ -16,15 +25,15 @@ import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
 import { ReadModelBadRequestError } from "./errors.js";
 import {
-    buildTokenTraitFilterWhereClauses,
-    buildTokenTraitRangeWhereClauses,
     groupTraitFilters,
     groupTraitRangeFilters,
     normalizeTraitFilters,
     normalizeTraitRangeFilters,
+    resolveTraitFilterTokenCandidatesWithSpan,
     type TraitFilterGroup,
     type TraitRangeFilterGroup,
 } from "./trait-filters.js";
+import { buildTokenCandidateWhereClauses } from "./token-candidates.js";
 
 type ActivityRow = {
     id: number;
@@ -60,6 +69,7 @@ type ActivityCursorKey = {
 };
 
 type ActivityQuerySource = {
+    name: string;
     cteSql: string;
     relationSql: string;
     selectColumnsSql: string;
@@ -83,12 +93,15 @@ const COLLAPSED_ACTIVITY_SELECT_COLUMNS =
     "is_collapsed, collapsed_event_count, collapsed_window_start_utc, collapsed_window_end_utc";
 
 const RAW_ACTIVITY_SOURCE: ActivityQuerySource = {
+    name: "raw",
     cteSql: "",
     relationSql: "FROM activities a",
     selectColumnsSql: RAW_ACTIVITY_SELECT_COLUMNS,
 };
 
 export class SqliteActivitiesReadModel {
+    constructor(private readonly apm: ApmPort = NOOP_APM) {}
+
     listCollectionActivities(params: {
         chainId: number;
         collectionId: number;
@@ -153,23 +166,36 @@ export class SqliteActivitiesReadModel {
         if (activityIds.length === 0) return {};
 
         const placeholders = activityIds.map(() => "?").join(", ");
-        const rows = db.raw
-            .prepare(
-                "SELECT a.id AS activity_id, m.media_ref, m.image, m.animation_url, m.html_content, m.render_modes_json " +
-                    "FROM activities a " +
-                    "INNER JOIN collection_extension_event_media m ON " +
-                    "m.chain_id = a.chain_id AND m.collection_id = a.collection_id AND " +
-                    "m.extension_key = a.source_name AND " +
-                    "m.event_key = json_extract(a.payload_json, '$.eventKey') AND " +
-                    "m.tx_hash = a.tx_hash AND m.log_index = a.log_index AND " +
-                    "m.token_id = COALESCE(a.token_id, '') " +
-                    "WHERE a.chain_id = ? AND a.collection_id = ? AND a.id IN (" +
-                    placeholders +
-                    ") " +
-                    "ORDER BY a.id ASC, m.media_ref ASC",
-            )
-            .all(params.chainId, params.collectionId, ...activityIds) as
-            ActivityEventMediaRow[];
+        const rows = this.apm.withSyncSpan(
+            "backend.activity.db.event_media",
+            {
+                [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+                [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+                [ARTGOD_SPAN_ATTRIBUTE.ActivityActivityIdsCount]:
+                    activityIds.length,
+            },
+            () =>
+                db.raw
+                    .prepare(
+                        "SELECT a.id AS activity_id, m.media_ref, m.image, m.animation_url, m.html_content, m.render_modes_json " +
+                            "FROM activities a " +
+                            "INNER JOIN collection_extension_event_media m ON " +
+                            "m.chain_id = a.chain_id AND m.collection_id = a.collection_id AND " +
+                            "m.extension_key = a.source_name AND " +
+                            "m.event_key = json_extract(a.payload_json, '$.eventKey') AND " +
+                            "m.tx_hash = a.tx_hash AND m.log_index = a.log_index AND " +
+                            "m.token_id = COALESCE(a.token_id, '') " +
+                            "WHERE a.chain_id = ? AND a.collection_id = ? AND a.id IN (" +
+                            placeholders +
+                            ") " +
+                            "ORDER BY a.id ASC, m.media_ref ASC",
+                    )
+                    .all(
+                        params.chainId,
+                        params.collectionId,
+                        ...activityIds,
+                    ) as ActivityEventMediaRow[],
+        );
         const byActivityId: Record<string, ActivityEventMedia> = {};
         for (const row of rows) {
             const key = String(row.activity_id);
@@ -215,6 +241,39 @@ export class SqliteActivitiesReadModel {
                       params.extensionEvent,
                   )
                 : null;
+        const baseSpanAttributes = buildActivityQuerySpanAttributes({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            filterKind,
+            cursorPresent: Boolean(cursor),
+            traitFilterGroups,
+            traitRangeFilterGroups,
+        });
+        const traitTokenCandidates = resolveTraitFilterTokenCandidatesWithSpan({
+            apm: this.apm,
+            spanName: "backend.activity.db.trait_filter_token_candidates",
+            spanAttributes: baseSpanAttributes,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            tokenId: params.tokenId,
+            traitFilterGroups,
+            traitRangeFilterGroups,
+        });
+        if (traitTokenCandidates.isEmpty) {
+            return emptyActivityFeedPage(limit);
+        }
+
+        const spanAttributes = buildActivityQuerySpanAttributes({
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            filterKind,
+            cursorPresent: Boolean(cursor),
+            traitFilterGroups,
+            traitRangeFilterGroups,
+            candidateTokenIdsCount:
+                traitTokenCandidates.candidateTokenIdsCount,
+        });
+
         if (
             shouldCollapseCollectionListings(
                 params.tokenId,
@@ -226,38 +285,28 @@ export class SqliteActivitiesReadModel {
             )
         ) {
             const {
-                whereClauses: traitWhereClauses,
-                values: traitValues,
-            } = buildTokenTraitFilterWhereClauses({
-                traitFilterGroups,
-                chainColumnSql: "a.chain_id",
-                collectionColumnSql: "a.collection_id",
-                tokenColumnSql: "a.token_id",
-            });
-            const {
-                whereClauses: traitRangeWhereClauses,
-                values: traitRangeValues,
-            } = buildTokenTraitRangeWhereClauses({
-                traitRangeFilterGroups,
-                chainColumnSql: "a.chain_id",
-                collectionColumnSql: "a.collection_id",
+                whereClauses: tokenCandidateWhereClauses,
+                values: tokenCandidateValues,
+            } = buildTokenCandidateWhereClauses({
+                tokenIds: traitTokenCandidates.tokenIds,
                 tokenColumnSql: "a.token_id",
             });
             return listActivitiesFromSource({
+                apm: this.apm,
                 source: buildCollapsedCollectionListingsSource([
-                    ...traitWhereClauses,
-                    ...traitRangeWhereClauses,
+                    ...tokenCandidateWhereClauses,
                 ]),
                 baseWhereClauses: [],
                 baseValues: [
                     params.chainId,
                     params.collectionId,
-                    ...traitValues,
-                    ...traitRangeValues,
+                    ACTIVITY_KIND.ListingCreated,
+                    ...tokenCandidateValues,
                 ],
                 limit,
                 cursor,
                 filterKind,
+                spanAttributes,
             });
         }
 
@@ -266,16 +315,16 @@ export class SqliteActivitiesReadModel {
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 tokenId: params.tokenId,
+                tokenIds: traitTokenCandidates.tokenIds ?? undefined,
                 kind: filterKind,
                 extensionEvent: params.extensionEvent,
                 maker: params.maker,
                 contentHash: params.contentHash,
                 eventGroup: params.eventGroup,
-                traitFilterGroups,
-                traitRangeFilterGroups,
             });
 
         return listActivitiesFromSource({
+            apm: this.apm,
             source: RAW_ACTIVITY_SOURCE,
             baseWhereClauses,
             baseValues,
@@ -283,6 +332,7 @@ export class SqliteActivitiesReadModel {
             cursor,
             filterKind,
             extensionEvent: params.extensionEvent,
+            spanAttributes,
         });
     }
 }
@@ -322,74 +372,62 @@ function buildActivityWhereClauses(params: {
     chainId: number;
     collectionId: number;
     tokenId?: string;
+    tokenIds?: string[];
     kind: ActivityFeedFilterKind | null;
     extensionEvent?: ActivityExtensionEventFilter;
     maker?: string;
     contentHash?: string;
     eventGroup?: string;
-    traitFilterGroups: TraitFilterGroup[];
-    traitRangeFilterGroups: TraitRangeFilterGroup[];
 }): {
     whereClauses: string[];
     values: unknown[];
 } {
+    const {
+        whereClauses: tokenCandidateWhereClauses,
+        values: tokenCandidateValues,
+    } = buildTokenCandidateWhereClauses({
+        tokenIds: params.tokenIds ?? null,
+        tokenColumnSql: "token_id",
+    });
     const whereClauses = [
         "chain_id = ?",
         "collection_id = ?",
         ...(params.tokenId ? ["token_id = ?"] : []),
+        ...tokenCandidateWhereClauses,
     ];
     const values: unknown[] = [
         params.chainId,
         params.collectionId,
         ...(params.tokenId ? [params.tokenId] : []),
+        ...tokenCandidateValues,
     ];
-
-    const {
-        whereClauses: traitWhereClauses,
-        values: traitValues,
-    } = buildTokenTraitFilterWhereClauses({
-        traitFilterGroups: params.traitFilterGroups,
-        chainColumnSql: "a.chain_id",
-        collectionColumnSql: "a.collection_id",
-        tokenColumnSql: "a.token_id",
-    });
-    whereClauses.push(...traitWhereClauses);
-    values.push(...traitValues);
-
-    const {
-        whereClauses: traitRangeWhereClauses,
-        values: traitRangeValues,
-    } = buildTokenTraitRangeWhereClauses({
-        traitRangeFilterGroups: params.traitRangeFilterGroups,
-        chainColumnSql: "a.chain_id",
-        collectionColumnSql: "a.collection_id",
-        tokenColumnSql: "a.token_id",
-    });
-    whereClauses.push(...traitRangeWhereClauses);
-    values.push(...traitRangeValues);
 
     if (params.extensionEvent) {
         whereClauses.push(
-            "kind = 'custom'",
+            "kind = ?",
             "source_kind = ?",
             "source_name = ?",
             "json_extract(payload_json, '$.eventKey') = ?",
         );
         values.push(
+            ACTIVITY_KIND.Custom,
             ACTIVITY_SOURCE_KIND.Extension,
             params.extensionEvent.extensionKey.toLowerCase(),
             params.extensionEvent.eventKey,
         );
     } else {
         switch (params.kind) {
-            case "sales":
-                whereClauses.push("kind = 'sale'");
+            case ACTIVITY_FEED_FILTER_KIND.Sales:
+                whereClauses.push("kind = ?");
+                values.push(ACTIVITY_KIND.Sale);
                 break;
-            case "listings":
-                whereClauses.push("kind = 'listing_created'");
+            case ACTIVITY_FEED_FILTER_KIND.Listings:
+                whereClauses.push("kind = ?");
+                values.push(ACTIVITY_KIND.ListingCreated);
                 break;
-            case "transfers":
-                whereClauses.push("kind = 'transfer'");
+            case ACTIVITY_FEED_FILTER_KIND.Transfers:
+                whereClauses.push("kind = ?");
+                values.push(ACTIVITY_KIND.Transfer);
                 break;
         }
     }
@@ -431,6 +469,20 @@ function buildActivityBeforeOrAtCursorWhereClause(): string {
     return "(occurred_at > ? OR (occurred_at = ? AND id >= ?))";
 }
 
+function emptyActivityFeedPage(limit: number): ActivityFeedPage {
+    return {
+        items: [],
+        prevCursor: null,
+        nextCursor: null,
+        limit,
+        totalItems: 0,
+        rangeStart: 0,
+        rangeEnd: 0,
+        currentPage: 0,
+        totalPages: 0,
+    };
+}
+
 function shouldCollapseCollectionListings(
     tokenId: string | undefined,
     filterKind: ActivityFeedFilterKind | null,
@@ -445,7 +497,7 @@ function shouldCollapseCollectionListings(
         !maker &&
         !contentHash &&
         !eventGroup &&
-        filterKind === "listings"
+        filterKind === ACTIVITY_FEED_FILTER_KIND.Listings
     );
 }
 
@@ -457,12 +509,13 @@ function buildCollapsedCollectionListingsSource(
             ? ""
             : ` AND ${traitWhereClauses.join(" AND ")}`;
     return {
+        name: "collapsed_collection_listings",
         cteSql:
             "WITH filtered_listing_activities AS (" +
             "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
             "CAST(occurred_at / 86400 AS INTEGER) AS collapsed_day_bucket " +
             "FROM activities a " +
-            "WHERE a.chain_id = ? AND a.collection_id = ? AND a.kind = 'listing_created'" +
+            "WHERE a.chain_id = ? AND a.collection_id = ? AND a.kind = ?" +
             traitWhereSql +
             "), ranked_listing_activities AS (" +
             "SELECT id, scope_kind, kind, contract_address, token_id, occurred_at, source_kind, source_name, order_id, block_number, tx_hash, log_index, from_address, to_address, maker, taker, side, amount, price, currency, payload_json, " +
@@ -481,7 +534,36 @@ function buildCollapsedCollectionListingsSource(
     };
 }
 
+function buildActivityQuerySpanAttributes(params: {
+    chainId: number;
+    collectionId: number;
+    filterKind: ActivityFeedFilterKind | null;
+    cursorPresent: boolean;
+    traitFilterGroups: TraitFilterGroup[];
+    traitRangeFilterGroups: TraitRangeFilterGroup[];
+    candidateTokenIdsCount?: number;
+}): SpanAttributes {
+    const attributes: SpanAttributes = {
+        [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityKind]:
+            params.filterKind ?? ARTGOD_TRACE_ATTRIBUTE_VALUE.None,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityCursorPresent]:
+            params.cursorPresent,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitsCount]:
+            params.traitFilterGroups.length,
+        [ARTGOD_SPAN_ATTRIBUTE.ActivityTraitRangesCount]:
+            params.traitRangeFilterGroups.length,
+    };
+    if (params.candidateTokenIdsCount !== undefined) {
+        attributes[ARTGOD_SPAN_ATTRIBUTE.ActivityCandidateTokenIdsCount] =
+            params.candidateTokenIdsCount;
+    }
+    return attributes;
+}
+
 function listActivitiesFromSource(params: {
+    apm: ApmPort;
     source: ActivityQuerySource;
     baseWhereClauses: string[];
     baseValues: unknown[];
@@ -489,15 +571,18 @@ function listActivitiesFromSource(params: {
     cursor: ActivityFeedCursor | null;
     filterKind: ActivityFeedFilterKind | null;
     extensionEvent?: ActivityExtensionEventFilter;
+    spanAttributes: SpanAttributes;
 }): ActivityFeedPage {
     const {
         source,
+        apm,
         baseWhereClauses,
         baseValues,
         limit,
         cursor,
         filterKind,
         extensionEvent,
+        spanAttributes,
     } = params;
     const whereClauses = [...baseWhereClauses];
     const values: unknown[] = [...baseValues];
@@ -507,11 +592,19 @@ function listActivitiesFromSource(params: {
         values.push(cursor.occurredAt, cursor.occurredAt, cursor.id);
     }
 
-    const rows = queryActivityRows(source, whereClauses, values, limit + 1);
+    const rows = queryActivityRows(
+        apm,
+        source,
+        whereClauses,
+        values,
+        limit + 1,
+        spanAttributes,
+    );
     const hasNext = rows.length > limit;
     const pageRows = hasNext ? rows.slice(0, limit) : rows;
     const items = pageRows.map(mapActivityRow);
     const prevCursor = deriveActivityPrevCursor({
+        apm,
         source,
         baseWhereClauses,
         baseValues,
@@ -520,19 +613,34 @@ function listActivitiesFromSource(params: {
         limit,
         filterKind,
         extensionEvent,
+        spanAttributes,
     });
-    const totalItems = countMatchingActivities(source, baseWhereClauses, baseValues);
+    const totalItems =
+        !cursor && !hasNext
+            ? items.length
+            : countMatchingActivities(
+                  apm,
+                  source,
+                  baseWhereClauses,
+                  baseValues,
+                  ARTGOD_ACTIVITY_COUNT_KIND.Total,
+                  spanAttributes,
+              );
     const beforeItems = cursor
         ? countMatchingActivities(
+              apm,
               source,
               [...baseWhereClauses, buildActivityBeforeOrAtCursorWhereClause()],
               [...baseValues, cursor.occurredAt, cursor.occurredAt, cursor.id],
+              ARTGOD_ACTIVITY_COUNT_KIND.BeforeCursor,
+              spanAttributes,
           )
         : 0;
     const rangeStart = items.length === 0 ? 0 : beforeItems + 1;
     const rangeEnd = beforeItems + items.length;
     const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / limit);
-    const currentPage = totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
+    const currentPage =
+        totalItems === 0 ? 0 : Math.floor(beforeItems / limit) + 1;
     const nextCursor = hasNext
         ? encodeActivityCursor({
               filterKind,
@@ -558,33 +666,59 @@ function listActivitiesFromSource(params: {
 }
 
 function queryActivityRows(
+    apm: ApmPort,
     source: ActivityQuerySource,
     whereClauses: string[],
     values: unknown[],
     limit: number,
+    spanAttributes: SpanAttributes,
 ): ActivityRow[] {
-    return db.raw
-        .prepare(
-            `${source.cteSql}SELECT ${source.selectColumnsSql} ${source.relationSql}${buildWhereSql(whereClauses)} ORDER BY occurred_at DESC, id DESC LIMIT ?`,
-        )
-        .all(...values, limit) as ActivityRow[];
+    return apm.withSyncSpan(
+        "backend.activity.db.query_rows",
+        {
+            ...spanAttributes,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: limit,
+        },
+        () =>
+            db.raw
+                .prepare(
+                    `${source.cteSql}SELECT ${source.selectColumnsSql} ${source.relationSql}${buildWhereSql(whereClauses)} ORDER BY occurred_at DESC, id DESC LIMIT ?`,
+                )
+                .all(...values, limit) as ActivityRow[],
+    );
 }
 
 function countMatchingActivities(
+    apm: ApmPort,
     source: ActivityQuerySource,
     whereClauses: string[],
     values: unknown[],
+    countKind:
+        | typeof ARTGOD_ACTIVITY_COUNT_KIND.Total
+        | typeof ARTGOD_ACTIVITY_COUNT_KIND.BeforeCursor,
+    spanAttributes: SpanAttributes,
 ): number {
-    const row = db.raw
-        .prepare(
-            `${source.cteSql}SELECT COUNT(*) AS count ${source.relationSql}${buildWhereSql(whereClauses)}`,
-        )
-        .get(...values) as { count: number | bigint } | undefined;
+    const row = apm.withSyncSpan(
+        "backend.activity.db.count",
+        {
+            ...spanAttributes,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityCountKind]: countKind,
+        },
+        () =>
+            db.raw
+                .prepare(
+                    `${source.cteSql}SELECT COUNT(*) AS count ${source.relationSql}${buildWhereSql(whereClauses)}`,
+                )
+                .get(...values) as { count: number | bigint } | undefined,
+    );
     if (!row) return 0;
     return typeof row.count === "bigint" ? Number(row.count) : row.count;
 }
 
 function deriveActivityPrevCursor(params: {
+    apm: ApmPort;
     source: ActivityQuerySource;
     baseWhereClauses: string[];
     baseValues: unknown[];
@@ -593,33 +727,49 @@ function deriveActivityPrevCursor(params: {
     limit: number;
     filterKind: ActivityFeedFilterKind | null;
     extensionEvent?: ActivityExtensionEventFilter;
+    spanAttributes: SpanAttributes;
 }): string | null {
     const {
         source,
+        apm,
         baseWhereClauses,
         baseValues,
         cursor,
         pageRows,
         limit,
         filterKind,
+        spanAttributes,
     } = params;
+    if (!cursor) return null;
+
     const anchor = toAnchorCursorKey(pageRows, cursor);
     if (!anchor) return null;
 
-    const previousRows = db.raw
-        .prepare(
-            `${source.cteSql}SELECT id, occurred_at ${source.relationSql}${buildWhereSql([
-                ...baseWhereClauses,
-                buildActivityBeforeCursorWhereClause(),
-            ])} ORDER BY occurred_at ASC, id ASC LIMIT ?`,
-        )
-        .all(
-            ...baseValues,
-            anchor.occurredAt,
-            anchor.occurredAt,
-            anchor.id,
-            limit + 1,
-        ) as Array<{ id: number; occurred_at: number }>;
+    const previousRows = apm.withSyncSpan(
+        "backend.activity.db.prev_cursor",
+        {
+            ...spanAttributes,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityQuerySource]: source.name,
+            [ARTGOD_SPAN_ATTRIBUTE.ActivityLimit]: limit + 1,
+        },
+        () =>
+            db.raw
+                .prepare(
+                    `${source.cteSql}SELECT id, occurred_at ${source.relationSql}${buildWhereSql(
+                        [
+                            ...baseWhereClauses,
+                            buildActivityBeforeCursorWhereClause(),
+                        ],
+                    )} ORDER BY occurred_at ASC, id ASC LIMIT ?`,
+                )
+                .all(
+                    ...baseValues,
+                    anchor.occurredAt,
+                    anchor.occurredAt,
+                    anchor.id,
+                    limit + 1,
+                ) as Array<{ id: number; occurred_at: number }>,
+    );
 
     if (previousRows.length <= limit) {
         return null;
@@ -634,7 +784,9 @@ function deriveActivityPrevCursor(params: {
 }
 
 function buildWhereSql(whereClauses: string[]): string {
-    return whereClauses.length === 0 ? " " : ` WHERE ${whereClauses.join(" AND ")} `;
+    return whereClauses.length === 0
+        ? " "
+        : ` WHERE ${whereClauses.join(" AND ")} `;
 }
 
 function toAnchorCursorKey(
@@ -703,7 +855,9 @@ function decodeActivityCursor(
 function normalizeFilterKind(
     value: ActivityFeedFilterKind | null | undefined,
 ): ActivityFeedFilterKind | null {
-    return value === "sales" || value === "listings" || value === "transfers"
+    return value === ACTIVITY_FEED_FILTER_KIND.Sales ||
+        value === ACTIVITY_FEED_FILTER_KIND.Listings ||
+        value === ACTIVITY_FEED_FILTER_KIND.Transfers
         ? value
         : null;
 }
