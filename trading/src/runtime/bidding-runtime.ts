@@ -24,6 +24,7 @@ import { mainnet } from "viem/chains";
 import { NatsBiddingJobCommandSignalListener } from "../adapters/jobs/nats-bidding-job-command-signal-listener.js";
 import { SqliteBiddingBidBookProjection } from "../adapters/bid-book/sqlite-bidding-bid-book-projection.js";
 import { SqliteBiddingJobCommandRepository } from "../adapters/jobs/sqlite-bidding-job-command-repository.js";
+import { SqliteBiddingJobRuntimeState } from "../adapters/jobs/sqlite-bidding-job-runtime-state.js";
 import { SqliteBiddingJobSource } from "../adapters/jobs/sqlite-bidding-job-source.js";
 import { SqliteTokenMetadataRepository } from "../adapters/metadata/sqlite-token-metadata-repository.js";
 import { OpenSeaBiddingService } from "../adapters/opensea/open-sea-bidding-service.js";
@@ -243,6 +244,7 @@ export async function startBiddingRuntime(
         },
         tokenMetadataRepository,
         makerWethBalanceService,
+        new SqliteBiddingJobRuntimeState(),
     );
 
     // Register all configured jobs before bootstrapping snapshot state or current prices.

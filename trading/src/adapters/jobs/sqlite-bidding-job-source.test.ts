@@ -218,7 +218,7 @@ describe("SqliteBiddingJobSource", () => {
         });
     });
 
-    it("filters out paused and archived jobs and does not hydrate runtime state", async () => {
+    it("filters out paused and archived jobs and hydrates runtime state", async () => {
         seedJob({
             jobId: "job-enabled",
             collectionId: terraformsCollectionId,
@@ -241,7 +241,7 @@ describe("SqliteBiddingJobSource", () => {
             tokenId: "3",
         });
 
-        // Seed runtime state to prove Slice 5 still resets BidderJob.state on load.
+        // Seed runtime state so bot restarts preserve known active order feedback.
         db.prepare<{
             jobId: string;
             currentPriceWei: string;
@@ -261,6 +261,11 @@ describe("SqliteBiddingJobSource", () => {
 
         assert.equal(jobs.length, 1);
         assert.equal(jobs[0]?.id, "job-enabled");
-        assert.deepEqual(jobs[0]?.state, {});
+        assert.deepEqual(jobs[0]?.state, {
+            activeOrderId: "0xexisting-order",
+            currentPrice: 150000000000000000n,
+            activeProtocolAddress: undefined,
+            activeExpirationTimeMs: undefined,
+        });
     });
 });

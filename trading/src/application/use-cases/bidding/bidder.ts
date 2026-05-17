@@ -25,6 +25,22 @@ export interface BidderOptions {
     bootstrapConcurrency?: number;
 }
 
+export type BiddingJobRuntimeStateSnapshot = {
+    jobId: string;
+    currentPriceWei: string | null;
+    activeOrderId: string | null;
+    activeProtocolAddress: string | null;
+    activeExpirationTimeMs: number | null;
+    lastRunAt: string | null;
+    lastError: string | null;
+};
+
+export interface BiddingJobRuntimeStatePort {
+    persistJobRuntimeState(
+        snapshot: BiddingJobRuntimeStateSnapshot,
+    ): Promise<void> | void;
+}
+
 export interface BidderRefreshPort {
     refreshMatchingJobs(marketEvent: MarketEvent): Promise<void>;
 }
@@ -120,6 +136,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         private readonly options: BidderOptions = {},
         private readonly tokenMetadataRepository?: TokenMetadataRepository,
         private readonly makerWethBalanceService?: MakerWethBalanceService,
+        private readonly runtimeStatePort?: BiddingJobRuntimeStatePort,
     ) {
         this.maxConcurrentJobs = this.resolveMaxConcurrentJobs(
             options.maxConcurrentJobs,
@@ -525,10 +542,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                         biddingLog.info(
                             `[Bidder] Active bid ${activeId} is invalid/missing for ${jobRef}. Clearing state.`,
                         );
-                        job.state.activeOrderId = undefined;
-                        job.state.activeProtocolAddress = undefined;
-                        job.state.currentPrice = undefined;
-                        job.state.activeExpirationTimeMs = undefined;
+                        this.clearTrackedOrder(job);
                     }
                 } else if (
                     !job.state.activeProtocolAddress &&
@@ -676,6 +690,10 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             biddingLog.error(
                 `[Bidder] Error refreshing job ${jobId}: ${message}`,
             );
+            const job = this.jobs.get(jobId);
+            if (job) {
+                this.persistJobRuntimeState(job, message);
+            }
         }
     }
 
@@ -981,6 +999,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             biddingLog.debug(
                 `[Bidder] Warmed currentPrice${counter} for ${formatBidderJobReference(job)}: price=${this.formatPriceForLog(activeOffer.price)}, orderHash=${activeOffer.id}, protocol=${activeOffer.protocolAddress ?? "unknown"}, expiresAt=${activeExpirationForLog}`,
             );
+            this.persistJobRuntimeState(job);
             return true;
         } catch (error: unknown) {
             const message =
@@ -1477,6 +1496,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.currentPrice = amount;
         job.state.activeExpirationTimeMs =
             this.toExpirationTimeMs(expirationTime);
+        this.persistJobRuntimeState(job);
         if (
             job.target.type === "collection" ||
             job.target.type === "competitiveTrait"
@@ -1520,6 +1540,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.activeProtocolAddress = order.protocolAddress;
         job.state.currentPrice = order.price;
         job.state.activeExpirationTimeMs = nextExpirationTimeMs;
+        this.persistJobRuntimeState(job);
     }
 
     private clearTrackedOrder(job: BidderJob): void {
@@ -1527,6 +1548,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.activeProtocolAddress = undefined;
         job.state.currentPrice = undefined;
         job.state.activeExpirationTimeMs = undefined;
+        this.persistJobRuntimeState(job);
     }
 
     private clearTrackedOrderForJobId(jobId: string): void {
@@ -1534,6 +1556,38 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         if (job) {
             this.clearTrackedOrder(job);
         }
+    }
+
+    private persistJobRuntimeState(
+        job: BidderJob,
+        lastError: string | null = null,
+    ): void {
+        if (!this.runtimeStatePort) {
+            return;
+        }
+
+        const snapshot: BiddingJobRuntimeStateSnapshot = {
+            jobId: job.id,
+            currentPriceWei: job.state.currentPrice?.toString() ?? null,
+            activeOrderId: job.state.activeOrderId ?? null,
+            activeProtocolAddress: job.state.activeProtocolAddress ?? null,
+            activeExpirationTimeMs: job.state.activeExpirationTimeMs ?? null,
+            lastRunAt: job.state.lastRun
+                ? new Date(job.state.lastRun).toISOString()
+                : null,
+            lastError,
+        };
+
+        // Persist runtime feedback for backend read models without changing bidder decisions if SQLite is slow or unavailable.
+        void Promise.resolve(
+            this.runtimeStatePort.persistJobRuntimeState(snapshot),
+        ).catch((error: unknown) => {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            biddingLog.error(
+                `[Bidder] Failed to persist runtime state for ${formatBidderJobReference(job)}: ${message}`,
+            );
+        });
     }
 
     private async cancelMakerOffers(
