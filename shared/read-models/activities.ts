@@ -25,7 +25,6 @@ import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { decodeOpaqueCursor, encodeOpaqueCursor } from "../utils/cursor.js";
 import { ReadModelBadRequestError } from "./errors.js";
 import {
-    buildTokenCandidateWhereClauses,
     groupTraitFilters,
     groupTraitRangeFilters,
     normalizeTraitFilters,
@@ -34,6 +33,7 @@ import {
     type TraitFilterGroup,
     type TraitRangeFilterGroup,
 } from "./trait-filters.js";
+import { buildTokenCandidateWhereClauses } from "./token-candidates.js";
 
 type ActivityRow = {
     id: number;

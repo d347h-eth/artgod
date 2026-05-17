@@ -2,6 +2,7 @@ import { db } from "../database/db.js";
 import { MAX_PAGE_LIMIT } from "../config/pagination.js";
 import {
     ARTGOD_COLLECTION_COUNT_KIND,
+    ARTGOD_SPAN_NAME,
     ARTGOD_SPAN_ATTRIBUTE,
 } from "../observability/artgod-span-attributes.js";
 import {
@@ -39,7 +40,6 @@ import {
 } from "../utils/ref-resolver.js";
 import { ReadModelBadRequestError, ReadModelNotFoundError } from "./errors.js";
 import {
-    buildTokenCandidateWhereClauses,
     buildTokenTraitRangeJoinClauses,
     groupTraitFilters,
     groupTraitRangeFilters,
@@ -50,6 +50,12 @@ import {
     type TraitFilterGroup,
     type TraitRangeFilterGroup,
 } from "./trait-filters.js";
+import { resolveOwnerTokenCandidatesWithSpan } from "./owner-token-candidates.js";
+import {
+    buildTokenCandidateWhereClauses,
+    intersectTokenIdSets,
+    type TokenCandidates,
+} from "./token-candidates.js";
 
 type CollectionRow = {
     chain_id: number;
@@ -297,31 +303,6 @@ export class SqliteCollectionsReadModel {
             "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
     );
 
-    private selectOwnerScopedTraitFacetRows = db.prepare<
-        [number, number, string]
-    >(
-        "SELECT ak.key AS key, a.value AS value, COUNT(*) AS token_count " +
-            "FROM token_attributes ta " +
-            "JOIN attributes a ON a.id = ta.attribute_id " +
-            "AND a.chain_id = ta.chain_id " +
-            "AND a.collection_id = ta.collection_id " +
-            "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
-            "AND ak.chain_id = a.chain_id " +
-            "AND ak.collection_id = a.collection_id " +
-            "WHERE ta.chain_id = ? " +
-            "AND ta.collection_id = ? " +
-            "AND EXISTS ( " +
-            "SELECT 1 FROM nft_balances b " +
-            "WHERE b.chain_id = ta.chain_id " +
-            "AND b.collection_id = ta.collection_id " +
-            "AND b.token_id = ta.token_id " +
-            "AND b.owner = ? " +
-            "AND CAST(b.amount AS INTEGER) > 0" +
-            ") " +
-            "GROUP BY ak.key, a.value " +
-            "ORDER BY ak.key ASC, token_count ASC, a.value ASC",
-    );
-
     private selectTokenCurrentHolderRow = db.prepare<[number, number, string]>(
         "SELECT owner AS owner " +
             "FROM nft_balances " +
@@ -530,28 +511,28 @@ export class SqliteCollectionsReadModel {
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitRangeFilterGroups: params.traitRangeFilterGroups,
-            owner: params.owner,
         });
-        const traitTokenCandidates = resolveCollectionExactTraitTokenCandidates({
+        const filterTokenCandidates = resolveCollectionTokenCandidates({
             apm: this.apm,
             spanAttributes,
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
+            owner: params.owner,
         });
-        if (traitTokenCandidates.isEmpty) {
+        if (filterTokenCandidates.isEmpty) {
             return emptyTokenCursorPage(params.limit);
         }
         const {
             whereClauses: tokenCandidateWhereClauses,
             values: tokenCandidateValues,
         } = buildTokenCandidateWhereClauses({
-            tokenIds: traitTokenCandidates.tokenIds,
+            tokenIds: filterTokenCandidates.tokenIds,
             tokenColumnSql: "t.token_id",
         });
         const querySpanAttributes = withCandidateSpanAttributes(
             spanAttributes,
-            traitTokenCandidates,
+            filterTokenCandidates,
         );
         const cursorSortKey = params.cursor
             ? toTokenSortKey(params.cursor.tokenId)
@@ -561,14 +542,8 @@ export class SqliteCollectionsReadModel {
             ...tokenCandidateWhereClauses,
         ];
         const whereClauses = [...tokenWhereClauses];
-        const tokenWhereValues = [
-            ...baseWhereValues,
-            ...tokenCandidateValues,
-        ];
-        const values = [
-            ...baseJoinValues,
-            ...tokenWhereValues,
-        ];
+        const tokenWhereValues = [...baseWhereValues, ...tokenCandidateValues];
+        const values = [...baseJoinValues, ...tokenWhereValues];
 
         if (cursorSortKey) {
             whereClauses.push(`${TOKEN_SORT_KEY_SQL} > (?, ?, ?, ?)`);
@@ -723,21 +698,21 @@ export class SqliteCollectionsReadModel {
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitRangeFilterGroups: params.traitRangeFilterGroups,
-            owner: params.owner,
         });
-        const traitTokenCandidates = resolveCollectionExactTraitTokenCandidates({
+        const filterTokenCandidates = resolveCollectionTokenCandidates({
             apm: this.apm,
             spanAttributes,
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
+            owner: params.owner,
         });
-        if (traitTokenCandidates.isEmpty) {
+        if (filterTokenCandidates.isEmpty) {
             return emptyTokenCursorPage(params.limit);
         }
         const querySpanAttributes = withCandidateSpanAttributes(
             spanAttributes,
-            traitTokenCandidates,
+            filterTokenCandidates,
         );
         const listingValues = buildCheapestListingValues({
             chainId: params.chainId,
@@ -746,12 +721,12 @@ export class SqliteCollectionsReadModel {
             nowSeconds: params.nowSeconds,
         });
         const constrainedListingValues =
-            traitTokenCandidates.tokenIds === null
+            filterTokenCandidates.tokenIds === null
                 ? listingValues
-                : [...listingValues, ...traitTokenCandidates.tokenIds];
+                : [...listingValues, ...filterTokenCandidates.tokenIds];
         const listingSql = buildCheapestListingSql(
             this.supportedListingCurrencies.length,
-            traitTokenCandidates.tokenIds?.length ?? 0,
+            filterTokenCandidates.tokenIds?.length ?? 0,
         );
         const cursorKey = params.cursor
             ? toListingCursorKey(
@@ -923,32 +898,32 @@ export class SqliteCollectionsReadModel {
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitRangeFilterGroups: params.traitRangeFilterGroups,
-            owner: params.owner,
         });
-        const traitTokenCandidates = resolveCollectionExactTraitTokenCandidates({
+        const filterTokenCandidates = resolveCollectionTokenCandidates({
             apm: this.apm,
             spanAttributes,
             chainId: params.chainId,
             collectionId: params.collectionId,
             traitFilterGroups: params.traitFilterGroups,
+            owner: params.owner,
         });
-        if (traitTokenCandidates.isEmpty) {
+        if (filterTokenCandidates.isEmpty) {
             return emptyTokenCursorPage(params.limit);
         }
         const {
             whereClauses: tokenCandidateWhereClauses,
             values: tokenCandidateValues,
         } = buildTokenCandidateWhereClauses({
-            tokenIds: traitTokenCandidates.tokenIds,
+            tokenIds: filterTokenCandidates.tokenIds,
             tokenColumnSql: "t.token_id",
         });
         const querySpanAttributes = withCandidateSpanAttributes(
             spanAttributes,
-            traitTokenCandidates,
+            filterTokenCandidates,
         );
         const listingSql = buildCheapestListingSql(
             this.supportedListingCurrencies.length,
-            traitTokenCandidates.tokenIds?.length ?? 0,
+            filterTokenCandidates.tokenIds?.length ?? 0,
         );
         const baseListingValues = buildCheapestListingValues({
             chainId: params.chainId,
@@ -957,9 +932,9 @@ export class SqliteCollectionsReadModel {
             nowSeconds: params.nowSeconds,
         });
         const listingValues =
-            traitTokenCandidates.tokenIds === null
+            filterTokenCandidates.tokenIds === null
                 ? baseListingValues
-                : [...baseListingValues, ...traitTokenCandidates.tokenIds];
+                : [...baseListingValues, ...filterTokenCandidates.tokenIds];
         const cursorKey = params.cursor
             ? toListedThenUnlistedCursorKey(
                   params.cursor.listingPrice,
@@ -971,10 +946,7 @@ export class SqliteCollectionsReadModel {
             ...tokenCandidateWhereClauses,
         ];
         const whereClauses = [...tokenWhereClauses];
-        const tokenWhereValues = [
-            ...baseWhereValues,
-            ...tokenCandidateValues,
-        ];
+        const tokenWhereValues = [...baseWhereValues, ...tokenCandidateValues];
         const values: unknown[] = [
             ...baseJoinValues,
             ...listingValues,
@@ -1116,24 +1088,51 @@ export class SqliteCollectionsReadModel {
             ...excludeKeys,
             ...rangeOnlyKeys,
         ]);
-        const rows = this.apm.withSyncSpan(
-            "backend.collection.db.trait_facets",
+        const normalizedOwner = owner ? normalizeAddressRef(owner) : undefined;
+        const facetBaseSpanAttributes = {
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chainId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: collectionId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
+                Boolean(normalizedOwner),
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionExcludeKeysCount]:
+                valueExcludeKeys.length,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
+                rangeOnlyKeys.length,
+        };
+        const ownerTokenCandidates = resolveCollectionOwnerTokenCandidates({
+            apm: this.apm,
+            spanAttributes: facetBaseSpanAttributes,
+            chainId,
+            collectionId,
+            owner: normalizedOwner,
+        });
+        if (ownerTokenCandidates.isEmpty) {
+            return [];
+        }
+        const facetSpanAttributes = withCandidateSpanAttributes(
+            facetBaseSpanAttributes,
+            ownerTokenCandidates,
+        );
+        const rangeFacetSpanAttributes = withCandidateSpanAttributes(
             {
                 [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chainId,
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: collectionId,
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
-                    Boolean(owner),
-                [ARTGOD_SPAN_ATTRIBUTE.CollectionExcludeKeysCount]:
-                    valueExcludeKeys.length,
+                    Boolean(normalizedOwner),
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
                     rangeOnlyKeys.length,
             },
+            ownerTokenCandidates,
+        );
+        const rows = this.apm.withSyncSpan(
+            "backend.collection.db.trait_facets",
+            facetSpanAttributes,
             () =>
-                owner
+                ownerTokenCandidates.tokenIds !== null
                     ? this.selectOwnerScopedTraitFacetRowsWithOptions(
                           chainId,
                           collectionId,
-                          normalizeAddressRef(owner),
+                          ownerTokenCandidates.tokenIds,
                           valueExcludeKeys,
                       )
                     : this.selectTraitFacetRowsWithOptions(
@@ -1147,21 +1146,13 @@ export class SqliteCollectionsReadModel {
                 ? []
                 : this.apm.withSyncSpan(
                       "backend.collection.db.trait_range_facets",
-                      {
-                          [ARTGOD_SPAN_ATTRIBUTE.ChainId]: chainId,
-                          [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
-                              collectionId,
-                          [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
-                              Boolean(owner),
-                          [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
-                              rangeOnlyKeys.length,
-                      },
+                      rangeFacetSpanAttributes,
                       () =>
-                          owner
+                          ownerTokenCandidates.tokenIds !== null
                               ? this.selectOwnerScopedTraitRangeRowsWithOptions(
                                     chainId,
                                     collectionId,
-                                    normalizeAddressRef(owner),
+                                    ownerTokenCandidates.tokenIds,
                                     rangeOnlyKeys,
                                 )
                               : this.selectTraitRangeRowsWithOptions(
@@ -1247,18 +1238,18 @@ export class SqliteCollectionsReadModel {
     private selectOwnerScopedTraitFacetRowsWithOptions(
         chainId: number,
         collectionId: number,
-        owner: string,
+        tokenIds: string[],
         excludeKeys: string[],
     ): TraitFacetRow[] {
-        if (excludeKeys.length === 0) {
-            return this.selectOwnerScopedTraitFacetRows.all(
-                chainId,
-                collectionId,
-                owner,
-            ) as TraitFacetRow[];
-        }
-
-        const placeholders = excludeKeys.map(() => "?").join(", ");
+        const { whereClauses, values: tokenCandidateValues } =
+            buildTokenCandidateWhereClauses({
+                tokenIds,
+                tokenColumnSql: "ta.token_id",
+            });
+        const excludeKeyClause =
+            excludeKeys.length === 0
+                ? ""
+                : `AND ak.key NOT IN (${excludeKeys.map(() => "?").join(", ")}) `;
         return db.raw
             .prepare(
                 "SELECT ak.key AS key, a.value AS value, COUNT(*) AS token_count " +
@@ -1271,23 +1262,16 @@ export class SqliteCollectionsReadModel {
                     "AND ak.collection_id = a.collection_id " +
                     "WHERE ta.chain_id = ? " +
                     "AND ta.collection_id = ? " +
-                    `AND ak.key NOT IN (${placeholders}) ` +
-                    "AND EXISTS ( " +
-                    "SELECT 1 FROM nft_balances b " +
-                    "WHERE b.chain_id = ta.chain_id " +
-                    "AND b.collection_id = ta.collection_id " +
-                    "AND b.token_id = ta.token_id " +
-                    "AND b.owner = ? " +
-                    "AND CAST(b.amount AS INTEGER) > 0" +
-                    ") " +
+                    `${whereClauses.map((clause) => `AND ${clause} `).join("")}` +
+                    excludeKeyClause +
                     "GROUP BY ak.key, a.value " +
                     "ORDER BY ak.key ASC, token_count ASC, a.value ASC",
             )
             .all(
                 chainId,
                 collectionId,
+                ...tokenCandidateValues,
                 ...excludeKeys,
-                owner,
             ) as TraitFacetRow[];
     }
 
@@ -1319,21 +1303,21 @@ export class SqliteCollectionsReadModel {
     private selectOwnerScopedTraitRangeRowsWithOptions(
         chainId: number,
         collectionId: number,
-        owner: string,
+        tokenIds: string[],
         rangeOnlyKeys: string[],
     ): TraitFacetRangeRow[] {
         return rangeOnlyKeys.flatMap((key) => {
             const minValue = this.selectOwnerScopedTraitRangeBound({
                 chainId,
                 collectionId,
-                owner,
+                tokenIds,
                 key,
                 direction: "ASC",
             });
             const maxValue = this.selectOwnerScopedTraitRangeBound({
                 chainId,
                 collectionId,
-                owner,
+                tokenIds,
                 key,
                 direction: "DESC",
             });
@@ -1376,10 +1360,15 @@ export class SqliteCollectionsReadModel {
     private selectOwnerScopedTraitRangeBound(params: {
         chainId: number;
         collectionId: number;
-        owner: string;
+        tokenIds: string[];
         key: string;
         direction: "ASC" | "DESC";
     }): string | null {
+        const { whereClauses, values: tokenCandidateValues } =
+            buildTokenCandidateWhereClauses({
+                tokenIds: params.tokenIds,
+                tokenColumnSql: "ta.token_id",
+            });
         const row = db.raw
             .prepare(
                 "SELECT a.value AS value " +
@@ -1394,14 +1383,7 @@ export class SqliteCollectionsReadModel {
                     "AND ak.collection_id = ? " +
                     "AND ak.key = ? " +
                     "AND a.value <> '' AND a.value NOT GLOB '*[^0-9]*' " +
-                    "AND EXISTS ( " +
-                    "SELECT 1 FROM nft_balances b " +
-                    "WHERE b.chain_id = ta.chain_id " +
-                    "AND b.collection_id = ta.collection_id " +
-                    "AND b.token_id = ta.token_id " +
-                    "AND b.owner = ? " +
-                    "AND CAST(b.amount AS INTEGER) > 0" +
-                    ") " +
+                    `${whereClauses.map((clause) => `AND ${clause} `).join("")}` +
                     `ORDER BY LENGTH(${ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL}) ${params.direction}, ` +
                     `${ATTRIBUTE_VALUE_NORMALIZED_NUMERIC_SQL} ${params.direction} ` +
                     "LIMIT 1",
@@ -1410,7 +1392,7 @@ export class SqliteCollectionsReadModel {
                 params.chainId,
                 params.collectionId,
                 params.key,
-                params.owner,
+                ...tokenCandidateValues,
             ) as { value: string } | undefined;
         return row?.value ?? null;
     }
@@ -1659,7 +1641,9 @@ function countMatchingTokens(params: {
     return row.count;
 }
 
-function normalizeSqliteCount(value: number | bigint | null | undefined): number {
+function normalizeSqliteCount(
+    value: number | bigint | null | undefined,
+): number {
     if (value === undefined || value === null) return 0;
     return typeof value === "bigint" ? Number(value) : value;
 }
@@ -2293,14 +2277,12 @@ function buildTokenQuerySpanAttributes(params: {
         [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
         [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]: params.tokenStatus,
         [ARTGOD_SPAN_ATTRIBUTE.CollectionLimit]: params.limit,
-        [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]:
-            params.cursorPresent,
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]: params.cursorPresent,
         [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]:
             params.traitFilterGroups.length,
         [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitRangesCount]:
             params.traitRangeFilterGroups.length,
-        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
-            Boolean(params.owner),
+        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]: Boolean(params.owner),
     };
 }
 
@@ -2309,22 +2291,104 @@ function resolveCollectionExactTraitTokenCandidates(params: {
     spanAttributes: SpanAttributes;
     chainId: number;
     collectionId: number;
+    seedTokenIds?: string[];
     traitFilterGroups: TraitFilterGroup[];
 }): TraitFilterTokenCandidates {
     return resolveTraitFilterTokenCandidatesWithSpan({
         apm: params.apm,
-        spanName: "backend.collection.db.trait_filter_token_candidates",
+        spanName: ARTGOD_SPAN_NAME.CollectionTraitFilterTokenCandidates,
         spanAttributes: params.spanAttributes,
         chainId: params.chainId,
         collectionId: params.collectionId,
+        seedTokenIds: params.seedTokenIds,
         traitFilterGroups: params.traitFilterGroups,
         traitRangeFilterGroups: [],
     });
 }
 
+function resolveCollectionOwnerTokenCandidates(params: {
+    apm: ApmPort;
+    spanAttributes: SpanAttributes;
+    chainId: number;
+    collectionId: number;
+    owner?: string;
+}): TokenCandidates {
+    return resolveOwnerTokenCandidatesWithSpan({
+        apm: params.apm,
+        spanName: ARTGOD_SPAN_NAME.CollectionOwnerTokenCandidates,
+        spanAttributes: params.spanAttributes,
+        chainId: params.chainId,
+        collectionId: params.collectionId,
+        owner: params.owner,
+    });
+}
+
+function resolveCollectionTokenCandidates(params: {
+    apm: ApmPort;
+    spanAttributes: SpanAttributes;
+    chainId: number;
+    collectionId: number;
+    traitFilterGroups: TraitFilterGroup[];
+    owner?: string;
+}): TokenCandidates {
+    const ownerTokenCandidates = resolveCollectionOwnerTokenCandidates({
+        apm: params.apm,
+        spanAttributes: params.spanAttributes,
+        chainId: params.chainId,
+        collectionId: params.collectionId,
+        owner: params.owner,
+    });
+    if (ownerTokenCandidates.isEmpty) {
+        return ownerTokenCandidates;
+    }
+
+    const traitTokenCandidates = resolveCollectionExactTraitTokenCandidates({
+        apm: params.apm,
+        spanAttributes: params.spanAttributes,
+        chainId: params.chainId,
+        collectionId: params.collectionId,
+        seedTokenIds: ownerTokenCandidates.tokenIds ?? undefined,
+        traitFilterGroups: params.traitFilterGroups,
+    });
+    if (traitTokenCandidates.isEmpty) {
+        return traitTokenCandidates;
+    }
+
+    return mergeTokenCandidates(traitTokenCandidates, ownerTokenCandidates);
+}
+
+function mergeTokenCandidates(
+    ...candidates: TokenCandidates[]
+): TokenCandidates {
+    if (candidates.some((candidate) => candidate.isEmpty)) {
+        return {
+            tokenIds: [],
+            isEmpty: true,
+            candidateTokenIdsCount: 0,
+        };
+    }
+
+    const concreteCandidateSets = candidates.flatMap((candidate) =>
+        candidate.tokenIds === null ? [] : [candidate.tokenIds],
+    );
+    if (concreteCandidateSets.length === 0) {
+        return {
+            tokenIds: null,
+            isEmpty: false,
+        };
+    }
+
+    const tokenIds = intersectTokenIdSets(concreteCandidateSets);
+    return {
+        tokenIds,
+        isEmpty: tokenIds.length === 0,
+        candidateTokenIdsCount: tokenIds.length,
+    };
+}
+
 function withCandidateSpanAttributes(
     spanAttributes: SpanAttributes,
-    candidates: TraitFilterTokenCandidates,
+    candidates: TokenCandidates,
 ): SpanAttributes {
     if (candidates.candidateTokenIdsCount === undefined) {
         return spanAttributes;
@@ -2340,7 +2404,6 @@ function buildTokenQueryParts(params: {
     chainId: number;
     collectionId: number;
     traitRangeFilterGroups: TraitRangeFilterGroup[];
-    owner?: string;
 }): {
     baseJoinClauses: string[];
     baseJoinValues: unknown[];
@@ -2354,20 +2417,6 @@ function buildTokenQueryParts(params: {
         "t.collection_id = ?",
     ];
     const baseWhereValues: unknown[] = [params.chainId, params.collectionId];
-
-    if (params.owner) {
-        baseWhereClauses.push(
-            "EXISTS (" +
-                "SELECT 1 FROM nft_balances b " +
-                "WHERE b.chain_id = t.chain_id " +
-                "AND b.collection_id = t.collection_id " +
-                "AND b.token_id = t.token_id " +
-                "AND b.owner = ? " +
-                "AND CAST(b.amount AS INTEGER) > 0" +
-                ")",
-        );
-        baseWhereValues.push(params.owner);
-    }
 
     const { joinClauses: traitRangeJoinClauses, values: traitRangeValues } =
         buildTokenTraitRangeJoinClauses({

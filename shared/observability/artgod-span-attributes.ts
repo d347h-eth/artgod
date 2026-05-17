@@ -1,3 +1,11 @@
+// Names ArtGod spans shared by backend routes, use cases, and read-model adapters.
+export const ARTGOD_SPAN_NAME = {
+    CollectionTraitFilterTokenCandidates:
+        "backend.collection.db.trait_filter_token_candidates",
+    CollectionOwnerTokenCandidates:
+        "backend.collection.db.owner_token_candidates",
+} as const;
+
 // Names ArtGod span attributes shared by backend routes, use cases, and read-model adapters.
 export const ARTGOD_SPAN_ATTRIBUTE = {
     DeploymentMode: "artgod.deployment_mode",

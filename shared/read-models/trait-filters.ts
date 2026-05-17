@@ -5,6 +5,11 @@ import type {
 } from "../observability/apm.js";
 import type { TraitFilter, TraitRangeFilter } from "../types/browse.js";
 import { ReadModelBadRequestError } from "./errors.js";
+import {
+    buildTokenCandidateWhereClauses,
+    intersectTokenIdSets,
+    type TokenCandidates,
+} from "./token-candidates.js";
 
 export type TraitFilterGroup = {
     key: string;
@@ -21,11 +26,7 @@ type TokenIdRow = {
     token_id: string;
 };
 
-export type TraitFilterTokenCandidates = {
-    tokenIds: string[] | null;
-    isEmpty: boolean;
-    candidateTokenIdsCount?: number;
-};
+export type TraitFilterTokenCandidates = TokenCandidates;
 
 export function normalizeTraitFilters(filters: TraitFilter[]): TraitFilter[] {
     const deduped: TraitFilter[] = [];
@@ -184,6 +185,7 @@ export function resolveTraitFilterTokenCandidatesWithSpan(params: {
     chainId: number;
     collectionId: number;
     tokenId?: string;
+    seedTokenIds?: string[];
     traitFilterGroups: TraitFilterGroup[];
     traitRangeFilterGroups: TraitRangeFilterGroup[];
 }): TraitFilterTokenCandidates {
@@ -205,40 +207,18 @@ export function resolveTraitFilterTokenCandidatesWithSpan(params: {
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 tokenId: params.tokenId,
+                seedTokenIds: params.seedTokenIds,
                 traitFilterGroups: params.traitFilterGroups,
                 traitRangeFilterGroups: params.traitRangeFilterGroups,
             }),
     );
 }
 
-export function buildTokenCandidateWhereClauses(params: {
-    tokenIds: string[] | null;
-    tokenColumnSql: string;
-}): {
-    whereClauses: string[];
-    values: unknown[];
-} {
-    if (params.tokenIds === null) {
-        return { whereClauses: [], values: [] };
-    }
-    if (params.tokenIds.length === 0) {
-        return { whereClauses: ["1 = 0"], values: [] };
-    }
-
-    return {
-        whereClauses: [
-            `${params.tokenColumnSql} IN (${params.tokenIds
-                .map(() => "?")
-                .join(", ")})`,
-        ],
-        values: params.tokenIds,
-    };
-}
-
 function resolveTraitFilterTokenCandidates(params: {
     chainId: number;
     collectionId: number;
     tokenId?: string;
+    seedTokenIds?: string[];
     traitFilterGroups: TraitFilterGroup[];
     traitRangeFilterGroups: TraitRangeFilterGroup[];
 }): TraitFilterTokenCandidates {
@@ -250,6 +230,7 @@ function resolveTraitFilterTokenCandidates(params: {
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 tokenId: params.tokenId,
+                seedTokenIds: params.seedTokenIds,
                 traitFilterGroups: params.traitFilterGroups,
             }),
         );
@@ -261,6 +242,7 @@ function resolveTraitFilterTokenCandidates(params: {
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 tokenId: params.tokenId,
+                seedTokenIds: params.seedTokenIds,
                 traitRangeFilterGroups: params.traitRangeFilterGroups,
             }),
         );
@@ -285,9 +267,13 @@ function listExactTraitFilterTokenIds(params: {
     chainId: number;
     collectionId: number;
     tokenId?: string;
+    seedTokenIds?: string[];
     traitFilterGroups: TraitFilterGroup[];
 }): string[] {
     if (params.traitFilterGroups.length === 0) {
+        return [];
+    }
+    if (params.seedTokenIds?.length === 0) {
         return [];
     }
 
@@ -300,10 +286,18 @@ function listExactTraitFilterTokenIds(params: {
         );
         values.push(filterGroup.key, ...filterGroup.values);
     }
+    const {
+        whereClauses: seedTokenWhereClauses,
+        values: seedTokenValues,
+    } = buildTokenCandidateWhereClauses({
+        tokenIds: params.seedTokenIds ?? null,
+        tokenColumnSql: "ta.token_id",
+    });
     values.push(
         params.chainId,
         params.collectionId,
         ...(params.tokenId ? [params.tokenId] : []),
+        ...seedTokenValues,
         params.traitFilterGroups.length,
     );
 
@@ -325,6 +319,9 @@ function listExactTraitFilterTokenIds(params: {
                 "WHERE ta.chain_id = ? " +
                 "AND ta.collection_id = ? " +
                 (params.tokenId ? "AND ta.token_id = ? " : "") +
+                seedTokenWhereClauses
+                    .map((clause) => `AND ${clause} `)
+                    .join("") +
                 "GROUP BY ta.token_id " +
                 "HAVING COUNT(DISTINCT ma.key) = ? " +
                 "ORDER BY ta.token_id",
@@ -337,9 +334,13 @@ function listTraitRangeFilterTokenIds(params: {
     chainId: number;
     collectionId: number;
     tokenId?: string;
+    seedTokenIds?: string[];
     traitRangeFilterGroups: TraitRangeFilterGroup[];
 }): string[] {
     if (params.traitRangeFilterGroups.length === 0) {
+        return [];
+    }
+    if (params.seedTokenIds?.length === 0) {
         return [];
     }
 
@@ -373,10 +374,18 @@ function listTraitRangeFilterTokenIds(params: {
             values.push(filterGroup.toValue);
         }
     }
+    const {
+        whereClauses: seedTokenWhereClauses,
+        values: seedTokenValues,
+    } = buildTokenCandidateWhereClauses({
+        tokenIds: params.seedTokenIds ?? null,
+        tokenColumnSql: "ta.token_id",
+    });
     values.push(
         params.chainId,
         params.collectionId,
         ...(params.tokenId ? [params.tokenId] : []),
+        ...seedTokenValues,
         params.traitRangeFilterGroups.length,
     );
 
@@ -398,26 +407,13 @@ function listTraitRangeFilterTokenIds(params: {
                 "WHERE ta.chain_id = ? " +
                 "AND ta.collection_id = ? " +
                 (params.tokenId ? "AND ta.token_id = ? " : "") +
+                seedTokenWhereClauses
+                    .map((clause) => `AND ${clause} `)
+                    .join("") +
                 "GROUP BY ta.token_id " +
                 "HAVING COUNT(DISTINCT mr.key) = ? " +
                 "ORDER BY ta.token_id",
         )
         .all(...values) as TokenIdRow[];
     return rows.map((row) => row.token_id);
-}
-
-function intersectTokenIdSets(candidateSets: string[][]): string[] {
-    const [firstSet, ...remainingSets] = candidateSets
-        .slice()
-        .sort((left, right) => left.length - right.length);
-    if (!firstSet) return [];
-
-    let tokenIds = firstSet;
-    for (const candidateSet of remainingSets) {
-        const allowed = new Set(candidateSet);
-        tokenIds = tokenIds.filter((tokenId) => allowed.has(tokenId));
-        if (tokenIds.length === 0) return [];
-    }
-
-    return tokenIds;
 }

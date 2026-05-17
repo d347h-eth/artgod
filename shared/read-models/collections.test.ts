@@ -3,12 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db, setDbPath } from "../database/db.js";
-import { ARTGOD_SPAN_ATTRIBUTE } from "../observability/artgod-span-attributes.js";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_SPAN_NAME,
+} from "../observability/artgod-span-attributes.js";
 import type { ApmPort, SpanAttributes } from "../observability/apm.js";
 import { TOKEN_BROWSER_STATUS } from "../types/browse.js";
 import { SqliteCollectionsReadModel } from "./collections.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const OWNER_A = "0x1111111111111111111111111111111111111111";
+const OWNER_B = "0x2222222222222222222222222222222222222222";
 
 class CapturingApm implements ApmPort {
     readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
@@ -136,7 +141,7 @@ describe("SqliteCollectionsReadModel observability", () => {
         expect(page.totalItems).toBe(0);
         expect(page.rangeStart).toBe(0);
         expect(apm.spans.map((span) => span.name)).toContain(
-            "backend.collection.db.trait_filter_token_candidates",
+            ARTGOD_SPAN_NAME.CollectionTraitFilterTokenCandidates,
         );
         expect(apm.spans.map((span) => span.name)).not.toContain(
             "backend.collection.db.tokens_page",
@@ -180,7 +185,7 @@ describe("SqliteCollectionsReadModel observability", () => {
         ]);
         expect(page.totalItems).toBe(2);
         expect(apm.spans.map((span) => span.name)).toContain(
-            "backend.collection.db.trait_filter_token_candidates",
+            ARTGOD_SPAN_NAME.CollectionTraitFilterTokenCandidates,
         );
         expect(apm.spans.map((span) => span.name)).not.toContain(
             "backend.collection.db.tokens_count",
@@ -258,6 +263,117 @@ describe("SqliteCollectionsReadModel observability", () => {
         );
     });
 
+    it("uses owner candidates for all-token pagination", () => {
+        insertToken("1", "100");
+        insertToken("2", "200");
+        insertToken("3", "300");
+        insertBalance("1", OWNER_A);
+        insertBalance("2", OWNER_B);
+        insertBalance("3", OWNER_A);
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            owner: OWNER_A,
+            limit: 250,
+        });
+
+        expect(page.items.map((token) => token.tokenId)).toEqual(["1", "3"]);
+        expect(page.totalItems).toBe(2);
+        expect(apm.spans.map((span) => span.name)).toContain(
+            ARTGOD_SPAN_NAME.CollectionOwnerTokenCandidates,
+        );
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.collection.db.tokens_page",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
+                        2,
+                }),
+            }),
+        );
+    });
+
+    it("intersects owner and trait candidates for token pagination", () => {
+        insertToken("1", "300");
+        insertToken("2", "100");
+        insertToken("3", "200");
+        insertTokenTrait("1", "Mode", "Terrain");
+        insertTokenTrait("2", "Mode", "Terrain");
+        insertTokenTrait("3", "Mode", "Space");
+        insertBalance("1", OWNER_A);
+        insertBalance("2", OWNER_B);
+        insertBalance("3", OWNER_A);
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.ListedThenUnlisted,
+            traitFilters: [{ key: "Mode", value: "Terrain" }],
+            owner: OWNER_A,
+            limit: 250,
+        });
+
+        expect(page.items.map((token) => token.tokenId)).toEqual(["1"]);
+        expect(page.totalItems).toBe(1);
+        const spanNames = apm.spans.map((span) => span.name);
+        expect(spanNames).toContain(
+            ARTGOD_SPAN_NAME.CollectionOwnerTokenCandidates,
+        );
+        expect(spanNames).toContain(
+            ARTGOD_SPAN_NAME.CollectionTraitFilterTokenCandidates,
+        );
+        expect(
+            spanNames.indexOf(ARTGOD_SPAN_NAME.CollectionOwnerTokenCandidates),
+        ).toBeLessThan(
+            spanNames.indexOf(
+                ARTGOD_SPAN_NAME.CollectionTraitFilterTokenCandidates,
+            ),
+        );
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.collection.db.tokens_page",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
+                        1,
+                }),
+            }),
+        );
+    });
+
+    it("short-circuits owner-filtered traits when the owner has no tokens", () => {
+        insertToken("1", "100");
+        insertTokenTrait("1", "Mode", "Terrain");
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const page = readModel.listCollectionTokens({
+            chainId: 1,
+            collectionId: 1,
+            tokenStatus: TOKEN_BROWSER_STATUS.All,
+            traitFilters: [{ key: "Mode", value: "Terrain" }],
+            owner: OWNER_A,
+            limit: 250,
+        });
+
+        expect(page.items).toEqual([]);
+        expect(page.totalItems).toBe(0);
+        expect(apm.spans.map((span) => span.name)).toContain(
+            ARTGOD_SPAN_NAME.CollectionOwnerTokenCandidates,
+        );
+        expect(apm.spans.map((span) => span.name)).not.toContain(
+            ARTGOD_SPAN_NAME.CollectionTraitFilterTokenCandidates,
+        );
+        expect(apm.spans.map((span) => span.name)).not.toContain(
+            "backend.collection.db.tokens_page",
+        );
+    });
+
     it("hydrates explicit token-card listings without changing caller order", () => {
         insertToken("1", "100");
         insertToken("2", "200");
@@ -276,6 +392,67 @@ describe("SqliteCollectionsReadModel observability", () => {
             "200",
             "100",
         ]);
+    });
+
+    it("uses owner candidates for owner-scoped trait facets", () => {
+        insertToken("1", "100");
+        insertToken("2", "200");
+        insertToken("3", "300");
+        insertTokenTrait("1", "Hat", "Beanie");
+        insertTokenTrait("1", "Mode", "Terrain");
+        insertTokenTrait("1", "Rank", "5");
+        insertTokenTrait("2", "Mode", "Space");
+        insertTokenTrait("2", "Rank", "100");
+        insertTokenTrait("3", "Hat", "Cap");
+        insertTokenTrait("3", "Mode", "Terrain");
+        insertTokenTrait("3", "Rank", "9");
+        insertBalance("1", OWNER_A);
+        insertBalance("2", OWNER_B);
+        insertBalance("3", OWNER_A);
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const facets = readModel.listCollectionTraitFacets(1, 1, OWNER_A, {
+            rangeOnlyKeys: ["Rank"],
+        });
+
+        expect(facets).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    key: "Hat",
+                    values: [
+                        { value: "Beanie", tokenCount: 1 },
+                        { value: "Cap", tokenCount: 1 },
+                    ],
+                }),
+                expect.objectContaining({
+                    key: "Mode",
+                    values: [{ value: "Terrain", tokenCount: 2 }],
+                }),
+                {
+                    key: "Rank",
+                    displayKind: "range",
+                    minValue: "5",
+                    maxValue: "9",
+                    values: [],
+                },
+            ]),
+        );
+        expect(
+            facets.find((facet) => facet.key === "Mode")?.values,
+        ).not.toContainEqual({ value: "Space", tokenCount: 1 });
+        expect(apm.spans.map((span) => span.name)).toContain(
+            ARTGOD_SPAN_NAME.CollectionOwnerTokenCandidates,
+        );
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.collection.db.trait_facets",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
+                        2,
+                }),
+            }),
+        );
     });
 
     it("returns range-only trait facets without high-cardinality values", () => {
@@ -456,6 +633,12 @@ function insertToken(tokenId: string, price: string): void {
         null,
         null,
     );
+}
+
+function insertBalance(tokenId: string, owner: string, amount = "1"): void {
+    db.prepare(
+        "INSERT INTO nft_balances (chain_id, collection_id, token_id, owner, amount) VALUES (?, ?, ?, ?, ?)",
+    ).run(1, 1, tokenId, owner, amount);
 }
 
 function insertTokenTrait(tokenId: string, key: string, value: string): void {
