@@ -1141,8 +1141,9 @@ async function handleBootstrapBackfillCheck(
         return;
     }
 
-    const count = storage.countBlocksInRange(
+    const count = storage.countCollectionSyncedBlocksInRange(
         payload.chainId,
+        payload.collectionId,
         payload.fromBlock,
         payload.toBlock,
     );

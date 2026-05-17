@@ -43,6 +43,14 @@ export class SqliteStorage implements StoragePort {
             "ON CONFLICT(chain_id, block_number) DO UPDATE SET " +
             "block_hash = excluded.block_hash, parent_hash = excluded.parent_hash, timestamp = excluded.timestamp",
     );
+    private upsertCollectionSyncBlock = db.prepare<
+        { chainId: number; collectionId: number; blockNumber: number }
+    >(
+        "INSERT INTO collection_sync_blocks (chain_id, collection_id, block_number) " +
+            "VALUES (@chainId, @collectionId, @blockNumber) " +
+            "ON CONFLICT(chain_id, collection_id, block_number) DO UPDATE SET " +
+            "last_synced_at = CURRENT_TIMESTAMP",
+    );
     private insertTransaction = db.prepare<
         [number, string, string, string | null, string, number, string, number]
     >(
@@ -151,6 +159,12 @@ export class SqliteStorage implements StoragePort {
     private countBlocksInRangeStmt = db.prepare<[number, number, number]>(
         "SELECT COUNT(1) as count FROM blocks WHERE chain_id = ? AND block_number BETWEEN ? AND ?",
     );
+    private countCollectionSyncedBlocksInRangeStmt = db.prepare<
+        [number, number, number, number]
+    >(
+        "SELECT COUNT(1) as count FROM collection_sync_blocks " +
+            "WHERE chain_id = ? AND collection_id = ? AND block_number BETWEEN ? AND ?",
+    );
     private selectTransfersFromBlock = db.prepare<[number, number]>(
         "SELECT collection_id, contract_address AS contract, from_address, to_address, token_id, amount, block_number, block_hash, block_timestamp, tx_hash, log_index, kind " +
             "FROM nft_transfer_events WHERE chain_id = ? AND block_number >= ? " +
@@ -222,6 +236,11 @@ export class SqliteStorage implements StoragePort {
     private deleteBlocksFromBlock = db.prepare<[number, number]>(
         "DELETE FROM blocks WHERE chain_id = ? AND block_number >= ?",
     );
+    private deleteCollectionSyncBlocksFromBlock = db.prepare<
+        [number, number]
+    >(
+        "DELETE FROM collection_sync_blocks WHERE chain_id = ? AND block_number >= ?",
+    );
 
     persistSyncResult(
         chainId: number,
@@ -235,6 +254,7 @@ export class SqliteStorage implements StoragePort {
                 collections.map((collection) => [collection.id, collection]),
             );
             this.persistBlocks(chainId, blocks);
+            this.persistCollectionSyncBlocks(chainId, blocks, collections);
             this.persistTransactions(chainId, data.transactions, blockMeta);
             const inserted = this.persistTransfers(chainId, data, blockMeta);
             this.persistFills(chainId, data, blockMeta);
@@ -278,6 +298,22 @@ export class SqliteStorage implements StoragePort {
         return row?.count ?? 0;
     }
 
+    countCollectionSyncedBlocksInRange(
+        chainId: number,
+        collectionId: number,
+        fromBlock: number,
+        toBlock: number,
+    ): number {
+        if (fromBlock > toBlock) return 0;
+        const row = this.countCollectionSyncedBlocksInRangeStmt.get(
+            chainId,
+            collectionId,
+            fromBlock,
+            toBlock,
+        ) as BlockCountRow | undefined;
+        return row?.count ?? 0;
+    }
+
     rollbackFromBlock(chainId: number, fromBlock: number): void {
         const run = db.raw.transaction(() => {
             const events = this.selectTransfersFromBlock.all(
@@ -302,6 +338,7 @@ export class SqliteStorage implements StoragePort {
             this.deleteMetadataFromBlock.run(chainId, fromBlock);
             this.deleteOrdersFromBlock.run(chainId, fromBlock);
             this.deleteTransactionsFromBlock.run(chainId, fromBlock);
+            this.deleteCollectionSyncBlocksFromBlock.run(chainId, fromBlock);
             this.deleteBlocksFromBlock.run(chainId, fromBlock);
         });
         run();
@@ -317,6 +354,23 @@ export class SqliteStorage implements StoragePort {
                 block.parentHash,
                 block.timestamp,
             );
+        }
+    }
+
+    private persistCollectionSyncBlocks(
+        chainId: number,
+        blocks: RpcBlock[],
+        collections: CollectionRecord[],
+    ): void {
+        // Mark coverage for each collection this sync job actually targeted.
+        for (const collection of collections) {
+            for (const block of blocks) {
+                this.upsertCollectionSyncBlock.run({
+                    chainId,
+                    collectionId: collection.id,
+                    blockNumber: block.number,
+                });
+            }
         }
     }
 
