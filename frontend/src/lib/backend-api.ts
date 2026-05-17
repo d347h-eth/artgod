@@ -1,6 +1,7 @@
 import type {
 	BootstrapRunDetailApiResponse,
 	BootstrapRetryFailedResponse,
+	BootstrapContractProbeApiResponse,
 	BootstrapRunCreateResponse,
 	BootstrapRunsApiResponse,
 	BatchTokenBiddingJobMutationApiResponse,
@@ -147,6 +148,20 @@ export async function scheduleBlockspaceBackfill(
 		`/api/${encodeURIComponent(chainRef)}/blockspace/backfill`,
 		'POST',
 		body
+	);
+}
+
+export async function probeBootstrapCollectionContract(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	address: string
+): Promise<BootstrapContractProbeApiResponse> {
+	const query = new URLSearchParams();
+	query.set('address', address);
+	query.set('standard', 'erc721');
+	return requestJson<BootstrapContractProbeApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/collections/bootstrap/probe?${query.toString()}`
 	);
 }
 
