@@ -14,6 +14,10 @@ import type {
     CreateBootstrapRunRoute,
 } from "./http/handlers/bootstrap/create-bootstrap-run.js";
 import type {
+    ProbeCollectionContractHttpAdapter,
+    ProbeCollectionContractRoute,
+} from "./http/handlers/bootstrap/probe-collection-contract.js";
+import type {
     GetBootstrapRunDetailHttpAdapter,
     GetBootstrapRunDetailRoute,
 } from "./http/handlers/bootstrap/get-bootstrap-run-detail.js";
@@ -217,6 +221,7 @@ export function registerApiRoutes(
         reply: FastifyReply,
     ) => Promise<{ token: string }>,
     createBootstrapRunAdapter: CreateBootstrapRunHttpAdapter,
+    probeCollectionContractAdapter: ProbeCollectionContractHttpAdapter,
     listBootstrapRunsAdapter: ListBootstrapRunsHttpAdapter,
     getBootstrapRunDetailAdapter: GetBootstrapRunDetailHttpAdapter,
     getBootstrapStatusAdapter: GetBootstrapStatusHttpAdapter,
@@ -498,6 +503,12 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/collections/bootstrap",
         createBootstrapRunAdapter.handle,
+    );
+    registerObservedGet<ProbeCollectionContractRoute>(
+        app,
+        options,
+        "/api/:chain_ref/collections/bootstrap/probe",
+        probeCollectionContractAdapter.handle,
     );
     registerObservedGet<ListBootstrapRunsRoute>(
         app,

@@ -15,6 +15,10 @@ import type {
     BootstrapRunsWritePort,
     ChainRefResolverPort,
 } from "./ports.js";
+import {
+    BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT,
+    BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT,
+} from "./bootstrap-limits.js";
 
 export type EmbeddedCollectionExtensionResolveInput = {
     chainId: number;
@@ -323,7 +327,7 @@ function resolveEnumerationInput(
                 "Token IDs list cannot be empty",
             );
         }
-        if (manualInput.tokenIds.length > 50_000) {
+        if (manualInput.tokenIds.length > BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT) {
             throw new BootstrapValidationError("Token IDs list is too large");
         }
         const normalized = manualInput.tokenIds.map((tokenId) =>
@@ -348,7 +352,7 @@ function resolveEnumerationInput(
             "totalSupply must be a positive integer",
         );
     }
-    if (totalSupply > 1_000_000) {
+    if (totalSupply > BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT) {
         throw new BootstrapValidationError("totalSupply is too large");
     }
     return {

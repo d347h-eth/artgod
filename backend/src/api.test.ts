@@ -473,6 +473,10 @@ beforeAll(async () => {
         await import("./infra/collection-extensions/built-in-collection-extension-resolver.js");
     const createBootstrapUseCaseModule =
         await import("./application/use-cases/bootstrap/create-bootstrap-run.js");
+    const probeCollectionContractUseCaseModule =
+        await import(
+            "./application/use-cases/bootstrap/probe-collection-contract.js"
+        );
     const getBootstrapStatusUseCaseModule =
         await import("./application/use-cases/bootstrap/get-bootstrap-status.js");
     const listBootstrapRunsUseCaseModule =
@@ -498,6 +502,46 @@ beforeAll(async () => {
             bootstrapRepository,
             builtInCollectionExtensionResolver,
             bootstrapQueueMock,
+        );
+    const probeCollectionContractUseCase =
+        new probeCollectionContractUseCaseModule.ProbeCollectionContractUseCase(
+            1,
+            chainsReadModel,
+            {
+                async probeErc721Contract() {
+                    return {
+                        erc721: {
+                            supported: true,
+                            error: null,
+                        },
+                        enumerable: {
+                            supported: true,
+                            error: null,
+                        },
+                        totalSupply: {
+                            status: "available",
+                            value: "3",
+                            safeIntegerValue: 3,
+                            bootstrapRangeValue: 3,
+                            error: null,
+                        },
+                        firstToken: {
+                            tokenId: "1",
+                            source: "token_by_index",
+                            tokenUri:
+                                "data:application/json,%7B%22name%22%3A%22Milady%201%22%7D",
+                            tokenUriPayloadBytes: 19,
+                            tokenUriPayloadTruncated: false,
+                            tokenUriPayloadError: null,
+                            name: "Milady 1",
+                            image: "https://example.com/1.png",
+                            animationUrl: null,
+                            metadataError: null,
+                            candidates: [],
+                        },
+                    };
+                },
+            },
         );
     const getBootstrapStatusUseCase =
         new getBootstrapStatusUseCaseModule.GetBootstrapStatusUseCase(
@@ -651,6 +695,7 @@ beforeAll(async () => {
 
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
+        probeCollectionContractUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
@@ -698,6 +743,7 @@ beforeAll(async () => {
     );
     publicApp = appModule.createApiApp(
         createBootstrapRunUseCase,
+        probeCollectionContractUseCase,
         listBootstrapRunsUseCase,
         getBootstrapRunDetailUseCase,
         getBootstrapStatusUseCase,
@@ -991,6 +1037,12 @@ describe("backend api routes", () => {
             { fromBlock: 0, toBlock: 0 },
         );
         expect(syncBackfillWritePost.statusCode).toBe(403);
+
+        const bootstrapProbe = await resolvePublic(
+            "GET",
+            `/api/ethereum/collections/bootstrap/probe?address=${TERRAFORMS_ADDRESS}`,
+        );
+        expect(bootstrapProbe.statusCode).toBe(404);
 
         const customization = await resolvePublic(
             "GET",
@@ -3918,6 +3970,21 @@ describe("backend api routes", () => {
         );
         expect(create.statusCode).toBe(200);
         expect(create.payload.runId).toEqual(expect.any(Number));
+
+        const probe = await resolve(
+            "GET",
+            `/api/ethereum/collections/bootstrap/probe?address=${TERRAFORMS_ADDRESS}`,
+        );
+        expect(probe.statusCode).toBe(200);
+        expect(probe.payload.enumerable.supported).toBe(true);
+        expect(probe.payload.firstToken.tokenId).toBe("1");
+        expect(probe.payload.storageEstimate.projectedBytes).toBe("57");
+        expect(probe.payload.suggestedInput).toEqual(
+            expect.objectContaining({
+                supportsEnumerable: true,
+                ready: true,
+            }),
+        );
 
         const status = await resolve(
             "GET",
