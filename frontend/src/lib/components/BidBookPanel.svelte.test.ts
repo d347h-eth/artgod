@@ -344,9 +344,12 @@ describe('BidBookPanel', () => {
 			}
 		});
 
-		expect(body).toContain('>filter</button>');
-		expect(body).toContain('>bid</button>');
-		expect(body.indexOf('>filter</button>')).toBeLessThan(body.indexOf('>bid</button>'));
+		const filterButtonIndex = body.indexOf('aria-label="filter');
+		const bidIconIndex = body.indexOf('bid-book-place-bid-icon', filterButtonIndex);
+		expect(body).toContain('filter-icon');
+		expect(body).toContain('bid-book-place-bid-icon');
+		expect(filterButtonIndex).toBeGreaterThanOrEqual(0);
+		expect(bidIconIndex).toBeGreaterThan(filterButtonIndex);
 	});
 
 	it('uses maker filter links when provided', () => {

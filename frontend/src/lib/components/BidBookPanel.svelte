@@ -19,6 +19,8 @@
 		bidBookPriceEffectiveEth,
 		bidBookRowEffectivePriceWei
 	} from '$lib/bidding-bid-book-price';
+	import FilterIcon from '$lib/components/FilterIcon.svelte';
+	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
@@ -968,7 +970,7 @@
 											title={`filter ${group.label}`}
 											onclick={() => filterTraitDemandGroup(group)}
 										>
-											filter
+											<FilterIcon />
 										</button>
 									{/if}
 									{#if onSelectBid}
@@ -979,7 +981,7 @@
 											title={placeBidLabel(group.label)}
 											onclick={() => selectTraitDemandBid(group)}
 										>
-											bid
+											<PlaceBidIcon className="bid-book-place-bid-icon" />
 										</button>
 									{/if}
 								</div>

@@ -3384,19 +3384,37 @@ th {
 .secondary-tabs a:focus-visible,
 .bid-book-place-bid-icon-button:hover,
 .bid-book-place-bid-icon-button:focus-visible {
-	border-color: var(--c-yellow);
 	color: var(--c-yellow);
 	outline: none;
 }
 
 .bid-book-place-bid-icon-button {
 	align-self: baseline;
-	min-width: 3.8ch;
+	border-color: transparent;
+	background: transparent;
+	min-width: 20px;
+	width: 20px;
 	min-height: 14px;
 	height: 14px;
-	padding: 0 0.45rem;
+	padding: 0;
 	line-height: 12px;
 	vertical-align: baseline;
+}
+
+.bid-book-place-bid-icon-button .filter-icon,
+.bid-book-place-bid-icon {
+	width: 11px;
+	height: 11px;
+	display: block;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.45;
+	stroke-linecap: square;
+	stroke-linejoin: miter;
+}
+
+.bid-book-place-bid-icon {
+	fill: currentColor;
 }
 
 .runtime-tabs button:disabled:hover,
