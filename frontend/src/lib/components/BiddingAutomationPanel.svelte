@@ -210,7 +210,11 @@
 		currentDraft: BiddingAutomationDraft | null,
 		lookedUpJob: ApiBiddingJob | null
 	): ApiBiddingJob | null {
-		return currentDraft?.existingJob ?? lookedUpJob ?? value;
+		// Draft targets must not inherit a page-local job from a different scope.
+		if (currentDraft) {
+			return currentDraft.existingJob ?? lookedUpJob ?? null;
+		}
+		return value;
 	}
 
 	function resolveLoadedPanelKey(

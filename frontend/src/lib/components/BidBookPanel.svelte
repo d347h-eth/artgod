@@ -271,6 +271,10 @@
 		return bid.scope.label || bid.scope.traits.map((trait) => `${trait.type}=${trait.value}`).join(' + ');
 	}
 
+	function scopeActionLabel(bid: ApiBiddingBidBookRow): string {
+		return bid.scope.label || formatScope(bid);
+	}
+
 	function demandDisplayTraits(
 		group: BidBookDemandGroup
 	): ApiBiddingBidBookRow['scope']['traits'] {
@@ -375,6 +379,10 @@
 
 	function placeBidLabel(label: string): string {
 		return `place bid on ${label}`;
+	}
+
+	function shouldRenderScopeBidControl(bid: ApiBiddingBidBookRow): boolean {
+		return !!onSelectBid && !shouldRenderTraitScopeControls(bid);
 	}
 
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
@@ -1132,7 +1140,22 @@
 											{/if}
 										</div>
 									{:else}
-										<span class="bid-book-scope-label">{formatScope(bid)}</span>
+										{#if shouldRenderScopeBidControl(bid)}
+											<div class="bid-book-demand-group-header bid-book-row-scope-header">
+												<span class="bid-book-scope-label">{formatScope(bid)}</span>
+												<button
+													type="button"
+													class="bid-book-place-bid-icon-button"
+													aria-label={placeBidLabel(scopeActionLabel(bid))}
+													title={placeBidLabel(scopeActionLabel(bid))}
+													onclick={() => selectBid(bid)}
+												>
+													<PlaceBidIcon className="bid-book-place-bid-icon" />
+												</button>
+											</div>
+										{:else}
+											<span class="bid-book-scope-label">{formatScope(bid)}</span>
+										{/if}
 									{/if}
 								</td>
 							{/if}

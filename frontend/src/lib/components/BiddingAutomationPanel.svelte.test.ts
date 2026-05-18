@@ -9,7 +9,7 @@ import {
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
 import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
-import type { ApiBiddingBidBookRow } from '$lib/api-types';
+import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import BiddingAutomationPanel from './BiddingAutomationPanel.svelte';
 
 function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
@@ -210,6 +210,78 @@ describe('BiddingAutomationPanel', () => {
 	});
 
 	it('prefers an existing trait job config over selected-bid draft pricing', () => {
+		const existingTraitJob: ApiBiddingJob = {
+			jobId: 'job-trait-1',
+			status: TRADING_JOB_STATUS.Enabled,
+			revision: 2,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T12:00:00Z',
+			archivedAt: null,
+			target: {
+				type: TRADING_JOB_TARGET_KIND.Collection,
+				quantity: 1,
+				targetTraits: [{ type: 'Biome', value: '42' }]
+			},
+			config: {
+				floorEth: '0.2',
+				ceilingEth: '0.4',
+				deltaEth: '0.01',
+				pricingSource: null
+			},
+			runtime: null
+		};
+		const draft = buildBiddingAutomationDraftFromBid({
+			orderId: '0xtrait-bid',
+			source: 'orders',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+				jobId: null,
+				status: null,
+				phase: null
+			},
+			scope: {
+				kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+				label: 'Biome=42',
+				tokenId: null,
+				traits: [{ type: 'Biome', value: '42' }]
+			},
+			maker: {
+				address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				isOwn: false
+			},
+			price: exactPrice('300000000000000000', '0.3'),
+			quantity: '1',
+			currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+			currencySymbol: 'WETH',
+			protocolAddress: null,
+			validUntil: 1_900_000_000,
+			placedAt: '2026-01-02T00:00:00Z',
+			snapshotRefreshedAtMs: null,
+			seenAt: '2026-01-02T00:00:00Z',
+			ownStatus: null
+		}, existingTraitJob);
+
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: null,
+				job: null,
+				draft,
+				onClose: () => {}
+			}
+		});
+
+		expect(body).toContain('value="0.2"');
+		expect(body).toContain('value="0.4"');
+		expect(body).toContain('value="0.01"');
+		expect(body).not.toContain('value="0.301"');
+		expect(body).toContain('disabled>modify<');
+	});
+
+	it('does not apply the page token job to a selected trait bid draft', () => {
 		const draft = buildBiddingAutomationDraftFromBid({
 			orderId: '0xtrait-bid',
 			source: 'orders',
@@ -247,37 +319,18 @@ describe('BiddingAutomationPanel', () => {
 				open: true,
 				chain: testChain(),
 				collection: testCollection(),
-				token: null,
-				job: {
-					jobId: 'job-trait-1',
-					status: TRADING_JOB_STATUS.Enabled,
-					revision: 2,
-					createdAt: '2026-01-01T00:00:00Z',
-					updatedAt: '2026-01-01T12:00:00Z',
-					archivedAt: null,
-					target: {
-						type: TRADING_JOB_TARGET_KIND.Collection,
-						quantity: 1,
-						targetTraits: [{ type: 'Biome', value: '42' }]
-					},
-					config: {
-						floorEth: '0.2',
-						ceilingEth: '0.4',
-						deltaEth: '0.01',
-						pricingSource: null
-					},
-					runtime: null
-				},
+				token: testToken(),
+				job: testTokenJob(TRADING_JOB_STATUS.Enabled),
 				draft,
 				onClose: () => {}
 			}
 		});
 
-		expect(body).toContain('value="0.2"');
-		expect(body).toContain('value="0.4"');
-		expect(body).toContain('value="0.01"');
-		expect(body).not.toContain('value="0.301"');
-		expect(body).toContain('disabled>modify<');
+		expect(body).toContain('Biome=42');
+		expect(body).toContain('value="0.301"');
+		expect(body).not.toContain('value="0.1"');
+		expect(body).not.toContain('value="0.2"');
+		expect(body).toContain('>create<');
 	});
 
 	it('renders paused token jobs with activate and archive actions', () => {

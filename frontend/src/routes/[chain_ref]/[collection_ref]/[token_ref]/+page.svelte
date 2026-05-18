@@ -39,6 +39,7 @@
 	} from '$lib/bidding-query';
 	import {
 		bestBiddingAutomationBid,
+		buildBiddingAutomationDraftFromBid,
 		buildTokenBiddingAutomationDraftFromBid,
 		biddingTraitCriteriaToTokenAttributes,
 		type BiddingAutomationDraft
@@ -210,10 +211,9 @@
 			return null;
 		}
 		if (selectedTokenBidBookBid) {
-			return buildTokenBiddingAutomationDraftFromBid(
+			return buildBiddingAutomationDraftFromBid(
 				selectedTokenBidBookBid,
-				displayedToken.tokenId,
-				tokenBiddingJob
+				existingJobForSelectedBid(selectedTokenBidBookBid)
 			);
 		}
 		if (tokenBiddingJob) {
@@ -224,6 +224,17 @@
 			return null;
 		}
 		return buildTokenBiddingAutomationDraftFromBid(topBid, displayedToken.tokenId);
+	}
+
+	function existingJobForSelectedBid(bid: ApiBiddingBidBookRow): ApiBiddingJob | null {
+		// Only reuse the page token job when the selected bid targets the displayed token.
+		if (
+			bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token &&
+			bid.scope.tokenId === displayedToken?.tokenId
+		) {
+			return tokenBiddingJob;
+		}
+		return null;
 	}
 
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {

@@ -6,7 +6,10 @@ import {
 	TERRAFORMS_MODE_ATTRIBUTE_KEY,
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
-import { TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND } from '@artgod/shared/types';
+import {
+	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BIDDING_BID_SCOPE_KIND
+} from '@artgod/shared/types';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
 import type { ApiBiddingBidBookRow } from '$lib/api-types';
 import { TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS } from '$lib/activity-extension-views/terraforms/constants';
@@ -102,7 +105,7 @@ describe('token detail page', () => {
 								updatedAt: null,
 								snapshotRefreshedAtMs: null,
 								projectedAt: null,
-								rowCount: 2,
+								rowCount: 3,
 								durationMs: null,
 								lastError: null
 							},
@@ -121,6 +124,32 @@ describe('token detail page', () => {
 									maker: {
 										address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 										label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+										isOwn: false
+									},
+									price: exactPrice('100000000000000000', '0.1'),
+									quantity: '1',
+									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+									currencySymbol: 'WETH',
+									protocolAddress: null,
+									validUntil: 4_000_000_000,
+									placedAt: '2026-01-01T00:00:00Z',
+									snapshotRefreshedAtMs: null,
+									seenAt: '2026-01-01T00:00:00Z',
+									ownStatus: null
+								},
+								{
+									orderId: '0xtoken-bid',
+									source: 'orders',
+									materialization: marketMaterialization(),
+									scope: {
+										kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+										label: '#1',
+										tokenId: '1',
+										traits: []
+									},
+									maker: {
+										address: '0xdddddddddddddddddddddddddddddddddddddddd',
+										label: '0xdddddddddddddddddddddddddddddddddddddddd',
 										isOwn: false
 									},
 									price: exactPrice('100000000000000000', '0.1'),
@@ -201,6 +230,8 @@ describe('token detail page', () => {
 		expect(body).toContain('bid_scope=traits&amp;traits=Hat%3ABeanie');
 		expect(body).toContain('filter-icon');
 		expect(body).toContain('bid-book-place-bid-icon');
+		expect(body).toContain('aria-label="place bid on #1"');
+		expect(body).toContain('aria-label="place bid on collection"');
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 		);
