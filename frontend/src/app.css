@@ -406,9 +406,16 @@ a:hover {
 	letter-spacing: 0.04em;
 }
 
-.sync-grid-wrap {
+.sync-grid-layout {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.75rem;
 	overflow: auto;
 	padding: 0.75rem;
+}
+
+.sync-grid-wrap {
+	flex: 0 0 auto;
 }
 
 .sync-grid {
@@ -454,6 +461,58 @@ a:hover {
 
 .sync-grid-cell-complete {
 	background: var(--c-blue);
+}
+
+.sync-depth-rail {
+	display: inline-flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	min-width: 11rem;
+}
+
+.sync-depth-level {
+	display: grid;
+	grid-template-columns: 2.5rem minmax(0, 1fr);
+	gap: 0.35rem;
+	align-items: baseline;
+	border: 1px solid var(--c-blue);
+	padding: 0.18rem 0.35rem;
+	font-size: 0.72rem;
+	line-height: 1.15;
+}
+
+.sync-depth-level:hover {
+	border-color: var(--c-yellow);
+}
+
+.sync-depth-level-active {
+	color: var(--c-orange);
+	border-color: var(--c-orange);
+}
+
+.sync-depth-level-active:hover {
+	border-color: var(--c-orange);
+}
+
+.sync-depth-level-name {
+	color: inherit;
+	text-transform: uppercase;
+}
+
+.sync-depth-level-range {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sync-backfill-actions {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.45rem;
+	flex-wrap: wrap;
+	padding: 0 0.75rem 0.75rem;
 }
 
 .status-form label {

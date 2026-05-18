@@ -25,7 +25,7 @@
 	let feedback: string | null = $state(null);
 
 	let selectedCollection = $derived(syncState?.context.selected ?? collection ?? SYNC_BACKFILL_CONTEXT_ANY);
-	let canGoUp = $derived(stack.length > 0);
+	let depthLevels = $derived(buildDepthLevels());
 
 	function queryHref(nextCollection: string, nextStack: string[]): string {
 		const query = new URLSearchParams();
@@ -46,20 +46,23 @@
 		void goto(queryHref(target.value, stack));
 	}
 
-	function goRoot(): void {
-		feedback = null;
-		void goto(queryHref(selectedCollection, []));
-	}
-
-	function goUp(): void {
-		feedback = null;
-		void goto(queryHref(selectedCollection, stack.slice(0, -1)));
-	}
-
-	function drill(cell: ApiSyncBackfillGridCell): void {
-		if (!cell.canDrillDown || cell.blockCount <= 1) return;
+	async function handleCellClick(cell: ApiSyncBackfillGridCell): Promise<void> {
+		if (cell.blockCount === 1) {
+			await copyTerminalBlock(cell.fromBlock);
+			return;
+		}
+		if (!cell.canDrillDown) return;
 		feedback = null;
 		void goto(queryHref(selectedCollection, [...stack, `${cell.fromBlock}-${cell.toBlock}`]));
+	}
+
+	async function copyTerminalBlock(blockNumber: number): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(String(blockNumber));
+			feedback = `copied block ${blockNumber}`;
+		} catch {
+			feedback = 'block copy failed';
+		}
 	}
 
 	async function queueVisibleRange(): Promise<void> {
@@ -88,7 +91,8 @@
 
 	function cellLabel(cell: ApiSyncBackfillGridCell): string {
 		const range = formatRange(cell.fromBlock, cell.toBlock, cell.blockCount);
-		return `${range}: ${cell.syncedBlockCount}/${cell.blockCount} synced`;
+		const action = cell.blockCount === 1 ? ', click to copy block number' : '';
+		return `${range}: ${cell.syncedBlockCount}/${cell.blockCount} synced${action}`;
 	}
 
 	function formatRange(fromBlock: number, toBlock: number, blockCount: number): string {
@@ -97,8 +101,31 @@
 		return `${fromBlock}-${toBlock}`;
 	}
 
-	function formatNullableBlock(value: number | null): string {
-		return value === null ? 'none' : String(value);
+	function buildDepthLevels(): Array<{
+		key: string;
+		label: string;
+		range: string;
+		href: string;
+		active: boolean;
+	}> {
+		if (!syncState) return [];
+		const rootRange = `${syncState.summary.genesisBlock}-${syncState.summary.headBlock}`;
+		return [
+			{
+				key: 'root',
+				label: 'root',
+				range: rootRange,
+				href: queryHref(selectedCollection, []),
+				active: stack.length === 0
+			},
+			...stack.map((range, index) => ({
+				key: `${index + 1}:${range}`,
+				label: `L${index + 1}`,
+				range,
+				href: queryHref(selectedCollection, stack.slice(0, index + 1)),
+				active: index === stack.length - 1
+			}))
+		];
 	}
 </script>
 
@@ -129,23 +156,14 @@
 					{/each}
 				</select>
 			</label>
-			<button type="button" onclick={goRoot} disabled={!syncState || stack.length === 0}>root</button>
-			<button type="button" onclick={goUp} disabled={!syncState || !canGoUp}>up</button>
-			<button type="button" onclick={queueVisibleRange} disabled={!syncState || submitting}>
-				{submitting ? 'queueing...' : 'backfill range'}
-			</button>
 		</div>
 	</header>
 
 	{#if syncState}
 		<section class="sync-summary" aria-label="Sync summary">
 			<div>
-				<span class="sync-summary-label">head</span>
-				<span>{syncState.summary.headBlock}</span>
-			</div>
-			<div>
-				<span class="sync-summary-label">highest synced</span>
-				<span>{formatNullableBlock(syncState.summary.highestSyncedBlock)}</span>
+				<span class="sync-summary-label">observed</span>
+				<span>{syncState.range.blockCount} blocks</span>
 			</div>
 			<div>
 				<span class="sync-summary-label">range</span>
@@ -161,34 +179,50 @@
 			</div>
 		</section>
 
-		<div class="sync-grid-wrap">
-			<div
-				class="sync-grid"
-				style={`--sync-grid-dimension: ${SYNC_BACKFILL_GRID_DIMENSION}`}
-				aria-label="Block sync coverage grid"
-			>
-				{#each syncState.grid as cell (cell.index)}
-					<button
-						type="button"
-						class={cellClass(cell)}
-						disabled={cell.blockCount <= 0}
-						title={cellLabel(cell)}
-						aria-label={cellLabel(cell)}
-						onclick={() => drill(cell)}
-					></button>
-				{/each}
+		<div class="sync-grid-layout">
+			<div class="sync-grid-wrap">
+				<div
+					class="sync-grid"
+					style={`--sync-grid-dimension: ${SYNC_BACKFILL_GRID_DIMENSION}`}
+					aria-label="Block sync coverage grid"
+				>
+					{#each syncState.grid as cell (cell.index)}
+						<button
+							type="button"
+							class={cellClass(cell)}
+							disabled={cell.blockCount <= 0}
+							title={cellLabel(cell)}
+							aria-label={cellLabel(cell)}
+							onclick={() => handleCellClick(cell)}
+						></button>
+					{/each}
+				</div>
 			</div>
+			<nav class="sync-depth-rail" aria-label="Sync depth levels">
+				{#each depthLevels as level}
+					{#if level.active}
+						<span class="sync-depth-level sync-depth-level-active">
+							<span class="sync-depth-level-name">{level.label}</span>
+							<span class="sync-depth-level-range">{level.range}</span>
+						</span>
+					{:else}
+						<a class="sync-depth-level" href={level.href}>
+							<span class="sync-depth-level-name">{level.label}</span>
+							<span class="sync-depth-level-range">{level.range}</span>
+						</a>
+					{/if}
+				{/each}
+			</nav>
 		</div>
 
-		<footer class="panel-footer">
-			<span class="muted">
-				{selectedCollection === SYNC_BACKFILL_CONTEXT_ANY ? 'any' : selectedCollection}
-				{syncState.summary.headSource === 'indexed' ? ' / indexed head' : ''}
-			</span>
+		<div class="sync-backfill-actions">
+			<button type="button" onclick={queueVisibleRange} disabled={!syncState || submitting}>
+				{submitting ? 'queueing...' : 'backfill range'}
+			</button>
 			{#if feedback}
 				<span class="muted">{feedback}</span>
 			{/if}
-		</footer>
+		</div>
 	{:else}
 		<div class="empty-cell">loading sync state</div>
 	{/if}
