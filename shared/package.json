@@ -9,6 +9,7 @@
     },
     "exports": {
         "./config/pagination": "./config/pagination.ts",
+        "./config/sync-backfill": "./config/sync-backfill.ts",
         "./config/opensea-integration": "./config/opensea-integration.ts",
         "./evm/transactions": "./evm/transactions.ts",
         "./extensions": "./extensions/index.ts",

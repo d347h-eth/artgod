@@ -30,6 +30,17 @@ describe("loadBackendConfig", () => {
         });
     });
 
+    it("uses the shared backfill batch size for backend-triggered sync jobs", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            BACKFILL_BATCH_SIZE: "25",
+        });
+
+        expect(config.sync).toEqual({
+            backfillBatchSize: 25,
+        });
+    });
+
     it("defaults backend observability to disabled runtime endpoints", () => {
         const config = loadBackendConfig(createBaseEnv());
 

@@ -43,6 +43,8 @@ import {
 import { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
+import { GetSyncBackfillStateUseCase } from "./application/use-cases/sync-backfill/get-sync-backfill-state.js";
+import { ScheduleSyncBackfillUseCase } from "./application/use-cases/sync-backfill/schedule-sync-backfill.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
 import { ListCollectionBiddingJobsUseCase } from "./application/use-cases/trading/list-collection-bidding-jobs.js";
@@ -83,6 +85,8 @@ import { SqliteCollectionExtensionRecords } from "./infra/collections/sqlite-col
 import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-health.js";
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
+import { NatsSyncBackfillCommandQueue } from "./infra/sync-backfill/nats-sync-backfill-command-queue.js";
+import { SqliteSyncBackfillRepository } from "./infra/sync-backfill/sqlite-sync-backfill-repository.js";
 import { NatsTradingJobCommandSignalPublisher } from "./infra/trading/nats-trading-job-command-signals.js";
 import { SqliteBiddingBidBookRepository } from "./infra/trading/sqlite-bidding-bid-book-repository.js";
 import { SqliteBiddingJobsRepository } from "./infra/trading/sqlite-bidding-jobs-repository.js";
@@ -190,6 +194,11 @@ export function createBackendApp(
     const biddingPriceTiersRepository = new SqliteBiddingPriceTiersRepository();
     const collectionSettingsRepository =
         new SqliteCollectionSettingsRepository();
+    const syncBackfillRepository = new SqliteSyncBackfillRepository();
+    const syncBackfillCommandQueue = new NatsSyncBackfillCommandQueue(
+        config.natsUrl,
+        config.natsStreamPrefix,
+    );
     const tradingJobCommandSignalPublisher =
         new NatsTradingJobCommandSignalPublisher(
             config.natsUrl,
@@ -244,6 +253,19 @@ export function createBackendApp(
         config.defaultChainId,
         chainsReadModel,
         collectionsReadModel,
+    );
+    const getSyncBackfillStateUseCase = new GetSyncBackfillStateUseCase(
+        config.defaultChainId,
+        chainsReadModel,
+        syncBackfillRepository,
+        backendRpcClient,
+    );
+    const scheduleSyncBackfillUseCase = new ScheduleSyncBackfillUseCase(
+        config.defaultChainId,
+        config.sync.backfillBatchSize,
+        chainsReadModel,
+        syncBackfillRepository,
+        syncBackfillCommandQueue,
     );
     const resolveOwnerRefUseCase = new ResolveOwnerRefUseCase(
         config.defaultChainId,
@@ -474,6 +496,8 @@ export function createBackendApp(
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
+        getSyncBackfillStateUseCase,
+        scheduleSyncBackfillUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,

@@ -17,6 +17,14 @@ import type { GetTokenPreviewPort } from "./application/use-cases/collections/ge
 import type { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
+import type {
+    GetSyncBackfillStateInput,
+    GetSyncBackfillStateOutput,
+} from "./application/use-cases/sync-backfill/get-sync-backfill-state.js";
+import type {
+    ScheduleSyncBackfillInput,
+    ScheduleSyncBackfillOutput,
+} from "./application/use-cases/sync-backfill/schedule-sync-backfill.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
 import type { ListCollectionBiddingJobsUseCase } from "./application/use-cases/trading/list-collection-bidding-jobs.js";
@@ -54,6 +62,8 @@ import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-toke
 import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-uri.js";
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
+import { GetSyncBackfillStateHttpAdapter } from "./http/handlers/sync-backfill/get-sync-backfill-state.js";
+import { ScheduleSyncBackfillHttpAdapter } from "./http/handlers/sync-backfill/schedule-sync-backfill.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
 import { ResolveOwnerRefHttpAdapter } from "./http/handlers/owners/resolve-owner-ref.js";
 import { ListCollectionBiddingJobsHttpAdapter } from "./http/handlers/trading/list-collection-bidding-jobs.js";
@@ -92,6 +102,20 @@ import type {
     BackendSecurityConfig,
 } from "./config.js";
 
+type MaybePromise<T> = T | Promise<T>;
+
+type GetSyncBackfillStatePort = {
+    getState(
+        input: GetSyncBackfillStateInput,
+    ): MaybePromise<GetSyncBackfillStateOutput>;
+};
+
+type ScheduleSyncBackfillPort = {
+    scheduleBackfill(
+        input: ScheduleSyncBackfillInput,
+    ): MaybePromise<ScheduleSyncBackfillOutput>;
+};
+
 export function createApiApp(
     createBootstrapRunUseCase: CreateBootstrapRunUseCase,
     listBootstrapRunsUseCase: ListBootstrapRunsUseCase,
@@ -101,6 +125,8 @@ export function createApiApp(
     getDefaultChainUseCase: GetDefaultChainUseCase,
     getRuntimeConfigUseCase: GetRuntimeConfigUseCase,
     listCollectionsUseCase: ListCollectionsUseCase,
+    getSyncBackfillStateUseCase: GetSyncBackfillStatePort,
+    scheduleSyncBackfillUseCase: ScheduleSyncBackfillPort,
     resolveOwnerRefUseCase: ResolveOwnerRefUseCase,
     getCollectionActivityUseCase: GetCollectionActivityUseCase,
     getActivityEventPreviewUseCase: GetActivityEventPreviewUseCase,
@@ -166,6 +192,12 @@ export function createApiApp(
     );
     const listCollectionsAdapter = new ListCollectionsHttpAdapter(
         listCollectionsUseCase,
+    );
+    const getSyncBackfillStateAdapter = new GetSyncBackfillStateHttpAdapter(
+        getSyncBackfillStateUseCase,
+    );
+    const scheduleSyncBackfillAdapter = new ScheduleSyncBackfillHttpAdapter(
+        scheduleSyncBackfillUseCase,
     );
     const resolveOwnerRefAdapter = new ResolveOwnerRefHttpAdapter(
         resolveOwnerRefUseCase,
@@ -284,6 +316,8 @@ export function createApiApp(
         getDefaultChainAdapter,
         getRuntimeConfigAdapter,
         listCollectionsAdapter,
+        getSyncBackfillStateAdapter,
+        scheduleSyncBackfillAdapter,
         resolveOwnerRefAdapter,
         getCollectionActivityAdapter,
         getActivityEventPreviewAdapter,

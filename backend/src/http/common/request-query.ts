@@ -95,6 +95,18 @@ export function parseLimit(raw: string | null): number {
     return parsed;
 }
 
+export function parseOptionalInteger(
+    raw: string | null,
+    field: string,
+): number | null {
+    if (!raw || !raw.trim()) return null;
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed)) {
+        throw new ReadModelBadRequestError(`Invalid ${field}`);
+    }
+    return parsed;
+}
+
 export function parseCursor(raw: string | null): string | null {
     if (!raw || !raw.trim()) return null;
     return raw.trim();

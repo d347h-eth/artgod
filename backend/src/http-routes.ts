@@ -83,6 +83,14 @@ import type {
     ListCollectionsRoute,
 } from "./http/handlers/collections/list-collections.js";
 import type {
+    GetSyncBackfillStateHttpAdapter,
+    GetSyncBackfillStateRoute,
+} from "./http/handlers/sync-backfill/get-sync-backfill-state.js";
+import type {
+    ScheduleSyncBackfillHttpAdapter,
+    ScheduleSyncBackfillRoute,
+} from "./http/handlers/sync-backfill/schedule-sync-backfill.js";
+import type {
     GetRuntimeHealthHttpAdapter,
     GetRuntimeHealthRoute,
 } from "./http/handlers/health/get-runtime-health.js";
@@ -213,6 +221,8 @@ export function registerApiRoutes(
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     getRuntimeConfigAdapter: GetRuntimeConfigHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
+    getSyncBackfillStateAdapter: GetSyncBackfillStateHttpAdapter,
+    scheduleSyncBackfillAdapter: ScheduleSyncBackfillHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
     getActivityEventPreviewAdapter: GetActivityEventPreviewHttpAdapter,
@@ -394,6 +404,18 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/collections",
         listCollectionsAdapter.handle,
+    );
+    registerObservedGet<GetSyncBackfillStateRoute>(
+        app,
+        options,
+        "/api/:chain_ref/sync-backfill",
+        getSyncBackfillStateAdapter.handle,
+    );
+    registerObservedPost<ScheduleSyncBackfillRoute>(
+        app,
+        options,
+        "/api/:chain_ref/sync-backfill/backfill",
+        scheduleSyncBackfillAdapter.handle,
     );
     registerObservedGet<GetCollectionCustomizationRoute>(
         app,

@@ -28,6 +28,11 @@ export class ViemBackendRpcClient {
         return resolvedAddress.toLowerCase();
     }
 
+    async getCurrentBlockNumber(): Promise<number> {
+        const blockNumber = await this.client.getBlockNumber();
+        return Number(blockNumber);
+    }
+
     async readContract<T = unknown>(params: {
         address: BackendRpcHex;
         abi: readonly unknown[];

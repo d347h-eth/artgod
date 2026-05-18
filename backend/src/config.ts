@@ -96,6 +96,10 @@ export type BackendApmConfig = {
     };
 };
 
+export type BackendSyncConfig = {
+    backfillBatchSize: number;
+};
+
 export type BackendConfig = {
     host: string;
     port: number;
@@ -109,6 +113,7 @@ export type BackendConfig = {
     security: BackendSecurityConfig;
     deployment: BackendDeploymentConfig;
     queryCache: BackendQueryCacheConfig;
+    sync: BackendSyncConfig;
     metrics: BackendMetricsConfig;
     apm: BackendApmConfig;
     integrations: {
@@ -152,6 +157,7 @@ export function loadBackendConfig(
     };
     const deployment = parseDeploymentConfig(env);
     const queryCache = parseQueryCacheConfig(env);
+    const sync = parseBackendSyncConfig(env);
     const metrics = parseBackendMetricsConfig(env);
     const apm = parseBackendApmConfig(env);
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
@@ -173,9 +179,22 @@ export function loadBackendConfig(
         security,
         deployment,
         queryCache,
+        sync,
         metrics,
         apm,
         integrations,
+    };
+}
+
+function parseBackendSyncConfig(
+    env: Record<string, string | undefined>,
+): BackendSyncConfig {
+    return {
+        backfillBatchSize: parsePositiveInteger(
+            env.BACKFILL_BATCH_SIZE,
+            "BACKFILL_BATCH_SIZE",
+            50,
+        ),
     };
 }
 

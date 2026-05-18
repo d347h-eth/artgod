@@ -537,6 +537,54 @@ beforeAll(async () => {
             bootstrapRepository,
             bootstrapQueueMock,
         );
+    const getSyncBackfillStateUseCase = {
+        async getState() {
+            return {
+                chain: {
+                    id: 1,
+                    type: "evm",
+                    publicChainId: 1,
+                    slug: "ethereum",
+                    name: "Ethereum",
+                },
+                context: { selected: "any", collections: [] },
+                range: {
+                    fromBlock: 0,
+                    toBlock: 0,
+                    blockCount: 1,
+                    bucketSize: 1,
+                    gridCellCount: 1024,
+                    canDrillDown: false,
+                },
+                summary: {
+                    genesisBlock: 0,
+                    headBlock: 0,
+                    headSource: "indexed" as const,
+                    highestSyncedBlock: null,
+                    syncedBlockCount: 0,
+                    selectedRangeSyncedBlockCount: 0,
+                },
+                grid: [],
+            };
+        },
+    };
+    const scheduleSyncBackfillUseCase = {
+        async scheduleBackfill() {
+            return {
+                chain: {
+                    id: 1,
+                    type: "evm",
+                    publicChainId: 1,
+                    slug: "ethereum",
+                    name: "Ethereum",
+                },
+                collection: null,
+                fromBlock: 0,
+                toBlock: 0,
+                queuedJobs: 1,
+            };
+        },
+    };
 
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
@@ -547,6 +595,8 @@ beforeAll(async () => {
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
+        getSyncBackfillStateUseCase,
+        scheduleSyncBackfillUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,
@@ -592,6 +642,8 @@ beforeAll(async () => {
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
+        getSyncBackfillStateUseCase,
+        scheduleSyncBackfillUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,
@@ -662,6 +714,9 @@ beforeAll(async () => {
                 warmupConcurrency: 2,
             },
         },
+        sync: {
+            backfillBatchSize: 50,
+        },
         metrics: {
             enabled: false,
             host: "127.0.0.1",
@@ -718,6 +773,13 @@ describe("backend api routes", () => {
         );
     });
 
+    it("returns chain sync/backfill state on the local API", async () => {
+        const result = await resolve("GET", "/api/ethereum/sync-backfill");
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.range.gridCellCount).toBe(1024);
+    });
+
     it("resolves ENS owner refs on the public API", async () => {
         const result = await resolvePublic(
             "GET",
@@ -752,6 +814,12 @@ describe("backend api routes", () => {
             "/api/ethereum/collections?limit=10",
         );
         expect(collections.statusCode).toBe(404);
+
+        const syncBackfill = await resolvePublic(
+            "GET",
+            "/api/ethereum/sync-backfill",
+        );
+        expect(syncBackfill.statusCode).toBe(404);
 
         const customization = await resolvePublic(
             "GET",
