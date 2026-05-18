@@ -49,6 +49,10 @@
 		traits: ApiBiddingBidBookRow['scope']['traits'];
 		label: string;
 	};
+	type BidBookTraitDemandFilterSelection = {
+		traits: ApiBiddingBidBookRow['scope']['traits'];
+		label: string;
+	};
 	type OwnBidStatusBadge = {
 		kind:
 			| 'winning'
@@ -81,6 +85,7 @@
 		makerFilterHref = null,
 		makerBidHref = null,
 		onSelectTraitDemandBid = null,
+		onFilterTraitDemandGroup = null,
 		onSelectBid = null
 	}: {
 		bidBook: ApiBiddingBidBook;
@@ -98,6 +103,9 @@
 		onSelectTraitDemandBid?:
 			| ((selection: BidBookTraitDemandBidSelection) => MaybePromise<void>)
 			| null;
+		onFilterTraitDemandGroup?:
+			| ((selection: BidBookTraitDemandFilterSelection) => MaybePromise<void>)
+			| null;
 		onSelectBid?: ((bid: ApiBiddingBidBookRow) => MaybePromise<void>) | null;
 	} = $props();
 
@@ -111,9 +119,10 @@
 
 	const visibleBids = $derived([...bidBook.bids].sort(compareBidRows));
 	const collapsedBidCount = $derived(resolveCollapsedBidCount(visibleBids));
-	const hiddenBidCount = $derived(Math.max(visibleBids.length - collapsedBidCount, 0));
+	const collapsedBids = $derived(resolveCollapsedBids(visibleBids, collapsedBidCount));
+	const hiddenBidCount = $derived(Math.max(visibleBids.length - collapsedBids.length, 0));
 	const displayedBids = $derived(
-		bidBookExpanded ? visibleBids : visibleBids.slice(0, collapsedBidCount)
+		bidBookExpanded ? visibleBids : collapsedBids
 	);
 	const ownBid = $derived(bestBid(visibleBids, (bid) => bid.maker.isOwn));
 	const opponentBid = $derived(bestBid(visibleBids, (bid) => !bid.maker.isOwn));
@@ -199,6 +208,13 @@
 		const cutoffPrice = minPrice + (maxPrice - minPrice) / 2n;
 		const firstHiddenIndex = rows.findIndex((bid) => bidSortPriceWei(bid) < cutoffPrice);
 		return firstHiddenIndex === -1 ? rows.length : Math.max(firstHiddenIndex, 1);
+	}
+
+	function resolveCollapsedBids(
+		rows: ApiBiddingBidBookRow[],
+		count: number
+	): ApiBiddingBidBookRow[] {
+		return rows.filter((bid, index) => index < count || bid.maker.isOwn);
 	}
 
 	function resolvePosition(
@@ -334,6 +350,16 @@
 			return;
 		}
 		void onSelectBid?.(group.bestBid);
+	}
+
+	function filterTraitDemandGroup(group: BidBookDemandGroup): void {
+		if (!onFilterTraitDemandGroup) {
+			return;
+		}
+		void onFilterTraitDemandGroup({
+			traits: group.traits,
+			label: group.label
+		});
 	}
 
 	function placeBidLabel(label: string): string {
@@ -608,6 +634,9 @@
 	}
 
 	function isMutedDemandGroup(group: BidBookDemandGroup): boolean {
+		if (group.bids.some((bid) => bid.maker.isOwn)) {
+			return false;
+		}
 		return isMutedBidForMedian(visibleDemandMedianPriceWei, group.bestBid);
 	}
 
@@ -656,6 +685,9 @@
 		bestBid: ApiBiddingBidBookRow,
 		bid: ApiBiddingBidBookRow
 	): boolean {
+		if (bid.maker.isOwn) {
+			return false;
+		}
 		const bestPriceWei = bidSortPriceWei(bestBid);
 		if (bestPriceWei <= 0n) {
 			return false;
@@ -667,6 +699,9 @@
 		medianPriceWei: bigint | null,
 		bid: ApiBiddingBidBookRow
 	): boolean {
+		if (bid.maker.isOwn) {
+			return false;
+		}
 		return medianPriceWei !== null && bidSortPriceWei(bid) * 2n < medianPriceWei;
 	}
 
@@ -924,6 +959,17 @@
 												<span class="runtime-v mono">{activeDemandMakerCount(group)}</span>
 											</div>
 										</div>
+									{/if}
+									{#if onFilterTraitDemandGroup}
+										<button
+											type="button"
+											class="bid-book-place-bid-icon-button"
+											aria-label={`filter ${group.label}`}
+											title={`filter ${group.label}`}
+											onclick={() => filterTraitDemandGroup(group)}
+										>
+											filter
+										</button>
 									{/if}
 									{#if onSelectBid}
 										<button

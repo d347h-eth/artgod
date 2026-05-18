@@ -735,20 +735,6 @@
 		});
 	}
 
-	function biddingFilterKeyFor(params: {
-		traits: ApiTokenAttribute[];
-		ranges: ApiTraitRangeFilter[];
-		nextTraitJoinMode?: ApiCollectionBiddingTraitFilterJoinMode;
-	}): string {
-		return JSON.stringify({
-			bidScope,
-			traitJoinMode: params.nextTraitJoinMode ?? traitJoinMode,
-			makerFilter,
-			activeTraits: params.traits,
-			activeTraitRanges: params.ranges
-		});
-	}
-
 	function tokenOffersUpdatedAt(): string {
 		const updatedAt = bidBook.state.updatedAt;
 		if (updatedAt) return updatedAt;
@@ -791,28 +777,16 @@
 			return;
 		}
 
-		const nextTraitJoinMode = 'or';
-		// Apply the demand bucket traits to the reusable trait filter controls first.
-		await applyTraitFilters(nextTraits, [], nextTraitJoinMode);
-		lastBiddingFilterKey = biddingFilterKeyFor({
-			traits: nextTraits,
-			ranges: [],
-			nextTraitJoinMode
-		});
-
-		// Draft the trait target through the same shared selection state as the top controls.
-		biddingAutomation.selectFilteredTokens(
-			buildFilteredTraitBiddingSelectionInput({
-				tokenCount: tokenOfferCards.totalItems,
-				filter: currentBiddingFilterSnapshot({
-					traits: nextTraits,
-					ranges: [],
-					nextTraitJoinMode
-				})
-			})
-		);
 		selectedBidDraft = buildBiddingAutomationDraftFromBid(selection.bid);
 		expandBiddingAutomationPanel();
+	}
+
+	async function onBidBookTraitDemandFilter(selection: {
+		traits: ApiBiddingBidBookRow['scope']['traits'];
+	}): Promise<void> {
+		const nextTraits = biddingTraitCriteriaToTokenAttributes(selection.traits);
+		const nextTraitJoinMode = 'or';
+		await applyTraitFilters(nextTraits, [], nextTraitJoinMode);
 	}
 
 	function placeCollectionBid(): void {
@@ -919,6 +893,7 @@
 		traitValueHref={bidBookTraitValueHref}
 		makerFilterHref={makerFilterHref}
 		onSelectTraitDemandBid={onBidBookTraitDemandBid}
+		onFilterTraitDemandGroup={onBidBookTraitDemandFilter}
 		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
 		showRowActions={bidScope !== 'collection'}
 	/>
@@ -962,6 +937,15 @@
 						onApply={onMakerFilterApply}
 						onClear={onMakerFilterClear}
 					/>
+					{#if ownMakerAddress}
+						<div class="secondary-tabs" aria-label="Own bid filter">
+							{#if isShowingOwnMakerBids()}
+								<button type="button" class="secondary-tab-active" disabled>my bids</button>
+							{:else}
+								<a href={makerFilterHref(ownMakerAddress)}>my bids</a>
+							{/if}
+						</div>
+					{/if}
 				</div>
 				<div class="panel-top-actions-row">
 					<span class="panel-top-actions-label">scope:</span>
@@ -982,15 +966,6 @@
 							<a href={bidScopeHref('collection')}>collection</a>
 						{/if}
 					</div>
-					{#if ownMakerAddress}
-						<div class="secondary-tabs" aria-label="Own bid filter">
-							{#if isShowingOwnMakerBids()}
-								<button type="button" class="secondary-tab-active" disabled>my bids</button>
-							{:else}
-								<a href={makerFilterHref(ownMakerAddress)}>my bids</a>
-							{/if}
-						</div>
-					{/if}
 				</div>
 				{#if showBidBookFilters}
 					<div class="panel-top-actions-row">

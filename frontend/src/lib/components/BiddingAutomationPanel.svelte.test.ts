@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
-import { TRADING_BIDDING_JOB_PRICING_SOURCE_KIND, TRADING_JOB_STATUS } from '@artgod/shared/types';
+import {
+	TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+	TRADING_BIDDING_TIER_SELECTION_MODE,
+	TRADING_JOB_STATUS
+} from '@artgod/shared/types';
 import { buildBiddingAutomationDraftFromBid } from '$lib/bidding-automation';
 import type { ApiBiddingBidBookRow } from '$lib/api-types';
 import BiddingAutomationPanel from './BiddingAutomationPanel.svelte';
@@ -107,6 +111,25 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('>modify<');
 		expect(body).toContain('>pause<');
 		expect(body).toContain('>archive<');
+	});
+
+	it('uses the collection default delta for empty manual drafts', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: testToken(),
+				job: null,
+				biddingSettings: {
+					tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Buttons,
+					defaultDeltaEth: '0.004',
+					updatedAt: null
+				}
+			}
+		});
+
+		expect(body).toContain('value="0.004"');
 	});
 
 	it('renders selected trait bid drafts as submittable collection-scope jobs', () => {

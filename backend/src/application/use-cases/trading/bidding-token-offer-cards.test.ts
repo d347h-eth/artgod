@@ -50,6 +50,13 @@ describe("bidding token offer cards", () => {
                     wei: "10",
                 }),
                 bid({
+                    orderId: "token-1-own-low",
+                    scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+                    tokenId: "1",
+                    wei: "1",
+                    isOwn: true,
+                }),
+                bid({
                     orderId: "token-2",
                     scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
                     tokenId: "2",
@@ -73,7 +80,7 @@ describe("bidding token offer cards", () => {
         assert.deepEqual([...offersByTokenId.keys()], ["1", "2"]);
         assert.deepEqual(
             offersByTokenId.get("1")?.map((offer) => offer.orderId),
-            ["token-1-top", "token-1-tie-a", "token-1-tie-b"],
+            ["token-1-top", "token-1-tie-a", "token-1-tie-b", "token-1-own-low"],
         );
     });
 

@@ -1633,8 +1633,9 @@ th {
 	display: inline-block;
 	margin-inline-start: 0.45rem;
 	padding: 0 0.28rem;
-	border: 1px solid currentColor;
-	color: var(--c-yellow);
+	border: 1px solid transparent;
+	background: var(--c-yellow);
+	color: var(--c-bg);
 	font-size: 0.58rem;
 	line-height: 1.2;
 	text-transform: uppercase;
@@ -1645,18 +1646,21 @@ th {
 .bid-book-own-status-ceiling,
 .bid-book-own-status-balance,
 .bid-book-own-status-allowance {
-	color: var(--c-pink);
+	background: var(--c-pink);
+	color: var(--c-bg);
 }
 
 .bid-book-own-status-draw,
 .bid-book-own-status-floor,
 .bid-book-own-status-queued,
 .bid-book-own-status-active_order {
-	color: var(--c-cyan);
+	background: var(--c-cyan);
+	color: var(--c-bg);
 }
 
 .bid-book-own-status-paused {
-	color: var(--c-orange);
+	background: var(--c-orange);
+	color: var(--c-bg);
 }
 
 .bid-book-time-header {

@@ -311,13 +311,16 @@
 		value: ApiBiddingJob | null,
 		currentDraft: BiddingAutomationDraft | null
 	): string {
+		if (value?.config.deltaEth) {
+			return value.config.deltaEth;
+		}
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
-			return currentDraft.pricing.deltaEth;
+			return currentDraft.pricing.deltaEth || biddingSettings.defaultDeltaEth;
 		}
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 			return currentDraft.pricing.deltaEth;
 		}
-		return value?.config.deltaEth ?? '';
+		return biddingSettings.defaultDeltaEth;
 	}
 
 	function resolveHasDraftChanges(): boolean {

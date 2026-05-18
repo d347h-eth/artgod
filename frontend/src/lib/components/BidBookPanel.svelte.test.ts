@@ -190,6 +190,72 @@ describe('BidBookPanel', () => {
 		expect(debugBody).not.toMatch(/<tr(?=[^>]*hidden)(?=[^>]*bid-book-muted-demand-group)[^>]*>/);
 	});
 
+	it('keeps own low bids visible and unmuted in row views', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'bot_snapshot',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 3,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [
+				{
+					...BASE_BID,
+					orderId: '0xtop',
+					scope: {
+						kind: 'token',
+						label: '#1',
+						tokenId: '1',
+						traits: []
+					},
+					price: exactPrice('1000000000000000000', '1')
+				},
+				{
+					...BASE_BID,
+					orderId: '0xown-low',
+					scope: {
+						kind: 'token',
+						label: '#2',
+						tokenId: '2',
+						traits: []
+					},
+					maker: {
+						address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						label: 'You',
+						isOwn: true
+					},
+					price: exactPrice('10000000000000000', '0.01')
+				},
+				{
+					...BASE_BID,
+					orderId: '0xother-low',
+					scope: {
+						kind: 'token',
+						label: '#3',
+						tokenId: '3',
+						traits: []
+					},
+					price: exactPrice('9000000000000000', '0.009')
+				}
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				showScope: true
+			}
+		});
+
+		expect(body).toMatch(/<tr class="bid-book-own-row">[\s\S]*data-open-sea-order-hash="0xown-low"/);
+		expect(body).not.toContain('data-open-sea-order-hash="0xother-low"');
+		expect(body).toContain('expand 1');
+	});
+
 	it('uses displayed rows only when resolving row price precision', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {
@@ -252,6 +318,35 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-price-quantity-empty');
 		expect(body).toContain('expand 1');
 		expect(body).not.toContain('0.000345');
+	});
+
+	it('renders separate trait-demand filter and bid actions', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'orders',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: null,
+			bids: [BASE_BID]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				view: 'trait-demand',
+				onFilterTraitDemandGroup: () => {},
+				onSelectBid: () => {}
+			}
+		});
+
+		expect(body).toContain('>filter</button>');
+		expect(body).toContain('>bid</button>');
+		expect(body.indexOf('>filter</button>')).toBeLessThan(body.indexOf('>bid</button>'));
 	});
 
 	it('uses maker filter links when provided', () => {

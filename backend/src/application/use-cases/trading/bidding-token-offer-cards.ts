@@ -169,6 +169,9 @@ function tokenOfferPassesCollectionBidFloor(
     bid: PersistedBiddingBidBookRow,
     topCollectionBidWei: bigint | null,
 ): boolean {
+    if (bid.isOwn) {
+        return true;
+    }
     if (topCollectionBidWei === null || topCollectionBidWei <= 0n) {
         return true;
     }
