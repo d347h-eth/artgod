@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TRADING_BIDDING_BID_SCOPE_KIND } from '@artgod/shared/types';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
@@ -213,6 +214,33 @@ describe('bestBiddingAutomationBid', () => {
 });
 
 describe('buildBiddingAutomationDraftFromSelection', () => {
+	it('uses selected bid selections as bid-priced drafts', () => {
+		const draft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid,
+			bid: {
+				...BASE_BID,
+				scope: {
+					kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+					label: 'Biome=42',
+					tokenId: null,
+					traits: [{ type: 'Biome', value: '42' }]
+				}
+			}
+		});
+
+		expect(draft?.target).toEqual({
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: [{ key: 'Biome', value: '42' }],
+			traitJoinMode: 'and'
+		});
+		expect(draft?.pricing).toEqual({
+			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+			floorEth: '0.301',
+			ceilingEth: '0.301',
+			deltaEth: '0.001'
+		});
+	});
+
 	it('turns clean exact trait filters into a trait job draft', () => {
 		const draft = buildBiddingAutomationDraftFromSelection({
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,

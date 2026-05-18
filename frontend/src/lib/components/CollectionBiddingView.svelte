@@ -48,7 +48,6 @@
 		buildBiddingAutomationDraftFromBid,
 		biddingTraitCriteriaToTokenAttributes,
 		canDraftTraitJobFromFilters,
-		type BiddingAutomationDraft,
 		type BiddingAutomationTokenFilterSnapshot
 	} from '$lib/bidding-automation';
 	import {
@@ -175,7 +174,6 @@
 	let tokenOffersHeadPrevCursor = $state<string | null>(tokenOfferCards.prevCursor);
 	let tokenOffersTailNextCursor = $state<string | null>(tokenOfferCards.nextCursor);
 	let tokenOffersPagingPending = $state(false);
-	let selectedBidDraft = $state<BiddingAutomationDraft | null>(null);
 	let lastBiddingFilterKey = $state('');
 	let biddingPanelExpandSignal = $state(0);
 	let priceTierPanelOpen = $state(false);
@@ -210,7 +208,7 @@
 	const selectionBiddingDraft = $derived(
 		currentBiddingSelection ? buildBiddingAutomationDraftFromSelection(currentBiddingSelection) : null
 	);
-	const selectedBiddingDraft = $derived(selectedBidDraft ?? selectionBiddingDraft);
+	const selectedBiddingDraft = $derived(selectionBiddingDraft);
 	const biddingAutomationPanelOpen = $derived(selectedBiddingDraft !== null);
 	const biddingSelectionStateKey = $derived(
 		biddingAutomationSelectionStateKey(currentBiddingSelection)
@@ -666,7 +664,6 @@
 
 	function bidOnFilteredTraits(): void {
 		if (!canBidOnTraits) return;
-		selectedBidDraft = null;
 		biddingAutomation.selectFilteredTokens(
 			buildFilteredTraitBiddingSelectionInput({
 				tokenCount: tokenOfferCards.totalItems,
@@ -677,7 +674,6 @@
 	}
 
 	function bidOnFilteredTokenOffers(): void {
-		selectedBidDraft = null;
 		if (isAllFilteredTokenSelectionActive()) {
 			if (canRefineTokenSelectionToVisiblePage) {
 				biddingAutomation.selectExplicitTokens(visibleTokenOfferCardIds);
@@ -695,7 +691,6 @@
 	}
 
 	function toggleVisibleTokenSelection(request: Omit<ToggleBiddingTokenInput, 'visibleTokenIds'>): void {
-		selectedBidDraft = null;
 		biddingAutomation.toggleToken({
 			...request,
 			visibleTokenIds: visibleTokenOfferCardIds
@@ -760,10 +755,8 @@
 			TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
 				? collectionJobs.find((job) => job.jobId === bid.materialization.jobId) ?? null
 				: null;
-		const draft = buildBiddingAutomationDraftFromBid(bid, existingJob);
-		if (!draft) return;
-		biddingAutomation.clearSelection();
-		selectedBidDraft = draft;
+		if (!buildBiddingAutomationDraftFromBid(bid, existingJob)) return;
+		biddingAutomation.selectBid({ bid, existingJob });
 		expandBiddingAutomationPanel();
 	}
 
@@ -777,7 +770,8 @@
 			return;
 		}
 
-		selectedBidDraft = buildBiddingAutomationDraftFromBid(selection.bid);
+		if (!buildBiddingAutomationDraftFromBid(selection.bid)) return;
+		biddingAutomation.selectBid({ bid: selection.bid });
 		expandBiddingAutomationPanel();
 	}
 
@@ -796,12 +790,10 @@
 	}
 
 	function closeBiddingAutomationPanel(): void {
-		selectedBidDraft = null;
 		biddingAutomation.clearSelection();
 	}
 
 	function clearBiddingSelection(): void {
-		selectedBidDraft = null;
 		biddingAutomation.clearSelection();
 	}
 

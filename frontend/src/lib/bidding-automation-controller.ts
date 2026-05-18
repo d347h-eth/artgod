@@ -3,10 +3,12 @@ import {
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
+	type BiddingAutomationSelectedBidSelection,
 	type BiddingAutomationFilterTargetIntent,
 	type BiddingAutomationSelection,
 	type BiddingAutomationTokenFilterSnapshot
 } from '$lib/bidding-automation';
+import { TRADING_BIDDING_BID_SCOPE_KIND } from '@artgod/shared/types';
 import type {
 	TokenCardSelectionGesture,
 	TokenCardSelectionState,
@@ -31,6 +33,7 @@ export type BiddingAutomationController = {
 	state: Readable<BiddingAutomationControllerState>;
 	selectFilteredTokens(input: SelectFilteredTokensInput): void;
 	selectExplicitTokens(tokenIds: string[]): void;
+	selectBid(selection: Omit<BiddingAutomationSelectedBidSelection, 'type'>): void;
 	toggleToken(input: ToggleBiddingTokenInput): void;
 	clearSelection(): void;
 	isTokenSelected(tokenId: string): boolean;
@@ -109,6 +112,15 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		});
 	}
 
+	function selectBid(selection: Omit<BiddingAutomationSelectedBidSelection, 'type'>): void {
+		state.set({
+			selection: {
+				type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid,
+				...selection
+			}
+		});
+	}
+
 	function clearSelection(): void {
 		state.set({ selection: null });
 	}
@@ -129,6 +141,7 @@ export function createBiddingAutomationController(): BiddingAutomationController
 		state: { subscribe: state.subscribe },
 		selectFilteredTokens,
 		selectExplicitTokens,
+		selectBid,
 		toggleToken,
 		clearSelection,
 		isTokenSelected,
@@ -157,6 +170,16 @@ export function describeBiddingAutomationSelection(
 		const count = selection.tokenIds.length;
 		return count === 1 ? '1 token selected' : `${count} tokens selected`;
 	}
+	if (selection.bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
+		const count = selection.bid.scope.traits.length;
+		return count === 1 ? '1 trait selected' : `${count} traits selected`;
+	}
+	if (selection.bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token) {
+		return '1 token selected';
+	}
+	if (selection.bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
+		return 'collection selected';
+	}
 	return 'bid selected';
 }
 
@@ -169,7 +192,7 @@ export function biddingAutomationSelectionStateKey(
 		return `explicit:${selection.tokenIds.join('\u0000')}`;
 	}
 	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
-		return `bid:${selection.bid.orderId}`;
+		return `bid:${selection.bid.orderId}:${selection.existingJob?.jobId ?? 'new'}`;
 	}
 	if (selection.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean) {
 		return [

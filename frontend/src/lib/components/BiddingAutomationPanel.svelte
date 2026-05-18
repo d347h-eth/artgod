@@ -261,24 +261,26 @@
 		value: ApiBiddingJob | null,
 		currentDraft: BiddingAutomationDraft | null
 	): BiddingAutomationPricingMode {
+		if (value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier) {
+			return BIDDING_AUTOMATION_PRICING_MODE.Tier;
+		}
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 			return BIDDING_AUTOMATION_PRICING_MODE.Tier;
 		}
-		return value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
-			? BIDDING_AUTOMATION_PRICING_MODE.Tier
-			: BIDDING_AUTOMATION_PRICING_MODE.Manual;
+		return BIDDING_AUTOMATION_PRICING_MODE.Manual;
 	}
 
 	function resolveInitialPriceTierId(
 		value: ApiBiddingJob | null,
 		currentDraft: BiddingAutomationDraft | null
 	): string {
+		if (value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier) {
+			return value.config.pricingSource.tierId;
+		}
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
 			return currentDraft.pricing.tierId;
 		}
-		return value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
-			? value.config.pricingSource.tierId
-			: '';
+		return '';
 	}
 
 	function resolveInitialStatus(value: ApiBiddingJob | null): EditableTokenJobStatus {
@@ -291,20 +293,26 @@
 		value: ApiBiddingJob | null,
 		currentDraft: BiddingAutomationDraft | null
 	): string {
+		if (value?.config.floorEth) {
+			return value.config.floorEth;
+		}
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
 			return currentDraft.pricing.floorEth;
 		}
-		return value?.config.floorEth ?? '';
+		return '';
 	}
 
 	function resolveInitialCeilingEth(
 		value: ApiBiddingJob | null,
 		currentDraft: BiddingAutomationDraft | null
 	): string {
+		if (value?.config.ceilingEth) {
+			return value.config.ceilingEth;
+		}
 		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
 			return currentDraft.pricing.ceilingEth;
 		}
-		return value?.config.ceilingEth ?? '';
+		return '';
 	}
 
 	function resolveInitialDeltaEth(

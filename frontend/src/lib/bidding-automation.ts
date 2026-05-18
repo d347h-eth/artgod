@@ -7,7 +7,7 @@ import type {
 	ApiTraitRangeFilter
 } from '$lib/api-types';
 import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
-import type { TokenBrowserStatus } from '@artgod/shared/types/browse';
+import { TRADING_BIDDING_BID_SCOPE_KIND, type TokenBrowserStatus } from '@artgod/shared/types';
 
 export const BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE = {
 	FilteredTokens: 'filtered_tokens',
@@ -120,6 +120,7 @@ export type BiddingAutomationExplicitTokenSelection = {
 export type BiddingAutomationSelectedBidSelection = {
 	type: typeof BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid;
 	bid: ApiBiddingBidBookRow;
+	existingJob?: ApiBiddingJob | null;
 };
 
 export type BiddingAutomationSelection =
@@ -258,6 +259,10 @@ export function buildBiddingAutomationDraftFromSelection(
 	selection: BiddingAutomationSelection,
 	existingJob: ApiBiddingJob | null = null
 ): BiddingAutomationDraft | null {
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
+		return buildBiddingAutomationDraftFromBid(selection.bid, selection.existingJob ?? existingJob);
+	}
+
 	const target = resolveDraftTargetFromSelection(selection);
 	if (!target) {
 		return null;
@@ -360,13 +365,13 @@ export function biddingTraitCriteriaToTokenAttributes(
 }
 
 function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomationDraftTarget | null {
-	if (bid.scope.kind === 'token' && bid.scope.tokenId) {
+	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
 			tokenIds: [bid.scope.tokenId]
 		};
 	}
-	if (bid.scope.kind === 'trait') {
+	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
 			traits: bid.scope.traits.map((trait) => ({
@@ -376,7 +381,7 @@ function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomation
 			traitJoinMode: 'and'
 		};
 	}
-	if (bid.scope.kind === 'collection') {
+	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.CollectionJob
 		};
