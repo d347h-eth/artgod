@@ -17,6 +17,7 @@ tags:
     - name: Collections
     - name: Activities
     - name: Bootstrap
+    - name: Sync
     - name: Trading
 
 paths:
@@ -151,6 +152,75 @@ paths:
                     $ref: "#/components/responses/BadRequest"
                 "404":
                     $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/sync-backfill:
+        get:
+            tags: [Sync]
+            summary: Get chain sync/backfill coverage grid
+            operationId: getSyncBackfillState
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - name: collection
+                  in: query
+                  required: false
+                  description: "`any` for global block coverage, or a live collection slug for collection-specific coverage"
+                  schema:
+                      type: string
+                      default: any
+                - name: from_block
+                  in: query
+                  required: false
+                  schema:
+                      type: integer
+                      minimum: 0
+                - name: to_block
+                  in: query
+                  required: false
+                  schema:
+                      type: integer
+                      minimum: 0
+            responses:
+                "200":
+                    description: Sync/backfill coverage state
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/SyncBackfillStateResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/sync-backfill/backfill:
+        post:
+            tags: [Sync]
+            summary: Queue manual backfill for a block range
+            operationId: scheduleSyncBackfill
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/ScheduleSyncBackfillRequest"
+            responses:
+                "200":
+                    description: Manual backfill jobs queued
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ScheduleSyncBackfillResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
                 "500":
                     $ref: "#/components/responses/InternalError"
 
@@ -1539,6 +1609,178 @@ components:
                             nullable: true
                 page:
                     $ref: "#/components/schemas/CursorPageCollection"
+
+        SyncBackfillCoverageState:
+            type: string
+            enum: [empty, partial, complete]
+
+        SyncBackfillCollectionOption:
+            type: object
+            required:
+                - chainId
+                - collectionId
+                - slug
+                - address
+                - status
+                - bootstrapAnchorBlock
+                - bootstrapLastSyncedBlock
+            additionalProperties: false
+            properties:
+                chainId:
+                    type: integer
+                collectionId:
+                    type: integer
+                slug:
+                    type: string
+                address:
+                    type: string
+                status:
+                    type: string
+                    enum: [live]
+                bootstrapAnchorBlock:
+                    type: integer
+                    nullable: true
+                bootstrapLastSyncedBlock:
+                    type: integer
+                    nullable: true
+
+        SyncBackfillGridCell:
+            type: object
+            required:
+                - index
+                - fromBlock
+                - toBlock
+                - blockCount
+                - syncedBlockCount
+                - state
+                - canDrillDown
+            additionalProperties: false
+            properties:
+                index:
+                    type: integer
+                fromBlock:
+                    type: integer
+                toBlock:
+                    type: integer
+                blockCount:
+                    type: integer
+                syncedBlockCount:
+                    type: integer
+                state:
+                    $ref: "#/components/schemas/SyncBackfillCoverageState"
+                canDrillDown:
+                    type: boolean
+
+        SyncBackfillStateResponse:
+            type: object
+            required: [chain, context, range, summary, grid]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                context:
+                    type: object
+                    required: [selected, collections]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: string
+                        collections:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/SyncBackfillCollectionOption"
+                range:
+                    type: object
+                    required:
+                        - fromBlock
+                        - toBlock
+                        - blockCount
+                        - bucketSize
+                        - gridCellCount
+                        - canDrillDown
+                    additionalProperties: false
+                    properties:
+                        fromBlock:
+                            type: integer
+                        toBlock:
+                            type: integer
+                        blockCount:
+                            type: integer
+                        bucketSize:
+                            type: integer
+                        gridCellCount:
+                            type: integer
+                        canDrillDown:
+                            type: boolean
+                summary:
+                    type: object
+                    required:
+                        - genesisBlock
+                        - headBlock
+                        - headSource
+                        - highestSyncedBlock
+                        - syncedBlockCount
+                        - selectedRangeSyncedBlockCount
+                    additionalProperties: false
+                    properties:
+                        genesisBlock:
+                            type: integer
+                        headBlock:
+                            type: integer
+                        headSource:
+                            type: string
+                            enum: [rpc, indexed]
+                        highestSyncedBlock:
+                            type: integer
+                            nullable: true
+                        syncedBlockCount:
+                            type: integer
+                        selectedRangeSyncedBlockCount:
+                            type: integer
+                grid:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/SyncBackfillGridCell"
+
+        ScheduleSyncBackfillRequest:
+            type: object
+            required: [fromBlock, toBlock]
+            additionalProperties: false
+            properties:
+                collectionRef:
+                    type: string
+                    nullable: true
+                    description: "`any` or omitted for all live/bootstrapping collections; otherwise a live collection slug"
+                fromBlock:
+                    type: integer
+                    minimum: 0
+                toBlock:
+                    type: integer
+                    minimum: 0
+
+        ScheduleSyncBackfillResponse:
+            type: object
+            required: [chain, collection, fromBlock, toBlock, queuedJobs]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    type: object
+                    nullable: true
+                    required: [collectionId, slug]
+                    additionalProperties: false
+                    properties:
+                        collectionId:
+                            type: integer
+                        slug:
+                            type: string
+                fromBlock:
+                    type: integer
+                toBlock:
+                    type: integer
+                queuedJobs:
+                    type: integer
 
         TokenAttribute:
             type: object

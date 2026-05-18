@@ -48,6 +48,18 @@ blocks(chain_id, block_number, block_hash, parent_hash, timestamp)
 - Primary key: `(chain_id, block_number)`
 - Used for reorg detection and persistence of canonical block metadata
 
+### `collection_sync_blocks`
+
+Defined in `032_collection_sync_blocks.sql`.
+
+```sql
+collection_sync_blocks(chain_id, collection_id, block_number, first_synced_at, last_synced_at)
+```
+
+- Primary key: `(chain_id, collection_id, block_number)`
+- Records which collection context a sync/backfill job actually processed for each block
+- Drives collection-specific sync/backfill coverage UI and collection-scoped bootstrap completion checks
+
 ### `transactions`
 
 ```sql
@@ -424,6 +436,7 @@ Key operations:
 
 - `persistSyncResult()`
     - writes blocks
+    - upserts per-collection block coverage for targeted collections
     - inserts transfer events, fills, and collection-extension events idempotently
     - applies balance updates only for newly inserted transfers
 - `getBlockHash()`
