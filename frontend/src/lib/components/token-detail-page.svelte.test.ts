@@ -231,7 +231,7 @@ describe('token detail page', () => {
 		expect(body).toContain('filter-icon');
 		expect(body).toContain('bid-book-place-bid-icon');
 		expect(body).toContain('aria-label="place bid on #1"');
-		expect(body).toContain('aria-label="place bid on collection"');
+		expect(body).not.toContain('aria-label="place bid on collection"');
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 		);

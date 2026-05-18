@@ -75,6 +75,7 @@
 		makerBidHref = null,
 		onSelectTraitDemandBid = null,
 		onFilterTraitDemandGroup = null,
+		canSelectBid = null,
 		onSelectBid = null
 	}: {
 		bidBook: ApiBiddingBidBook;
@@ -95,6 +96,7 @@
 		onFilterTraitDemandGroup?:
 			| ((selection: BidBookTraitDemandFilterSelection) => MaybePromise<void>)
 			| null;
+		canSelectBid?: ((bid: ApiBiddingBidBookRow) => boolean) | null;
 		onSelectBid?: ((bid: ApiBiddingBidBookRow) => MaybePromise<void>) | null;
 	} = $props();
 
@@ -325,6 +327,9 @@
 	}
 
 	function selectBid(bid: ApiBiddingBidBookRow): void {
+		if (!canSelectBidRow(bid)) {
+			return;
+		}
 		void onSelectBid?.(bid);
 	}
 
@@ -381,8 +386,12 @@
 		return `place bid on ${label}`;
 	}
 
+	function canSelectBidRow(bid: ApiBiddingBidBookRow): boolean {
+		return !!onSelectBid && (canSelectBid?.(bid) ?? true);
+	}
+
 	function shouldRenderScopeBidControl(bid: ApiBiddingBidBookRow): boolean {
-		return !!onSelectBid && !shouldRenderTraitScopeControls(bid);
+		return canSelectBidRow(bid) && !shouldRenderTraitScopeControls(bid);
 	}
 
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
@@ -957,7 +966,7 @@
 											<FilterIcon />
 										</button>
 									{/if}
-									{#if onSelectBid}
+									{#if canSelectBidRow(group.bestBid)}
 										<button
 											type="button"
 											class="bid-book-place-bid-icon-button"
@@ -1099,7 +1108,7 @@
 									</span>
 									<span class="bid-book-price-amount">{formatPriceAmount(bid)}</span>
 								</span>
-								{#if onSelectBid && showRowActions}
+								{#if canSelectBidRow(bid) && showRowActions}
 									<button
 										type="button"
 										class="button-link bid-book-row-action"
@@ -1127,7 +1136,7 @@
 													<FilterIcon />
 												</button>
 											{/if}
-											{#if onSelectBid}
+											{#if canSelectBidRow(bid)}
 												<button
 													type="button"
 													class="bid-book-place-bid-icon-button"

@@ -237,6 +237,13 @@
 		return null;
 	}
 
+	function canSelectTokenDetailBidBookBid(bid: ApiBiddingBidBookRow): boolean {
+		if (bid.scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
+			return true;
+		}
+		return bid.maker.isOwn;
+	}
+
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
 		selectedTokenBidBookBid = bid;
 	}
@@ -607,6 +614,7 @@
 				traitValueHref={bidBookTraitValueHref}
 				makerBidHref={bidBookMakerHref}
 				onFilterTraitDemandGroup={onBidBookTraitFilter}
+				canSelectBid={canSelectTokenDetailBidBookBid}
 				onSelectBid={onBidBookSelectBid}
 				showRowActions={false}
 			/>
