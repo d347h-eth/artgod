@@ -23,6 +23,8 @@ import type {
 	DefaultChainResponse,
 	OwnerRefResolutionApiResponse,
 	RuntimeConfigApiResponse,
+	ScheduleSyncBackfillApiResponse,
+	SyncBackfillStateApiResponse,
 	TokenBiddingBidBookApiResponse,
 	TokenBiddingJobApiResponse,
 	TokenBiddingJobMutationApiResponse,
@@ -73,6 +75,37 @@ export async function getCollectionsPage(
 	return requestJson<CollectionsApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/collections${suffix}`
+	);
+}
+
+export async function getSyncBackfillState(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	params: URLSearchParams
+): Promise<SyncBackfillStateApiResponse> {
+	const query = params.toString();
+	const suffix = query ? `?${query}` : '';
+	return requestJson<SyncBackfillStateApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/sync-backfill${suffix}`
+	);
+}
+
+export async function scheduleSyncBackfill(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	body: {
+		collectionRef?: string | null;
+		fromBlock: number;
+		toBlock: number;
+	}
+): Promise<ScheduleSyncBackfillApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<ScheduleSyncBackfillApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/sync-backfill/backfill`,
+		'POST',
+		body
 	);
 }
 

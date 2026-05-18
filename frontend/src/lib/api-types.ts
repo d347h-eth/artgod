@@ -821,3 +821,61 @@ export type BootstrapRetryFailedResponse = {
 	updatedCount: number;
 	status: string;
 };
+
+export type ApiSyncBackfillCoverageState = 'empty' | 'partial' | 'complete';
+
+export type ApiSyncBackfillCollectionOption = {
+	chainId: number;
+	collectionId: number;
+	slug: string;
+	address: string;
+	status: 'live';
+	bootstrapAnchorBlock: number | null;
+	bootstrapLastSyncedBlock: number | null;
+};
+
+export type ApiSyncBackfillGridCell = {
+	index: number;
+	fromBlock: number;
+	toBlock: number;
+	blockCount: number;
+	syncedBlockCount: number;
+	state: ApiSyncBackfillCoverageState;
+	canDrillDown: boolean;
+};
+
+export type SyncBackfillStateApiResponse = {
+	chain: ApiChain;
+	context: {
+		selected: string;
+		collections: ApiSyncBackfillCollectionOption[];
+	};
+	range: {
+		fromBlock: number;
+		toBlock: number;
+		blockCount: number;
+		bucketSize: number;
+		gridCellCount: number;
+		canDrillDown: boolean;
+	};
+	summary: {
+		genesisBlock: number;
+		headBlock: number;
+		headSource: 'rpc' | 'indexed';
+		highestSyncedBlock: number | null;
+		syncedBlockCount: number;
+		selectedRangeSyncedBlockCount: number;
+	};
+	grid: ApiSyncBackfillGridCell[];
+};
+
+export type ScheduleSyncBackfillApiResponse = {
+	chain: ApiChain;
+	collection: {
+		collectionId: number;
+		slug: string;
+	} | null;
+	fromBlock: number;
+	toBlock: number;
+	queuedJobs: number;
+};

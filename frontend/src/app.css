@@ -370,6 +370,85 @@ a:hover {
 	border-bottom: 1px solid var(--c-blue);
 }
 
+.sync-toolbar {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.45rem;
+	flex-wrap: wrap;
+}
+
+.sync-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.65rem 1rem;
+	padding: 0.75rem;
+	border-bottom: 1px solid var(--c-blue);
+	font-size: 0.76rem;
+}
+
+.sync-summary div {
+	display: inline-grid;
+	gap: 0.12rem;
+	min-width: 7rem;
+}
+
+.sync-summary-label {
+	color: var(--c-pink);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.sync-grid-wrap {
+	overflow: auto;
+	padding: 0.75rem;
+}
+
+.sync-grid {
+	--sync-block-size: clamp(8px, 2.1vw, 20px);
+	--sync-grid-gap: 1px;
+	display: grid;
+	grid-template-columns: repeat(var(--sync-grid-dimension), var(--sync-block-size));
+	grid-auto-rows: var(--sync-block-size);
+	gap: var(--sync-grid-gap);
+	width: fit-content;
+	max-width: 100%;
+}
+
+.sync-grid-cell {
+	width: var(--sync-block-size);
+	height: var(--sync-block-size);
+	min-width: var(--sync-block-size);
+	min-height: var(--sync-block-size);
+	padding: 0;
+	border: 0;
+	background: var(--c-sand);
+	cursor: pointer;
+}
+
+.sync-grid-cell:hover:not(:disabled),
+.sync-grid-cell:focus-visible:not(:disabled) {
+	outline: 1px solid var(--c-yellow);
+	outline-offset: 0;
+}
+
+.sync-grid-cell:disabled {
+	cursor: default;
+	opacity: 0.32;
+}
+
+.sync-grid-cell-empty {
+	background: var(--c-sand);
+}
+
+.sync-grid-cell-partial {
+	background: var(--c-cyan);
+}
+
+.sync-grid-cell-complete {
+	background: var(--c-blue);
+}
+
 .status-form label {
 	font-size: 0.75rem;
 	text-transform: uppercase;
