@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import {
+		TRADING_BIDDING_BID_SCOPE_KIND,
 		resolveTraitFilterDisplayKind,
 		TRAIT_FILTER_DISPLAY_KIND
 	} from '@artgod/shared/types';
@@ -31,11 +33,14 @@
 	import { getTokenDetail } from '$lib/backend-api';
 	import {
 		BID_SCOPE_QUERY_PARAM,
+		COLLECTION_BIDDING_BID_SCOPE_FILTER,
+		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 		buildCollectionBiddingQuery
 	} from '$lib/bidding-query';
 	import {
 		bestBiddingAutomationBid,
 		buildTokenBiddingAutomationDraftFromBid,
+		biddingTraitCriteriaToTokenAttributes,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
 	import { formatListingPrice } from '$lib/listing-price';
@@ -86,6 +91,7 @@
 	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
 	let displayedMediaAspectRatio = $state<number | null>(null);
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
+	let selectedTokenBidBookBid = $state<ApiBiddingBidBookRow | null>(null);
 	let tokenDetailRequestId = 0;
 	const tokenBiddingDraft = $derived(resolveTokenBiddingDraft());
 
@@ -94,6 +100,7 @@
 		displayedMedia = resolveInitialMediaState(data?.media);
 		displayedMediaAspectRatio = null;
 		tokenBiddingJob = data?.tokenBiddingJob ?? null;
+		selectedTokenBidBookBid = null;
 		tokenDetailRequestId += 1;
 	});
 
@@ -177,13 +184,13 @@
 	}
 
 	function bidBookScopeForBid(bid: ApiBiddingBidBookRow): ApiCollectionBiddingBidScopeFilter {
-		if (bid.scope.kind === 'collection') {
-			return 'collection';
+		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
+			return COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection;
 		}
-		if (bid.scope.kind === 'trait') {
-			return 'traits';
+		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
+			return COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits;
 		}
-		return 'token';
+		return COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
 	}
 
 	function shouldShowTokenBidBook(): boolean {
@@ -199,7 +206,17 @@
 	}
 
 	function resolveTokenBiddingDraft(): BiddingAutomationDraft | null {
-		if (tokenBiddingJob || !displayedToken) {
+		if (!displayedToken) {
+			return null;
+		}
+		if (selectedTokenBidBookBid) {
+			return buildTokenBiddingAutomationDraftFromBid(
+				selectedTokenBidBookBid,
+				displayedToken.tokenId,
+				tokenBiddingJob
+			);
+		}
+		if (tokenBiddingJob) {
 			return null;
 		}
 		const topBid = bestBiddingAutomationBid(data?.tokenBiddingBidBook?.bids ?? []);
@@ -207,6 +224,16 @@
 			return null;
 		}
 		return buildTokenBiddingAutomationDraftFromBid(topBid, displayedToken.tokenId);
+	}
+
+	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
+		selectedTokenBidBookBid = bid;
+	}
+
+	async function onBidBookTraitFilter(selection: {
+		traits: ApiBiddingBidBookRow['scope']['traits'];
+	}): Promise<void> {
+		await goto(bidBookTraitsHref(biddingTraitCriteriaToTokenAttributes(selection.traits)));
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -368,6 +395,24 @@
 			selectedTraitRanges: [],
 			mediaMode: collectionNavigationMediaMode()
 		});
+	}
+
+	function bidBookTraitValueHref(trait: { key: string; value: string }): string {
+		return bidBookTraitsHref([trait]);
+	}
+
+	function bidBookTraitsHref(traits: { key: string; value: string }[]): string {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: traits,
+			selectedTraitRanges: [],
+			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+			mediaMode: collectionNavigationMediaMode(),
+			showMuted: data?.showMuted ?? false
+		});
+		// Keep trait bid scope explicit so stored scope preferences cannot override this jump.
+		query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits);
+		return withQuery(joinPath(collectionTokensBasePath(), 'bidding'), query);
 	}
 
 	async function setTokenDetailMediaMode(nextMode: string): Promise<void> {
@@ -548,7 +593,10 @@
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}
+				traitValueHref={bidBookTraitValueHref}
 				makerBidHref={bidBookMakerHref}
+				onFilterTraitDemandGroup={onBidBookTraitFilter}
+				onSelectBid={onBidBookSelectBid}
 				showRowActions={false}
 			/>
 		{/if}

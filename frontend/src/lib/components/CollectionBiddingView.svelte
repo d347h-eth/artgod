@@ -29,6 +29,7 @@
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
 	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
+	import { ownBidStatusBadges, type BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
 	import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import {
@@ -657,6 +658,16 @@
 		return count === 1 ? '1 offer' : `${count} offers`;
 	}
 
+	function tokenOfferOwnStatusBadges(card: ApiBiddingTokenOfferCard): BidBookOwnStatusBadge[] {
+		const badges = new Map<string, BidBookOwnStatusBadge>();
+		for (const offer of card.offers) {
+			for (const badge of ownBidStatusBadges(offer)) {
+				badges.set(`${badge.kind}:${badge.label}`, badge);
+			}
+		}
+		return [...badges.values()];
+	}
+
 	function tokenOffersResultsSummary(): string {
 		const count = tokenOfferCards.totalItems;
 		return count === 1 ? '1 token' : `${count} tokens`;
@@ -1108,6 +1119,7 @@
 													adjacentTokenResolver={resolveAdjacentOfferTokenId}
 													marketPrices={tokenOfferMarketPrices(token)}
 													metaLabel={tokenOfferMetaLabel(token)}
+													ownStatusBadges={tokenOfferOwnStatusBadges(token)}
 													selection={{
 														state: biddingTokenSelectionState(token.tokenId, biddingSelectionStateKey),
 														onToggle: toggleVisibleTokenSelection

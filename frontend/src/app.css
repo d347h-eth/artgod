@@ -1314,10 +1314,6 @@ th {
 	gap: 1rem;
 }
 
-.bidding-price-tier-meta {
-	margin-bottom: 0.65rem;
-}
-
 .bidding-price-tier-settings-form {
 	width: var(--token-bidding-content-width);
 	max-width: 100%;
@@ -1663,6 +1659,17 @@ th {
 	color: var(--c-bg);
 }
 
+.token-grid-own-statuses {
+	display: flex;
+	justify-content: center;
+	gap: 0.3rem;
+	margin-top: 0.25rem;
+}
+
+.token-grid-own-statuses .bid-book-own-status {
+	margin-inline-start: 0;
+}
+
 .bid-book-time-header {
 	white-space: nowrap;
 }
@@ -1684,6 +1691,11 @@ th {
 	align-items: baseline;
 	gap: 0.15rem 1.35rem;
 	margin-bottom: 0;
+}
+
+.bid-book-row-scope-header {
+	justify-content: center;
+	gap: 0.15rem 0.55rem;
 }
 
 .bid-book-demand-group-title {

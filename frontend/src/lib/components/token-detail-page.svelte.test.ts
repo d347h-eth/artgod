@@ -6,6 +6,7 @@ import {
 	TERRAFORMS_MODE_ATTRIBUTE_KEY,
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
+import { TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND } from '@artgod/shared/types';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
 import type { ApiBiddingBidBookRow } from '$lib/api-types';
 import { TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS } from '$lib/activity-extension-views/terraforms/constants';
@@ -23,7 +24,7 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 
 function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
 	return {
-		kind: 'market_bid',
+		kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
 		jobId: null,
 		status: null,
 		phase: null
@@ -193,8 +194,13 @@ describe('token detail page', () => {
 		);
 		expect(body).not.toContain('traits=Power%3A7');
 		expect(body).toContain('<th class="bid-book-col-center">scope</th>');
-		expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
+		expect(body).toContain('<span class="bid-book-scope-label">C</span>');
 		expect(body).toContain('Hat=Beanie');
+		expect(body).toContain('class="bid-book-demand-trait-list"');
+		expect(body).toContain('class="bid-book-demand-trait-value-link"');
+		expect(body).toContain('bid_scope=traits&amp;traits=Hat%3ABeanie');
+		expect(body).toContain('filter-icon');
+		expect(body).toContain('bid-book-place-bid-icon');
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 		);

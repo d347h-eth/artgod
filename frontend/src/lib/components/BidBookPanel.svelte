@@ -7,7 +7,8 @@
 	import {
 		TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 		TRADING_BIDDING_BID_BOOK_PRICE_KIND,
-		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND
+		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+		TRADING_BIDDING_BID_SCOPE_KIND
 	} from '@artgod/shared/types';
 	import {
 		formatCompactTime,
@@ -19,6 +20,7 @@
 		bidBookPriceEffectiveEth,
 		bidBookRowEffectivePriceWei
 	} from '$lib/bidding-bid-book-price';
+	import { ownBidStatusBadges } from '$lib/bidding-bid-book-own-status';
 	import FilterIcon from '$lib/components/FilterIcon.svelte';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import { joinPath } from '$lib/route-paths';
@@ -55,21 +57,6 @@
 		traits: ApiBiddingBidBookRow['scope']['traits'];
 		label: string;
 	};
-	type OwnBidStatusBadge = {
-		kind:
-			| 'winning'
-			| 'draw'
-			| 'losing'
-			| 'ceiling'
-			| 'floor'
-			| 'balance'
-			| 'allowance'
-			| 'queued'
-			| 'active_order'
-			| 'paused';
-		label: string;
-	};
-
 	const WEI_PER_ETH = 1_000_000_000_000_000_000n;
 	const LOW_BID_MUTE_RATIO_DENOMINATOR = 10n;
 
@@ -267,19 +254,33 @@
 	}
 
 	function formatScope(bid: ApiBiddingBidBookRow): string {
-		if (bid.scope.kind === 'collection') {
+		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
 			return 'C';
 		}
-		if (bid.scope.kind === 'token' && bid.scope.tokenId) {
+		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {
 			return `#${bid.scope.tokenId}`;
 		}
 		return trimText(bid.scope.label);
+	}
+
+	function shouldRenderTraitScopeControls(bid: ApiBiddingBidBookRow): boolean {
+		return bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait && bid.scope.traits.length > 0;
+	}
+
+	function traitScopeLabel(bid: ApiBiddingBidBookRow): string {
+		return bid.scope.label || bid.scope.traits.map((trait) => `${trait.type}=${trait.value}`).join(' + ');
 	}
 
 	function demandDisplayTraits(
 		group: BidBookDemandGroup
 	): ApiBiddingBidBookRow['scope']['traits'] {
 		return sortDemandTraitsForDisplay(group.traits, activeDemandTraitKey);
+	}
+
+	function bidScopeDisplayTraits(
+		bid: ApiBiddingBidBookRow
+	): ApiBiddingBidBookRow['scope']['traits'] {
+		return sortDemandTraitsForDisplay(bid.scope.traits, activeDemandTraitKey);
 	}
 
 	function makerHref(bid: ApiBiddingBidBookRow): string {
@@ -355,54 +356,25 @@
 	}
 
 	function filterTraitDemandGroup(group: BidBookDemandGroup): void {
+		filterTraits(group.traits, group.label);
+	}
+
+	function filterTraitScopeBid(bid: ApiBiddingBidBookRow): void {
+		filterTraits(bid.scope.traits, traitScopeLabel(bid));
+	}
+
+	function filterTraits(traits: ApiBiddingBidBookRow['scope']['traits'], label: string): void {
 		if (!onFilterTraitDemandGroup) {
 			return;
 		}
 		void onFilterTraitDemandGroup({
-			traits: group.traits,
-			label: group.label
+			traits,
+			label
 		});
 	}
 
 	function placeBidLabel(label: string): string {
 		return `place bid on ${label}`;
-	}
-
-	function ownBidStatusBadges(
-		bid: ApiBiddingBidBookRow
-	): OwnBidStatusBadge[] {
-		if (!bid.maker.isOwn) {
-			return [];
-		}
-		if (bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent) {
-			const phase = bid.materialization.phase ?? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued;
-			return [
-				{
-					kind: phase,
-					label: ownJobIntentPhaseLabel(phase)
-				}
-			];
-		}
-		if (!bid.ownStatus) {
-			return [];
-		}
-		return [
-			{ kind: bid.ownStatus.position, label: bid.ownStatus.position },
-			...bid.ownStatus.constraints.map((constraint) => ({
-				kind: constraint,
-				label: constraint
-			}))
-		];
-	}
-
-	function ownJobIntentPhaseLabel(phase: NonNullable<ApiBiddingBidBookRow['materialization']['phase']>): string {
-		if (phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder) {
-			return 'active';
-		}
-		if (phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused) {
-			return 'paused';
-		}
-		return 'queued';
 	}
 
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
@@ -815,6 +787,35 @@
 
 </script>
 
+{#snippet bidBookTraitList(traits: ApiBiddingBidBookRow['scope']['traits'])}
+	<span class="bid-book-demand-trait-list">
+		{#each traits as trait, traitIndex (`${trait.type}:${trait.value}`)}
+			<span class="bid-book-demand-trait-entry">
+				{#if traitIndex > 0}
+					<span class="bid-book-demand-trait-separator">+</span>
+				{/if}
+				<span class="bid-book-demand-trait">
+					<span class="bid-book-demand-trait-key">{trimText(trait.type)}</span>
+					<span class="bid-book-demand-trait-equals">=</span>
+					{#if traitValueHref}
+						<a
+							class="bid-book-demand-trait-value-link"
+							href={traitValueHref({
+								key: trait.type,
+								value: trait.value
+							})}
+						>
+							{trimText(trait.value)}
+						</a>
+					{:else}
+						<span class="bid-book-demand-trait-value">{trimText(trait.value)}</span>
+					{/if}
+				</span>
+			</span>
+		{/each}
+	</span>
+{/snippet}
+
 <section class="runtime-section bid-book-summary-panel">
 	<div class="runtime-kv-grid bid-book-meta">
 		<div>
@@ -914,32 +915,7 @@
 							<td colspan={4}>
 								<div class="bid-book-demand-group-header">
 									<span class="bid-book-demand-group-title">
-										<span class="bid-book-demand-trait-list">
-											{#each demandDisplayTraits(group) as trait, traitIndex (`${trait.type}:${trait.value}`)}
-												<span class="bid-book-demand-trait-entry">
-													{#if traitIndex > 0}
-														<span class="bid-book-demand-trait-separator">+</span>
-													{/if}
-													<span class="bid-book-demand-trait">
-														<span class="bid-book-demand-trait-key">{trimText(trait.type)}</span>
-														<span class="bid-book-demand-trait-equals">=</span>
-														{#if traitValueHref}
-															<a
-																class="bid-book-demand-trait-value-link"
-																href={traitValueHref({
-																	key: trait.type,
-																	value: trait.value
-																})}
-															>
-																{trimText(trait.value)}
-															</a>
-														{:else}
-															<span class="bid-book-demand-trait-value">{trimText(trait.value)}</span>
-														{/if}
-													</span>
-												</span>
-											{/each}
-										</span>
+										{@render bidBookTraitList(demandDisplayTraits(group))}
 									</span>
 									{#if groupActiveOfferCount > 1}
 										<div class="runtime-kv-grid bid-book-demand-group-meta">
@@ -1127,7 +1103,37 @@
 							</td>
 							{#if showScope}
 								<td class="bid-book-col-center">
-									<span class="bid-book-scope-label">{formatScope(bid)}</span>
+									{#if shouldRenderTraitScopeControls(bid)}
+										<div class="bid-book-demand-group-header bid-book-row-scope-header">
+											<span class="bid-book-demand-group-title">
+												{@render bidBookTraitList(bidScopeDisplayTraits(bid))}
+											</span>
+											{#if onFilterTraitDemandGroup}
+												<button
+													type="button"
+													class="bid-book-place-bid-icon-button"
+													aria-label={`filter ${traitScopeLabel(bid)}`}
+													title={`filter ${traitScopeLabel(bid)}`}
+													onclick={() => filterTraitScopeBid(bid)}
+												>
+													<FilterIcon />
+												</button>
+											{/if}
+											{#if onSelectBid}
+												<button
+													type="button"
+													class="bid-book-place-bid-icon-button"
+													aria-label={placeBidLabel(traitScopeLabel(bid))}
+													title={placeBidLabel(traitScopeLabel(bid))}
+													onclick={() => selectBid(bid)}
+												>
+													<PlaceBidIcon className="bid-book-place-bid-icon" />
+												</button>
+											{/if}
+										</div>
+									{:else}
+										<span class="bid-book-scope-label">{formatScope(bid)}</span>
+									{/if}
 								</td>
 							{/if}
 							<td class="mono bid-book-maker-cell bid-book-col-center">
