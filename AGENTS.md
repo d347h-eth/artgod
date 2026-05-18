@@ -47,6 +47,8 @@ For implementation details, use:
 - Any large in-memory allocation must be explicitly justified by business need or performance evidence.
 - For frontend layout, default forms, tables, and configuration surfaces to compact, fit-to-content widths and center them horizontally.
   Do not stretch UI elements to `100%` width unless the user explicitly asks for a full-width layout.
+- For frontend controls, do not push buttons, tabs, or action groups to the far-right edge by spanning the whole page width.
+  Keep controls in compact left-aligned groups unless the user explicitly asks for right-edge placement.
 - For frontend controls, reuse existing visual/control families when the interaction already exists elsewhere in the app.
   Do not introduce near-duplicate button/tab styles or alternate active-state behavior without explicit user approval.
 - Do not add redundant UI explanatory text, helper copy, or placeholder descriptions unless the user explicitly asks for it.

@@ -109,7 +109,7 @@
 
 	<ListPagesTabs chainSlug={syncState?.chain.slug ?? null} active="sync-backfill" />
 
-	<header class="panel-header">
+	<header class="panel-header sync-backfill-controls-header">
 		<div>
 			<p class="panel-subtitle">
 				{#if syncState}

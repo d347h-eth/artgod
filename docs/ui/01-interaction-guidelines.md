@@ -36,7 +36,8 @@ Rules:
 - every top-action row should use the same vertical gap
 - controls inside one row should use the same compact horizontal gap
 - left-side controls stay aligned to the left edge of the page content
-- media mode is the only standard control that should sit on the far right of token-browser result toolbars
+- do not push buttons, tabs, or action groups to the far-right edge by spanning the whole page width
+- keep controls in compact left-aligned groups unless a specific layout is explicitly approved
 - bidding/filter controls belong in top-action rows, not inside token-card grids or result summaries
 
 ## Default Width Policy
