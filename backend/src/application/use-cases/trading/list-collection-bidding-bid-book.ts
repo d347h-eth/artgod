@@ -2,7 +2,10 @@ import type {
     ChainRecord,
     CollectionListItem,
     TokenCard,
+    CollectionBiddingBidScopeFilter,
+    CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
+import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from "@artgod/shared/types";
 import {
     decodeOpaqueCursor,
     encodeOpaqueCursor,
@@ -22,14 +25,11 @@ import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models
 import type {
     BiddingBidBookRepositoryPort,
     BiddingTokenOfferCardsPage,
-    CollectionBiddingBidScopeFilter,
-    CollectionBiddingTraitFilterJoinMode,
     ListCollectionBiddingBidBookOutput,
     PersistedBiddingBidBook,
     PersistedBiddingBidBookRow,
 } from "./bidding-bid-book.js";
 import {
-    COLLECTION_BIDDING_BID_SCOPE_FILTER,
     mapPersistedBidBookToView,
     mapPersistedBidRowsToView,
 } from "./bidding-bid-book.js";

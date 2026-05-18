@@ -17,7 +17,10 @@ import { joinPath, withQuery } from '$lib/route-paths';
 import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 
 export {
+	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	COLLECTION_BIDDING_VIEW_MODE,
 	COLLECTION_BIDDING_VIEW_MODES
 };
 export type {

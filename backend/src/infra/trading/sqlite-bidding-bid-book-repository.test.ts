@@ -10,6 +10,8 @@ import {
     TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
 } from "@artgod/shared/trading/runtime-state";
 import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
@@ -21,8 +23,6 @@ import {
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
 import {
-    COLLECTION_BIDDING_BID_SCOPE_FILTER,
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     exactBidBookRowPrice,
     persistedBidBookRowEffectiveWei,
 } from "../../application/use-cases/trading/bidding-bid-book.js";

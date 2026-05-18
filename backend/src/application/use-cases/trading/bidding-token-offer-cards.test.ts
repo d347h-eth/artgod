@@ -1,12 +1,12 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
     type TokenCard,
 } from "@artgod/shared/types";
 import {
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     exactBidBookRowPrice,
     marketBidMaterialization,
     type BiddingBidBookRowPrice,

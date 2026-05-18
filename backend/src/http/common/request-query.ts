@@ -9,7 +9,9 @@ import {
 import {
     ACTIVITY_FEED_FILTER_KIND,
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_BID_SCOPE_FILTERS,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES,
     TRAIT_FILTER_QUERY_PARAMS,
     TOKEN_BROWSER_STATUS,
     type ActivityFeedFilterKind,
@@ -64,16 +66,13 @@ const ALLOWED_ACTIVITY_FILTER_KINDS = new Set<ActivityFeedFilterKind>([
 ]);
 
 const ALLOWED_COLLECTION_BIDDING_BID_SCOPE_FILTERS =
-    new Set<CollectionBiddingBidScopeFilter>([
-        COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
-        COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
-        COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
-    ]);
+    new Set<CollectionBiddingBidScopeFilter>(
+        COLLECTION_BIDDING_BID_SCOPE_FILTERS,
+    );
 const ALLOWED_COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES =
-    new Set<CollectionBiddingTraitFilterJoinMode>([
-        COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
-        COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
-    ]);
+    new Set<CollectionBiddingTraitFilterJoinMode>(
+        COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES,
+    );
 
 export function getSearchParams(request: FastifyRequest): URLSearchParams {
     return new URL(request.raw.url ?? "/", "http://localhost").searchParams;

@@ -8,6 +8,10 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "@artgod/shared/types";
+import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+} from "@artgod/shared/types";
 import type {
     BiddingJobsRepositoryPort,
     UpsertTokenBiddingJobInput as PersistedUpsertTokenBiddingJobInput,
@@ -27,8 +31,6 @@ import {
 } from "./types.js";
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 import {
-    COLLECTION_BIDDING_BID_SCOPE_FILTER,
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     type BiddingBidBookRepositoryPort,
 } from "./bidding-bid-book.js";
 import {

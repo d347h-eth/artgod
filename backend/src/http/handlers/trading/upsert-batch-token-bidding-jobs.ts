@@ -4,15 +4,13 @@ import type {
     TokenBrowserStatus,
     TraitFilter,
     TraitRangeFilter,
+    CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
+import { COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE } from "@artgod/shared/types";
 import type {
     UpsertBatchTokenBiddingJobsInput,
     UpsertBatchTokenBiddingJobsOutput,
 } from "../../../application/use-cases/trading/upsert-batch-token-bidding-jobs.js";
-import {
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
-    type CollectionBiddingTraitFilterJoinMode,
-} from "../../../application/use-cases/trading/bidding-bid-book.js";
 import {
     parseEditableBiddingJobStatus,
     parseOptionalString as parseOptionalBodyString,

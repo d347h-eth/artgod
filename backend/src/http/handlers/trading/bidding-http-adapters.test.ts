@@ -8,10 +8,8 @@ import {
     TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
     TRADING_JOB_STATUS,
     TRADING_BIDDING_TIER_SELECTION_MODE,
-} from "@artgod/shared/types";
-import {
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
-} from "../../../application/use-cases/trading/bidding-bid-book.js";
+} from "@artgod/shared/types";
 import {
     ArchiveCollectionBiddingPriceTierHttpAdapter,
 } from "./archive-collection-bidding-price-tier.js";

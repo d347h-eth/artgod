@@ -16,6 +16,8 @@ import {
     isTradingBotRuntimeHeartbeatLive,
 } from "@artgod/shared/trading/runtime-state";
 import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
@@ -25,6 +27,8 @@ import {
     TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
+    type CollectionBiddingBidScopeFilter,
+    type CollectionBiddingTraitFilterJoinMode,
     type TradingBiddingBidBookSource,
     type TradingBiddingBidScopeKind,
     type TradingBotRuntimeState,
@@ -35,15 +39,11 @@ import {
 import type { TraitFilter, TraitRangeFilter } from "@artgod/shared/types/browse";
 import type {
     BiddingBidBookRepositoryPort,
-    CollectionBiddingBidScopeFilter,
-    CollectionBiddingTraitFilterJoinMode,
     PersistedBiddingBidBook,
     PersistedBiddingBidBookRow,
     PersistedBiddingBidBookState,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import {
-    COLLECTION_BIDDING_BID_SCOPE_FILTER,
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     exactBidBookRowPrice,
     marketBidMaterialization,
     persistedBidBookRowEffectiveWei,

@@ -3,6 +3,7 @@ import type {
     ChainRecord,
     CollectionMediaState,
     CollectionListItem,
+    CollectionBiddingTraitFilterJoinMode,
     PersistedBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
     TokenBrowserStatus,
@@ -13,7 +14,6 @@ import type {
     TradingJobStatus,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
-import type { CollectionBiddingTraitFilterJoinMode } from "./bidding-bid-book.js";
 
 export type BiddingJobMutationStatus = Exclude<TradingJobStatus, "archived">;
 export type TokenBiddingJobMutationStatus = BiddingJobMutationStatus;

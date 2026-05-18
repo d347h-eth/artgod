@@ -1,15 +1,15 @@
 import {
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     renderTraitSummaryTemplate,
     TRADING_BIDDING_BID_SCOPE_KIND,
+    type CollectionBiddingTraitFilterJoinMode,
     type TokenAttribute,
     type TokenCard,
 } from "@artgod/shared/types";
 import type { TraitFilter, TraitRangeFilter } from "@artgod/shared/types/browse";
 import type { PersistedBiddingBidBookRow } from "./bidding-bid-book.js";
 import {
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     persistedBidBookRowEffectiveWei,
-    type CollectionBiddingTraitFilterJoinMode,
 } from "./bidding-bid-book.js";
 
 export type PersistedTokenOfferCard = {

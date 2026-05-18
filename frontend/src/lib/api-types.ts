@@ -1,6 +1,8 @@
 import {
 	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	type CollectionBiddingBidScopeFilter,
+	type CollectionBiddingTraitFilterJoinMode,
 	type TradingBiddingBidBookOwnJobPhase,
 	type TradingBiddingJobPricingSource,
 	type TradingBiddingTierSelectionMode
@@ -410,8 +412,8 @@ export type ApiBiddingJob = {
 
 export type ApiBiddingBidBookSource = 'bot_snapshot' | 'orders';
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
-export type ApiCollectionBiddingBidScopeFilter = 'token' | 'traits' | 'collection';
-export type ApiCollectionBiddingTraitFilterJoinMode = 'or' | 'and';
+export type ApiCollectionBiddingBidScopeFilter = CollectionBiddingBidScopeFilter;
+export type ApiCollectionBiddingTraitFilterJoinMode = CollectionBiddingTraitFilterJoinMode;
 export type ApiBiddingBidBookPrice =
 	| {
 				kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact;

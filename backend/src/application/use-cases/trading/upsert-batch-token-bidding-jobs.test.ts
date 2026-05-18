@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
@@ -14,7 +15,6 @@ import {
     type TokenCursorPage,
     type TradingJobCommandRecord,
 } from "@artgod/shared/types";
-import { COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE } from "./bidding-bid-book.js";
 import {
     exactBidBookRowPrice,
     marketBidMaterialization,
