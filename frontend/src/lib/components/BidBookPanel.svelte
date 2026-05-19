@@ -15,6 +15,11 @@
 		type CompactTimeDisplayMode
 	} from '$lib/compact-time-display';
 	import {
+		BID_BOOK_ROWS_TABLE_SCOPE_KIND,
+		type BidBookRowsTableRow,
+		type BidBookRowsTableScope
+	} from '$lib/bid-book-view-models';
+	import {
 		bidBookPriceEffectiveEth,
 		bidBookRowEffectivePriceWei
 	} from '$lib/bidding-bid-book-price';
@@ -23,6 +28,7 @@
 	import BidBookMakerCell from '$lib/components/BidBookMakerCell.svelte';
 	import BidBookMetaBar from '$lib/components/BidBookMetaBar.svelte';
 	import BidBookPriceCell from '$lib/components/BidBookPriceCell.svelte';
+	import BidBookRowsTable from '$lib/components/BidBookRowsTable.svelte';
 	import BidBookTraitList from '$lib/components/BidBookTraitList.svelte';
 	import FilterIcon from '$lib/components/FilterIcon.svelte';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
@@ -135,6 +141,7 @@
 		)
 	);
 	const bidBucketStepWei = $derived(resolveDecimalBucketStepWei(displayedBids));
+	const rowsTableRows = $derived(resolveRowsTableRows(displayedBids));
 
 	$effect(() => {
 		if (activeDemandTraitKey && !demandTraitTabs.some((tab) => tab.key === activeDemandTraitKey)) {
@@ -308,6 +315,10 @@
 		highlightedMakerAddress = null;
 	}
 
+	function setHighlightedRowMaker(row: BidBookRowsTableRow): void {
+		setHighlightedMaker(row.bid);
+	}
+
 	function selectBid(bid: ApiBiddingBidBookRow): void {
 		if (!canSelectBidRow(bid)) {
 			return;
@@ -341,6 +352,10 @@
 		filterTraits(bid.scope.traits, traitScopeLabel(bid));
 	}
 
+	function filterRowsTableTraitBid(row: BidBookRowsTableRow): void {
+		filterTraitScopeBid(row.bid);
+	}
+
 	function shouldShowTraitFilterAction(
 		traits: ApiBiddingBidBookRow['scope']['traits']
 	): boolean {
@@ -367,6 +382,10 @@
 
 	function shouldRenderScopeBidControl(bid: ApiBiddingBidBookRow): boolean {
 		return canSelectBidRow(bid) && !shouldRenderTraitScopeControls(bid);
+	}
+
+	function selectRowsTableBid(row: BidBookRowsTableRow): void {
+		selectBid(row.bid);
 	}
 
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
@@ -692,6 +711,55 @@
 		return showScope ? 5 : 4;
 	}
 
+	function resolveRowsTableRows(rows: ApiBiddingBidBookRow[]): BidBookRowsTableRow[] {
+		return rows.map((bid, index) => {
+			const placedAt = placedAtMs(bid);
+			const validUntil = validUntilMs(bid);
+			const bidMuted = isMutedBidInRows(rows, bid);
+			return {
+				bid,
+				price: formatPriceAmount(bid),
+				quantityPrefix: formatQuantityPrefix(bid),
+				makerHref: makerHref(bid),
+				makerHighlighted: isMakerHighlighted(bid),
+				placedAtLabel: formatTime(placedAt, placedAtMode),
+				placedAtTitle: oppositeTimeTitle(placedAt, placedAtMode),
+				validUntilLabel: formatTime(validUntil, validUntilMode),
+				validUntilTitle: oppositeTimeTitle(validUntil, validUntilMode),
+				muted: bidMuted,
+				hidden: shouldHideMutedBid(bidMuted),
+				startsNewBucket: startsNewBidBucket(rows, index),
+				priceActionLabel: canSelectBidRow(bid) && showRowActions ? rowActionLabel(bid) : null,
+				scope: resolveRowsTableScope(bid)
+			};
+		});
+	}
+
+	function resolveRowsTableScope(bid: ApiBiddingBidBookRow): BidBookRowsTableScope {
+		if (shouldRenderTraitScopeControls(bid)) {
+			const label = traitScopeLabel(bid);
+			return {
+				kind: BID_BOOK_ROWS_TABLE_SCOPE_KIND.Traits,
+				traits: bidScopeDisplayTraits(bid),
+				traitValueHref,
+				showFilterAction: shouldShowTraitFilterAction(bid.scope.traits),
+				filterLabel: `filter ${label}`,
+				placeBidLabel: canSelectBidRow(bid) ? placeBidLabel(label) : null
+			};
+		}
+		if (shouldRenderScopeBidControl(bid)) {
+			return {
+				kind: BID_BOOK_ROWS_TABLE_SCOPE_KIND.PlainAction,
+				label: formatScope(bid),
+				placeBidLabel: placeBidLabel(scopeActionLabel(bid))
+			};
+		}
+		return {
+			kind: BID_BOOK_ROWS_TABLE_SCOPE_KIND.Plain,
+			label: formatScope(bid)
+		};
+	}
+
 	function parseQuantity(value: string): bigint {
 		try {
 			const parsed = BigInt(value);
@@ -918,141 +986,18 @@
 		</div>
 	</section>
 {:else}
-	<section class="bid-book-table-panel">
-		<div class="table-wrap bid-book-table-wrap">
-			<table class="bid-book-table">
-				<thead>
-					<tr>
-						<th class="bid-book-col-right">price</th>
-						{#if showScope}
-							<th class="bid-book-col-center">scope</th>
-						{/if}
-						<th class="bid-book-col-center">maker</th>
-						<th class="bid-book-time-header bid-book-col-center">
-							<button
-								type="button"
-								class="activities-time-mode-button"
-								aria-label="toggle placed-at time mode"
-								onclick={togglePlacedAtMode}
-							>
-								placed
-							</button>
-						</th>
-						<th class="bid-book-time-header bid-book-col-center">
-							<button
-								type="button"
-								class="activities-time-mode-button"
-								aria-label="toggle valid-until time mode"
-								onclick={toggleValidUntilMode}
-							>
-								valid
-							</button>
-						</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each displayedBids as bid, index (bid.orderId)}
-						{@const placedAt = placedAtMs(bid)}
-						{@const validUntil = validUntilMs(bid)}
-						{@const bidMuted = isMutedBidInRows(displayedBids, bid)}
-						{@const quantityPrefix = formatQuantityPrefix(bid)}
-						{#if startsNewBidBucket(displayedBids, index) && !shouldHideMutedBid(bidMuted)}
-							<tr class="bid-book-bucket-spacer" aria-hidden="true">
-								<td colspan={bidBookColumnCount()}></td>
-							</tr>
-						{/if}
-						<tr
-							class:bid-book-own-row={bid.maker.isOwn}
-							class:bid-book-muted-row={bidMuted}
-							hidden={shouldHideMutedBid(bidMuted)}
-						>
-							<BidBookPriceCell
-								{bid}
-								{quantityPrefix}
-								price={formatPriceAmount(bid)}
-								actionLabel={canSelectBidRow(bid) && showRowActions
-									? rowActionLabel(bid)
-									: null}
-								onSelect={selectBid}
-							/>
-							{#if showScope}
-								<td class="bid-book-col-center">
-									{#if shouldRenderTraitScopeControls(bid)}
-										<div class="bid-book-demand-group-header bid-book-row-scope-header">
-											<span class="bid-book-demand-group-title">
-												<BidBookTraitList traits={bidScopeDisplayTraits(bid)} {traitValueHref} />
-											</span>
-											{#if shouldShowTraitFilterAction(bid.scope.traits)}
-												<button
-													type="button"
-													class="bid-book-place-bid-icon-button"
-													aria-label={`filter ${traitScopeLabel(bid)}`}
-													title={`filter ${traitScopeLabel(bid)}`}
-													onclick={() => filterTraitScopeBid(bid)}
-												>
-													<FilterIcon />
-												</button>
-											{/if}
-											{#if canSelectBidRow(bid)}
-												<button
-													type="button"
-													class="bid-book-place-bid-icon-button"
-													aria-label={placeBidLabel(traitScopeLabel(bid))}
-													title={placeBidLabel(traitScopeLabel(bid))}
-													onclick={() => selectBid(bid)}
-												>
-													<PlaceBidIcon className="bid-book-place-bid-icon" />
-												</button>
-											{/if}
-										</div>
-									{:else}
-										{#if shouldRenderScopeBidControl(bid)}
-											<div class="bid-book-demand-group-header bid-book-row-scope-header">
-												<span class="bid-book-scope-label">{formatScope(bid)}</span>
-												<button
-													type="button"
-													class="bid-book-place-bid-icon-button"
-													aria-label={placeBidLabel(scopeActionLabel(bid))}
-													title={placeBidLabel(scopeActionLabel(bid))}
-													onclick={() => selectBid(bid)}
-												>
-													<PlaceBidIcon className="bid-book-place-bid-icon" />
-												</button>
-											</div>
-										{:else}
-											<span class="bid-book-scope-label">{formatScope(bid)}</span>
-										{/if}
-									{/if}
-								</td>
-							{/if}
-							<BidBookMakerCell
-								{bid}
-								href={makerHref(bid)}
-								highlighted={isMakerHighlighted(bid)}
-								onSetHighlighted={setHighlightedMaker}
-								onClearHighlighted={clearHighlightedMaker}
-							/>
-							<td class="mono bid-book-col-center" title={oppositeTimeTitle(placedAt, placedAtMode)}>
-								{formatTime(placedAt, placedAtMode)}
-							</td>
-							<td class="mono bid-book-col-center" title={oppositeTimeTitle(validUntil, validUntilMode)}>
-								{formatTime(validUntil, validUntilMode)}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-		{#if hiddenBidCount > 0}
-			<div class="bid-book-expand-row">
-				<button
-					type="button"
-					class="facet-panel-action-button bid-book-expand-button"
-					onclick={toggleBidBookExpanded}
-				>
-					{bidBookExpanded ? 'collapse' : `expand ${hiddenBidCount}`}
-				</button>
-			</div>
-		{/if}
-	</section>
+	<BidBookRowsTable
+		rows={rowsTableRows}
+		{showScope}
+		columnCount={bidBookColumnCount()}
+		{hiddenBidCount}
+		expanded={bidBookExpanded}
+		onTogglePlacedAtMode={togglePlacedAtMode}
+		onToggleValidUntilMode={toggleValidUntilMode}
+		onToggleExpanded={toggleBidBookExpanded}
+		onSelectBid={selectRowsTableBid}
+		onFilterTraitBid={filterRowsTableTraitBid}
+		onSetHighlighted={setHighlightedRowMaker}
+		onClearHighlighted={clearHighlightedMaker}
+	/>
 {/if}
