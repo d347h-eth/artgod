@@ -5,17 +5,20 @@
 		SYNC_BACKFILL_GRID_CELL_COUNT,
 		SYNC_BACKFILL_GRID_DIMENSION
 	} from '@artgod/shared/config/sync-backfill';
-	import type { ApiSyncBackfillGridCell, SyncBackfillStateApiResponse } from '$lib/api-types';
-	import { scheduleSyncBackfill } from '$lib/backend-api';
+	import type {
+		ApiSyncBackfillGridCell,
+		ApiSyncBackfillRangeSummary,
+		SyncBackfillRangeSummaryApiResponse,
+		SyncBackfillStateApiResponse
+	} from '$lib/api-types';
+	import { getSyncBackfillRangeSummary, scheduleSyncBackfill } from '$lib/backend-api';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
+	import SyncBackfillSummary from '$lib/components/SyncBackfillSummary.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import {
 		formatSyncBackfillAnchoredBlockDuration,
 		formatSyncBackfillBlockRange,
-		formatSyncBackfillDurationSeconds,
-		formatSyncBackfillInteger,
-		formatSyncBackfillSyncedPercent,
-		formatSyncBackfillTimeRange
+		formatSyncBackfillInteger
 	} from '$lib/sync-backfill-format';
 
 	let {
@@ -32,9 +35,40 @@
 
 	let submitting = $state(false);
 	let feedback: string | null = $state(null);
+	let selectedRangeSummary: SyncBackfillRangeSummaryApiResponse | null = $state(null);
+	let selectedRangeLoading = $state(false);
+	let selectedRangeError: string | null = $state(null);
+	let selectedRangeRequestId = 0;
 
 	let selectedCollection = $derived(syncState?.context.selected ?? collection ?? SYNC_BACKFILL_CONTEXT_ANY);
 	let depthLevels = $derived(buildDepthLevels());
+	let currentPageKey = $derived(
+		syncState
+			? `${syncState.chain.slug}:${selectedCollection}:${syncState.range.fromBlock}:${syncState.range.toBlock}:${syncState.range.bucketSize}`
+			: null
+	);
+	let selectedRangePageKey: string | null = $state(null);
+	let currentSummaryRange: ApiSyncBackfillRangeSummary | null = $derived(
+		syncState
+			? {
+					fromBlock: syncState.range.fromBlock,
+					toBlock: syncState.range.toBlock,
+					blockCount: syncState.range.blockCount,
+					bucketSize: syncState.range.bucketSize,
+					syncedBlockCount: syncState.summary.selectedRangeSyncedBlockCount,
+					time: syncState.range.time
+				}
+			: null
+	);
+
+	$effect(() => {
+		if (selectedRangePageKey === currentPageKey) return;
+		selectedRangePageKey = currentPageKey;
+		selectedRangeRequestId += 1;
+		selectedRangeSummary = null;
+		selectedRangeLoading = false;
+		selectedRangeError = null;
+	});
 
 	function queryHref(nextCollection: string, nextStack: string[]): string {
 		const query = new URLSearchParams();
@@ -55,7 +89,11 @@
 		void goto(queryHref(target.value, stack));
 	}
 
-	async function handleCellClick(cell: ApiSyncBackfillGridCell): Promise<void> {
+	async function handleCellClick(event: MouseEvent, cell: ApiSyncBackfillGridCell): Promise<void> {
+		if (event.ctrlKey) {
+			await loadRangeSummary(cell);
+			return;
+		}
 		if (cell.canDrillDown && syncState) {
 			const childBucketSize = syncState.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
 			if (Number.isInteger(childBucketSize) && childBucketSize >= 1) {
@@ -73,16 +111,35 @@
 			return;
 		}
 		if (cell.blockCount === 1) {
-			await copyTerminalBlock(cell.fromBlock);
+			await loadRangeSummary(cell);
 		}
 	}
 
-	async function copyTerminalBlock(blockNumber: number): Promise<void> {
+	async function loadRangeSummary(cell: ApiSyncBackfillGridCell): Promise<void> {
+		if (!syncState || cell.blockCount <= 0) return;
+		const requestId = selectedRangeRequestId + 1;
+		selectedRangeRequestId = requestId;
+		selectedRangeLoading = true;
+		selectedRangeError = null;
 		try {
-			await navigator.clipboard.writeText(String(blockNumber));
-			feedback = `copied block ${formatSyncBackfillInteger(blockNumber)}`;
-		} catch {
-			feedback = 'block copy failed';
+			const params = new URLSearchParams();
+			params.set('from_block', String(cell.fromBlock));
+			params.set('to_block', String(cell.toBlock));
+			if (selectedCollection !== SYNC_BACKFILL_CONTEXT_ANY) {
+				params.set('collection', selectedCollection);
+			}
+			const summary = await getSyncBackfillRangeSummary(fetch, syncState.chain.slug, params);
+			if (selectedRangeRequestId === requestId) {
+				selectedRangeSummary = summary;
+			}
+		} catch (error) {
+			if (selectedRangeRequestId === requestId) {
+				selectedRangeError = error instanceof Error ? error.message : 'range request failed';
+			}
+		} finally {
+			if (selectedRangeRequestId === requestId) {
+				selectedRangeLoading = false;
+			}
 		}
 	}
 
@@ -114,7 +171,11 @@
 		const range = formatRange(cell.fromBlock, cell.toBlock, cell.blockCount);
 		const duration =
 			cell.blockCount > 0 ? `, ${formatVisibleBlockDuration(cell.blockCount)}` : '';
-		const action = cell.blockCount === 1 ? ', click to copy block number' : '';
+		const action = cell.canDrillDown
+			? ', ctrl-click for range details'
+			: cell.blockCount === 1
+				? ', click for block details'
+				: '';
 		return `${range}: ${formatSyncBackfillInteger(cell.syncedBlockCount)}/${formatSyncBackfillInteger(cell.blockCount)} synced${duration}${action}`;
 	}
 
@@ -187,14 +248,6 @@
 		return formatSyncBackfillBlockRange(page.pageStartBlock, Math.min(pageEndBlock, headBlock));
 	}
 
-	function visibleRangeTimeRange(): string {
-		if (!syncState) return '';
-		return formatSyncBackfillTimeRange({
-			fromTimestamp: syncState.range.time.from.timestamp,
-			toTimestamp: syncState.range.time.to.timestamp
-		});
-	}
-
 	function formatVisibleBlockDuration(blockCount: number): string {
 		if (!syncState) return 'unknown';
 		return formatSyncBackfillAnchoredBlockDuration({
@@ -205,10 +258,6 @@
 		});
 	}
 
-	function selectedSyncedRatio(): string {
-		if (!syncState) return '';
-		return `${formatSyncBackfillInteger(syncState.summary.selectedRangeSyncedBlockCount)}/${formatSyncBackfillInteger(syncState.range.blockCount)}`;
-	}
 </script>
 
 <section class="panel">
@@ -242,44 +291,13 @@
 	</header>
 
 	{#if syncState}
-		<section class="sync-summary" aria-label="Sync summary">
-			<div>
-				<span class="sync-summary-label">observed</span>
-				<span class="sync-summary-value">{formatSyncBackfillInteger(syncState.range.blockCount)}</span>
-				<span class="sync-summary-meta"
-					>{formatSyncBackfillDurationSeconds(syncState.range.time.durationSeconds)}</span
-				>
-			</div>
-			<div>
-				<span class="sync-summary-label">range</span>
-				<span class="sync-summary-value"
-					>{formatSyncBackfillBlockRange(syncState.range.fromBlock, syncState.range.toBlock)}</span
-				>
-				<span class="sync-summary-meta">{visibleRangeTimeRange()}</span>
-			</div>
-			<div>
-				<span class="sync-summary-label">bucket</span>
-				<span class="sync-summary-value">{formatSyncBackfillInteger(syncState.range.bucketSize)}</span>
-				<span class="sync-summary-meta"
-					>{formatSyncBackfillAnchoredBlockDuration({
-						blockCount: syncState.range.bucketSize,
-						pageBlockCount: syncState.range.blockCount,
-						pageDurationSeconds: syncState.range.time.durationSeconds,
-						averageBlockTimeSeconds: syncState.chain.averageBlockTimeSeconds
-					})}</span
-				>
-			</div>
-			<div>
-				<span class="sync-summary-label">synced</span>
-				<span class="sync-summary-value">{selectedSyncedRatio()}</span>
-				<span class="sync-summary-meta"
-					>{formatSyncBackfillSyncedPercent(
-						syncState.summary.selectedRangeSyncedBlockCount,
-						syncState.range.blockCount
-					)}</span
-				>
-			</div>
-		</section>
+		{#if currentSummaryRange}
+			<SyncBackfillSummary
+				chain={syncState.chain}
+				range={currentSummaryRange}
+				ariaLabel="Sync summary"
+			/>
+		{/if}
 
 		<div class="sync-grid-layout">
 			<div class="sync-grid-wrap">
@@ -295,26 +313,39 @@
 							disabled={cell.blockCount <= 0}
 							title={cellLabel(cell)}
 							aria-label={cellLabel(cell)}
-							onclick={() => handleCellClick(cell)}
+							onclick={(event) => handleCellClick(event, cell)}
 						></button>
 					{/each}
 				</div>
 			</div>
-			<nav class="sync-depth-rail" aria-label="Sync depth levels">
-				{#each depthLevels as level}
-					{#if level.active}
-						<span class="sync-depth-level sync-depth-level-active">
-							<span class="sync-depth-level-name">{level.label}</span>
-							<span class="sync-depth-level-range">{level.range}</span>
-						</span>
-					{:else}
-						<a class="sync-depth-level" href={level.href}>
-							<span class="sync-depth-level-name">{level.label}</span>
-							<span class="sync-depth-level-range">{level.range}</span>
-						</a>
-					{/if}
-				{/each}
-			</nav>
+			<aside class="sync-side-panel">
+				<nav class="sync-depth-rail" aria-label="Sync depth levels">
+					{#each depthLevels as level}
+						{#if level.active}
+							<span class="sync-depth-level sync-depth-level-active">
+								<span class="sync-depth-level-name">{level.label}</span>
+								<span class="sync-depth-level-range">{level.range}</span>
+							</span>
+						{:else}
+							<a class="sync-depth-level" href={level.href}>
+								<span class="sync-depth-level-name">{level.label}</span>
+								<span class="sync-depth-level-range">{level.range}</span>
+							</a>
+						{/if}
+					{/each}
+				</nav>
+				{#if selectedRangeLoading}
+					<div class="sync-range-detail-status muted">loading range</div>
+				{:else if selectedRangeError}
+					<div class="sync-range-detail-status muted">{selectedRangeError}</div>
+				{:else if selectedRangeSummary}
+					<SyncBackfillSummary
+						chain={selectedRangeSummary.chain}
+						range={selectedRangeSummary.range}
+						ariaLabel="Selected range summary"
+					/>
+				{/if}
+			</aside>
 		</div>
 
 		<div class="sync-backfill-actions">

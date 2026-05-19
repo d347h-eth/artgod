@@ -416,6 +416,11 @@ a:hover {
 	line-height: 1.2;
 }
 
+.sync-summary-date-stack {
+	display: inline-grid;
+	gap: 0.08rem;
+}
+
 .sync-grid-layout {
 	display: flex;
 	align-items: flex-start;
@@ -426,6 +431,25 @@ a:hover {
 
 .sync-grid-wrap {
 	flex: 0 0 auto;
+}
+
+.sync-side-panel {
+	display: inline-flex;
+	flex-direction: column;
+	gap: 0.55rem;
+	min-width: 11rem;
+	max-width: 18rem;
+}
+
+.sync-side-panel .sync-summary {
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 0.55rem;
+	border: 1px solid var(--c-blue);
+}
+
+.sync-side-panel .sync-summary div {
+	min-width: 0;
 }
 
 .sync-grid {
@@ -477,7 +501,6 @@ a:hover {
 	display: inline-flex;
 	flex-direction: column;
 	gap: 0.25rem;
-	min-width: 11rem;
 }
 
 .sync-depth-level {
@@ -514,6 +537,12 @@ a:hover {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.sync-range-detail-status {
+	border: 1px solid var(--c-blue);
+	padding: 0.4rem 0.55rem;
+	font-size: 0.72rem;
 }
 
 .sync-backfill-actions {
