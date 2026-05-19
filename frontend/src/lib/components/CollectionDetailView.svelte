@@ -37,6 +37,7 @@
 		isCleanFilteredTokenBatchSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
+	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
 	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
@@ -122,9 +123,10 @@
 	);
 	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
 	const tokenActionLabel = $derived(
-		isAllFilteredTokenSelectionActive() && canRefineTokenSelectionToVisiblePage
-			? 'bid on this page'
-			: 'bid on all tokens'
+		resolveBiddingTokenActionLabel({
+			allFilteredSelectionActive: isAllFilteredTokenSelectionActive(),
+			canRefineTokenSelectionToVisiblePage
+		})
 	);
 
 	$effect(() => {

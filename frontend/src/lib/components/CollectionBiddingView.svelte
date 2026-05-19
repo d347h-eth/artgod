@@ -39,6 +39,7 @@
 		bidBookRefreshPaceTitle,
 		formatBidBookFreshness
 	} from '$lib/bidding-bid-book-source';
+	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
 	import { ownBidStatusBadges, type BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
@@ -249,9 +250,10 @@
 	);
 	const canRefineTokenSelectionToVisiblePage = $derived(tokenOfferCards.totalPages > 1);
 	const tokenActionLabel = $derived(
-		isAllFilteredTokenSelectionActive() && canRefineTokenSelectionToVisiblePage
-			? 'bid on this page'
-			: 'bid on all tokens'
+		resolveBiddingTokenActionLabel({
+			allFilteredSelectionActive: isAllFilteredTokenSelectionActive(),
+			canRefineTokenSelectionToVisiblePage
+		})
 	);
 
 	$effect(() => {
@@ -1021,23 +1023,19 @@
 					</div>
 				{:else if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 					<div class="panel-top-actions-row">
-						<button
-							type="button"
-							class="facet-panel-action-button bidding-price-tier-toggle"
-							class:bidding-price-tier-toggle-active={priceTierPanelOpen}
-							aria-pressed={priceTierPanelOpen}
-							onclick={togglePriceTierPanel}
-						>
-							tiers
-						</button>
-						<button
-							type="button"
-							class="facet-panel-action-button bidding-select-all-button"
-							disabled={bidBook.bids.length === 0}
-							onclick={placeCollectionBid}
-						>
-							place collection bid
-						</button>
+						<BiddingSelectionControls
+							summary={biddingSelectionSummary}
+							showTraitAction={false}
+							showTokenAction={false}
+							showCollectionAction
+							showTierAction
+							tierActionActive={priceTierPanelOpen}
+							collectionActionDisabled={bidBook.bids.length === 0}
+							onToggleTiers={togglePriceTierPanel}
+							onBidOnTokens={bidOnFilteredTokenOffers}
+							onBidOnCollection={placeCollectionBid}
+							onClear={clearBiddingSelection}
+						/>
 					</div>
 				{/if}
 			{/if}
