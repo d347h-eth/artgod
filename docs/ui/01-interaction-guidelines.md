@@ -234,6 +234,14 @@ Control rules:
 
 ### Button and focus behavior
 
+Action polarity and placement:
+
+- negative, cancel, discard, or exit buttons go on the left side of the action group and use the orange control family
+- positive, accept, confirm, commit, or submit buttons go on the right side of the action group and use the cyan control family
+- when the row is compact instead of full-width, keep a significant visual gap between the negative-left and positive-right buttons
+- do not render a positive/confirm button before the matching negative/cancel button
+- use the shared `.action-button-negative` and `.action-button-positive` classes unless a component has an existing documented equivalent
+
 Button-like controls should not retain pointer focus after mouse or touch activation.
 
 Rules:

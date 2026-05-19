@@ -21,6 +21,12 @@
 		formatSyncBackfillInteger
 	} from '$lib/sync-backfill-format';
 
+	type BlockRangeSelection = {
+		fromBlock: number;
+		toBlock: number;
+		bucketSize: number;
+	};
+
 	let {
 		state: syncState,
 		basePath,
@@ -39,6 +45,9 @@
 	let selectedRangeLoading = $state(false);
 	let selectedRangeError: string | null = $state(null);
 	let selectedRangeRequestId = 0;
+	let backfillSelectionMode = $state(false);
+	let backfillSelectionFromBlock: number | null = $state(null);
+	let backfillSelectionRange: BlockRangeSelection | null = $state(null);
 
 	let selectedCollection = $derived(syncState?.context.selected ?? collection ?? SYNC_BACKFILL_CONTEXT_ANY);
 	let depthLevels = $derived(buildDepthLevels());
@@ -64,10 +73,10 @@
 	$effect(() => {
 		if (selectedRangePageKey === currentPageKey) return;
 		selectedRangePageKey = currentPageKey;
-		selectedRangeRequestId += 1;
-		selectedRangeSummary = null;
-		selectedRangeLoading = false;
-		selectedRangeError = null;
+		backfillSelectionMode = false;
+		backfillSelectionFromBlock = null;
+		backfillSelectionRange = null;
+		clearRangeSummary();
 	});
 
 	function queryHref(nextCollection: string, nextStack: string[]): string {
@@ -90,8 +99,16 @@
 	}
 
 	async function handleCellClick(event: MouseEvent, cell: ApiSyncBackfillGridCell): Promise<void> {
+		if (backfillSelectionMode) {
+			await handleBackfillSelectionClick(cell);
+			return;
+		}
 		if (event.ctrlKey) {
-			await loadRangeSummary(cell);
+			await loadRangeSummary({
+				fromBlock: cell.fromBlock,
+				toBlock: cell.toBlock,
+				bucketSize: syncState?.range.bucketSize ?? cell.blockCount
+			});
 			return;
 		}
 		if (cell.canDrillDown && syncState) {
@@ -111,26 +128,85 @@
 			return;
 		}
 		if (cell.blockCount === 1) {
-			await loadRangeSummary(cell);
+			await loadRangeSummary({
+				fromBlock: cell.fromBlock,
+				toBlock: cell.toBlock,
+				bucketSize: syncState?.range.bucketSize ?? cell.blockCount
+			});
 		}
 	}
 
-	async function loadRangeSummary(cell: ApiSyncBackfillGridCell): Promise<void> {
+	async function handleBackfillSelectionClick(cell: ApiSyncBackfillGridCell): Promise<void> {
 		if (!syncState || cell.blockCount <= 0) return;
+		feedback = null;
+		if (backfillSelectionFromBlock === null) {
+			backfillSelectionFromBlock = cell.fromBlock;
+			backfillSelectionRange = null;
+			clearRangeSummary();
+			return;
+		}
+
+		const nextRange = {
+			fromBlock: backfillSelectionFromBlock,
+			toBlock: cell.toBlock,
+			bucketSize: syncState.range.bucketSize
+		};
+		if (nextRange.toBlock < nextRange.fromBlock) {
+			feedback = `select to block >= ${formatSyncBackfillInteger(nextRange.fromBlock)}`;
+			return;
+		}
+
+		backfillSelectionFromBlock = null;
+		backfillSelectionRange = nextRange;
+		await loadRangeSummary(nextRange);
+	}
+
+	function beginBackfillSelection(): void {
+		if (!syncState) return;
+		backfillSelectionMode = true;
+		backfillSelectionFromBlock = null;
+		backfillSelectionRange = null;
+		feedback = null;
+		clearRangeSummary();
+	}
+
+	function cancelBackfillSelection(): void {
+		backfillSelectionMode = false;
+		backfillSelectionFromBlock = null;
+		backfillSelectionRange = null;
+		feedback = null;
+		clearRangeSummary();
+	}
+
+	function clearRangeSummary(): void {
+		selectedRangeRequestId += 1;
+		selectedRangeSummary = null;
+		selectedRangeLoading = false;
+		selectedRangeError = null;
+	}
+
+	async function loadRangeSummary(range: BlockRangeSelection): Promise<void> {
+		if (!syncState || range.fromBlock > range.toBlock) return;
 		const requestId = selectedRangeRequestId + 1;
 		selectedRangeRequestId = requestId;
 		selectedRangeLoading = true;
 		selectedRangeError = null;
 		try {
 			const params = new URLSearchParams();
-			params.set('from_block', String(cell.fromBlock));
-			params.set('to_block', String(cell.toBlock));
+			params.set('from_block', String(range.fromBlock));
+			params.set('to_block', String(range.toBlock));
 			if (selectedCollection !== SYNC_BACKFILL_CONTEXT_ANY) {
 				params.set('collection', selectedCollection);
 			}
 			const summary = await getSyncBackfillRangeSummary(fetch, syncState.chain.slug, params);
 			if (selectedRangeRequestId === requestId) {
-				selectedRangeSummary = summary;
+				selectedRangeSummary = {
+					...summary,
+					range: {
+						...summary.range,
+						bucketSize: range.bucketSize
+					}
+				};
 			}
 		} catch (error) {
 			if (selectedRangeRequestId === requestId) {
@@ -143,18 +219,21 @@
 		}
 	}
 
-	async function queueVisibleRange(): Promise<void> {
-		if (!syncState) return;
+	async function commitBackfillSelection(): Promise<void> {
+		if (!syncState || !backfillSelectionRange) return;
 		submitting = true;
 		feedback = null;
 		try {
 			const result = await scheduleSyncBackfill(fetch, syncState.chain.slug, {
 				collectionRef:
 					selectedCollection === SYNC_BACKFILL_CONTEXT_ANY ? null : selectedCollection,
-				fromBlock: syncState.range.fromBlock,
-				toBlock: syncState.range.toBlock
+				fromBlock: backfillSelectionRange.fromBlock,
+				toBlock: backfillSelectionRange.toBlock
 			});
 			feedback = `queued ${result.queuedJobs} job${result.queuedJobs === 1 ? '' : 's'}`;
+			backfillSelectionMode = false;
+			backfillSelectionFromBlock = null;
+			backfillSelectionRange = null;
 			await invalidateAll();
 		} catch (error) {
 			feedback = error instanceof Error ? error.message : 'backfill request failed';
@@ -164,25 +243,67 @@
 	}
 
 	function cellClass(cell: ApiSyncBackfillGridCell): string {
-		return `sync-grid-cell sync-grid-cell-${cell.state}`;
+		const classes = ['sync-grid-cell', `sync-grid-cell-${cell.state}`];
+		if (cell.collectionDeploymentBlock) {
+			classes.push(
+				cell.collectionDeploymentBlock.synced
+					? 'sync-grid-cell-deployment-synced'
+					: 'sync-grid-cell-deployment-unsynced'
+			);
+		}
+		if (isSelectionCell(cell)) {
+			classes.push('sync-grid-cell-selected');
+		}
+		return classes.join(' ');
 	}
 
 	function cellLabel(cell: ApiSyncBackfillGridCell): string {
 		const range = formatRange(cell.fromBlock, cell.toBlock, cell.blockCount);
 		const duration =
 			cell.blockCount > 0 ? `, ${formatVisibleBlockDuration(cell.blockCount)}` : '';
-		const action = cell.canDrillDown
-			? ', ctrl-click for range details'
-			: cell.blockCount === 1
-				? ', click for block details'
-				: '';
-		return `${range}: ${formatSyncBackfillInteger(cell.syncedBlockCount)}/${formatSyncBackfillInteger(cell.blockCount)} synced${duration}${action}`;
+		const marker = cell.collectionDeploymentBlock
+			? `, deployment block ${formatSyncBackfillInteger(cell.collectionDeploymentBlock.blockNumber)} ${
+					cell.collectionDeploymentBlock.synced ? 'synced' : 'not synced'
+				}`
+			: '';
+		const action = resolveCellActionLabel(cell);
+		return `${range}: ${formatSyncBackfillInteger(cell.syncedBlockCount)}/${formatSyncBackfillInteger(cell.blockCount)} synced${duration}${marker}${action}`;
 	}
 
 	function formatRange(fromBlock: number, toBlock: number, blockCount: number): string {
 		if (blockCount <= 0) return 'outside range';
 		if (fromBlock === toBlock) return `block ${formatSyncBackfillInteger(fromBlock)}`;
 		return formatSyncBackfillBlockRange(fromBlock, toBlock);
+	}
+
+	function resolveCellActionLabel(cell: ApiSyncBackfillGridCell): string {
+		if (backfillSelectionMode) {
+			return backfillSelectionFromBlock === null
+				? ', click to select from block'
+				: ', click to select to block';
+		}
+		if (cell.canDrillDown) return ', ctrl-click for range details';
+		if (cell.blockCount === 1) return ', click for block details';
+		return '';
+	}
+
+	function isSelectionCell(cell: ApiSyncBackfillGridCell): boolean {
+		if (!backfillSelectionMode || cell.blockCount <= 0) return false;
+		if (backfillSelectionRange) {
+			return rangesOverlap(cell, backfillSelectionRange);
+		}
+		return rangeContainsBlock(cell, backfillSelectionFromBlock);
+	}
+
+	function rangesOverlap(cell: ApiSyncBackfillGridCell, range: BlockRangeSelection): boolean {
+		return cell.fromBlock <= range.toBlock && range.fromBlock <= cell.toBlock;
+	}
+
+	function rangeContainsBlock(
+		cell: ApiSyncBackfillGridCell,
+		blockNumber: number | null
+	): boolean {
+		return blockNumber !== null && cell.fromBlock <= blockNumber && blockNumber <= cell.toBlock;
 	}
 
 	function buildDepthLevels(): Array<{
@@ -302,7 +423,7 @@
 		<div class="sync-grid-layout">
 			<div class="sync-grid-wrap">
 				<div
-					class="sync-grid"
+					class={`sync-grid ${backfillSelectionMode ? 'sync-grid-selection-mode' : ''}`}
 					style={`--sync-grid-dimension: ${SYNC_BACKFILL_GRID_DIMENSION}`}
 					aria-label="Block sync coverage grid"
 				>
@@ -348,10 +469,31 @@
 			</aside>
 		</div>
 
-		<div class="sync-backfill-actions">
-			<button type="button" onclick={queueVisibleRange} disabled={!syncState || submitting}>
-				{submitting ? 'queueing...' : 'backfill range'}
-			</button>
+		<div
+			class={`sync-backfill-actions ${backfillSelectionMode ? 'sync-backfill-actions-selection' : ''}`}
+		>
+			{#if backfillSelectionMode}
+				<button
+					type="button"
+					class="action-button-negative"
+					onclick={cancelBackfillSelection}
+					disabled={submitting}
+				>
+					cancel
+				</button>
+				<button
+					type="button"
+					class="action-button-positive"
+					onclick={commitBackfillSelection}
+					disabled={!backfillSelectionRange || submitting}
+				>
+					{submitting ? 'queueing...' : 'commit to backfill'}
+				</button>
+			{:else}
+				<button type="button" onclick={beginBackfillSelection} disabled={!syncState || submitting}>
+					backfill range
+				</button>
+			{/if}
 			{#if feedback}
 				<span class="muted">{feedback}</span>
 			{/if}

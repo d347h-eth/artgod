@@ -497,6 +497,22 @@ a:hover {
 	background: var(--c-blue);
 }
 
+.sync-grid-cell-deployment-unsynced {
+	background: var(--c-pink);
+}
+
+.sync-grid-cell-deployment-synced {
+	background: var(--c-yellow);
+}
+
+.sync-grid-selection-mode .sync-grid-cell:not(:disabled) {
+	cursor: crosshair;
+}
+
+.sync-grid-cell-selected {
+	background: var(--c-orange);
+}
+
 .sync-depth-rail {
 	display: inline-flex;
 	flex-direction: column;
@@ -554,6 +570,10 @@ a:hover {
 	padding: 0 0.75rem 0.75rem;
 }
 
+.sync-backfill-actions-selection {
+	gap: 1.75rem;
+}
+
 .status-form label {
 	font-size: 0.75rem;
 	text-transform: uppercase;
@@ -585,6 +605,16 @@ button:disabled {
 button:not(:disabled):hover {
 	border-color: var(--c-yellow);
 	color: var(--c-yellow);
+}
+
+.action-button-negative:not(:disabled) {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
+.action-button-positive:not(:disabled) {
+	border-color: var(--c-cyan);
+	color: var(--c-cyan);
 }
 
 .table-wrap {
