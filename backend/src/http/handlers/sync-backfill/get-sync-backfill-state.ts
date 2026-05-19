@@ -35,13 +35,13 @@ export class GetSyncBackfillStateHttpAdapter {
         return this.getSyncBackfillStatePort.getState({
             chainRef: request.params.chain_ref,
             collectionRef: searchParams.get("collection"),
-            fromBlock: parseOptionalInteger(
-                searchParams.get("from_block"),
-                "from_block",
+            pageStartBlock: parseOptionalInteger(
+                searchParams.get("page_start"),
+                "page_start",
             ),
-            toBlock: parseOptionalInteger(
-                searchParams.get("to_block"),
-                "to_block",
+            bucketSize: parseOptionalInteger(
+                searchParams.get("bucket_size"),
+                "bucket_size",
             ),
         });
     };

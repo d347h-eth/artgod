@@ -16,15 +16,15 @@ const CHAIN: ChainRecord = {
 };
 
 describe("GetSyncBackfillStateUseCase", () => {
-    it("builds a 1024-cell root grid from chain head and global block coverage", async () => {
+    it("builds an organic root grid from power-of-1024 aligned ranges", async () => {
         const useCase = new GetSyncBackfillStateUseCase(
             1,
             chainResolver(),
             readPort({
-                anyBlocks: new Set([0, 1, 2, 3, 4, 8]),
-                headBlock: 15,
+                anyBlocks: new Set([0, 1_024, 1_048_576, 2_500_000]),
+                headBlock: 2_500_000,
             }),
-            { async getCurrentBlockNumber() { return 15; } },
+            { async getCurrentBlockNumber() { return 2_500_000; } },
         );
 
         const output = await useCase.getState({
@@ -34,27 +34,115 @@ describe("GetSyncBackfillStateUseCase", () => {
 
         expect(output.range).toMatchObject({
             fromBlock: 0,
-            toBlock: 15,
-            blockCount: 16,
-            bucketSize: 1,
-            gridCellCount: 1024,
-            canDrillDown: false,
+            toBlock: 2_500_000,
+            blockCount: 2_500_001,
+            bucketSize: 1_048_576,
+            gridCellCount: 3,
+            canDrillDown: true,
         });
-        expect(output.grid).toHaveLength(1024);
+        expect(output.grid).toHaveLength(3);
         expect(output.grid[0]).toMatchObject({
             fromBlock: 0,
-            toBlock: 0,
+            toBlock: 1_048_575,
+            blockCount: 1_048_576,
+            syncedBlockCount: 2,
+            state: "partial",
+            canDrillDown: true,
+        });
+        expect(output.grid[2]).toMatchObject({
+            fromBlock: 2_097_152,
+            toBlock: 2_500_000,
+            blockCount: 402_849,
+            syncedBlockCount: 1,
+            state: "partial",
+        });
+        expect(output.summary.selectedRangeSyncedBlockCount).toBe(4);
+    });
+
+    it("builds full 1024-cell child pages with stable bucket spans", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([1_048_576, 1_049_600]),
+                headBlock: 2_500_000,
+            }),
+            { async getCurrentBlockNumber() { return 2_500_000; } },
+        );
+
+        const output = await useCase.getState({
+            chainRef: "ethereum",
+            pageStartBlock: 1_048_576,
+            bucketSize: 1_024,
+        });
+
+        expect(output.range).toMatchObject({
+            fromBlock: 1_048_576,
+            toBlock: 2_097_151,
+            blockCount: 1_048_576,
+            bucketSize: 1_024,
+            gridCellCount: 1_024,
+            canDrillDown: true,
+        });
+        expect(output.grid).toHaveLength(1_024);
+        expect(output.grid[0]).toMatchObject({
+            fromBlock: 1_048_576,
+            toBlock: 1_049_599,
+            blockCount: 1_024,
+            syncedBlockCount: 1,
+            state: "partial",
+            canDrillDown: true,
+        });
+        expect(output.grid[1]).toMatchObject({
+            fromBlock: 1_049_600,
+            toBlock: 1_050_623,
+            blockCount: 1_024,
+            syncedBlockCount: 1,
+            state: "partial",
+        });
+    });
+
+    it("keeps live-tip leaf pages stable with disabled future slots", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([2_499_584, 2_500_000]),
+                headBlock: 2_500_000,
+            }),
+            { async getCurrentBlockNumber() { return 2_500_000; } },
+        );
+
+        const output = await useCase.getState({
+            chainRef: "ethereum",
+            pageStartBlock: 2_499_584,
+            bucketSize: 1,
+        });
+
+        expect(output.range).toMatchObject({
+            fromBlock: 2_499_584,
+            toBlock: 2_500_000,
+            blockCount: 417,
+            bucketSize: 1,
+            gridCellCount: 1_024,
+            canDrillDown: false,
+        });
+        expect(output.grid).toHaveLength(1_024);
+        expect(output.grid[416]).toMatchObject({
+            fromBlock: 2_500_000,
+            toBlock: 2_500_000,
             blockCount: 1,
             syncedBlockCount: 1,
             state: "complete",
         });
-        expect(output.grid[5]).toMatchObject({
-            fromBlock: 5,
-            toBlock: 5,
+        expect(output.grid[417]).toMatchObject({
+            fromBlock: 2_500_001,
+            toBlock: 2_500_000,
+            blockCount: 0,
             syncedBlockCount: 0,
             state: "empty",
+            canDrillDown: false,
         });
-        expect(output.summary.selectedRangeSyncedBlockCount).toBe(6);
     });
 
     it("uses collection-specific coverage when a live collection is selected", async () => {
@@ -72,8 +160,6 @@ describe("GetSyncBackfillStateUseCase", () => {
         const output = await useCase.getState({
             chainRef: "ethereum",
             collectionRef: "terraforms",
-            fromBlock: 0,
-            toBlock: 3,
         });
 
         expect(output.context.selected).toBe("terraforms");

@@ -34,8 +34,8 @@ export type SyncBackfillGridCell = {
 export type GetSyncBackfillStateInput = {
     chainRef: string;
     collectionRef?: string | null;
-    fromBlock?: number | null;
-    toBlock?: number | null;
+    pageStartBlock?: number | null;
+    bucketSize?: number | null;
 };
 
 export type GetSyncBackfillStateOutput = {
@@ -107,6 +107,7 @@ type ChainHeadPort = {
 };
 
 const GENESIS_BLOCK = 0;
+const ROOT_PAGE_START_BLOCK = 0;
 
 export class GetSyncBackfillStateUseCase {
     constructor(
@@ -132,19 +133,21 @@ export class GetSyncBackfillStateUseCase {
                 chain.publicChainId,
             );
         const head = await this.resolveHeadBlock(highestSyncedBlock);
-        const range = normalizeRange(input, head.blockNumber);
-        const buckets = buildGridRanges(range.fromBlock, range.toBlock);
+        const page = resolveCoveragePage(input, head.blockNumber);
+        const buckets = buildGridRanges(page);
         const counts = this.syncBackfillReadPort.countSyncedBlocksByRange(
             chain.publicChainId,
             context,
             buckets,
         );
-        const grid = counts.map((count, index) => mapGridCell(index, count));
+        const grid = counts.map((count, index) =>
+            mapGridCell(index, count, page.bucketSize),
+        );
         const selectedRangeSyncedBlockCount =
             this.syncBackfillReadPort.countSyncedBlocksInRange(
                 chain.publicChainId,
                 context,
-                range,
+                page,
             );
 
         return {
@@ -157,11 +160,12 @@ export class GetSyncBackfillStateUseCase {
                 collections,
             },
             range: {
-                ...range,
-                blockCount: countBlocks(range),
-                bucketSize: resolveBucketSize(range),
-                gridCellCount: SYNC_BACKFILL_GRID_CELL_COUNT,
-                canDrillDown: resolveBucketSize(range) > 1,
+                fromBlock: page.fromBlock,
+                toBlock: page.toBlock,
+                blockCount: countBlocks(page),
+                bucketSize: page.bucketSize,
+                gridCellCount: page.gridCellCount,
+                canDrillDown: page.bucketSize > 1,
             },
             summary: {
                 genesisBlock: GENESIS_BLOCK,
@@ -220,30 +224,57 @@ function resolveCoverageContext(
     };
 }
 
-function normalizeRange(
-    input: Pick<GetSyncBackfillStateInput, "fromBlock" | "toBlock">,
+function resolveCoveragePage(
+    input: Pick<GetSyncBackfillStateInput, "pageStartBlock" | "bucketSize">,
     headBlock: number,
-): SyncBackfillCoverageRange {
-    const fromBlock =
-        input.fromBlock === null || input.fromBlock === undefined
-            ? GENESIS_BLOCK
-            : input.fromBlock;
-    const toBlock =
-        input.toBlock === null || input.toBlock === undefined
-            ? headBlock
-            : input.toBlock;
+): SyncBackfillCoveragePage {
+    const hasPageStart =
+        input.pageStartBlock !== null && input.pageStartBlock !== undefined;
+    const hasBucketSize =
+        input.bucketSize !== null && input.bucketSize !== undefined;
+    const rootBucketSize = resolveRootBucketSize(headBlock);
 
-    assertBlockNumber(fromBlock, "from_block");
-    assertBlockNumber(toBlock, "to_block");
-    if (fromBlock > toBlock) {
-        throw new ReadModelBadRequestError("from_block must be <= to_block");
+    if (!hasPageStart && !hasBucketSize) {
+        return {
+            fromBlock: ROOT_PAGE_START_BLOCK,
+            toBlock: headBlock,
+            bucketSize: rootBucketSize,
+            gridCellCount: countRootGridCells(headBlock, rootBucketSize),
+        };
+    }
+    if (hasPageStart !== hasBucketSize) {
+        throw new ReadModelBadRequestError(
+            "page_start and bucket_size must be provided together",
+        );
+    }
+
+    const pageStartBlock = input.pageStartBlock as number;
+    const bucketSize = input.bucketSize as number;
+    assertBlockNumber(pageStartBlock, "page_start");
+    assertBucketSize(bucketSize, rootBucketSize);
+    if (pageStartBlock > headBlock) {
+        throw new ReadModelBadRequestError("page_start must be <= head block");
+    }
+
+    const pageSpan = resolvePageSpan(bucketSize);
+    if (pageStartBlock % pageSpan !== 0) {
+        throw new ReadModelBadRequestError(
+            "page_start must align to bucket_size",
+        );
     }
 
     return {
-        fromBlock: Math.max(GENESIS_BLOCK, Math.min(fromBlock, headBlock)),
-        toBlock: Math.max(GENESIS_BLOCK, Math.min(toBlock, headBlock)),
+        fromBlock: pageStartBlock,
+        toBlock: Math.min(pageStartBlock + pageSpan - 1, headBlock),
+        bucketSize,
+        gridCellCount: SYNC_BACKFILL_GRID_CELL_COUNT,
     };
 }
+
+type SyncBackfillCoveragePage = SyncBackfillCoverageRange & {
+    bucketSize: number;
+    gridCellCount: number;
+};
 
 function assertBlockNumber(value: number, field: string): void {
     if (!Number.isInteger(value) || value < GENESIS_BLOCK) {
@@ -251,21 +282,39 @@ function assertBlockNumber(value: number, field: string): void {
     }
 }
 
+function assertBucketSize(value: number, rootBucketSize: number): void {
+    if (
+        !Number.isInteger(value) ||
+        value < 1 ||
+        value > rootBucketSize ||
+        !isPowerOfGridCellCount(value)
+    ) {
+        throw new ReadModelBadRequestError("bucket_size is invalid");
+    }
+}
+
+function isPowerOfGridCellCount(value: number): boolean {
+    let remaining = value;
+    while (remaining > 1) {
+        if (remaining % SYNC_BACKFILL_GRID_CELL_COUNT !== 0) return false;
+        remaining /= SYNC_BACKFILL_GRID_CELL_COUNT;
+    }
+    return true;
+}
+
 function buildGridRanges(
-    fromBlock: number,
-    toBlock: number,
+    page: SyncBackfillCoveragePage,
 ): SyncBackfillCoverageRange[] {
-    const bucketSize = resolveBucketSize({ fromBlock, toBlock });
     const ranges: SyncBackfillCoverageRange[] = [];
-    for (let index = 0; index < SYNC_BACKFILL_GRID_CELL_COUNT; index += 1) {
-        const start = fromBlock + index * bucketSize;
-        if (start > toBlock) {
-            ranges.push({ fromBlock: toBlock + 1, toBlock });
+    for (let index = 0; index < page.gridCellCount; index += 1) {
+        const start = page.fromBlock + index * page.bucketSize;
+        if (start > page.toBlock) {
+            ranges.push({ fromBlock: start, toBlock: start - 1 });
             continue;
         }
         ranges.push({
             fromBlock: start,
-            toBlock: Math.min(toBlock, start + bucketSize - 1),
+            toBlock: Math.min(page.toBlock, start + page.bucketSize - 1),
         });
     }
     return ranges;
@@ -274,6 +323,7 @@ function buildGridRanges(
 function mapGridCell(
     index: number,
     count: SyncBackfillCoverageCount,
+    bucketSize: number,
 ): SyncBackfillGridCell {
     const blockCount = countBlocks(count);
     return {
@@ -283,7 +333,7 @@ function mapGridCell(
         blockCount,
         syncedBlockCount: count.syncedBlockCount,
         state: resolveCoverageState(blockCount, count.syncedBlockCount),
-        canDrillDown: blockCount > 1,
+        canDrillDown: bucketSize > 1 && blockCount > 0,
     };
 }
 
@@ -296,11 +346,24 @@ function resolveCoverageState(
     return "partial";
 }
 
-function resolveBucketSize(range: SyncBackfillCoverageRange): number {
-    return Math.max(
-        1,
-        Math.ceil(countBlocks(range) / SYNC_BACKFILL_GRID_CELL_COUNT),
-    );
+function resolveRootBucketSize(headBlock: number): number {
+    const blockCount = headBlock - GENESIS_BLOCK + 1;
+    let bucketSize = 1;
+    while (
+        Math.ceil(blockCount / bucketSize) > SYNC_BACKFILL_GRID_CELL_COUNT
+    ) {
+        bucketSize *= SYNC_BACKFILL_GRID_CELL_COUNT;
+    }
+    return bucketSize;
+}
+
+function countRootGridCells(headBlock: number, bucketSize: number): number {
+    const blockCount = headBlock - GENESIS_BLOCK + 1;
+    return Math.max(1, Math.ceil(blockCount / bucketSize));
+}
+
+function resolvePageSpan(bucketSize: number): number {
+    return bucketSize * SYNC_BACKFILL_GRID_CELL_COUNT;
 }
 
 function countBlocks(range: SyncBackfillCoverageRange): number {
