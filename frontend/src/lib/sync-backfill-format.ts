@@ -8,6 +8,10 @@ const INTEGER_FORMATTER = new Intl.NumberFormat(undefined, {
 	maximumFractionDigits: 0
 });
 
+type DurationFormatOptions = {
+	approximate?: boolean;
+};
+
 // Formats block counts and block numbers with locale-aware digit grouping.
 export function formatSyncBackfillInteger(value: number): string {
 	return INTEGER_FORMATTER.format(value);
@@ -19,11 +23,15 @@ export function formatSyncBackfillBlockRange(fromBlock: number, toBlock: number)
 }
 
 // Formats an anchored elapsed duration in compact units.
-export function formatSyncBackfillDurationSeconds(durationSeconds: number | null): string {
+export function formatSyncBackfillDurationSeconds(
+	durationSeconds: number | null,
+	options: DurationFormatOptions = {}
+): string {
 	if (durationSeconds === null || !Number.isFinite(durationSeconds)) return 'unknown';
 
 	const totalSeconds = Math.max(0, Math.round(durationSeconds));
-	if (totalSeconds === 0) return '0s';
+	const prefix = options.approximate ? '~' : '';
+	if (totalSeconds === 0) return `${prefix}0s`;
 
 	const years = Math.floor(totalSeconds / YEAR_SECONDS);
 	const afterYears = totalSeconds % YEAR_SECONDS;
@@ -45,8 +53,8 @@ export function formatSyncBackfillDurationSeconds(durationSeconds: number | null
 		appendDurationPart(parts, minutes, 'min');
 		appendDurationPart(parts, seconds, 's');
 	}
-	if (parts.length === 0) return '0s';
-	return parts.join(' ');
+	if (parts.length === 0) return `${prefix}0s`;
+	return `${prefix}${parts.join(' ')}`;
 }
 
 // Derives a visible block span duration from the current page's anchored endpoints.
@@ -54,9 +62,13 @@ export function formatSyncBackfillAnchoredBlockDuration(input: {
 	blockCount: number;
 	pageBlockCount: number;
 	pageDurationSeconds: number | null;
+	averageBlockTimeSeconds: number | null | undefined;
 }): string {
-	if (input.pageDurationSeconds === null) return 'unknown';
-	if (input.blockCount <= 1 || input.pageBlockCount <= 1) return '0s';
+	if (input.blockCount <= 0) return '0s';
+	if (input.blockCount === 1) {
+		return formatApproximateBlockDuration(input.averageBlockTimeSeconds);
+	}
+	if (input.pageDurationSeconds === null || input.pageBlockCount <= 1) return 'unknown';
 
 	const pageIntervals = input.pageBlockCount - 1;
 	const blockIntervals = input.blockCount - 1;
@@ -88,4 +100,18 @@ function appendDurationPart(parts: string[], value: number, suffix: string): voi
 	if (value > 0) {
 		parts.push(`${value}${suffix}`);
 	}
+}
+
+function formatApproximateBlockDuration(
+	averageBlockTimeSeconds: number | null | undefined
+): string {
+	if (
+		averageBlockTimeSeconds === null ||
+		averageBlockTimeSeconds === undefined ||
+		!Number.isFinite(averageBlockTimeSeconds) ||
+		averageBlockTimeSeconds <= 0
+	) {
+		return 'unknown';
+	}
+	return formatSyncBackfillDurationSeconds(averageBlockTimeSeconds, { approximate: true });
 }

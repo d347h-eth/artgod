@@ -200,7 +200,8 @@
 		return formatSyncBackfillAnchoredBlockDuration({
 			blockCount,
 			pageBlockCount: syncState.range.blockCount,
-			pageDurationSeconds: syncState.range.time.durationSeconds
+			pageDurationSeconds: syncState.range.time.durationSeconds,
+			averageBlockTimeSeconds: syncState.chain.averageBlockTimeSeconds
 		});
 	}
 
@@ -263,7 +264,8 @@
 					>{formatSyncBackfillAnchoredBlockDuration({
 						blockCount: syncState.range.bucketSize,
 						pageBlockCount: syncState.range.blockCount,
-						pageDurationSeconds: syncState.range.time.durationSeconds
+						pageDurationSeconds: syncState.range.time.durationSeconds,
+						averageBlockTimeSeconds: syncState.chain.averageBlockTimeSeconds
 					})}</span
 				>
 			</div>

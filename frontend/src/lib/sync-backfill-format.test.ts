@@ -22,14 +22,35 @@ describe('sync backfill formatting', () => {
 			formatSyncBackfillAnchoredBlockDuration({
 				blockCount: 6,
 				pageBlockCount: 11,
-				pageDurationSeconds: 100
+				pageDurationSeconds: 100,
+				averageBlockTimeSeconds: 12
 			})
 		).toBe('50s');
 		expect(
 			formatSyncBackfillAnchoredBlockDuration({
 				blockCount: 6,
 				pageBlockCount: 11,
-				pageDurationSeconds: null
+				pageDurationSeconds: null,
+				averageBlockTimeSeconds: 12
+			})
+		).toBe('unknown');
+	});
+
+	it('uses chain block duration estimates for single-block buckets', () => {
+		expect(
+			formatSyncBackfillAnchoredBlockDuration({
+				blockCount: 1,
+				pageBlockCount: 1024,
+				pageDurationSeconds: 12_276,
+				averageBlockTimeSeconds: 12
+			})
+		).toBe('~12s');
+		expect(
+			formatSyncBackfillAnchoredBlockDuration({
+				blockCount: 1,
+				pageBlockCount: 1024,
+				pageDurationSeconds: 12_276,
+				averageBlockTimeSeconds: null
 			})
 		).toBe('unknown');
 	});
