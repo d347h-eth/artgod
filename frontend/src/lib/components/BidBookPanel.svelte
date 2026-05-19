@@ -5,7 +5,6 @@
 		ApiBiddingJob
 	} from '$lib/api-types';
 	import {
-		TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 		TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 		TRADING_BIDDING_BID_SCOPE_KIND
@@ -16,15 +15,15 @@
 		type CompactTimeDisplayMode
 	} from '$lib/compact-time-display';
 	import {
-		bidBookRefreshPaceLabel,
-		bidBookRefreshPaceTitle,
-		formatBidBookFreshness
-	} from '$lib/bidding-bid-book-source';
-	import {
 		bidBookPriceEffectiveEth,
 		bidBookRowEffectivePriceWei
 	} from '$lib/bidding-bid-book-price';
-	import { ownBidStatusBadges } from '$lib/bidding-bid-book-own-status';
+	import type { BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
+	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
+	import BidBookMakerCell from '$lib/components/BidBookMakerCell.svelte';
+	import BidBookMetaBar from '$lib/components/BidBookMetaBar.svelte';
+	import BidBookPriceCell from '$lib/components/BidBookPriceCell.svelte';
+	import BidBookTraitList from '$lib/components/BidBookTraitList.svelte';
 	import FilterIcon from '$lib/components/FilterIcon.svelte';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import { joinPath } from '$lib/route-paths';
@@ -32,10 +31,6 @@
 
 	type BidBookTimeMode = CompactTimeDisplayMode;
 	type BidBookPanelView = 'rows' | 'trait-demand';
-	type TraitFilterValue = {
-		key: string;
-		value: string;
-	};
 	type MaybePromise<T> = T | Promise<T>;
 	type BidBookDemandGroup = {
 		key: string;
@@ -91,7 +86,7 @@
 		basePath?: string;
 		mediaMode?: string | null;
 		preferredDemandTraitKey?: string | null;
-		traitValueHref?: ((trait: TraitFilterValue) => string) | null;
+		traitValueHref?: BidBookTraitValueHref | null;
 		makerFilterHref?: ((makerAddress: string) => string) | null;
 		makerBidHref?: ((bid: ApiBiddingBidBookRow) => string) | null;
 		onSelectTraitDemandBid?:
@@ -257,7 +252,7 @@
 		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {
 			return `#${bid.scope.tokenId}`;
 		}
-		return trimText(bid.scope.label);
+		return trimBidBookTraitText(bid.scope.label);
 	}
 
 	function shouldRenderTraitScopeControls(bid: ApiBiddingBidBookRow): boolean {
@@ -297,14 +292,6 @@
 		);
 	}
 
-	function makerDisplayLabel(bid: ApiBiddingBidBookRow): string {
-		return bid.maker.isOwn ? bid.maker.label : bid.maker.address;
-	}
-
-	function makerTitle(bid: ApiBiddingBidBookRow): string | undefined {
-		return bid.maker.isOwn ? bid.maker.address : undefined;
-	}
-
 	function makerHighlightKey(bid: ApiBiddingBidBookRow): string {
 		return bid.maker.address.toLowerCase();
 	}
@@ -326,19 +313,6 @@
 			return;
 		}
 		void onSelectBid?.(bid);
-	}
-
-	function hasOpenSeaOrderHash(bid: ApiBiddingBidBookRow): boolean {
-		return (
-			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid ||
-			bid.materialization.phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder
-		);
-	}
-
-	function ownIntentJobId(bid: ApiBiddingBidBookRow): string | null {
-		return bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent
-			? bid.materialization.jobId
-			: null;
 	}
 
 	function rowActionLabel(bid: ApiBiddingBidBookRow): string {
@@ -475,7 +449,10 @@
 		primaryTraitKey: string | null
 	): string {
 		return sortDemandTraitsForDisplay(traits, primaryTraitKey)
-			.map((trait) => `${trimText(trait.type)}=${trimText(trait.value)}`)
+			.map(
+				(trait) =>
+					`${trimBidBookTraitText(trait.type)}=${trimBidBookTraitText(trait.value)}`
+			)
 			.join(' + ');
 	}
 
@@ -778,77 +755,9 @@
 		bidBookExpanded = !bidBookExpanded;
 	}
 
-	function trimText(value: string): string {
-		const maxLength = 96;
-		const trimmed = value.trim();
-		return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, maxLength - 3)}...`;
-	}
-
 </script>
 
-{#snippet bidBookTraitList(traits: ApiBiddingBidBookRow['scope']['traits'])}
-	<span class="bid-book-demand-trait-list">
-		{#each traits as trait, traitIndex (`${trait.type}:${trait.value}`)}
-			<span class="bid-book-demand-trait-entry">
-				{#if traitIndex > 0}
-					<span class="bid-book-demand-trait-separator">+</span>
-				{/if}
-				<span class="bid-book-demand-trait">
-					<span class="bid-book-demand-trait-key">{trimText(trait.type)}</span>
-					<span class="bid-book-demand-trait-equals">=</span>
-					{#if traitValueHref}
-						<a
-							class="bid-book-demand-trait-value-link"
-							href={traitValueHref({
-								key: trait.type,
-								value: trait.value
-							})}
-						>
-							{trimText(trait.value)}
-						</a>
-					{:else}
-						<span class="bid-book-demand-trait-value">{trimText(trait.value)}</span>
-					{/if}
-				</span>
-			</span>
-		{/each}
-	</span>
-{/snippet}
-
-<section class="runtime-section bid-book-summary-panel">
-	<div class="runtime-kv-grid bid-book-meta">
-		<div>
-			<span class="runtime-k">refresh pace</span>
-			<span class="runtime-v" title={bidBookRefreshPaceTitle(bidBook.state.source)}>
-				{bidBookRefreshPaceLabel(bidBook.state.source)}
-			</span>
-		</div>
-		<div>
-			<span class="runtime-k">rows</span>
-			<span class="runtime-v">{bidBook.state.rowCount}</span>
-		</div>
-		{#if showTraitDemandView}
-			<div>
-				<span class="runtime-k">targets</span>
-				<span class="runtime-v">{displayedDemandGroupCount}</span>
-			</div>
-		{/if}
-		<div>
-			<span class="runtime-k">updated</span>
-			<span class="runtime-v mono">{formatBidBookFreshness(bidBook.state)}</span>
-		</div>
-		{#if position}
-			<div>
-				<span class="runtime-k">position</span>
-				<span class="runtime-v">{position}</span>
-			</div>
-		{/if}
-	</div>
-
-	{#if bidBook.state.lastError}
-		<p class="runtime-error bid-book-error" role="alert">{bidBook.state.lastError}</p>
-	{/if}
-</section>
+<BidBookMetaBar {bidBook} {position} {showTraitDemandView} {displayedDemandGroupCount} />
 
 {#if visibleBids.length === 0}
 	<section class="bid-book-table-panel">
@@ -914,7 +823,7 @@
 							<td colspan={4}>
 								<div class="bid-book-demand-group-header">
 									<span class="bid-book-demand-group-title">
-										{@render bidBookTraitList(demandDisplayTraits(group))}
+										<BidBookTraitList traits={demandDisplayTraits(group)} {traitValueHref} />
 									</span>
 									{#if groupActiveOfferCount > 1}
 										<div class="runtime-kv-grid bid-book-demand-group-meta">
@@ -967,7 +876,6 @@
 							{@const validUntil = validUntilMs(bid)}
 							{@const bidMuted = isMutedDemandBid(group, bid)}
 							{@const quantityPrefix = formatQuantityPrefix(bid)}
-							{@const ownBadges = ownBidStatusBadges(bid)}
 							{#if startsNewDemandDisplayedBidSection(group, index, groupBucketStepWei)}
 								<tr class="bid-book-bucket-spacer" aria-hidden="true">
 									<td colspan={4}></td>
@@ -978,40 +886,18 @@
 								class:bid-book-muted-row={bidMuted}
 								hidden={shouldHideMutedBid(bidMuted)}
 							>
-								<td class="mono bid-book-price bid-book-col-right">
-									{#if hasOpenSeaOrderHash(bid)}
-										<span hidden data-open-sea-order-hash={bid.orderId}></span>
-									{:else if ownIntentJobId(bid)}
-										<span hidden data-bidding-job-id={ownIntentJobId(bid)}></span>
-									{/if}
-									<span class="bid-book-price-value">
-										<span
-											class="bid-book-price-quantity"
-											class:bid-book-price-quantity-empty={quantityPrefix === null}
-										>
-											{quantityPrefix ?? ''}
-										</span>
-										<span class="bid-book-price-amount">{formatPriceAmount(bid)}</span>
-									</span>
-								</td>
-								<td class="mono bid-book-maker-cell bid-book-col-center">
-									<a
-										href={makerHref(bid)}
-										class:bid-book-maker-highlight={isMakerHighlighted(bid)}
-										onpointerenter={() => setHighlightedMaker(bid)}
-										onpointerleave={clearHighlightedMaker}
-										onfocus={() => setHighlightedMaker(bid)}
-										onblur={clearHighlightedMaker}
-										title={makerTitle(bid)}
-									>
-										{makerDisplayLabel(bid)}
-									</a>
-									{#each ownBadges as badge (`${badge.kind}:${badge.label}`)}
-										<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
-											{badge.label}
-										</span>
-									{/each}
-								</td>
+								<BidBookPriceCell
+									{bid}
+									{quantityPrefix}
+									price={formatPriceAmount(bid)}
+								/>
+								<BidBookMakerCell
+									{bid}
+									href={makerHref(bid)}
+									highlighted={isMakerHighlighted(bid)}
+									onSetHighlighted={setHighlightedMaker}
+									onClearHighlighted={clearHighlightedMaker}
+								/>
 								<td class="mono bid-book-col-center" title={oppositeTimeTitle(placedAt, placedAtMode)}>
 									{formatTime(placedAt, placedAtMode)}
 								</td>
@@ -1064,7 +950,6 @@
 						{@const validUntil = validUntilMs(bid)}
 						{@const bidMuted = isMutedBidInRows(displayedBids, bid)}
 						{@const quantityPrefix = formatQuantityPrefix(bid)}
-						{@const ownBadges = ownBidStatusBadges(bid)}
 						{#if startsNewBidBucket(displayedBids, index) && !shouldHideMutedBid(bidMuted)}
 							<tr class="bid-book-bucket-spacer" aria-hidden="true">
 								<td colspan={bidBookColumnCount()}></td>
@@ -1075,37 +960,21 @@
 							class:bid-book-muted-row={bidMuted}
 							hidden={shouldHideMutedBid(bidMuted)}
 						>
-							<td class="mono bid-book-price bid-book-col-right">
-								{#if hasOpenSeaOrderHash(bid)}
-									<span hidden data-open-sea-order-hash={bid.orderId}></span>
-								{:else if ownIntentJobId(bid)}
-									<span hidden data-bidding-job-id={ownIntentJobId(bid)}></span>
-								{/if}
-								<span class="bid-book-price-value">
-									<span
-										class="bid-book-price-quantity"
-										class:bid-book-price-quantity-empty={quantityPrefix === null}
-									>
-										{quantityPrefix ?? ''}
-									</span>
-									<span class="bid-book-price-amount">{formatPriceAmount(bid)}</span>
-								</span>
-								{#if canSelectBidRow(bid) && showRowActions}
-									<button
-										type="button"
-										class="button-link bid-book-row-action"
-										onclick={() => selectBid(bid)}
-									>
-										{rowActionLabel(bid)}
-									</button>
-								{/if}
-							</td>
+							<BidBookPriceCell
+								{bid}
+								{quantityPrefix}
+								price={formatPriceAmount(bid)}
+								actionLabel={canSelectBidRow(bid) && showRowActions
+									? rowActionLabel(bid)
+									: null}
+								onSelect={selectBid}
+							/>
 							{#if showScope}
 								<td class="bid-book-col-center">
 									{#if shouldRenderTraitScopeControls(bid)}
 										<div class="bid-book-demand-group-header bid-book-row-scope-header">
 											<span class="bid-book-demand-group-title">
-												{@render bidBookTraitList(bidScopeDisplayTraits(bid))}
+												<BidBookTraitList traits={bidScopeDisplayTraits(bid)} {traitValueHref} />
 											</span>
 											{#if onFilterTraitDemandGroup}
 												<button
@@ -1150,24 +1019,13 @@
 									{/if}
 								</td>
 							{/if}
-							<td class="mono bid-book-maker-cell bid-book-col-center">
-								<a
-									href={makerHref(bid)}
-									class:bid-book-maker-highlight={isMakerHighlighted(bid)}
-									onpointerenter={() => setHighlightedMaker(bid)}
-									onpointerleave={clearHighlightedMaker}
-									onfocus={() => setHighlightedMaker(bid)}
-									onblur={clearHighlightedMaker}
-									title={makerTitle(bid)}
-								>
-									{makerDisplayLabel(bid)}
-								</a>
-								{#each ownBadges as badge (`${badge.kind}:${badge.label}`)}
-									<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
-										{badge.label}
-									</span>
-								{/each}
-							</td>
+							<BidBookMakerCell
+								{bid}
+								href={makerHref(bid)}
+								highlighted={isMakerHighlighted(bid)}
+								onSetHighlighted={setHighlightedMaker}
+								onClearHighlighted={clearHighlightedMaker}
+							/>
 							<td class="mono bid-book-col-center" title={oppositeTimeTitle(placedAt, placedAtMode)}>
 								{formatTime(placedAt, placedAtMode)}
 							</td>
