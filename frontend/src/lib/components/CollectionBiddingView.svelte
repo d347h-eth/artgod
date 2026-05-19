@@ -765,18 +765,6 @@
 		});
 	}
 
-	function tokenOffersUpdatedAt(): string {
-		return formatBidBookFreshness(bidBook.state);
-	}
-
-	function tokenOffersSourceLabel(): string {
-		return bidBookRefreshPaceLabel(bidBook.state.source);
-	}
-
-	function tokenOffersSourceTitle(): string {
-		return bidBookRefreshPaceTitle(bidBook.state.source);
-	}
-
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
 		const existingJob =
 			bid.materialization.kind ===
@@ -1073,7 +1061,9 @@
 							<div class="runtime-kv-grid bid-book-meta">
 								<div>
 									<span class="runtime-k">refresh pace</span>
-									<span class="runtime-v" title={tokenOffersSourceTitle()}>{tokenOffersSourceLabel()}</span>
+									<span class="runtime-v" title={bidBookRefreshPaceTitle(bidBook.state.source)}>
+										{bidBookRefreshPaceLabel(bidBook.state.source)}
+									</span>
 								</div>
 								<div>
 									<span class="runtime-k">tokens</span>
@@ -1085,7 +1075,7 @@
 								</div>
 								<div>
 									<span class="runtime-k">updated</span>
-									<span class="runtime-v mono">{tokenOffersUpdatedAt()}</span>
+									<span class="runtime-v mono">{formatBidBookFreshness(bidBook.state)}</span>
 								</div>
 							</div>
 							{#if bidBook.state.lastError}
