@@ -31,6 +31,16 @@ export type SyncBackfillGridCell = {
     canDrillDown: boolean;
 };
 
+// Identifies where a visible page endpoint timestamp was resolved.
+export type SyncBackfillBlockTimestampSource = "db" | "rpc" | "unavailable";
+
+// Carries the timestamp anchor for one visible page endpoint block.
+export type SyncBackfillBlockTimestamp = {
+    blockNumber: number;
+    timestamp: number | null;
+    source: SyncBackfillBlockTimestampSource;
+};
+
 export type GetSyncBackfillStateInput = {
     chainRef: string;
     collectionRef?: string | null;
@@ -51,6 +61,11 @@ export type GetSyncBackfillStateOutput = {
         bucketSize: number;
         gridCellCount: number;
         canDrillDown: boolean;
+        time: {
+            from: SyncBackfillBlockTimestamp;
+            to: SyncBackfillBlockTimestamp;
+            durationSeconds: number | null;
+        };
     };
     summary: {
         genesisBlock: number;
@@ -86,6 +101,7 @@ type ChainRefResolverPort = {
 export type SyncBackfillReadPort = {
     listLiveCollections(chainId: number): SyncBackfillCollectionOption[];
     getHighestSyncedBlock(chainId: number): number | null;
+    getBlockTimestamp(chainId: number, blockNumber: number): number | null;
     countSyncedBlocks(
         chainId: number,
         context: SyncBackfillCoverageContext,
@@ -104,6 +120,7 @@ export type SyncBackfillReadPort = {
 
 type ChainHeadPort = {
     getCurrentBlockNumber(): Promise<number>;
+    getBlockTimestamp(blockNumber: number): Promise<number>;
 };
 
 const GENESIS_BLOCK = 0;
@@ -127,13 +144,17 @@ export class GetSyncBackfillStateUseCase {
         const collections = this.syncBackfillReadPort.listLiveCollections(
             chain.publicChainId,
         );
-        const context = resolveCoverageContext(input.collectionRef, collections);
+        const context = resolveCoverageContext(
+            input.collectionRef,
+            collections,
+        );
         const highestSyncedBlock =
             this.syncBackfillReadPort.getHighestSyncedBlock(
                 chain.publicChainId,
             );
         const head = await this.resolveHeadBlock(highestSyncedBlock);
         const page = resolveCoveragePage(input, head.blockNumber);
+        const pageTime = await this.resolvePageTime(chain.publicChainId, page);
         const buckets = buildGridRanges(page);
         const counts = this.syncBackfillReadPort.countSyncedBlocksByRange(
             chain.publicChainId,
@@ -166,6 +187,7 @@ export class GetSyncBackfillStateUseCase {
                 bucketSize: page.bucketSize,
                 gridCellCount: page.gridCellCount,
                 canDrillDown: page.bucketSize > 1,
+                time: pageTime,
             },
             summary: {
                 genesisBlock: GENESIS_BLOCK,
@@ -195,6 +217,67 @@ export class GetSyncBackfillStateUseCase {
         return {
             blockNumber: Math.max(GENESIS_BLOCK, highestSyncedBlock ?? 0),
             source: "indexed",
+        };
+    }
+
+    private async resolvePageTime(
+        chainId: number,
+        page: SyncBackfillCoveragePage,
+    ): Promise<{
+        from: SyncBackfillBlockTimestamp;
+        to: SyncBackfillBlockTimestamp;
+        durationSeconds: number | null;
+    }> {
+        const from = await this.resolveBlockTimestamp(chainId, page.fromBlock);
+        const to =
+            page.toBlock === page.fromBlock
+                ? from
+                : await this.resolveBlockTimestamp(chainId, page.toBlock);
+        return {
+            from,
+            to,
+            durationSeconds: resolveDurationSeconds(from, to),
+        };
+    }
+
+    private async resolveBlockTimestamp(
+        chainId: number,
+        blockNumber: number,
+    ): Promise<SyncBackfillBlockTimestamp> {
+        // Prefer indexed block metadata so time labels match local sync state.
+        const localTimestamp = this.syncBackfillReadPort.getBlockTimestamp(
+            chainId,
+            blockNumber,
+        );
+        if (
+            localTimestamp !== null &&
+            Number.isInteger(localTimestamp) &&
+            localTimestamp >= 0
+        ) {
+            return {
+                blockNumber,
+                timestamp: localTimestamp,
+                source: "db",
+            };
+        }
+
+        try {
+            // Fall back to JSON-RPC for page endpoints that are not indexed yet.
+            const rpcTimestamp =
+                await this.chainHeadPort.getBlockTimestamp(blockNumber);
+            if (Number.isInteger(rpcTimestamp) && rpcTimestamp >= 0) {
+                return {
+                    blockNumber,
+                    timestamp: rpcTimestamp,
+                    source: "rpc",
+                };
+            }
+        } catch {}
+
+        return {
+            blockNumber,
+            timestamp: null,
+            source: "unavailable",
         };
     }
 }
@@ -349,9 +432,7 @@ function resolveCoverageState(
 function resolveRootBucketSize(headBlock: number): number {
     const blockCount = headBlock - GENESIS_BLOCK + 1;
     let bucketSize = 1;
-    while (
-        Math.ceil(blockCount / bucketSize) > SYNC_BACKFILL_GRID_CELL_COUNT
-    ) {
+    while (Math.ceil(blockCount / bucketSize) > SYNC_BACKFILL_GRID_CELL_COUNT) {
         bucketSize *= SYNC_BACKFILL_GRID_CELL_COUNT;
     }
     return bucketSize;
@@ -369,4 +450,12 @@ function resolvePageSpan(bucketSize: number): number {
 function countBlocks(range: SyncBackfillCoverageRange): number {
     if (range.fromBlock > range.toBlock) return 0;
     return range.toBlock - range.fromBlock + 1;
+}
+
+function resolveDurationSeconds(
+    from: SyncBackfillBlockTimestamp,
+    to: SyncBackfillBlockTimestamp,
+): number | null {
+    if (from.timestamp === null || to.timestamp === null) return null;
+    return Math.max(0, to.timestamp - from.timestamp);
 }

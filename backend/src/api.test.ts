@@ -555,6 +555,19 @@ beforeAll(async () => {
                     bucketSize: 1,
                     gridCellCount: 1024,
                     canDrillDown: false,
+                    time: {
+                        from: {
+                            blockNumber: 0,
+                            timestamp: 100,
+                            source: "db" as const,
+                        },
+                        to: {
+                            blockNumber: 0,
+                            timestamp: 100,
+                            source: "db" as const,
+                        },
+                        durationSeconds: 0,
+                    },
                 },
                 summary: {
                     genesisBlock: 0,

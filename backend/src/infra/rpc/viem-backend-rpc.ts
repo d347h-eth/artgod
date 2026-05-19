@@ -33,6 +33,13 @@ export class ViemBackendRpcClient {
         return Number(blockNumber);
     }
 
+    async getBlockTimestamp(blockNumber: number): Promise<number> {
+        const block = await this.client.getBlock({
+            blockNumber: BigInt(blockNumber),
+        });
+        return Number(block.timestamp);
+    }
+
     async readContract<T = unknown>(params: {
         address: BackendRpcHex;
         abi: readonly unknown[];

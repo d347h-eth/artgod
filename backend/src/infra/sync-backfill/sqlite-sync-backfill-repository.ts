@@ -25,6 +25,10 @@ type MaxBlockRow = {
     max_block_number: number | null;
 };
 
+type BlockTimestampRow = {
+    timestamp: number;
+};
+
 const COLLECTION_COLUMNS =
     "chain_id, collection_id, slug, address, status, bootstrap_anchor_block, bootstrap_last_synced_block";
 
@@ -38,6 +42,13 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
     );
     private selectMaxSyncedBlock = db.prepare<{ chainId: number }>(
         "SELECT MAX(block_number) AS max_block_number FROM blocks WHERE chain_id = @chainId",
+    );
+    private selectBlockTimestamp = db.prepare<{
+        chainId: number;
+        blockNumber: number;
+    }>(
+        "SELECT timestamp FROM blocks " +
+            "WHERE chain_id = @chainId AND block_number = @blockNumber",
     );
     private countAnySyncedBlocksStmt = db.prepare<{ chainId: number }>(
         "SELECT COUNT(1) AS count FROM blocks WHERE chain_id = @chainId",
@@ -88,6 +99,14 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
             chainId,
         }) as MaxBlockRow | undefined;
         return row?.max_block_number ?? null;
+    }
+
+    getBlockTimestamp(chainId: number, blockNumber: number): number | null {
+        const row = this.selectBlockTimestamp.get({
+            chainId,
+            blockNumber,
+        }) as BlockTimestampRow | undefined;
+        return row?.timestamp ?? null;
     }
 
     countSyncedBlocks(

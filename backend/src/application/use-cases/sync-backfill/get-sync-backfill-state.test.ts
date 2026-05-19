@@ -24,7 +24,7 @@ describe("GetSyncBackfillStateUseCase", () => {
                 anyBlocks: new Set([0, 1_024, 1_048_576, 2_500_000]),
                 headBlock: 2_500_000,
             }),
-            { async getCurrentBlockNumber() { return 2_500_000; } },
+            rpcPort(2_500_000),
         );
 
         const output = await useCase.getState({
@@ -67,7 +67,7 @@ describe("GetSyncBackfillStateUseCase", () => {
                 anyBlocks: new Set([1_048_576, 1_049_600]),
                 headBlock: 2_500_000,
             }),
-            { async getCurrentBlockNumber() { return 2_500_000; } },
+            rpcPort(2_500_000),
         );
 
         const output = await useCase.getState({
@@ -110,7 +110,7 @@ describe("GetSyncBackfillStateUseCase", () => {
                 anyBlocks: new Set([2_499_584, 2_500_000]),
                 headBlock: 2_500_000,
             }),
-            { async getCurrentBlockNumber() { return 2_500_000; } },
+            rpcPort(2_500_000),
         );
 
         const output = await useCase.getState({
@@ -154,7 +154,7 @@ describe("GetSyncBackfillStateUseCase", () => {
                 collectionBlocks: new Map([[7, new Set([2, 3])]]),
                 headBlock: 3,
             }),
-            { async getCurrentBlockNumber() { return 3; } },
+            rpcPort(3),
         );
 
         const output = await useCase.getState({
@@ -184,6 +184,9 @@ describe("GetSyncBackfillStateUseCase", () => {
                 async getCurrentBlockNumber() {
                     throw new Error("rpc unavailable");
                 },
+                async getBlockTimestamp() {
+                    return 400;
+                },
             },
         );
 
@@ -191,6 +194,51 @@ describe("GetSyncBackfillStateUseCase", () => {
 
         expect(output.summary.headBlock).toBe(4);
         expect(output.summary.headSource).toBe("indexed");
+    });
+
+    it("uses DB page endpoint timestamps when available", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([0, 4]),
+                headBlock: 4,
+                blockTimestamps: new Map([
+                    [0, 100],
+                    [4, 172],
+                ]),
+            }),
+            rpcPort(4, new Map([[0, 10]])),
+        );
+
+        const output = await useCase.getState({ chainRef: "ethereum" });
+
+        expect(output.range.time).toEqual({
+            from: { blockNumber: 0, timestamp: 100, source: "db" },
+            to: { blockNumber: 4, timestamp: 172, source: "db" },
+            durationSeconds: 72,
+        });
+    });
+
+    it("falls back to RPC timestamps for missing page endpoints", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([0, 4]),
+                headBlock: 4,
+                blockTimestamps: new Map([[0, 100]]),
+            }),
+            rpcPort(4, new Map([[4, 172]])),
+        );
+
+        const output = await useCase.getState({ chainRef: "ethereum" });
+
+        expect(output.range.time).toEqual({
+            from: { blockNumber: 0, timestamp: 100, source: "db" },
+            to: { blockNumber: 4, timestamp: 172, source: "rpc" },
+            durationSeconds: 72,
+        });
     });
 });
 
@@ -206,6 +254,7 @@ function readPort(input: {
     anyBlocks: Set<number>;
     collectionBlocks?: Map<number, Set<number>>;
     headBlock: number;
+    blockTimestamps?: Map<number, number>;
 }): SyncBackfillReadPort {
     const collections = [
         {
@@ -226,6 +275,9 @@ function readPort(input: {
         getHighestSyncedBlock() {
             return input.anyBlocks.size > 0 ? input.headBlock : null;
         },
+        getBlockTimestamp(_chainId, blockNumber) {
+            return input.blockTimestamps?.get(blockNumber) ?? null;
+        },
         countSyncedBlocks(_chainId, context) {
             return selectSet(input, context).size;
         },
@@ -238,6 +290,20 @@ function readPort(input: {
                 ...range,
                 syncedBlockCount: countSetRange(source, range),
             }));
+        },
+    };
+}
+
+function rpcPort(
+    headBlock: number,
+    blockTimestamps = new Map<number, number>(),
+) {
+    return {
+        async getCurrentBlockNumber() {
+            return headBlock;
+        },
+        async getBlockTimestamp(blockNumber: number) {
+            return blockTimestamps.get(blockNumber) ?? blockNumber;
         },
     };
 }
