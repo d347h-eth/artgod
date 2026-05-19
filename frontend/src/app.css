@@ -2245,6 +2245,11 @@ th {
 	margin-block-start: var(--token-detail-section-gap);
 }
 
+.token-detail-bidding-actions {
+	justify-content: center;
+	margin-block-start: var(--token-detail-section-gap);
+}
+
 .bidding-automation-panel,
 .bidding-price-tier-panel {
 	--token-bidding-label-width: clamp(6.75rem, 26vw, 8rem);
