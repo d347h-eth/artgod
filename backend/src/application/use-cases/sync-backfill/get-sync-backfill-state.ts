@@ -17,8 +17,14 @@ export type SyncBackfillCollectionOption = {
     slug: string;
     address: string;
     status: "live";
+    deploymentBlock: number | null;
     bootstrapAnchorBlock: number | null;
     bootstrapLastSyncedBlock: number | null;
+};
+
+export type SyncBackfillGridCellDeploymentMarker = {
+    blockNumber: number;
+    synced: boolean;
 };
 
 export type SyncBackfillGridCell = {
@@ -29,6 +35,7 @@ export type SyncBackfillGridCell = {
     syncedBlockCount: number;
     state: SyncBackfillCoverageState;
     canDrillDown: boolean;
+    collectionDeploymentBlock: SyncBackfillGridCellDeploymentMarker | null;
 };
 
 // Identifies where a visible page endpoint timestamp was resolved.
@@ -112,7 +119,12 @@ export type GetSyncBackfillRangeSummaryOutput = {
 
 export type SyncBackfillCoverageContext =
     | { kind: "any" }
-    | { kind: "collection"; collectionId: number; slug: string };
+    | {
+          kind: "collection";
+          collectionId: number;
+          slug: string;
+          deploymentBlock: number | null;
+      };
 
 export type SyncBackfillCoverageRange = {
     fromBlock: number;
@@ -201,8 +213,14 @@ export class GetSyncBackfillStateUseCase {
             context,
             buckets,
         );
+        const deploymentMarker = resolveCollectionDeploymentMarker(
+            chain.publicChainId,
+            context,
+            page,
+            this.syncBackfillReadPort,
+        );
         const grid = counts.map((count, index) =>
-            mapGridCell(index, count, page.bucketSize),
+            mapGridCell(index, count, page.bucketSize, deploymentMarker),
         );
         const selectedRangeSyncedBlockCount =
             this.syncBackfillReadPort.countSyncedBlocksInRange(
@@ -437,6 +455,7 @@ function resolveCoverageContext(
         kind: "collection",
         collectionId: collection.collectionId,
         slug: collection.slug,
+        deploymentBlock: collection.deploymentBlock,
     };
 }
 
@@ -568,6 +587,7 @@ function mapGridCell(
     index: number,
     count: SyncBackfillCoverageCount,
     bucketSize: number,
+    deploymentMarker: SyncBackfillGridCellDeploymentMarker | null,
 ): SyncBackfillGridCell {
     const blockCount = countBlocks(count);
     return {
@@ -578,6 +598,42 @@ function mapGridCell(
         syncedBlockCount: count.syncedBlockCount,
         state: resolveCoverageState(blockCount, count.syncedBlockCount),
         canDrillDown: bucketSize > 1 && blockCount > 0,
+        collectionDeploymentBlock: rangeContainsBlock(
+            count,
+            deploymentMarker?.blockNumber ?? null,
+        )
+            ? deploymentMarker
+            : null,
+    };
+}
+
+function resolveCollectionDeploymentMarker(
+    chainId: number,
+    context: SyncBackfillCoverageContext,
+    page: SyncBackfillCoverageRange,
+    syncBackfillReadPort: Pick<
+        SyncBackfillReadPort,
+        "countSyncedBlocksInRange"
+    >,
+): SyncBackfillGridCellDeploymentMarker | null {
+    if (context.kind !== "collection" || context.deploymentBlock === null) {
+        return null;
+    }
+    if (!rangeContainsBlock(page, context.deploymentBlock)) {
+        return null;
+    }
+    const deploymentRange = {
+        fromBlock: context.deploymentBlock,
+        toBlock: context.deploymentBlock,
+    };
+    return {
+        blockNumber: context.deploymentBlock,
+        synced:
+            syncBackfillReadPort.countSyncedBlocksInRange(
+                chainId,
+                context,
+                deploymentRange,
+            ) > 0,
     };
 }
 
@@ -618,6 +674,17 @@ function resolvePageSpan(bucketSize: number): number {
 function countBlocks(range: SyncBackfillCoverageRange): number {
     if (range.fromBlock > range.toBlock) return 0;
     return range.toBlock - range.fromBlock + 1;
+}
+
+function rangeContainsBlock(
+    range: SyncBackfillCoverageRange,
+    blockNumber: number | null,
+): boolean {
+    return (
+        blockNumber !== null &&
+        range.fromBlock <= blockNumber &&
+        blockNumber <= range.toBlock
+    );
 }
 
 function resolveDurationSeconds(

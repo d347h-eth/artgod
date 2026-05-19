@@ -833,8 +833,14 @@ export type ApiSyncBackfillCollectionOption = {
 	slug: string;
 	address: string;
 	status: 'live';
+	deploymentBlock: number | null;
 	bootstrapAnchorBlock: number | null;
 	bootstrapLastSyncedBlock: number | null;
+};
+
+export type ApiSyncBackfillGridCellDeploymentMarker = {
+	blockNumber: number;
+	synced: boolean;
 };
 
 export type ApiSyncBackfillGridCell = {
@@ -845,6 +851,7 @@ export type ApiSyncBackfillGridCell = {
 	syncedBlockCount: number;
 	state: ApiSyncBackfillCoverageState;
 	canDrillDown: boolean;
+	collectionDeploymentBlock: ApiSyncBackfillGridCellDeploymentMarker | null;
 };
 
 export type ApiSyncBackfillBlockTimestamp = {

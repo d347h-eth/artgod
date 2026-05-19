@@ -92,6 +92,7 @@ function readPort(): Pick<SyncBackfillReadPort, "listLiveCollections"> {
                     slug: "terraforms",
                     address: "0x1111111111111111111111111111111111111111",
                     status: "live" as const,
+                    deploymentBlock: null,
                     bootstrapAnchorBlock: 1,
                     bootstrapLastSyncedBlock: null,
                 },

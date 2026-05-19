@@ -172,6 +172,50 @@ describe("GetSyncBackfillStateUseCase", () => {
         ]);
     });
 
+    it("marks the selected collection deployment block on the grid", async () => {
+        const unsyncedUseCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([0, 1, 2, 3]),
+                collectionBlocks: new Map([[7, new Set([3])]]),
+                deploymentBlock: 2,
+                headBlock: 3,
+            }),
+            rpcPort(3),
+        );
+        const syncedUseCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([0, 1, 2, 3]),
+                collectionBlocks: new Map([[7, new Set([2, 3])]]),
+                deploymentBlock: 2,
+                headBlock: 3,
+            }),
+            rpcPort(3),
+        );
+
+        const unsynced = await unsyncedUseCase.getState({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+        });
+        const synced = await syncedUseCase.getState({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+        });
+
+        expect(unsynced.context.collections[0]?.deploymentBlock).toBe(2);
+        expect(unsynced.grid[2]?.collectionDeploymentBlock).toEqual({
+            blockNumber: 2,
+            synced: false,
+        });
+        expect(synced.grid[2]?.collectionDeploymentBlock).toEqual({
+            blockNumber: 2,
+            synced: true,
+        });
+    });
+
     it("builds a range summary for an arbitrary visible bucket", async () => {
         const useCase = new GetSyncBackfillStateUseCase(
             1,
@@ -352,6 +396,7 @@ function chainResolver(overrides: Partial<ChainRecord> = {}) {
 function readPort(input: {
     anyBlocks: Set<number>;
     collectionBlocks?: Map<number, Set<number>>;
+    deploymentBlock?: number | null;
     headBlock: number;
     blockTimestamps?: Map<number, number>;
 }): SyncBackfillReadPort {
@@ -362,6 +407,7 @@ function readPort(input: {
             slug: "terraforms",
             address: "0x1111111111111111111111111111111111111111",
             status: "live" as const,
+            deploymentBlock: input.deploymentBlock ?? null,
             bootstrapAnchorBlock: 1,
             bootstrapLastSyncedBlock: null,
         },

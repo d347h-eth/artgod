@@ -13,6 +13,7 @@ type CollectionRow = {
     slug: string;
     address: string;
     status: "live";
+    deployment_block: number | null;
     bootstrap_anchor_block: number | null;
     bootstrap_last_synced_block: number | null;
 };
@@ -30,7 +31,7 @@ type BlockTimestampRow = {
 };
 
 const COLLECTION_COLUMNS =
-    "chain_id, collection_id, slug, address, status, bootstrap_anchor_block, bootstrap_last_synced_block";
+    "chain_id, collection_id, slug, address, status, deployment_block, bootstrap_anchor_block, bootstrap_last_synced_block";
 
 export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
     private selectLiveCollections = db.prepare<{ chainId: number }>(
@@ -89,6 +90,7 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
             slug: row.slug,
             address: row.address,
             status: row.status,
+            deploymentBlock: row.deployment_block,
             bootstrapAnchorBlock: row.bootstrap_anchor_block,
             bootstrapLastSyncedBlock: row.bootstrap_last_synced_block,
         }));

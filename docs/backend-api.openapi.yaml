@@ -1683,6 +1683,7 @@ components:
                 - slug
                 - address
                 - status
+                - deploymentBlock
                 - bootstrapAnchorBlock
                 - bootstrapLastSyncedBlock
             additionalProperties: false
@@ -1698,6 +1699,9 @@ components:
                 status:
                     type: string
                     enum: [live]
+                deploymentBlock:
+                    type: integer
+                    nullable: true
                 bootstrapAnchorBlock:
                     type: integer
                     nullable: true
@@ -1730,6 +1734,7 @@ components:
                 - syncedBlockCount
                 - state
                 - canDrillDown
+                - collectionDeploymentBlock
             additionalProperties: false
             properties:
                 index:
@@ -1749,6 +1754,16 @@ components:
                     $ref: "#/components/schemas/SyncBackfillCoverageState"
                 canDrillDown:
                     type: boolean
+                collectionDeploymentBlock:
+                    type: object
+                    nullable: true
+                    required: [blockNumber, synced]
+                    additionalProperties: false
+                    properties:
+                        blockNumber:
+                            type: integer
+                        synced:
+                            type: boolean
 
         SyncBackfillRangeSummary:
             type: object
