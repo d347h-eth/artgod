@@ -1646,6 +1646,21 @@ components:
                     type: integer
                     nullable: true
 
+        SyncBackfillBlockTimestamp:
+            type: object
+            required: [blockNumber, timestamp, source]
+            additionalProperties: false
+            properties:
+                blockNumber:
+                    type: integer
+                timestamp:
+                    type: integer
+                    nullable: true
+                    description: Unix timestamp seconds read from local block storage or JSON-RPC.
+                source:
+                    type: string
+                    enum: [db, rpc, unavailable]
+
         SyncBackfillGridCell:
             type: object
             required:
@@ -1703,6 +1718,7 @@ components:
                         - bucketSize
                         - gridCellCount
                         - canDrillDown
+                        - time
                     additionalProperties: false
                     properties:
                         fromBlock:
@@ -1719,6 +1735,19 @@ components:
                             description: Root pages may use fewer than 1024 cells; drilled pages always use 1024 stable slots.
                         canDrillDown:
                             type: boolean
+                        time:
+                            type: object
+                            required: [from, to, durationSeconds]
+                            additionalProperties: false
+                            properties:
+                                from:
+                                    $ref: "#/components/schemas/SyncBackfillBlockTimestamp"
+                                to:
+                                    $ref: "#/components/schemas/SyncBackfillBlockTimestamp"
+                                durationSeconds:
+                                    type: integer
+                                    nullable: true
+                                    description: Elapsed seconds between the visible range endpoint block timestamps.
                 summary:
                     type: object
                     required:
