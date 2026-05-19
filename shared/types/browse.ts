@@ -20,6 +20,7 @@ export type ChainRecord = {
     publicChainId: number;
     slug: string;
     name: string;
+    averageBlockTimeSeconds?: number;
 };
 
 export type CollectionListItem = {

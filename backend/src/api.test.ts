@@ -546,6 +546,7 @@ beforeAll(async () => {
                     publicChainId: 1,
                     slug: "ethereum",
                     name: "Ethereum",
+                    averageBlockTimeSeconds: 12,
                 },
                 context: { selected: "any", collections: [] },
                 range: {
@@ -590,6 +591,7 @@ beforeAll(async () => {
                     publicChainId: 1,
                     slug: "ethereum",
                     name: "Ethereum",
+                    averageBlockTimeSeconds: 12,
                 },
                 collection: null,
                 fromBlock: 0,
@@ -776,6 +778,7 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.chain.publicChainId).toBe(1);
         expect(result.payload.chain.slug).toBe("ethereum");
+        expect(result.payload.chain.averageBlockTimeSeconds).toBe(12);
     });
 
     it("returns runtime integration config", async () => {

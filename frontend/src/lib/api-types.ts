@@ -15,6 +15,7 @@ export type ApiChain = {
 	publicChainId: number;
 	slug: string;
 	name: string;
+	averageBlockTimeSeconds?: number;
 };
 
 export type ApiCollection = {

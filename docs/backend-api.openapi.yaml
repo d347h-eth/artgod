@@ -1482,7 +1482,13 @@ components:
 
         ChainRecord:
             type: object
-            required: [id, type, publicChainId, slug, name]
+            required:
+                - id
+                - type
+                - publicChainId
+                - slug
+                - name
+                - averageBlockTimeSeconds
             additionalProperties: false
             properties:
                 id:
@@ -1495,6 +1501,9 @@ components:
                     type: string
                 name:
                     type: string
+                averageBlockTimeSeconds:
+                    type: number
+                    description: Chain-level average block duration used for single-block display estimates.
 
         CollectionStandard:
             type: string
