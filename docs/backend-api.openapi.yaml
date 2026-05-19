@@ -169,18 +169,20 @@ paths:
                   schema:
                       type: string
                       default: any
-                - name: from_block
+                - name: page_start
                   in: query
                   required: false
+                  description: Aligned first block for a drilled sync/backfill page. Omit with `bucket_size` for the organic root page.
                   schema:
                       type: integer
                       minimum: 0
-                - name: to_block
+                - name: bucket_size
                   in: query
                   required: false
+                  description: Real blocks represented by each visual cell. Must be a power-of-1024 divisor from the current root page.
                   schema:
                       type: integer
-                      minimum: 0
+                      minimum: 1
             responses:
                 "200":
                     description: Sync/backfill coverage state
@@ -1660,10 +1662,13 @@ components:
                     type: integer
                 fromBlock:
                     type: integer
+                    description: First existing block covered by the cell slot.
                 toBlock:
                     type: integer
+                    description: Last existing block covered by the cell slot; future live-tip slots may report a value below `fromBlock`.
                 blockCount:
                     type: integer
+                    description: Existing chain blocks in the cell slot, excluding future live-tip slots.
                 syncedBlockCount:
                     type: integer
                 state:
@@ -1708,8 +1713,10 @@ components:
                             type: integer
                         bucketSize:
                             type: integer
+                            description: Real blocks represented by each visual cell on this page.
                         gridCellCount:
                             type: integer
+                            description: Root pages may use fewer than 1024 cells; drilled pages always use 1024 stable slots.
                         canDrillDown:
                             type: boolean
                 summary:
@@ -3084,7 +3091,14 @@ components:
         ListCollectionBiddingBidBookResponse:
             type: object
             required:
-                [chain, collection, scopeFilter, traits, bidBook, tokenOfferCards]
+                [
+                    chain,
+                    collection,
+                    scopeFilter,
+                    traits,
+                    bidBook,
+                    tokenOfferCards,
+                ]
             additionalProperties: false
             properties:
                 chain:
@@ -3396,7 +3410,14 @@ components:
         TokenPresentationSummary:
             type: object
             required:
-                [tokenId, name, image, traitSummary, hasMetadata, metadataUpdatedAt]
+                [
+                    tokenId,
+                    name,
+                    image,
+                    traitSummary,
+                    hasMetadata,
+                    metadataUpdatedAt,
+                ]
             additionalProperties: false
             properties:
                 tokenId:
