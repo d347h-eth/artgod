@@ -2,9 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { SYNC_BACKFILL_CONTEXT_ANY } from '@artgod/shared/config/sync-backfill';
 import { BackendApiError, getSyncBackfillState } from '$lib/backend-api';
-import {
-	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
-} from '$lib/runtime/public-deployment';
+import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
@@ -15,7 +13,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
 			state: null,
-			basePath: '/'
+			basePath: '/',
+			generatedAtMs: Date.now()
 		};
 	}
 
@@ -26,7 +25,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			state,
 			basePath: `/${state.chain.slug}/sync-backfill`,
 			collection: query.collection,
-			stack: query.stack
+			stack: query.stack,
+			generatedAtMs: Date.now()
 		};
 	} catch (cause) {
 		toKitError(cause);

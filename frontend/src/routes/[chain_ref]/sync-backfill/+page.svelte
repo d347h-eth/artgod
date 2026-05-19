@@ -7,6 +7,7 @@
 		basePath: string;
 		collection?: string;
 		stack?: string[];
+		generatedAtMs?: number;
 	};
 
 	let { data }: { data?: PageData } = $props();
@@ -17,4 +18,5 @@
 	basePath={data?.basePath ?? '/'}
 	collection={data?.collection ?? 'any'}
 	stack={data?.stack ?? []}
+	generatedAtMs={data?.generatedAtMs ?? Date.now()}
 />

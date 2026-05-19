@@ -9,17 +9,26 @@
 	import { scheduleSyncBackfill } from '$lib/backend-api';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
+	import {
+		formatSyncBackfillApproxTimeRange,
+		formatSyncBackfillBlockDuration,
+		formatSyncBackfillBlockRange,
+		formatSyncBackfillInteger,
+		formatSyncBackfillSyncedPercent
+	} from '$lib/sync-backfill-format';
 
 	let {
 		state: syncState,
 		basePath,
 		collection,
-		stack
+		stack,
+		generatedAtMs
 	}: {
 		state: SyncBackfillStateApiResponse | null;
 		basePath: string;
 		collection: string;
 		stack: string[];
+		generatedAtMs: number;
 	} = $props();
 
 	let submitting = $state(false);
@@ -72,7 +81,7 @@
 	async function copyTerminalBlock(blockNumber: number): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(String(blockNumber));
-			feedback = `copied block ${blockNumber}`;
+			feedback = `copied block ${formatSyncBackfillInteger(blockNumber)}`;
 		} catch {
 			feedback = 'block copy failed';
 		}
@@ -104,14 +113,16 @@
 
 	function cellLabel(cell: ApiSyncBackfillGridCell): string {
 		const range = formatRange(cell.fromBlock, cell.toBlock, cell.blockCount);
+		const duration =
+			cell.blockCount > 0 ? `, ${formatSyncBackfillBlockDuration(cell.blockCount)}` : '';
 		const action = cell.blockCount === 1 ? ', click to copy block number' : '';
-		return `${range}: ${cell.syncedBlockCount}/${cell.blockCount} synced${action}`;
+		return `${range}: ${formatSyncBackfillInteger(cell.syncedBlockCount)}/${formatSyncBackfillInteger(cell.blockCount)} synced${duration}${action}`;
 	}
 
 	function formatRange(fromBlock: number, toBlock: number, blockCount: number): string {
 		if (blockCount <= 0) return 'outside range';
-		if (fromBlock === toBlock) return `block ${fromBlock}`;
-		return `${fromBlock}-${toBlock}`;
+		if (fromBlock === toBlock) return `block ${formatSyncBackfillInteger(fromBlock)}`;
+		return formatSyncBackfillBlockRange(fromBlock, toBlock);
 	}
 
 	function buildDepthLevels(): Array<{
@@ -122,7 +133,10 @@
 		active: boolean;
 	}> {
 		if (!syncState) return [];
-		const rootRange = `${syncState.summary.genesisBlock}-${syncState.summary.headBlock}`;
+		const rootRange = formatSyncBackfillBlockRange(
+			syncState.summary.genesisBlock,
+			syncState.summary.headBlock
+		);
 		return [
 			{
 				key: 'root',
@@ -171,7 +185,22 @@
 		headBlock: number
 	): string {
 		const pageEndBlock = page.pageStartBlock + page.bucketSize * SYNC_BACKFILL_GRID_CELL_COUNT - 1;
-		return `${page.pageStartBlock}-${Math.min(pageEndBlock, headBlock)}`;
+		return formatSyncBackfillBlockRange(page.pageStartBlock, Math.min(pageEndBlock, headBlock));
+	}
+
+	function visibleRangeTimeRange(): string {
+		if (!syncState) return '';
+		return formatSyncBackfillApproxTimeRange({
+			fromBlock: syncState.range.fromBlock,
+			toBlock: syncState.range.toBlock,
+			headBlock: syncState.summary.headBlock,
+			headTimeMs: generatedAtMs
+		});
+	}
+
+	function selectedSyncedRatio(): string {
+		if (!syncState) return '';
+		return `${formatSyncBackfillInteger(syncState.summary.selectedRangeSyncedBlockCount)}/${formatSyncBackfillInteger(syncState.range.blockCount)}`;
 	}
 </script>
 
@@ -209,19 +238,30 @@
 		<section class="sync-summary" aria-label="Sync summary">
 			<div>
 				<span class="sync-summary-label">observed</span>
-				<span>{syncState.range.blockCount} blocks</span>
+				<span class="sync-summary-value">{formatSyncBackfillInteger(syncState.range.blockCount)}</span>
+				<span class="sync-summary-meta">{formatSyncBackfillBlockDuration(syncState.range.blockCount)}</span>
 			</div>
 			<div>
 				<span class="sync-summary-label">range</span>
-				<span>{syncState.range.fromBlock}-{syncState.range.toBlock}</span>
+				<span class="sync-summary-value"
+					>{formatSyncBackfillBlockRange(syncState.range.fromBlock, syncState.range.toBlock)}</span
+				>
+				<span class="sync-summary-meta">{visibleRangeTimeRange()}</span>
 			</div>
 			<div>
 				<span class="sync-summary-label">bucket</span>
-				<span>{syncState.range.bucketSize}</span>
+				<span class="sync-summary-value">{formatSyncBackfillInteger(syncState.range.bucketSize)}</span>
+				<span class="sync-summary-meta">{formatSyncBackfillBlockDuration(syncState.range.bucketSize)}</span>
 			</div>
 			<div>
 				<span class="sync-summary-label">synced</span>
-				<span>{syncState.summary.selectedRangeSyncedBlockCount}/{syncState.range.blockCount}</span>
+				<span class="sync-summary-value">{selectedSyncedRatio()}</span>
+				<span class="sync-summary-meta"
+					>{formatSyncBackfillSyncedPercent(
+						syncState.summary.selectedRangeSyncedBlockCount,
+						syncState.range.blockCount
+					)}</span
+				>
 			</div>
 		</section>
 

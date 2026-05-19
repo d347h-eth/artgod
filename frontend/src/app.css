@@ -406,6 +406,16 @@ a:hover {
 	letter-spacing: 0.04em;
 }
 
+.sync-summary-value {
+	color: var(--c-ice);
+}
+
+.sync-summary-meta {
+	color: color-mix(in srgb, var(--c-sand) 72%, transparent);
+	font-size: 0.72rem;
+	line-height: 1.2;
+}
+
 .sync-grid-layout {
 	display: flex;
 	align-items: flex-start;
