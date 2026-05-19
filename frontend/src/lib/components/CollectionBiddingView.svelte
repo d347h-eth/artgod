@@ -54,6 +54,7 @@
 		isCleanFilteredTokenBatchSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
+	import { resolveCollectionBiddingSelectionControlPolicy } from '$lib/bidding-selection-control-policy';
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		buildBiddingAutomationTokenFilterSnapshot,
@@ -253,6 +254,14 @@
 		resolveBiddingTokenActionLabel({
 			allFilteredSelectionActive: isAllFilteredTokenSelectionActive(),
 			canRefineTokenSelectionToVisiblePage
+		})
+	);
+	const biddingSelectionControlPolicy = $derived(
+		resolveCollectionBiddingSelectionControlPolicy({
+			publicSingleCollection: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+			bidScope,
+			canBidOnTraits,
+			hasSelectionSummary: biddingSelectionSummary !== null
 		})
 	);
 
@@ -991,32 +1000,30 @@
 						/>
 					</div>
 				{/if}
-				{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token || bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
-					<div class="panel-top-actions-row">
-						{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token || canBidOnTraits || biddingSelectionSummary}
-							<BiddingSelectionControls
-								summary={biddingSelectionSummary}
-								showTraitAction={canBidOnTraits}
-								showTokenAction={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token}
-								showTierAction={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
-								tierActionActive={priceTierPanelOpen}
-								tokenActionLabel={tokenActionLabel}
-								tokenActionDisabled={tokenOfferCards.totalItems === 0}
-								onToggleTiers={togglePriceTierPanel}
-								onBidOnTraits={bidOnFilteredTraits}
-								onBidOnTokens={bidOnFilteredTokenOffers}
-								onClear={clearBiddingSelection}
-							/>
-						{/if}
-					</div>
-				{:else if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+				{#if biddingSelectionControlPolicy.renderRow && !biddingSelectionControlPolicy.showCollectionAction}
 					<div class="panel-top-actions-row">
 						<BiddingSelectionControls
 							summary={biddingSelectionSummary}
-							showTraitAction={false}
-							showTokenAction={false}
-							showCollectionAction
-							showTierAction
+							showTraitAction={biddingSelectionControlPolicy.showTraitAction}
+							showTokenAction={biddingSelectionControlPolicy.showTokenAction}
+							showTierAction={biddingSelectionControlPolicy.showTierAction}
+							tierActionActive={priceTierPanelOpen}
+							tokenActionLabel={tokenActionLabel}
+							tokenActionDisabled={tokenOfferCards.totalItems === 0}
+							onToggleTiers={togglePriceTierPanel}
+							onBidOnTraits={bidOnFilteredTraits}
+							onBidOnTokens={bidOnFilteredTokenOffers}
+							onClear={clearBiddingSelection}
+						/>
+					</div>
+				{:else if biddingSelectionControlPolicy.renderRow && biddingSelectionControlPolicy.showCollectionAction}
+					<div class="panel-top-actions-row">
+						<BiddingSelectionControls
+							summary={biddingSelectionSummary}
+							showTraitAction={biddingSelectionControlPolicy.showTraitAction}
+							showTokenAction={biddingSelectionControlPolicy.showTokenAction}
+							showCollectionAction={biddingSelectionControlPolicy.showCollectionAction}
+							showTierAction={biddingSelectionControlPolicy.showTierAction}
 							tierActionActive={priceTierPanelOpen}
 							collectionActionDisabled={bidBook.bids.length === 0}
 							onToggleTiers={togglePriceTierPanel}

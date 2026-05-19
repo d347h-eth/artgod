@@ -37,6 +37,7 @@
 		isCleanFilteredTokenBatchSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
+	import { resolveTokenBrowserBiddingSelectionControlPolicy } from '$lib/bidding-selection-control-policy';
 	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
@@ -126,6 +127,12 @@
 		resolveBiddingTokenActionLabel({
 			allFilteredSelectionActive: isAllFilteredTokenSelectionActive(),
 			canRefineTokenSelectionToVisiblePage
+		})
+	);
+	const biddingSelectionControlPolicy = $derived(
+		resolveTokenBrowserBiddingSelectionControlPolicy({
+			publicSingleCollection: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+			canBidOnTraits
 		})
 	);
 
@@ -398,12 +405,13 @@
 					onSelectedFiltersChange={applyTraitFilters}
 				/>
 			</div>
-			{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+			{#if biddingSelectionControlPolicy.renderRow}
 				<div class="panel-top-actions-row">
 					<BiddingSelectionControls
 						summary={biddingSelectionSummary}
-						showTraitAction={canBidOnTraits}
-						showTierAction
+						showTraitAction={biddingSelectionControlPolicy.showTraitAction}
+						showTokenAction={biddingSelectionControlPolicy.showTokenAction}
+						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
 						tokenActionLabel={tokenActionLabel}
 						tokenActionDisabled={tokens.totalItems === 0}
