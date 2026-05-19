@@ -6,7 +6,10 @@ import type {
     TraitRangeFilter,
     CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
-import { COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE } from "@artgod/shared/types";
+import {
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+} from "@artgod/shared/types";
 import type {
     UpsertBatchTokenBiddingJobsInput,
     UpsertBatchTokenBiddingJobsOutput,
@@ -76,23 +79,29 @@ function parseSelection(value: unknown): UpsertBatchTokenBiddingJobsInput["selec
         throw new ReadModelBadRequestError("selection is required");
     }
     const record = value as Record<string, unknown>;
-    if (record.type === "token_ids") {
+    if (record.type === TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds) {
         return {
-            type: "token_ids",
+            type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
             tokenIds: parseStringArray(record.tokenIds, "selection.tokenIds"),
         };
     }
-    if (record.type === "filter") {
+    if (
+        record.type ===
+        TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter
+    ) {
         return {
-            type: "filter",
+            type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
             tokenStatus: parseTokenStatus(record.tokenStatus),
             traits: parseTraits(record.traits),
             traitRanges: parseTraitRanges(record.traitRanges),
         };
     }
-    if (record.type === "token_offer_filter") {
+    if (
+        record.type ===
+        TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter
+    ) {
         return {
-            type: "token_offer_filter",
+            type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
             traits: parseTraits(record.traits),
             traitRanges: parseTraitRanges(record.traitRanges),
             traitJoinMode: parseTraitJoinMode(record.traitJoinMode),

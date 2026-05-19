@@ -4,6 +4,7 @@ import {
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
+    TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
     TRADING_BOT_KIND,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_STATUS,
@@ -100,7 +101,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
             ceilingEth: "0.2",
             deltaEth: "0.001",
             selection: {
-                type: "filter",
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
                 tokenStatus: "all",
                 traits: [{ key: "Mode", value: "Terrain" }],
                 traitRanges: [],
@@ -155,7 +156,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
                     ceilingEth: "0.2",
                     deltaEth: "0.001",
                     selection: {
-                        type: "token_ids",
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
                         tokenIds: ["1", "404"],
                     },
                 }),
@@ -248,7 +249,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
             ceilingEth: "0.2",
             deltaEth: "0.001",
             selection: {
-                type: "token_offer_filter",
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
                 traits: [
                     { key: "Mode", value: "Terrain" },
                     { key: "Chroma", value: "Plague" },
@@ -343,7 +344,7 @@ describe("UpsertBatchTokenBiddingJobsUseCase", () => {
             ceilingEth: "0.2",
             deltaEth: "0.001",
             selection: {
-                type: "token_offer_filter",
+                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
                 traits: [],
                 traitRanges: [],
                 traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,

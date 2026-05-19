@@ -1,4 +1,7 @@
-import { TRADING_JOB_STATUS } from '@artgod/shared/types';
+import {
+	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+	TRADING_JOB_STATUS
+} from '@artgod/shared/types';
 import type {
 	ApiBiddingJob,
 	ApiChain,
@@ -21,12 +24,6 @@ import {
 	canSubmitFilteredTokenBatch,
 	type BiddingAutomationDraft
 } from '$lib/bidding-automation';
-
-const BATCH_TOKEN_BIDDING_SELECTION_TYPE = {
-	TokenIds: 'token_ids',
-	Filter: 'filter',
-	TokenOfferFilter: 'token_offer_filter'
-} as const;
 
 export type EditableBiddingJobStatus =
 	| typeof TRADING_JOB_STATUS.Enabled
@@ -88,7 +85,7 @@ export async function saveBiddingAutomationDraftJobs(
 			status: nextStatus,
 			...pricing,
 			selection: {
-				type: BATCH_TOKEN_BIDDING_SELECTION_TYPE.TokenIds,
+				type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
 				tokenIds: draft.target.tokenIds
 			}
 		});
@@ -107,7 +104,7 @@ export async function saveBiddingAutomationDraftJobs(
 				status: nextStatus,
 				...pricing,
 				selection: {
-					type: BATCH_TOKEN_BIDDING_SELECTION_TYPE.TokenOfferFilter,
+					type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
 					traits: draft.source.filter.selectedTraits,
 					traitRanges: draft.source.filter.selectedTraitRanges,
 					traitJoinMode: draft.source.filter.traitJoinMode,
@@ -124,7 +121,7 @@ export async function saveBiddingAutomationDraftJobs(
 			status: nextStatus,
 			...pricing,
 			selection: {
-				type: BATCH_TOKEN_BIDDING_SELECTION_TYPE.Filter,
+				type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
 				tokenStatus,
 				traits: draft.source.filter.selectedTraits,
 				traitRanges: draft.source.filter.selectedTraitRanges

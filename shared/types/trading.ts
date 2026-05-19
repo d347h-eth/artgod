@@ -76,6 +76,16 @@ export type TradingBiddingJobsChangedSignal = {
     publishedAt: string;
 };
 
+// Names the transport shapes accepted by the batch token bidding mutation.
+export const TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND = {
+    TokenIds: "token_ids",
+    TokenBrowserFilter: "filter",
+    TokenOfferFilter: "token_offer_filter",
+} as const;
+
+export type TradingBatchTokenBiddingJobSelectionKind =
+    (typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND)[keyof typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND];
+
 // Builds the shared JetStream stream name for trading command wake-up signals.
 export function tradingJobSignalStreamName(streamPrefix: string): string {
     return `${streamPrefix}-${TRADING_JOB_SIGNAL_STREAM_SUFFIX}`;
