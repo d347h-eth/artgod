@@ -24,10 +24,8 @@ import {
 	canSubmitFilteredTokenBatch,
 	type BiddingAutomationDraft
 } from '$lib/bidding-automation';
-
-export type EditableBiddingJobStatus =
-	| typeof TRADING_JOB_STATUS.Enabled
-	| typeof TRADING_JOB_STATUS.Paused;
+import type { EditableBiddingJobStatus } from '$lib/bidding-automation-panel-state';
+export type { EditableBiddingJobStatus } from '$lib/bidding-automation-panel-state';
 
 export type BiddingAutomationPricingRequest =
 	| {

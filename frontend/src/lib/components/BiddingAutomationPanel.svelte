@@ -1,6 +1,5 @@
 <script lang="ts">
 	import {
-		TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 		TRADING_BIDDING_TIER_SELECTION_MODE,
 		TRADING_JOB_STATUS,
 		TRADING_JOB_TARGET_KIND
@@ -25,14 +24,23 @@
 		type BiddingAutomationPricingRequest,
 		type EditableBiddingJobStatus
 	} from '$lib/bidding-automation-panel-actions';
+	import {
+		hasBiddingAutomationPanelDraftChanges,
+		resolveBiddingAutomationPanelJob,
+		resolveInitialBiddingAutomationCeilingEth,
+		resolveInitialBiddingAutomationDeltaEth,
+		resolveInitialBiddingAutomationFloorEth,
+		resolveInitialBiddingAutomationPriceTierId,
+		resolveInitialBiddingAutomationPricingMode,
+		resolveInitialBiddingAutomationStatus,
+		resolveLoadedBiddingAutomationPanelKey
+	} from '$lib/bidding-automation-panel-state';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 	import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
 	import {
-		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 		BIDDING_AUTOMATION_PRICING_MODE,
 		BIDDING_AUTOMATION_PRICING_MODE_LABEL,
-		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
 		biddingAutomationDraftTokenId,
 		isBiddingAutomationDraftSubmittable,
 		type BiddingAutomationDraft,
@@ -82,17 +90,23 @@
 		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
 	} = $props();
 
-	const initialPanelJob = resolvePanelJob(job, draft, null);
+	const initialPanelJob = resolveBiddingAutomationPanelJob({ job, draft, lookedUpJob: null });
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
-	let loadedJobKey = $state(resolveLoadedPanelKey(job, draft, null));
+	let loadedJobKey = $state(resolveLoadedBiddingAutomationPanelKey({ job, draft, lookedUpJob: null }));
 	let pricingMode = $state<BiddingAutomationPricingMode>(
-		resolveInitialPricingMode(initialPanelJob, draft)
+		resolveInitialBiddingAutomationPricingMode({ job: initialPanelJob, draft })
 	);
-	let selectedPriceTierId = $state(resolveInitialPriceTierId(initialPanelJob, draft));
-	let status = $state<EditableBiddingJobStatus>(resolveInitialStatus(initialPanelJob));
-	let floorEth = $state(resolveInitialFloorEth(initialPanelJob, draft));
-	let ceilingEth = $state(resolveInitialCeilingEth(initialPanelJob, draft));
-	let deltaEth = $state(resolveInitialDeltaEth(initialPanelJob, draft));
+	let selectedPriceTierId = $state(resolveInitialBiddingAutomationPriceTierId({ job: initialPanelJob, draft }));
+	let status = $state<EditableBiddingJobStatus>(resolveInitialBiddingAutomationStatus(initialPanelJob));
+	let floorEth = $state(resolveInitialBiddingAutomationFloorEth({ job: initialPanelJob, draft }));
+	let ceilingEth = $state(resolveInitialBiddingAutomationCeilingEth({ job: initialPanelJob, draft }));
+	let deltaEth = $state(
+		resolveInitialBiddingAutomationDeltaEth({
+			job: initialPanelJob,
+			draft,
+			defaultDeltaEth: biddingSettings.defaultDeltaEth
+		})
+	);
 	let saving = $state(false);
 	let archiving = $state(false);
 	let saveMessage = $state<string | null>(null);
@@ -136,7 +150,20 @@
 			displayedCeilingEth.trim().length > 0 &&
 			displayedDeltaEth.trim().length > 0
 	);
-	const hasDraftChanges = $derived(resolveHasDraftChanges());
+	const hasDraftChanges = $derived(
+		hasBiddingAutomationPanelDraftChanges({
+			currentJob,
+			status,
+			pricingMode,
+			selectedPriceTierId,
+			displayedFloorEth,
+			displayedCeilingEth,
+			displayedDeltaEth,
+			floorEth,
+			ceilingEth,
+			deltaEth
+		})
+	);
 	const canSubmitDraft = $derived(
 		!!chain &&
 			!!collection &&
@@ -173,7 +200,11 @@
 	});
 
 	$effect(() => {
-		const nextLoadedJobKey = resolveLoadedPanelKey(job, draft, targetLookupJob);
+		const nextLoadedJobKey = resolveLoadedBiddingAutomationPanelKey({
+			job,
+			draft,
+			lookedUpJob: targetLookupJob
+		});
 		if (nextLoadedJobKey === loadedJobKey) {
 			return;
 		}
@@ -200,165 +231,6 @@
 			panelCollapsed = false;
 		}
 	});
-
-	function resolvePanelJob(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null,
-		lookedUpJob: ApiBiddingJob | null
-	): ApiBiddingJob | null {
-		// Draft targets must not inherit a page-local job from a different scope.
-		if (currentDraft) {
-			return currentDraft.existingJob ?? lookedUpJob ?? null;
-		}
-		return value;
-	}
-
-	function resolveLoadedPanelKey(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null,
-		lookedUpJob: ApiBiddingJob | null
-	): string {
-		return `${resolveLoadedJobKey(resolvePanelJob(value, currentDraft, lookedUpJob))}:${resolveDraftKey(currentDraft)}`;
-	}
-
-	function resolveLoadedJobKey(value: ApiBiddingJob | null): string {
-		if (!value) {
-			return 'empty';
-		}
-		return [
-			value.jobId,
-			value.revision,
-			value.status,
-			value.config.floorEth,
-			value.config.ceilingEth,
-			value.config.deltaEth
-		].join(':');
-	}
-
-	function resolveDraftKey(value: BiddingAutomationDraft | null): string {
-		if (!value) {
-			return 'no-draft';
-		}
-		return [
-			value.source.type,
-			value.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid
-				? value.source.bid.orderId
-				: '',
-			value.target.type,
-			biddingAutomationDraftTokenId(value) ?? '',
-			value.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch
-				? value.target.tokenCount
-				: '',
-			value.pricing.mode,
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.floorEth : '',
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.ceilingEth : '',
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.deltaEth : '',
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier ? value.pricing.tierId : ''
-		].join(':');
-	}
-
-	function resolveInitialPricingMode(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): BiddingAutomationPricingMode {
-		if (value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier) {
-			return BIDDING_AUTOMATION_PRICING_MODE.Tier;
-		}
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-			return BIDDING_AUTOMATION_PRICING_MODE.Tier;
-		}
-		return BIDDING_AUTOMATION_PRICING_MODE.Manual;
-	}
-
-	function resolveInitialPriceTierId(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): string {
-		if (value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier) {
-			return value.config.pricingSource.tierId;
-		}
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-			return currentDraft.pricing.tierId;
-		}
-		return '';
-	}
-
-	function resolveInitialStatus(value: ApiBiddingJob | null): EditableBiddingJobStatus {
-		return value?.status === TRADING_JOB_STATUS.Paused
-			? TRADING_JOB_STATUS.Paused
-			: TRADING_JOB_STATUS.Enabled;
-	}
-
-	function resolveInitialFloorEth(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): string {
-		if (value?.config.floorEth) {
-			return value.config.floorEth;
-		}
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
-			return currentDraft.pricing.floorEth;
-		}
-		return '';
-	}
-
-	function resolveInitialCeilingEth(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): string {
-		if (value?.config.ceilingEth) {
-			return value.config.ceilingEth;
-		}
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
-			return currentDraft.pricing.ceilingEth;
-		}
-		return '';
-	}
-
-	function resolveInitialDeltaEth(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): string {
-		if (value?.config.deltaEth) {
-			return value.config.deltaEth;
-		}
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
-			return currentDraft.pricing.deltaEth || biddingSettings.defaultDeltaEth;
-		}
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-			return currentDraft.pricing.deltaEth;
-		}
-		return biddingSettings.defaultDeltaEth;
-	}
-
-	function resolveHasDraftChanges(): boolean {
-		if (currentJob) {
-			if (pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-				return (
-					status !== resolveInitialStatus(currentJob) ||
-					selectedPriceTierId !== jobPriceTierId(currentJob) ||
-					displayedFloorEth.trim() !== currentJob.config.floorEth ||
-					displayedCeilingEth.trim() !== currentJob.config.ceilingEth ||
-					displayedDeltaEth.trim() !== currentJob.config.deltaEth
-				);
-			}
-			return (
-				status !== resolveInitialStatus(currentJob) ||
-				currentJob.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier ||
-				floorEth.trim() !== currentJob.config.floorEth ||
-				ceilingEth.trim() !== currentJob.config.ceilingEth ||
-				deltaEth.trim() !== currentJob.config.deltaEth
-			);
-		}
-
-		return (
-			status !== TRADING_JOB_STATUS.Enabled ||
-			pricingMode !== BIDDING_AUTOMATION_PRICING_MODE.Manual ||
-			displayedFloorEth.trim().length > 0 ||
-			displayedCeilingEth.trim().length > 0 ||
-			deltaEth.trim().length > 0
-		);
-	}
 
 	function resetDraft(): void {
 		applyDraft(currentJob, draft);
@@ -437,7 +309,11 @@
 		currentDraft: BiddingAutomationDraft | null,
 		lookedUpJob: ApiBiddingJob | null
 	): void {
-		currentJob = resolvePanelJob(value, currentDraft, lookedUpJob);
+		currentJob = resolveBiddingAutomationPanelJob({
+			job: value,
+			draft: currentDraft,
+			lookedUpJob
+		});
 		applyDraft(currentJob, currentDraft);
 	}
 
@@ -475,12 +351,28 @@
 	}
 
 	function applyDraft(value: ApiBiddingJob | null, currentDraft: BiddingAutomationDraft | null): void {
-		pricingMode = resolveInitialPricingMode(value, currentDraft);
-		selectedPriceTierId = resolveInitialPriceTierId(value, currentDraft);
-		status = resolveInitialStatus(value);
-		floorEth = resolveInitialFloorEth(value, currentDraft);
-		ceilingEth = resolveInitialCeilingEth(value, currentDraft);
-		deltaEth = resolveInitialDeltaEth(value, currentDraft);
+		pricingMode = resolveInitialBiddingAutomationPricingMode({
+			job: value,
+			draft: currentDraft
+		});
+		selectedPriceTierId = resolveInitialBiddingAutomationPriceTierId({
+			job: value,
+			draft: currentDraft
+		});
+		status = resolveInitialBiddingAutomationStatus(value);
+		floorEth = resolveInitialBiddingAutomationFloorEth({
+			job: value,
+			draft: currentDraft
+		});
+		ceilingEth = resolveInitialBiddingAutomationCeilingEth({
+			job: value,
+			draft: currentDraft
+		});
+		deltaEth = resolveInitialBiddingAutomationDeltaEth({
+			job: value,
+			draft: currentDraft,
+			defaultDeltaEth: biddingSettings.defaultDeltaEth
+		});
 	}
 
 	function resolveSelectedPriceTier(): ApiBiddingPriceTier | null {
@@ -488,12 +380,6 @@
 			return null;
 		}
 		return priceTiers.find((tier) => tier.tierId === selectedPriceTierId) ?? null;
-	}
-
-	function jobPriceTierId(value: ApiBiddingJob): string | null {
-		return value.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
-			? value.config.pricingSource.tierId
-			: null;
 	}
 
 	function pricingSelectionValue(): string {
