@@ -252,10 +252,7 @@
 	}
 
 	function canSelectTokenDetailBidBookBid(bid: ApiBiddingBidBookRow): boolean {
-		if (bid.scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
-			return true;
-		}
-		return bid.maker.isOwn;
+		return bid.scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.Collection;
 	}
 
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {

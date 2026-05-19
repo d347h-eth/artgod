@@ -105,7 +105,7 @@ describe('token detail page', () => {
 								updatedAt: null,
 								snapshotRefreshedAtMs: null,
 								projectedAt: null,
-								rowCount: 3,
+								rowCount: 4,
 								durationMs: null,
 								lastError: null
 							},
@@ -125,6 +125,32 @@ describe('token detail page', () => {
 										address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 										label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 										isOwn: false
+									},
+									price: exactPrice('100000000000000000', '0.1'),
+									quantity: '1',
+									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+									currencySymbol: 'WETH',
+									protocolAddress: null,
+									validUntil: 4_000_000_000,
+									placedAt: '2026-01-01T00:00:00Z',
+									snapshotRefreshedAtMs: null,
+									seenAt: '2026-01-01T00:00:00Z',
+										ownStatus: null
+								},
+								{
+									orderId: '0xown-collection-bid',
+									source: 'orders',
+									materialization: marketMaterialization(),
+									scope: {
+										kind: 'collection',
+										label: 'collection',
+										tokenId: null,
+										traits: []
+									},
+									maker: {
+										address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+										label: 'You',
+										isOwn: true
 									},
 									price: exactPrice('100000000000000000', '0.1'),
 									quantity: '1',
