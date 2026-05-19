@@ -193,6 +193,7 @@
 		return formatSyncBackfillApproxTimeRange({
 			fromBlock: syncState.range.fromBlock,
 			toBlock: syncState.range.toBlock,
+			chainPublicId: syncState.chain.publicChainId,
 			headBlock: syncState.summary.headBlock,
 			headTimeMs: generatedAtMs
 		});

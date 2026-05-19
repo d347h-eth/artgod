@@ -5,6 +5,8 @@ const HOUR_SECONDS = 60 * MINUTE_SECONDS;
 const DAY_SECONDS = 24 * HOUR_SECONDS;
 const MONTH_SECONDS = 30 * DAY_SECONDS;
 const YEAR_SECONDS = 365 * DAY_SECONDS;
+const ETHEREUM_MAINNET_CHAIN_ID = 1;
+const ETHEREUM_MAINNET_GENESIS_TIME_MS = 1_438_269_973_000;
 
 const INTEGER_FORMATTER = new Intl.NumberFormat(undefined, {
 	maximumFractionDigits: 0
@@ -49,13 +51,20 @@ export function formatSyncBackfillBlockDuration(blockCount: number): string {
 	return parts.join(' ');
 }
 
-// Estimates a UTC timestamp for a block using the current head as "now".
-export function estimateSyncBackfillBlockTimeMs(
-	blockNumber: number,
-	headBlock: number,
-	headTimeMs: number
-): number {
-	return headTimeMs - Math.max(0, headBlock - blockNumber) * APPROX_BLOCK_SECONDS * SECOND_MS;
+// Estimates UTC block time from known genesis anchors without adding block timestamp RPC calls.
+export function estimateSyncBackfillBlockTimeMs(input: {
+	blockNumber: number;
+	chainPublicId: number;
+	headBlock: number;
+	headTimeMs: number;
+}): number {
+	const genesisTimeMs = resolveSyncBackfillGenesisTimeMs(input);
+	if (input.headBlock <= 0) return genesisTimeMs;
+
+	const boundedBlock = Math.max(0, Math.min(input.blockNumber, input.headBlock));
+	const chainElapsedMs = input.headTimeMs - genesisTimeMs;
+	const blockRatio = boundedBlock / input.headBlock;
+	return genesisTimeMs + Math.round(chainElapsedMs * blockRatio);
 }
 
 // Formats approximate UTC time without timezone suffix or subseconds.
@@ -67,15 +76,22 @@ export function formatSyncBackfillApproxUtc(valueMs: number): string {
 export function formatSyncBackfillApproxTimeRange(input: {
 	fromBlock: number;
 	toBlock: number;
+	chainPublicId: number;
 	headBlock: number;
 	headTimeMs: number;
 }): string {
-	const fromMs = estimateSyncBackfillBlockTimeMs(
-		input.fromBlock,
-		input.headBlock,
-		input.headTimeMs
-	);
-	const toMs = estimateSyncBackfillBlockTimeMs(input.toBlock, input.headBlock, input.headTimeMs);
+	const fromMs = estimateSyncBackfillBlockTimeMs({
+		blockNumber: input.fromBlock,
+		chainPublicId: input.chainPublicId,
+		headBlock: input.headBlock,
+		headTimeMs: input.headTimeMs
+	});
+	const toMs = estimateSyncBackfillBlockTimeMs({
+		blockNumber: input.toBlock,
+		chainPublicId: input.chainPublicId,
+		headBlock: input.headBlock,
+		headTimeMs: input.headTimeMs
+	});
 	return `${formatSyncBackfillApproxUtc(fromMs)} / ${formatSyncBackfillApproxUtc(toMs)}`;
 }
 
@@ -89,4 +105,15 @@ function appendDurationPart(parts: string[], value: number, suffix: string): voi
 	if (value > 0) {
 		parts.push(`${value}${suffix}`);
 	}
+}
+
+function resolveSyncBackfillGenesisTimeMs(input: {
+	chainPublicId: number;
+	headBlock: number;
+	headTimeMs: number;
+}): number {
+	if (input.chainPublicId === ETHEREUM_MAINNET_CHAIN_ID) {
+		return ETHEREUM_MAINNET_GENESIS_TIME_MS;
+	}
+	return input.headTimeMs - input.headBlock * APPROX_BLOCK_SECONDS * SECOND_MS;
 }

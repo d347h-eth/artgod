@@ -26,17 +26,37 @@ describe('sync backfill formatting', () => {
 	it('derives approximate block timestamps from the visible head', () => {
 		const headTimeMs = Date.UTC(2026, 4, 19, 18, 30, 0);
 
-		expect(estimateSyncBackfillBlockTimeMs(98, 100, headTimeMs)).toBe(
-			Date.UTC(2026, 4, 19, 18, 29, 36)
-		);
+		expect(
+			estimateSyncBackfillBlockTimeMs({
+				blockNumber: 98,
+				chainPublicId: 999,
+				headBlock: 100,
+				headTimeMs
+			})
+		).toBe(Date.UTC(2026, 4, 19, 18, 29, 36));
 		expect(
 			formatSyncBackfillApproxTimeRange({
 				fromBlock: 98,
 				toBlock: 100,
+				chainPublicId: 999,
 				headBlock: 100,
 				headTimeMs
 			})
 		).toBe('2026-05-19T18:29:36 / 2026-05-19T18:30:00');
+	});
+
+	it('anchors Ethereum mainnet estimates to the known genesis timestamp', () => {
+		const headTimeMs = Date.UTC(2026, 4, 19, 18, 30, 0);
+
+		expect(
+			formatSyncBackfillApproxTimeRange({
+				fromBlock: 0,
+				toBlock: 100,
+				chainPublicId: 1,
+				headBlock: 100,
+				headTimeMs
+			})
+		).toBe('2015-07-30T15:26:13 / 2026-05-19T18:30:00');
 	});
 
 	it('formats grouped block ranges and rounded synced percentages', () => {
