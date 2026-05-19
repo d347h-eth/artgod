@@ -16,6 +16,7 @@ import type {
 } from '$lib/api-types';
 import {
 	BIDDING_VIEW_QUERY_PARAM,
+	COLLECTION_BIDDING_VIEW_MODE,
 	buildCollectionBiddingQuery,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode,
@@ -136,10 +137,10 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		return withQuery(joinPath(normalizedBasePath, 'activity'), query);
 	};
 	const biddingViewHref = (view: CollectionBiddingViewMode): string | null => {
-		if (view === 'bid_book' && !showBiddingOffers) return null;
-		if (view === 'jobs' && !showBiddingJobs) return null;
+		if (view === COLLECTION_BIDDING_VIEW_MODE.BidBook && !showBiddingOffers) return null;
+		if (view === COLLECTION_BIDDING_VIEW_MODE.Jobs && !showBiddingJobs) return null;
 		const query = new URLSearchParams(biddingQuery);
-		if (view === 'bid_book') {
+		if (view === COLLECTION_BIDDING_VIEW_MODE.BidBook) {
 			query.delete(BIDDING_VIEW_QUERY_PARAM);
 		} else {
 			query.set(BIDDING_VIEW_QUERY_PARAM, view);
@@ -162,9 +163,9 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		},
 		hrefs: {
 			asks: tokenStatusHref('listed'),
-			offers: biddingViewHref('bid_book'),
+			offers: biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.BidBook),
 			tokens: tokenStatusHref('all'),
-			bidding: biddingViewHref('jobs'),
+			bidding: biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.Jobs),
 			holders: withQuery(joinPath(normalizedBasePath, 'holders'), holdersQuery),
 			customization: buildCollectionCustomizationHref({
 				basePath: normalizedBasePath,

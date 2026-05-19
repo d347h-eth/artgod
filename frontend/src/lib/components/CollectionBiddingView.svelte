@@ -2,7 +2,10 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-	import { TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND } from '@artgod/shared/types';
+	import {
+		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+		TRADING_JOB_TARGET_KIND
+	} from '@artgod/shared/types';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
@@ -23,11 +26,19 @@
 	} from '$lib/api-types';
 	import {
 		BID_SCOPE_QUERY_PARAM,
+		COLLECTION_BIDDING_BID_SCOPE_FILTER,
+		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+		COLLECTION_BIDDING_VIEW_MODE,
 		buildCollectionBiddingHref,
 		buildCollectionBiddingQuery,
 		nextCollectionBiddingBidScopeFilter,
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
+	import {
+		bidBookRefreshPaceLabel,
+		bidBookRefreshPaceTitle,
+		formatBidBookFreshness
+	} from '$lib/bidding-bid-book-source';
 	import { bidBookPriceEffectiveWei } from '$lib/bidding-bid-book-price';
 	import { ownBidStatusBadges, type BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
 	import { writeCollectionBiddingNavigationPreference } from '$lib/bidding-navigation-preferences';
@@ -120,7 +131,7 @@
 		selectedTraitRanges,
 		bidScope,
 		traitJoinMode,
-		biddingView = 'bid_book',
+		biddingView = COLLECTION_BIDDING_VIEW_MODE.BidBook,
 		showMuted = false,
 		makerFilter = null,
 		mediaMode,
@@ -160,8 +171,14 @@
 	const traitFacetPanel = createTraitFacetPanelController();
 	const traitFacetPanelState = traitFacetPanel.state;
 	const biddingTraitFilterModes: TraitFacetFilterModeOption[] = [
-		{ value: 'or', label: 'or' },
-		{ value: 'and', label: 'and' }
+		{
+			value: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+			label: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or
+		},
+		{
+			value: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+			label: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
+		}
 	];
 	let collectionJobs = $state<ApiBiddingJob[]>(jobs);
 	let activeBiddingSettings = $state<ApiBiddingCollectionSettings>(biddingSettings);
@@ -180,18 +197,23 @@
 	let priceTierPanelOpen = $state(false);
 
 	const tokenJobCount = $derived(
-		collectionJobs.filter((job) => job.target.type === 'token').length
+		collectionJobs.filter((job) => job.target.type === TRADING_JOB_TARGET_KIND.Token).length
 	);
 	const nonTokenJobCount = $derived(collectionJobs.length - tokenJobCount);
 	const hasActiveTraitFilters = $derived(activeTraits.length > 0 || activeTraitRanges.length > 0);
 	const showBidBookFilters = $derived(
-		biddingView === 'bid_book' && (bidScope === 'token' || bidScope === 'traits')
+		biddingView === COLLECTION_BIDDING_VIEW_MODE.BidBook &&
+			(bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token ||
+				bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits)
 	);
 	const showBidBookTraitJoinControls = $derived(
-		biddingView === 'bid_book' && bidScope === 'traits'
+		biddingView === COLLECTION_BIDDING_VIEW_MODE.BidBook &&
+			bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits
 	);
 	const preferredBidBookDemandTraitKey = $derived(
-		bidScope === 'traits' && traitJoinMode === 'or' && hasActiveTraitFilters
+		bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits &&
+			traitJoinMode === COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or &&
+			hasActiveTraitFilters
 			? (activeTraits[0]?.key ?? activeTraitRanges[0]?.key ?? null)
 			: null
 	);
@@ -253,7 +275,7 @@
 	});
 
 	$effect(() => {
-		if (bidScope !== 'token') {
+		if (bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 			tokenOffersPagingPending = false;
 			return;
 		}
@@ -351,7 +373,7 @@
 
 	function bidScopeHref(
 		nextBidScope: ApiCollectionBiddingBidScopeFilter,
-		nextView: CollectionBiddingViewMode = 'bid_book'
+		nextView: CollectionBiddingViewMode = COLLECTION_BIDDING_VIEW_MODE.BidBook
 	): string {
 		const query = buildCollectionBiddingQuery({
 			selectedTraits: activeTraits,
@@ -397,8 +419,8 @@
 			maker: makerFilter,
 			showMuted
 		});
-		if (bidScope === 'token') {
-			query.set(BID_SCOPE_QUERY_PARAM, 'token');
+		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+			query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
 		}
 		return query.toString();
 	}
@@ -417,7 +439,7 @@
 		const query = buildCollectionBiddingQuery({
 			selectedTraits: activeTraits,
 			selectedTraitRanges: activeTraitRanges,
-			bidScope: 'token',
+			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
 			viewMode: biddingView,
 			mediaMode,
 			maker: makerFilter,
@@ -425,7 +447,7 @@
 			cursor
 		});
 		// Keep token scope explicit on pagination so stored preferences cannot redirect away.
-		query.set(BID_SCOPE_QUERY_PARAM, 'token');
+		query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
 		return withQuery(biddingPath(), query);
 	}
 
@@ -483,7 +505,7 @@
 	}
 
 	function jobTokenId(job: ApiBiddingJob): string | null {
-		return job.target.type === 'token' ? job.target.tokenId : null;
+		return job.target.type === TRADING_JOB_TARGET_KIND.Token ? job.target.tokenId : null;
 	}
 
 	function jobTokenSummary(job: ApiBiddingJob): ApiTokenPresentationSummary | null {
@@ -517,8 +539,8 @@
 			maker: makerAddress,
 			showMuted
 		});
-		if (bidScope === 'token') {
-			query.set(BID_SCOPE_QUERY_PARAM, 'token');
+		if (bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
+			query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Token);
 		}
 		return withQuery(biddingPath(), query);
 	}
@@ -742,22 +764,15 @@
 	}
 
 	function tokenOffersUpdatedAt(): string {
-		const updatedAt = bidBook.state.updatedAt;
-		if (updatedAt) return updatedAt;
-		if (bidBook.state.snapshotRefreshedAtMs !== null) {
-			return new Date(bidBook.state.snapshotRefreshedAtMs).toISOString().replace('.000Z', 'Z');
-		}
-		return '-';
+		return formatBidBookFreshness(bidBook.state);
 	}
 
 	function tokenOffersSourceLabel(): string {
-		return bidBook.state.source === 'bot_snapshot' ? 'competitive' : 'normal';
+		return bidBookRefreshPaceLabel(bidBook.state.source);
 	}
 
 	function tokenOffersSourceTitle(): string {
-		return bidBook.state.source === 'bot_snapshot'
-			? 'The bid book is refreshed at a competitive pace based on dedicated OpenSea offer snapshots with immediate updates from the inbound events stream.'
-			: 'The bid book is refreshed at a normal pace based on periodic orderbook polling with immediate updates from the inbound events stream.';
+		return bidBookRefreshPaceTitle(bidBook.state.source);
 	}
 
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
@@ -790,7 +805,7 @@
 		traits: ApiBiddingBidBookRow['scope']['traits'];
 	}): Promise<void> {
 		const nextTraits = biddingTraitCriteriaToTokenAttributes(selection.traits);
-		const nextTraitJoinMode = 'or';
+		const nextTraitJoinMode = COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or;
 		await applyTraitFilters(nextTraits, [], nextTraitJoinMode);
 	}
 
@@ -887,8 +902,8 @@
 {#snippet bidBookPanel()}
 	<BidBookPanel
 		{bidBook}
-		showScope={bidScope !== 'collection'}
-		view={bidScope === 'traits' ? 'trait-demand' : 'rows'}
+		showScope={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
+		view={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits ? 'trait-demand' : 'rows'}
 		{showMuted}
 		{basePath}
 		{mediaMode}
@@ -898,7 +913,7 @@
 		onSelectTraitDemandBid={onBidBookTraitDemandBid}
 		onFilterTraitDemandGroup={onBidBookTraitDemandFilter}
 		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
-		showRowActions={bidScope !== 'collection'}
+		showRowActions={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
 	/>
 {/snippet}
 
@@ -932,7 +947,7 @@
 	{/snippet}
 	{#snippet topActions()}
 		{#if collection}
-			{#if biddingView === 'bid_book'}
+			{#if biddingView === COLLECTION_BIDDING_VIEW_MODE.BidBook}
 				<div class="panel-top-actions-row">
 					<BidBookMakerFilterControl
 						chainRef={chain?.slug ?? ''}
@@ -953,20 +968,20 @@
 				<div class="panel-top-actions-row">
 					<span class="panel-top-actions-label">scope:</span>
 					<div class="secondary-tabs" aria-label="Bid scope filter">
-						{#if bidScope === 'token'}
+						{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token}
 							<button type="button" class="secondary-tab-active" disabled>token</button>
 						{:else}
-							<a href={bidScopeHref('token')}>token</a>
+							<a href={bidScopeHref(COLLECTION_BIDDING_BID_SCOPE_FILTER.Token)}>token</a>
 						{/if}
-						{#if bidScope === 'traits'}
+						{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
 							<button type="button" class="secondary-tab-active" disabled>traits</button>
 						{:else}
-							<a href={bidScopeHref('traits')}>traits</a>
+							<a href={bidScopeHref(COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits)}>traits</a>
 						{/if}
-						{#if bidScope === 'collection'}
+						{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
 							<button type="button" class="secondary-tab-active" disabled>collection</button>
 						{:else}
-							<a href={bidScopeHref('collection')}>collection</a>
+							<a href={bidScopeHref(COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection)}>collection</a>
 						{/if}
 					</div>
 				</div>
@@ -986,13 +1001,13 @@
 						/>
 					</div>
 				{/if}
-				{#if bidScope === 'token' || bidScope === 'traits'}
+				{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token || bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
 					<div class="panel-top-actions-row">
-						{#if bidScope === 'token' || canBidOnTraits || biddingSelectionSummary}
+						{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token || canBidOnTraits || biddingSelectionSummary}
 							<BiddingSelectionControls
 								summary={biddingSelectionSummary}
 								showTraitAction={canBidOnTraits}
-								showTokenAction={bidScope === 'token'}
+								showTokenAction={bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token}
 								showTierAction={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 								tierActionActive={priceTierPanelOpen}
 								tokenActionLabel={tokenActionLabel}
@@ -1004,7 +1019,7 @@
 							/>
 						{/if}
 					</div>
-				{:else if bidScope === 'collection' && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+				{:else if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection && !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
 					<div class="panel-top-actions-row">
 						<button
 							type="button"
@@ -1042,8 +1057,8 @@
 		/>
 	{/if}
 
-	{#if biddingView === 'bid_book'}
-		{#if bidScope === 'token' || bidScope === 'traits'}
+	{#if biddingView === COLLECTION_BIDDING_VIEW_MODE.BidBook}
+		{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token || bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits}
 			<div class="detail-layout" class:sidebar-collapsed={$traitFacetPanelState.collapsed}>
 				<TraitFacetPanel
 					{facets}
@@ -1055,7 +1070,7 @@
 				/>
 
 				<div class="token-panel bidding-panel-main">
-					{#if bidScope === 'token'}
+					{#if bidScope === COLLECTION_BIDDING_BID_SCOPE_FILTER.Token}
 						<section class="runtime-section bid-book-summary-panel">
 							<div class="runtime-kv-grid bid-book-meta">
 								<div>

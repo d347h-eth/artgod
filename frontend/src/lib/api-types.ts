@@ -3,6 +3,7 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode,
+	type TradingBiddingBidBookSource,
 	type TradingBiddingBidBookOwnJobPhase,
 	type TradingBiddingJobPricingSource,
 	type TradingBiddingTierSelectionMode
@@ -410,23 +411,23 @@ export type ApiBiddingJob = {
 	runtime: ApiBiddingJobRuntimeState | null;
 };
 
-export type ApiBiddingBidBookSource = 'bot_snapshot' | 'orders';
+export type ApiBiddingBidBookSource = TradingBiddingBidBookSource;
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
 export type ApiCollectionBiddingBidScopeFilter = CollectionBiddingBidScopeFilter;
 export type ApiCollectionBiddingTraitFilterJoinMode = CollectionBiddingTraitFilterJoinMode;
 export type ApiBiddingBidBookPrice =
 	| {
-				kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact;
-				wei: string;
-				eth: string;
-		  }
+			kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact;
+			wei: string;
+			eth: string;
+	  }
 	| {
 			kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range;
 			floorWei: string;
-				floorEth: string;
-				ceilingWei: string;
-				ceilingEth: string;
-		  };
+			floorEth: string;
+			ceilingWei: string;
+			ceilingEth: string;
+	  };
 export type ApiBiddingBidBookRowMaterialization =
 	| {
 			kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;

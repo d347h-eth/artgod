@@ -7,7 +7,11 @@ import type {
 	ApiTraitRangeFilter
 } from '$lib/api-types';
 import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
-import { TRADING_BIDDING_BID_SCOPE_KIND, type TokenBrowserStatus } from '@artgod/shared/types';
+import {
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	TRADING_BIDDING_BID_SCOPE_KIND,
+	type TokenBrowserStatus
+} from '@artgod/shared/types';
 
 export const BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE = {
 	FilteredTokens: 'filtered_tokens',
@@ -329,9 +333,7 @@ export function buildBiddingJobTargetLookupRequestBody(
 }
 
 // Gates drafts to target kinds that currently have a backend mutation path.
-export function isBiddingAutomationDraftSubmittable(
-	draft: BiddingAutomationDraft | null
-): boolean {
+export function isBiddingAutomationDraftSubmittable(draft: BiddingAutomationDraft | null): boolean {
 	if (!draft) {
 		return true;
 	}
@@ -345,9 +347,7 @@ export function isBiddingAutomationDraftSubmittable(
 }
 
 // Resolves the token ID required by the existing token job mutation API.
-export function biddingAutomationDraftTokenId(
-	draft: BiddingAutomationDraft | null
-): string | null {
+export function biddingAutomationDraftTokenId(draft: BiddingAutomationDraft | null): string | null {
 	if (!draft || draft.target.type !== BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
 		return null;
 	}
@@ -378,7 +378,7 @@ function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomation
 				key: trait.type,
 				value: trait.value
 			})),
-			traitJoinMode: 'and'
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
 		};
 	}
 	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
@@ -432,7 +432,7 @@ function resolveDraftTargetFromSelection(
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
 			traits: selection.filter.selectedTraits,
-			traitJoinMode: 'and'
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
 		};
 	}
 
@@ -459,7 +459,9 @@ export function canDraftTraitJobFromFilters(params: {
 	if (params.selectedTraits.length === 0 || params.selectedTraitRanges.length > 0) {
 		return false;
 	}
-	return new Set(params.selectedTraits.map((trait) => trait.key)).size === params.selectedTraits.length;
+	return (
+		new Set(params.selectedTraits.map((trait) => trait.key)).size === params.selectedTraits.length
+	);
 }
 
 function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined {

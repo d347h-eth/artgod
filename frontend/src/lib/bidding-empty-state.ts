@@ -1,11 +1,12 @@
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { TRADING_BIDDING_BID_BOOK_SOURCE } from '@artgod/shared/types';
 import type { ApiBiddingBidBook, ApiBiddingTokenOfferCardsPage } from '$lib/api-types';
 
 // Provides the empty bid-book shape used before a bidding surface has live data.
 export function emptyBiddingBidBook(): ApiBiddingBidBook {
 	return {
 		state: {
-			source: 'orders',
+			source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
 			updatedAt: null,
 			snapshotRefreshedAtMs: null,
 			projectedAt: null,

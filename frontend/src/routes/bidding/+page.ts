@@ -10,6 +10,7 @@ import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settin
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	BIDDING_VIEW_QUERY_PARAM,
+	COLLECTION_BIDDING_VIEW_MODE,
 	parseBidBookMakerFilter,
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseCollectionBiddingView,
@@ -76,7 +77,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			selectedTraitRanges: bidBookResponse.traits.selectedRanges,
 			bidScope: bidBookResponse.scopeFilter,
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
-			biddingView: 'bid_book' as const,
+			biddingView: COLLECTION_BIDDING_VIEW_MODE.BidBook,
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			mediaMode,
@@ -89,7 +90,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 
 function publicBidBookQuery(searchParams: URLSearchParams): URLSearchParams {
 	const query = new URLSearchParams(searchParams);
-	if (parseCollectionBiddingView(query) === 'jobs') {
+	if (parseCollectionBiddingView(query) === COLLECTION_BIDDING_VIEW_MODE.Jobs) {
 		query.delete(BIDDING_VIEW_QUERY_PARAM);
 	}
 	return query;

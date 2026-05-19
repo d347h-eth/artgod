@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import { TRADING_JOB_STATUS } from '@artgod/shared/types';
+	import {
+		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+		TRADING_JOB_STATUS
+	} from '@artgod/shared/types';
 	import type {
 		ApiChain,
 		ApiBiddingBidBook,
@@ -305,7 +308,7 @@
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 			selectedTraits,
 			selectedTraitRanges,
-			traitJoinMode: 'and',
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 			tokenStatus,
 			makerAddress: null
 		});

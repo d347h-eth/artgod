@@ -2,7 +2,10 @@
 	import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 	import { COLLECTION_ACTIVITY_FILTER_KINDS } from '$lib/activity-query';
 	import type { ApiActivityExtensionEventRef } from '$lib/api-types';
-	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
+	import {
+		COLLECTION_BIDDING_VIEW_MODE,
+		type CollectionBiddingViewMode
+	} from '$lib/bidding-query';
 	import {
 		collectionExtensionNavigationTabActivityEvent,
 		resolveCollectionExtensionNavigationGroups,
@@ -91,14 +94,14 @@
 		<div class="runtime-tab-group-items">
 			{@render navItem('asks', tokenStatusHref('listed'), active === 'tokens' && activeTokenStatus === 'listed')}
 			{#if navigation.showBiddingOffers}
-				{@render navItem('offers', biddingViewHref('bid_book'), active === 'bidding' && activeBiddingView === 'bid_book')}
+				{@render navItem('offers', biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.BidBook), active === 'bidding' && activeBiddingView === COLLECTION_BIDDING_VIEW_MODE.BidBook)}
 			{/if}
 			{@render navItem('tokens', tokenStatusHref('all'), active === 'tokens' && activeTokenStatus === 'all')}
 		</div>
 	</div>
 	{#if navigation.showBiddingJobs}
 		<div class="runtime-tab-standalone">
-			{@render navItem('bidding', biddingViewHref('jobs'), active === 'bidding' && activeBiddingView === 'jobs')}
+			{@render navItem('bidding', biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.Jobs), active === 'bidding' && activeBiddingView === COLLECTION_BIDDING_VIEW_MODE.Jobs)}
 		</div>
 	{/if}
 	<div class="runtime-tab-group">

@@ -12,10 +12,14 @@
 	} from '@artgod/shared/types';
 	import {
 		formatCompactTime,
-		formatRfc3339,
 		oppositeCompactTimeTitle,
 		type CompactTimeDisplayMode
 	} from '$lib/compact-time-display';
+	import {
+		bidBookRefreshPaceLabel,
+		bidBookRefreshPaceTitle,
+		formatBidBookFreshness
+	} from '$lib/bidding-bid-book-source';
 	import {
 		bidBookPriceEffectiveEth,
 		bidBookRowEffectivePriceWei
@@ -223,15 +227,6 @@
 			return 'winning';
 		}
 		return 'outbid';
-	}
-
-	function sourceLabel(source: ApiBiddingBidBook['state']['source']): string {
-		return source === 'bot_snapshot' ? 'competitive' : 'normal';
-	}
-
-	function sourceTitle(source: ApiBiddingBidBook['state']['source']): string {
-		const pace = source === 'bot_snapshot' ? 'competitive' : 'normal';
-		return `The bid book is refreshed at a ${pace} pace using periodic order book polling and immediate updates from the inbound event stream.`;
 	}
 
 	function bidSortPriceWei(bid: ApiBiddingBidBookRow): bigint {
@@ -789,19 +784,6 @@
 		return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, maxLength - 3)}...`;
 	}
 
-	function formatFreshness(): string {
-		const updatedAt = bidBook.state.updatedAt;
-		if (updatedAt) {
-			const updatedAtMs = Date.parse(updatedAt);
-			return Number.isFinite(updatedAtMs) ? formatRfc3339(updatedAtMs) : updatedAt;
-		}
-		const snapshotAt = bidBook.state.snapshotRefreshedAtMs;
-		if (bidBook.state.source === 'bot_snapshot' && snapshotAt !== null) {
-			return formatRfc3339(snapshotAt);
-		}
-		return '-';
-	}
-
 </script>
 
 {#snippet bidBookTraitList(traits: ApiBiddingBidBookRow['scope']['traits'])}
@@ -837,8 +819,8 @@
 	<div class="runtime-kv-grid bid-book-meta">
 		<div>
 			<span class="runtime-k">refresh pace</span>
-			<span class="runtime-v" title={sourceTitle(bidBook.state.source)}>
-				{sourceLabel(bidBook.state.source)}
+			<span class="runtime-v" title={bidBookRefreshPaceTitle(bidBook.state.source)}>
+				{bidBookRefreshPaceLabel(bidBook.state.source)}
 			</span>
 		</div>
 		<div>
@@ -853,7 +835,7 @@
 		{/if}
 		<div>
 			<span class="runtime-k">updated</span>
-			<span class="runtime-v mono">{formatFreshness()}</span>
+			<span class="runtime-v mono">{formatBidBookFreshness(bidBook.state)}</span>
 		</div>
 		{#if position}
 			<div>

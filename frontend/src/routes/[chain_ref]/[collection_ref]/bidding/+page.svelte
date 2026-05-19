@@ -18,7 +18,12 @@
 	} from '$lib/api-types';
 	import { emptyBiddingBidBook, emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
-	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
+	import {
+		COLLECTION_BIDDING_BID_SCOPE_FILTER,
+		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+		COLLECTION_BIDDING_VIEW_MODE,
+		type CollectionBiddingViewMode
+	} from '$lib/bidding-query';
 
 	type PageData = {
 		chain: ApiChain | null;
@@ -71,9 +76,9 @@
 	basePath={data?.basePath ?? '/'}
 	selectedTraits={data?.selectedTraits ?? []}
 	selectedTraitRanges={data?.selectedTraitRanges ?? []}
-	bidScope={data?.bidScope ?? 'token'}
-	traitJoinMode={data?.traitJoinMode ?? 'or'}
-	biddingView={data?.biddingView ?? 'bid_book'}
+	bidScope={data?.bidScope ?? COLLECTION_BIDDING_BID_SCOPE_FILTER.Token}
+	traitJoinMode={data?.traitJoinMode ?? COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or}
+	biddingView={data?.biddingView ?? COLLECTION_BIDDING_VIEW_MODE.BidBook}
 	showMuted={data?.showMuted ?? false}
 	makerFilter={data?.makerFilter ?? null}
 	mediaMode={data?.mediaMode ?? null}
