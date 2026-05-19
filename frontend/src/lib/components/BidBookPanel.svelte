@@ -16,6 +16,9 @@
 	} from '$lib/compact-time-display';
 	import {
 		BID_BOOK_ROWS_TABLE_SCOPE_KIND,
+		type BidBookDemandTableGroup,
+		type BidBookDemandTableTab,
+		type BidBookDemandTableBidRow,
 		type BidBookRowsTableRow,
 		type BidBookRowsTableScope
 	} from '$lib/bid-book-view-models';
@@ -25,13 +28,9 @@
 	} from '$lib/bidding-bid-book-price';
 	import type { BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
 	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
-	import BidBookMakerCell from '$lib/components/BidBookMakerCell.svelte';
 	import BidBookMetaBar from '$lib/components/BidBookMetaBar.svelte';
-	import BidBookPriceCell from '$lib/components/BidBookPriceCell.svelte';
 	import BidBookRowsTable from '$lib/components/BidBookRowsTable.svelte';
-	import BidBookTraitList from '$lib/components/BidBookTraitList.svelte';
-	import FilterIcon from '$lib/components/FilterIcon.svelte';
-	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
+	import BidBookTraitDemandTable from '$lib/components/BidBookTraitDemandTable.svelte';
 	import { joinPath } from '$lib/route-paths';
 	import { buildOwnerTokensHref } from '$lib/token-browser-query';
 
@@ -125,6 +124,7 @@
 	const position = $derived(resolvePosition(job, ownBid, opponentBid));
 	const demandGroups = $derived(resolveDemandGroups(visibleBids));
 	const demandTraitTabs = $derived(resolveDemandTraitTabs(demandGroups));
+	const demandTableTabs = $derived(resolveDemandTableTabs(demandTraitTabs));
 	const visibleDemandGroups = $derived(
 		filterDemandGroupsByTrait(demandGroups, activeDemandTraitKey)
 	);
@@ -142,6 +142,7 @@
 	);
 	const bidBucketStepWei = $derived(resolveDecimalBucketStepWei(displayedBids));
 	const rowsTableRows = $derived(resolveRowsTableRows(displayedBids));
+	const demandTableGroups = $derived(resolveDemandTableGroups(visibleDemandGroups));
 
 	$effect(() => {
 		if (activeDemandTraitKey && !demandTraitTabs.some((tab) => tab.key === activeDemandTraitKey)) {
@@ -319,6 +320,10 @@
 		setHighlightedMaker(row.bid);
 	}
 
+	function setHighlightedDemandRowMaker(row: BidBookDemandTableBidRow): void {
+		setHighlightedMaker(row.bid);
+	}
+
 	function selectBid(bid: ApiBiddingBidBookRow): void {
 		if (!canSelectBidRow(bid)) {
 			return;
@@ -346,6 +351,13 @@
 
 	function filterTraitDemandGroup(group: BidBookDemandGroup): void {
 		filterTraits(group.traits, group.label);
+	}
+
+	function filterDemandTableGroup(group: BidBookDemandTableGroup): void {
+		const sourceGroup = findVisibleDemandGroup(group.key);
+		if (sourceGroup) {
+			filterTraitDemandGroup(sourceGroup);
+		}
 	}
 
 	function filterTraitScopeBid(bid: ApiBiddingBidBookRow): void {
@@ -386,6 +398,17 @@
 
 	function selectRowsTableBid(row: BidBookRowsTableRow): void {
 		selectBid(row.bid);
+	}
+
+	function selectDemandTableGroup(group: BidBookDemandTableGroup): void {
+		const sourceGroup = findVisibleDemandGroup(group.key);
+		if (sourceGroup) {
+			selectTraitDemandBid(sourceGroup);
+		}
+	}
+
+	function findVisibleDemandGroup(key: string): BidBookDemandGroup | null {
+		return visibleDemandGroups.find((group) => group.key === key) ?? null;
 	}
 
 	function formatUnitPrice(bid: ApiBiddingBidBookRow): string {
@@ -520,6 +543,13 @@
 				return left.label.localeCompare(right.label);
 			});
 		return [{ key: null, label: 'All', count: groups.length }, ...traitTabs];
+	}
+
+	function resolveDemandTableTabs(tabs: BidBookDemandTraitTab[]): BidBookDemandTableTab[] {
+		return tabs.map((tab) => ({
+			...tab,
+			active: activeDemandTraitKey === tab.key
+		}));
 	}
 
 	function filterDemandGroupsByTrait(
@@ -760,6 +790,57 @@
 		};
 	}
 
+	function resolveDemandTableGroups(groups: BidBookDemandGroup[]): BidBookDemandTableGroup[] {
+		return groups.map((group, groupIndex) => {
+			const groupBucketStepWei = resolveDecimalBucketStepWei(group.bids);
+			const activeOfferCount = activeDemandOfferCount(group);
+			return {
+				key: group.key,
+				hidden: shouldHideDemandGroup(group),
+				muted: isMutedDemandGroup(group),
+				startsNewGroup: shouldShowDemandGroupSpacer(groups, groupIndex),
+				traits: demandDisplayTraits(group),
+				traitValueHref,
+				showFilterAction: shouldShowTraitFilterAction(group.traits),
+				filterLabel: `filter ${group.label}`,
+				showBidAction: canSelectBidRow(group.bestBid),
+				placeBidLabel: placeBidLabel(group.label),
+				activeOfferCount,
+				totalAmount: formatWeiAmount(
+					activeDemandTotalAmountWei(group),
+					group.bestBid.currencySymbol
+				),
+				makerCount: activeDemandMakerCount(group),
+				rows: resolveDemandTableRows(group, groupBucketStepWei)
+			};
+		});
+	}
+
+	function resolveDemandTableRows(
+		group: BidBookDemandGroup,
+		stepWei: bigint | null
+	): BidBookDemandTableBidRow[] {
+		return group.bids.map((bid, index) => {
+			const placedAt = placedAtMs(bid);
+			const validUntil = validUntilMs(bid);
+			const bidMuted = isMutedDemandBid(group, bid);
+			return {
+				bid,
+				price: formatPriceAmount(bid),
+				quantityPrefix: formatQuantityPrefix(bid),
+				makerHref: makerHref(bid),
+				makerHighlighted: isMakerHighlighted(bid),
+				placedAtLabel: formatTime(placedAt, placedAtMode),
+				placedAtTitle: oppositeTimeTitle(placedAt, placedAtMode),
+				validUntilLabel: formatTime(validUntil, validUntilMode),
+				validUntilTitle: oppositeTimeTitle(validUntil, validUntilMode),
+				muted: bidMuted,
+				hidden: shouldHideMutedBid(bidMuted),
+				startsNewBucket: startsNewDemandDisplayedBidSection(group, index, stepWei)
+			};
+		});
+	}
+
 	function parseQuantity(value: string): bigint {
 		try {
 			const parsed = BigInt(value);
@@ -838,153 +919,17 @@
 		<p class="muted bid-book-empty">no bids</p>
 	</section>
 {:else if showTraitDemandView}
-	<section class="bid-book-table-panel">
-		{#if demandTraitTabs.length > 1}
-			<div class="secondary-tabs bid-book-demand-tabs" aria-label="Bid trait buckets">
-				{#each demandTraitTabs as tab (tab.key ?? 'all')}
-					{#if activeDemandTraitKey === tab.key}
-						<span class="secondary-tab-active">{tab.label} [{tab.count}]</span>
-					{:else}
-						<button type="button" onclick={() => setActiveDemandTraitKey(tab.key)}>
-							{tab.label} [{tab.count}]
-						</button>
-					{/if}
-				{/each}
-			</div>
-		{/if}
-		<div class="table-wrap bid-book-table-wrap">
-			<table class="bid-book-table bid-book-demand-table">
-				<thead>
-					<tr>
-						<th class="bid-book-col-right">price</th>
-						<th class="bid-book-col-center">maker</th>
-						<th class="bid-book-time-header bid-book-col-center">
-							<button
-								type="button"
-								class="activities-time-mode-button"
-								aria-label="toggle placed-at time mode"
-								onclick={togglePlacedAtMode}
-							>
-								placed
-							</button>
-						</th>
-						<th class="bid-book-time-header bid-book-col-center">
-							<button
-								type="button"
-								class="activities-time-mode-button"
-								aria-label="toggle valid-until time mode"
-								onclick={toggleValidUntilMode}
-							>
-								valid
-							</button>
-						</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each visibleDemandGroups as group, groupIndex (group.key)}
-						{@const groupBucketStepWei = resolveDecimalBucketStepWei(group.bids)}
-						{@const groupActiveOfferCount = activeDemandOfferCount(group)}
-						{#if shouldShowDemandGroupSpacer(visibleDemandGroups, groupIndex)}
-							<tr class="bid-book-demand-group-spacer" aria-hidden="true">
-								<td colspan={4}></td>
-							</tr>
-						{/if}
-						<tr
-							class="bid-book-demand-group-row"
-							class:bid-book-muted-demand-group={isMutedDemandGroup(group)}
-							hidden={shouldHideDemandGroup(group)}
-						>
-							<td colspan={4}>
-								<div class="bid-book-demand-group-header">
-									<span class="bid-book-demand-group-title">
-										<BidBookTraitList traits={demandDisplayTraits(group)} {traitValueHref} />
-									</span>
-									{#if groupActiveOfferCount > 1}
-										<div class="runtime-kv-grid bid-book-demand-group-meta">
-											<div>
-												<span class="runtime-k">total</span>
-												<span class="runtime-v mono bid-book-price">
-													{formatWeiAmount(
-														activeDemandTotalAmountWei(group),
-														group.bestBid.currencySymbol
-													)}
-												</span>
-											</div>
-											<div>
-												<span class="runtime-k">offers</span>
-												<span class="runtime-v mono">{groupActiveOfferCount}</span>
-											</div>
-											<div>
-												<span class="runtime-k">makers</span>
-												<span class="runtime-v mono">{activeDemandMakerCount(group)}</span>
-											</div>
-										</div>
-									{/if}
-									{#if shouldShowTraitFilterAction(group.traits)}
-										<button
-											type="button"
-											class="bid-book-place-bid-icon-button"
-											aria-label={`filter ${group.label}`}
-											title={`filter ${group.label}`}
-											onclick={() => filterTraitDemandGroup(group)}
-										>
-											<FilterIcon />
-										</button>
-									{/if}
-									{#if canSelectBidRow(group.bestBid)}
-										<button
-											type="button"
-											class="bid-book-place-bid-icon-button"
-											aria-label={placeBidLabel(group.label)}
-											title={placeBidLabel(group.label)}
-											onclick={() => selectTraitDemandBid(group)}
-										>
-											<PlaceBidIcon className="bid-book-place-bid-icon" />
-										</button>
-									{/if}
-								</div>
-							</td>
-						</tr>
-						{#each group.bids as bid, index (bid.orderId)}
-							{@const placedAt = placedAtMs(bid)}
-							{@const validUntil = validUntilMs(bid)}
-							{@const bidMuted = isMutedDemandBid(group, bid)}
-							{@const quantityPrefix = formatQuantityPrefix(bid)}
-							{#if startsNewDemandDisplayedBidSection(group, index, groupBucketStepWei)}
-								<tr class="bid-book-bucket-spacer" aria-hidden="true">
-									<td colspan={4}></td>
-								</tr>
-							{/if}
-							<tr
-								class:bid-book-own-row={bid.maker.isOwn}
-								class:bid-book-muted-row={bidMuted}
-								hidden={shouldHideMutedBid(bidMuted)}
-							>
-								<BidBookPriceCell
-									{bid}
-									{quantityPrefix}
-									price={formatPriceAmount(bid)}
-								/>
-								<BidBookMakerCell
-									{bid}
-									href={makerHref(bid)}
-									highlighted={isMakerHighlighted(bid)}
-									onSetHighlighted={setHighlightedMaker}
-									onClearHighlighted={clearHighlightedMaker}
-								/>
-								<td class="mono bid-book-col-center" title={oppositeTimeTitle(placedAt, placedAtMode)}>
-									{formatTime(placedAt, placedAtMode)}
-								</td>
-								<td class="mono bid-book-col-center" title={oppositeTimeTitle(validUntil, validUntilMode)}>
-									{formatTime(validUntil, validUntilMode)}
-								</td>
-							</tr>
-						{/each}
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	</section>
+	<BidBookTraitDemandTable
+		tabs={demandTableTabs}
+		groups={demandTableGroups}
+		onSetActiveTraitKey={setActiveDemandTraitKey}
+		onTogglePlacedAtMode={togglePlacedAtMode}
+		onToggleValidUntilMode={toggleValidUntilMode}
+		onSelectGroupBid={selectDemandTableGroup}
+		onFilterGroup={filterDemandTableGroup}
+		onSetHighlighted={setHighlightedDemandRowMaker}
+		onClearHighlighted={clearHighlightedMaker}
+	/>
 {:else}
 	<BidBookRowsTable
 		rows={rowsTableRows}
