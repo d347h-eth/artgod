@@ -13,6 +13,10 @@ const TARGET_PATH =
 	process.env.ARTGOD_E2E_BIDDING_TARGET_PATH?.trim() ||
 	process.env.ARTGOD_E2E_TARGET_PATH?.trim() ||
 	'/ethereum/terraforms/bidding?bid_scope=token';
+const TRAIT_TARGET_PATH =
+	process.env.ARTGOD_E2E_BIDDING_TRAIT_TARGET_PATH?.trim() ||
+	process.env.ARTGOD_E2E_TARGET_PATH?.trim() ||
+	'/ethereum/terraforms/bidding?bid_scope=traits';
 const PRICE_TIER_LABEL = process.env.ARTGOD_E2E_PRICE_TIER_LABEL?.trim() || null;
 const GEOMETRY_TOLERANCE_PX = 4;
 
@@ -52,6 +56,38 @@ test('bidding automation panel keeps tier-pricing fields on a clean grid', async
 	}
 });
 
+test('trait bucket bid action opens the bidding panel for that target', async ({
+	page,
+	request
+}, testInfo) => {
+	const diagnostics = capturePageDiagnostics(page);
+
+	try {
+		await assertAttachedAppReachable(request, {
+			targetPath: TRAIT_TARGET_PATH,
+			probeName: 'bidding traits'
+		});
+
+		await page.goto(TRAIT_TARGET_PATH, {
+			waitUntil: 'domcontentloaded'
+		});
+		await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+
+		const selection = await clickFirstTraitBucketBidAction(page);
+		const panel = page.locator('.bidding-automation-panel').last();
+		await expect(panel).toBeVisible();
+		await expect(panel.locator('.token-bidding-runtime-grid')).toContainText(
+			selection.firstTraitValue
+		);
+		await expect(page.locator('#bidding-automation-floor')).toHaveValue(/\S+/);
+		await expect(page.locator('#bidding-automation-ceiling')).toHaveValue(/\S+/);
+		await expect(page.locator('#bidding-automation-delta')).toHaveValue(/\S+/);
+	} catch (error) {
+		await attachDiagnostics(testInfo, diagnostics);
+		throw error;
+	}
+});
+
 async function openBiddingPanel(page: Page): Promise<void> {
 	const panel = page.locator('.bidding-automation-panel').last();
 	if (await panel.isVisible()) {
@@ -80,6 +116,33 @@ async function openBiddingPanel(page: Page): Promise<void> {
 
 	throw new Error(
 		`Could not open the bidding panel from ${TARGET_PATH}. Load a bidding/offers view with at least one enabled bid target action.`
+	);
+}
+
+async function clickFirstTraitBucketBidAction(page: Page): Promise<{ firstTraitValue: string }> {
+	const rows = page.locator('.bid-book-demand-group-row');
+	const rowCount = await rows.count();
+	for (let index = 0; index < rowCount; index += 1) {
+		const row = rows.nth(index);
+		const bidButton = row.getByRole('button', { name: /^place bid on / }).first();
+		if (!(await bidButton.isVisible()) || !(await bidButton.isEnabled())) {
+			continue;
+		}
+
+		const traitValue = row
+			.locator('.bid-book-demand-trait-value-link, .bid-book-demand-trait-value')
+			.first();
+		const firstTraitValue = (await traitValue.innerText()).trim();
+		if (!firstTraitValue) {
+			continue;
+		}
+
+		await bidButton.click();
+		return { firstTraitValue };
+	}
+
+	throw new Error(
+		`Could not find a clickable trait-bucket bid action from ${TRAIT_TARGET_PATH}. Load a trait bid-book view with at least one selectable trait bid.`
 	);
 }
 
