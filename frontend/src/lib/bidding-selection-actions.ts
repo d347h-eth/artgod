@@ -1,6 +1,7 @@
 export const BIDDING_SELECTION_ACTION_LABEL = {
 	BidOnAllTokens: 'bid on all tokens',
 	BidOnThisPage: 'bid on this page',
+	BidOnToken: 'bid on token',
 	BidOnTraits: 'bid on traits',
 	PlaceCollectionBid: 'place collection bid',
 	Tiers: 'tiers',

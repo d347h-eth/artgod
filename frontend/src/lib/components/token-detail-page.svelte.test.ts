@@ -228,8 +228,10 @@ describe('token detail page', () => {
 		expect(body).toContain('class="bid-book-demand-trait-list"');
 		expect(body).toContain('class="bid-book-demand-trait-value-link"');
 		expect(body).toContain('bid_scope=traits&amp;traits=Hat%3ABeanie');
-		expect(body).toContain('filter-icon');
+		expect(body).not.toContain('filter-icon');
 		expect(body).toContain('bid-book-place-bid-icon');
+		expect(body).toContain('aria-label="place bid on Hat=Beanie"');
+		expect(body).toContain('>bid on token</button>');
 		expect(body).toContain('aria-label="place bid on #1"');
 		expect(body).not.toContain('aria-label="place bid on collection"');
 		expect(body).toContain(

@@ -2480,6 +2480,16 @@ th {
 	text-align: right;
 }
 
+.token-detail-trait-value {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.25rem;
+}
+
+.token-detail-trait-bid-button {
+	flex: 0 0 auto;
+}
+
 .token-grid-meta {
 	display: grid;
 	gap: 0.22rem;

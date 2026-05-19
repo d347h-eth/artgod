@@ -41,9 +41,11 @@
 		bestBiddingAutomationBid,
 		buildBiddingAutomationDraftFromBid,
 		buildTokenBiddingAutomationDraftFromBid,
+		buildTraitBiddingAutomationDraftFromTrait,
 		biddingTraitCriteriaToTokenAttributes,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
+	import { BIDDING_SELECTION_ACTION_LABEL } from '$lib/bidding-selection-actions';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
@@ -66,6 +68,7 @@
 		parseDisplayMode
 	} from '$lib/token-browser-query';
 	import { joinPath, withQuery } from '$lib/route-paths';
+	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import {
 		resolveTokenDetailExtensionSections,
 		type TokenDetailExtensionSection
@@ -93,6 +96,7 @@
 	let displayedMediaAspectRatio = $state<number | null>(null);
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
 	let selectedTokenBidBookBid = $state<ApiBiddingBidBookRow | null>(null);
+	let selectedTokenTraitTarget = $state<ApiTokenDetailTrait | null>(null);
 	let tokenDetailRequestId = 0;
 	const tokenBiddingDraft = $derived(resolveTokenBiddingDraft());
 
@@ -102,6 +106,7 @@
 		displayedMediaAspectRatio = null;
 		tokenBiddingJob = data?.tokenBiddingJob ?? null;
 		selectedTokenBidBookBid = null;
+		selectedTokenTraitTarget = null;
 		tokenDetailRequestId += 1;
 	});
 
@@ -216,6 +221,15 @@
 				existingJobForSelectedBid(selectedTokenBidBookBid)
 			);
 		}
+		if (selectedTokenTraitTarget) {
+			return buildTraitBiddingAutomationDraftFromTrait({
+				trait: {
+					key: selectedTokenTraitTarget.key,
+					value: selectedTokenTraitTarget.value
+				},
+				tokenCount: selectedTokenTraitTarget.tokenCount
+			});
+		}
 		if (tokenBiddingJob) {
 			return null;
 		}
@@ -246,6 +260,21 @@
 
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
 		selectedTokenBidBookBid = bid;
+		selectedTokenTraitTarget = null;
+	}
+
+	function bidOnDisplayedToken(): void {
+		selectedTokenBidBookBid = null;
+		selectedTokenTraitTarget = null;
+	}
+
+	function bidOnTokenTrait(trait: ApiTokenDetailTrait): void {
+		selectedTokenBidBookBid = null;
+		selectedTokenTraitTarget = trait;
+	}
+
+	function tokenTraitBidLabel(trait: ApiTokenDetailTrait): string {
+		return `place bid on ${trait.key}=${trait.value}`;
 	}
 
 	async function onBidBookTraitFilter(selection: {
@@ -588,11 +617,24 @@
 								<tr>
 									<td class="mono token-detail-col-center">{trait.key}</td>
 									<td class="mono token-detail-col-center">
-										{#if traitHref}
-											<a href={traitHref}>{trait.value}</a>
-										{:else}
-											{trait.value}
-										{/if}
+										<span class="token-detail-trait-value">
+											{#if traitHref}
+												<a href={traitHref}>{trait.value}</a>
+											{:else}
+												<span>{trait.value}</span>
+											{/if}
+											{#if shouldShowTokenBiddingAutomation()}
+												<button
+													type="button"
+													class="bid-book-place-bid-icon-button token-detail-trait-bid-button"
+													aria-label={tokenTraitBidLabel(trait)}
+													title={tokenTraitBidLabel(trait)}
+													onclick={() => bidOnTokenTrait(trait)}
+												>
+													<PlaceBidIcon className="bid-book-place-bid-icon" />
+												</button>
+											{/if}
+										</span>
 									</td>
 									<td class="mono token-detail-col-right">{formatTraitCount(trait.tokenCount)}</td>
 									<td class="mono token-detail-col-right">{formatRarityPercent(trait.rarityPercent)}</td>
@@ -604,6 +646,17 @@
 		</div>
 
 		{#if shouldShowTokenBidBook()}
+			{#if shouldShowTokenBiddingAutomation()}
+				<div class="panel-top-actions-row token-detail-bidding-actions">
+					<button
+						type="button"
+						class="facet-panel-action-button bidding-select-all-button"
+						onclick={bidOnDisplayedToken}
+					>
+						{BIDDING_SELECTION_ACTION_LABEL.BidOnToken}
+					</button>
+				</div>
+			{/if}
 			<BidBookPanel
 				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
 				job={tokenBiddingJob}

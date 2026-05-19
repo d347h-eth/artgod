@@ -341,6 +341,12 @@
 		filterTraits(bid.scope.traits, traitScopeLabel(bid));
 	}
 
+	function shouldShowTraitFilterAction(
+		traits: ApiBiddingBidBookRow['scope']['traits']
+	): boolean {
+		return !!onFilterTraitDemandGroup && traits.length > 1;
+	}
+
 	function filterTraits(traits: ApiBiddingBidBookRow['scope']['traits'], label: string): void {
 		if (!onFilterTraitDemandGroup) {
 			return;
@@ -846,7 +852,7 @@
 											</div>
 										</div>
 									{/if}
-									{#if onFilterTraitDemandGroup}
+									{#if shouldShowTraitFilterAction(group.traits)}
 										<button
 											type="button"
 											class="bid-book-place-bid-icon-button"
@@ -976,7 +982,7 @@
 											<span class="bid-book-demand-group-title">
 												<BidBookTraitList traits={bidScopeDisplayTraits(bid)} {traitValueHref} />
 											</span>
-											{#if onFilterTraitDemandGroup}
+											{#if shouldShowTraitFilterAction(bid.scope.traits)}
 												<button
 													type="button"
 													class="bid-book-place-bid-icon-button"

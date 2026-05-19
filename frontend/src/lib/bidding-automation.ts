@@ -284,6 +284,33 @@ export function buildBiddingAutomationDraftFromSelection(
 	};
 }
 
+// Builds a direct trait-job draft from a token detail trait row action.
+export function buildTraitBiddingAutomationDraftFromTrait(params: {
+	trait: ApiTokenAttribute;
+	tokenCount?: number | null;
+	existingJob?: ApiBiddingJob | null;
+}): BiddingAutomationDraft | null {
+	return buildBiddingAutomationDraftFromSelection(
+		{
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+			filter: buildBiddingAutomationTokenFilterSnapshot({
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [params.trait],
+				selectedTraitRanges: [],
+				traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+				tokenStatus: null,
+				makerAddress: null
+			}),
+			tokenCount: params.tokenCount ?? 0,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		},
+		params.existingJob ?? null
+	);
+}
+
 // Attaches a target lookup result without mutating the route-local draft source.
 export function withBiddingAutomationDraftExistingJob(
 	draft: BiddingAutomationDraft | null,

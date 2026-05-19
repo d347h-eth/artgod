@@ -352,6 +352,45 @@ describe('BidBookPanel', () => {
 		expect(bidIconIndex).toBeGreaterThan(filterButtonIndex);
 	});
 
+	it('omits redundant trait-demand filter actions for single trait buckets', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'orders',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: null,
+			bids: [
+				{
+					...BASE_BID,
+					scope: {
+						kind: 'trait',
+						label: 'Biome=42',
+						tokenId: null,
+						traits: [{ type: 'Biome', value: '42' }]
+					}
+				}
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				view: 'trait-demand',
+				onFilterTraitDemandGroup: () => {},
+				onSelectBid: () => {}
+			}
+		});
+
+		expect(body).not.toContain('filter-icon');
+		expect(body).toContain('bid-book-place-bid-icon');
+		expect(body).toContain('aria-label="place bid on Biome=42"');
+	});
+
 	it('uses maker filter links when provided', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {
