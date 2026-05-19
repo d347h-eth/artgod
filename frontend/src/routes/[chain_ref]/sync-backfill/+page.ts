@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
+import { SYNC_BACKFILL_CONTEXT_ANY } from '@artgod/shared/config/sync-backfill';
 import { BackendApiError, getSyncBackfillState } from '$lib/backend-api';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
@@ -38,41 +39,49 @@ function normalizeSyncBackfillParams(raw: URLSearchParams): {
 	stack: string[];
 } {
 	const apiParams = new URLSearchParams();
-	const collection = raw.get('collection')?.trim() || 'any';
+	const collection = raw.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
 	apiParams.set('collection', collection);
 
-	const stack = parseRangeStack(raw.get('stack'));
-	const activeRange = stack.at(-1);
-	if (activeRange) {
-		apiParams.set('from_block', String(activeRange.fromBlock));
-		apiParams.set('to_block', String(activeRange.toBlock));
+	const stack = parsePageStack(raw.get('stack'));
+	const activePage = stack.at(-1);
+	if (activePage) {
+		apiParams.set('page_start', String(activePage.pageStartBlock));
+		apiParams.set('bucket_size', String(activePage.bucketSize));
 	}
 
 	return {
 		apiParams,
 		collection,
-		stack: stack.map((range) => `${range.fromBlock}-${range.toBlock}`)
+		stack: stack.map(formatPageStackEntry)
 	};
 }
 
-function parseRangeStack(raw: string | null): Array<{ fromBlock: number; toBlock: number }> {
+function parsePageStack(raw: string | null): Array<{ pageStartBlock: number; bucketSize: number }> {
 	if (!raw?.trim()) return [];
 	return raw
 		.split(',')
 		.map((entry) => entry.trim())
 		.filter(Boolean)
 		.map((entry) => {
-			const [fromRaw, toRaw, extra] = entry.split('-');
-			const fromBlock = Number(fromRaw);
-			const toBlock = Number(toRaw);
-			if (extra !== undefined || !Number.isInteger(fromBlock) || !Number.isInteger(toBlock)) {
-				throw error(400, 'Invalid range stack');
+			const [pageStartRaw, bucketSizeRaw, extra] = entry.split(':');
+			const pageStartBlock = Number(pageStartRaw);
+			const bucketSize = Number(bucketSizeRaw);
+			if (
+				extra !== undefined ||
+				!Number.isInteger(pageStartBlock) ||
+				!Number.isInteger(bucketSize)
+			) {
+				throw error(400, 'Invalid page stack');
 			}
-			if (fromBlock < 0 || toBlock < fromBlock) {
-				throw error(400, 'Invalid range stack');
+			if (pageStartBlock < 0 || bucketSize <= 0) {
+				throw error(400, 'Invalid page stack');
 			}
-			return { fromBlock, toBlock };
+			return { pageStartBlock, bucketSize };
 		});
+}
+
+function formatPageStackEntry(page: { pageStartBlock: number; bucketSize: number }): string {
+	return `${page.pageStartBlock}:${page.bucketSize}`;
 }
 
 function toKitError(cause: unknown): never {

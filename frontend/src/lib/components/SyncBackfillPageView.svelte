@@ -2,6 +2,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import {
 		SYNC_BACKFILL_CONTEXT_ANY,
+		SYNC_BACKFILL_GRID_CELL_COUNT,
 		SYNC_BACKFILL_GRID_DIMENSION
 	} from '@artgod/shared/config/sync-backfill';
 	import type { ApiSyncBackfillGridCell, SyncBackfillStateApiResponse } from '$lib/api-types';
@@ -47,13 +48,25 @@
 	}
 
 	async function handleCellClick(cell: ApiSyncBackfillGridCell): Promise<void> {
-		if (cell.blockCount === 1) {
-			await copyTerminalBlock(cell.fromBlock);
+		if (cell.canDrillDown && syncState) {
+			const childBucketSize = syncState.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
+			if (Number.isInteger(childBucketSize) && childBucketSize >= 1) {
+				feedback = null;
+				void goto(
+					queryHref(selectedCollection, [
+						...stack,
+						formatPageStackEntry({
+							pageStartBlock: cell.fromBlock,
+							bucketSize: childBucketSize
+						})
+					])
+				);
+			}
 			return;
 		}
-		if (!cell.canDrillDown) return;
-		feedback = null;
-		void goto(queryHref(selectedCollection, [...stack, `${cell.fromBlock}-${cell.toBlock}`]));
+		if (cell.blockCount === 1) {
+			await copyTerminalBlock(cell.fromBlock);
+		}
 	}
 
 	async function copyTerminalBlock(blockNumber: number): Promise<void> {
@@ -118,14 +131,47 @@
 				href: queryHref(selectedCollection, []),
 				active: stack.length === 0
 			},
-			...stack.map((range, index) => ({
-				key: `${index + 1}:${range}`,
-				label: `L${index + 1}`,
-				range,
-				href: queryHref(selectedCollection, stack.slice(0, index + 1)),
-				active: index === stack.length - 1
-			}))
+			...stack.map((entry, index) => {
+				const page = parsePageStackEntry(entry);
+				return {
+					key: `${index + 1}:${entry}`,
+					label: `L${index + 1}`,
+					range: page ? formatPageRange(page, syncState.summary.headBlock) : entry,
+					href: queryHref(selectedCollection, stack.slice(0, index + 1)),
+					active: index === stack.length - 1
+				};
+			})
 		];
+	}
+
+	function parsePageStackEntry(
+		entry: string
+	): { pageStartBlock: number; bucketSize: number } | null {
+		const [pageStartRaw, bucketSizeRaw, extra] = entry.split(':');
+		const pageStartBlock = Number(pageStartRaw);
+		const bucketSize = Number(bucketSizeRaw);
+		if (
+			extra !== undefined ||
+			!Number.isInteger(pageStartBlock) ||
+			!Number.isInteger(bucketSize) ||
+			pageStartBlock < 0 ||
+			bucketSize <= 0
+		) {
+			return null;
+		}
+		return { pageStartBlock, bucketSize };
+	}
+
+	function formatPageStackEntry(page: { pageStartBlock: number; bucketSize: number }): string {
+		return `${page.pageStartBlock}:${page.bucketSize}`;
+	}
+
+	function formatPageRange(
+		page: { pageStartBlock: number; bucketSize: number },
+		headBlock: number
+	): string {
+		const pageEndBlock = page.pageStartBlock + page.bucketSize * SYNC_BACKFILL_GRID_CELL_COUNT - 1;
+		return `${page.pageStartBlock}-${Math.min(pageEndBlock, headBlock)}`;
 	}
 </script>
 
