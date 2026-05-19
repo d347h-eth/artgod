@@ -1489,6 +1489,8 @@ components:
                 - slug
                 - name
                 - averageBlockTimeSeconds
+                - genesisBlockNumber
+                - genesisBlockTimestamp
             additionalProperties: false
             properties:
                 id:
@@ -1504,6 +1506,14 @@ components:
                 averageBlockTimeSeconds:
                     type: number
                     description: Chain-level average block duration used for single-block display estimates.
+                genesisBlockNumber:
+                    type: integer
+                    nullable: true
+                    description: Optional chain-specific genesis block number; backend defaults to 0 when absent.
+                genesisBlockTimestamp:
+                    type: integer
+                    nullable: true
+                    description: Optional Unix timestamp override for the configured genesis block.
 
         CollectionStandard:
             type: string
@@ -1665,10 +1675,10 @@ components:
                 timestamp:
                     type: integer
                     nullable: true
-                    description: Unix timestamp seconds read from local block storage or JSON-RPC.
+                    description: Unix timestamp seconds read from chain metadata, local block storage, or JSON-RPC.
                 source:
                     type: string
-                    enum: [db, rpc, unavailable]
+                    enum: [chain, db, rpc, unavailable]
 
         SyncBackfillGridCell:
             type: object

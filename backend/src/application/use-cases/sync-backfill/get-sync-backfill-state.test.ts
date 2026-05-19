@@ -201,6 +201,34 @@ describe("GetSyncBackfillStateUseCase", () => {
             1,
             chainResolver(),
             readPort({
+                anyBlocks: new Set([1_024, 2_047]),
+                headBlock: 2_047,
+                blockTimestamps: new Map([
+                    [1_024, 100],
+                    [2_047, 172],
+                ]),
+            }),
+            rpcPort(2_047, new Map([[1_024, 10]])),
+        );
+
+        const output = await useCase.getState({
+            chainRef: "ethereum",
+            pageStartBlock: 1_024,
+            bucketSize: 1,
+        });
+
+        expect(output.range.time).toEqual({
+            from: { blockNumber: 1_024, timestamp: 100, source: "db" },
+            to: { blockNumber: 2_047, timestamp: 172, source: "db" },
+            durationSeconds: 72,
+        });
+    });
+
+    it("uses RPC for genesis timestamps when no chain override exists", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
                 anyBlocks: new Set([0, 4]),
                 headBlock: 4,
                 blockTimestamps: new Map([
@@ -208,14 +236,46 @@ describe("GetSyncBackfillStateUseCase", () => {
                     [4, 172],
                 ]),
             }),
-            rpcPort(4, new Map([[0, 10]])),
+            rpcPort(4, new Map([[0, 0]])),
         );
 
         const output = await useCase.getState({ chainRef: "ethereum" });
 
+        expect(output.range.time.from).toEqual({
+            blockNumber: 0,
+            timestamp: 0,
+            source: "rpc",
+        });
+    });
+
+    it("uses chain genesis timestamp override before indexed block metadata", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver({
+                genesisBlockNumber: 0,
+                genesisBlockTimestamp: 1_438_269_973,
+            }),
+            readPort({
+                anyBlocks: new Set([0, 4]),
+                headBlock: 4,
+                blockTimestamps: new Map([
+                    [0, 0],
+                    [4, 1_438_270_045],
+                ]),
+            }),
+            rpcPort(4, new Map([[0, 0]])),
+        );
+
+        const output = await useCase.getState({ chainRef: "ethereum" });
+
+        expect(output.summary.genesisBlock).toBe(0);
         expect(output.range.time).toEqual({
-            from: { blockNumber: 0, timestamp: 100, source: "db" },
-            to: { blockNumber: 4, timestamp: 172, source: "db" },
+            from: {
+                blockNumber: 0,
+                timestamp: 1_438_269_973,
+                source: "chain",
+            },
+            to: { blockNumber: 4, timestamp: 1_438_270_045, source: "db" },
             durationSeconds: 72,
         });
     });
@@ -225,27 +285,31 @@ describe("GetSyncBackfillStateUseCase", () => {
             1,
             chainResolver(),
             readPort({
-                anyBlocks: new Set([0, 4]),
-                headBlock: 4,
-                blockTimestamps: new Map([[0, 100]]),
+                anyBlocks: new Set([1_024, 2_047]),
+                headBlock: 2_047,
+                blockTimestamps: new Map([[1_024, 100]]),
             }),
-            rpcPort(4, new Map([[4, 172]])),
+            rpcPort(2_047, new Map([[2_047, 172]])),
         );
 
-        const output = await useCase.getState({ chainRef: "ethereum" });
+        const output = await useCase.getState({
+            chainRef: "ethereum",
+            pageStartBlock: 1_024,
+            bucketSize: 1,
+        });
 
         expect(output.range.time).toEqual({
-            from: { blockNumber: 0, timestamp: 100, source: "db" },
-            to: { blockNumber: 4, timestamp: 172, source: "rpc" },
+            from: { blockNumber: 1_024, timestamp: 100, source: "db" },
+            to: { blockNumber: 2_047, timestamp: 172, source: "rpc" },
             durationSeconds: 72,
         });
     });
 });
 
-function chainResolver() {
+function chainResolver(overrides: Partial<ChainRecord> = {}) {
     return {
         resolveChainRef() {
-            return CHAIN;
+            return { ...CHAIN, ...overrides };
         },
     };
 }

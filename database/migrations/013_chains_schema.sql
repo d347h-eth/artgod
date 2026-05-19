@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS chains (
   slug TEXT NOT NULL,
   name TEXT NOT NULL,
   average_block_time_seconds REAL NOT NULL,
+  genesis_block_number INTEGER,
+  genesis_block_timestamp INTEGER,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -15,5 +17,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS chains_type_public_chain_id_uq
 CREATE UNIQUE INDEX IF NOT EXISTS chains_type_slug_uq
   ON chains (type, slug);
 
-INSERT OR IGNORE INTO chains (type, public_chain_id, slug, name, average_block_time_seconds)
-VALUES ('evm', 1, 'ethereum', 'Ethereum', 12);
+INSERT OR IGNORE INTO chains (
+  type,
+  public_chain_id,
+  slug,
+  name,
+  average_block_time_seconds,
+  genesis_block_number,
+  genesis_block_timestamp
+)
+VALUES ('evm', 1, 'ethereum', 'Ethereum', 12, 0, 1438269973);

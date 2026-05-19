@@ -16,6 +16,8 @@ export type ApiChain = {
 	slug: string;
 	name: string;
 	averageBlockTimeSeconds?: number;
+	genesisBlockNumber?: number | null;
+	genesisBlockTimestamp?: number | null;
 };
 
 export type ApiCollection = {
@@ -848,7 +850,7 @@ export type ApiSyncBackfillGridCell = {
 export type ApiSyncBackfillBlockTimestamp = {
 	blockNumber: number;
 	timestamp: number | null;
-	source: 'db' | 'rpc' | 'unavailable';
+	source: 'chain' | 'db' | 'rpc' | 'unavailable';
 };
 
 export type SyncBackfillStateApiResponse = {

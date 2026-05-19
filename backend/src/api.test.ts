@@ -779,6 +779,8 @@ describe("backend api routes", () => {
         expect(result.payload.chain.publicChainId).toBe(1);
         expect(result.payload.chain.slug).toBe("ethereum");
         expect(result.payload.chain.averageBlockTimeSeconds).toBe(12);
+        expect(result.payload.chain.genesisBlockNumber).toBe(0);
+        expect(result.payload.chain.genesisBlockTimestamp).toBe(1_438_269_973);
     });
 
     it("returns runtime integration config", async () => {

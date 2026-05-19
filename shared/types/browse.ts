@@ -21,6 +21,8 @@ export type ChainRecord = {
     slug: string;
     name: string;
     averageBlockTimeSeconds?: number;
+    genesisBlockNumber?: number | null;
+    genesisBlockTimestamp?: number | null;
 };
 
 export type CollectionListItem = {
