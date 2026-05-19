@@ -83,6 +83,10 @@ import type {
     ListCollectionsRoute,
 } from "./http/handlers/collections/list-collections.js";
 import type {
+    GetSyncBackfillRangeSummaryHttpAdapter,
+    GetSyncBackfillRangeSummaryRoute,
+} from "./http/handlers/sync-backfill/get-sync-backfill-range-summary.js";
+import type {
     GetSyncBackfillStateHttpAdapter,
     GetSyncBackfillStateRoute,
 } from "./http/handlers/sync-backfill/get-sync-backfill-state.js";
@@ -222,6 +226,7 @@ export function registerApiRoutes(
     getRuntimeConfigAdapter: GetRuntimeConfigHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     getSyncBackfillStateAdapter: GetSyncBackfillStateHttpAdapter,
+    getSyncBackfillRangeSummaryAdapter: GetSyncBackfillRangeSummaryHttpAdapter,
     scheduleSyncBackfillAdapter: ScheduleSyncBackfillHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
@@ -410,6 +415,12 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/sync-backfill",
         getSyncBackfillStateAdapter.handle,
+    );
+    registerObservedGet<GetSyncBackfillRangeSummaryRoute>(
+        app,
+        options,
+        "/api/:chain_ref/sync-backfill/range",
+        getSyncBackfillRangeSummaryAdapter.handle,
     );
     registerObservedPost<ScheduleSyncBackfillRoute>(
         app,

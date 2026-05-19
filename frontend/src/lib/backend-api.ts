@@ -24,6 +24,7 @@ import type {
 	OwnerRefResolutionApiResponse,
 	RuntimeConfigApiResponse,
 	ScheduleSyncBackfillApiResponse,
+	SyncBackfillRangeSummaryApiResponse,
 	SyncBackfillStateApiResponse,
 	TokenBiddingBidBookApiResponse,
 	TokenBiddingJobApiResponse,
@@ -88,6 +89,19 @@ export async function getSyncBackfillState(
 	return requestJson<SyncBackfillStateApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/sync-backfill${suffix}`
+	);
+}
+
+export async function getSyncBackfillRangeSummary(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	params: URLSearchParams
+): Promise<SyncBackfillRangeSummaryApiResponse> {
+	const query = params.toString();
+	const suffix = query ? `?${query}` : '';
+	return requestJson<SyncBackfillRangeSummaryApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/sync-backfill/range${suffix}`
 	);
 }
 

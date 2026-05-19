@@ -197,6 +197,46 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/sync-backfill/range:
+        get:
+            tags: [Sync]
+            summary: Get sync/backfill summary for a block range
+            operationId: getSyncBackfillRangeSummary
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - name: collection
+                  in: query
+                  required: false
+                  description: "`any` for global block coverage, or a live collection slug for collection-specific coverage"
+                  schema:
+                      type: string
+                      default: any
+                - name: from_block
+                  in: query
+                  required: true
+                  schema:
+                      type: integer
+                      minimum: 0
+                - name: to_block
+                  in: query
+                  required: true
+                  schema:
+                      type: integer
+                      minimum: 0
+            responses:
+                "200":
+                    description: Sync/backfill range summary
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/SyncBackfillRangeSummaryResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/sync-backfill/backfill:
         post:
             tags: [Sync]
@@ -1709,6 +1749,59 @@ components:
                     $ref: "#/components/schemas/SyncBackfillCoverageState"
                 canDrillDown:
                     type: boolean
+
+        SyncBackfillRangeSummary:
+            type: object
+            required:
+                - fromBlock
+                - toBlock
+                - blockCount
+                - bucketSize
+                - syncedBlockCount
+                - time
+            additionalProperties: false
+            properties:
+                fromBlock:
+                    type: integer
+                toBlock:
+                    type: integer
+                blockCount:
+                    type: integer
+                bucketSize:
+                    type: integer
+                    description: Real blocks represented by the summarized bucket or block.
+                syncedBlockCount:
+                    type: integer
+                time:
+                    type: object
+                    required: [from, to, durationSeconds]
+                    additionalProperties: false
+                    properties:
+                        from:
+                            $ref: "#/components/schemas/SyncBackfillBlockTimestamp"
+                        to:
+                            $ref: "#/components/schemas/SyncBackfillBlockTimestamp"
+                        durationSeconds:
+                            type: integer
+                            nullable: true
+                            description: Elapsed seconds between the range endpoint block timestamps.
+
+        SyncBackfillRangeSummaryResponse:
+            type: object
+            required: [chain, context, range]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                context:
+                    type: object
+                    required: [selected]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: string
+                range:
+                    $ref: "#/components/schemas/SyncBackfillRangeSummary"
 
         SyncBackfillStateResponse:
             type: object

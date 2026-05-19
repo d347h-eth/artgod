@@ -581,6 +581,39 @@ beforeAll(async () => {
                 grid: [],
             };
         },
+        async getRangeSummary() {
+            return {
+                chain: {
+                    id: 1,
+                    type: "evm",
+                    publicChainId: 1,
+                    slug: "ethereum",
+                    name: "Ethereum",
+                    averageBlockTimeSeconds: 12,
+                },
+                context: { selected: "any" },
+                range: {
+                    fromBlock: 0,
+                    toBlock: 0,
+                    blockCount: 1,
+                    bucketSize: 1,
+                    syncedBlockCount: 0,
+                    time: {
+                        from: {
+                            blockNumber: 0,
+                            timestamp: 100,
+                            source: "db" as const,
+                        },
+                        to: {
+                            blockNumber: 0,
+                            timestamp: 100,
+                            source: "db" as const,
+                        },
+                        durationSeconds: 0,
+                    },
+                },
+            };
+        },
     };
     const scheduleSyncBackfillUseCase = {
         async scheduleBackfill() {
@@ -796,6 +829,22 @@ describe("backend api routes", () => {
 
         expect(result.statusCode).toBe(200);
         expect(result.payload.range.gridCellCount).toBe(1024);
+    });
+
+    it("returns a sync/backfill range summary on the local API", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/sync-backfill/range?from_block=0&to_block=0",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.range).toMatchObject({
+            fromBlock: 0,
+            toBlock: 0,
+            blockCount: 1,
+            bucketSize: 1,
+            syncedBlockCount: 0,
+        });
     });
 
     it("resolves ENS owner refs on the public API", async () => {

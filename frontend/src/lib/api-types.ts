@@ -853,6 +853,19 @@ export type ApiSyncBackfillBlockTimestamp = {
 	source: 'chain' | 'db' | 'rpc' | 'unavailable';
 };
 
+export type ApiSyncBackfillRangeSummary = {
+	fromBlock: number;
+	toBlock: number;
+	blockCount: number;
+	bucketSize: number;
+	syncedBlockCount: number;
+	time: {
+		from: ApiSyncBackfillBlockTimestamp;
+		to: ApiSyncBackfillBlockTimestamp;
+		durationSeconds: number | null;
+	};
+};
+
 export type SyncBackfillStateApiResponse = {
 	chain: ApiChain;
 	context: {
@@ -881,6 +894,14 @@ export type SyncBackfillStateApiResponse = {
 		selectedRangeSyncedBlockCount: number;
 	};
 	grid: ApiSyncBackfillGridCell[];
+};
+
+export type SyncBackfillRangeSummaryApiResponse = {
+	chain: ApiChain;
+	context: {
+		selected: string;
+	};
+	range: ApiSyncBackfillRangeSummary;
 };
 
 export type ScheduleSyncBackfillApiResponse = {

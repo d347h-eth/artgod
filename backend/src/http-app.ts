@@ -18,6 +18,8 @@ import type { GetTokenUriUseCase } from "./application/use-cases/collections/get
 import type { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import type { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
 import type {
+    GetSyncBackfillRangeSummaryInput,
+    GetSyncBackfillRangeSummaryOutput,
     GetSyncBackfillStateInput,
     GetSyncBackfillStateOutput,
 } from "./application/use-cases/sync-backfill/get-sync-backfill-state.js";
@@ -62,6 +64,7 @@ import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-toke
 import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-uri.js";
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
+import { GetSyncBackfillRangeSummaryHttpAdapter } from "./http/handlers/sync-backfill/get-sync-backfill-range-summary.js";
 import { GetSyncBackfillStateHttpAdapter } from "./http/handlers/sync-backfill/get-sync-backfill-state.js";
 import { ScheduleSyncBackfillHttpAdapter } from "./http/handlers/sync-backfill/schedule-sync-backfill.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
@@ -108,6 +111,9 @@ type GetSyncBackfillStatePort = {
     getState(
         input: GetSyncBackfillStateInput,
     ): MaybePromise<GetSyncBackfillStateOutput>;
+    getRangeSummary(
+        input: GetSyncBackfillRangeSummaryInput,
+    ): MaybePromise<GetSyncBackfillRangeSummaryOutput>;
 };
 
 type ScheduleSyncBackfillPort = {
@@ -196,6 +202,8 @@ export function createApiApp(
     const getSyncBackfillStateAdapter = new GetSyncBackfillStateHttpAdapter(
         getSyncBackfillStateUseCase,
     );
+    const getSyncBackfillRangeSummaryAdapter =
+        new GetSyncBackfillRangeSummaryHttpAdapter(getSyncBackfillStateUseCase);
     const scheduleSyncBackfillAdapter = new ScheduleSyncBackfillHttpAdapter(
         scheduleSyncBackfillUseCase,
     );
@@ -317,6 +325,7 @@ export function createApiApp(
         getRuntimeConfigAdapter,
         listCollectionsAdapter,
         getSyncBackfillStateAdapter,
+        getSyncBackfillRangeSummaryAdapter,
         scheduleSyncBackfillAdapter,
         resolveOwnerRefAdapter,
         getCollectionActivityAdapter,

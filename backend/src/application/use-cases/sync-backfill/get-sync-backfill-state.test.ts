@@ -172,6 +172,41 @@ describe("GetSyncBackfillStateUseCase", () => {
         ]);
     });
 
+    it("builds a range summary for an arbitrary visible bucket", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([1_024, 1_025, 2_047]),
+                headBlock: 2_047,
+                blockTimestamps: new Map([
+                    [1_024, 100],
+                    [2_047, 172],
+                ]),
+            }),
+            rpcPort(2_047),
+        );
+
+        const output = await useCase.getRangeSummary({
+            chainRef: "ethereum",
+            fromBlock: 1_024,
+            toBlock: 2_047,
+        });
+
+        expect(output.range).toEqual({
+            fromBlock: 1_024,
+            toBlock: 2_047,
+            blockCount: 1_024,
+            bucketSize: 1_024,
+            syncedBlockCount: 3,
+            time: {
+                from: { blockNumber: 1_024, timestamp: 100, source: "db" },
+                to: { blockNumber: 2_047, timestamp: 172, source: "db" },
+                durationSeconds: 72,
+            },
+        });
+    });
+
     it("falls back to indexed head when RPC head is unavailable", async () => {
         const useCase = new GetSyncBackfillStateUseCase(
             1,

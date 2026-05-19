@@ -52,6 +52,26 @@ export type GetSyncBackfillStateInput = {
     bucketSize?: number | null;
 };
 
+export type GetSyncBackfillRangeSummaryInput = {
+    chainRef: string;
+    collectionRef?: string | null;
+    fromBlock: number;
+    toBlock: number;
+};
+
+export type SyncBackfillRangeSummary = {
+    fromBlock: number;
+    toBlock: number;
+    blockCount: number;
+    bucketSize: number;
+    syncedBlockCount: number;
+    time: {
+        from: SyncBackfillBlockTimestamp;
+        to: SyncBackfillBlockTimestamp;
+        durationSeconds: number | null;
+    };
+};
+
 export type GetSyncBackfillStateOutput = {
     chain: ChainRecord;
     context: {
@@ -80,6 +100,14 @@ export type GetSyncBackfillStateOutput = {
         selectedRangeSyncedBlockCount: number;
     };
     grid: SyncBackfillGridCell[];
+};
+
+export type GetSyncBackfillRangeSummaryOutput = {
+    chain: ChainRecord;
+    context: {
+        selected: typeof SYNC_BACKFILL_CONTEXT_ANY | string;
+    };
+    range: SyncBackfillRangeSummary;
 };
 
 export type SyncBackfillCoverageContext =
@@ -216,6 +244,65 @@ export class GetSyncBackfillStateUseCase {
         };
     }
 
+    async getRangeSummary(
+        input: GetSyncBackfillRangeSummaryInput,
+    ): Promise<GetSyncBackfillRangeSummaryOutput> {
+        const chain = this.chainRefResolverPort.resolveChainRef(
+            input.chainRef,
+            this.defaultChainId,
+        );
+        const collections = this.syncBackfillReadPort.listLiveCollections(
+            chain.publicChainId,
+        );
+        const context = resolveCoverageContext(
+            input.collectionRef,
+            collections,
+        );
+        const highestSyncedBlock =
+            this.syncBackfillReadPort.getHighestSyncedBlock(
+                chain.publicChainId,
+            );
+        const genesisBlock = resolveGenesisBlockNumber(chain);
+        const head = await this.resolveHeadBlock(
+            highestSyncedBlock,
+            genesisBlock,
+        );
+        const range = resolveExplicitCoverageRange(
+            input,
+            head.blockNumber,
+            genesisBlock,
+        );
+        const time = await this.resolvePageTime(
+            chain.publicChainId,
+            chain,
+            range,
+            genesisBlock,
+        );
+        const blockCount = countBlocks(range);
+
+        return {
+            chain,
+            context: {
+                selected:
+                    context.kind === "collection"
+                        ? context.slug
+                        : SYNC_BACKFILL_CONTEXT_ANY,
+            },
+            range: {
+                ...range,
+                blockCount,
+                bucketSize: blockCount,
+                syncedBlockCount:
+                    this.syncBackfillReadPort.countSyncedBlocksInRange(
+                        chain.publicChainId,
+                        context,
+                        range,
+                    ),
+                time,
+            },
+        };
+    }
+
     private async resolveHeadBlock(
         highestSyncedBlock: number | null,
         genesisBlock: number,
@@ -236,7 +323,7 @@ export class GetSyncBackfillStateUseCase {
     private async resolvePageTime(
         chainId: number,
         chain: ChainRecord,
-        page: SyncBackfillCoveragePage,
+        page: SyncBackfillCoverageRange,
         genesisBlock: number,
     ): Promise<{
         from: SyncBackfillBlockTimestamp;
@@ -402,6 +489,25 @@ function resolveCoveragePage(
         toBlock: Math.min(pageStartBlock + pageSpan - 1, headBlock),
         bucketSize,
         gridCellCount: SYNC_BACKFILL_GRID_CELL_COUNT,
+    };
+}
+
+function resolveExplicitCoverageRange(
+    input: Pick<GetSyncBackfillRangeSummaryInput, "fromBlock" | "toBlock">,
+    headBlock: number,
+    genesisBlock: number,
+): SyncBackfillCoverageRange {
+    assertBlockNumber(input.fromBlock, "from_block", genesisBlock);
+    assertBlockNumber(input.toBlock, "to_block", genesisBlock);
+    if (input.fromBlock > input.toBlock) {
+        throw new ReadModelBadRequestError("from_block must be <= to_block");
+    }
+    if (input.toBlock > headBlock) {
+        throw new ReadModelBadRequestError("to_block must be <= head block");
+    }
+    return {
+        fromBlock: input.fromBlock,
+        toBlock: input.toBlock,
     };
 }
 
