@@ -1,62 +1,51 @@
 import { describe, expect, it } from 'vitest';
 import {
-	estimateSyncBackfillBlockTimeMs,
-	formatSyncBackfillApproxTimeRange,
-	formatSyncBackfillApproxUtc,
-	formatSyncBackfillBlockDuration,
+	formatSyncBackfillAnchoredBlockDuration,
 	formatSyncBackfillBlockRange,
-	formatSyncBackfillSyncedPercent
+	formatSyncBackfillDurationSeconds,
+	formatSyncBackfillSyncedPercent,
+	formatSyncBackfillTimeRange,
+	formatSyncBackfillUtc
 } from './sync-backfill-format';
 
 describe('sync backfill formatting', () => {
-	it('formats block durations from approximate 12 second blocks', () => {
-		expect(formatSyncBackfillBlockDuration(0)).toBe('0s');
-		expect(formatSyncBackfillBlockDuration(1)).toBe('12s');
-		expect(formatSyncBackfillBlockDuration(300)).toBe('1h');
-		expect(formatSyncBackfillBlockDuration(1024)).toBe('3h');
-		expect(formatSyncBackfillBlockDuration(2_865_900)).toBe('1y 1m 3d 1h');
+	it('formats anchored durations compactly', () => {
+		expect(formatSyncBackfillDurationSeconds(null)).toBe('unknown');
+		expect(formatSyncBackfillDurationSeconds(0)).toBe('0s');
+		expect(formatSyncBackfillDurationSeconds(12)).toBe('12s');
+		expect(formatSyncBackfillDurationSeconds(3_600)).toBe('1h');
+		expect(formatSyncBackfillDurationSeconds(34_390_800)).toBe('1y 1m 3d 1h');
 	});
 
-	it('formats approximate UTC timestamps without suffixes or subseconds', () => {
-		expect(formatSyncBackfillApproxUtc(Date.UTC(2026, 4, 19, 18, 30, 45))).toBe(
-			'2026-05-19T18:30:45'
-		);
+	it('derives block durations from page endpoint anchors', () => {
+		expect(
+			formatSyncBackfillAnchoredBlockDuration({
+				blockCount: 6,
+				pageBlockCount: 11,
+				pageDurationSeconds: 100
+			})
+		).toBe('50s');
+		expect(
+			formatSyncBackfillAnchoredBlockDuration({
+				blockCount: 6,
+				pageBlockCount: 11,
+				pageDurationSeconds: null
+			})
+		).toBe('unknown');
 	});
 
-	it('derives approximate block timestamps from the visible head', () => {
-		const headTimeMs = Date.UTC(2026, 4, 19, 18, 30, 0);
-
-		expect(
-			estimateSyncBackfillBlockTimeMs({
-				blockNumber: 98,
-				chainPublicId: 999,
-				headBlock: 100,
-				headTimeMs
-			})
-		).toBe(Date.UTC(2026, 4, 19, 18, 29, 36));
-		expect(
-			formatSyncBackfillApproxTimeRange({
-				fromBlock: 98,
-				toBlock: 100,
-				chainPublicId: 999,
-				headBlock: 100,
-				headTimeMs
-			})
-		).toBe('2026-05-19T18:29:36 / 2026-05-19T18:30:00');
+	it('formats anchored UTC timestamps without suffixes or subseconds', () => {
+		expect(formatSyncBackfillUtc(1_438_269_973)).toBe('2015-07-30T15:26:13');
+		expect(formatSyncBackfillUtc(null)).toBe('unknown');
 	});
 
-	it('anchors Ethereum mainnet estimates to the known genesis timestamp', () => {
-		const headTimeMs = Date.UTC(2026, 4, 19, 18, 30, 0);
-
+	it('formats anchored UTC time ranges', () => {
 		expect(
-			formatSyncBackfillApproxTimeRange({
-				fromBlock: 0,
-				toBlock: 100,
-				chainPublicId: 1,
-				headBlock: 100,
-				headTimeMs
+			formatSyncBackfillTimeRange({
+				fromTimestamp: 100,
+				toTimestamp: 160
 			})
-		).toBe('2015-07-30T15:26:13 / 2026-05-19T18:30:00');
+		).toBe('1970-01-01T00:01:40 / 1970-01-01T00:02:40');
 	});
 
 	it('formats grouped block ranges and rounded synced percentages', () => {

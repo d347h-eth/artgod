@@ -13,8 +13,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	if (IS_ADMIN_FRONTEND_TARGET) {
 		return {
 			state: null,
-			basePath: '/',
-			generatedAtMs: Date.now()
+			basePath: '/'
 		};
 	}
 
@@ -25,8 +24,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 			state,
 			basePath: `/${state.chain.slug}/sync-backfill`,
 			collection: query.collection,
-			stack: query.stack,
-			generatedAtMs: Date.now()
+			stack: query.stack
 		};
 	} catch (cause) {
 		toKitError(cause);

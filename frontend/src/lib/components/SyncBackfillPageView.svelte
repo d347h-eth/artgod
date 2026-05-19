@@ -10,25 +10,24 @@
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import {
-		formatSyncBackfillApproxTimeRange,
-		formatSyncBackfillBlockDuration,
+		formatSyncBackfillAnchoredBlockDuration,
 		formatSyncBackfillBlockRange,
+		formatSyncBackfillDurationSeconds,
 		formatSyncBackfillInteger,
-		formatSyncBackfillSyncedPercent
+		formatSyncBackfillSyncedPercent,
+		formatSyncBackfillTimeRange
 	} from '$lib/sync-backfill-format';
 
 	let {
 		state: syncState,
 		basePath,
 		collection,
-		stack,
-		generatedAtMs
+		stack
 	}: {
 		state: SyncBackfillStateApiResponse | null;
 		basePath: string;
 		collection: string;
 		stack: string[];
-		generatedAtMs: number;
 	} = $props();
 
 	let submitting = $state(false);
@@ -114,7 +113,7 @@
 	function cellLabel(cell: ApiSyncBackfillGridCell): string {
 		const range = formatRange(cell.fromBlock, cell.toBlock, cell.blockCount);
 		const duration =
-			cell.blockCount > 0 ? `, ${formatSyncBackfillBlockDuration(cell.blockCount)}` : '';
+			cell.blockCount > 0 ? `, ${formatVisibleBlockDuration(cell.blockCount)}` : '';
 		const action = cell.blockCount === 1 ? ', click to copy block number' : '';
 		return `${range}: ${formatSyncBackfillInteger(cell.syncedBlockCount)}/${formatSyncBackfillInteger(cell.blockCount)} synced${duration}${action}`;
 	}
@@ -190,12 +189,18 @@
 
 	function visibleRangeTimeRange(): string {
 		if (!syncState) return '';
-		return formatSyncBackfillApproxTimeRange({
-			fromBlock: syncState.range.fromBlock,
-			toBlock: syncState.range.toBlock,
-			chainPublicId: syncState.chain.publicChainId,
-			headBlock: syncState.summary.headBlock,
-			headTimeMs: generatedAtMs
+		return formatSyncBackfillTimeRange({
+			fromTimestamp: syncState.range.time.from.timestamp,
+			toTimestamp: syncState.range.time.to.timestamp
+		});
+	}
+
+	function formatVisibleBlockDuration(blockCount: number): string {
+		if (!syncState) return 'unknown';
+		return formatSyncBackfillAnchoredBlockDuration({
+			blockCount,
+			pageBlockCount: syncState.range.blockCount,
+			pageDurationSeconds: syncState.range.time.durationSeconds
 		});
 	}
 
@@ -240,7 +245,9 @@
 			<div>
 				<span class="sync-summary-label">observed</span>
 				<span class="sync-summary-value">{formatSyncBackfillInteger(syncState.range.blockCount)}</span>
-				<span class="sync-summary-meta">{formatSyncBackfillBlockDuration(syncState.range.blockCount)}</span>
+				<span class="sync-summary-meta"
+					>{formatSyncBackfillDurationSeconds(syncState.range.time.durationSeconds)}</span
+				>
 			</div>
 			<div>
 				<span class="sync-summary-label">range</span>
@@ -252,7 +259,13 @@
 			<div>
 				<span class="sync-summary-label">bucket</span>
 				<span class="sync-summary-value">{formatSyncBackfillInteger(syncState.range.bucketSize)}</span>
-				<span class="sync-summary-meta">{formatSyncBackfillBlockDuration(syncState.range.bucketSize)}</span>
+				<span class="sync-summary-meta"
+					>{formatSyncBackfillAnchoredBlockDuration({
+						blockCount: syncState.range.bucketSize,
+						pageBlockCount: syncState.range.blockCount,
+						pageDurationSeconds: syncState.range.time.durationSeconds
+					})}</span
+				>
 			</div>
 			<div>
 				<span class="sync-summary-label">synced</span>

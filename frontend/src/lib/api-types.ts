@@ -844,6 +844,12 @@ export type ApiSyncBackfillGridCell = {
 	canDrillDown: boolean;
 };
 
+export type ApiSyncBackfillBlockTimestamp = {
+	blockNumber: number;
+	timestamp: number | null;
+	source: 'db' | 'rpc' | 'unavailable';
+};
+
 export type SyncBackfillStateApiResponse = {
 	chain: ApiChain;
 	context: {
@@ -857,6 +863,11 @@ export type SyncBackfillStateApiResponse = {
 		bucketSize: number;
 		gridCellCount: number;
 		canDrillDown: boolean;
+		time: {
+			from: ApiSyncBackfillBlockTimestamp;
+			to: ApiSyncBackfillBlockTimestamp;
+			durationSeconds: number | null;
+		};
 	};
 	summary: {
 		genesisBlock: number;

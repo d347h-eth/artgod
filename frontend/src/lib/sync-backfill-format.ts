@@ -1,12 +1,8 @@
-const APPROX_BLOCK_SECONDS = 12;
-const SECOND_MS = 1_000;
 const MINUTE_SECONDS = 60;
 const HOUR_SECONDS = 60 * MINUTE_SECONDS;
 const DAY_SECONDS = 24 * HOUR_SECONDS;
 const MONTH_SECONDS = 30 * DAY_SECONDS;
 const YEAR_SECONDS = 365 * DAY_SECONDS;
-const ETHEREUM_MAINNET_CHAIN_ID = 1;
-const ETHEREUM_MAINNET_GENESIS_TIME_MS = 1_438_269_973_000;
 
 const INTEGER_FORMATTER = new Intl.NumberFormat(undefined, {
 	maximumFractionDigits: 0
@@ -22,9 +18,11 @@ export function formatSyncBackfillBlockRange(fromBlock: number, toBlock: number)
 	return `${formatSyncBackfillInteger(fromBlock)}-${formatSyncBackfillInteger(toBlock)}`;
 }
 
-// Converts a block count to a compact approximate duration at 12 seconds per block.
-export function formatSyncBackfillBlockDuration(blockCount: number): string {
-	const totalSeconds = Math.max(0, Math.round(blockCount * APPROX_BLOCK_SECONDS));
+// Formats an anchored elapsed duration in compact units.
+export function formatSyncBackfillDurationSeconds(durationSeconds: number | null): string {
+	if (durationSeconds === null || !Number.isFinite(durationSeconds)) return 'unknown';
+
+	const totalSeconds = Math.max(0, Math.round(durationSeconds));
 	if (totalSeconds === 0) return '0s';
 
 	const years = Math.floor(totalSeconds / YEAR_SECONDS);
@@ -51,48 +49,33 @@ export function formatSyncBackfillBlockDuration(blockCount: number): string {
 	return parts.join(' ');
 }
 
-// Estimates UTC block time from known genesis anchors without adding block timestamp RPC calls.
-export function estimateSyncBackfillBlockTimeMs(input: {
-	blockNumber: number;
-	chainPublicId: number;
-	headBlock: number;
-	headTimeMs: number;
-}): number {
-	const genesisTimeMs = resolveSyncBackfillGenesisTimeMs(input);
-	if (input.headBlock <= 0) return genesisTimeMs;
-
-	const boundedBlock = Math.max(0, Math.min(input.blockNumber, input.headBlock));
-	const chainElapsedMs = input.headTimeMs - genesisTimeMs;
-	const blockRatio = boundedBlock / input.headBlock;
-	return genesisTimeMs + Math.round(chainElapsedMs * blockRatio);
-}
-
-// Formats approximate UTC time without timezone suffix or subseconds.
-export function formatSyncBackfillApproxUtc(valueMs: number): string {
-	return new Date(valueMs).toISOString().replace(/\.\d{3}Z$/, '');
-}
-
-// Formats an approximate inclusive UTC time range for visible block endpoints.
-export function formatSyncBackfillApproxTimeRange(input: {
-	fromBlock: number;
-	toBlock: number;
-	chainPublicId: number;
-	headBlock: number;
-	headTimeMs: number;
+// Derives a visible block span duration from the current page's anchored endpoints.
+export function formatSyncBackfillAnchoredBlockDuration(input: {
+	blockCount: number;
+	pageBlockCount: number;
+	pageDurationSeconds: number | null;
 }): string {
-	const fromMs = estimateSyncBackfillBlockTimeMs({
-		blockNumber: input.fromBlock,
-		chainPublicId: input.chainPublicId,
-		headBlock: input.headBlock,
-		headTimeMs: input.headTimeMs
-	});
-	const toMs = estimateSyncBackfillBlockTimeMs({
-		blockNumber: input.toBlock,
-		chainPublicId: input.chainPublicId,
-		headBlock: input.headBlock,
-		headTimeMs: input.headTimeMs
-	});
-	return `${formatSyncBackfillApproxUtc(fromMs)} / ${formatSyncBackfillApproxUtc(toMs)}`;
+	if (input.pageDurationSeconds === null) return 'unknown';
+	if (input.blockCount <= 1 || input.pageBlockCount <= 1) return '0s';
+
+	const pageIntervals = input.pageBlockCount - 1;
+	const blockIntervals = input.blockCount - 1;
+	const durationSeconds = (input.pageDurationSeconds * blockIntervals) / pageIntervals;
+	return formatSyncBackfillDurationSeconds(durationSeconds);
+}
+
+// Formats an anchored UTC timestamp without timezone suffix or subseconds.
+export function formatSyncBackfillUtc(timestampSeconds: number | null): string {
+	if (timestampSeconds === null || !Number.isFinite(timestampSeconds)) return 'unknown';
+	return new Date(timestampSeconds * 1_000).toISOString().replace(/\.\d{3}Z$/, '');
+}
+
+// Formats the anchored UTC time range for the visible block endpoints.
+export function formatSyncBackfillTimeRange(input: {
+	fromTimestamp: number | null;
+	toTimestamp: number | null;
+}): string {
+	return `${formatSyncBackfillUtc(input.fromTimestamp)} / ${formatSyncBackfillUtc(input.toTimestamp)}`;
 }
 
 // Formats integer synced percentage for range summary chips.
@@ -105,15 +88,4 @@ function appendDurationPart(parts: string[], value: number, suffix: string): voi
 	if (value > 0) {
 		parts.push(`${value}${suffix}`);
 	}
-}
-
-function resolveSyncBackfillGenesisTimeMs(input: {
-	chainPublicId: number;
-	headBlock: number;
-	headTimeMs: number;
-}): number {
-	if (input.chainPublicId === ETHEREUM_MAINNET_CHAIN_ID) {
-		return ETHEREUM_MAINNET_GENESIS_TIME_MS;
-	}
-	return input.headTimeMs - input.headBlock * APPROX_BLOCK_SECONDS * SECOND_MS;
 }
