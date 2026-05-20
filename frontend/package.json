@@ -25,6 +25,7 @@
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",
+        "@elchininet/isometric": "4.0.0",
         "@tauri-apps/api": "^2.8.0"
     },
     "devDependencies": {
