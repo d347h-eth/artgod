@@ -56,6 +56,8 @@
 	const ISOMETRIC_WIDTH_FACTOR = Math.sqrt(3);
 	const ISOMETRIC_DESKTOP_SIDE_ALLOWANCE = 560;
 	const ISOMETRIC_MOBILE_SIDE_ALLOWANCE = 32;
+	const ISOMETRIC_MARKER_FONT_SCALE = 2.1;
+	const ISOMETRIC_MARKER_LIFT_SCALE = 1.2;
 	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 	let {
@@ -172,8 +174,8 @@
 				width: ISOMETRIC_TILE_UNIT,
 				height: ISOMETRIC_TILE_UNIT,
 				className: resolveCellClass(level, slot.cell),
-				fillColor: 'var(--c-sand)',
-				strokeColor: 'var(--c-bg)',
+				fillColor: 'var(--c-ice)',
+				strokeColor: 'var(--c-sand)',
 				strokeWidth: 1
 			});
 			configureTileElement(tile.getElement(), level, slot.cell);
@@ -264,8 +266,9 @@
 		const center = projectIsometricPoint(layout, column + 0.5, row + 0.5);
 		marker.textContent = glyph;
 		marker.setAttribute('x', String(center.x));
-		marker.setAttribute('y', String(center.y));
+		marker.setAttribute('y', String(center.y - layout.scale * ISOMETRIC_MARKER_LIFT_SCALE));
 		marker.setAttribute('class', `sync-isometric-marker ${className}`);
+		marker.setAttribute('font-size', String(Math.max(15, layout.scale * ISOMETRIC_MARKER_FONT_SCALE)));
 		marker.setAttribute('text-anchor', 'middle');
 		marker.setAttribute('dominant-baseline', 'central');
 		marker.setAttribute('aria-hidden', 'true');

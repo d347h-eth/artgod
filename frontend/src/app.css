@@ -502,8 +502,9 @@ a:hover {
 }
 
 .sync-isometric-tile {
-	fill: var(--c-sand);
-	stroke: var(--c-bg);
+	fill: var(--c-ice);
+	stroke: var(--c-sand);
+	stroke-width: 1;
 	cursor: pointer;
 	vector-effect: non-scaling-stroke;
 }
@@ -532,7 +533,7 @@ a:hover {
 }
 
 .sync-isometric-tile-empty {
-	fill: var(--c-sand);
+	fill: var(--c-ice);
 }
 
 .sync-isometric-tile-partial {
