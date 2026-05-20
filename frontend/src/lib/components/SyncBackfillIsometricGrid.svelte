@@ -57,7 +57,8 @@
 	const ISOMETRIC_DESKTOP_SIDE_ALLOWANCE = 560;
 	const ISOMETRIC_MOBILE_SIDE_ALLOWANCE = 32;
 	const ISOMETRIC_MARKER_FONT_SCALE = 2.1;
-	const ISOMETRIC_MARKER_LIFT_SCALE = 1.2;
+	const ISOMETRIC_DEPLOYMENT_MARKER_LIFT_SCALE = 1.2;
+	const ISOMETRIC_LOCATION_MARKER_LIFT_SCALE = 0;
 	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 	let {
@@ -145,6 +146,7 @@
 			row: number;
 			glyph: string;
 			className: string;
+			liftScale: number;
 		}> = [];
 		let sourceCorners: IsometricSideCorners | null = null;
 		for (const slot of buildSyncBackfillIsometricSlots(level.state.grid)) {
@@ -188,7 +190,8 @@
 					column: slot.column,
 					row: slot.row,
 					glyph: '❀',
-					className: 'sync-isometric-marker-deployment'
+					className: 'sync-isometric-marker-deployment',
+					liftScale: ISOMETRIC_DEPLOYMENT_MARKER_LIFT_SCALE
 				});
 			}
 			if (isLocationMarkerCell(level, slot.cell)) {
@@ -196,7 +199,8 @@
 					column: slot.column,
 					row: slot.row,
 					glyph: '⫯',
-					className: 'sync-isometric-marker-location'
+					className: 'sync-isometric-marker-location',
+					liftScale: ISOMETRIC_LOCATION_MARKER_LIFT_SCALE
 				});
 			}
 		}
@@ -207,7 +211,8 @@
 				marker.column,
 				marker.row,
 				marker.glyph,
-				marker.className
+				marker.className,
+				marker.liftScale
 			);
 		}
 		return sourceCorners;
@@ -260,13 +265,14 @@
 		column: number,
 		row: number,
 		glyph: string,
-		className: string
+		className: string,
+		liftScale: number
 	): void {
 		const marker = document.createElementNS(SVG_NAMESPACE, 'text');
 		const center = projectIsometricPoint(layout, column + 0.5, row + 0.5);
 		marker.textContent = glyph;
 		marker.setAttribute('x', String(center.x));
-		marker.setAttribute('y', String(center.y - layout.scale * ISOMETRIC_MARKER_LIFT_SCALE));
+		marker.setAttribute('y', String(center.y - layout.scale * liftScale));
 		marker.setAttribute('class', `sync-isometric-marker ${className}`);
 		marker.setAttribute('font-size', String(Math.max(15, layout.scale * ISOMETRIC_MARKER_FONT_SCALE)));
 		marker.setAttribute('text-anchor', 'middle');
