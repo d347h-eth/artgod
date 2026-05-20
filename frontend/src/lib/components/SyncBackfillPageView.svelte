@@ -35,6 +35,11 @@
 		markerBlock: number;
 	};
 
+	type RangeSummaryLoadOptions = {
+		showLoading?: boolean;
+		showError?: boolean;
+	};
+
 	type ProjectionLine = {
 		key: string;
 		start: SyncBackfillIsometricPoint;
@@ -73,6 +78,9 @@
 	let selectedRangeLevelKey: string | null = $state(null);
 	let selectedLocationMarker: BlockRangeSelection | null = $state(null);
 	let selectedRangeRequestId = 0;
+	let selectedRangeRefreshKey: string | null = $state(null);
+	let selectedRangeRefreshRequestId = 0;
+	let selectedRangeRefreshInFlight = $state(false);
 	let backfillSelectionMode = $state(false);
 	let backfillSelectionFromBlock: number | null = $state(null);
 	let backfillSelectionLevelKey: string | null = $state(null);
@@ -92,6 +100,9 @@
 			: syncState
 				? [{ key: 'root', label: 'root', stack: [], state: syncState }]
 				: []
+	);
+	let visibleLevelsLiveKey = $derived(
+		visibleLevels.map((level) => buildSyncBackfillIsometricLevelRenderKey(level)).join('||')
 	);
 	let isometricRenderKey = $derived(
 		[
@@ -113,6 +124,14 @@
 		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		clearRangeSummary();
+	});
+
+	$effect(() => {
+		const range = selectedLocationMarker;
+		if (!range || selectedRangeLoading || selectedRangeRefreshInFlight) return;
+		const refreshKey = formatRangeSummaryRefreshKey(range, visibleLevelsLiveKey);
+		if (selectedRangeRefreshKey === refreshKey) return;
+		void loadRangeSummary(range, { showLoading: false, showError: false });
 	});
 
 	function queryHref(nextCollection: string, nextStack: string[]): string {
@@ -239,6 +258,10 @@
 		return range ? `${range.levelKey}:${range.fromBlock}:${range.toBlock}:${range.markerBlock}` : '';
 	}
 
+	function formatRangeSummaryRefreshKey(range: BlockRangeSelection, liveKey: string): string {
+		return `${formatBackfillSelectionRangeKey(range)}:${liveKey}`;
+	}
+
 	function handleIsometricAnchorLayout(layout: SyncBackfillIsometricAnchorLayout): void {
 		if (!levelsLayoutElement) return;
 		const bounds = levelsLayoutElement.getBoundingClientRect();
@@ -267,14 +290,30 @@
 		selectedRangeError = null;
 		selectedRangeLevelKey = null;
 		selectedLocationMarker = null;
+		selectedRangeRefreshKey = null;
+		selectedRangeRefreshRequestId = 0;
+		selectedRangeRefreshInFlight = false;
 	}
 
-	async function loadRangeSummary(range: BlockRangeSelection): Promise<void> {
+	async function loadRangeSummary(
+		range: BlockRangeSelection,
+		options: RangeSummaryLoadOptions = {}
+	): Promise<void> {
 		if (!syncState || range.fromBlock > range.toBlock) return;
+		const showLoading = options.showLoading ?? true;
+		const showError = options.showError ?? true;
 		const requestId = selectedRangeRequestId + 1;
 		selectedRangeRequestId = requestId;
-		selectedRangeLoading = true;
-		selectedRangeError = null;
+		selectedRangeRefreshKey = formatRangeSummaryRefreshKey(range, visibleLevelsLiveKey);
+		if (showLoading) {
+			selectedRangeLoading = true;
+		} else {
+			selectedRangeRefreshRequestId = requestId;
+			selectedRangeRefreshInFlight = true;
+		}
+		if (showError) {
+			selectedRangeError = null;
+		}
 		selectedRangeLevelKey = range.levelKey;
 		selectedLocationMarker = range;
 		try {
@@ -295,12 +334,18 @@
 				};
 			}
 		} catch (error) {
-			if (selectedRangeRequestId === requestId) {
+			if (showError && selectedRangeRequestId === requestId) {
 				selectedRangeError = error instanceof Error ? error.message : 'range request failed';
 			}
 		} finally {
-			if (selectedRangeRequestId === requestId) {
-				selectedRangeLoading = false;
+			if (showLoading) {
+				if (selectedRangeRequestId === requestId) {
+					selectedRangeLoading = false;
+				}
+			} else {
+				if (selectedRangeRefreshRequestId === requestId) {
+					selectedRangeRefreshInFlight = false;
+				}
 			}
 		}
 	}
