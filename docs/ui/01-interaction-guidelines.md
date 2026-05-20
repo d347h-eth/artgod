@@ -40,6 +40,25 @@ Rules:
 - keep controls in compact left-aligned groups unless a specific layout is explicitly approved
 - bidding/filter controls belong in top-action rows, not inside token-card grids or result summaries
 
+## Shared Page Skeleton
+
+The userland page skeleton is shared product chrome and must stay stable across pages.
+
+Shared skeleton includes:
+
+- page title/header rows
+- primary navigation tabs
+- chain/context selectors and top control rows
+- shared page-shell spacing and alignment
+
+Rules:
+
+- do not center, stretch, or otherwise reposition shared skeleton elements to satisfy a feature-body layout request
+- when a feature body needs centered content, scope the centering to a dedicated wrapper below the relevant top controls
+- preserve the existing left-aligned compact chrome unless a request explicitly names the page shell/navigation itself
+- feature-specific visualizations may use their own centered grids, but their CSS must not mutate generic `.panel`, `.panel-header`, navigation tab, or shared top-action behavior
+- side panels attached to a centered visualization should align through one shared layout grid, not through per-row content width
+
 ## Default Width Policy
 
 Do not stretch forms, tables, or configuration panels to full available page width by default.

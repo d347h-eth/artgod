@@ -394,7 +394,7 @@
 
 </script>
 
-<section class="panel sync-backfill-panel">
+<section class="panel">
 	<header class="panel-header">
 		<h1 class="app-title">ArtGod {APP_VERSION}</h1>
 	</header>
@@ -425,74 +425,76 @@
 	</header>
 
 	{#if syncState}
-		<div class="sync-levels-layout">
-			{#each visibleLevels as level (level.key)}
-				<section class="sync-level-row" aria-label={`${level.label} sync level`}>
-					<aside class="sync-level-summary-panel">
-						<SyncBackfillSummary
-							chain={level.state.chain}
-							range={buildLevelSummaryRange(level)}
-							ariaLabel={`${level.label} sync summary`}
-						/>
-					</aside>
-					<div class="sync-grid-wrap">
-						<SyncBackfillIsometricGrid
-							{level}
-							selectionMode={backfillSelectionMode}
-							renderKey={`${isometricRenderKey}:${level.key}`}
-							{isLocationMarkerCell}
-							resolveCellClass={cellClass}
-							resolveCellLabel={cellLabel}
-							onCellClick={handleCellClick}
-						/>
-					</div>
-					<aside class="sync-level-selection-panel">
-						{#if selectedRangeLevelKey === level.key}
-							{#if selectedRangeLoading}
-								<div class="sync-range-detail-status muted">loading range</div>
-							{:else if selectedRangeError}
-								<div class="sync-range-detail-status muted">{selectedRangeError}</div>
-							{:else if selectedRangeSummary}
-								<SyncBackfillSummary
-									chain={selectedRangeSummary.chain}
-									range={selectedRangeSummary.range}
-									ariaLabel="Selected range summary"
-								/>
+		<div class="sync-backfill-content">
+			<div class="sync-levels-layout">
+				{#each visibleLevels as level (level.key)}
+					<section class="sync-level-row" aria-label={`${level.label} sync level`}>
+						<aside class="sync-level-summary-panel">
+							<SyncBackfillSummary
+								chain={level.state.chain}
+								range={buildLevelSummaryRange(level)}
+								ariaLabel={`${level.label} sync summary`}
+							/>
+						</aside>
+						<div class="sync-grid-wrap">
+							<SyncBackfillIsometricGrid
+								{level}
+								selectionMode={backfillSelectionMode}
+								renderKey={`${isometricRenderKey}:${level.key}`}
+								{isLocationMarkerCell}
+								resolveCellClass={cellClass}
+								resolveCellLabel={cellLabel}
+								onCellClick={handleCellClick}
+							/>
+						</div>
+						<aside class="sync-level-selection-panel">
+							{#if selectedRangeLevelKey === level.key}
+								{#if selectedRangeLoading}
+									<div class="sync-range-detail-status muted">loading range</div>
+								{:else if selectedRangeError}
+									<div class="sync-range-detail-status muted">{selectedRangeError}</div>
+								{:else if selectedRangeSummary}
+									<SyncBackfillSummary
+										chain={selectedRangeSummary.chain}
+										range={selectedRangeSummary.range}
+										ariaLabel="Selected range summary"
+									/>
+								{/if}
 							{/if}
-						{/if}
-					</aside>
-				</section>
-			{/each}
-		</div>
+						</aside>
+					</section>
+				{/each}
+			</div>
 
-		<div
-			class={`sync-backfill-actions ${backfillSelectionMode ? 'sync-backfill-actions-selection' : ''}`}
-		>
-			{#if backfillSelectionMode}
-				<button
-					type="button"
-					class="action-button-negative"
-					onclick={cancelBackfillSelection}
-					disabled={submitting}
-				>
-					cancel
-				</button>
-				<button
-					type="button"
-					class="action-button-positive"
-					onclick={commitBackfillSelection}
-					disabled={!backfillSelectionRange || submitting}
-				>
-					{submitting ? 'queueing...' : 'commit to backfill'}
-				</button>
-			{:else}
-				<button type="button" onclick={beginBackfillSelection} disabled={!syncState || submitting}>
-					backfill range
-				</button>
-			{/if}
-			{#if feedback}
-				<span class="muted">{feedback}</span>
-			{/if}
+			<div
+				class={`sync-backfill-actions ${backfillSelectionMode ? 'sync-backfill-actions-selection' : ''}`}
+			>
+				{#if backfillSelectionMode}
+					<button
+						type="button"
+						class="action-button-negative"
+						onclick={cancelBackfillSelection}
+						disabled={submitting}
+					>
+						cancel
+					</button>
+					<button
+						type="button"
+						class="action-button-positive"
+						onclick={commitBackfillSelection}
+						disabled={!backfillSelectionRange || submitting}
+					>
+						{submitting ? 'queueing...' : 'commit to backfill'}
+					</button>
+				{:else}
+					<button type="button" onclick={beginBackfillSelection} disabled={!syncState || submitting}>
+						backfill range
+					</button>
+				{/if}
+				{#if feedback}
+					<span class="muted">{feedback}</span>
+				{/if}
+			</div>
 		</div>
 	{:else}
 		<div class="empty-cell">loading sync state</div>

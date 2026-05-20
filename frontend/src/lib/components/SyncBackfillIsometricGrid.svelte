@@ -45,7 +45,6 @@
 	const ISOMETRIC_CANVAS_MARGIN = 24;
 	const ISOMETRIC_BOTTOM_PAD = 16;
 	const ISOMETRIC_WIDTH_FACTOR = Math.sqrt(3);
-	const ISOMETRIC_MARKER_FONT_SCALE = 1.9;
 	const ISOMETRIC_DESKTOP_SIDE_ALLOWANCE = 560;
 	const ISOMETRIC_MOBILE_SIDE_ALLOWANCE = 32;
 	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -249,7 +248,6 @@
 		marker.setAttribute('x', String(center.x));
 		marker.setAttribute('y', String(center.y));
 		marker.setAttribute('class', `sync-isometric-marker ${className}`);
-		marker.setAttribute('font-size', String(Math.max(15, layout.scale * ISOMETRIC_MARKER_FONT_SCALE)));
 		marker.setAttribute('text-anchor', 'middle');
 		marker.setAttribute('dominant-baseline', 'central');
 		marker.setAttribute('aria-hidden', 'true');

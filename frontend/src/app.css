@@ -377,16 +377,6 @@ a:hover {
 	gap: 0.55rem;
 }
 
-.sync-backfill-panel {
-	width: fit-content;
-	max-width: calc(100vw - 2rem);
-	margin: 1rem auto;
-}
-
-.sync-backfill-panel > .panel-header {
-	width: 100%;
-}
-
 .sync-toolbar {
 	display: inline-flex;
 	align-items: center;
@@ -431,32 +421,41 @@ a:hover {
 	gap: 0.08rem;
 }
 
-.sync-levels-layout {
+.sync-backfill-content {
+	--sync-side-panel-width: 16rem;
+	--sync-center-column-width: min(62rem, max(28rem, calc(100vw - 36rem)));
 	display: grid;
-	justify-items: center;
-	gap: 1rem;
+	justify-content: center;
 	max-width: 100%;
 	overflow-x: auto;
+}
+
+.sync-levels-layout {
+	display: grid;
+	grid-template-columns:
+		var(--sync-side-panel-width)
+		var(--sync-center-column-width)
+		var(--sync-side-panel-width);
+	align-items: center;
+	column-gap: 0.75rem;
+	row-gap: 1rem;
+	width: max-content;
+	max-width: 100%;
 	padding: 0.75rem;
 }
 
 .sync-level-row {
-	display: grid;
-	grid-template-columns: minmax(12rem, 16rem) auto minmax(12rem, 16rem);
-	align-items: center;
-	gap: 0.75rem;
-	width: max-content;
-	max-width: 100%;
+	display: contents;
 }
 
 .sync-grid-wrap {
-	flex: 0 0 auto;
+	justify-self: center;
 }
 
 .sync-level-summary-panel,
 .sync-level-selection-panel {
-	width: 16rem;
-	min-width: 12rem;
+	width: var(--sync-side-panel-width);
+	align-self: center;
 }
 
 .sync-level-summary-panel .sync-summary,
@@ -549,14 +548,6 @@ a:hover {
 
 .sync-isometric-marker {
 	pointer-events: none;
-	font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
-	font-weight: 700;
-	stroke: var(--c-bg);
-	stroke-width: 0.75px;
-	paint-order: stroke;
-	transform-box: fill-box;
-	transform-origin: center;
-	animation: sync-isometric-marker-grow 160ms ease-out;
 }
 
 .sync-isometric-marker-location {
@@ -565,20 +556,6 @@ a:hover {
 
 .sync-isometric-marker-deployment {
 	fill: var(--c-bg);
-	stroke: var(--c-ice);
-	stroke-width: 0.45px;
-}
-
-@keyframes sync-isometric-marker-grow {
-	from {
-		opacity: 0;
-		transform: scale(0.35);
-	}
-
-	to {
-		opacity: 1;
-		transform: scale(1);
-	}
 }
 
 .sync-range-detail-status {
@@ -591,6 +568,7 @@ a:hover {
 	display: inline-flex;
 	align-items: center;
 	justify-content: flex-start;
+	justify-self: center;
 	gap: 0.45rem;
 	flex-wrap: wrap;
 	padding: 0 0.75rem 0.75rem;
@@ -601,15 +579,15 @@ a:hover {
 }
 
 @media (max-width: 900px) {
-	.sync-level-row {
-		grid-template-columns: minmax(12rem, 1fr);
-		justify-items: center;
-		width: fit-content;
+	.sync-backfill-content {
+		--sync-side-panel-width: min(28rem, 100%);
+		--sync-center-column-width: min(32rem, 82vw);
 	}
 
-	.sync-level-summary-panel,
-	.sync-level-selection-panel {
-		width: min(28rem, 100%);
+	.sync-levels-layout {
+		grid-template-columns: var(--sync-side-panel-width);
+		justify-items: center;
+		width: fit-content;
 	}
 }
 
