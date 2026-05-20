@@ -374,38 +374,6 @@ export const TRADING_BIDDING_BID_BOOK_SOURCE = {
 export type TradingBiddingBidBookSource =
     (typeof TRADING_BIDDING_BID_BOOK_SOURCE)[keyof typeof TRADING_BIDDING_BID_BOOK_SOURCE];
 
-// Defines collection bidding bid-book scope filters shared by backend APIs and frontend routing.
-export const COLLECTION_BIDDING_BID_SCOPE_FILTER = {
-    Token: "token",
-    Traits: "traits",
-    Collection: "collection",
-} as const;
-
-// Defines the UI/keybind order for cycling collection bidding bid-book scopes.
-export const COLLECTION_BIDDING_BID_SCOPE_FILTERS = [
-    COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
-    COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
-    COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
-] as const;
-
-export type CollectionBiddingBidScopeFilter =
-    (typeof COLLECTION_BIDDING_BID_SCOPE_FILTERS)[number];
-
-// Defines how selected traits are joined for collection bidding bid-book filters.
-export const COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE = {
-    Or: "or",
-    And: "and",
-} as const;
-
-// Defines the allowed trait-join modes accepted by backend APIs and frontend routing.
-export const COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES = [
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
-] as const;
-
-export type CollectionBiddingTraitFilterJoinMode =
-    (typeof COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES)[number];
-
 // Distinguishes real marketplace rows from local job-intent rows rendered in admin bid books.
 export const TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND = {
     MarketBid: "market_bid",

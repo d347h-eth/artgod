@@ -14,6 +14,8 @@ import type {
 import {
     COLLECTION_BIDDING_BID_SCOPE_FILTER,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    exactBidBookRowPrice,
+    marketBidMaterialization,
     type BiddingBidBookRepositoryPort,
     type PersistedBiddingBidBook,
     type PersistedBiddingBidBookRow,
@@ -82,6 +84,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
         const output = useCase.listCollectionBiddingBidBook({
             chainRef: "ethereum",
             collectionRef: "terraforms",
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
             traits: [{ key: "Mode", value: "Terrain" }],
@@ -193,6 +196,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
         const output = useCase.listCollectionBiddingBidBook({
             chainRef: "ethereum",
             collectionRef: "terraforms",
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
             traits: [],
@@ -286,6 +290,7 @@ function bidRow(
     return {
         orderId,
         source: TRADING_BIDDING_BID_BOOK_SOURCE.Orders,
+        materialization: marketBidMaterialization(),
         scopeKind: tokenId
             ? TRADING_BIDDING_BID_SCOPE_KIND.Token
             : TRADING_BIDDING_BID_SCOPE_KIND.Collection,
@@ -295,7 +300,7 @@ function bidRow(
         encodedTokenIds: null,
         maker: "0x2222222222222222222222222222222222222222",
         isOwn: false,
-        priceWei,
+        price: exactBidBookRowPrice(priceWei),
         quantity: "1",
         currencyAddress: null,
         currencySymbol: null,
