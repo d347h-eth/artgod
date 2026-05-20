@@ -27,6 +27,7 @@
 		toBlock: number;
 		bucketSize: number;
 		levelKey: string;
+		markerBlock: number;
 	};
 
 	let {
@@ -49,6 +50,7 @@
 	let selectedRangeLoading = $state(false);
 	let selectedRangeError: string | null = $state(null);
 	let selectedRangeLevelKey: string | null = $state(null);
+	let selectedLocationMarker: BlockRangeSelection | null = $state(null);
 	let selectedRangeRequestId = 0;
 	let backfillSelectionMode = $state(false);
 	let backfillSelectionFromBlock: number | null = $state(null);
@@ -122,7 +124,8 @@
 				fromBlock: cell.fromBlock,
 				toBlock: cell.toBlock,
 				bucketSize: level.state.range.bucketSize,
-				levelKey: level.key
+				levelKey: level.key,
+				markerBlock: cell.fromBlock
 			});
 			return;
 		}
@@ -147,7 +150,8 @@
 				fromBlock: cell.fromBlock,
 				toBlock: cell.toBlock,
 				bucketSize: level.state.range.bucketSize,
-				levelKey: level.key
+				levelKey: level.key,
+				markerBlock: cell.fromBlock
 			});
 		}
 	}
@@ -174,7 +178,8 @@
 			fromBlock: backfillSelectionFromBlock,
 			toBlock: cell.toBlock,
 			bucketSize: level.state.range.bucketSize,
-			levelKey: level.key
+			levelKey: level.key,
+			markerBlock: cell.fromBlock
 		};
 		if (nextRange.toBlock < nextRange.fromBlock) {
 			feedback = `select to block >= ${formatSyncBackfillInteger(nextRange.fromBlock)}`;
@@ -207,7 +212,7 @@
 	}
 
 	function formatBackfillSelectionRangeKey(range: BlockRangeSelection | null): string {
-		return range ? `${range.levelKey}:${range.fromBlock}:${range.toBlock}` : '';
+		return range ? `${range.levelKey}:${range.fromBlock}:${range.toBlock}:${range.markerBlock}` : '';
 	}
 
 	function clearRangeSummary(): void {
@@ -216,6 +221,7 @@
 		selectedRangeLoading = false;
 		selectedRangeError = null;
 		selectedRangeLevelKey = null;
+		selectedLocationMarker = null;
 	}
 
 	async function loadRangeSummary(range: BlockRangeSelection): Promise<void> {
@@ -225,6 +231,7 @@
 		selectedRangeLoading = true;
 		selectedRangeError = null;
 		selectedRangeLevelKey = range.levelKey;
+		selectedLocationMarker = range;
 		try {
 			const params = new URLSearchParams();
 			params.set('from_block', String(range.fromBlock));
@@ -337,6 +344,16 @@
 		return rangeContainsBlock(cell, backfillSelectionFromBlock);
 	}
 
+	function isLocationMarkerCell(
+		level: SyncBackfillVisibleLevel,
+		cell: ApiSyncBackfillGridCell
+	): boolean {
+		return (
+			selectedLocationMarker?.levelKey === level.key &&
+			rangeContainsBlock(cell, selectedLocationMarker.markerBlock)
+		);
+	}
+
 	function rangesOverlap(cell: ApiSyncBackfillGridCell, range: BlockRangeSelection): boolean {
 		return cell.fromBlock <= range.toBlock && range.fromBlock <= cell.toBlock;
 	}
@@ -423,6 +440,7 @@
 							{level}
 							selectionMode={backfillSelectionMode}
 							renderKey={`${isometricRenderKey}:${level.key}`}
+							{isLocationMarkerCell}
 							resolveCellClass={cellClass}
 							resolveCellLabel={cellLabel}
 							onCellClick={handleCellClick}

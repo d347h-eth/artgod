@@ -9,10 +9,21 @@
 
 	type IsometricModule = typeof import('@elchininet/isometric');
 
+	type IsometricCanvasLayout = {
+		width: number;
+		height: number;
+		scale: number;
+		topOffsetUnits: number;
+	};
+
 	type Props = {
 		level: SyncBackfillVisibleLevel;
 		selectionMode: boolean;
 		renderKey: string;
+		isLocationMarkerCell: (
+			level: SyncBackfillVisibleLevel,
+			cell: ApiSyncBackfillGridCell
+		) => boolean;
 		resolveCellClass: (
 			level: SyncBackfillVisibleLevel,
 			cell: ApiSyncBackfillGridCell
@@ -34,11 +45,16 @@
 	const ISOMETRIC_CANVAS_MARGIN = 24;
 	const ISOMETRIC_BOTTOM_PAD = 16;
 	const ISOMETRIC_WIDTH_FACTOR = Math.sqrt(3);
+	const ISOMETRIC_MARKER_FONT_SCALE = 1.9;
+	const ISOMETRIC_DESKTOP_SIDE_ALLOWANCE = 560;
+	const ISOMETRIC_MOBILE_SIDE_ALLOWANCE = 32;
+	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 	let {
 		level,
 		selectionMode,
 		renderKey,
+		isLocationMarkerCell,
 		resolveCellClass,
 		resolveCellLabel,
 		onCellClick
@@ -46,23 +62,22 @@
 
 	let container: HTMLDivElement;
 	let isometricModule = $state<IsometricModule | null>(null);
-	let containerWidth = $state(0);
+	let viewportWidth = $state(0);
 	let renderError = $state<string | null>(null);
-	let resizeObserver: ResizeObserver | null = null;
+	let removeResizeListener: (() => void) | null = null;
 
 	onMount(() => {
-		containerWidth = container?.clientWidth ?? 0;
-		resizeObserver = new ResizeObserver((entries) => {
-			containerWidth = Math.floor(entries[0]?.contentRect.width ?? container?.clientWidth ?? 0);
-		});
-		if (container) {
-			resizeObserver.observe(container);
-		}
+		const updateViewportWidth = () => {
+			viewportWidth = window.innerWidth;
+		};
+		updateViewportWidth();
+		window.addEventListener('resize', updateViewportWidth);
+		removeResizeListener = () => window.removeEventListener('resize', updateViewportWidth);
 		void loadIsometricModule();
 	});
 
 	onDestroy(() => {
-		resizeObserver?.disconnect();
+		removeResizeListener?.();
 		container?.replaceChildren();
 	});
 
@@ -86,7 +101,7 @@
 		container.replaceChildren();
 		renderError = null;
 
-		const layout = resolveCanvasLayout(level, containerWidth || container.clientWidth);
+		const layout = resolveCanvasLayout(level, viewportWidth);
 		const canvas = new isometricModule.IsometricCanvas({
 			container,
 			backgroundColor: 'transparent',
@@ -102,14 +117,21 @@
 			top: layout.topOffsetUnits
 		});
 		canvas.addChild(group);
-		renderLevelTiles(group, level);
+		renderLevelTiles(group, layout, level);
 	}
 
 	function renderLevelTiles(
 		group: InstanceType<IsometricModule['IsometricGroup']>,
+		layout: IsometricCanvasLayout,
 		level: SyncBackfillVisibleLevel
 	): void {
 		if (!isometricModule) return;
+		const markers: Array<{
+			column: number;
+			row: number;
+			glyph: string;
+			className: string;
+		}> = [];
 		for (const slot of buildSyncBackfillIsometricSlots(level.state.grid)) {
 			if (!slot.cell) {
 				group.addChild(
@@ -143,6 +165,32 @@
 			});
 			configureTileElement(tile.getElement(), level, slot.cell);
 			group.addChild(tile);
+			if (slot.cell.collectionDeploymentBlock) {
+				markers.push({
+					column: slot.column,
+					row: slot.row,
+					glyph: '❀',
+					className: 'sync-isometric-marker-deployment'
+				});
+			}
+			if (isLocationMarkerCell(level, slot.cell)) {
+				markers.push({
+					column: slot.column,
+					row: slot.row,
+					glyph: '⫯',
+					className: 'sync-isometric-marker-location'
+				});
+			}
+		}
+		for (const marker of markers) {
+			renderTileMarker(
+				group,
+				layout,
+				marker.column,
+				marker.row,
+				marker.glyph,
+				marker.className
+			);
 		}
 	}
 
@@ -160,6 +208,11 @@
 		element.setAttribute('aria-disabled', disabled ? 'true' : 'false');
 		if (disabled) return;
 
+		element.addEventListener('pointerdown', (event) => {
+			if (event.pointerType === 'mouse') {
+				event.preventDefault();
+			}
+		});
 		element.addEventListener('click', (event) => {
 			if (event instanceof MouseEvent) {
 				void onCellClick(event, level, cell);
@@ -182,17 +235,46 @@
 		});
 	}
 
+	function renderTileMarker(
+		group: InstanceType<IsometricModule['IsometricGroup']>,
+		layout: IsometricCanvasLayout,
+		column: number,
+		row: number,
+		glyph: string,
+		className: string
+	): void {
+		const marker = document.createElementNS(SVG_NAMESPACE, 'text');
+		const center = resolveTileCenter(layout, column + 0.5, row + 0.5);
+		marker.textContent = glyph;
+		marker.setAttribute('x', String(center.x));
+		marker.setAttribute('y', String(center.y));
+		marker.setAttribute('class', `sync-isometric-marker ${className}`);
+		marker.setAttribute('font-size', String(Math.max(15, layout.scale * ISOMETRIC_MARKER_FONT_SCALE)));
+		marker.setAttribute('text-anchor', 'middle');
+		marker.setAttribute('dominant-baseline', 'central');
+		marker.setAttribute('aria-hidden', 'true');
+		group.getElement().appendChild(marker);
+	}
+
+	function resolveTileCenter(
+		layout: IsometricCanvasLayout,
+		right: number,
+		left: number
+	): { x: number; y: number } {
+		return {
+			x: layout.width / 2 + (right - left) * layout.scale * (Math.sqrt(3) / 2),
+			y: layout.height / 2 + ((right + left) / 2) * layout.scale
+		};
+	}
+
 	function resolveCanvasLayout(
 		visibleLevel: SyncBackfillVisibleLevel,
-		availableWidth: number
-	): {
-		width: number;
-		height: number;
-		scale: number;
-		topOffsetUnits: number;
-	} {
+		viewportWidth: number
+	): IsometricCanvasLayout {
 		const dimension = resolveSyncBackfillIsometricDimension(visibleLevel.state.grid.length);
-		const availableCanvasWidth = Math.max(availableWidth, 320);
+		const sideAllowance =
+			viewportWidth > 900 ? ISOMETRIC_DESKTOP_SIDE_ALLOWANCE : ISOMETRIC_MOBILE_SIDE_ALLOWANCE;
+		const availableCanvasWidth = Math.max(viewportWidth - sideAllowance, 320);
 		const scale = clamp(
 			Math.floor(
 				(availableCanvasWidth - ISOMETRIC_CANVAS_MARGIN * 2) /

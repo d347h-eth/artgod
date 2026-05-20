@@ -478,8 +478,8 @@ a:hover {
 }
 
 .sync-isometric-canvas {
-	width: clamp(28rem, 44vw, 48rem);
-	min-width: 20rem;
+	width: fit-content;
+	min-width: 0;
 	overflow: visible;
 }
 
@@ -494,6 +494,10 @@ a:hover {
 	stroke: var(--c-bg);
 	cursor: pointer;
 	vector-effect: non-scaling-stroke;
+}
+
+.sync-isometric-tile:focus {
+	outline: none;
 }
 
 .sync-isometric-tile:hover:not(.sync-isometric-tile-disabled),
@@ -543,6 +547,40 @@ a:hover {
 	fill: var(--c-orange);
 }
 
+.sync-isometric-marker {
+	pointer-events: none;
+	font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
+	font-weight: 700;
+	stroke: var(--c-bg);
+	stroke-width: 0.75px;
+	paint-order: stroke;
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: sync-isometric-marker-grow 160ms ease-out;
+}
+
+.sync-isometric-marker-location {
+	fill: var(--c-orange);
+}
+
+.sync-isometric-marker-deployment {
+	fill: var(--c-bg);
+	stroke: var(--c-ice);
+	stroke-width: 0.45px;
+}
+
+@keyframes sync-isometric-marker-grow {
+	from {
+		opacity: 0;
+		transform: scale(0.35);
+	}
+
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
 .sync-range-detail-status {
 	border: 1px solid var(--c-blue);
 	padding: 0.4rem 0.55rem;
@@ -572,10 +610,6 @@ a:hover {
 	.sync-level-summary-panel,
 	.sync-level-selection-panel {
 		width: min(28rem, 100%);
-	}
-
-	.sync-isometric-canvas {
-		width: clamp(20rem, 82vw, 32rem);
 	}
 }
 
