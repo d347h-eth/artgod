@@ -452,65 +452,75 @@ a:hover {
 	min-width: 0;
 }
 
-.sync-grid {
-	--sync-block-size: clamp(8px, 2.1vw, 20px);
-	--sync-grid-gap: 1px;
-	display: grid;
-	grid-template-columns: repeat(var(--sync-grid-dimension), var(--sync-block-size));
-	grid-auto-rows: var(--sync-block-size);
-	gap: var(--sync-grid-gap);
-	width: fit-content;
-	max-width: 100%;
+.sync-isometric-grid {
+	display: inline-grid;
+	gap: 0.35rem;
 }
 
-.sync-grid-cell {
-	width: var(--sync-block-size);
-	height: var(--sync-block-size);
-	min-width: var(--sync-block-size);
-	min-height: var(--sync-block-size);
-	padding: 0;
-	border: 0;
-	background: var(--c-sand);
+.sync-isometric-canvas {
+	width: min(76vw, 64rem);
+	min-width: 20rem;
+	overflow: visible;
+}
+
+.sync-isometric-svg {
+	display: block;
+	max-width: none;
+	overflow: visible;
+}
+
+.sync-isometric-tile {
+	fill: var(--c-sand);
+	stroke: var(--c-bg);
 	cursor: pointer;
+	vector-effect: non-scaling-stroke;
 }
 
-.sync-grid-cell:hover:not(:disabled),
-.sync-grid-cell:focus-visible:not(:disabled) {
-	outline: 1px solid var(--c-yellow);
-	outline-offset: 0;
+.sync-isometric-tile:hover:not(.sync-isometric-tile-disabled),
+.sync-isometric-tile:focus-visible:not(.sync-isometric-tile-disabled) {
+	outline: none;
+	stroke: var(--c-yellow);
+	stroke-width: 2;
 }
 
-.sync-grid-cell:disabled {
+.sync-isometric-tile-disabled {
 	cursor: default;
 	opacity: 0.32;
 }
 
-.sync-grid-cell-empty {
-	background: var(--c-sand);
+.sync-isometric-tile-padding {
+	cursor: default;
+	fill: transparent;
+	stroke: transparent;
+	pointer-events: none;
 }
 
-.sync-grid-cell-partial {
-	background: var(--c-cyan);
+.sync-isometric-tile-empty {
+	fill: var(--c-sand);
 }
 
-.sync-grid-cell-complete {
-	background: var(--c-blue);
+.sync-isometric-tile-partial {
+	fill: var(--c-cyan);
 }
 
-.sync-grid-cell-deployment-unsynced {
-	background: var(--c-pink);
+.sync-isometric-tile-complete {
+	fill: var(--c-blue);
 }
 
-.sync-grid-cell-deployment-synced {
-	background: var(--c-yellow);
+.sync-isometric-tile-deployment-unsynced {
+	fill: var(--c-pink);
 }
 
-.sync-grid-selection-mode .sync-grid-cell:not(:disabled) {
+.sync-isometric-tile-deployment-synced {
+	fill: var(--c-yellow);
+}
+
+.sync-isometric-grid-selection-mode .sync-isometric-tile:not(.sync-isometric-tile-disabled) {
 	cursor: crosshair;
 }
 
-.sync-grid-cell-selected {
-	background: var(--c-orange);
+.sync-isometric-tile-selected {
+	fill: var(--c-orange);
 }
 
 .sync-depth-rail {

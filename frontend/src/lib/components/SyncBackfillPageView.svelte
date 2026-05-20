@@ -2,8 +2,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import {
 		SYNC_BACKFILL_CONTEXT_ANY,
-		SYNC_BACKFILL_GRID_CELL_COUNT,
-		SYNC_BACKFILL_GRID_DIMENSION
+		SYNC_BACKFILL_GRID_CELL_COUNT
 	} from '@artgod/shared/config/sync-backfill';
 	import type {
 		ApiSyncBackfillGridCell,
@@ -12,9 +11,11 @@
 		SyncBackfillStateApiResponse
 	} from '$lib/api-types';
 	import { getSyncBackfillRangeSummary, scheduleSyncBackfill } from '$lib/backend-api';
+	import SyncBackfillIsometricGrid from '$lib/components/SyncBackfillIsometricGrid.svelte';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import SyncBackfillSummary from '$lib/components/SyncBackfillSummary.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
+	import type { SyncBackfillVisibleLevel } from '$lib/sync-backfill-isometric-levels';
 	import {
 		formatSyncBackfillAnchoredBlockDuration,
 		formatSyncBackfillBlockRange,
@@ -25,15 +26,18 @@
 		fromBlock: number;
 		toBlock: number;
 		bucketSize: number;
+		levelKey?: string;
 	};
 
 	let {
 		state: syncState,
+		levels = [],
 		basePath,
 		collection,
 		stack
 	}: {
 		state: SyncBackfillStateApiResponse | null;
+		levels?: SyncBackfillVisibleLevel[];
 		basePath: string;
 		collection: string;
 		stack: string[];
@@ -47,15 +51,32 @@
 	let selectedRangeRequestId = 0;
 	let backfillSelectionMode = $state(false);
 	let backfillSelectionFromBlock: number | null = $state(null);
+	let backfillSelectionLevelKey: string | null = $state(null);
 	let backfillSelectionRange: BlockRangeSelection | null = $state(null);
 
 	let selectedCollection = $derived(syncState?.context.selected ?? collection ?? SYNC_BACKFILL_CONTEXT_ANY);
-	let depthLevels = $derived(buildDepthLevels());
 	let currentPageKey = $derived(
 		syncState
 			? `${syncState.chain.slug}:${selectedCollection}:${syncState.range.fromBlock}:${syncState.range.toBlock}:${syncState.range.bucketSize}`
 			: null
 	);
+	let visibleLevels = $derived(
+		levels.length > 0
+			? levels
+			: syncState
+				? [{ key: 'root', label: 'root', stack: [], state: syncState }]
+				: []
+	);
+	let isometricRenderKey = $derived(
+		[
+			currentPageKey,
+			backfillSelectionMode ? 'selection' : 'normal',
+			backfillSelectionLevelKey ?? '',
+			backfillSelectionFromBlock ?? '',
+			formatBackfillSelectionRangeKey(backfillSelectionRange)
+		].join('|')
+	);
+	let depthLevels = $derived(buildDepthLevels());
 	let selectedRangePageKey: string | null = $state(null);
 	let currentSummaryRange: ApiSyncBackfillRangeSummary | null = $derived(
 		syncState
@@ -75,6 +96,7 @@
 		selectedRangePageKey = currentPageKey;
 		backfillSelectionMode = false;
 		backfillSelectionFromBlock = null;
+		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		clearRangeSummary();
 	});
@@ -98,26 +120,30 @@
 		void goto(queryHref(target.value, stack));
 	}
 
-	async function handleCellClick(event: MouseEvent, cell: ApiSyncBackfillGridCell): Promise<void> {
+	async function handleCellClick(
+		event: MouseEvent,
+		level: SyncBackfillVisibleLevel,
+		cell: ApiSyncBackfillGridCell
+	): Promise<void> {
 		if (backfillSelectionMode) {
-			await handleBackfillSelectionClick(cell);
+			await handleBackfillSelectionClick(level, cell);
 			return;
 		}
 		if (event.ctrlKey) {
 			await loadRangeSummary({
 				fromBlock: cell.fromBlock,
 				toBlock: cell.toBlock,
-				bucketSize: syncState?.range.bucketSize ?? cell.blockCount
+				bucketSize: level.state.range.bucketSize
 			});
 			return;
 		}
-		if (cell.canDrillDown && syncState) {
-			const childBucketSize = syncState.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
+		if (cell.canDrillDown) {
+			const childBucketSize = level.state.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
 			if (Number.isInteger(childBucketSize) && childBucketSize >= 1) {
 				feedback = null;
 				void goto(
 					queryHref(selectedCollection, [
-						...stack,
+						...level.stack,
 						formatPageStackEntry({
 							pageStartBlock: cell.fromBlock,
 							bucketSize: childBucketSize
@@ -131,25 +157,34 @@
 			await loadRangeSummary({
 				fromBlock: cell.fromBlock,
 				toBlock: cell.toBlock,
-				bucketSize: syncState?.range.bucketSize ?? cell.blockCount
+				bucketSize: level.state.range.bucketSize
 			});
 		}
 	}
 
-	async function handleBackfillSelectionClick(cell: ApiSyncBackfillGridCell): Promise<void> {
-		if (!syncState || cell.blockCount <= 0) return;
+	async function handleBackfillSelectionClick(
+		level: SyncBackfillVisibleLevel,
+		cell: ApiSyncBackfillGridCell
+	): Promise<void> {
+		if (cell.blockCount <= 0) return;
 		feedback = null;
 		if (backfillSelectionFromBlock === null) {
 			backfillSelectionFromBlock = cell.fromBlock;
+			backfillSelectionLevelKey = level.key;
 			backfillSelectionRange = null;
 			clearRangeSummary();
+			return;
+		}
+		if (backfillSelectionLevelKey !== level.key) {
+			feedback = 'select to block on the same level';
 			return;
 		}
 
 		const nextRange = {
 			fromBlock: backfillSelectionFromBlock,
 			toBlock: cell.toBlock,
-			bucketSize: syncState.range.bucketSize
+			bucketSize: level.state.range.bucketSize,
+			levelKey: level.key
 		};
 		if (nextRange.toBlock < nextRange.fromBlock) {
 			feedback = `select to block >= ${formatSyncBackfillInteger(nextRange.fromBlock)}`;
@@ -157,6 +192,7 @@
 		}
 
 		backfillSelectionFromBlock = null;
+		backfillSelectionLevelKey = null;
 		backfillSelectionRange = nextRange;
 		await loadRangeSummary(nextRange);
 	}
@@ -165,6 +201,7 @@
 		if (!syncState) return;
 		backfillSelectionMode = true;
 		backfillSelectionFromBlock = null;
+		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		feedback = null;
 		clearRangeSummary();
@@ -173,9 +210,14 @@
 	function cancelBackfillSelection(): void {
 		backfillSelectionMode = false;
 		backfillSelectionFromBlock = null;
+		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		feedback = null;
 		clearRangeSummary();
+	}
+
+	function formatBackfillSelectionRangeKey(range: BlockRangeSelection | null): string {
+		return range ? `${range.levelKey ?? ''}:${range.fromBlock}:${range.toBlock}` : '';
 	}
 
 	function clearRangeSummary(): void {
@@ -233,6 +275,7 @@
 			feedback = `queued ${result.queuedJobs} job${result.queuedJobs === 1 ? '' : 's'}`;
 			backfillSelectionMode = false;
 			backfillSelectionFromBlock = null;
+			backfillSelectionLevelKey = null;
 			backfillSelectionRange = null;
 			await invalidateAll();
 		} catch (error) {
@@ -242,25 +285,30 @@
 		}
 	}
 
-	function cellClass(cell: ApiSyncBackfillGridCell): string {
-		const classes = ['sync-grid-cell', `sync-grid-cell-${cell.state}`];
+	function cellClass(level: SyncBackfillVisibleLevel, cell: ApiSyncBackfillGridCell): string {
+		const classes = ['sync-isometric-tile', `sync-isometric-tile-${cell.state}`];
+		if (cell.blockCount <= 0) {
+			classes.push('sync-isometric-tile-disabled');
+		}
 		if (cell.collectionDeploymentBlock) {
 			classes.push(
 				cell.collectionDeploymentBlock.synced
-					? 'sync-grid-cell-deployment-synced'
-					: 'sync-grid-cell-deployment-unsynced'
+					? 'sync-isometric-tile-deployment-synced'
+					: 'sync-isometric-tile-deployment-unsynced'
 			);
 		}
-		if (isSelectionCell(cell)) {
-			classes.push('sync-grid-cell-selected');
+		if (isSelectionCell(level.key, cell)) {
+			classes.push('sync-isometric-tile-selected');
 		}
 		return classes.join(' ');
 	}
 
-	function cellLabel(cell: ApiSyncBackfillGridCell): string {
+	function cellLabel(level: SyncBackfillVisibleLevel, cell: ApiSyncBackfillGridCell): string {
 		const range = formatRange(cell.fromBlock, cell.toBlock, cell.blockCount);
 		const duration =
-			cell.blockCount > 0 ? `, ${formatVisibleBlockDuration(cell.blockCount)}` : '';
+			cell.blockCount > 0
+				? `, ${formatVisibleBlockDuration(level.state, cell.blockCount)}`
+				: '';
 		const marker = cell.collectionDeploymentBlock
 			? `, deployment block ${formatSyncBackfillInteger(cell.collectionDeploymentBlock.blockNumber)} ${
 					cell.collectionDeploymentBlock.synced ? 'synced' : 'not synced'
@@ -287,11 +335,13 @@
 		return '';
 	}
 
-	function isSelectionCell(cell: ApiSyncBackfillGridCell): boolean {
+	function isSelectionCell(levelKey: string, cell: ApiSyncBackfillGridCell): boolean {
 		if (!backfillSelectionMode || cell.blockCount <= 0) return false;
 		if (backfillSelectionRange) {
+			if (backfillSelectionRange.levelKey !== levelKey) return false;
 			return rangesOverlap(cell, backfillSelectionRange);
 		}
+		if (backfillSelectionLevelKey !== levelKey) return false;
 		return rangeContainsBlock(cell, backfillSelectionFromBlock);
 	}
 
@@ -369,13 +419,15 @@
 		return formatSyncBackfillBlockRange(page.pageStartBlock, Math.min(pageEndBlock, headBlock));
 	}
 
-	function formatVisibleBlockDuration(blockCount: number): string {
-		if (!syncState) return 'unknown';
+	function formatVisibleBlockDuration(
+		state: SyncBackfillStateApiResponse,
+		blockCount: number
+	): string {
 		return formatSyncBackfillAnchoredBlockDuration({
 			blockCount,
-			pageBlockCount: syncState.range.blockCount,
-			pageDurationSeconds: syncState.range.time.durationSeconds,
-			averageBlockTimeSeconds: syncState.chain.averageBlockTimeSeconds
+			pageBlockCount: state.range.blockCount,
+			pageDurationSeconds: state.range.time.durationSeconds,
+			averageBlockTimeSeconds: state.chain.averageBlockTimeSeconds
 		});
 	}
 
@@ -422,22 +474,14 @@
 
 		<div class="sync-grid-layout">
 			<div class="sync-grid-wrap">
-				<div
-					class={`sync-grid ${backfillSelectionMode ? 'sync-grid-selection-mode' : ''}`}
-					style={`--sync-grid-dimension: ${SYNC_BACKFILL_GRID_DIMENSION}`}
-					aria-label="Block sync coverage grid"
-				>
-					{#each syncState.grid as cell (cell.index)}
-						<button
-							type="button"
-							class={cellClass(cell)}
-							disabled={cell.blockCount <= 0}
-							title={cellLabel(cell)}
-							aria-label={cellLabel(cell)}
-							onclick={(event) => handleCellClick(event, cell)}
-						></button>
-					{/each}
-				</div>
+				<SyncBackfillIsometricGrid
+					levels={visibleLevels}
+					selectionMode={backfillSelectionMode}
+					renderKey={isometricRenderKey}
+					resolveCellClass={cellClass}
+					resolveCellLabel={cellLabel}
+					onCellClick={handleCellClick}
+				/>
 			</div>
 			<aside class="sync-side-panel">
 				<nav class="sync-depth-rail" aria-label="Sync depth levels">
