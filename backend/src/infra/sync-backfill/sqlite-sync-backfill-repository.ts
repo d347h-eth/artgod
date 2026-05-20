@@ -30,6 +30,17 @@ type BlockTimestampRow = {
     timestamp: number;
 };
 
+type BucketCountRow = {
+    bucket_index: number;
+    count: number;
+};
+
+type BucketQueryInput = {
+    fromBlock: number;
+    toBlock: number;
+    bucketSize: number;
+};
+
 const COLLECTION_COLUMNS =
     "chain_id, collection_id, slug, address, status, deployment_block, bootstrap_anchor_block, bootstrap_last_synced_block";
 
@@ -78,6 +89,30 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
         "SELECT COUNT(1) AS count FROM collection_sync_blocks " +
             "WHERE chain_id = @chainId AND collection_id = @collectionId " +
             "AND block_number BETWEEN @fromBlock AND @toBlock",
+    );
+    private countAnySyncedBlocksByBucketStmt = db.prepare<{
+        chainId: number;
+        fromBlock: number;
+        toBlock: number;
+        bucketSize: number;
+    }>(
+        "SELECT CAST((block_number - @fromBlock) / @bucketSize AS INTEGER) AS bucket_index, " +
+            "COUNT(1) AS count FROM blocks " +
+            "WHERE chain_id = @chainId AND block_number BETWEEN @fromBlock AND @toBlock " +
+            "GROUP BY bucket_index",
+    );
+    private countCollectionSyncedBlocksByBucketStmt = db.prepare<{
+        chainId: number;
+        collectionId: number;
+        fromBlock: number;
+        toBlock: number;
+        bucketSize: number;
+    }>(
+        "SELECT CAST((block_number - @fromBlock) / @bucketSize AS INTEGER) AS bucket_index, " +
+            "COUNT(1) AS count FROM collection_sync_blocks " +
+            "WHERE chain_id = @chainId AND collection_id = @collectionId " +
+            "AND block_number BETWEEN @fromBlock AND @toBlock " +
+            "GROUP BY bucket_index",
     );
 
     listLiveCollections(chainId: number): SyncBackfillCollectionOption[] {
@@ -156,6 +191,16 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
         context: SyncBackfillCoverageContext,
         ranges: SyncBackfillCoverageRange[],
     ): SyncBackfillCoverageCount[] {
+        const bucketQuery = resolveBucketQueryInput(ranges);
+        if (bucketQuery) {
+            return this.countSyncedBlocksByBucket(
+                chainId,
+                context,
+                ranges,
+                bucketQuery,
+            );
+        }
+
         return ranges.map((range) => ({
             ...range,
             syncedBlockCount: this.countSyncedBlocksInRange(
@@ -165,8 +210,78 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
             ),
         }));
     }
+
+    private countSyncedBlocksByBucket(
+        chainId: number,
+        context: SyncBackfillCoverageContext,
+        ranges: SyncBackfillCoverageRange[],
+        bucketQuery: BucketQueryInput,
+    ): SyncBackfillCoverageCount[] {
+        const rows =
+            context.kind === "collection"
+                ? this.countCollectionSyncedBlocksByBucketStmt.all({
+                      chainId,
+                      collectionId: context.collectionId,
+                      ...bucketQuery,
+                  })
+                : this.countAnySyncedBlocksByBucketStmt.all({
+                      chainId,
+                      ...bucketQuery,
+                  });
+        const countByBucket = new Map(
+            (rows as BucketCountRow[]).map((row) => [
+                row.bucket_index,
+                row.count,
+            ]),
+        );
+        return ranges.map((range, index) => ({
+            ...range,
+            syncedBlockCount: countByBucket.get(index) ?? 0,
+        }));
+    }
 }
 
 function readCount(row: unknown): number {
     return (row as CountRow | undefined)?.count ?? 0;
+}
+
+function resolveBucketQueryInput(
+    ranges: SyncBackfillCoverageRange[],
+): BucketQueryInput | null {
+    if (ranges.length < 2) return null;
+
+    const fromBlock = ranges[0]?.fromBlock;
+    const bucketSize = ranges[1].fromBlock - ranges[0].fromBlock;
+    if (
+        fromBlock === undefined ||
+        !Number.isInteger(bucketSize) ||
+        bucketSize <= 0
+    ) {
+        return null;
+    }
+
+    let toBlock: number | null = null;
+    let reachedTerminalRange = false;
+    for (let index = 0; index < ranges.length; index += 1) {
+        const range = ranges[index];
+        const expectedFromBlock = fromBlock + index * bucketSize;
+        if (range.fromBlock !== expectedFromBlock) return null;
+        const expectedToBlock = expectedFromBlock + bucketSize - 1;
+        const isEmptyRange = range.toBlock < range.fromBlock;
+        if (isEmptyRange) {
+            if (range.toBlock !== range.fromBlock - 1) return null;
+            reachedTerminalRange = true;
+            continue;
+        }
+        if (reachedTerminalRange || range.toBlock > expectedToBlock) {
+            return null;
+        }
+        toBlock = range.toBlock;
+        if (range.toBlock < expectedToBlock) {
+            reachedTerminalRange = true;
+        }
+    }
+
+    if (toBlock === null) return null;
+    return { fromBlock, toBlock, bucketSize };
 }
