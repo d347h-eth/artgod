@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { invalidate } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import SyncBackfillPageView from '$lib/components/SyncBackfillPageView.svelte';
 	import type { SyncBackfillStateApiResponse } from '$lib/api-types';
+	import { startSyncBackfillLiveRefresh } from '$lib/sync-backfill-live-refresh';
 	import type { SyncBackfillVisibleLevel } from '$lib/sync-backfill-isometric-levels';
 
 	type PageData = {
@@ -12,6 +15,12 @@
 	};
 
 	let { data }: { data?: PageData } = $props();
+
+	onMount(() => {
+		if (!data?.state) return;
+		const refresh = startSyncBackfillLiveRefresh({ invalidate });
+		return refresh.stop;
+	});
 </script>
 
 <SyncBackfillPageView

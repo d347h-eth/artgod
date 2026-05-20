@@ -5,6 +5,7 @@ import { BackendApiError, getSyncBackfillState } from '$lib/backend-api';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import type { SyncBackfillStateApiResponse } from '$lib/api-types';
+import { SYNC_BACKFILL_LIVE_INVALIDATION_KEY } from '$lib/sync-backfill-live-refresh';
 import type { SyncBackfillVisibleLevel } from '$lib/sync-backfill-isometric-levels';
 
 type PageStackEntry = {
@@ -12,7 +13,7 @@ type PageStackEntry = {
 	bucketSize: number;
 };
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ depends, fetch, params, url }) => {
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		throw error(404, 'Not found');
 	}
@@ -25,6 +26,7 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		};
 	}
 
+	depends(SYNC_BACKFILL_LIVE_INVALIDATION_KEY);
 	const query = normalizeSyncBackfillParams(url.searchParams);
 	try {
 		// Fetch each visible path page so the renderer can stack the current navigation branch.
