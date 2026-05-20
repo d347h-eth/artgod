@@ -15,6 +15,7 @@
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import SyncBackfillSummary from '$lib/components/SyncBackfillSummary.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
+	import { buildSyncBackfillIsometricLevelRenderKey } from '$lib/sync-backfill-isometric-levels';
 	import type {
 		SyncBackfillIsometricAnchorLayout,
 		SyncBackfillIsometricPoint,
@@ -603,7 +604,7 @@
 							<SyncBackfillIsometricGrid
 								{level}
 								selectionMode={backfillSelectionMode}
-								renderKey={`${isometricRenderKey}:${level.key}`}
+								renderKey={`${isometricRenderKey}:${buildSyncBackfillIsometricLevelRenderKey(level)}`}
 								projectionSourceCell={resolveProjectionSourceCell(level, levelIndex)}
 								{isLocationMarkerCell}
 								resolveCellClass={cellClass}

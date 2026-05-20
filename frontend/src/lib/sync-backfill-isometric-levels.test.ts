@@ -3,7 +3,9 @@ import { SYNC_BACKFILL_GRID_CELL_COUNT } from '@artgod/shared/config/sync-backfi
 import type { ApiSyncBackfillGridCell } from './api-types';
 import {
 	buildSyncBackfillIsometricSlots,
-	resolveSyncBackfillIsometricDimension
+	buildSyncBackfillIsometricLevelRenderKey,
+	resolveSyncBackfillIsometricDimension,
+	type SyncBackfillVisibleLevel
 } from './sync-backfill-isometric-levels';
 
 describe('sync backfill isometric levels', () => {
@@ -22,6 +24,19 @@ describe('sync backfill isometric levels', () => {
 		expect(slots[23].cell?.index).toBe(23);
 		expect(slots[24].cell).toBeNull();
 	});
+
+	it('changes the render key when live coverage changes inside a fixed range', () => {
+		const level = buildLevel([buildCell(0), buildCell(1)]);
+		const initialKey = buildSyncBackfillIsometricLevelRenderKey(level);
+
+		level.state.grid[1] = {
+			...level.state.grid[1],
+			syncedBlockCount: 1,
+			state: 'complete'
+		};
+
+		expect(buildSyncBackfillIsometricLevelRenderKey(level)).not.toBe(initialKey);
+	});
 });
 
 function buildCell(index: number): ApiSyncBackfillGridCell {
@@ -35,4 +50,50 @@ function buildCell(index: number): ApiSyncBackfillGridCell {
 		canDrillDown: false,
 		collectionDeploymentBlock: null
 	};
+}
+
+function buildLevel(cells: ApiSyncBackfillGridCell[]) {
+	return {
+		key: 'root',
+		label: 'root',
+		stack: [],
+		state: {
+			chain: {
+				id: 1,
+				type: 'evm',
+				slug: 'ethereum',
+				name: 'Ethereum',
+				publicChainId: 1,
+				averageBlockTimeSeconds: 12,
+				genesisBlockNumber: 0,
+				genesisBlockTimestamp: 0
+			},
+			context: {
+				selected: 'any',
+				collections: []
+			},
+			range: {
+				fromBlock: 0,
+				toBlock: cells.length - 1,
+				blockCount: cells.length,
+				bucketSize: 1,
+				gridCellCount: cells.length,
+				canDrillDown: false,
+				time: {
+					from: { blockNumber: 0, timestamp: 0, source: 'chain' },
+					to: { blockNumber: cells.length - 1, timestamp: 12, source: 'db' },
+					durationSeconds: 12
+				}
+			},
+			summary: {
+				genesisBlock: 0,
+				headBlock: cells.length - 1,
+				headSource: 'indexed',
+				highestSyncedBlock: null,
+				syncedBlockCount: 0,
+				selectedRangeSyncedBlockCount: 0
+			},
+			grid: cells
+		}
+	} satisfies SyncBackfillVisibleLevel;
 }

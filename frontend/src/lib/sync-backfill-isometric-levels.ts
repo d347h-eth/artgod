@@ -52,3 +52,34 @@ export function buildSyncBackfillIsometricSlots(
 		cell: cells[index] ?? null
 	}));
 }
+
+// Capture live grid content changes that require the SVG renderer to redraw.
+export function buildSyncBackfillIsometricLevelRenderKey(level: SyncBackfillVisibleLevel): string {
+	const range = level.state.range;
+	const summary = level.state.summary;
+	const gridKey = level.state.grid
+		.map((cell) =>
+			[
+				cell.index,
+				cell.fromBlock,
+				cell.toBlock,
+				cell.blockCount,
+				cell.syncedBlockCount,
+				cell.state,
+				cell.collectionDeploymentBlock?.synced ? 'deployment-synced' : '',
+				cell.collectionDeploymentBlock?.blockNumber ?? ''
+			].join(':')
+		)
+		.join(',');
+	return [
+		level.key,
+		range.fromBlock,
+		range.toBlock,
+		range.bucketSize,
+		range.gridCellCount,
+		summary.headBlock,
+		summary.highestSyncedBlock ?? '',
+		summary.selectedRangeSyncedBlockCount,
+		gridKey
+	].join('|');
+}
