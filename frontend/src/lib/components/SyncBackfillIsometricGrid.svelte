@@ -56,9 +56,10 @@
 	const ISOMETRIC_WIDTH_FACTOR = Math.sqrt(3);
 	const ISOMETRIC_DESKTOP_SIDE_ALLOWANCE = 560;
 	const ISOMETRIC_MOBILE_SIDE_ALLOWANCE = 32;
-	const ISOMETRIC_MARKER_FONT_SCALE = 2.1;
+	const ISOMETRIC_MARKER_FONT_SCALE = 1.8;
+	const ISOMETRIC_MARKER_MIN_FONT_SIZE = 13;
 	const ISOMETRIC_DEPLOYMENT_MARKER_LIFT_SCALE = 1.2;
-	const ISOMETRIC_LOCATION_MARKER_LIFT_SCALE = 0;
+	const ISOMETRIC_LOCATION_MARKER_LIFT_SCALE = 0.6;
 	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 	let {
@@ -274,7 +275,10 @@
 		marker.setAttribute('x', String(center.x));
 		marker.setAttribute('y', String(center.y - layout.scale * liftScale));
 		marker.setAttribute('class', `sync-isometric-marker ${className}`);
-		marker.setAttribute('font-size', String(Math.max(15, layout.scale * ISOMETRIC_MARKER_FONT_SCALE)));
+		marker.setAttribute(
+			'font-size',
+			String(Math.max(ISOMETRIC_MARKER_MIN_FONT_SIZE, layout.scale * ISOMETRIC_MARKER_FONT_SCALE))
+		);
 		marker.setAttribute('text-anchor', 'middle');
 		marker.setAttribute('dominant-baseline', 'central');
 		marker.setAttribute('aria-hidden', 'true');
