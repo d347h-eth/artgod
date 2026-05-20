@@ -15,7 +15,11 @@
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import SyncBackfillSummary from '$lib/components/SyncBackfillSummary.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
-	import type { SyncBackfillVisibleLevel } from '$lib/sync-backfill-isometric-levels';
+	import type {
+		SyncBackfillIsometricAnchorLayout,
+		SyncBackfillIsometricPoint,
+		SyncBackfillVisibleLevel
+	} from '$lib/sync-backfill-isometric-levels';
 	import {
 		formatSyncBackfillAnchoredBlockDuration,
 		formatSyncBackfillBlockRange,
@@ -29,6 +33,22 @@
 		levelKey: string;
 		markerBlock: number;
 	};
+
+	type ProjectionLine = {
+		key: string;
+		start: SyncBackfillIsometricPoint;
+		end: SyncBackfillIsometricPoint;
+	};
+
+	type ProjectionAnchorLayout = {
+		gridLeftCorner: SyncBackfillIsometricPoint;
+		gridRightCorner: SyncBackfillIsometricPoint;
+		sourceLeftCorner: SyncBackfillIsometricPoint | null;
+		sourceRightCorner: SyncBackfillIsometricPoint | null;
+	};
+
+	const PROJECTION_SOURCE_GAP_PX = 8;
+	const PROJECTION_TARGET_GAP_PX = 14;
 
 	let {
 		state: syncState,
@@ -56,6 +76,8 @@
 	let backfillSelectionFromBlock: number | null = $state(null);
 	let backfillSelectionLevelKey: string | null = $state(null);
 	let backfillSelectionRange: BlockRangeSelection | null = $state(null);
+	let levelsLayoutElement = $state<HTMLDivElement | null>(null);
+	let isometricAnchorLayouts = $state<Record<string, ProjectionAnchorLayout>>({});
 
 	let selectedCollection = $derived(syncState?.context.selected ?? collection ?? SYNC_BACKFILL_CONTEXT_ANY);
 	let currentPageKey = $derived(
@@ -79,6 +101,7 @@
 			formatBackfillSelectionRangeKey(backfillSelectionRange)
 		].join('|')
 	);
+	let projectionLines = $derived(resolveProjectionLines(visibleLevels, isometricAnchorLayouts));
 	let selectedRangePageKey: string | null = $state(null);
 
 	$effect(() => {
@@ -213,6 +236,27 @@
 
 	function formatBackfillSelectionRangeKey(range: BlockRangeSelection | null): string {
 		return range ? `${range.levelKey}:${range.fromBlock}:${range.toBlock}:${range.markerBlock}` : '';
+	}
+
+	function handleIsometricAnchorLayout(layout: SyncBackfillIsometricAnchorLayout): void {
+		if (!levelsLayoutElement) return;
+		const bounds = levelsLayoutElement.getBoundingClientRect();
+		const nextLayout = {
+			gridLeftCorner: toLayoutPoint(layout.gridLeftCorner, bounds),
+			gridRightCorner: toLayoutPoint(layout.gridRightCorner, bounds),
+			sourceLeftCorner: layout.sourceLeftCorner
+				? toLayoutPoint(layout.sourceLeftCorner, bounds)
+				: null,
+			sourceRightCorner: layout.sourceRightCorner
+				? toLayoutPoint(layout.sourceRightCorner, bounds)
+				: null
+		};
+		const currentLayout = isometricAnchorLayouts[layout.levelKey];
+		if (currentLayout && anchorLayoutsEqual(currentLayout, nextLayout)) return;
+		isometricAnchorLayouts = {
+			...isometricAnchorLayouts,
+			[layout.levelKey]: nextLayout
+		};
 	}
 
 	function clearRangeSummary(): void {
@@ -365,6 +409,114 @@
 		return blockNumber !== null && cell.fromBlock <= blockNumber && blockNumber <= cell.toBlock;
 	}
 
+	function resolveProjectionSourceCell(
+		level: SyncBackfillVisibleLevel,
+		levelIndex: number
+	): ApiSyncBackfillGridCell | null {
+		const childLevel = visibleLevels[levelIndex + 1];
+		if (!childLevel) return null;
+		return (
+			level.state.grid.find(
+				(cell) =>
+					cell.fromBlock <= childLevel.state.range.fromBlock &&
+					childLevel.state.range.toBlock <= cell.toBlock
+			) ?? null
+		);
+	}
+
+	function resolveProjectionLines(
+		levels: SyncBackfillVisibleLevel[],
+		anchors: Record<string, ProjectionAnchorLayout>
+	): ProjectionLine[] {
+		const lines: ProjectionLine[] = [];
+		for (let index = 0; index < levels.length - 1; index += 1) {
+			const source = anchors[levels[index].key];
+			const target = anchors[levels[index + 1].key];
+			if (
+				!source?.sourceLeftCorner ||
+				!source.sourceRightCorner ||
+				!target?.gridLeftCorner ||
+				!target.gridRightCorner
+			) {
+				continue;
+			}
+			const leftLine = insetProjectionLine(source.sourceLeftCorner, target.gridLeftCorner);
+			const rightLine = insetProjectionLine(source.sourceRightCorner, target.gridRightCorner);
+			lines.push({
+				key: `${levels[index].key}:${levels[index + 1].key}:left`,
+				start: leftLine.start,
+				end: leftLine.end
+			});
+			lines.push({
+				key: `${levels[index].key}:${levels[index + 1].key}:right`,
+				start: rightLine.start,
+				end: rightLine.end
+			});
+		}
+		return lines;
+	}
+
+	function insetProjectionLine(
+		start: SyncBackfillIsometricPoint,
+		end: SyncBackfillIsometricPoint
+	): { start: SyncBackfillIsometricPoint; end: SyncBackfillIsometricPoint } {
+		const deltaX = end.x - start.x;
+		const deltaY = end.y - start.y;
+		const length = Math.hypot(deltaX, deltaY);
+		if (length <= PROJECTION_SOURCE_GAP_PX + PROJECTION_TARGET_GAP_PX) {
+			return { start, end };
+		}
+		const unitX = deltaX / length;
+		const unitY = deltaY / length;
+		return {
+			start: {
+				x: start.x + unitX * PROJECTION_SOURCE_GAP_PX,
+				y: start.y + unitY * PROJECTION_SOURCE_GAP_PX
+			},
+			end: {
+				x: end.x - unitX * PROJECTION_TARGET_GAP_PX,
+				y: end.y - unitY * PROJECTION_TARGET_GAP_PX
+			}
+		};
+	}
+
+	function toLayoutPoint(
+		point: SyncBackfillIsometricPoint,
+		bounds: DOMRect
+	): SyncBackfillIsometricPoint {
+		return {
+			x: point.x - bounds.left,
+			y: point.y - bounds.top
+		};
+	}
+
+	function anchorLayoutsEqual(
+		left: ProjectionAnchorLayout,
+		right: ProjectionAnchorLayout
+	): boolean {
+		return (
+			pointsEqual(left.gridLeftCorner, right.gridLeftCorner) &&
+			pointsEqual(left.gridRightCorner, right.gridRightCorner) &&
+			nullablePointsEqual(left.sourceLeftCorner, right.sourceLeftCorner) &&
+			nullablePointsEqual(left.sourceRightCorner, right.sourceRightCorner)
+		);
+	}
+
+	function nullablePointsEqual(
+		left: SyncBackfillIsometricPoint | null,
+		right: SyncBackfillIsometricPoint | null
+	): boolean {
+		if (left === null || right === null) return left === right;
+		return pointsEqual(left, right);
+	}
+
+	function pointsEqual(
+		left: SyncBackfillIsometricPoint,
+		right: SyncBackfillIsometricPoint
+	): boolean {
+		return Math.abs(left.x - right.x) < 0.5 && Math.abs(left.y - right.y) < 0.5;
+	}
+
 	function formatPageStackEntry(page: { pageStartBlock: number; bucketSize: number }): string {
 		return `${page.pageStartBlock}:${page.bucketSize}`;
 	}
@@ -426,8 +578,19 @@
 
 	{#if syncState}
 		<div class="sync-backfill-content">
-			<div class="sync-levels-layout">
-				{#each visibleLevels as level (level.key)}
+			<div class="sync-levels-layout" bind:this={levelsLayoutElement}>
+				<svg class="sync-projection-overlay" aria-hidden="true">
+					{#each projectionLines as line (line.key)}
+						<line
+							class="sync-projection-line"
+							x1={line.start.x}
+							y1={line.start.y}
+							x2={line.end.x}
+							y2={line.end.y}
+						/>
+					{/each}
+				</svg>
+				{#each visibleLevels as level, levelIndex (level.key)}
 					<section class="sync-level-row" aria-label={`${level.label} sync level`}>
 						<aside class="sync-level-summary-panel">
 							<SyncBackfillSummary
@@ -441,10 +604,12 @@
 								{level}
 								selectionMode={backfillSelectionMode}
 								renderKey={`${isometricRenderKey}:${level.key}`}
+								projectionSourceCell={resolveProjectionSourceCell(level, levelIndex)}
 								{isLocationMarkerCell}
 								resolveCellClass={cellClass}
 								resolveCellLabel={cellLabel}
 								onCellClick={handleCellClick}
+								onAnchorLayout={handleIsometricAnchorLayout}
 							/>
 						</div>
 						<aside class="sync-level-selection-panel">

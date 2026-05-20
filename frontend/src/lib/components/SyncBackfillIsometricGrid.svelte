@@ -4,6 +4,8 @@
 	import {
 		buildSyncBackfillIsometricSlots,
 		resolveSyncBackfillIsometricDimension,
+		type SyncBackfillIsometricAnchorLayout,
+		type SyncBackfillIsometricPoint,
 		type SyncBackfillVisibleLevel
 	} from '$lib/sync-backfill-isometric-levels';
 
@@ -16,10 +18,16 @@
 		topOffsetUnits: number;
 	};
 
+	type IsometricSideCorners = {
+		left: SyncBackfillIsometricPoint;
+		right: SyncBackfillIsometricPoint;
+	};
+
 	type Props = {
 		level: SyncBackfillVisibleLevel;
 		selectionMode: boolean;
 		renderKey: string;
+		projectionSourceCell?: ApiSyncBackfillGridCell | null;
 		isLocationMarkerCell: (
 			level: SyncBackfillVisibleLevel,
 			cell: ApiSyncBackfillGridCell
@@ -37,6 +45,7 @@
 			level: SyncBackfillVisibleLevel,
 			cell: ApiSyncBackfillGridCell
 		) => void | Promise<void>;
+		onAnchorLayout?: (layout: SyncBackfillIsometricAnchorLayout) => void;
 	};
 
 	const ISOMETRIC_TILE_UNIT = 1;
@@ -53,10 +62,12 @@
 		level,
 		selectionMode,
 		renderKey,
+		projectionSourceCell = null,
 		isLocationMarkerCell,
 		resolveCellClass,
 		resolveCellLabel,
-		onCellClick
+		onCellClick,
+		onAnchorLayout
 	}: Props = $props();
 
 	let container: HTMLDivElement;
@@ -84,6 +95,7 @@
 		if (!container || !isometricModule) return;
 		renderKey;
 		selectionMode;
+		projectionSourceCell;
 		renderLevels();
 	});
 
@@ -116,21 +128,23 @@
 			top: layout.topOffsetUnits
 		});
 		canvas.addChild(group);
-		renderLevelTiles(group, layout, level);
+		const sourceCorners = renderLevelTiles(group, layout, level);
+		reportAnchorLayout(group, layout, level, sourceCorners);
 	}
 
 	function renderLevelTiles(
 		group: InstanceType<IsometricModule['IsometricGroup']>,
 		layout: IsometricCanvasLayout,
 		level: SyncBackfillVisibleLevel
-	): void {
-		if (!isometricModule) return;
+	): IsometricSideCorners | null {
+		if (!isometricModule) return null;
 		const markers: Array<{
 			column: number;
 			row: number;
 			glyph: string;
 			className: string;
 		}> = [];
+		let sourceCorners: IsometricSideCorners | null = null;
 		for (const slot of buildSyncBackfillIsometricSlots(level.state.grid)) {
 			if (!slot.cell) {
 				group.addChild(
@@ -164,6 +178,9 @@
 			});
 			configureTileElement(tile.getElement(), level, slot.cell);
 			group.addChild(tile);
+			if (isProjectionSourceCell(slot.cell)) {
+				sourceCorners = resolveTileSideCorners(layout, slot.column, slot.row);
+			}
 			if (slot.cell.collectionDeploymentBlock) {
 				markers.push({
 					column: slot.column,
@@ -191,6 +208,7 @@
 				marker.className
 			);
 		}
+		return sourceCorners;
 	}
 
 	function configureTileElement(
@@ -243,7 +261,7 @@
 		className: string
 	): void {
 		const marker = document.createElementNS(SVG_NAMESPACE, 'text');
-		const center = resolveTileCenter(layout, column + 0.5, row + 0.5);
+		const center = projectIsometricPoint(layout, column + 0.5, row + 0.5);
 		marker.textContent = glyph;
 		marker.setAttribute('x', String(center.x));
 		marker.setAttribute('y', String(center.y));
@@ -254,7 +272,69 @@
 		group.getElement().appendChild(marker);
 	}
 
-	function resolveTileCenter(
+	function reportAnchorLayout(
+		group: InstanceType<IsometricModule['IsometricGroup']>,
+		layout: IsometricCanvasLayout,
+		level: SyncBackfillVisibleLevel,
+		sourceCorners: IsometricSideCorners | null
+	): void {
+		if (!onAnchorLayout) return;
+		const dimension = resolveSyncBackfillIsometricDimension(level.state.grid.length);
+		const gridCorners = resolveGridSideCorners(layout, dimension);
+		const groupElement = group.getElement();
+		if (!(groupElement instanceof SVGGraphicsElement)) return;
+		onAnchorLayout({
+			levelKey: level.key,
+			gridLeftCorner: toClientPoint(groupElement, gridCorners.left),
+			gridRightCorner: toClientPoint(groupElement, gridCorners.right),
+			sourceLeftCorner: sourceCorners ? toClientPoint(groupElement, sourceCorners.left) : null,
+			sourceRightCorner: sourceCorners ? toClientPoint(groupElement, sourceCorners.right) : null
+		});
+	}
+
+	function isProjectionSourceCell(cell: ApiSyncBackfillGridCell): boolean {
+		return (
+			projectionSourceCell !== null &&
+			cell.fromBlock <= projectionSourceCell.fromBlock &&
+			projectionSourceCell.toBlock <= cell.toBlock
+		);
+	}
+
+	function resolveTileSideCorners(
+		layout: IsometricCanvasLayout,
+		column: number,
+		row: number
+	): IsometricSideCorners {
+		return {
+			left: projectIsometricPoint(layout, column, row + 1),
+			right: projectIsometricPoint(layout, column + 1, row)
+		};
+	}
+
+	function resolveGridSideCorners(
+		layout: IsometricCanvasLayout,
+		dimension: number
+	): IsometricSideCorners {
+		return {
+			left: projectIsometricPoint(layout, 0, dimension),
+			right: projectIsometricPoint(layout, dimension, 0)
+		};
+	}
+
+	function toClientPoint(
+		element: SVGGraphicsElement,
+		point: SyncBackfillIsometricPoint
+	): SyncBackfillIsometricPoint {
+		const matrix = element.getScreenCTM();
+		if (!matrix) return point;
+		const transformed = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+		return {
+			x: transformed.x,
+			y: transformed.y
+		};
+	}
+
+	function projectIsometricPoint(
 		layout: IsometricCanvasLayout,
 		right: number,
 		left: number

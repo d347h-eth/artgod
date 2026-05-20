@@ -19,6 +19,20 @@ export type SyncBackfillIsometricSlot = {
 	cell: ApiSyncBackfillGridCell | null;
 };
 
+export type SyncBackfillIsometricPoint = {
+	x: number;
+	y: number;
+};
+
+// Client-space anchors let the page draw overlays without coupling to renderer internals.
+export type SyncBackfillIsometricAnchorLayout = {
+	levelKey: string;
+	gridLeftCorner: SyncBackfillIsometricPoint;
+	gridRightCorner: SyncBackfillIsometricPoint;
+	sourceLeftCorner: SyncBackfillIsometricPoint | null;
+	sourceRightCorner: SyncBackfillIsometricPoint | null;
+};
+
 // Resolve the presentation square for a level without changing its block-range math.
 export function resolveSyncBackfillIsometricDimension(cellCount: number): number {
 	if (cellCount <= 0) return 1;
