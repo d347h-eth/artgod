@@ -4,14 +4,14 @@ import { SYNC_BACKFILL_CONTEXT_ANY } from '@artgod/shared/config/sync-backfill';
 import { BackendApiError, getSyncBackfillState } from '$lib/backend-api';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
-import type { SyncBackfillStateApiResponse } from '$lib/api-types';
 import { SYNC_BACKFILL_LIVE_INVALIDATION_KEY } from '$lib/sync-backfill-live-refresh';
-import type { SyncBackfillVisibleLevel } from '$lib/sync-backfill-isometric-levels';
-
-type PageStackEntry = {
-	pageStartBlock: number;
-	bucketSize: number;
-};
+import {
+	buildSyncBackfillStateApiParams,
+	buildSyncBackfillVisibleLevels,
+	formatSyncBackfillPageStackEntry,
+	parseSyncBackfillPageStack,
+	type SyncBackfillPageStackEntry
+} from '$lib/sync-backfill-page-stack';
 
 export const load: PageLoad = async ({ depends, fetch, params, url }) => {
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
@@ -41,7 +41,7 @@ export const load: PageLoad = async ({ depends, fetch, params, url }) => {
 		}
 		return {
 			state,
-			levels: buildVisibleLevels(query.stack, states),
+			levels: buildSyncBackfillVisibleLevels(query.stack, states),
 			basePath: `/${state.chain.slug}/sync-backfill`,
 			collection: query.collection,
 			stack: query.stack
@@ -54,76 +54,31 @@ export const load: PageLoad = async ({ depends, fetch, params, url }) => {
 function normalizeSyncBackfillParams(raw: URLSearchParams): {
 	collection: string;
 	stack: string[];
-	stackPages: PageStackEntry[];
+	stackPages: SyncBackfillPageStackEntry[];
 } {
 	const collection = raw.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
-	const stack = parsePageStack(raw.get('stack'));
+	const stack = parseSyncBackfillPageStack(raw.get('stack'));
+	if (!stack) {
+		throw error(400, 'Invalid page stack');
+	}
 
 	return {
 		collection,
-		stack: stack.map(formatPageStackEntry),
+		stack: stack.map(formatSyncBackfillPageStackEntry),
 		stackPages: stack
 	};
 }
 
 function buildVisibleLevelRequests(
 	collection: string,
-	stackPages: PageStackEntry[]
+	stackPages: SyncBackfillPageStackEntry[]
 ): Array<{ apiParams: URLSearchParams }> {
 	return [
-		{ apiParams: buildStateApiParams(collection, null) },
-		...stackPages.map((page) => ({ apiParams: buildStateApiParams(collection, page) }))
+		{ apiParams: buildSyncBackfillStateApiParams(collection, null) },
+		...stackPages.map((page) => ({
+			apiParams: buildSyncBackfillStateApiParams(collection, page)
+		}))
 	];
-}
-
-function buildStateApiParams(collection: string, page: PageStackEntry | null): URLSearchParams {
-	const apiParams = new URLSearchParams();
-	apiParams.set('collection', collection);
-	if (page) {
-		apiParams.set('page_start', String(page.pageStartBlock));
-		apiParams.set('bucket_size', String(page.bucketSize));
-	}
-	return apiParams;
-}
-
-function buildVisibleLevels(
-	stack: string[],
-	states: SyncBackfillStateApiResponse[]
-): SyncBackfillVisibleLevel[] {
-	return states.map((state, index) => ({
-		key: index === 0 ? 'root' : `L${index}:${stack[index - 1]}`,
-		label: index === 0 ? 'root' : `L${index}`,
-		stack: stack.slice(0, index),
-		state
-	}));
-}
-
-function parsePageStack(raw: string | null): PageStackEntry[] {
-	if (!raw?.trim()) return [];
-	return raw
-		.split(',')
-		.map((entry) => entry.trim())
-		.filter(Boolean)
-		.map((entry) => {
-			const [pageStartRaw, bucketSizeRaw, extra] = entry.split(':');
-			const pageStartBlock = Number(pageStartRaw);
-			const bucketSize = Number(bucketSizeRaw);
-			if (
-				extra !== undefined ||
-				!Number.isInteger(pageStartBlock) ||
-				!Number.isInteger(bucketSize)
-			) {
-				throw error(400, 'Invalid page stack');
-			}
-			if (pageStartBlock < 0 || bucketSize <= 0) {
-				throw error(400, 'Invalid page stack');
-			}
-			return { pageStartBlock, bucketSize };
-		});
-}
-
-function formatPageStackEntry(page: { pageStartBlock: number; bucketSize: number }): string {
-	return `${page.pageStartBlock}:${page.bucketSize}`;
 }
 
 function toKitError(cause: unknown): never {

@@ -446,6 +446,7 @@ a:hover {
 		var(--sync-center-column-width)
 		var(--sync-side-panel-width);
 	align-items: center;
+	align-content: start;
 	column-gap: 0.75rem;
 	row-gap: 1rem;
 	width: max-content;

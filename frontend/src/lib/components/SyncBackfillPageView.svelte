@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
+	import { tick } from 'svelte';
 	import {
 		SYNC_BACKFILL_CONTEXT_ANY,
 		SYNC_BACKFILL_GRID_CELL_COUNT
@@ -10,7 +11,11 @@
 		SyncBackfillRangeSummaryApiResponse,
 		SyncBackfillStateApiResponse
 	} from '$lib/api-types';
-	import { getSyncBackfillRangeSummary, scheduleSyncBackfill } from '$lib/backend-api';
+	import {
+		getSyncBackfillRangeSummary,
+		getSyncBackfillState,
+		scheduleSyncBackfill
+	} from '$lib/backend-api';
 	import SyncBackfillIsometricGrid from '$lib/components/SyncBackfillIsometricGrid.svelte';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
 	import SyncBackfillSummary from '$lib/components/SyncBackfillSummary.svelte';
@@ -21,6 +26,12 @@
 		SyncBackfillIsometricPoint,
 		SyncBackfillVisibleLevel
 	} from '$lib/sync-backfill-isometric-levels';
+	import {
+		buildSyncBackfillStateApiParams,
+		buildSyncBackfillVisibleLevels,
+		formatSyncBackfillPageStackEntry,
+		parseSyncBackfillPageStackEntry
+	} from '$lib/sync-backfill-page-stack';
 	import {
 		formatSyncBackfillAnchoredBlockDuration,
 		formatSyncBackfillBlockRange,
@@ -55,13 +66,17 @@
 
 	const PROJECTION_SOURCE_GAP_PX = 8;
 	const PROJECTION_TARGET_GAP_PX = 14;
+	const SYNC_BACKFILL_DRILLDOWN_GOTO_OPTIONS = {
+		keepFocus: true,
+		noScroll: true
+	} as const;
 
 	let {
-		state: syncState,
-		levels = [],
+		state: pageSyncState,
+		levels: pageLevels = [],
 		basePath,
-		collection,
-		stack
+		collection: pageCollection,
+		stack: pageStack
 	}: {
 		state: SyncBackfillStateApiResponse | null;
 		levels?: SyncBackfillVisibleLevel[];
@@ -70,6 +85,10 @@
 		stack: string[];
 	} = $props();
 
+	let syncState = $state<SyncBackfillStateApiResponse | null>(pageSyncState);
+	let levels = $state<SyncBackfillVisibleLevel[]>(pageLevels);
+	let collection = $state(pageCollection);
+	let stack = $state<string[]>(pageStack);
 	let submitting = $state(false);
 	let feedback: string | null = $state(null);
 	let selectedRangeSummary: SyncBackfillRangeSummaryApiResponse | null = $state(null);
@@ -81,12 +100,14 @@
 	let selectedRangeRefreshKey: string | null = $state(null);
 	let selectedRangeRefreshRequestId = 0;
 	let selectedRangeRefreshInFlight = $state(false);
+	let drilldownRequestId = 0;
 	let backfillSelectionMode = $state(false);
 	let backfillSelectionFromBlock: number | null = $state(null);
 	let backfillSelectionLevelKey: string | null = $state(null);
 	let backfillSelectionRange: BlockRangeSelection | null = $state(null);
 	let levelsLayoutElement = $state<HTMLDivElement | null>(null);
 	let isometricAnchorLayouts = $state<Record<string, ProjectionAnchorLayout>>({});
+	let reservedLevelsLayoutHeight = $state(0);
 
 	let selectedCollection = $derived(syncState?.context.selected ?? collection ?? SYNC_BACKFILL_CONTEXT_ANY);
 	let currentPageKey = $derived(
@@ -118,6 +139,13 @@
 	let activeSelectedRangeScopeKey: string | null = $state(null);
 
 	$effect(() => {
+		syncState = pageSyncState;
+		levels = pageLevels;
+		collection = pageCollection;
+		stack = pageStack;
+	});
+
+	$effect(() => {
 		if (activeSelectedRangeScopeKey === selectedRangeScopeKey) return;
 		activeSelectedRangeScopeKey = selectedRangeScopeKey;
 		backfillSelectionMode = false;
@@ -133,6 +161,21 @@
 		const refreshKey = formatRangeSummaryRefreshKey(range, visibleLevelsLiveKey);
 		if (selectedRangeRefreshKey === refreshKey) return;
 		void loadRangeSummary(range, { showLoading: false, showError: false });
+	});
+
+	$effect(() => {
+		const element = levelsLayoutElement;
+		if (!element || typeof ResizeObserver === 'undefined') return;
+		const preserveHeight = () => {
+			reservedLevelsLayoutHeight = Math.max(
+				reservedLevelsLayoutHeight,
+				Math.ceil(element.getBoundingClientRect().height)
+			);
+		};
+		preserveHeight();
+		const observer = new ResizeObserver(preserveHeight);
+		observer.observe(element);
+		return () => observer.disconnect();
 	});
 
 	function queryHref(nextCollection: string, nextStack: string[]): string {
@@ -177,14 +220,15 @@
 			const childBucketSize = level.state.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
 			if (Number.isInteger(childBucketSize) && childBucketSize >= 1) {
 				feedback = null;
-				void goto(
-					queryHref(selectedCollection, [
+				await navigateToStack(
+					[
 						...level.stack,
-						formatPageStackEntry({
+						formatSyncBackfillPageStackEntry({
 							pageStartBlock: cell.fromBlock,
 							bucketSize: childBucketSize
 						})
-					])
+					],
+					level.key
 				);
 			}
 			return;
@@ -282,6 +326,81 @@
 			...isometricAnchorLayouts,
 			[layout.levelKey]: nextLayout
 		};
+	}
+
+	async function navigateToStack(nextStack: string[], anchorLevelKey: string): Promise<void> {
+		if (!syncState) return;
+		const requestId = drilldownRequestId + 1;
+		drilldownRequestId = requestId;
+		const href = queryHref(selectedCollection, nextStack);
+		const anchorTop = readLevelAnchorTop(anchorLevelKey);
+		try {
+			const states = await fetchVisibleStackStates(selectedCollection, nextStack);
+			if (drilldownRequestId !== requestId) return;
+			const nextState = states.at(-1);
+			if (!nextState) return;
+			syncState = nextState;
+			levels = buildSyncBackfillVisibleLevels(nextStack, states);
+			collection = selectedCollection;
+			stack = nextStack;
+			await tick();
+			restoreLevelAnchor(anchorLevelKey, anchorTop);
+			await goto(href, SYNC_BACKFILL_DRILLDOWN_GOTO_OPTIONS);
+			await tick();
+			restoreLevelAnchor(anchorLevelKey, anchorTop);
+		} catch (error) {
+			if (drilldownRequestId === requestId) {
+				feedback = error instanceof Error ? error.message : 'sync level request failed';
+			}
+		}
+	}
+
+	async function fetchVisibleStackStates(
+		nextCollection: string,
+		nextStack: string[]
+	): Promise<SyncBackfillStateApiResponse[]> {
+		if (!syncState) return [];
+		const chainSlug = syncState.chain.slug;
+		return Promise.all(
+			[null, ...nextStack.map(requirePageStackEntry)].map((page) => {
+				// Fetch the destination level before route mutation so scroll anchoring stays local.
+				return getSyncBackfillState(
+					fetch,
+					chainSlug,
+					buildSyncBackfillStateApiParams(nextCollection, page)
+				);
+			})
+		);
+	}
+
+	function requirePageStackEntry(entry: string) {
+		const page = parseSyncBackfillPageStackEntry(entry);
+		if (!page) {
+			throw new Error('invalid sync level stack');
+		}
+		return page;
+	}
+
+	function readLevelAnchorTop(levelKey: string): number | null {
+		const element = findLevelAnchor(levelKey);
+		return element ? element.getBoundingClientRect().top : null;
+	}
+
+	function restoreLevelAnchor(levelKey: string, previousTop: number | null): void {
+		if (previousTop === null) return;
+		const element = findLevelAnchor(levelKey);
+		if (!element) return;
+		const delta = element.getBoundingClientRect().top - previousTop;
+		if (Math.abs(delta) < 1) return;
+		window.scrollTo(window.scrollX, window.scrollY + delta);
+	}
+
+	function findLevelAnchor(levelKey: string): HTMLElement | null {
+		if (!levelsLayoutElement) return null;
+		const anchors = levelsLayoutElement.querySelectorAll<HTMLElement>('[data-sync-level-anchor]');
+		return (
+			Array.from(anchors).find((element) => element.dataset.syncLevelAnchor === levelKey) ?? null
+		);
 	}
 
 	function clearRangeSummary(): void {
@@ -564,10 +683,6 @@
 		return Math.abs(left.x - right.x) < 0.5 && Math.abs(left.y - right.y) < 0.5;
 	}
 
-	function formatPageStackEntry(page: { pageStartBlock: number; bucketSize: number }): string {
-		return `${page.pageStartBlock}:${page.bucketSize}`;
-	}
-
 	function buildLevelSummaryRange(level: SyncBackfillVisibleLevel): ApiSyncBackfillRangeSummary {
 		return {
 			fromBlock: level.state.range.fromBlock,
@@ -625,7 +740,13 @@
 
 	{#if syncState}
 		<div class="sync-backfill-content">
-			<div class="sync-levels-layout" bind:this={levelsLayoutElement}>
+			<div
+				class="sync-levels-layout"
+				style:min-height={reservedLevelsLayoutHeight > 0
+					? `${reservedLevelsLayoutHeight}px`
+					: undefined}
+				bind:this={levelsLayoutElement}
+			>
 				<svg class="sync-projection-overlay" aria-hidden="true">
 					{#each projectionLines as line (line.key)}
 						<line
@@ -637,7 +758,7 @@
 						/>
 					{/each}
 				</svg>
-				{#each visibleLevels as level, levelIndex (level.key)}
+				{#each visibleLevels as level, levelIndex (levelIndex)}
 					<section class="sync-level-row" aria-label={`${level.label} sync level`}>
 						<aside class="sync-level-summary-panel">
 							<SyncBackfillSummary
@@ -646,7 +767,7 @@
 								ariaLabel={`${level.label} sync summary`}
 							/>
 						</aside>
-						<div class="sync-grid-wrap">
+						<div class="sync-grid-wrap" data-sync-level-anchor={level.key}>
 							<SyncBackfillIsometricGrid
 								{level}
 								selectionMode={backfillSelectionMode}
