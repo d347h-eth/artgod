@@ -581,17 +581,6 @@
 		{/if}
 	</header>
 
-	<div class="runtime-kv-grid bid-book-meta bidding-price-tier-meta">
-		<div>
-			<span class="runtime-k">tiers</span>
-			<span class="runtime-v">{activeTiers.length}</span>
-		</div>
-		<div>
-			<span class="runtime-k">editing</span>
-			<span class="runtime-v mono">{editingTier?.name ?? 'new'}</span>
-		</div>
-	</div>
-
 	<form
 		class="bootstrap-form bidding-price-tier-settings-form"
 		onsubmit={(event) => {
@@ -677,12 +666,6 @@
 
 	{#if reapplyTierId}
 		<div class="bidding-price-tier-reapply-wrap">
-			<div class="runtime-kv-grid bid-book-meta bidding-price-tier-meta">
-				<div>
-					<span class="runtime-k">reapply</span>
-					<span class="runtime-v mono">{reapplyTierName ?? reapplyTierId}</span>
-				</div>
-			</div>
 			<BiddingPriceTierReapplyPreview
 				jobs={reapplyJobs}
 				selectedJobIds={selectedReapplyJobIds}

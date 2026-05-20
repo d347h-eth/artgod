@@ -21,6 +21,7 @@ export class GetTokenBiddingBidBookHttpAdapter {
                 input: GetTokenBiddingBidBookInput,
             ): MaybePromise<GetTokenBiddingBidBookOutput>;
         },
+        private readonly includeOwnJobContext: boolean,
     ) {}
 
     readonly handle = async (
@@ -30,6 +31,7 @@ export class GetTokenBiddingBidBookHttpAdapter {
             chainRef: request.params.chain_ref,
             collectionRef: request.params.collection_ref,
             tokenRef: request.params.token_ref,
+            includeOwnJobContext: this.includeOwnJobContext,
         });
     };
 }

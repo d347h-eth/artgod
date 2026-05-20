@@ -3,17 +3,18 @@ import type {
     ChainRecord,
     CollectionMediaState,
     CollectionListItem,
+    CollectionBiddingTraitFilterJoinMode,
     PersistedBiddingJobRecord,
     PersistedTokenBiddingJobRecord,
     TokenBrowserStatus,
     TraitFilter,
     TraitRangeFilter,
     TokenPresentationSummary,
+    TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
     TradingBiddingJobPricingSource,
     TradingJobStatus,
     TradingTraitCriterion,
 } from "@artgod/shared/types";
-import type { CollectionBiddingTraitFilterJoinMode } from "./bidding-bid-book.js";
 
 export type BiddingJobMutationStatus = Exclude<TradingJobStatus, "archived">;
 export type TokenBiddingJobMutationStatus = BiddingJobMutationStatus;
@@ -108,17 +109,17 @@ export type UpsertTokenBiddingJobOutput = {
 
 export type BatchTokenBiddingJobSelection =
     | {
-          type: "token_ids";
+          type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds;
           tokenIds: string[];
       }
     | {
-          type: "filter";
+          type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter;
           tokenStatus: TokenBrowserStatus;
           traits: TraitFilter[];
           traitRanges: TraitRangeFilter[];
       }
     | {
-          type: "token_offer_filter";
+          type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter;
           traits: TraitFilter[];
           traitRanges: TraitRangeFilter[];
           traitJoinMode: CollectionBiddingTraitFilterJoinMode;

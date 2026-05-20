@@ -8,10 +8,9 @@ import {
     TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
     TRADING_JOB_STATUS,
     TRADING_BIDDING_TIER_SELECTION_MODE,
-} from "@artgod/shared/types";
-import {
+    TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
-} from "../../../application/use-cases/trading/bidding-bid-book.js";
+} from "@artgod/shared/types";
 import {
     ArchiveCollectionBiddingPriceTierHttpAdapter,
 } from "./archive-collection-bidding-price-tier.js";
@@ -128,7 +127,7 @@ describe("trading HTTP adapters", () => {
                     status: TRADING_JOB_STATUS.Enabled,
                     deltaEth: "0.001",
                     selection: {
-                        type: "token_ids",
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
                         tokenIds: ["1", " 2 "],
                     },
                 },
@@ -144,7 +143,7 @@ describe("trading HTTP adapters", () => {
                     deltaEth: "0.001",
                     priceTierId: null,
                     selection: {
-                        type: "filter",
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
                         tokenStatus: "listed_then_unlisted",
                         traits: [{ key: "Mode", value: "Terrain" }],
                         traitRanges: [
@@ -165,7 +164,7 @@ describe("trading HTTP adapters", () => {
                 deltaEth: "0.001",
                 priceTierId: undefined,
                 selection: {
-                    type: "token_ids",
+                    type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
                     tokenIds: ["1", " 2 "],
                 },
             },
@@ -178,7 +177,7 @@ describe("trading HTTP adapters", () => {
                 deltaEth: "0.001",
                 priceTierId: undefined,
                 selection: {
-                    type: "filter",
+                    type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
                     tokenStatus: "listed_then_unlisted",
                     traits: [{ key: "Mode", value: "Terrain" }],
                     traitRanges: [
@@ -205,7 +204,7 @@ describe("trading HTTP adapters", () => {
                     status: TRADING_JOB_STATUS.Enabled,
                     deltaEth: "0.001",
                     selection: {
-                        type: "token_offer_filter",
+                        type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
                         traits: [{ key: "Mode", value: "Terrain" }],
                         traitRanges: [],
                         traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
@@ -216,7 +215,7 @@ describe("trading HTTP adapters", () => {
         );
 
         assert.deepEqual((captured as { selection: unknown }).selection, {
-            type: "token_offer_filter",
+            type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
             traits: [{ key: "Mode", value: "Terrain" }],
             traitRanges: [],
             traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
@@ -234,7 +233,7 @@ describe("trading HTTP adapters", () => {
                             status: TRADING_JOB_STATUS.Enabled,
                             deltaEth: "0.001",
                             selection: {
-                                type: "token_offer_filter",
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
                                 traitJoinMode: "xor",
                             },
                         },
@@ -254,7 +253,7 @@ describe("trading HTTP adapters", () => {
                             status: TRADING_JOB_STATUS.Enabled,
                             deltaEth: "0.001",
                             selection: {
-                                type: "token_offer_filter",
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter,
                                 traitJoinMode:
                                     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
                                 makerAddress: 123,
@@ -283,7 +282,7 @@ describe("trading HTTP adapters", () => {
                             status: TRADING_JOB_STATUS.Enabled,
                             deltaEth: "0.001",
                             selection: {
-                                type: "filter",
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
                                 tokenStatus: "owned",
                             },
                         },
@@ -303,7 +302,7 @@ describe("trading HTTP adapters", () => {
                             status: TRADING_JOB_STATUS.Enabled,
                             deltaEth: "0.001",
                             selection: {
-                                type: "filter",
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
                                 tokenStatus: "all",
                                 traits: [null],
                             },
@@ -324,7 +323,7 @@ describe("trading HTTP adapters", () => {
                             status: TRADING_JOB_STATUS.Enabled,
                             deltaEth: "0.001",
                             selection: {
-                                type: "filter",
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter,
                                 tokenStatus: "all",
                                 traitRanges: [null],
                             },
@@ -345,7 +344,7 @@ describe("trading HTTP adapters", () => {
                             status: TRADING_JOB_STATUS.Enabled,
                             deltaEth: "0.001",
                             selection: {
-                                type: "token_ids",
+                                type: TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds,
                                 tokenIds: "1",
                             },
                         },

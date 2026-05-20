@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 	import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 	import {
+		TRADING_BIDDING_BID_SCOPE_KIND,
 		resolveTraitFilterDisplayKind,
 		TRAIT_FILTER_DISPLAY_KIND
 	} from '@artgod/shared/types';
@@ -31,13 +33,19 @@
 	import { getTokenDetail } from '$lib/backend-api';
 	import {
 		BID_SCOPE_QUERY_PARAM,
+		COLLECTION_BIDDING_BID_SCOPE_FILTER,
+		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 		buildCollectionBiddingQuery
 	} from '$lib/bidding-query';
 	import {
 		bestBiddingAutomationBid,
+		buildBiddingAutomationDraftFromBid,
 		buildTokenBiddingAutomationDraftFromBid,
+		buildTraitBiddingAutomationDraftFromTrait,
+		biddingTraitCriteriaToTokenAttributes,
 		type BiddingAutomationDraft
 	} from '$lib/bidding-automation';
+	import { BIDDING_SELECTION_ACTION_LABEL } from '$lib/bidding-selection-actions';
 	import { formatListingPrice } from '$lib/listing-price';
 	import { openseaItemHref as buildOpenseaItemHref } from '$lib/marketplace-links';
 	import { appendMediaModeParam, nextMediaMode } from '$lib/media-mode';
@@ -60,6 +68,7 @@
 		parseDisplayMode
 	} from '$lib/token-browser-query';
 	import { joinPath, withQuery } from '$lib/route-paths';
+	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import {
 		resolveTokenDetailExtensionSections,
 		type TokenDetailExtensionSection
@@ -86,6 +95,8 @@
 	let displayedMedia = $state<ApiCollectionMediaState>(resolveInitialMediaState(data?.media));
 	let displayedMediaAspectRatio = $state<number | null>(null);
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
+	let selectedTokenBidBookBid = $state<ApiBiddingBidBookRow | null>(null);
+	let selectedTokenTraitTarget = $state<ApiTokenDetailTrait | null>(null);
 	let tokenDetailRequestId = 0;
 	const tokenBiddingDraft = $derived(resolveTokenBiddingDraft());
 
@@ -94,6 +105,8 @@
 		displayedMedia = resolveInitialMediaState(data?.media);
 		displayedMediaAspectRatio = null;
 		tokenBiddingJob = data?.tokenBiddingJob ?? null;
+		selectedTokenBidBookBid = null;
+		selectedTokenTraitTarget = null;
 		tokenDetailRequestId += 1;
 	});
 
@@ -177,13 +190,13 @@
 	}
 
 	function bidBookScopeForBid(bid: ApiBiddingBidBookRow): ApiCollectionBiddingBidScopeFilter {
-		if (bid.scope.kind === 'collection') {
-			return 'collection';
+		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
+			return COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection;
 		}
-		if (bid.scope.kind === 'trait') {
-			return 'traits';
+		if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
+			return COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits;
 		}
-		return 'token';
+		return COLLECTION_BIDDING_BID_SCOPE_FILTER.Token;
 	}
 
 	function shouldShowTokenBidBook(): boolean {
@@ -199,7 +212,25 @@
 	}
 
 	function resolveTokenBiddingDraft(): BiddingAutomationDraft | null {
-		if (tokenBiddingJob || !displayedToken) {
+		if (!displayedToken) {
+			return null;
+		}
+		if (selectedTokenBidBookBid) {
+			return buildBiddingAutomationDraftFromBid(
+				selectedTokenBidBookBid,
+				existingJobForSelectedBid(selectedTokenBidBookBid)
+			);
+		}
+		if (selectedTokenTraitTarget) {
+			return buildTraitBiddingAutomationDraftFromTrait({
+				trait: {
+					key: selectedTokenTraitTarget.key,
+					value: selectedTokenTraitTarget.value
+				},
+				tokenCount: selectedTokenTraitTarget.tokenCount
+			});
+		}
+		if (tokenBiddingJob) {
 			return null;
 		}
 		const topBid = bestBiddingAutomationBid(data?.tokenBiddingBidBook?.bids ?? []);
@@ -207,6 +238,46 @@
 			return null;
 		}
 		return buildTokenBiddingAutomationDraftFromBid(topBid, displayedToken.tokenId);
+	}
+
+	function existingJobForSelectedBid(bid: ApiBiddingBidBookRow): ApiBiddingJob | null {
+		// Only reuse the page token job when the selected bid targets the displayed token.
+		if (
+			bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token &&
+			bid.scope.tokenId === displayedToken?.tokenId
+		) {
+			return tokenBiddingJob;
+		}
+		return null;
+	}
+
+	function canSelectTokenDetailBidBookBid(bid: ApiBiddingBidBookRow): boolean {
+		return bid.scope.kind !== TRADING_BIDDING_BID_SCOPE_KIND.Collection;
+	}
+
+	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
+		selectedTokenBidBookBid = bid;
+		selectedTokenTraitTarget = null;
+	}
+
+	function bidOnDisplayedToken(): void {
+		selectedTokenBidBookBid = null;
+		selectedTokenTraitTarget = null;
+	}
+
+	function bidOnTokenTrait(trait: ApiTokenDetailTrait): void {
+		selectedTokenBidBookBid = null;
+		selectedTokenTraitTarget = trait;
+	}
+
+	function tokenTraitBidLabel(trait: ApiTokenDetailTrait): string {
+		return `place bid on ${trait.key}=${trait.value}`;
+	}
+
+	async function onBidBookTraitFilter(selection: {
+		traits: ApiBiddingBidBookRow['scope']['traits'];
+	}): Promise<void> {
+		await goto(bidBookTraitsHref(biddingTraitCriteriaToTokenAttributes(selection.traits)));
 	}
 
 	function tokenDetailExtensionSections(): TokenDetailExtensionSection[] {
@@ -370,6 +441,24 @@
 		});
 	}
 
+	function bidBookTraitValueHref(trait: { key: string; value: string }): string {
+		return bidBookTraitsHref([trait]);
+	}
+
+	function bidBookTraitsHref(traits: { key: string; value: string }[]): string {
+		const query = buildCollectionBiddingQuery({
+			selectedTraits: traits,
+			selectedTraitRanges: [],
+			bidScope: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+			mediaMode: collectionNavigationMediaMode(),
+			showMuted: data?.showMuted ?? false
+		});
+		// Keep trait bid scope explicit so stored scope preferences cannot override this jump.
+		query.set(BID_SCOPE_QUERY_PARAM, COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits);
+		return withQuery(joinPath(collectionTokensBasePath(), 'bidding'), query);
+	}
+
 	async function setTokenDetailMediaMode(nextMode: string): Promise<void> {
 		if (!browser || !data?.chain || !data.collection || !displayedToken) {
 			return;
@@ -525,11 +614,24 @@
 								<tr>
 									<td class="mono token-detail-col-center">{trait.key}</td>
 									<td class="mono token-detail-col-center">
-										{#if traitHref}
-											<a href={traitHref}>{trait.value}</a>
-										{:else}
-											{trait.value}
-										{/if}
+										<span class="token-detail-trait-value">
+											{#if traitHref}
+												<a href={traitHref}>{trait.value}</a>
+											{:else}
+												<span>{trait.value}</span>
+											{/if}
+											{#if shouldShowTokenBiddingAutomation()}
+												<button
+													type="button"
+													class="bid-book-place-bid-icon-button token-detail-trait-bid-button"
+													aria-label={tokenTraitBidLabel(trait)}
+													title={tokenTraitBidLabel(trait)}
+													onclick={() => bidOnTokenTrait(trait)}
+												>
+													<PlaceBidIcon className="bid-book-place-bid-icon" />
+												</button>
+											{/if}
+										</span>
 									</td>
 									<td class="mono token-detail-col-right">{formatTraitCount(trait.tokenCount)}</td>
 									<td class="mono token-detail-col-right">{formatRarityPercent(trait.rarityPercent)}</td>
@@ -541,6 +643,17 @@
 		</div>
 
 		{#if shouldShowTokenBidBook()}
+			{#if shouldShowTokenBiddingAutomation()}
+				<div class="panel-top-actions-row token-detail-bidding-actions">
+					<button
+						type="button"
+						class="facet-panel-action-button bidding-select-all-button"
+						onclick={bidOnDisplayedToken}
+					>
+						{BIDDING_SELECTION_ACTION_LABEL.BidOnToken}
+					</button>
+				</div>
+			{/if}
 			<BidBookPanel
 				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
 				job={tokenBiddingJob}
@@ -548,7 +661,11 @@
 				showMuted={data?.showMuted ?? false}
 				basePath={collectionTokensBasePath()}
 				mediaMode={collectionNavigationMediaMode()}
+				traitValueHref={bidBookTraitValueHref}
 				makerBidHref={bidBookMakerHref}
+				onFilterTraitDemandGroup={onBidBookTraitFilter}
+				canSelectBid={canSelectTokenDetailBidBookBid}
+				onSelectBid={onBidBookSelectBid}
 				showRowActions={false}
 			/>
 		{/if}

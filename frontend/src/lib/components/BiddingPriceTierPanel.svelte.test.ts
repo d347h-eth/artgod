@@ -91,5 +91,6 @@ describe('BiddingPriceTierPanel', () => {
 		expect(body).toContain('<option value="" selected>root</option>');
 		expect(body).toContain('>create<');
 		expect(body).not.toContain('status</span></label>');
+		expect(body).not.toContain('bidding-price-tier-meta');
 	});
 });

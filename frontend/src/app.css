@@ -1314,10 +1314,6 @@ th {
 	gap: 1rem;
 }
 
-.bidding-price-tier-meta {
-	margin-bottom: 0.65rem;
-}
-
 .bidding-price-tier-settings-form {
 	width: var(--token-bidding-content-width);
 	max-width: 100%;
@@ -1633,8 +1629,9 @@ th {
 	display: inline-block;
 	margin-inline-start: 0.45rem;
 	padding: 0 0.28rem;
-	border: 1px solid currentColor;
-	color: var(--c-yellow);
+	border: 1px solid transparent;
+	background: var(--c-yellow);
+	color: var(--c-bg);
 	font-size: 0.58rem;
 	line-height: 1.2;
 	text-transform: uppercase;
@@ -1645,12 +1642,32 @@ th {
 .bid-book-own-status-ceiling,
 .bid-book-own-status-balance,
 .bid-book-own-status-allowance {
-	color: var(--c-pink);
+	background: var(--c-pink);
+	color: var(--c-bg);
 }
 
 .bid-book-own-status-draw,
-.bid-book-own-status-floor {
-	color: var(--c-cyan);
+.bid-book-own-status-floor,
+.bid-book-own-status-queued,
+.bid-book-own-status-active_order {
+	background: var(--c-cyan);
+	color: var(--c-bg);
+}
+
+.bid-book-own-status-paused {
+	background: var(--c-orange);
+	color: var(--c-bg);
+}
+
+.token-grid-own-statuses {
+	display: flex;
+	justify-content: center;
+	gap: 0.3rem;
+	margin-top: 0.25rem;
+}
+
+.token-grid-own-statuses .bid-book-own-status {
+	margin-inline-start: 0;
 }
 
 .bid-book-time-header {
@@ -1674,6 +1691,11 @@ th {
 	align-items: baseline;
 	gap: 0.15rem 1.35rem;
 	margin-bottom: 0;
+}
+
+.bid-book-row-scope-header {
+	justify-content: center;
+	gap: 0.15rem 0.55rem;
 }
 
 .bid-book-demand-group-title {
@@ -2223,6 +2245,11 @@ th {
 	margin-block-start: var(--token-detail-section-gap);
 }
 
+.token-detail-bidding-actions {
+	justify-content: center;
+	margin-block-start: var(--token-detail-section-gap);
+}
+
 .bidding-automation-panel,
 .bidding-price-tier-panel {
 	--token-bidding-label-width: clamp(6.75rem, 26vw, 8rem);
@@ -2456,6 +2483,16 @@ th {
 
 .token-detail-col-right {
 	text-align: right;
+}
+
+.token-detail-trait-value {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.25rem;
+}
+
+.token-detail-trait-bid-button {
+	flex: 0 0 auto;
 }
 
 .token-grid-meta {
@@ -3374,19 +3411,37 @@ th {
 .secondary-tabs a:focus-visible,
 .bid-book-place-bid-icon-button:hover,
 .bid-book-place-bid-icon-button:focus-visible {
-	border-color: var(--c-yellow);
 	color: var(--c-yellow);
 	outline: none;
 }
 
 .bid-book-place-bid-icon-button {
 	align-self: baseline;
-	min-width: 3.8ch;
+	border-color: transparent;
+	background: transparent;
+	min-width: 20px;
+	width: 20px;
 	min-height: 14px;
 	height: 14px;
-	padding: 0 0.45rem;
+	padding: 0;
 	line-height: 12px;
 	vertical-align: baseline;
+}
+
+.bid-book-place-bid-icon-button .filter-icon,
+.bid-book-place-bid-icon {
+	width: 11px;
+	height: 11px;
+	display: block;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.45;
+	stroke-linecap: square;
+	stroke-linejoin: miter;
+}
+
+.bid-book-place-bid-icon {
+	fill: currentColor;
 }
 
 .runtime-tabs button:disabled:hover,

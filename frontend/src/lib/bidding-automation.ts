@@ -6,7 +6,12 @@ import type {
 	ApiTokenAttribute,
 	ApiTraitRangeFilter
 } from '$lib/api-types';
-import type { TokenBrowserStatus } from '@artgod/shared/types/browse';
+import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
+import {
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+	TRADING_BIDDING_BID_SCOPE_KIND,
+	type TokenBrowserStatus
+} from '@artgod/shared/types';
 
 export const BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE = {
 	FilteredTokens: 'filtered_tokens',
@@ -119,6 +124,7 @@ export type BiddingAutomationExplicitTokenSelection = {
 export type BiddingAutomationSelectedBidSelection = {
 	type: typeof BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid;
 	bid: ApiBiddingBidBookRow;
+	existingJob?: ApiBiddingJob | null;
 };
 
 export type BiddingAutomationSelection =
@@ -208,8 +214,8 @@ export function buildBiddingAutomationDraftFromBid(
 		target,
 		pricing: {
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: nextWinningBidEth(bid),
-			ceilingEth: nextWinningBidEth(bid),
+			floorEth: existingJob?.config.floorEth ?? nextWinningBidEth(bid),
+			ceilingEth: existingJob?.config.ceilingEth ?? nextWinningBidEth(bid),
 			deltaEth: existingJob?.config.deltaEth ?? minimalBidDeltaEth(bid)
 		},
 		existingJob
@@ -237,8 +243,8 @@ export function buildTokenBiddingAutomationDraftFromBid(
 		},
 		pricing: {
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: nextWinningBidEth(bid),
-			ceilingEth: nextWinningBidEth(bid),
+			floorEth: existingJob?.config.floorEth ?? nextWinningBidEth(bid),
+			ceilingEth: existingJob?.config.ceilingEth ?? nextWinningBidEth(bid),
 			deltaEth: existingJob?.config.deltaEth ?? minimalBidDeltaEth(bid)
 		},
 		existingJob
@@ -257,6 +263,10 @@ export function buildBiddingAutomationDraftFromSelection(
 	selection: BiddingAutomationSelection,
 	existingJob: ApiBiddingJob | null = null
 ): BiddingAutomationDraft | null {
+	if (selection.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
+		return buildBiddingAutomationDraftFromBid(selection.bid, selection.existingJob ?? existingJob);
+	}
+
 	const target = resolveDraftTargetFromSelection(selection);
 	if (!target) {
 		return null;
@@ -272,6 +282,33 @@ export function buildBiddingAutomationDraftFromSelection(
 		},
 		existingJob
 	};
+}
+
+// Builds a direct trait-job draft from a token detail trait row action.
+export function buildTraitBiddingAutomationDraftFromTrait(params: {
+	trait: ApiTokenAttribute;
+	tokenCount?: number | null;
+	existingJob?: ApiBiddingJob | null;
+}): BiddingAutomationDraft | null {
+	return buildBiddingAutomationDraftFromSelection(
+		{
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,
+			targetIntent: BIDDING_AUTOMATION_FILTER_TARGET_INTENT.TraitJob,
+			filter: buildBiddingAutomationTokenFilterSnapshot({
+				source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
+				selectedTraits: [params.trait],
+				selectedTraitRanges: [],
+				traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
+				tokenStatus: null,
+				makerAddress: null
+			}),
+			tokenCount: params.tokenCount ?? 0,
+			state: {
+				kind: BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean
+			}
+		},
+		params.existingJob ?? null
+	);
 }
 
 // Attaches a target lookup result without mutating the route-local draft source.
@@ -323,9 +360,7 @@ export function buildBiddingJobTargetLookupRequestBody(
 }
 
 // Gates drafts to target kinds that currently have a backend mutation path.
-export function isBiddingAutomationDraftSubmittable(
-	draft: BiddingAutomationDraft | null
-): boolean {
+export function isBiddingAutomationDraftSubmittable(draft: BiddingAutomationDraft | null): boolean {
 	if (!draft) {
 		return true;
 	}
@@ -339,9 +374,7 @@ export function isBiddingAutomationDraftSubmittable(
 }
 
 // Resolves the token ID required by the existing token job mutation API.
-export function biddingAutomationDraftTokenId(
-	draft: BiddingAutomationDraft | null
-): string | null {
+export function biddingAutomationDraftTokenId(draft: BiddingAutomationDraft | null): string | null {
 	if (!draft || draft.target.type !== BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
 		return null;
 	}
@@ -359,23 +392,23 @@ export function biddingTraitCriteriaToTokenAttributes(
 }
 
 function resolveDraftTargetFromBid(bid: ApiBiddingBidBookRow): BiddingAutomationDraftTarget | null {
-	if (bid.scope.kind === 'token' && bid.scope.tokenId) {
+	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Token && bid.scope.tokenId) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch,
 			tokenIds: [bid.scope.tokenId]
 		};
 	}
-	if (bid.scope.kind === 'trait') {
+	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Trait) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
 			traits: bid.scope.traits.map((trait) => ({
 				key: trait.type,
 				value: trait.value
 			})),
-			traitJoinMode: 'and'
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
 		};
 	}
-	if (bid.scope.kind === 'collection') {
+	if (bid.scope.kind === TRADING_BIDDING_BID_SCOPE_KIND.Collection) {
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.CollectionJob
 		};
@@ -387,8 +420,8 @@ function compareBiddingAutomationBidRows(
 	left: ApiBiddingBidBookRow,
 	right: ApiBiddingBidBookRow
 ): number {
-	const leftPrice = BigInt(left.priceWei);
-	const rightPrice = BigInt(right.priceWei);
+	const leftPrice = bidBookRowEffectivePriceWei(left);
+	const rightPrice = bidBookRowEffectivePriceWei(right);
 	if (leftPrice === rightPrice) {
 		return left.orderId.localeCompare(right.orderId);
 	}
@@ -426,7 +459,7 @@ function resolveDraftTargetFromSelection(
 		return {
 			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
 			traits: selection.filter.selectedTraits,
-			traitJoinMode: 'and'
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And
 		};
 	}
 
@@ -453,7 +486,9 @@ export function canDraftTraitJobFromFilters(params: {
 	if (params.selectedTraits.length === 0 || params.selectedTraitRanges.length > 0) {
 		return false;
 	}
-	return new Set(params.selectedTraits.map((trait) => trait.key)).size === params.selectedTraits.length;
+	return (
+		new Set(params.selectedTraits.map((trait) => trait.key)).size === params.selectedTraits.length
+	);
 }
 
 function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined {
@@ -467,7 +502,7 @@ function selectedBidQuantity(draft: BiddingAutomationDraft): number | undefined 
 const WEI_PER_ETH = 1_000_000_000_000_000_000n;
 
 function nextWinningBidEth(bid: ApiBiddingBidBookRow): string {
-	return formatWeiAsEth(BigInt(bid.priceWei) + minimalBidDeltaWei(bid));
+	return formatWeiAsEth(bidBookRowEffectivePriceWei(bid) + minimalBidDeltaWei(bid));
 }
 
 function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
@@ -475,20 +510,20 @@ function minimalBidDeltaEth(bid: ApiBiddingBidBookRow): string {
 }
 
 function minimalBidDeltaWei(bid: ApiBiddingBidBookRow): bigint {
-	const priceWei = BigInt(bid.priceWei);
-	if (priceWei <= 0n) {
+	const effectiveWei = bidBookRowEffectivePriceWei(bid);
+	if (effectiveWei <= 0n) {
 		return 1n;
 	}
-	const priceMagnitude = ethOrderOfMagnitude(priceWei);
+	const priceMagnitude = ethOrderOfMagnitude(effectiveWei);
 	const deltaWeiPower = 16 + priceMagnitude;
 	return deltaWeiPower >= 0 ? 10n ** BigInt(deltaWeiPower) : 1n;
 }
 
-function ethOrderOfMagnitude(priceWei: bigint): number {
-	if (priceWei >= WEI_PER_ETH) {
-		return (priceWei / WEI_PER_ETH).toString().length - 1;
+function ethOrderOfMagnitude(effectiveWei: bigint): number {
+	if (effectiveWei >= WEI_PER_ETH) {
+		return (effectiveWei / WEI_PER_ETH).toString().length - 1;
 	}
-	const fractionText = priceWei.toString().padStart(18, '0');
+	const fractionText = effectiveWei.toString().padStart(18, '0');
 	const firstSignificantIndex = fractionText.search(/[1-9]/);
 	return firstSignificantIndex === -1 ? -18 : -(firstSignificantIndex + 1);
 }

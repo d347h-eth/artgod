@@ -2,7 +2,10 @@ import type {
     ChainRecord,
     CollectionListItem,
     TokenCard,
+    CollectionBiddingBidScopeFilter,
+    CollectionBiddingTraitFilterJoinMode,
 } from "@artgod/shared/types";
+import { COLLECTION_BIDDING_BID_SCOPE_FILTER } from "@artgod/shared/types";
 import {
     decodeOpaqueCursor,
     encodeOpaqueCursor,
@@ -22,14 +25,11 @@ import { applyTraitFilterPresentationToFacets } from "@artgod/shared/read-models
 import type {
     BiddingBidBookRepositoryPort,
     BiddingTokenOfferCardsPage,
-    CollectionBiddingBidScopeFilter,
-    CollectionBiddingTraitFilterJoinMode,
     ListCollectionBiddingBidBookOutput,
     PersistedBiddingBidBook,
     PersistedBiddingBidBookRow,
 } from "./bidding-bid-book.js";
 import {
-    COLLECTION_BIDDING_BID_SCOPE_FILTER,
     mapPersistedBidBookToView,
     mapPersistedBidRowsToView,
 } from "./bidding-bid-book.js";
@@ -45,6 +45,7 @@ export type { ListCollectionBiddingBidBookOutput } from "./bidding-bid-book.js";
 export type ListCollectionBiddingBidBookInput = {
     chainRef: string;
     collectionRef: string;
+    includeOwnJobContext: boolean;
     scopeFilter: CollectionBiddingBidScopeFilter;
     traitFilterJoinMode: CollectionBiddingTraitFilterJoinMode;
     traits: TraitFilter[];
@@ -188,6 +189,7 @@ export class ListCollectionBiddingBidBookUseCase {
                 this.bidBookRepositoryPort.listCollectionBidBook({
                     chainId: chain.publicChainId,
                     collectionId: collection.collectionId,
+                    includeOwnJobContext: input.includeOwnJobContext,
                     scopeFilter: input.scopeFilter,
                     traitFilterJoinMode: input.traitFilterJoinMode,
                     selectedTraits: input.traits,
@@ -212,6 +214,7 @@ export class ListCollectionBiddingBidBookUseCase {
                     this.bidBookRepositoryPort.listCollectionBidBook({
                         chainId: chain.publicChainId,
                         collectionId: collection.collectionId,
+                        includeOwnJobContext: input.includeOwnJobContext,
                         scopeFilter:
                             COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
                         traitFilterJoinMode: input.traitFilterJoinMode,

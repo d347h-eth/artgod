@@ -10,7 +10,12 @@ import {
     TRADING_BIDDING_BID_BOOK_SNAPSHOT_STALE_MS,
 } from "@artgod/shared/trading/runtime-state";
 import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
+    TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
+    TRADING_BIDDING_BID_BOOK_PRICE_KIND,
+    TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
@@ -18,8 +23,8 @@ import {
     TRADING_JOB_TARGET_KIND,
 } from "@artgod/shared/types";
 import {
-    COLLECTION_BIDDING_BID_SCOPE_FILTER,
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    exactBidBookRowPrice,
+    persistedBidBookRowEffectiveWei,
 } from "../../application/use-cases/trading/bidding-bid-book.js";
 import { BIDDING_SPAN_ATTRIBUTE } from "../../application/use-cases/trading/bidding-observability.js";
 import { SqliteBiddingBidBookRepository } from "./sqlite-bidding-bid-book-repository.js";
@@ -108,6 +113,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         const bidBook = repository.listCollectionBidBook({
             chainId: 1,
             collectionId,
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
             selectedTraits: [],
@@ -264,6 +270,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         const collectionBook = repository.listCollectionBidBook({
             chainId: 1,
             collectionId,
+            includeOwnJobContext: true,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
             selectedTraits: [],
@@ -290,6 +297,7 @@ describe("SqliteBiddingBidBookRepository", () => {
             collectionId,
             tokenId: "5",
             tokenTraits: [{ type: "Mode", value: "Terrain" }],
+            includeOwnJobContext: true,
         });
 
         assert.deepEqual(
@@ -302,6 +310,125 @@ describe("SqliteBiddingBidBookRepository", () => {
                 "opponent-collection",
                 "own-collection",
             ],
+        );
+    });
+
+    it("adds admin-only own job intent overlays for queued, runtime-active, and paused jobs", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        insertProjectedState(collectionId, Date.now());
+        seedTraitBiddingJob({
+            collectionId,
+            jobId: "paused-trait-job",
+            status: TRADING_JOB_STATUS.Paused,
+            floorWei: "300",
+            ceilingWei: "400",
+            traits: [{ type: "Mode", value: "Terrain" }],
+        });
+
+        const publicBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: false,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        assert.deepEqual(publicBook.bids, []);
+        assert.equal(publicBook.ownMakerAddress, null);
+
+        const queuedCollectionBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        assert.deepEqual(
+            queuedCollectionBook.bids.map((bid) => ({
+                orderId: bid.orderId,
+                materialization: bid.materialization,
+                price: bid.price,
+                maker: bid.maker,
+            })),
+            [
+                {
+                    orderId: "job-intent:collection-job",
+                    materialization: {
+                        kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+                        jobId: "collection-job",
+                        status: TRADING_JOB_STATUS.Enabled,
+                        phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+                    },
+                    price: {
+                        kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range,
+                        floorWei: "100",
+                        floorEth: "0.0000000000000001",
+                        ceilingWei: "200",
+                        ceilingEth: "0.0000000000000002",
+                    },
+                    maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                },
+            ],
+        );
+
+        seedJobRuntimeState({
+            jobId: "collection-job",
+            currentPriceWei: "150",
+            activeOrderId: "0xruntime-order",
+        });
+        const runtimeCollectionBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        assert.equal(runtimeCollectionBook.bids[0]?.orderId, "0xruntime-order");
+        assert.equal(runtimeCollectionBook.bids[0]?.price.kind, TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact);
+        assert.equal(
+            runtimeCollectionBook.bids[0]
+                ? persistedBidBookRowEffectiveWei(runtimeCollectionBook.bids[0])
+                : null,
+            "150",
+        );
+        assert.equal(
+            runtimeCollectionBook.bids[0]?.materialization.phase,
+            TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder,
+        );
+
+        const pausedTraitBook = repository.listCollectionBidBook({
+            chainId: 1,
+            collectionId,
+            includeOwnJobContext: true,
+            scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
+            traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
+            selectedTraits: [],
+            selectedTraitRanges: [],
+        });
+        assert.deepEqual(pausedTraitBook.bids.map((bid) => bid.orderId), [
+            "job-intent:paused-trait-job",
+        ]);
+        assert.equal(
+            pausedTraitBook.bids[0]?.materialization.phase,
+            TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused,
+        );
+
+        const tokenBook = repository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "5",
+            tokenTraits: [{ type: "Mode", value: "Terrain" }],
+            includeOwnJobContext: true,
+        });
+        assert.deepEqual(
+            tokenBook.bids.map((bid) => bid.orderId),
+            ["job-intent:paused-trait-job", "0xruntime-order"],
         );
     });
 
@@ -335,6 +462,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         const bidBook = repository.listCollectionBidBook({
             chainId: 1,
             collectionId,
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
             selectedTraits: [],
@@ -375,6 +503,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         const andBook = repository.listCollectionBidBook({
             chainId: 1,
             collectionId,
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
             selectedTraits: [
@@ -386,6 +515,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         const orBook = repository.listCollectionBidBook({
             chainId: 1,
             collectionId,
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Traits,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
             selectedTraits: [
@@ -436,6 +566,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         const bidBook = repository.listCollectionBidBook({
             chainId: 1,
             collectionId,
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.Or,
             selectedTraits: [],
@@ -444,20 +575,21 @@ describe("SqliteBiddingBidBookRepository", () => {
 
         assert.equal(bidBook.state.source, TRADING_BIDDING_BID_BOOK_SOURCE.Orders);
         assert.equal(bidBook.state.updatedAt, "2026-05-15T01:00:00Z");
+        assert.equal(bidBook.ownMakerAddress, null);
         assert.deepEqual(
             bidBook.bids.map((bid) => ({
                 orderId: bid.orderId,
                 maker: bid.maker,
                 isOwn: bid.isOwn,
-                priceWei: bid.priceWei,
+                price: bid.price,
                 placedAt: bid.placedAt,
             })),
             [
                 {
                     orderId: "stream-fallback",
                     maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    isOwn: true,
-                    priceWei: "100000000000000000",
+                    isOwn: false,
+                    price: exactBidBookRowPrice("100000000000000000"),
                     placedAt: "1970-01-01T00:00:01Z",
                 },
             ],
@@ -493,6 +625,54 @@ function seedBiddingRuntime(collectionId: number): void {
         new Date().toISOString(),
         new Date().toISOString(),
     );
+}
+
+function seedTraitBiddingJob(input: {
+    collectionId: number;
+    jobId: string;
+    status: typeof TRADING_JOB_STATUS.Enabled | typeof TRADING_JOB_STATUS.Paused;
+    floorWei: string;
+    ceilingWei: string;
+    traits: Array<{ type: string; value: string }>;
+}): void {
+    db.prepare(
+        "INSERT INTO trading_jobs " +
+            "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id, revision) " +
+            "VALUES (@jobId, @botKind, 1, @collectionId, @status, @targetKind, NULL, 1)",
+    ).run({
+        jobId: input.jobId,
+        botKind: TRADING_BOT_KIND.Bidding,
+        collectionId: input.collectionId,
+        status: input.status,
+        targetKind: TRADING_JOB_TARGET_KIND.Collection,
+    });
+    db.prepare(
+        "INSERT INTO trading_bidding_job_specs " +
+            "(job_id, floor_wei, ceiling_wei, delta_wei, quantity, target_traits_json) " +
+            "VALUES (@jobId, @floorWei, @ceilingWei, '1', 1, @traitsJson)",
+    ).run({
+        jobId: input.jobId,
+        floorWei: input.floorWei,
+        ceilingWei: input.ceilingWei,
+        traitsJson: JSON.stringify(input.traits),
+    });
+}
+
+function seedJobRuntimeState(input: {
+    jobId: string;
+    currentPriceWei: string;
+    activeOrderId: string;
+}): void {
+    db.prepare(
+        "INSERT INTO trading_bidding_job_runtime_state " +
+            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, updated_at) " +
+            "VALUES (@jobId, @currentPriceWei, @activeOrderId, NULL, 1900000000000, @updatedAt)",
+    ).run({
+        jobId: input.jobId,
+        currentPriceWei: input.currentPriceWei,
+        activeOrderId: input.activeOrderId,
+        updatedAt: "2026-05-17T00:00:00Z",
+    });
 }
 
 function insertProjectedState(collectionId: number, snapshotRefreshedAtMs: number): void {

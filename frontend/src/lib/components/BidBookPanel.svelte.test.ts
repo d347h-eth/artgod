@@ -6,6 +6,12 @@ import BidBookPanel from './BidBookPanel.svelte';
 const BASE_BID: ApiBiddingBidBookRow = {
 	orderId: '0xbase',
 	source: 'orders',
+	materialization: {
+		kind: 'market_bid',
+		jobId: null,
+		status: null,
+		phase: null
+	},
 	scope: {
 		kind: 'trait',
 		label: 'Biome=42 + Mode=Terrain',
@@ -20,8 +26,7 @@ const BASE_BID: ApiBiddingBidBookRow = {
 		label: '0x1111111111111111111111111111111111111111',
 		isOwn: false
 	},
-	priceWei: '300000000000000000',
-	priceEth: '0.3',
+	price: exactPrice('300000000000000000', '0.3'),
 	quantity: '1',
 	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 	currencySymbol: 'WETH',
@@ -32,6 +37,14 @@ const BASE_BID: ApiBiddingBidBookRow = {
 	seenAt: '2026-01-02T00:00:00Z',
 	ownStatus: null
 };
+
+function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
+	return {
+		kind: 'exact',
+		wei,
+		eth
+	};
+}
 
 describe('BidBookPanel', () => {
 	it('renders individual bids under canonical trait-combination buckets', () => {
@@ -63,8 +76,7 @@ describe('BidBookPanel', () => {
 							{ type: 'Biome', value: '42' }
 						]
 					},
-					priceWei: '290000000000000000',
-					priceEth: '0.29',
+					price: exactPrice('290000000000000000', '0.29'),
 					maker: {
 						address: '0x2222222222222222222222222222222222222222',
 						label: '0x2222222222222222222222222222222222222222',
@@ -74,8 +86,7 @@ describe('BidBookPanel', () => {
 				{
 					...BASE_BID,
 					orderId: '0xtrait-low',
-					priceWei: '300000000000000',
-					priceEth: '0.0003',
+					price: exactPrice('300000000000000', '0.0003'),
 					maker: {
 						address: '0x3333333333333333333333333333333333333333',
 						label: '0x3333333333333333333333333333333333333333',
@@ -91,8 +102,7 @@ describe('BidBookPanel', () => {
 						tokenId: null,
 						traits: [{ type: 'Chroma', value: 'Plague' }]
 					},
-					priceWei: '800000000000000000',
-					priceEth: '0.8'
+					price: exactPrice('800000000000000000', '0.8')
 				},
 				{
 					...BASE_BID,
@@ -103,8 +113,7 @@ describe('BidBookPanel', () => {
 						tokenId: null,
 						traits: [{ type: 'Zone', value: 'Low' }]
 					},
-					priceWei: '100000000000000000',
-					priceEth: '0.1'
+					price: exactPrice('100000000000000000', '0.1')
 				}
 			]
 		};
@@ -181,6 +190,72 @@ describe('BidBookPanel', () => {
 		expect(debugBody).not.toMatch(/<tr(?=[^>]*hidden)(?=[^>]*bid-book-muted-demand-group)[^>]*>/);
 	});
 
+	it('keeps own low bids visible and unmuted in row views', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'bot_snapshot',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 3,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [
+				{
+					...BASE_BID,
+					orderId: '0xtop',
+					scope: {
+						kind: 'token',
+						label: '#1',
+						tokenId: '1',
+						traits: []
+					},
+					price: exactPrice('1000000000000000000', '1')
+				},
+				{
+					...BASE_BID,
+					orderId: '0xown-low',
+					scope: {
+						kind: 'token',
+						label: '#2',
+						tokenId: '2',
+						traits: []
+					},
+					maker: {
+						address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+						label: 'You',
+						isOwn: true
+					},
+					price: exactPrice('10000000000000000', '0.01')
+				},
+				{
+					...BASE_BID,
+					orderId: '0xother-low',
+					scope: {
+						kind: 'token',
+						label: '#3',
+						tokenId: '3',
+						traits: []
+					},
+					price: exactPrice('9000000000000000', '0.009')
+				}
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				showScope: true
+			}
+		});
+
+		expect(body).toMatch(/<tr class="bid-book-own-row">[\s\S]*data-open-sea-order-hash="0xown-low"/);
+		expect(body).not.toContain('data-open-sea-order-hash="0xother-low"');
+		expect(body).toContain('expand 1');
+	});
+
 	it('uses displayed rows only when resolving row price precision', () => {
 		const bidBook: ApiBiddingBidBook = {
 			state: {
@@ -203,8 +278,7 @@ describe('BidBookPanel', () => {
 						tokenId: null,
 						traits: []
 					},
-					priceWei: '200000000000000000',
-					priceEth: '0.2'
+					price: exactPrice('200000000000000000', '0.2')
 				},
 				{
 					...BASE_BID,
@@ -215,8 +289,7 @@ describe('BidBookPanel', () => {
 						tokenId: null,
 						traits: []
 					},
-					priceWei: '190000000000000000',
-					priceEth: '0.19'
+					price: exactPrice('190000000000000000', '0.19')
 				},
 				{
 					...BASE_BID,
@@ -227,8 +300,7 @@ describe('BidBookPanel', () => {
 						tokenId: null,
 						traits: []
 					},
-					priceWei: '345000000000000',
-					priceEth: '0.000345'
+					price: exactPrice('345000000000000', '0.000345')
 				}
 			]
 		};
@@ -246,6 +318,77 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-price-quantity-empty');
 		expect(body).toContain('expand 1');
 		expect(body).not.toContain('0.000345');
+	});
+
+	it('renders separate trait-demand filter and bid actions', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'orders',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: null,
+			bids: [BASE_BID]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				view: 'trait-demand',
+				onFilterTraitDemandGroup: () => {},
+				onSelectBid: () => {}
+			}
+		});
+
+		const filterButtonIndex = body.indexOf('aria-label="filter');
+		const bidIconIndex = body.indexOf('bid-book-place-bid-icon', filterButtonIndex);
+		expect(body).toContain('filter-icon');
+		expect(body).toContain('bid-book-place-bid-icon');
+		expect(filterButtonIndex).toBeGreaterThanOrEqual(0);
+		expect(bidIconIndex).toBeGreaterThan(filterButtonIndex);
+	});
+
+	it('omits redundant trait-demand filter actions for single trait buckets', () => {
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'orders',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 1,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: null,
+			bids: [
+				{
+					...BASE_BID,
+					scope: {
+						kind: 'trait',
+						label: 'Biome=42',
+						tokenId: null,
+						traits: [{ type: 'Biome', value: '42' }]
+					}
+				}
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				view: 'trait-demand',
+				onFilterTraitDemandGroup: () => {},
+				onSelectBid: () => {}
+			}
+		});
+
+		expect(body).not.toContain('filter-icon');
+		expect(body).toContain('bid-book-place-bid-icon');
+		expect(body).toContain('aria-label="place bid on Biome=42"');
 	});
 
 	it('uses maker filter links when provided', () => {
@@ -326,8 +469,7 @@ describe('BidBookPanel', () => {
 				label: 'You',
 				isOwn: true
 			},
-			priceWei: '200000000000000000',
-			priceEth: '0.2',
+			price: exactPrice('200000000000000000', '0.2'),
 			ownStatus: {
 				position: 'winning' as const,
 				constraints: ['ceiling' as const],
@@ -352,8 +494,7 @@ describe('BidBookPanel', () => {
 			bids: [
 				{
 					...ownBid,
-					priceWei: '190000000000000000',
-					priceEth: '0.19',
+					price: exactPrice('190000000000000000', '0.19'),
 					maker: {
 						address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 						label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',

@@ -1,6 +1,11 @@
 import { get } from 'svelte/store';
 import { describe, expect, it } from 'vitest';
 import {
+	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BIDDING_BID_SCOPE_KIND
+} from '@artgod/shared/types';
+import type { ApiBiddingBidBookRow } from '$lib/api-types';
+import {
 	BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
 	BIDDING_AUTOMATION_FILTER_TARGET_INTENT,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
@@ -17,6 +22,45 @@ import {
 	isCleanFilteredTokenBatchSelection,
 	resolveTokenCardSelectionGesture
 } from '$lib/bidding-automation-controller';
+
+const BASE_BID: ApiBiddingBidBookRow = {
+	orderId: '0xbase',
+	source: 'orders',
+	materialization: {
+		kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+		jobId: null,
+		status: null,
+		phase: null
+	},
+	scope: {
+		kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+		label: 'Mode=Terrain + Zone=Shahra',
+		tokenId: null,
+		traits: [
+			{ type: 'Mode', value: 'Terrain' },
+			{ type: 'Zone', value: 'Shahra' }
+		]
+	},
+	maker: {
+		address: '0x1111111111111111111111111111111111111111',
+		label: '0x1111111111111111111111111111111111111111',
+		isOwn: false
+	},
+	price: {
+		kind: 'exact',
+		wei: '300000000000000000',
+		eth: '0.3'
+	},
+	quantity: '1',
+	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+	currencySymbol: 'WETH',
+	protocolAddress: null,
+	validUntil: 1_900_000_000,
+	placedAt: '2026-01-02T00:00:00Z',
+	snapshotRefreshedAtMs: null,
+	seenAt: '2026-01-02T00:00:00Z',
+	ownStatus: null
+};
 
 describe('createBiddingAutomationController', () => {
 	it('builds shared filtered selection inputs for trait and token target controls', () => {
@@ -174,6 +218,17 @@ describe('createBiddingAutomationController', () => {
 
 		expect(controller.selectionSummary()).toBe('69 tokens selected');
 		expect(controller.tokenSelectionState('2').selected).toBe(true);
+	});
+
+	it('stores selected bid actions as the shared bidding selection state', () => {
+		const controller = createBiddingAutomationController();
+
+		controller.selectBid({ bid: BASE_BID });
+
+		const selection = get(controller.state).selection;
+		expect(selection?.type).toBe(BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid);
+		expect(controller.selectionSummary()).toBe('2 traits selected');
+		expect(biddingAutomationSelectionStateKey(selection)).toContain('bid:0xbase');
 	});
 
 	it('downgrades manual changes after select-all into visible token IDs', () => {

@@ -7,6 +7,7 @@
 	} from '$lib/api-types';
 	import MarketPriceIcon from '$lib/components/MarketPriceIcon.svelte';
 	import TokenMediaPreviewTrigger from '$lib/components/TokenMediaPreviewTrigger.svelte';
+	import type { BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
 	import type { MarketPriceItem } from '$lib/market-price';
 	import type {
 		TokenPreviewAdjacentResolver,
@@ -32,6 +33,7 @@
 		priceTitle = null,
 		marketPrices = [],
 		metaLabel = null,
+		ownStatusBadges = [],
 		selection = null
 	}: {
 		chain: ApiChain | null;
@@ -47,6 +49,7 @@
 		priceTitle?: string | null;
 		marketPrices?: MarketPriceItem[];
 		metaLabel?: string | null;
+		ownStatusBadges?: BidBookOwnStatusBadge[];
 		selection?: TokenCardSelectionProps | null;
 	} = $props();
 
@@ -164,6 +167,15 @@
 		{/if}
 		{#if metaLabel}
 			<div class="mono token-grid-secondary-meta">{metaLabel}</div>
+		{/if}
+		{#if ownStatusBadges.length > 0}
+			<div class="token-grid-own-statuses" aria-label="own bid status">
+				{#each ownStatusBadges as badge (`${badge.kind}:${badge.label}`)}
+					<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
+						{badge.label}
+					</span>
+				{/each}
+			</div>
 		{/if}
 	</div>
 </article>

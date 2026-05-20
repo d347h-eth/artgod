@@ -923,9 +923,28 @@ describe("Bidder stream refresh", () => {
             },
             { id: "0xother", price: 5n, maker: "0xother", offerScope: "item" },
         ];
-        const bidder = new Bidder(biddingService as any, "0xmaker", 5000, {
-            dryRun: false,
-        });
+        const persistedStates: Array<{
+            activeOrderId: string | null;
+            currentPriceWei: string | null;
+        }> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            5000,
+            {
+                dryRun: false,
+            },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: (snapshot) => {
+                    persistedStates.push({
+                        activeOrderId: snapshot.activeOrderId,
+                        currentPriceWei: snapshot.currentPriceWei,
+                    });
+                },
+            },
+        );
         const job = makeJob(
             "token-hit",
             "terraforms",
@@ -942,6 +961,10 @@ describe("Bidder stream refresh", () => {
         assert.deepEqual(biddingService.canceledOrderIds, ["0xmy-expiring-order"]);
         assert.equal(job.state.activeOrderId, "0xhash");
         assert.ok(job.state.activeExpirationTimeMs !== undefined);
+        assert.deepEqual(persistedStates.at(-1), {
+            activeOrderId: "0xhash",
+            currentPriceWei: "6",
+        });
     });
 
     it("preserves a known expiration from state when market responses omit it for the same order", async () => {

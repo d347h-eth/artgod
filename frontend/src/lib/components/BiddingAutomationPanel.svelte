@@ -1,6 +1,5 @@
 <script lang="ts">
 	import {
-		TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
 		TRADING_BIDDING_TIER_SELECTION_MODE,
 		TRADING_JOB_STATUS,
 		TRADING_JOB_TARGET_KIND
@@ -16,24 +15,33 @@
 		ApiTokenDetail
 	} from '$lib/api-types';
 	import {
-		archiveBiddingJob,
-		lookupBiddingJobTarget,
-		upsertBatchTokenBiddingJobs,
-		upsertCollectionBiddingJob,
-		upsertTokenBiddingJob,
-		upsertTraitBiddingJob
-	} from '$lib/backend-api';
-	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
+		archiveBiddingAutomationJob,
+		hasSubmittableBiddingTarget,
+		lookupBiddingAutomationDraftTargetJob,
+		resolveBiddingAutomationDraftTargetLookupKey,
+		resolveBiddingSaveMessage,
+		saveBiddingAutomationDraftJobs,
+		type BiddingAutomationPricingRequest,
+		type EditableBiddingJobStatus
+	} from '$lib/bidding-automation-panel-actions';
 	import {
-		BIDDING_AUTOMATION_FILTER_SELECTION_STATE,
+		hasBiddingAutomationPanelDraftChanges,
+		resolveBiddingAutomationPanelJob,
+		resolveInitialBiddingAutomationCeilingEth,
+		resolveInitialBiddingAutomationDeltaEth,
+		resolveInitialBiddingAutomationFloorEth,
+		resolveInitialBiddingAutomationPriceTierId,
+		resolveInitialBiddingAutomationPricingMode,
+		resolveInitialBiddingAutomationStatus,
+		resolveLoadedBiddingAutomationPanelKey
+	} from '$lib/bidding-automation-panel-state';
+	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
+	import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
+	import {
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 		BIDDING_AUTOMATION_PRICING_MODE,
 		BIDDING_AUTOMATION_PRICING_MODE_LABEL,
-		BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
-		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		biddingAutomationDraftTokenId,
-		buildBiddingJobTargetLookupRequestBody,
-		canSubmitFilteredTokenBatch,
 		isBiddingAutomationDraftSubmittable,
 		type BiddingAutomationDraft,
 		type BiddingAutomationPricingMode
@@ -47,9 +55,6 @@
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 
-	type EditableTokenJobStatus =
-		| typeof TRADING_JOB_STATUS.Enabled
-		| typeof TRADING_JOB_STATUS.Paused;
 	type BiddingAutomationPanelVariant = 'floating' | 'inline';
 	type ConfirmableBiddingAction = 'create' | 'modify' | 'activate' | 'pause' | 'archive';
 
@@ -85,17 +90,23 @@
 		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
 	} = $props();
 
-	const initialPanelJob = resolvePanelJob(job, draft, null);
+	const initialPanelJob = resolveBiddingAutomationPanelJob({ job, draft, lookedUpJob: null });
 	let currentJob = $state<ApiBiddingJob | null>(initialPanelJob);
-	let loadedJobKey = $state(resolveLoadedPanelKey(job, draft, null));
+	let loadedJobKey = $state(resolveLoadedBiddingAutomationPanelKey({ job, draft, lookedUpJob: null }));
 	let pricingMode = $state<BiddingAutomationPricingMode>(
-		resolveInitialPricingMode(initialPanelJob, draft)
+		resolveInitialBiddingAutomationPricingMode({ job: initialPanelJob, draft })
 	);
-	let selectedPriceTierId = $state(resolveInitialPriceTierId(initialPanelJob, draft));
-	let status = $state<EditableTokenJobStatus>(resolveInitialStatus(initialPanelJob));
-	let floorEth = $state(resolveInitialFloorEth(initialPanelJob, draft));
-	let ceilingEth = $state(resolveInitialCeilingEth(initialPanelJob, draft));
-	let deltaEth = $state(resolveInitialDeltaEth(initialPanelJob, draft));
+	let selectedPriceTierId = $state(resolveInitialBiddingAutomationPriceTierId({ job: initialPanelJob, draft }));
+	let status = $state<EditableBiddingJobStatus>(resolveInitialBiddingAutomationStatus(initialPanelJob));
+	let floorEth = $state(resolveInitialBiddingAutomationFloorEth({ job: initialPanelJob, draft }));
+	let ceilingEth = $state(resolveInitialBiddingAutomationCeilingEth({ job: initialPanelJob, draft }));
+	let deltaEth = $state(
+		resolveInitialBiddingAutomationDeltaEth({
+			job: initialPanelJob,
+			draft,
+			defaultDeltaEth: biddingSettings.defaultDeltaEth
+		})
+	);
 	let saving = $state(false);
 	let archiving = $state(false);
 	let saveMessage = $state<string | null>(null);
@@ -139,12 +150,25 @@
 			displayedCeilingEth.trim().length > 0 &&
 			displayedDeltaEth.trim().length > 0
 	);
-	const hasDraftChanges = $derived(resolveHasDraftChanges());
+	const hasDraftChanges = $derived(
+		hasBiddingAutomationPanelDraftChanges({
+			currentJob,
+			status,
+			pricingMode,
+			selectedPriceTierId,
+			displayedFloorEth,
+			displayedCeilingEth,
+			displayedDeltaEth,
+			floorEth,
+			ceilingEth,
+			deltaEth
+		})
+	);
 	const canSubmitDraft = $derived(
 		!!chain &&
 			!!collection &&
 			!selectedDraftUnsupported &&
-			hasSubmittableTarget() &&
+			hasSubmittableBiddingTarget({ draft, targetTokenId }) &&
 			pricingAvailable &&
 			priceInputsComplete
 	);
@@ -176,7 +200,11 @@
 	});
 
 	$effect(() => {
-		const nextLoadedJobKey = resolveLoadedPanelKey(job, draft, targetLookupJob);
+		const nextLoadedJobKey = resolveLoadedBiddingAutomationPanelKey({
+			job,
+			draft,
+			lookedUpJob: targetLookupJob
+		});
 		if (nextLoadedJobKey === loadedJobKey) {
 			return;
 		}
@@ -203,150 +231,6 @@
 			panelCollapsed = false;
 		}
 	});
-
-	function resolvePanelJob(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null,
-		lookedUpJob: ApiBiddingJob | null
-	): ApiBiddingJob | null {
-		return currentDraft?.existingJob ?? lookedUpJob ?? value;
-	}
-
-	function resolveLoadedPanelKey(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null,
-		lookedUpJob: ApiBiddingJob | null
-	): string {
-		return `${resolveLoadedJobKey(resolvePanelJob(value, currentDraft, lookedUpJob))}:${resolveDraftKey(currentDraft)}`;
-	}
-
-	function resolveLoadedJobKey(value: ApiBiddingJob | null): string {
-		if (!value) {
-			return 'empty';
-		}
-		return [
-			value.jobId,
-			value.revision,
-			value.status,
-			value.config.floorEth,
-			value.config.ceilingEth,
-			value.config.deltaEth
-		].join(':');
-	}
-
-	function resolveDraftKey(value: BiddingAutomationDraft | null): string {
-		if (!value) {
-			return 'no-draft';
-		}
-		return [
-			value.source.type,
-			value.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid
-				? value.source.bid.orderId
-				: '',
-			value.target.type,
-			biddingAutomationDraftTokenId(value) ?? '',
-			value.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch
-				? value.target.tokenCount
-				: '',
-			value.pricing.mode,
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.floorEth : '',
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.ceilingEth : '',
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? value.pricing.deltaEth : '',
-			value.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier ? value.pricing.tierId : ''
-		].join(':');
-	}
-
-	function resolveInitialPricingMode(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): BiddingAutomationPricingMode {
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-			return BIDDING_AUTOMATION_PRICING_MODE.Tier;
-		}
-		return value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
-			? BIDDING_AUTOMATION_PRICING_MODE.Tier
-			: BIDDING_AUTOMATION_PRICING_MODE.Manual;
-	}
-
-	function resolveInitialPriceTierId(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): string {
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-			return currentDraft.pricing.tierId;
-		}
-		return value?.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
-			? value.config.pricingSource.tierId
-			: '';
-	}
-
-	function resolveInitialStatus(value: ApiBiddingJob | null): EditableTokenJobStatus {
-		return value?.status === TRADING_JOB_STATUS.Paused
-			? TRADING_JOB_STATUS.Paused
-			: TRADING_JOB_STATUS.Enabled;
-	}
-
-	function resolveInitialFloorEth(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): string {
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
-			return currentDraft.pricing.floorEth;
-		}
-		return value?.config.floorEth ?? '';
-	}
-
-	function resolveInitialCeilingEth(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): string {
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
-			return currentDraft.pricing.ceilingEth;
-		}
-		return value?.config.ceilingEth ?? '';
-	}
-
-	function resolveInitialDeltaEth(
-		value: ApiBiddingJob | null,
-		currentDraft: BiddingAutomationDraft | null
-	): string {
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual) {
-			return currentDraft.pricing.deltaEth;
-		}
-		if (currentDraft?.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-			return currentDraft.pricing.deltaEth;
-		}
-		return value?.config.deltaEth ?? '';
-	}
-
-	function resolveHasDraftChanges(): boolean {
-		if (currentJob) {
-			if (pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier) {
-				return (
-					status !== resolveInitialStatus(currentJob) ||
-					selectedPriceTierId !== jobPriceTierId(currentJob) ||
-					displayedFloorEth.trim() !== currentJob.config.floorEth ||
-					displayedCeilingEth.trim() !== currentJob.config.ceilingEth ||
-					displayedDeltaEth.trim() !== currentJob.config.deltaEth
-				);
-			}
-			return (
-				status !== resolveInitialStatus(currentJob) ||
-				currentJob.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier ||
-				floorEth.trim() !== currentJob.config.floorEth ||
-				ceilingEth.trim() !== currentJob.config.ceilingEth ||
-				deltaEth.trim() !== currentJob.config.deltaEth
-			);
-		}
-
-		return (
-			status !== TRADING_JOB_STATUS.Enabled ||
-			pricingMode !== BIDDING_AUTOMATION_PRICING_MODE.Manual ||
-			displayedFloorEth.trim().length > 0 ||
-			displayedCeilingEth.trim().length > 0 ||
-			deltaEth.trim().length > 0
-		);
-	}
 
 	function resetDraft(): void {
 		applyDraft(currentJob, draft);
@@ -425,36 +309,39 @@
 		currentDraft: BiddingAutomationDraft | null,
 		lookedUpJob: ApiBiddingJob | null
 	): void {
-		currentJob = resolvePanelJob(value, currentDraft, lookedUpJob);
+		currentJob = resolveBiddingAutomationPanelJob({
+			job: value,
+			draft: currentDraft,
+			lookedUpJob
+		});
 		applyDraft(currentJob, currentDraft);
 	}
 
 	async function refreshTargetLookupJob(): Promise<void> {
-		if (!chain || !collection || !draft || draft.existingJob) {
-			targetLookupKey = '';
-			targetLookupJob = null;
-			return;
-		}
-
-		const body = buildBiddingJobTargetLookupRequestBody(draft);
-		if (!body) {
-			targetLookupKey = '';
-			targetLookupJob = null;
-			return;
-		}
-
-		const nextLookupKey = `${chain.slug}:${collection.slug}:${JSON.stringify(body)}`;
+		const nextLookupKey = resolveBiddingAutomationDraftTargetLookupKey({
+			chain,
+			collection,
+			draft
+		});
 		if (nextLookupKey === targetLookupKey) {
 			return;
 		}
 		targetLookupKey = nextLookupKey;
 		targetLookupJob = null;
+		if (!nextLookupKey) {
+			return;
+		}
 
 		try {
 			// Ask the backend if this draft target already has a declared job.
-			const response = await lookupBiddingJobTarget(fetch, chain.slug, collection.slug, body);
+			const lookedUpJob = await lookupBiddingAutomationDraftTargetJob({
+				fetchFn: fetch,
+				chain,
+				collection,
+				draft
+			});
 			if (targetLookupKey === nextLookupKey) {
-				targetLookupJob = response.job;
+				targetLookupJob = lookedUpJob;
 			}
 		} catch (error) {
 			if (targetLookupKey === nextLookupKey) {
@@ -464,12 +351,28 @@
 	}
 
 	function applyDraft(value: ApiBiddingJob | null, currentDraft: BiddingAutomationDraft | null): void {
-		pricingMode = resolveInitialPricingMode(value, currentDraft);
-		selectedPriceTierId = resolveInitialPriceTierId(value, currentDraft);
-		status = resolveInitialStatus(value);
-		floorEth = resolveInitialFloorEth(value, currentDraft);
-		ceilingEth = resolveInitialCeilingEth(value, currentDraft);
-		deltaEth = resolveInitialDeltaEth(value, currentDraft);
+		pricingMode = resolveInitialBiddingAutomationPricingMode({
+			job: value,
+			draft: currentDraft
+		});
+		selectedPriceTierId = resolveInitialBiddingAutomationPriceTierId({
+			job: value,
+			draft: currentDraft
+		});
+		status = resolveInitialBiddingAutomationStatus(value);
+		floorEth = resolveInitialBiddingAutomationFloorEth({
+			job: value,
+			draft: currentDraft
+		});
+		ceilingEth = resolveInitialBiddingAutomationCeilingEth({
+			job: value,
+			draft: currentDraft
+		});
+		deltaEth = resolveInitialBiddingAutomationDeltaEth({
+			job: value,
+			draft: currentDraft,
+			defaultDeltaEth: biddingSettings.defaultDeltaEth
+		});
 	}
 
 	function resolveSelectedPriceTier(): ApiBiddingPriceTier | null {
@@ -477,12 +380,6 @@
 			return null;
 		}
 		return priceTiers.find((tier) => tier.tierId === selectedPriceTierId) ?? null;
-	}
-
-	function jobPriceTierId(value: ApiBiddingJob): string | null {
-		return value.config.pricingSource?.kind === TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.PriceTier
-			? value.config.pricingSource.tierId
-			: null;
 	}
 
 	function pricingSelectionValue(): string {
@@ -597,7 +494,10 @@
 		}
 
 		const opponentBid = bestBid(currentBidBook.bids, (bid) => !bid.maker.isOwn);
-		if (!opponentBid || BigInt(ownBid.priceWei) >= BigInt(opponentBid.priceWei)) {
+		if (
+			!opponentBid ||
+			bidBookRowEffectivePriceWei(ownBid) >= bidBookRowEffectivePriceWei(opponentBid)
+		) {
 			return 'winning';
 		}
 		return 'outbid';
@@ -608,8 +508,8 @@
 		predicate: (bid: ApiBiddingBidBookRow) => boolean
 	): ApiBiddingBidBookRow | null {
 		return bids.filter(predicate).sort((left, right) => {
-			const leftPrice = BigInt(left.priceWei);
-			const rightPrice = BigInt(right.priceWei);
+			const leftPrice = bidBookRowEffectivePriceWei(left);
+			const rightPrice = bidBookRowEffectivePriceWei(right);
 			if (leftPrice === rightPrice) {
 				return left.orderId.localeCompare(right.orderId);
 			}
@@ -617,7 +517,7 @@
 		})[0] ?? null;
 	}
 
-	async function handleSave(statusOverride: EditableTokenJobStatus | null = null): Promise<void> {
+	async function handleSave(statusOverride: EditableBiddingJobStatus | null = null): Promise<void> {
 		if (!chain || !collection || selectedDraftUnsupported || saving || archiving || !canSubmitDraft) {
 			return;
 		}
@@ -643,7 +543,15 @@
 
 		try {
 			// Persist the draft through the matching backend job mutation adapter.
-			const changedJobs = await saveDraftJobs(chain.slug, collection.slug, nextStatus);
+			const changedJobs = await saveBiddingAutomationDraftJobs({
+				fetchFn: fetch,
+				chainRef: chain.slug,
+				collectionRef: collection.slug,
+				draft,
+				targetTokenId,
+				nextStatus,
+				pricing: pricingRequestBody()
+			});
 			currentJob = changedJobs.length === 1 ? changedJobs[0] : currentJob;
 			notifyJobsChanged(changedJobs);
 			resetDraft();
@@ -652,7 +560,7 @@
 					? 'paused'
 					: statusOverride === TRADING_JOB_STATUS.Enabled && wasExistingJob
 						? 'activated'
-						: resolveSaveMessage(changedJobs.length, wasExistingJob);
+						: resolveBiddingSaveMessage(changedJobs.length, wasExistingJob);
 		} catch (error) {
 			saveError = error instanceof Error ? error.message : 'failed to save bidding job';
 		} finally {
@@ -660,118 +568,7 @@
 		}
 	}
 
-	async function saveDraftJobs(
-		chainRef: string,
-		collectionRef: string,
-		nextStatus: EditableTokenJobStatus
-	): Promise<ApiBiddingJob[]> {
-		const pricingBody = pricingRequestBody();
-		if (!draft) {
-			if (!targetTokenId) {
-				throw new Error('target token is required');
-			}
-			const response = await upsertTokenBiddingJob(fetch, chainRef, collectionRef, targetTokenId, {
-				status: nextStatus,
-				...pricingBody
-			});
-			return [response.job];
-		}
-
-		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
-			if (draft.target.tokenIds.length === 1) {
-				const response = await upsertTokenBiddingJob(
-					fetch,
-					chainRef,
-					collectionRef,
-					draft.target.tokenIds[0],
-					{
-						status: nextStatus,
-						...pricingBody
-					}
-				);
-				return [response.job];
-			}
-			const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
-				status: nextStatus,
-				...pricingBody,
-				selection: {
-					type: 'token_ids',
-					tokenIds: draft.target.tokenIds
-				}
-			});
-			return response.jobs;
-		}
-
-		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
-			if (
-				draft.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens ||
-				!canSubmitFilteredTokenBatch(draft)
-			) {
-				throw new Error('filtered token selection is not available for submit');
-			}
-			if (draft.source.filter.source === BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenOffers) {
-				const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
-					status: nextStatus,
-					...pricingBody,
-					selection: {
-						type: 'token_offer_filter',
-						traits: draft.source.filter.selectedTraits,
-						traitRanges: draft.source.filter.selectedTraitRanges,
-						traitJoinMode: draft.source.filter.traitJoinMode,
-						makerAddress: draft.source.filter.makerAddress
-					}
-				});
-				return response.jobs;
-			}
-			const tokenStatus = draft.source.filter.tokenStatus;
-			if (!tokenStatus) {
-				throw new Error('filtered token selection is missing token status');
-			}
-			const response = await upsertBatchTokenBiddingJobs(fetch, chainRef, collectionRef, {
-				status: nextStatus,
-				...pricingBody,
-				selection: {
-					type: 'filter',
-					tokenStatus,
-					traits: draft.source.filter.selectedTraits,
-					traitRanges: draft.source.filter.selectedTraitRanges
-				}
-			});
-			return response.jobs;
-		}
-
-		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
-			const response = await upsertTraitBiddingJob(fetch, chainRef, collectionRef, {
-				status: nextStatus,
-				...pricingBody,
-				quantity: selectedBidQuantity(),
-				targetTraits: draft.target.traits.map((trait) => ({
-					type: trait.key,
-					value: trait.value
-				}))
-			});
-			return [response.job];
-		}
-
-		const response = await upsertCollectionBiddingJob(fetch, chainRef, collectionRef, {
-			status: nextStatus,
-			...pricingBody,
-			quantity: selectedBidQuantity()
-		});
-		return [response.job];
-	}
-
-	function pricingRequestBody():
-		| {
-				priceTierId: string;
-				deltaEth: string;
-		  }
-		| {
-				floorEth: string;
-				ceilingEth: string;
-				deltaEth: string;
-				priceTierId: null;
-		  } {
+	function pricingRequestBody(): BiddingAutomationPricingRequest {
 		return pricingMode === BIDDING_AUTOMATION_PRICING_MODE.Tier
 			? { priceTierId: selectedPriceTierId, deltaEth: displayedDeltaEth.trim() }
 			: {
@@ -782,44 +579,11 @@
 				};
 	}
 
-	function selectedBidQuantity(): number | undefined {
-		if (draft?.source.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid) {
-			return undefined;
-		}
-		const parsed = Number(draft.source.bid.quantity);
-		return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-	}
-
-	function hasSubmittableTarget(): boolean {
-		if (!draft) {
-			return !!targetTokenId;
-		}
-		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
-			return draft.target.tokenIds.length > 0;
-		}
-		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
-			return draft.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens &&
-				draft.source.state.kind === BIDDING_AUTOMATION_FILTER_SELECTION_STATE.Clean &&
-				canSubmitFilteredTokenBatch(draft);
-		}
-		if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
-			return draft.target.traits.length > 0;
-		}
-		return true;
-	}
-
 	function notifyJobsChanged(jobs: ApiBiddingJob[]): void {
 		if (jobs.length === 1 && jobs[0].target.type === TRADING_JOB_TARGET_KIND.Token) {
 			onJobChange?.(jobs[0]);
 		}
 		onJobsChange?.(jobs);
-	}
-
-	function resolveSaveMessage(count: number, wasExistingJob: boolean): string {
-		if (count <= 1) {
-			return wasExistingJob ? 'modified' : 'created';
-		}
-		return `${count} jobs saved`;
 	}
 
 	async function handleArchive(): Promise<void> {
@@ -841,12 +605,17 @@
 
 		try {
 			// Archive the declared bidding job through the target-agnostic backend adapter.
-			const response = await archiveBiddingJob(fetch, chain.slug, collection.slug, currentJob.jobId);
+			const archivedJob = await archiveBiddingAutomationJob({
+				fetchFn: fetch,
+				chainRef: chain.slug,
+				collectionRef: collection.slug,
+				jobId: currentJob.jobId
+			});
 			currentJob = null;
-			if (response.job.target.type === TRADING_JOB_TARGET_KIND.Token) {
+			if (archivedJob.target.type === TRADING_JOB_TARGET_KIND.Token) {
 				onJobChange?.(null);
 			}
-			onJobsChange?.([response.job]);
+			onJobsChange?.([archivedJob]);
 			resetDraft();
 			saveMessage = 'archived';
 		} catch (error) {

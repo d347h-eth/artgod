@@ -32,7 +32,12 @@ import type {
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
 import { browser } from '$app/environment';
-import type { TradingBiddingTierSelectionMode } from '@artgod/shared/types';
+import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from '@artgod/shared/types';
+import type {
+	CollectionBiddingTraitFilterJoinMode,
+	TokenBrowserStatus,
+	TradingBiddingTierSelectionMode
+} from '@artgod/shared/types';
 
 // Max duration for transient backend retry loop during early runtime startup.
 const STARTUP_RETRY_WINDOW_MS = 12_000;
@@ -317,20 +322,20 @@ export async function upsertBatchTokenBiddingJobs(
 		priceTierId?: string | null;
 		selection:
 			| {
-					type: 'token_ids';
+					type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds;
 					tokenIds: string[];
 			  }
 			| {
-					type: 'filter';
-					tokenStatus: 'listed' | 'all' | 'listed_then_unlisted';
+					type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter;
+					tokenStatus: TokenBrowserStatus;
 					traits: { key: string; value: string }[];
 					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
 			  }
 			| {
-					type: 'token_offer_filter';
+					type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter;
 					traits: { key: string; value: string }[];
 					traitRanges: { key: string; fromValue: string | null; toValue: string | null }[];
-					traitJoinMode: 'or' | 'and';
+					traitJoinMode: CollectionBiddingTraitFilterJoinMode;
 					makerAddress?: string | null;
 			  };
 	}

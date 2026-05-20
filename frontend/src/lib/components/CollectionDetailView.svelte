@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import { TRADING_JOB_STATUS } from '@artgod/shared/types';
+	import {
+		COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+		TRADING_JOB_STATUS
+	} from '@artgod/shared/types';
 	import type {
 		ApiChain,
 		ApiBiddingBidBook,
@@ -34,6 +37,8 @@
 		isCleanFilteredTokenBatchSelection,
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
+	import { resolveTokenBrowserBiddingSelectionControlPolicy } from '$lib/bidding-selection-control-policy';
+	import { resolveBiddingTokenActionLabel } from '$lib/bidding-selection-actions';
 	import { emptyBiddingBidBook } from '$lib/bidding-empty-state';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
 	import BiddingAutomationPanel from '$lib/components/BiddingAutomationPanel.svelte';
@@ -119,9 +124,16 @@
 	);
 	const canRefineTokenSelectionToVisiblePage = $derived(tokens.totalPages > 1);
 	const tokenActionLabel = $derived(
-		isAllFilteredTokenSelectionActive() && canRefineTokenSelectionToVisiblePage
-			? 'bid on this page'
-			: 'bid on all tokens'
+		resolveBiddingTokenActionLabel({
+			allFilteredSelectionActive: isAllFilteredTokenSelectionActive(),
+			canRefineTokenSelectionToVisiblePage
+		})
+	);
+	const biddingSelectionControlPolicy = $derived(
+		resolveTokenBrowserBiddingSelectionControlPolicy({
+			publicSingleCollection: IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+			canBidOnTraits
+		})
 	);
 
 	$effect(() => {
@@ -305,7 +317,7 @@
 			source: BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE.TokenBrowser,
 			selectedTraits,
 			selectedTraitRanges,
-			traitJoinMode: 'and',
+			traitJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 			tokenStatus,
 			makerAddress: null
 		});
@@ -393,12 +405,13 @@
 					onSelectedFiltersChange={applyTraitFilters}
 				/>
 			</div>
-			{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+			{#if biddingSelectionControlPolicy.renderRow}
 				<div class="panel-top-actions-row">
 					<BiddingSelectionControls
 						summary={biddingSelectionSummary}
-						showTraitAction={canBidOnTraits}
-						showTierAction
+						showTraitAction={biddingSelectionControlPolicy.showTraitAction}
+						showTokenAction={biddingSelectionControlPolicy.showTokenAction}
+						showTierAction={biddingSelectionControlPolicy.showTierAction}
 						tierActionActive={priceTierPanelOpen}
 						tokenActionLabel={tokenActionLabel}
 						tokenActionDisabled={tokens.totalItems === 0}

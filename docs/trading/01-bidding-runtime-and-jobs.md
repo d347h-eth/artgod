@@ -141,6 +141,7 @@ Projection tables:
 
 - `trading_bidding_bid_book_rows`: materialized active bids by collection, source, scope, maker, unit price, quantity, validity, placement time, and display metadata
 - `trading_bidding_collection_bid_book_state`: projection freshness, row count, duration, and last error per collection/source
+- `trading_bidding_job_runtime_state`: bot-owned active-offer feedback that lets backend bid-book reads connect declared jobs to live orders
 
 Bot snapshot projection:
 
@@ -156,6 +157,8 @@ Backend source selection:
 
 - use `bot_snapshot` when the collection has enabled bidding jobs, the bidding bot heartbeat is live, and projection metadata is fresh
 - otherwise use `orders`
+- standard/admin reads may overlay own declared jobs as `own_job_intent` rows before the bot has landed a matching market offer
+- public single-collection reads stay market-only and do not expose local own-job context
 
 Frontend labels:
 
@@ -164,6 +167,13 @@ Frontend labels:
 
 `competitive` means the bid book is refreshed at the bot's competitive snapshot cadence.
 `normal` means the bid book is refreshed through normal OpenSea order polling plus inbound stream updates.
+
+Bid-book row materialization:
+
+- `market_bid`: a real row from OpenSea order data, either the bot snapshot projection or canonical orders
+- `own_job_intent`: a local declared job rendered as the user's intended bid while the runtime order is queued, paused, or not yet visible in market data
+- queued or paused own-intent rows use a floor-ceiling price range because no single market order price exists yet
+- runtime-active own-intent rows use the bot-persisted active order id and exact current price until the market row appears
 
 ## Bidding Automation UI
 
@@ -210,6 +220,7 @@ Implemented behavior:
 
 - root tiers are user-entered scalar floor values in Ether units
 - child tiers can derive floor/ceiling from parent or floor values by absolute or percent deltas
+- multiple child tiers can share the same parent, so one root can anchor independent strategy branches
 - each tier owns its own delta
 - collection settings store the default new-tier delta and tier selector presentation mode
 - automation panel can select `manual` or a tier

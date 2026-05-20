@@ -6,11 +6,33 @@ import {
 	TERRAFORMS_MODE_ATTRIBUTE_KEY,
 	TERRAFORMS_MODE_ATTRIBUTE_VALUES
 } from '@artgod/shared/extensions/terraforms';
+import {
+	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BIDDING_BID_SCOPE_KIND
+} from '@artgod/shared/types';
 import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
+import type { ApiBiddingBidBookRow } from '$lib/api-types';
 import { TERRAFORMS_TOKEN_DETAIL_SECTION_LABELS } from '$lib/activity-extension-views/terraforms/constants';
 import TokenDetailPage from '../../routes/[chain_ref]/[collection_ref]/[token_ref]/+page.svelte';
 
 installBuiltInCollectionExtensions();
+
+function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
+	return {
+		kind: 'exact',
+		wei,
+		eth
+	};
+}
+
+function marketMaterialization(): ApiBiddingBidBookRow['materialization'] {
+	return {
+		kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+		jobId: null,
+		status: null,
+		phase: null
+	};
+}
 
 describe('token detail page', () => {
 	it('renders centered media with fallback title and traits table', () => {
@@ -83,7 +105,7 @@ describe('token detail page', () => {
 								updatedAt: null,
 								snapshotRefreshedAtMs: null,
 								projectedAt: null,
-								rowCount: 2,
+								rowCount: 4,
 								durationMs: null,
 								lastError: null
 							},
@@ -92,6 +114,7 @@ describe('token detail page', () => {
 								{
 									orderId: '0xcollection-bid',
 									source: 'orders',
+									materialization: marketMaterialization(),
 									scope: {
 										kind: 'collection',
 										label: 'collection',
@@ -103,8 +126,59 @@ describe('token detail page', () => {
 										label: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 										isOwn: false
 									},
-									priceWei: '100000000000000000',
-									priceEth: '0.1',
+									price: exactPrice('100000000000000000', '0.1'),
+									quantity: '1',
+									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+									currencySymbol: 'WETH',
+									protocolAddress: null,
+									validUntil: 4_000_000_000,
+									placedAt: '2026-01-01T00:00:00Z',
+									snapshotRefreshedAtMs: null,
+									seenAt: '2026-01-01T00:00:00Z',
+										ownStatus: null
+								},
+								{
+									orderId: '0xown-collection-bid',
+									source: 'orders',
+									materialization: marketMaterialization(),
+									scope: {
+										kind: 'collection',
+										label: 'collection',
+										tokenId: null,
+										traits: []
+									},
+									maker: {
+										address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+										label: 'You',
+										isOwn: true
+									},
+									price: exactPrice('100000000000000000', '0.1'),
+									quantity: '1',
+									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+									currencySymbol: 'WETH',
+									protocolAddress: null,
+									validUntil: 4_000_000_000,
+									placedAt: '2026-01-01T00:00:00Z',
+									snapshotRefreshedAtMs: null,
+									seenAt: '2026-01-01T00:00:00Z',
+									ownStatus: null
+								},
+								{
+									orderId: '0xtoken-bid',
+									source: 'orders',
+									materialization: marketMaterialization(),
+									scope: {
+										kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+										label: '#1',
+										tokenId: '1',
+										traits: []
+									},
+									maker: {
+										address: '0xdddddddddddddddddddddddddddddddddddddddd',
+										label: '0xdddddddddddddddddddddddddddddddddddddddd',
+										isOwn: false
+									},
+									price: exactPrice('100000000000000000', '0.1'),
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -118,6 +192,7 @@ describe('token detail page', () => {
 								{
 									orderId: '0xtrait-bid',
 									source: 'orders',
+									materialization: marketMaterialization(),
 									scope: {
 										kind: 'trait',
 										label: 'Hat=Beanie',
@@ -129,8 +204,7 @@ describe('token detail page', () => {
 										label: '0xcccccccccccccccccccccccccccccccccccccccc',
 										isOwn: false
 									},
-									priceWei: '100000000000000000',
-									priceEth: '0.1',
+									price: exactPrice('100000000000000000', '0.1'),
 									quantity: '1',
 									currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 									currencySymbol: 'WETH',
@@ -175,8 +249,17 @@ describe('token detail page', () => {
 		);
 		expect(body).not.toContain('traits=Power%3A7');
 		expect(body).toContain('<th class="bid-book-col-center">scope</th>');
-		expect(body).toContain('<td class="bid-book-col-center"><span class="bid-book-scope-label">C</span></td>');
+		expect(body).toContain('<span class="bid-book-scope-label">C</span>');
 		expect(body).toContain('Hat=Beanie');
+		expect(body).toContain('class="bid-book-demand-trait-list"');
+		expect(body).toContain('class="bid-book-demand-trait-value-link"');
+		expect(body).toContain('bid_scope=traits&amp;traits=Hat%3ABeanie');
+		expect(body).not.toContain('filter-icon');
+		expect(body).toContain('bid-book-place-bid-icon');
+		expect(body).toContain('aria-label="place bid on Hat=Beanie"');
+		expect(body).toContain('>bid on token</button>');
+		expect(body).toContain('aria-label="place bid on #1"');
+		expect(body).not.toContain('aria-label="place bid on collection"');
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=collection&amp;maker=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 		);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TRADING_BIDDING_BID_SCOPE_KIND } from '@artgod/shared/types';
 import type { ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
@@ -21,6 +22,12 @@ import {
 const BASE_BID: ApiBiddingBidBookRow = {
 	orderId: '0xbase',
 	source: 'orders',
+	materialization: {
+		kind: 'market_bid',
+		jobId: null,
+		status: null,
+		phase: null
+	},
 	scope: {
 		kind: 'collection',
 		label: 'collection',
@@ -32,8 +39,7 @@ const BASE_BID: ApiBiddingBidBookRow = {
 		label: '0x1111111111111111111111111111111111111111',
 		isOwn: false
 	},
-	priceWei: '300000000000000000',
-	priceEth: '0.3',
+	price: exactPrice('300000000000000000', '0.3'),
 	quantity: '1',
 	currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
 	currencySymbol: 'WETH',
@@ -44,6 +50,14 @@ const BASE_BID: ApiBiddingBidBookRow = {
 	seenAt: '2026-01-02T00:00:00Z',
 	ownStatus: null
 };
+
+function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
+	return {
+		kind: 'exact',
+		wei,
+		eth
+	};
+}
 
 const EXISTING_TOKEN_JOB: ApiBiddingJob = {
 	jobId: 'job-token-42',
@@ -87,8 +101,8 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 		});
 		expect(draft?.pricing).toEqual({
 			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
-			floorEth: '0.301',
-			ceilingEth: '0.301',
+			floorEth: '0.2',
+			ceilingEth: '0.4',
 			deltaEth: '0.01'
 		});
 		expect(biddingAutomationDraftTokenId(draft)).toBe('42');
@@ -132,17 +146,16 @@ describe('buildBiddingAutomationDraftFromBid', () => {
 
 	it('uses price-magnitude steps for default bid deltas', () => {
 		const cases = [
-			{ priceWei: '4000000000000000000', priceEth: '4', deltaEth: '0.01', nextEth: '4.01' },
-			{ priceWei: '20000000000000000000', priceEth: '20', deltaEth: '0.1', nextEth: '20.1' },
-			{ priceWei: '230000000000000000', priceEth: '0.23', deltaEth: '0.001', nextEth: '0.231' },
-			{ priceWei: '50000000000000000', priceEth: '0.05', deltaEth: '0.0001', nextEth: '0.0501' }
+			{ wei: '4000000000000000000', eth: '4', deltaEth: '0.01', nextEth: '4.01' },
+			{ wei: '20000000000000000000', eth: '20', deltaEth: '0.1', nextEth: '20.1' },
+			{ wei: '230000000000000000', eth: '0.23', deltaEth: '0.001', nextEth: '0.231' },
+			{ wei: '50000000000000000', eth: '0.05', deltaEth: '0.0001', nextEth: '0.0501' }
 		];
 
 		for (const item of cases) {
 			const draft = buildBiddingAutomationDraftFromBid({
 				...BASE_BID,
-				priceWei: item.priceWei,
-				priceEth: item.priceEth
+				price: exactPrice(item.wei, item.eth)
 			});
 			expect(draft?.pricing).toMatchObject({
 				mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
@@ -185,14 +198,49 @@ describe('buildTokenBiddingAutomationDraftFromBid', () => {
 
 describe('bestBiddingAutomationBid', () => {
 	it('selects the highest bid for draft pricing', () => {
-		const lower = { ...BASE_BID, orderId: '0xlower', priceWei: '100000000000000000' };
-		const higher = { ...BASE_BID, orderId: '0xhigher', priceWei: '200000000000000000' };
+		const lower = {
+			...BASE_BID,
+			orderId: '0xlower',
+			price: exactPrice('100000000000000000', '0.1')
+		};
+		const higher = {
+			...BASE_BID,
+			orderId: '0xhigher',
+			price: exactPrice('200000000000000000', '0.2')
+		};
 
 		expect(bestBiddingAutomationBid([lower, higher])?.orderId).toBe('0xhigher');
 	});
 });
 
 describe('buildBiddingAutomationDraftFromSelection', () => {
+	it('uses selected bid selections as bid-priced drafts', () => {
+		const draft = buildBiddingAutomationDraftFromSelection({
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.SelectedBid,
+			bid: {
+				...BASE_BID,
+				scope: {
+					kind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+					label: 'Biome=42',
+					tokenId: null,
+					traits: [{ type: 'Biome', value: '42' }]
+				}
+			}
+		});
+
+		expect(draft?.target).toEqual({
+			type: BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob,
+			traits: [{ key: 'Biome', value: '42' }],
+			traitJoinMode: 'and'
+		});
+		expect(draft?.pricing).toEqual({
+			mode: BIDDING_AUTOMATION_PRICING_MODE.Manual,
+			floorEth: '0.301',
+			ceilingEth: '0.301',
+			deltaEth: '0.001'
+		});
+	});
+
 	it('turns clean exact trait filters into a trait job draft', () => {
 		const draft = buildBiddingAutomationDraftFromSelection({
 			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens,

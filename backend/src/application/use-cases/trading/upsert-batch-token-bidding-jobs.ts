@@ -8,6 +8,11 @@ import type {
     TraitFilter,
     TraitRangeFilter,
 } from "@artgod/shared/types";
+import {
+    COLLECTION_BIDDING_BID_SCOPE_FILTER,
+    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
+    TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+} from "@artgod/shared/types";
 import type {
     BiddingJobsRepositoryPort,
     UpsertTokenBiddingJobInput as PersistedUpsertTokenBiddingJobInput,
@@ -27,8 +32,6 @@ import {
 } from "./types.js";
 import type { TradingJobCommandSignalPort } from "./trading-job-command-signal-port.js";
 import {
-    COLLECTION_BIDDING_BID_SCOPE_FILTER,
-    COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     type BiddingBidBookRepositoryPort,
 } from "./bidding-bid-book.js";
 import {
@@ -156,14 +159,20 @@ export class UpsertBatchTokenBiddingJobsUseCase {
         collectionId: number;
         selection: BatchTokenBiddingJobSelection;
     }): string[] {
-        if (params.selection.type === "token_ids") {
+        if (
+            params.selection.type ===
+            TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds
+        ) {
             return this.resolveExplicitTokenIds({
                 chainId: params.chainId,
                 collectionId: params.collectionId,
                 selection: params.selection,
             });
         }
-        if (params.selection.type === "token_offer_filter") {
+        if (
+            params.selection.type ===
+            TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter
+        ) {
             return this.resolveTokenOfferFilterTokenIds({
                 chainId: params.chainId,
                 collectionId: params.collectionId,
@@ -180,7 +189,10 @@ export class UpsertBatchTokenBiddingJobsUseCase {
     private resolveExplicitTokenIds(params: {
         chainId: number;
         collectionId: number;
-        selection: Extract<BatchTokenBiddingJobSelection, { type: "token_ids" }>;
+        selection: Extract<
+            BatchTokenBiddingJobSelection,
+            { type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenIds }
+        >;
     }): string[] {
         const tokenIds = uniqueNonEmptyTokenIds(params.selection.tokenIds);
         if (tokenIds.length === 0) {
@@ -205,7 +217,12 @@ export class UpsertBatchTokenBiddingJobsUseCase {
     private resolveFilteredTokenIds(params: {
         chainId: number;
         collectionId: number;
-        selection: Extract<BatchTokenBiddingJobSelection, { type: "filter" }>;
+        selection: Extract<
+            BatchTokenBiddingJobSelection,
+            {
+                type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenBrowserFilter;
+            }
+        >;
     }): string[] {
         const tokenIds: string[] = [];
         let cursor: string | undefined;
@@ -233,13 +250,16 @@ export class UpsertBatchTokenBiddingJobsUseCase {
         collectionId: number;
         selection: Extract<
             BatchTokenBiddingJobSelection,
-            { type: "token_offer_filter" }
+            {
+                type: typeof TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND.TokenOfferFilter;
+            }
         >;
     }): string[] {
         // Read token-scoped bids from the same source-selection path used by the offers page.
         const tokenBidBook = this.bidBookRepositoryPort.listCollectionBidBook({
             chainId: params.chainId,
             collectionId: params.collectionId,
+            includeOwnJobContext: false,
             scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Token,
             traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
             selectedTraits: [],
@@ -251,6 +271,7 @@ export class UpsertBatchTokenBiddingJobsUseCase {
             this.bidBookRepositoryPort.listCollectionBidBook({
                 chainId: params.chainId,
                 collectionId: params.collectionId,
+                includeOwnJobContext: false,
                 scopeFilter: COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection,
                 traitFilterJoinMode: COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
                 selectedTraits: [],

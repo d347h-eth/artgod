@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS trading_bidding_price_tiers_one_child_uq;

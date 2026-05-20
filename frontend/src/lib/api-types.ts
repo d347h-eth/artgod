@@ -1,6 +1,12 @@
-import type {
-	TradingBiddingJobPricingSource,
-	TradingBiddingTierSelectionMode
+import {
+	TRADING_BIDDING_BID_BOOK_PRICE_KIND,
+	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	type CollectionBiddingBidScopeFilter,
+	type CollectionBiddingTraitFilterJoinMode,
+	type TradingBiddingBidBookSource,
+	type TradingBiddingBidBookOwnJobPhase,
+	type TradingBiddingJobPricingSource,
+	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
 
 export type ApiChain = {
@@ -405,10 +411,36 @@ export type ApiBiddingJob = {
 	runtime: ApiBiddingJobRuntimeState | null;
 };
 
-export type ApiBiddingBidBookSource = 'bot_snapshot' | 'orders';
+export type ApiBiddingBidBookSource = TradingBiddingBidBookSource;
 export type ApiBiddingBidScopeKind = 'collection' | 'trait' | 'token' | 'token_set' | 'unknown';
-export type ApiCollectionBiddingBidScopeFilter = 'token' | 'traits' | 'collection';
-export type ApiCollectionBiddingTraitFilterJoinMode = 'or' | 'and';
+export type ApiCollectionBiddingBidScopeFilter = CollectionBiddingBidScopeFilter;
+export type ApiCollectionBiddingTraitFilterJoinMode = CollectionBiddingTraitFilterJoinMode;
+export type ApiBiddingBidBookPrice =
+	| {
+			kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact;
+			wei: string;
+			eth: string;
+	  }
+	| {
+			kind: typeof TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range;
+			floorWei: string;
+			floorEth: string;
+			ceilingWei: string;
+			ceilingEth: string;
+	  };
+export type ApiBiddingBidBookRowMaterialization =
+	| {
+			kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
+			jobId: null;
+			status: null;
+			phase: null;
+	  }
+	| {
+			kind: typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent;
+			jobId: string;
+			status: ApiBiddingJobStatus;
+			phase: TradingBiddingBidBookOwnJobPhase;
+	  };
 export type ApiBiddingBidBookOwnPosition = 'winning' | 'draw' | 'losing';
 export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor' | 'balance' | 'allowance';
 export type ApiBiddingBidBookOwnStatus = {
@@ -424,6 +456,7 @@ export type ApiBiddingBidBookOwnStatus = {
 export type ApiBiddingBidBookRow = {
 	orderId: string;
 	source: ApiBiddingBidBookSource;
+	materialization: ApiBiddingBidBookRowMaterialization;
 	scope: {
 		kind: ApiBiddingBidScopeKind;
 		label: string;
@@ -435,8 +468,7 @@ export type ApiBiddingBidBookRow = {
 		label: string;
 		isOwn: boolean;
 	};
-	priceWei: string;
-	priceEth: string;
+	price: ApiBiddingBidBookPrice;
 	quantity: string;
 	currencyAddress: string | null;
 	currencySymbol: string | null;

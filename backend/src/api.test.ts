@@ -21,6 +21,7 @@ import {
     ACTIVITY_FEED_QUERY_PARAMS,
     ACTIVITY_SCOPE_KIND,
     ACTIVITY_SOURCE_KIND,
+    TRADING_BIDDING_BID_BOOK_PRICE_KIND,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
@@ -1079,7 +1080,11 @@ describe("backend api routes", () => {
                 label: "Biome=42",
                 traits: [{ type: "Biome", value: "42" }],
             },
-            priceWei: "310000000000000000",
+            price: {
+                kind: TRADING_BIDDING_BID_BOOK_PRICE_KIND.Exact,
+                wei: "310000000000000000",
+                eth: "0.31",
+            },
         });
 
         const strictTraitBidBook = await resolve(
