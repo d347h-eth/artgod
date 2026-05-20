@@ -26,7 +26,7 @@
 		fromBlock: number;
 		toBlock: number;
 		bucketSize: number;
-		levelKey?: string;
+		levelKey: string;
 	};
 
 	let {
@@ -48,6 +48,7 @@
 	let selectedRangeSummary: SyncBackfillRangeSummaryApiResponse | null = $state(null);
 	let selectedRangeLoading = $state(false);
 	let selectedRangeError: string | null = $state(null);
+	let selectedRangeLevelKey: string | null = $state(null);
 	let selectedRangeRequestId = 0;
 	let backfillSelectionMode = $state(false);
 	let backfillSelectionFromBlock: number | null = $state(null);
@@ -76,20 +77,7 @@
 			formatBackfillSelectionRangeKey(backfillSelectionRange)
 		].join('|')
 	);
-	let depthLevels = $derived(buildDepthLevels());
 	let selectedRangePageKey: string | null = $state(null);
-	let currentSummaryRange: ApiSyncBackfillRangeSummary | null = $derived(
-		syncState
-			? {
-					fromBlock: syncState.range.fromBlock,
-					toBlock: syncState.range.toBlock,
-					blockCount: syncState.range.blockCount,
-					bucketSize: syncState.range.bucketSize,
-					syncedBlockCount: syncState.summary.selectedRangeSyncedBlockCount,
-					time: syncState.range.time
-				}
-			: null
-	);
 
 	$effect(() => {
 		if (selectedRangePageKey === currentPageKey) return;
@@ -133,7 +121,8 @@
 			await loadRangeSummary({
 				fromBlock: cell.fromBlock,
 				toBlock: cell.toBlock,
-				bucketSize: level.state.range.bucketSize
+				bucketSize: level.state.range.bucketSize,
+				levelKey: level.key
 			});
 			return;
 		}
@@ -157,7 +146,8 @@
 			await loadRangeSummary({
 				fromBlock: cell.fromBlock,
 				toBlock: cell.toBlock,
-				bucketSize: level.state.range.bucketSize
+				bucketSize: level.state.range.bucketSize,
+				levelKey: level.key
 			});
 		}
 	}
@@ -217,7 +207,7 @@
 	}
 
 	function formatBackfillSelectionRangeKey(range: BlockRangeSelection | null): string {
-		return range ? `${range.levelKey ?? ''}:${range.fromBlock}:${range.toBlock}` : '';
+		return range ? `${range.levelKey}:${range.fromBlock}:${range.toBlock}` : '';
 	}
 
 	function clearRangeSummary(): void {
@@ -225,6 +215,7 @@
 		selectedRangeSummary = null;
 		selectedRangeLoading = false;
 		selectedRangeError = null;
+		selectedRangeLevelKey = null;
 	}
 
 	async function loadRangeSummary(range: BlockRangeSelection): Promise<void> {
@@ -233,6 +224,7 @@
 		selectedRangeRequestId = requestId;
 		selectedRangeLoading = true;
 		selectedRangeError = null;
+		selectedRangeLevelKey = range.levelKey;
 		try {
 			const params = new URLSearchParams();
 			params.set('from_block', String(range.fromBlock));
@@ -356,67 +348,19 @@
 		return blockNumber !== null && cell.fromBlock <= blockNumber && blockNumber <= cell.toBlock;
 	}
 
-	function buildDepthLevels(): Array<{
-		key: string;
-		label: string;
-		range: string;
-		href: string;
-		active: boolean;
-	}> {
-		if (!syncState) return [];
-		const rootRange = formatSyncBackfillBlockRange(
-			syncState.summary.genesisBlock,
-			syncState.summary.headBlock
-		);
-		return [
-			{
-				key: 'root',
-				label: 'root',
-				range: rootRange,
-				href: queryHref(selectedCollection, []),
-				active: stack.length === 0
-			},
-			...stack.map((entry, index) => {
-				const page = parsePageStackEntry(entry);
-				return {
-					key: `${index + 1}:${entry}`,
-					label: `L${index + 1}`,
-					range: page ? formatPageRange(page, syncState.summary.headBlock) : entry,
-					href: queryHref(selectedCollection, stack.slice(0, index + 1)),
-					active: index === stack.length - 1
-				};
-			})
-		];
-	}
-
-	function parsePageStackEntry(
-		entry: string
-	): { pageStartBlock: number; bucketSize: number } | null {
-		const [pageStartRaw, bucketSizeRaw, extra] = entry.split(':');
-		const pageStartBlock = Number(pageStartRaw);
-		const bucketSize = Number(bucketSizeRaw);
-		if (
-			extra !== undefined ||
-			!Number.isInteger(pageStartBlock) ||
-			!Number.isInteger(bucketSize) ||
-			pageStartBlock < 0 ||
-			bucketSize <= 0
-		) {
-			return null;
-		}
-		return { pageStartBlock, bucketSize };
-	}
-
 	function formatPageStackEntry(page: { pageStartBlock: number; bucketSize: number }): string {
 		return `${page.pageStartBlock}:${page.bucketSize}`;
 	}
 
-	function formatPageRange(
-		page: { pageStartBlock: number; bucketSize: number },
-		headBlock: number
-	): string {
-		const pageEndBlock = page.pageStartBlock + page.bucketSize * SYNC_BACKFILL_GRID_CELL_COUNT - 1;
-		return formatSyncBackfillBlockRange(page.pageStartBlock, Math.min(pageEndBlock, headBlock));
+	function buildLevelSummaryRange(level: SyncBackfillVisibleLevel): ApiSyncBackfillRangeSummary {
+		return {
+			fromBlock: level.state.range.fromBlock,
+			toBlock: level.state.range.toBlock,
+			blockCount: level.state.range.blockCount,
+			bucketSize: level.state.range.bucketSize,
+			syncedBlockCount: level.state.summary.selectedRangeSyncedBlockCount,
+			time: level.state.range.time
+		};
 	}
 
 	function formatVisibleBlockDuration(
@@ -433,7 +377,7 @@
 
 </script>
 
-<section class="panel">
+<section class="panel sync-backfill-panel">
 	<header class="panel-header">
 		<h1 class="app-title">ArtGod {APP_VERSION}</h1>
 	</header>
@@ -464,53 +408,43 @@
 	</header>
 
 	{#if syncState}
-		{#if currentSummaryRange}
-			<SyncBackfillSummary
-				chain={syncState.chain}
-				range={currentSummaryRange}
-				ariaLabel="Sync summary"
-			/>
-		{/if}
-
-		<div class="sync-grid-layout">
-			<div class="sync-grid-wrap">
-				<SyncBackfillIsometricGrid
-					levels={visibleLevels}
-					selectionMode={backfillSelectionMode}
-					renderKey={isometricRenderKey}
-					resolveCellClass={cellClass}
-					resolveCellLabel={cellLabel}
-					onCellClick={handleCellClick}
-				/>
-			</div>
-			<aside class="sync-side-panel">
-				<nav class="sync-depth-rail" aria-label="Sync depth levels">
-					{#each depthLevels as level}
-						{#if level.active}
-							<span class="sync-depth-level sync-depth-level-active">
-								<span class="sync-depth-level-name">{level.label}</span>
-								<span class="sync-depth-level-range">{level.range}</span>
-							</span>
-						{:else}
-							<a class="sync-depth-level" href={level.href}>
-								<span class="sync-depth-level-name">{level.label}</span>
-								<span class="sync-depth-level-range">{level.range}</span>
-							</a>
+		<div class="sync-levels-layout">
+			{#each visibleLevels as level (level.key)}
+				<section class="sync-level-row" aria-label={`${level.label} sync level`}>
+					<aside class="sync-level-summary-panel">
+						<SyncBackfillSummary
+							chain={level.state.chain}
+							range={buildLevelSummaryRange(level)}
+							ariaLabel={`${level.label} sync summary`}
+						/>
+					</aside>
+					<div class="sync-grid-wrap">
+						<SyncBackfillIsometricGrid
+							{level}
+							selectionMode={backfillSelectionMode}
+							renderKey={`${isometricRenderKey}:${level.key}`}
+							resolveCellClass={cellClass}
+							resolveCellLabel={cellLabel}
+							onCellClick={handleCellClick}
+						/>
+					</div>
+					<aside class="sync-level-selection-panel">
+						{#if selectedRangeLevelKey === level.key}
+							{#if selectedRangeLoading}
+								<div class="sync-range-detail-status muted">loading range</div>
+							{:else if selectedRangeError}
+								<div class="sync-range-detail-status muted">{selectedRangeError}</div>
+							{:else if selectedRangeSummary}
+								<SyncBackfillSummary
+									chain={selectedRangeSummary.chain}
+									range={selectedRangeSummary.range}
+									ariaLabel="Selected range summary"
+								/>
+							{/if}
 						{/if}
-					{/each}
-				</nav>
-				{#if selectedRangeLoading}
-					<div class="sync-range-detail-status muted">loading range</div>
-				{:else if selectedRangeError}
-					<div class="sync-range-detail-status muted">{selectedRangeError}</div>
-				{:else if selectedRangeSummary}
-					<SyncBackfillSummary
-						chain={selectedRangeSummary.chain}
-						range={selectedRangeSummary.range}
-						ariaLabel="Selected range summary"
-					/>
-				{/if}
-			</aside>
+					</aside>
+				</section>
+			{/each}
 		</div>
 
 		<div

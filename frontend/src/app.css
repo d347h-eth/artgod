@@ -377,6 +377,16 @@ a:hover {
 	gap: 0.55rem;
 }
 
+.sync-backfill-panel {
+	width: fit-content;
+	max-width: calc(100vw - 2rem);
+	margin: 1rem auto;
+}
+
+.sync-backfill-panel > .panel-header {
+	width: 100%;
+}
+
 .sync-toolbar {
 	display: inline-flex;
 	align-items: center;
@@ -421,34 +431,44 @@ a:hover {
 	gap: 0.08rem;
 }
 
-.sync-grid-layout {
-	display: flex;
-	align-items: flex-start;
-	gap: 0.75rem;
-	overflow: auto;
+.sync-levels-layout {
+	display: grid;
+	justify-items: center;
+	gap: 1rem;
+	max-width: 100%;
+	overflow-x: auto;
 	padding: 0.75rem;
+}
+
+.sync-level-row {
+	display: grid;
+	grid-template-columns: minmax(12rem, 16rem) auto minmax(12rem, 16rem);
+	align-items: center;
+	gap: 0.75rem;
+	width: max-content;
+	max-width: 100%;
 }
 
 .sync-grid-wrap {
 	flex: 0 0 auto;
 }
 
-.sync-side-panel {
-	display: inline-flex;
-	flex-direction: column;
-	gap: 0.55rem;
-	min-width: 11rem;
-	max-width: 18rem;
+.sync-level-summary-panel,
+.sync-level-selection-panel {
+	width: 16rem;
+	min-width: 12rem;
 }
 
-.sync-side-panel .sync-summary {
+.sync-level-summary-panel .sync-summary,
+.sync-level-selection-panel .sync-summary {
 	flex-direction: column;
 	gap: 0.5rem;
 	padding: 0.55rem;
 	border: 1px solid var(--c-blue);
 }
 
-.sync-side-panel .sync-summary div {
+.sync-level-summary-panel .sync-summary div,
+.sync-level-selection-panel .sync-summary div {
 	min-width: 0;
 }
 
@@ -458,7 +478,7 @@ a:hover {
 }
 
 .sync-isometric-canvas {
-	width: min(76vw, 64rem);
+	width: clamp(28rem, 44vw, 48rem);
 	min-width: 20rem;
 	overflow: visible;
 }
@@ -523,48 +543,6 @@ a:hover {
 	fill: var(--c-orange);
 }
 
-.sync-depth-rail {
-	display: inline-flex;
-	flex-direction: column;
-	gap: 0.25rem;
-}
-
-.sync-depth-level {
-	display: grid;
-	grid-template-columns: 2.5rem minmax(0, 1fr);
-	gap: 0.35rem;
-	align-items: baseline;
-	border: 1px solid var(--c-blue);
-	padding: 0.18rem 0.35rem;
-	font-size: 0.72rem;
-	line-height: 1.15;
-}
-
-.sync-depth-level:hover {
-	border-color: var(--c-yellow);
-}
-
-.sync-depth-level-active {
-	color: var(--c-orange);
-	border-color: var(--c-orange);
-}
-
-.sync-depth-level-active:hover {
-	border-color: var(--c-orange);
-}
-
-.sync-depth-level-name {
-	color: inherit;
-	text-transform: uppercase;
-}
-
-.sync-depth-level-range {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
 .sync-range-detail-status {
 	border: 1px solid var(--c-blue);
 	padding: 0.4rem 0.55rem;
@@ -582,6 +560,23 @@ a:hover {
 
 .sync-backfill-actions-selection {
 	gap: 1.75rem;
+}
+
+@media (max-width: 900px) {
+	.sync-level-row {
+		grid-template-columns: minmax(12rem, 1fr);
+		justify-items: center;
+		width: fit-content;
+	}
+
+	.sync-level-summary-panel,
+	.sync-level-selection-panel {
+		width: min(28rem, 100%);
+	}
+
+	.sync-isometric-canvas {
+		width: clamp(20rem, 82vw, 32rem);
+	}
 }
 
 .status-form label {

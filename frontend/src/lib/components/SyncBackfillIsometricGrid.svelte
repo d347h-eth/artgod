@@ -10,7 +10,7 @@
 	type IsometricModule = typeof import('@elchininet/isometric');
 
 	type Props = {
-		levels: SyncBackfillVisibleLevel[];
+		level: SyncBackfillVisibleLevel;
 		selectionMode: boolean;
 		renderKey: string;
 		resolveCellClass: (
@@ -32,11 +32,11 @@
 	const ISOMETRIC_MIN_SCALE = 7;
 	const ISOMETRIC_MAX_SCALE = 16;
 	const ISOMETRIC_CANVAS_MARGIN = 24;
-	const ISOMETRIC_LEVEL_GAP = 56;
+	const ISOMETRIC_BOTTOM_PAD = 16;
 	const ISOMETRIC_WIDTH_FACTOR = Math.sqrt(3);
 
 	let {
-		levels,
+		level,
 		selectionMode,
 		renderKey,
 		resolveCellClass,
@@ -85,9 +85,8 @@
 		if (!container || !isometricModule) return;
 		container.replaceChildren();
 		renderError = null;
-		if (levels.length === 0) return;
 
-		const layout = resolveCanvasLayout(levels, containerWidth || container.clientWidth);
+		const layout = resolveCanvasLayout(level, containerWidth || container.clientWidth);
 		const canvas = new isometricModule.IsometricCanvas({
 			container,
 			backgroundColor: 'transparent',
@@ -97,15 +96,13 @@
 		});
 		canvas.getElement().classList.add('sync-isometric-svg');
 
-		levels.forEach((level, index) => {
-			const group = new isometricModule!.IsometricGroup({
-				right: layout.levelOffsets[index] / layout.scale,
-				left: layout.levelOffsets[index] / layout.scale,
-				top: layout.topOffsetUnits
-			});
-			canvas.addChild(group);
-			renderLevelTiles(group, level);
+		const group = new isometricModule.IsometricGroup({
+			right: 0,
+			left: 0,
+			top: layout.topOffsetUnits
 		});
+		canvas.addChild(group);
+		renderLevelTiles(group, level);
 	}
 
 	function renderLevelTiles(
@@ -186,46 +183,33 @@
 	}
 
 	function resolveCanvasLayout(
-		visibleLevels: SyncBackfillVisibleLevel[],
+		visibleLevel: SyncBackfillVisibleLevel,
 		availableWidth: number
 	): {
 		width: number;
 		height: number;
 		scale: number;
 		topOffsetUnits: number;
-		levelOffsets: number[];
 	} {
-		const dimensions = visibleLevels.map((level) =>
-			resolveSyncBackfillIsometricDimension(level.state.grid.length)
-		);
-		const maxDimension = Math.max(...dimensions, 1);
+		const dimension = resolveSyncBackfillIsometricDimension(visibleLevel.state.grid.length);
 		const availableCanvasWidth = Math.max(availableWidth, 320);
 		const scale = clamp(
 			Math.floor(
 				(availableCanvasWidth - ISOMETRIC_CANVAS_MARGIN * 2) /
-					((maxDimension + 1) * ISOMETRIC_WIDTH_FACTOR)
+					((dimension + 1) * ISOMETRIC_WIDTH_FACTOR)
 			),
 			ISOMETRIC_MIN_SCALE,
 			ISOMETRIC_MAX_SCALE
 		);
 		const width = Math.ceil(
-			(maxDimension + 1) * ISOMETRIC_WIDTH_FACTOR * scale + ISOMETRIC_CANVAS_MARGIN * 2
+			(dimension + 1) * ISOMETRIC_WIDTH_FACTOR * scale + ISOMETRIC_CANVAS_MARGIN * 2
 		);
-		const levelHeights = dimensions.map((dimension) => (dimension + 1) * scale);
-		const levelOffsets = levelHeights.reduce<number[]>((offsets, height, index) => {
-			offsets.push(index === 0 ? 0 : offsets[index - 1] + levelHeights[index - 1] + ISOMETRIC_LEVEL_GAP);
-			return offsets;
-		}, []);
-		const height =
-			ISOMETRIC_CANVAS_MARGIN * 2 +
-			levelHeights.reduce((sum, levelHeight) => sum + levelHeight, 0) +
-			Math.max(visibleLevels.length - 1, 0) * ISOMETRIC_LEVEL_GAP;
+		const height = ISOMETRIC_CANVAS_MARGIN * 2 + (dimension + 1) * scale + ISOMETRIC_BOTTOM_PAD;
 		return {
 			width,
 			height,
 			scale,
-			topOffsetUnits: (height / 2 - ISOMETRIC_CANVAS_MARGIN) / scale,
-			levelOffsets
+			topOffsetUnits: (height / 2 - ISOMETRIC_CANVAS_MARGIN) / scale
 		};
 	}
 
