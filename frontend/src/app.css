@@ -544,14 +544,6 @@ a:hover {
 	fill: var(--c-blue);
 }
 
-.sync-isometric-tile-deployment-unsynced {
-	fill: var(--c-pink);
-}
-
-.sync-isometric-tile-deployment-synced {
-	fill: var(--c-yellow);
-}
-
 .sync-isometric-grid-selection-mode .sync-isometric-tile:not(.sync-isometric-tile-disabled) {
 	cursor: crosshair;
 }
@@ -570,7 +562,7 @@ a:hover {
 }
 
 .sync-isometric-marker-deployment {
-	fill: var(--c-yellow);
+	fill: var(--c-pink);
 }
 
 .sync-projection-overlay {
