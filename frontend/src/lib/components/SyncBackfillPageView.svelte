@@ -94,6 +94,7 @@
 			? `${syncState.chain.slug}:${selectedCollection}:${syncState.range.fromBlock}:${syncState.range.toBlock}:${syncState.range.bucketSize}`
 			: null
 	);
+	let selectedRangeScopeKey = $derived(`${basePath}:${selectedCollection}:${stack.join(',')}`);
 	let visibleLevels = $derived(
 		levels.length > 0
 			? levels
@@ -114,11 +115,11 @@
 		].join('|')
 	);
 	let projectionLines = $derived(resolveProjectionLines(visibleLevels, isometricAnchorLayouts));
-	let selectedRangePageKey: string | null = $state(null);
+	let activeSelectedRangeScopeKey: string | null = $state(null);
 
 	$effect(() => {
-		if (selectedRangePageKey === currentPageKey) return;
-		selectedRangePageKey = currentPageKey;
+		if (activeSelectedRangeScopeKey === selectedRangeScopeKey) return;
+		activeSelectedRangeScopeKey = selectedRangeScopeKey;
 		backfillSelectionMode = false;
 		backfillSelectionFromBlock = null;
 		backfillSelectionLevelKey = null;
