@@ -13,6 +13,8 @@ export type BootstrapRunDefinition = {
     manualTokenIdsJson: string | null;
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
+    imageCacheEnabled: boolean;
+    imageCacheMaxDimension: number | null;
     deploymentBlock: number | null;
     status: string;
     anchorBlock: number | null;

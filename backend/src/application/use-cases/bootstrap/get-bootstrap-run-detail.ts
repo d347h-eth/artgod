@@ -125,6 +125,25 @@ function buildBootstrapRunFlow(input: {
     const hasMetadataQueued =
         eventCodes.has("metadata.queued") ||
         eventCodes.has("metadata.retry.failed_terminal");
+    const hasMetadataCompleted =
+        input.run.status === "image_cache" ||
+        input.run.status === "ownership" ||
+        input.run.status === "backfill" ||
+        input.run.status === "completed" ||
+        input.collection.status === "live";
+    const hasImageCacheQueued =
+        eventCodes.has("image_cache.queued") ||
+        eventCodes.has("image_cache.completed") ||
+        eventCodes.has("image_cache.skipped");
+    const hasImageCacheCompleted =
+        hasMetadataCompleted &&
+        (!input.run.imageCacheEnabled ||
+            eventCodes.has("image_cache.completed") ||
+            eventCodes.has("image_cache.skipped") ||
+            input.run.status === "ownership" ||
+            input.run.status === "backfill" ||
+            input.run.status === "completed" ||
+            input.collection.status === "live");
     const hasOwnershipCompleted =
         input.run.status === "backfill" ||
         input.run.status === "completed" ||
@@ -187,18 +206,13 @@ function buildBootstrapRunFlow(input: {
             key: "metadata",
             label: "metadata",
             state: resolveStepState({
-                completed:
-                    hasOwnershipCompleted ||
-                    hasBackfillCompleted ||
-                    input.collection.status === "live",
+                completed: hasMetadataCompleted,
                 active:
                     hasMetadataQueued &&
-                    !hasOwnershipCompleted &&
-                    !hasBackfillCompleted &&
+                    !hasMetadataCompleted &&
                     !isRunFailed,
                 failed:
-                    !hasOwnershipCompleted &&
-                    !hasBackfillCompleted &&
+                    !hasMetadataCompleted &&
                     isRunFailed &&
                     (hasMetadataQueued || input.metadataTasks.total > 0),
             }),
@@ -210,6 +224,20 @@ function buildBootstrapRunFlow(input: {
                           total: input.metadataTasks.total,
                       }
                     : null,
+        },
+        {
+            key: "image_cache",
+            label: "image cache",
+            state: resolveStepState({
+                completed: hasImageCacheCompleted,
+                active: input.run.status === "image_cache" && !isRunFailed,
+                failed:
+                    !hasImageCacheCompleted &&
+                    isRunFailed &&
+                    (hasImageCacheQueued || hasMetadataCompleted),
+            }),
+            detailText: formatImageCacheDetail(input.run),
+            progress: null,
         },
         {
             key: "ownership",
@@ -362,6 +390,16 @@ function formatMetadataDetail(counts: BootstrapRunTaskCounts): string | null {
         parts.push(`failed ${counts.failedTerminal}`);
     }
     return parts.length > 0 ? parts.join(" / ") : null;
+}
+
+function formatImageCacheDetail(run: BootstrapRunRow): string | null {
+    if (!run.imageCacheEnabled) {
+        return "disabled";
+    }
+    if (run.imageCacheMaxDimension === null) {
+        return "original";
+    }
+    return `${run.imageCacheMaxDimension}px`;
 }
 
 function formatOpenSeaSnapshotDetail(

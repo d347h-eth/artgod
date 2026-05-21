@@ -28,6 +28,10 @@ export type CreateBootstrapRunInput = {
     metadataMode: BootstrapMetadataMode;
     supportsEnumerable: boolean;
     manualInput?: BootstrapManualInput;
+    imageCache?: {
+        enabled: boolean;
+        maxDimension: number | null;
+    };
     deploymentBlock?: number;
 };
 
@@ -52,6 +56,8 @@ export type BootstrapRunRow = {
     manualTokenIdsJson: string | null;
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
+    imageCacheEnabled: boolean;
+    imageCacheMaxDimension: number | null;
     deploymentBlock: number | null;
     status: string;
     anchorBlock: number | null;
@@ -91,6 +97,7 @@ export type BootstrapRunStatus =
     | "requested"
     | "queued"
     | "metadata"
+    | "image_cache"
     | "ownership"
     | "backfill"
     | "completed"
@@ -110,6 +117,7 @@ export type BootstrapFlowStepKey =
     | "anchor"
     | "enumeration"
     | "metadata"
+    | "image_cache"
     | "ownership"
     | "backfill"
     | "collection_live"

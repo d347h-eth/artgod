@@ -102,6 +102,8 @@ export interface BootstrapRunsWritePort {
         manualTokenIdsJson: string | null;
         manualRangeStartTokenId: string | null;
         manualRangeTotalSupply: number | null;
+        imageCacheEnabled: boolean;
+        imageCacheMaxDimension: number | null;
         deploymentBlock: number | null;
     }): BootstrapRunRow;
     updateRunStatus(

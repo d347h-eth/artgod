@@ -230,6 +230,7 @@ export function createBackendApp(
         new BuiltInCollectionExtensionResolver();
     const bootstrapContractProbe = new ViemBootstrapContractProbe(
         backendRpcClient,
+        config.ipfs.gatewayOrigin,
     );
     const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
         config.defaultChainId,
@@ -568,6 +569,7 @@ export function createBackendApp(
         archiveTokenBiddingJobUseCase,
         archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
+        config.mediaCache.tokenImagesDir,
         config.userlandUiDistDir,
         config.security,
         config.deployment,

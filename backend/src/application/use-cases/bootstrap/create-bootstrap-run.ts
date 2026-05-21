@@ -19,6 +19,10 @@ import {
     BOOTSTRAP_MANUAL_RANGE_TOTAL_SUPPLY_LIMIT,
     BOOTSTRAP_MANUAL_TOKEN_IDS_LIMIT,
 } from "./bootstrap-limits.js";
+import {
+    BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
+    BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION,
+} from "@artgod/shared/config/bootstrap";
 
 export type EmbeddedCollectionExtensionResolveInput = {
     chainId: number;
@@ -66,6 +70,7 @@ export class CreateBootstrapRunUseCase {
             input.supportsEnumerable,
             input.manualInput,
         );
+        const imageCache = resolveImageCacheInput(input.imageCache);
         const requestExtensionKey = resolveRequestedExtensionKey(
             this.embeddedExtensionResolverPort,
             chain.publicChainId,
@@ -138,6 +143,8 @@ export class CreateBootstrapRunUseCase {
             manualTokenIdsJson: enumeration.manualTokenIdsJson,
             manualRangeStartTokenId: enumeration.manualRangeStartTokenId,
             manualRangeTotalSupply: enumeration.manualRangeTotalSupply,
+            imageCacheEnabled: imageCache.enabled,
+            imageCacheMaxDimension: imageCache.maxDimension,
             deploymentBlock: input.deploymentBlock ?? null,
         });
 
@@ -181,6 +188,43 @@ export class CreateBootstrapRunUseCase {
             createdAt,
         };
     }
+}
+
+function resolveImageCacheInput(
+    input: CreateBootstrapRunInput["imageCache"],
+): {
+    enabled: boolean;
+    maxDimension: number | null;
+} {
+    if (!input) {
+        return {
+            enabled: false,
+            maxDimension: null,
+        };
+    }
+    if (!input.enabled) {
+        return {
+            enabled: false,
+            maxDimension: null,
+        };
+    }
+    if (input.maxDimension === null) {
+        return {
+            enabled: true,
+            maxDimension: null,
+        };
+    }
+    if (
+        !Number.isInteger(input.maxDimension) ||
+        input.maxDimension < BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION ||
+        input.maxDimension > BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION
+    ) {
+        throw new BootstrapValidationError("Invalid image cache dimension");
+    }
+    return {
+        enabled: true,
+        maxDimension: input.maxDimension,
+    };
 }
 
 function assertOpenSeaSlugIsAllowed(

@@ -18,6 +18,8 @@ type BootstrapRunDbRow = {
     manual_token_ids_json: string | null;
     manual_range_start_token_id: string | null;
     manual_range_total_supply: number | null;
+    request_image_cache_enabled: number;
+    request_image_cache_max_dimension: number | null;
     deployment_block: number | null;
     status: string;
     anchor_block: number | null;
@@ -27,7 +29,7 @@ type BootstrapRunDbRow = {
 
 export class SqliteBootstrapRuns implements BootstrapRunsPort {
     private selectRunStmt = db.prepare<{ runId: number }>(
-        "SELECT run_id, chain_id, collection_id, request_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp " +
+        "SELECT run_id, chain_id, collection_id, request_slug, request_address, request_standard, request_extension_key, metadata_mode, enumeration_mode, manual_token_ids_json, manual_range_start_token_id, manual_range_total_supply, request_image_cache_enabled, request_image_cache_max_dimension, deployment_block, status, anchor_block, anchor_block_hash, anchor_block_timestamp " +
             "FROM bootstrap_runs WHERE run_id = @runId LIMIT 1",
     );
 
@@ -130,6 +132,8 @@ function mapRun(row: BootstrapRunDbRow): BootstrapRunDefinition {
         manualTokenIdsJson: row.manual_token_ids_json,
         manualRangeStartTokenId: row.manual_range_start_token_id,
         manualRangeTotalSupply: row.manual_range_total_supply,
+        imageCacheEnabled: row.request_image_cache_enabled === 1,
+        imageCacheMaxDimension: row.request_image_cache_max_dimension,
         deploymentBlock: row.deployment_block,
         status: row.status,
         anchorBlock: row.anchor_block,

@@ -535,6 +535,10 @@ beforeAll(async () => {
                             tokenUriPayloadError: null,
                             name: "Milady 1",
                             image: "https://example.com/1.png",
+                            imageBytes: 1024,
+                            imageBytesSource: "content_length",
+                            imageContentType: "image/png",
+                            imageBytesError: null,
                             animationUrl: null,
                             metadataError: null,
                             candidates: [],
@@ -734,6 +738,7 @@ beforeAll(async () => {
         archiveTokenBiddingJobUseCase,
         archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
+        "/tmp/artgod-api-test-media-cache",
         null,
         API_SECURITY_CONFIG,
         {
@@ -782,6 +787,7 @@ beforeAll(async () => {
         archiveTokenBiddingJobUseCase,
         archiveCollectionBiddingPriceTierUseCase,
         runtimeHealthUseCase,
+        "/tmp/artgod-api-test-media-cache",
         null,
         API_SECURITY_CONFIG,
         {
@@ -806,6 +812,12 @@ beforeAll(async () => {
         natsUrl: "nats://127.0.0.1:42720",
         natsStreamPrefix: "artgod",
         userlandUiDistDir: null,
+        ipfs: {
+            gatewayOrigin: "https://ipfs.io",
+        },
+        mediaCache: {
+            tokenImagesDir: "/tmp/artgod-api-test-media-cache",
+        },
         security: API_SECURITY_CONFIG,
         deployment: {
             mode: "public_single_collection",
@@ -4203,6 +4215,7 @@ describe("backend api routes", () => {
             "anchor",
             "enumeration",
             "metadata",
+            "image_cache",
             "ownership",
             "backfill",
             "collection_live",
@@ -5350,6 +5363,7 @@ function insertBootstrapRun(input: {
         | "requested"
         | "queued"
         | "metadata"
+        | "image_cache"
         | "ownership"
         | "backfill"
         | "completed"

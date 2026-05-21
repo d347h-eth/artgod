@@ -101,6 +101,7 @@ import {
     type BackendHttpObservability,
 } from "./http/common/observability.js";
 import { registerUserlandStaticRoutes } from "./http/common/userland-static.js";
+import { registerTokenImageCacheStaticRoutes } from "./http/common/token-image-cache-static.js";
 import { registerApiRoutes } from "./http-routes.js";
 import type {
     BackendDeploymentConfig,
@@ -165,6 +166,7 @@ export function createApiApp(
     archiveTokenBiddingJobUseCase: ArchiveTokenBiddingJobUseCase,
     archiveCollectionBiddingPriceTierUseCase: ArchiveCollectionBiddingPriceTierUseCase,
     getRuntimeHealthUseCase: GetRuntimeHealthUseCase,
+    tokenImageCacheDir: string,
     userlandUiDistDir: string | null,
     securityConfig: BackendSecurityConfig,
     deploymentConfig: BackendDeploymentConfig,
@@ -388,6 +390,7 @@ export function createApiApp(
             observability,
         },
     );
+    registerTokenImageCacheStaticRoutes(app, tokenImageCacheDir);
     if (userlandUiDistDir) {
         registerUserlandStaticRoutes(app, userlandUiDistDir);
     }
