@@ -202,6 +202,10 @@ export type ApiBootstrapProbeFirstToken = {
 	tokenUriPayloadError: string | null;
 	name: string | null;
 	image: string | null;
+	imageBytes: number | null;
+	imageBytesSource: 'content_length' | 'download' | 'data_uri' | null;
+	imageContentType: string | null;
+	imageBytesError: string | null;
 	animationUrl: string | null;
 	metadataError: string | null;
 	candidates: ApiBootstrapProbeTokenCandidate[];
@@ -210,6 +214,13 @@ export type ApiBootstrapProbeFirstToken = {
 export type ApiBootstrapProbeStorageEstimate = {
 	sampleTokenId: string;
 	samplePayloadBytes: number;
+	projectedBytes: string;
+	totalSupply: string;
+} | null;
+
+export type ApiBootstrapProbeImageStorageEstimate = {
+	sampleTokenId: string;
+	sampleImageBytes: number;
 	projectedBytes: string;
 	totalSupply: string;
 } | null;
@@ -223,6 +234,7 @@ export type BootstrapContractProbeApiResponse = {
 	totalSupply: ApiBootstrapProbeTotalSupply;
 	firstToken: ApiBootstrapProbeFirstToken;
 	storageEstimate: ApiBootstrapProbeStorageEstimate;
+	imageStorageEstimate: ApiBootstrapProbeImageStorageEstimate;
 	suggestedInput: {
 		supportsEnumerable: boolean;
 		manualInput:
@@ -775,8 +787,18 @@ export type ApiBootstrapRun = {
 	manualTokenIdsJson: string | null;
 	manualRangeStartTokenId: string | null;
 	manualRangeTotalSupply: number | null;
+	imageCacheEnabled: boolean;
+	imageCacheMaxDimension: number | null;
 	deploymentBlock: number | null;
-	status: 'requested' | 'queued' | 'metadata' | 'ownership' | 'backfill' | 'completed' | 'failed';
+	status:
+		| 'requested'
+		| 'queued'
+		| 'metadata'
+		| 'image_cache'
+		| 'ownership'
+		| 'backfill'
+		| 'completed'
+		| 'failed';
 	anchorBlock: number | null;
 	anchorBlockHash: string | null;
 	anchorBlockTimestamp: number | null;
@@ -826,6 +848,7 @@ export type ApiBootstrapFlowStep = {
 		| 'anchor'
 		| 'enumeration'
 		| 'metadata'
+		| 'image_cache'
 		| 'ownership'
 		| 'backfill'
 		| 'collection_live'
@@ -860,6 +883,7 @@ export type BootstrapRunsApiResponse = {
 			| 'requested'
 			| 'queued'
 			| 'metadata'
+			| 'image_cache'
 			| 'ownership'
 			| 'backfill'
 			| 'completed'

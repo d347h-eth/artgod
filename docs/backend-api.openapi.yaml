@@ -3936,6 +3936,7 @@ components:
                     requested,
                     queued,
                     metadata,
+                    image_cache,
                     ownership,
                     backfill,
                     completed,
@@ -3958,6 +3959,8 @@ components:
                 - manualTokenIdsJson
                 - manualRangeStartTokenId
                 - manualRangeTotalSupply
+                - imageCacheEnabled
+                - imageCacheMaxDimension
                 - deploymentBlock
                 - status
                 - anchorBlock
@@ -3999,6 +4002,11 @@ components:
                     type: string
                     nullable: true
                 manualRangeTotalSupply:
+                    type: integer
+                    nullable: true
+                imageCacheEnabled:
+                    type: boolean
+                imageCacheMaxDimension:
                     type: integer
                     nullable: true
                 deploymentBlock:
@@ -4061,6 +4069,7 @@ components:
                     anchor,
                     enumeration,
                     metadata,
+                    image_cache,
                     ownership,
                     backfill,
                     collection_live,
@@ -4335,6 +4344,18 @@ components:
                               totalSupply:
                                   type: integer
                                   minimum: 1
+                imageCache:
+                    type: object
+                    required: [enabled, maxDimension]
+                    additionalProperties: false
+                    properties:
+                        enabled:
+                            type: boolean
+                        maxDimension:
+                            type: integer
+                            nullable: true
+                            minimum: 64
+                            maximum: 4096
                 deploymentBlock:
                     type: integer
                     minimum: 1

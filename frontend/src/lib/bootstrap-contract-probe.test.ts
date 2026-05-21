@@ -96,11 +96,16 @@ function makeProbe(input: {
 			tokenUriPayloadError: null,
 			name: null,
 			image: null,
+			imageBytes: null,
+			imageBytesSource: null,
+			imageContentType: null,
+			imageBytesError: null,
 			animationUrl: null,
 			metadataError: null,
 			candidates: []
 		},
 		storageEstimate: null,
+		imageStorageEstimate: null,
 		suggestedInput: {
 			supportsEnumerable: input.enumerable,
 			manualInput,

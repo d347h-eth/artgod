@@ -706,6 +706,10 @@ export async function createBootstrapRun(
 					startTokenId: string;
 					totalSupply: number;
 			  };
+		imageCache?: {
+			enabled: boolean;
+			maxDimension: number | null;
+		};
 		deploymentBlock?: number;
 	}
 ): Promise<BootstrapRunCreateResponse> {

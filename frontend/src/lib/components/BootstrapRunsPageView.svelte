@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto, invalidateAll } from '$app/navigation';
+	import {
+		BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
+		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
+	} from '@artgod/shared/config/bootstrap';
 	import type {
 		ApiChain,
 		ApiOpenSeaIntegrationStatus,
@@ -41,7 +46,17 @@
 		openseaIntegration: ApiOpenSeaIntegrationStatus | null;
 	} = $props();
 
-	const statusOptions = ['', 'requested', 'queued', 'metadata', 'ownership', 'backfill', 'completed', 'failed'];
+	const statusOptions = [
+		'',
+		'requested',
+		'queued',
+		'metadata',
+		'image_cache',
+		'ownership',
+		'backfill',
+		'completed',
+		'failed'
+	];
 	const bootstrapInputClass = 'bootstrap-control';
 	const bootstrapSelectClass = 'bootstrap-control bootstrap-control-select';
 	const bootstrapTextareaClass = 'bootstrap-control bootstrap-control-textarea';
@@ -56,6 +71,8 @@
 	let manualTokenIds = $state('');
 	let manualRangeStartTokenId = $state('');
 	let manualRangeTotalSupply = $state('');
+	let imageCacheEnabled = $state(true);
+	let imageCacheMaxDimension = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
 	let submitSuccess = $state<string | null>(null);
@@ -197,6 +214,22 @@
 		return null;
 	}
 
+	function parseImageCacheMaxDimension(): number | null {
+		const raw = normalizeFieldValue(imageCacheMaxDimension);
+		if (!raw) return null;
+		const parsed = Number(raw);
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION ||
+			parsed > BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION
+		) {
+			throw new Error(
+				`image max dimension must be ${BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}-${BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}`
+			);
+		}
+		return parsed;
+	}
+
 	function collectionHref(item: BootstrapRunsApiResponse['page']['items'][number]): string {
 		if (!chain) return '#';
 		return `/${chain.slug}/${item.collection.slug}`;
@@ -292,6 +325,16 @@
 			}
 		}
 
+		let imageCacheMaxDimensionValue: number | null = null;
+		if (imageCacheEnabled) {
+			try {
+				imageCacheMaxDimensionValue = parseImageCacheMaxDimension();
+			} catch (error) {
+				submitError = error instanceof Error ? error.message : 'invalid image cache setting';
+				return;
+			}
+		}
+
 		submitting = true;
 		try {
 			const result = await createBootstrapRun(fetch, chain.slug, {
@@ -301,7 +344,11 @@
 				standard: 'erc721',
 				metadataMode,
 				supportsEnumerable,
-				manualInput
+				manualInput,
+				imageCache: {
+					enabled: imageCacheEnabled,
+					maxDimension: imageCacheEnabled ? imageCacheMaxDimensionValue : null
+				}
 			});
 			submitSuccess = `bootstrap queued (run ${result.runId})`;
 			await invalidateAll();
@@ -439,6 +486,18 @@
 										{formatByteSize(probeResult.storageEstimate?.projectedBytes)}
 									</div>
 								</div>
+								<div class="bootstrap-form-row">
+									<span class="bootstrap-form-label">image size</span>
+									<div class="mono">
+										{formatByteSize(probeResult.firstToken.imageBytes)}
+									</div>
+								</div>
+								<div class="bootstrap-form-row">
+									<span class="bootstrap-form-label">image total</span>
+									<div class="mono">
+										{formatByteSize(probeResult.imageStorageEstimate?.projectedBytes)}
+									</div>
+								</div>
 								{#if probeResult.suggestedInput.warnings.length > 0}
 									<div class="bootstrap-form-row bootstrap-probe-warning-row">
 										<span class="bootstrap-form-label">warnings</span>
@@ -471,6 +530,25 @@
 					<span>supports enumerable</span>
 					<input bind:checked={supportsEnumerable} class={bootstrapCheckboxClass} type="checkbox" />
 				</label>
+			</div>
+
+			<div class="bootstrap-form-section">
+				<label class="bootstrap-form-checkbox-row bootstrap-form-row">
+					<span>cache token images</span>
+					<input bind:checked={imageCacheEnabled} class={bootstrapCheckboxClass} type="checkbox" />
+				</label>
+				{#if imageCacheEnabled}
+					<label class="bootstrap-form-row">
+						<span>image max dimension</span>
+						<input
+							bind:value={imageCacheMaxDimension}
+							class={`${bootstrapInputClass} bootstrap-input-total-supply`}
+							type="number"
+							min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
+							max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
+						/>
+					</label>
+				{/if}
 			</div>
 
 			{#if !supportsEnumerable}
