@@ -11,7 +11,7 @@ Current implementation snapshot:
 
 - Multi-runtime indexer is active and queue-driven (NATS JetStream + SQLite).
 - Realtime sync, backfill sync, and reorg checks are implemented.
-- Collection bootstrap is implemented (metadata-first, then ownership snapshot + short backfill).
+- Collection bootstrap is implemented (metadata-first, optional local token-image cache, then ownership snapshot + short backfill).
 - Domain projections for orders, metadata, and activities are implemented.
 - Offchain ingestion includes OpenSea live stream ingestion, bootstrap snapshots, periodic reconciliation, and normalization into canonical order state.
 - Collection extensions are build-bundled and DB-activated; Terraforms is the first embedded extension for metadata-side artifacts, sync enrichment, and backend media overrides.
@@ -283,7 +283,8 @@ Useful optional env groups:
 - Observability signal-store endpoints (`OBSERVABILITY_OTLP_HTTP_URL`, `OBSERVABILITY_PYROSCOPE_URL`)
 - Backend observability (`BACKEND_METRICS_*`, `BACKEND_APM_*`)
 - RPC endpoint pools and resilience (`RPC_URL_LIST`, `RPC_BACKFILL_URL_LIST`, `RPC_HTTP_REQUEST_TIMEOUT_MS`, `RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
-- Metadata refresh/batch tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`)
+- Metadata and bootstrap media tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`, `BOOTSTRAP_IMAGE_CACHE_*`)
+- IPFS/media cache (`ARTGOD_IPFS_GATEWAY_ORIGIN`, `ARTGOD_MEDIA_CACHE_DIR`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
 - OpenSea integration (`OPENSEA_INTEGRATION_MODE`, `OPENSEA_API_KEY`)
 - Trading bot OpenSea lanes (`OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`)
@@ -369,11 +370,12 @@ Per-collection bootstrap flow:
 3. Auto-install any embedded collection extension whose build-bundled match exactly fits the collection contract plus token scope.
 4. Run metadata snapshot first (strict or `best_effort` mode).
 5. Fan out collection-extension artifact refresh jobs as non-blocking side-effects behind canonical metadata writes.
-6. Run ownership snapshot at the same anchor.
-7. Schedule short backfill (`anchor + 1` to head).
-8. Enqueue OpenSea bootstrap once local metadata + ownership are ready, only when OpenSea integration is enabled and the collection has an OpenSea slug.
-9. Mark collection `live` once short backfill completes.
-10. Mark OpenSea offchain `ready` once the first full snapshot succeeds; periodic reconcile maintains eventual consistency after that.
+6. Cache canonical token `image` media locally when requested, optionally resized to the bootstrap run's max dimension.
+7. Run ownership snapshot at the same anchor.
+8. Schedule short backfill (`anchor + 1` to head).
+9. Enqueue OpenSea bootstrap once local metadata + ownership are ready, only when OpenSea integration is enabled and the collection has an OpenSea slug.
+10. Mark collection `live` once short backfill completes.
+11. Mark OpenSea offchain `ready` once the first full snapshot succeeds; periodic reconcile maintains eventual consistency after that.
 
 `nft_balances` is canonical ownership state after bootstrap completion.
 Historical backfill for blocks at or before the bootstrap anchor is facts-only: it can enrich transfers/fills/activity history, but it must not mutate current-state tables such as `nft_balances`.
@@ -394,6 +396,7 @@ Historical backfill for blocks at or before the bootstrap anchor is facts-only: 
 ## Database & Migrations
 
 - SQLite file path is required via `ARTGOD_DB_PATH`.
+- Token image cache files live under `ARTGOD_MEDIA_CACHE_DIR` when set, otherwise beside the SQLite database under `media-cache/token-images`.
 - Migrations live in `database/migrations/*.sql`.
 - Migrations are applied automatically by runtime startup paths via `shared/database/migrations.ts`.
 

@@ -53,7 +53,16 @@ The indexer reads these variables from the root `.env`:
 - `OFFCHAIN_PERSIST_RAW_OBSERVATIONS` (default: `false`)
     - Controls whether `offchain-ingest-worker` persists raw OpenSea payloads into `offchain_order_observations`.
     - Set to `true` when raw audit payload history is needed.
+- `ARTGOD_IPFS_GATEWAY_ORIGIN` (default: `https://ipfs.io`)
+    - Dedicated origin used when resolving `ipfs://` metadata and token-image references.
+    - `/ipfs` suffixes are accepted in config but normalized away before requests are built.
+- `ARTGOD_MEDIA_CACHE_DIR` (optional)
+    - Filesystem root for locally cached token images.
+    - When omitted, resolves beside `ARTGOD_DB_PATH` as `../media-cache/token-images`.
 - `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` (default: 200)
+- `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE` (default: 50)
+- `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY` (default: 4)
+- `BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES` (default: 26214400)
 - `SEAPORT_CONDUIT_CONTROLLER` (required)
 
 `RPC_BACKFILL_URL_LIST`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL_LIST`.
@@ -105,7 +114,12 @@ CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
 BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS=60000
 OFFCHAIN_PERSIST_RAW_OBSERVATIONS=false
+ARTGOD_IPFS_GATEWAY_ORIGIN=https://ipfs.io
+ARTGOD_MEDIA_CACHE_DIR=
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
+BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE=50
+BOOTSTRAP_IMAGE_CACHE_CONCURRENCY=4
+BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES=26214400
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 OPENSEA_INTEGRATION_MODE=auto
 OPENSEA_API_KEY=
@@ -163,5 +177,6 @@ SMOKE_CHAIN_ID=1
 - Relative paths are resolved from the repo root.
 - The database file directory is created if it does not exist.
 - SQLite is configured with WAL mode, normal synchronous, and a busy timeout.
+- The default token-image cache directory is derived from this path, so database and local media can be moved together unless `ARTGOD_MEDIA_CACHE_DIR` overrides it.
 
 See `shared/database/db.ts` for details.

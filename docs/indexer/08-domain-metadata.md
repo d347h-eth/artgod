@@ -79,10 +79,17 @@ Metrics are recorded for latency and failures.
 
 - Supports `http://`, `https://`, and `ipfs://` (via gateway).
 - Supports `data:application/json` URIs.
+- Normalizes IPFS references through `ARTGOD_IPFS_GATEWAY_ORIGIN`.
 - Enforces a configurable timeout (default 10s).
 - Normalizes attribute structures to a standard shape.
 
 Results are stored in `token_metadata` with JSON strings for attributes and raw metadata.
+
+Bootstrap token-image caching is intentionally downstream from this metadata write:
+
+- the cache reads canonical `token_metadata.image`
+- it does not cache `animation_url`
+- cache output affects read-model presentation through `/media/token-images/...`, without mutating canonical metadata
 
 ## Canonical Metadata First, Extension Artifacts Second
 

@@ -198,12 +198,59 @@ Key columns:
 - `manual_token_ids_json`
 - `manual_range_start_token_id`
 - `manual_range_total_supply`
+- `request_image_cache_enabled`
+- `request_image_cache_max_dimension`
 - `status`
 
 Important contract:
 
 - `request_extension_key` is resolved during bootstrap run creation from `chain_id + contract_address + token_scope`
 - bootstrap-worker later installs that requested embedded extension by `collection_id`, without re-resolving by contract
+- `request_image_cache_*` records whether the run should cache canonical token `image` media and the optional max resize dimension used by the later image-cache phase
+
+### `token_image_cache`
+
+Defined in `032_token_image_cache.sql`.
+
+Purpose:
+
+- tracks bootstrap-local caching of canonical token metadata `image` media
+- stores the local public path that backend read models can prefer over remote/IPFS image URLs
+- keeps cache failures retryable without blocking canonical metadata persistence
+
+Key columns:
+
+- identity
+    - `run_id`
+    - `chain_id`
+    - `collection_id`
+    - `contract_address`
+    - `token_id`
+- cache input
+    - `source_image_url`
+    - `requested_max_dimension`
+- task state
+    - `status` (`pending`, `retry`, `succeeded`, `failed_terminal`)
+    - `attempts`
+    - `next_attempt_at`
+    - `last_error`
+- cache output
+    - `cache_key`
+    - `content_type`
+    - `source_bytes`
+    - `cached_bytes`
+    - `width`
+    - `height`
+    - `relative_path`
+    - `public_path`
+
+Important semantics:
+
+- primary key is `(chain_id, collection_id, token_id)`, so each token has one active cached canonical image variant
+- seeding reads only successful bootstrap metadata snapshot tasks with a non-empty `token_metadata.image`
+- if source URL and requested max dimension are unchanged, successful cache rows are preserved across reseeding
+- backend serves `public_path` under `/media/token-images/...` from the configured local media cache directory
+- read models prefer a succeeded `public_path` only when `source_image_url` still matches the canonical `token_metadata.image`
 
 ### `nft_balance_snapshots`
 
@@ -428,6 +475,17 @@ Current Terraforms artifact usage:
 - `html_content` stores the direct v2 renderer `tokenHTML(...)` response used for backend animation override
 - backend resolves Terraforms collection browsing from `terraforms-v2-media`
 - backend exposes `terraforms-v2-lost-terrain` only as a token-local media mode on token detail / preview
+
+## Local Token Image Cache
+
+The token image cache is separate from canonical metadata and extension artifact storage.
+
+- It caches `token_metadata.image`, not `animation_url`.
+- The indexer writes resized files through `indexer/src/infra/media/sharp-token-image-cache.ts`.
+- Resized cache output is WebP; original-size cache output preserves the source bytes and inferred content type.
+- File roots come from `ARTGOD_MEDIA_CACHE_DIR` or the default path beside `ARTGOD_DB_PATH`.
+- Backend static serving is path-scoped to `/media/token-images/*`.
+- Generic collection read models prefer cached image paths before remote canonical image URLs.
 
 ## Storage Adapter Behavior
 
