@@ -25,6 +25,10 @@ For deferred local runtime identity and browser trust-store work, see:
 
 - `docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`
 
+For release signing procurement and CI secret setup, see:
+
+- `docs/desktop/04-release-signing-runbook.md`
+
 ## Scope and Goals
 
 The desktop build/runtime pipeline is designed to:
@@ -219,6 +223,7 @@ Responsibilities:
 
 - builds the native secret-prompt sidecar crate for the active target triple
 - stages the built binary into `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
+- stages a fat `artgod-secret-prompt-universal-apple-darwin` sidecar when Tauri builds the macOS universal target
 - keeps sidecar build output separate from the main `src-tauri/target` tree by using `src-tauri/target/sidecars`
 
 ### `scripts/build/clean-build-artifacts.mjs`
@@ -267,6 +272,7 @@ During Tauri build these artifacts are copied to `src-tauri/resources/runtime/..
 Produced sidecar artifacts:
 
 - `src-tauri/binaries/artgod-secret-prompt-<target-triple>(.exe)`
+- `src-tauri/binaries/artgod-secret-prompt-universal-apple-darwin` for macOS universal release builds
 
 During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked through Tauri's sidecar mechanism.
 
@@ -580,14 +586,20 @@ Release secrets expected by CI:
     - `APPLE_CERTIFICATE` (base64 `.p12`)
     - `APPLE_CERTIFICATE_PASSWORD`
     - `APPLE_SIGNING_IDENTITY`
-    - `APPLE_API_KEY` (base64 `.p8`)
+    - `APPLE_API_KEY_P8_B64` (base64 `.p8`)
     - `APPLE_API_KEY_ID`
     - `APPLE_API_ISSUER`
-- Windows:
+- Windows, Azure Artifact Signing path:
+    - `AZURE_ARTIFACT_SIGNING_ENDPOINT`
+    - `AZURE_ARTIFACT_SIGNING_ACCOUNT`
+    - `AZURE_ARTIFACT_SIGNING_CERT_PROFILE`
+    - `AZURE_CLIENT_ID`
+    - `AZURE_CLIENT_SECRET`
+    - `AZURE_TENANT_ID`
+- Windows, exportable PFX fallback:
     - `WINDOWS_CERT_PFX_B64`
     - `WINDOWS_CERT_PASSWORD`
     - optional: `WINDOWS_CERT_SHA1`
-    - optional: `WINDOWS_TIMESTAMP_URL`
 
 Consumer-side verification examples:
 
