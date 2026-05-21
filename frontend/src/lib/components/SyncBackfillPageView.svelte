@@ -65,6 +65,7 @@
 		collection: string;
 		stack: string[];
 		stackKey: string;
+		urlKey: string;
 	};
 
 	type ProjectionLine = {
@@ -136,7 +137,7 @@
 				? [{ key: 'root', label: 'root', stack: [], state: syncState }]
 				: []
 	);
-	let routeStackNavigation = $derived(resolveRouteStackNavigation(page.url.searchParams));
+	let routeStackNavigation = $derived(resolveRouteStackNavigation(page.url));
 	let visibleLevelsLiveKey = $derived(
 		visibleLevels.map((level) => buildSyncBackfillIsometricLevelRenderKey(level)).join('||')
 	);
@@ -151,6 +152,7 @@
 	);
 	let projectionLines = $derived(resolveProjectionLines(visibleLevels, isometricAnchorLayouts));
 	let activeSelectedRangeScopeKey: string | null = $state(null);
+	let appliedRouteNavigationUrlKey: string | null = $state(null);
 
 	onMount(() => {
 		if (!syncState) return;
@@ -178,6 +180,8 @@
 	$effect(() => {
 		if (!routeStackNavigation) return;
 		if (routeStackNavigation.collection !== selectedCollection) return;
+		if (routeStackNavigation.urlKey === appliedRouteNavigationUrlKey) return;
+		appliedRouteNavigationUrlKey = routeStackNavigation.urlKey;
 		if (routeStackNavigation.stackKey === stack.join(',')) return;
 		const anchorLevelKey = resolveSyncBackfillStackAnchorLevelKey(
 			stack,
@@ -224,15 +228,16 @@
 		return suffix ? `${basePath}?${suffix}` : basePath;
 	}
 
-	function resolveRouteStackNavigation(searchParams: URLSearchParams): RouteStackNavigation | null {
-		const parsedStack = parseSyncBackfillPageStack(searchParams.get('stack'));
+	function resolveRouteStackNavigation(url: URL): RouteStackNavigation | null {
+		const parsedStack = parseSyncBackfillPageStack(url.searchParams.get('stack'));
 		if (!parsedStack) return null;
-		const collection = searchParams.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
+		const collection = url.searchParams.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
 		const stack = parsedStack.map(formatSyncBackfillPageStackEntry);
 		return {
 			collection,
 			stack,
-			stackKey: stack.join(',')
+			stackKey: stack.join(','),
+			urlKey: url.pathname + '?' + url.searchParams.toString()
 		};
 	}
 
