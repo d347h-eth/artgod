@@ -515,7 +515,8 @@ a:hover {
 }
 
 .sync-isometric-tile:hover:not(.sync-isometric-tile-disabled),
-.sync-isometric-tile:focus-visible:not(.sync-isometric-tile-disabled) {
+.sync-isometric-tile:focus-visible:not(.sync-isometric-tile-disabled),
+.sync-isometric-tile-active:not(.sync-isometric-tile-disabled) {
 	outline: none;
 	stroke: var(--c-yellow);
 	stroke-width: 2;
@@ -558,10 +559,6 @@ a:hover {
 	pointer-events: none;
 }
 
-.sync-isometric-marker-location {
-	fill: var(--c-orange);
-}
-
 .sync-isometric-marker-deployment {
 	fill: var(--c-pink);
 }
@@ -594,10 +591,8 @@ a:hover {
 	display: inline-flex;
 	align-items: center;
 	justify-content: flex-start;
-	justify-self: center;
 	gap: 0.45rem;
 	flex-wrap: wrap;
-	padding: 0 0.75rem 0.75rem;
 }
 
 .sync-backfill-actions-selection {

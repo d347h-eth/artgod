@@ -57,6 +57,16 @@
 		showError?: boolean;
 	};
 
+	type LevelRangeDetail = {
+		range: BlockRangeSelection;
+		summary: SyncBackfillRangeSummaryApiResponse | null;
+		loading: boolean;
+		error: string | null;
+		requestId: number;
+		refreshKey: string | null;
+		refreshInFlight: boolean;
+	};
+
 	type StackNavigationOptions = {
 		updateUrl?: boolean;
 	};
@@ -104,15 +114,8 @@
 	let stack = $state<string[]>(pageStack);
 	let submitting = $state(false);
 	let feedback: string | null = $state(null);
-	let selectedRangeSummary: SyncBackfillRangeSummaryApiResponse | null = $state(null);
-	let selectedRangeLoading = $state(false);
-	let selectedRangeError: string | null = $state(null);
-	let selectedRangeLevelKey: string | null = $state(null);
-	let selectedLocationMarker: BlockRangeSelection | null = $state(null);
-	let selectedRangeRequestId = 0;
-	let selectedRangeRefreshKey: string | null = $state(null);
-	let selectedRangeRefreshRequestId = 0;
-	let selectedRangeRefreshInFlight = $state(false);
+	let selectedRangeDetailsByLevel = $state<Record<string, LevelRangeDetail>>({});
+	let selectedRangeRequestSequence = 0;
 	let drilldownRequestId = 0;
 	let liveRefreshRequestId = 0;
 	let backfillSelectionMode = $state(false);
@@ -129,7 +132,7 @@
 			? `${syncState.chain.slug}:${selectedCollection}:${syncState.range.fromBlock}:${syncState.range.toBlock}:${syncState.range.bucketSize}`
 			: null
 	);
-	let selectedRangeScopeKey = $derived(`${basePath}:${selectedCollection}:${stack.join(',')}`);
+	let selectedRangeScopeKey = $derived(`${basePath}:${selectedCollection}`);
 	let visibleLevels = $derived(
 		levels.length > 0
 			? levels
@@ -141,13 +144,17 @@
 	let visibleLevelsLiveKey = $derived(
 		visibleLevels.map((level) => buildSyncBackfillIsometricLevelRenderKey(level)).join('||')
 	);
+	let selectedRangeDetailsRenderKey = $derived(
+		formatSelectedRangeDetailsRenderKey(selectedRangeDetailsByLevel)
+	);
 	let isometricRenderKey = $derived(
 		[
 			currentPageKey,
 			backfillSelectionMode ? 'selection' : 'normal',
 			backfillSelectionLevelKey ?? '',
 			backfillSelectionFromBlock ?? '',
-			formatBackfillSelectionRangeKey(backfillSelectionRange)
+			formatBackfillSelectionRangeKey(backfillSelectionRange),
+			selectedRangeDetailsRenderKey
 		].join('|')
 	);
 	let projectionLines = $derived(resolveProjectionLines(visibleLevels, isometricAnchorLayouts));
@@ -157,7 +164,16 @@
 	onMount(() => {
 		if (!syncState) return;
 		const refresh = startSyncBackfillLiveRefresh({ refresh: refreshVisibleStack });
-		return refresh.stop;
+		const handleKeydown = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape' || !backfillSelectionMode) return;
+			event.preventDefault();
+			cancelBackfillSelection();
+		};
+		window.addEventListener('keydown', handleKeydown);
+		return () => {
+			refresh.stop();
+			window.removeEventListener('keydown', handleKeydown);
+		};
 	});
 
 	$effect(() => {
@@ -194,11 +210,13 @@
 	});
 
 	$effect(() => {
-		const range = selectedLocationMarker;
-		if (!range || selectedRangeLoading || selectedRangeRefreshInFlight) return;
-		const refreshKey = formatRangeSummaryRefreshKey(range, visibleLevelsLiveKey);
-		if (selectedRangeRefreshKey === refreshKey) return;
-		void loadRangeSummary(range, { showLoading: false, showError: false });
+		const visibleLevelKeys = new Set(visibleLevels.map((level) => level.key));
+		for (const [levelKey, detail] of Object.entries(selectedRangeDetailsByLevel)) {
+			if (!visibleLevelKeys.has(levelKey) || detail.loading || detail.refreshInFlight) continue;
+			const refreshKey = formatRangeSummaryRefreshKey(detail.range, visibleLevelsLiveKey);
+			if (detail.refreshKey === refreshKey) continue;
+			void loadRangeSummary(detail.range, { showLoading: false, showError: false });
+		}
 	});
 
 	$effect(() => {
@@ -249,7 +267,7 @@
 	}
 
 	async function handleCellClick(
-		event: MouseEvent,
+		_event: MouseEvent,
 		level: SyncBackfillVisibleLevel,
 		cell: ApiSyncBackfillGridCell
 	): Promise<void> {
@@ -257,42 +275,24 @@
 			await handleBackfillSelectionClick(level, cell);
 			return;
 		}
-		if (event.ctrlKey) {
-			await loadRangeSummary({
-				fromBlock: cell.fromBlock,
-				toBlock: cell.toBlock,
-				bucketSize: level.state.range.bucketSize,
-				levelKey: level.key,
-				markerBlock: cell.fromBlock
-			});
-			return;
-		}
-		if (cell.canDrillDown) {
-			const childBucketSize = level.state.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
-			if (Number.isInteger(childBucketSize) && childBucketSize >= 1) {
-				feedback = null;
-				await navigateToStack(
-					[
-						...level.stack,
-						formatSyncBackfillPageStackEntry({
-							pageStartBlock: cell.fromBlock,
-							bucketSize: childBucketSize
-						})
-					],
-					level.key
-				);
-			}
-			return;
-		}
-		if (cell.blockCount === 1) {
-			await loadRangeSummary({
-				fromBlock: cell.fromBlock,
-				toBlock: cell.toBlock,
-				bucketSize: level.state.range.bucketSize,
-				levelKey: level.key,
-				markerBlock: cell.fromBlock
-			});
-		}
+		if (cell.blockCount <= 0) return;
+
+		feedback = null;
+		void loadRangeSummary(buildCellRangeSelection(level, cell));
+		if (!cell.canDrillDown) return;
+
+		const childBucketSize = level.state.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
+		if (!Number.isInteger(childBucketSize) || childBucketSize < 1) return;
+		await navigateToStack(
+			[
+				...level.stack,
+				formatSyncBackfillPageStackEntry({
+					pageStartBlock: cell.fromBlock,
+					bucketSize: childBucketSize
+				})
+			],
+			level.key
+		);
 	}
 
 	async function handleBackfillSelectionClick(
@@ -305,7 +305,6 @@
 			backfillSelectionFromBlock = cell.fromBlock;
 			backfillSelectionLevelKey = level.key;
 			backfillSelectionRange = null;
-			clearRangeSummary();
 			return;
 		}
 		if (backfillSelectionLevelKey !== level.key) {
@@ -338,7 +337,6 @@
 		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		feedback = null;
-		clearRangeSummary();
 	}
 
 	function cancelBackfillSelection(): void {
@@ -347,7 +345,6 @@
 		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		feedback = null;
-		clearRangeSummary();
 	}
 
 	function formatBackfillSelectionRangeKey(range: BlockRangeSelection | null): string {
@@ -356,6 +353,26 @@
 
 	function formatRangeSummaryRefreshKey(range: BlockRangeSelection, liveKey: string): string {
 		return `${formatBackfillSelectionRangeKey(range)}:${liveKey}`;
+	}
+
+	function formatSelectedRangeDetailsRenderKey(details: Record<string, LevelRangeDetail>): string {
+		return Object.entries(details)
+			.map(([levelKey, detail]) => `${levelKey}:${formatBackfillSelectionRangeKey(detail.range)}`)
+			.sort()
+			.join('|');
+	}
+
+	function buildCellRangeSelection(
+		level: SyncBackfillVisibleLevel,
+		cell: ApiSyncBackfillGridCell
+	): BlockRangeSelection {
+		return {
+			fromBlock: cell.fromBlock,
+			toBlock: cell.toBlock,
+			bucketSize: level.state.range.bucketSize,
+			levelKey: level.key,
+			markerBlock: cell.fromBlock
+		};
 	}
 
 	function handleIsometricAnchorLayout(layout: SyncBackfillIsometricAnchorLayout): void {
@@ -492,15 +509,8 @@
 	}
 
 	function clearRangeSummary(): void {
-		selectedRangeRequestId += 1;
-		selectedRangeSummary = null;
-		selectedRangeLoading = false;
-		selectedRangeError = null;
-		selectedRangeLevelKey = null;
-		selectedLocationMarker = null;
-		selectedRangeRefreshKey = null;
-		selectedRangeRefreshRequestId = 0;
-		selectedRangeRefreshInFlight = false;
+		selectedRangeRequestSequence += 1;
+		selectedRangeDetailsByLevel = {};
 	}
 
 	async function loadRangeSummary(
@@ -510,20 +520,18 @@
 		if (!syncState || range.fromBlock > range.toBlock) return;
 		const showLoading = options.showLoading ?? true;
 		const showError = options.showError ?? true;
-		const requestId = selectedRangeRequestId + 1;
-		selectedRangeRequestId = requestId;
-		selectedRangeRefreshKey = formatRangeSummaryRefreshKey(range, visibleLevelsLiveKey);
-		if (showLoading) {
-			selectedRangeLoading = true;
-		} else {
-			selectedRangeRefreshRequestId = requestId;
-			selectedRangeRefreshInFlight = true;
-		}
-		if (showError) {
-			selectedRangeError = null;
-		}
-		selectedRangeLevelKey = range.levelKey;
-		selectedLocationMarker = range;
+		const requestId = selectedRangeRequestSequence + 1;
+		selectedRangeRequestSequence = requestId;
+		const currentDetail = selectedRangeDetailsByLevel[range.levelKey] ?? null;
+		setRangeDetail(range.levelKey, {
+			range,
+			summary: showLoading ? null : currentDetail?.summary ?? null,
+			loading: showLoading,
+			error: showError ? null : currentDetail?.error ?? null,
+			requestId,
+			refreshKey: formatRangeSummaryRefreshKey(range, visibleLevelsLiveKey),
+			refreshInFlight: !showLoading
+		});
 		try {
 			const params = new URLSearchParams();
 			params.set('from_block', String(range.fromBlock));
@@ -532,30 +540,48 @@
 				params.set('collection', selectedCollection);
 			}
 			const summary = await getSyncBackfillRangeSummary(fetch, syncState.chain.slug, params);
-			if (selectedRangeRequestId === requestId) {
-				selectedRangeSummary = {
+			updateRangeDetail(range.levelKey, requestId, (detail) => ({
+				...detail,
+				summary: {
 					...summary,
 					range: {
 						...summary.range,
 						bucketSize: range.bucketSize
 					}
-				};
-			}
+				},
+				error: null
+			}));
 		} catch (error) {
-			if (showError && selectedRangeRequestId === requestId) {
-				selectedRangeError = error instanceof Error ? error.message : 'range request failed';
+			if (showError) {
+				updateRangeDetail(range.levelKey, requestId, (detail) => ({
+					...detail,
+					error: error instanceof Error ? error.message : 'range request failed'
+				}));
 			}
 		} finally {
-			if (showLoading) {
-				if (selectedRangeRequestId === requestId) {
-					selectedRangeLoading = false;
-				}
-			} else {
-				if (selectedRangeRefreshRequestId === requestId) {
-					selectedRangeRefreshInFlight = false;
-				}
-			}
+			updateRangeDetail(range.levelKey, requestId, (detail) => ({
+				...detail,
+				loading: showLoading ? false : detail.loading,
+				refreshInFlight: showLoading ? detail.refreshInFlight : false
+			}));
 		}
+	}
+
+	function setRangeDetail(levelKey: string, detail: LevelRangeDetail): void {
+		selectedRangeDetailsByLevel = {
+			...selectedRangeDetailsByLevel,
+			[levelKey]: detail
+		};
+	}
+
+	function updateRangeDetail(
+		levelKey: string,
+		requestId: number,
+		update: (detail: LevelRangeDetail) => LevelRangeDetail
+	): void {
+		const detail = selectedRangeDetailsByLevel[levelKey];
+		if (!detail || detail.requestId !== requestId) return;
+		setRangeDetail(levelKey, update(detail));
 	}
 
 	async function commitBackfillSelection(): Promise<void> {
@@ -597,6 +623,9 @@
 		if (isSelectionCell(level.key, cell)) {
 			classes.push('sync-isometric-tile-selected');
 		}
+		if (isActiveRangeCell(level.key, cell)) {
+			classes.push('sync-isometric-tile-active');
+		}
 		return classes.join(' ');
 	}
 
@@ -627,7 +656,7 @@
 				? ', click to select from block'
 				: ', click to select to block';
 		}
-		if (cell.canDrillDown) return ', ctrl-click for range details';
+		if (cell.canDrillDown) return ', click to open child level and show range details';
 		if (cell.blockCount === 1) return ', click for block details';
 		return '';
 	}
@@ -642,14 +671,14 @@
 		return rangeContainsBlock(cell, backfillSelectionFromBlock);
 	}
 
-	function isLocationMarkerCell(
-		level: SyncBackfillVisibleLevel,
-		cell: ApiSyncBackfillGridCell
-	): boolean {
-		return (
-			selectedLocationMarker?.levelKey === level.key &&
-			rangeContainsBlock(cell, selectedLocationMarker.markerBlock)
-		);
+	function isActiveRangeCell(levelKey: string, cell: ApiSyncBackfillGridCell): boolean {
+		const detail = selectedRangeDetailsByLevel[levelKey];
+		return Boolean(detail && rangeContainsBlock(cell, detail.range.markerBlock));
+	}
+
+	function selectedRangeDetailForLevel(levelKey: string): LevelRangeDetail[] {
+		const detail = selectedRangeDetailsByLevel[levelKey];
+		return detail ? [detail] : [];
 	}
 
 	function rangesOverlap(cell: ApiSyncBackfillGridCell, range: BlockRangeSelection): boolean {
@@ -823,6 +852,37 @@
 					{/each}
 				</select>
 			</label>
+			<div
+				class={backfillSelectionMode
+					? 'sync-backfill-actions sync-backfill-actions-selection'
+					: 'sync-backfill-actions'}
+			>
+				{#if backfillSelectionMode}
+					<button
+						type="button"
+						class="action-button-negative"
+						onclick={cancelBackfillSelection}
+						disabled={submitting}
+					>
+						cancel
+					</button>
+					<button
+						type="button"
+						class="action-button-positive"
+						onclick={commitBackfillSelection}
+						disabled={!backfillSelectionRange || submitting}
+					>
+						{submitting ? 'queueing...' : 'commit to backfill'}
+					</button>
+				{:else}
+					<button type="button" onclick={beginBackfillSelection} disabled={!syncState || submitting}>
+						backfill range
+					</button>
+				{/if}
+				{#if feedback}
+					<span class="muted">{feedback}</span>
+				{/if}
+			</div>
 		</div>
 	</header>
 
@@ -861,7 +921,6 @@
 								selectionMode={backfillSelectionMode}
 								renderKey={`${isometricRenderKey}:${buildSyncBackfillIsometricLevelRenderKey(level)}`}
 								projectionSourceCell={resolveProjectionSourceCell(level, levelIndex)}
-								{isLocationMarkerCell}
 								resolveCellClass={cellClass}
 								resolveCellLabel={cellLabel}
 								onCellClick={handleCellClick}
@@ -869,53 +928,24 @@
 							/>
 						</div>
 						<aside class="sync-level-selection-panel">
-							{#if selectedRangeLevelKey === level.key}
-								{#if selectedRangeLoading}
+							{#each selectedRangeDetailForLevel(level.key) as selectedRangeDetail}
+								{#if selectedRangeDetail.loading}
 									<div class="sync-range-detail-status muted">loading range</div>
-								{:else if selectedRangeError}
-									<div class="sync-range-detail-status muted">{selectedRangeError}</div>
-								{:else if selectedRangeSummary}
+								{:else if selectedRangeDetail.error}
+									<div class="sync-range-detail-status muted">{selectedRangeDetail.error}</div>
+								{:else if selectedRangeDetail.summary}
 									<SyncBackfillSummary
-										chain={selectedRangeSummary.chain}
-										range={selectedRangeSummary.range}
-										ariaLabel="Selected range summary"
+										chain={selectedRangeDetail.summary.chain}
+										range={selectedRangeDetail.summary.range}
+										ariaLabel={level.label + ' selected range summary'}
 									/>
 								{/if}
-							{/if}
+							{/each}
 						</aside>
 					</section>
 				{/each}
 			</div>
 
-			<div
-				class={`sync-backfill-actions ${backfillSelectionMode ? 'sync-backfill-actions-selection' : ''}`}
-			>
-				{#if backfillSelectionMode}
-					<button
-						type="button"
-						class="action-button-negative"
-						onclick={cancelBackfillSelection}
-						disabled={submitting}
-					>
-						cancel
-					</button>
-					<button
-						type="button"
-						class="action-button-positive"
-						onclick={commitBackfillSelection}
-						disabled={!backfillSelectionRange || submitting}
-					>
-						{submitting ? 'queueing...' : 'commit to backfill'}
-					</button>
-				{:else}
-					<button type="button" onclick={beginBackfillSelection} disabled={!syncState || submitting}>
-						backfill range
-					</button>
-				{/if}
-				{#if feedback}
-					<span class="muted">{feedback}</span>
-				{/if}
-			</div>
 		</div>
 	{:else}
 		<div class="empty-cell">loading sync state</div>

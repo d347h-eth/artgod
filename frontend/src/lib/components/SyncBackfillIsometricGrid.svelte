@@ -28,10 +28,6 @@
 		selectionMode: boolean;
 		renderKey: string;
 		projectionSourceCell?: ApiSyncBackfillGridCell | null;
-		isLocationMarkerCell: (
-			level: SyncBackfillVisibleLevel,
-			cell: ApiSyncBackfillGridCell
-		) => boolean;
 		resolveCellClass: (
 			level: SyncBackfillVisibleLevel,
 			cell: ApiSyncBackfillGridCell
@@ -59,7 +55,6 @@
 	const ISOMETRIC_MARKER_FONT_SCALE = 1.8;
 	const ISOMETRIC_MARKER_MIN_FONT_SIZE = 13;
 	const ISOMETRIC_DEPLOYMENT_MARKER_LIFT_SCALE = 0.7;
-	const ISOMETRIC_LOCATION_MARKER_LIFT_SCALE = 0.7;
 	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 	let {
@@ -67,7 +62,6 @@
 		selectionMode,
 		renderKey,
 		projectionSourceCell = null,
-		isLocationMarkerCell,
 		resolveCellClass,
 		resolveCellLabel,
 		onCellClick,
@@ -193,15 +187,6 @@
 					glyph: '❀',
 					className: 'sync-isometric-marker-deployment',
 					liftScale: ISOMETRIC_DEPLOYMENT_MARKER_LIFT_SCALE
-				});
-			}
-			if (isLocationMarkerCell(level, slot.cell)) {
-				markers.push({
-					column: slot.column,
-					row: slot.row,
-					glyph: '⫯',
-					className: 'sync-isometric-marker-location',
-					liftScale: ISOMETRIC_LOCATION_MARKER_LIFT_SCALE
 				});
 			}
 		}
