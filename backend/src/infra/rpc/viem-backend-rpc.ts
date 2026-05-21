@@ -18,10 +18,17 @@ const BACKEND_RPC_SPAN_ATTRIBUTE = {
     FunctionName: "artgod.rpc.function_name",
     EnsNamePresent: "artgod.rpc.ens_name_present",
     StorageSlotPresent: "artgod.rpc.storage_slot_present",
+    CacheHit: "artgod.rpc.cache_hit",
 } as const;
+
+const CURRENT_BLOCK_NUMBER_CACHE_TTL_MS = 2_000;
 
 export class ViemBackendRpcClient {
     private readonly client;
+    private currentBlockNumberCache:
+        | { blockNumber: number; expiresAtMs: number }
+        | null = null;
+    private readonly blockTimestampCache = new Map<number, number>();
 
     constructor(rpcUrl: string, private readonly apm: ApmPort = NOOP_APM) {
         this.client = createPublicClient({
@@ -51,27 +58,51 @@ export class ViemBackendRpcClient {
     }
 
     async getCurrentBlockNumber(): Promise<number> {
+        const now = Date.now();
+        const cached = this.currentBlockNumberCache;
+        const cacheHit = cached !== null && cached.expiresAtMs > now;
         return this.apm.withSpan(
             "backend.rpc.current_block_number",
-            {},
+            {
+                [BACKEND_RPC_SPAN_ATTRIBUTE.CacheHit]: cacheHit,
+            },
             async () => {
+                if (cached !== null && cacheHit) {
+                    return cached.blockNumber;
+                }
                 const blockNumber = await this.client.getBlockNumber();
-                return Number(blockNumber);
+                const parsedBlockNumber = Number(blockNumber);
+                this.currentBlockNumberCache = {
+                    blockNumber: parsedBlockNumber,
+                    expiresAtMs:
+                        Date.now() + CURRENT_BLOCK_NUMBER_CACHE_TTL_MS,
+                };
+                return parsedBlockNumber;
             },
         );
     }
 
     async getBlockTimestamp(blockNumber: number): Promise<number> {
+        const cachedTimestamp = this.blockTimestampCache.get(blockNumber);
         return this.apm.withSpan(
             "backend.rpc.block_timestamp",
             {
                 [BACKEND_RPC_SPAN_ATTRIBUTE.BlockNumber]: blockNumber,
+                [BACKEND_RPC_SPAN_ATTRIBUTE.CacheHit]:
+                    cachedTimestamp !== undefined,
             },
             async () => {
+                if (cachedTimestamp !== undefined) {
+                    return cachedTimestamp;
+                }
                 const block = await this.client.getBlock({
                     blockNumber: BigInt(blockNumber),
                 });
-                return Number(block.timestamp);
+                const timestamp = Number(block.timestamp);
+                if (Number.isInteger(timestamp) && timestamp >= 0) {
+                    this.blockTimestampCache.set(blockNumber, timestamp);
+                }
+                return timestamp;
             },
         );
     }

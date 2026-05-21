@@ -277,27 +277,31 @@ export class GetSyncBackfillStateUseCase {
         const grid = counts.map((count, index) =>
             mapGridCell(index, count, page.bucketSize, deploymentMarker),
         );
-        // Count the selected page separately for the summary chip and trace its cost.
+        // Derive the selected page count from already-read bucket counts.
         const selectedRangeSyncedBlockCount = this.apm.withSyncSpan(
             "backend.sync_backfill.state.selected_range_count",
             pageAttributes,
-            () =>
-                this.syncBackfillReadPort.countSyncedBlocksInRange(
-                    chain.publicChainId,
-                    context,
-                    page,
-                ),
+            () => sumSyncedBlockCounts(counts),
         );
-        // Count the total selected context for global summary diagnostics.
-        const syncedBlockCount = this.apm.withSyncSpan(
-            "backend.sync_backfill.state.total_count",
-            contextAttributes,
-            () =>
-                this.syncBackfillReadPort.countSyncedBlocks(
-                    chain.publicChainId,
-                    context,
-                ),
-        );
+        const syncedBlockCount = pageCoversWholeChain(
+            page,
+            genesisBlock,
+            head.blockNumber,
+        )
+            ? this.apm.withSyncSpan(
+                  "backend.sync_backfill.state.total_count",
+                  contextAttributes,
+                  () => selectedRangeSyncedBlockCount,
+              )
+            : this.apm.withSyncSpan(
+                  "backend.sync_backfill.state.total_count",
+                  contextAttributes,
+                  () =>
+                      this.syncBackfillReadPort.countSyncedBlocks(
+                          chain.publicChainId,
+                          context,
+                      ),
+              );
 
         return {
             chain,
@@ -459,21 +463,28 @@ export class GetSyncBackfillStateUseCase {
         to: SyncBackfillBlockTimestamp;
         durationSeconds: number | null;
     }> {
-        const from = await this.resolveBlockTimestamp(
+        const fromPromise = this.resolveBlockTimestamp(
             chainId,
             chain,
             page.fromBlock,
             genesisBlock,
         );
-        const to =
-            page.toBlock === page.fromBlock
-                ? from
-                : await this.resolveBlockTimestamp(
-                      chainId,
-                      chain,
-                      page.toBlock,
-                      genesisBlock,
-                  );
+        let from: SyncBackfillBlockTimestamp;
+        let to: SyncBackfillBlockTimestamp;
+        if (page.toBlock === page.fromBlock) {
+            from = await fromPromise;
+            to = from;
+        } else {
+            [from, to] = await Promise.all([
+                fromPromise,
+                this.resolveBlockTimestamp(
+                    chainId,
+                    chain,
+                    page.toBlock,
+                    genesisBlock,
+                ),
+            ]);
+        }
         return {
             from,
             to,
@@ -800,6 +811,18 @@ function resolvePageSpan(bucketSize: number): number {
 function countBlocks(range: SyncBackfillCoverageRange): number {
     if (range.fromBlock > range.toBlock) return 0;
     return range.toBlock - range.fromBlock + 1;
+}
+
+function sumSyncedBlockCounts(counts: SyncBackfillCoverageCount[]): number {
+    return counts.reduce((total, count) => total + count.syncedBlockCount, 0);
+}
+
+function pageCoversWholeChain(
+    page: SyncBackfillCoverageRange,
+    genesisBlock: number,
+    headBlock: number,
+): boolean {
+    return page.fromBlock === genesisBlock && page.toBlock === headBlock;
 }
 
 function rangeContainsBlock(

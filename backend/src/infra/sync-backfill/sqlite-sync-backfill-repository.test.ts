@@ -48,10 +48,16 @@ describe("SqliteSyncBackfillRepository", () => {
         );
         assertPlanUsesIndex(
             "EXPLAIN QUERY PLAN " +
-                "SELECT CAST((block_number - @fromBlock) / @bucketSize AS INTEGER) AS bucket_index, " +
-                "COUNT(1) AS count FROM blocks " +
-                "WHERE chain_id = @chainId AND block_number BETWEEN @fromBlock AND @toBlock " +
-                "GROUP BY bucket_index",
+                "WITH RECURSIVE bucket(bucket_index, from_block, to_block) AS (" +
+                "SELECT 0, @fromBlock, MIN(@fromBlock + @bucketSize - 1, @toBlock) " +
+                "UNION ALL " +
+                "SELECT bucket_index + 1, from_block + @bucketSize, MIN(to_block + @bucketSize, @toBlock) " +
+                "FROM bucket WHERE from_block + @bucketSize <= @toBlock" +
+                ") " +
+                "SELECT bucket_index, " +
+                "(SELECT COUNT(1) FROM blocks " +
+                "WHERE chain_id = @chainId AND block_number BETWEEN bucket.from_block AND bucket.to_block) AS count " +
+                "FROM bucket",
             {
                 chainId: 1,
                 fromBlock: 0,
@@ -88,11 +94,17 @@ describe("SqliteSyncBackfillRepository", () => {
         );
         assertPlanUsesIndex(
             "EXPLAIN QUERY PLAN " +
-                "SELECT CAST((block_number - @fromBlock) / @bucketSize AS INTEGER) AS bucket_index, " +
-                "COUNT(1) AS count FROM collection_sync_blocks " +
+                "WITH RECURSIVE bucket(bucket_index, from_block, to_block) AS (" +
+                "SELECT 0, @fromBlock, MIN(@fromBlock + @bucketSize - 1, @toBlock) " +
+                "UNION ALL " +
+                "SELECT bucket_index + 1, from_block + @bucketSize, MIN(to_block + @bucketSize, @toBlock) " +
+                "FROM bucket WHERE from_block + @bucketSize <= @toBlock" +
+                ") " +
+                "SELECT bucket_index, " +
+                "(SELECT COUNT(1) FROM collection_sync_blocks " +
                 "WHERE chain_id = @chainId AND collection_id = @collectionId " +
-                "AND block_number BETWEEN @fromBlock AND @toBlock " +
-                "GROUP BY bucket_index",
+                "AND block_number BETWEEN bucket.from_block AND bucket.to_block) AS count " +
+                "FROM bucket",
             {
                 chainId: 1,
                 collectionId,
