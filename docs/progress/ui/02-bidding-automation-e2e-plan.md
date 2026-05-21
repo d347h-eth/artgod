@@ -1,6 +1,6 @@
 # Bidding Automation UI E2E Plan
 
-Status: WIP plan
+Status: Implemented fixture harness; attached smoke remains intentionally small
 Owner surface: frontend Playwright / UI-level bidding automation
 
 This document tracks the E2E testing surface for the bidding automation UI.
@@ -28,7 +28,7 @@ Use two browser-test layers.
 
 ### Deterministic UI Harness
 
-Primary coverage should use a fixture-backed frontend harness that renders production components with fixed data.
+Primary coverage uses the fixture-backed `/e2e-harness/collection` frontend routes to render production components with fixed data.
 The harness exists only to feed stable props and capture submitted API calls.
 
 Rules:
@@ -41,6 +41,7 @@ Rules:
 - Prefer role/name selectors for user actions; add `data-testid` only where repeated controls cannot be selected unambiguously.
 
 This harness is the right place to emulate UI flows such as modifier-click token selection, scope switching, tier selection, and panel action gating.
+The current deterministic suite lives in `frontend/e2e/bidding-automation.spec.ts`.
 
 ### Attached-App Smoke Tests
 
@@ -170,12 +171,14 @@ Amounts in fixture names and assertions should be human-readable Ether values.
 - Add a dedicated fixture-backed Playwright spec entry for bidding automation.
 - Add shared fixture builders for collection data, bid books, token cards, jobs, tiers, and settings.
 - Add a mutation capture helper that records outgoing bidding API calls.
-- Decide whether the harness uses a dedicated frontend-only test route or a minimal component host page.
+- Use dedicated frontend-only harness routes under `/e2e-harness/collection`.
 
 Acceptance:
 
 - One smoke test can render the offers token-scope page from fixtures.
 - One captured mutation can be asserted without a real backend write.
+
+Status: complete.
 
 ### Slice 2: Token Browser Selection Flows
 
@@ -188,6 +191,8 @@ Acceptance:
 
 - Each token-browser placement action results in the expected draft and mutation payload.
 
+Status: complete.
+
 ### Slice 3: Token Offer Scope Flows
 
 - Cover `offers?bid_scope=token` filtered token-offer batches.
@@ -198,6 +203,8 @@ Acceptance:
 Acceptance:
 
 - `TokenOfferFilter` payloads are deterministic and include the expected maker/trait filter data.
+
+Status: complete.
 
 ### Slice 4: Trait Demand Flows
 
@@ -211,6 +218,8 @@ Acceptance:
 
 - Trait target identity and pricing seed behavior are locked in UI tests.
 
+Status: complete.
+
 ### Slice 5: Collection Scope Flows
 
 - Cover `place collection bid`.
@@ -220,6 +229,8 @@ Acceptance:
 Acceptance:
 
 - Collection-wide placement remains explicit and cannot be triggered from ordinary rows.
+
+Status: complete.
 
 ### Slice 6: Token Detail Flows
 
@@ -233,6 +244,8 @@ Acceptance:
 
 - Token detail can switch between token and trait job drafts without exposing collection-row placement.
 
+Status: complete.
+
 ### Slice 7: Automation Panel State Matrix
 
 - Cover create/modify/activate/pause/archive visibility and disabled state.
@@ -245,6 +258,8 @@ Acceptance:
 
 - Panel state is locked independently from the page that opened it.
 
+Status: complete.
+
 ### Slice 8: Price Tier Management UI
 
 - Cover `T` key and `tiers` button.
@@ -256,6 +271,8 @@ Acceptance:
 
 - Price-tier UI behavior is deterministic without needing backend tier mutations to hit SQLite.
 
+Status: complete.
+
 ### Slice 9: Public Read-Only Mode Guardrails
 
 - Render public single-collection mode fixtures.
@@ -265,6 +282,8 @@ Acceptance:
 Acceptance:
 
 - Public mode cannot expose local bidding write controls in UI tests.
+
+Status: complete. Covered by `frontend/e2e/bidding-automation-public.spec.ts`.
 
 ### Slice 10: Attached Smoke Coverage
 
@@ -276,13 +295,16 @@ Acceptance:
 
 - Attached tests remain small and do not become the main scenario matrix.
 
-## Open Design Questions
-
-- The cleanest deterministic harness shape is still open: dedicated frontend-only route vs component host page.
-- Some page components may need small extraction seams to render route data from fixtures without duplicating route loaders.
-- The exact `data-testid` naming set should be added only where role/name selectors prove ambiguous.
+Status: unchanged. Keep this layer narrow; do not expand it into a duplicate of the fixture suite.
 
 ## Commands
+
+Deterministic fixture tests:
+
+```sh
+yarn test:bidding:automation
+yarn test:bidding:automation:public
+```
 
 Attached smoke tests require a running local app:
 
@@ -291,4 +313,8 @@ yarn dev
 yarn test:bidding:attached
 ```
 
-Deterministic fixture tests should eventually have a separate command so they can run without local backend/indexer state.
+Frontend static checks:
+
+```sh
+yarn workspace @artgod/frontend check
+```
