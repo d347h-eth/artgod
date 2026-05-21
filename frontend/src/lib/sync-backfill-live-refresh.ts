@@ -1,5 +1,3 @@
-export const SYNC_BACKFILL_LIVE_INVALIDATION_KEY = 'artgod:sync-backfill-state';
-
 export const SYNC_BACKFILL_LIVE_POLL_INTERVAL_MS = 5_000;
 
 export type SyncBackfillLiveRefreshHandle = {
@@ -8,16 +6,14 @@ export type SyncBackfillLiveRefreshHandle = {
 };
 
 type SyncBackfillLiveRefreshOptions = {
-	invalidate: (resource: string) => Promise<unknown> | unknown;
+	refresh: () => Promise<unknown> | unknown;
 	intervalMs?: number;
-	resource?: string;
 };
 
-// Poll the route load key without overlapping backend refreshes.
+// Poll the visible sync/backfill state without overlapping backend refreshes.
 export function startSyncBackfillLiveRefresh({
-	invalidate,
-	intervalMs = SYNC_BACKFILL_LIVE_POLL_INTERVAL_MS,
-	resource = SYNC_BACKFILL_LIVE_INVALIDATION_KEY
+	refresh,
+	intervalMs = SYNC_BACKFILL_LIVE_POLL_INTERVAL_MS
 }: SyncBackfillLiveRefreshOptions): SyncBackfillLiveRefreshHandle {
 	let stopped = false;
 	let refreshInFlight = false;
@@ -26,7 +22,7 @@ export function startSyncBackfillLiveRefresh({
 		if (stopped || refreshInFlight) return;
 		refreshInFlight = true;
 		try {
-			await invalidate(resource);
+			await refresh();
 		} catch {
 			// Keep polling after transient backend/RPC failures.
 		} finally {

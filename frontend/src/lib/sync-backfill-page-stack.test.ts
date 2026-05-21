@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { SyncBackfillStateApiResponse } from './api-types';
 import {
 	buildSyncBackfillStackFetchPlan,
+	buildSyncBackfillStackStateApiParams,
 	buildSyncBackfillStateApiParams,
 	buildSyncBackfillVisibleStackPages,
+	buildSyncBackfillVisibleStackPagesFromEntries,
 	buildSyncBackfillVisibleLevels,
 	formatSyncBackfillPageStackEntry,
 	parseSyncBackfillPageStack,
@@ -42,6 +44,28 @@ describe('sync backfill page stack', () => {
 			null,
 			{ pageStartBlock: 1024, bucketSize: 32 },
 			{ pageStartBlock: 2048, bucketSize: 1 }
+		]);
+		expect(
+			buildSyncBackfillVisibleStackPagesFromEntries([
+				{ pageStartBlock: 1024, bucketSize: 32 },
+				{ pageStartBlock: 2048, bucketSize: 1 }
+			])
+		).toEqual([
+			null,
+			{ pageStartBlock: 1024, bucketSize: 32 },
+			{ pageStartBlock: 2048, bucketSize: 1 }
+		]);
+	});
+
+	it('builds backend query params for visible stack pages', () => {
+		expect(
+			buildSyncBackfillStackStateApiParams('terraforms', [
+				null,
+				{ pageStartBlock: 1024, bucketSize: 32 }
+			]).map((params) => params.toString())
+		).toEqual([
+			'collection=terraforms',
+			'collection=terraforms&page_start=1024&bucket_size=32'
 		]);
 	});
 

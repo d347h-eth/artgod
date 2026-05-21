@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { goto, invalidateAll, pushState } from '$app/navigation';
+	import { goto, pushState } from '$app/navigation';
 	import { page } from '$app/state';
-	import { tick } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import {
 		SYNC_BACKFILL_CONTEXT_ANY,
 		SYNC_BACKFILL_GRID_CELL_COUNT
@@ -29,12 +29,15 @@
 	} from '$lib/sync-backfill-isometric-levels';
 	import {
 		buildSyncBackfillStackFetchPlan,
-		buildSyncBackfillStateApiParams,
+		buildSyncBackfillStackStateApiParams,
 		buildSyncBackfillVisibleLevels,
+		buildSyncBackfillVisibleStackPages,
 		formatSyncBackfillPageStackEntry,
 		parseSyncBackfillPageStack,
-		resolveSyncBackfillStackAnchorLevelKey
+		resolveSyncBackfillStackAnchorLevelKey,
+		type SyncBackfillStackPage
 	} from '$lib/sync-backfill-page-stack';
+	import { startSyncBackfillLiveRefresh } from '$lib/sync-backfill-live-refresh';
 	import {
 		formatSyncBackfillAnchoredBlockDuration,
 		formatSyncBackfillBlockRange,
@@ -110,6 +113,7 @@
 	let selectedRangeRefreshRequestId = 0;
 	let selectedRangeRefreshInFlight = $state(false);
 	let drilldownRequestId = 0;
+	let liveRefreshRequestId = 0;
 	let backfillSelectionMode = $state(false);
 	let backfillSelectionFromBlock: number | null = $state(null);
 	let backfillSelectionLevelKey: string | null = $state(null);
@@ -147,6 +151,12 @@
 	);
 	let projectionLines = $derived(resolveProjectionLines(visibleLevels, isometricAnchorLayouts));
 	let activeSelectedRangeScopeKey: string | null = $state(null);
+
+	onMount(() => {
+		if (!syncState) return;
+		const refresh = startSyncBackfillLiveRefresh({ refresh: refreshVisibleStack });
+		return refresh.stop;
+	});
 
 	$effect(() => {
 		syncState = pageSyncState;
@@ -398,24 +408,60 @@
 		}
 	}
 
+	async function refreshVisibleStack(): Promise<void> {
+		if (!syncState) return;
+		const requestId = liveRefreshRequestId + 1;
+		liveRefreshRequestId = requestId;
+		const refreshCollection = selectedCollection;
+		const refreshStack = [...stack];
+		const refreshStackKey = refreshStack.join(',');
+		const anchorLevelKey = visibleLevels.at(-1)?.key ?? 'root';
+		const anchorTop = readLevelAnchorTop(anchorLevelKey);
+		try {
+			const states = await fetchStackPages(
+				refreshCollection,
+				buildSyncBackfillVisibleStackPages(refreshStack)
+			);
+			if (
+				liveRefreshRequestId !== requestId ||
+				refreshCollection !== selectedCollection ||
+				refreshStackKey !== stack.join(',')
+			) {
+				return;
+			}
+			const nextState = states.at(-1);
+			if (!nextState) return;
+			syncState = nextState;
+			levels = buildSyncBackfillVisibleLevels(refreshStack, states);
+			collection = refreshCollection;
+			await tick();
+			restoreLevelAnchor(anchorLevelKey, anchorTop);
+		} catch {
+			// Keep the visible stack stable after transient live-refresh failures.
+		}
+	}
+
 	async function fetchChangedStackStates(
 		nextCollection: string,
 		nextStack: string[]
 	): Promise<SyncBackfillStateApiResponse[]> {
+		const plan = buildSyncBackfillStackFetchPlan(stack, nextStack, visibleLevels);
+		const fetchedStates = await fetchStackPages(nextCollection, plan.pagesToFetch);
+		return [...plan.reusedStates, ...fetchedStates];
+	}
+
+	async function fetchStackPages(
+		nextCollection: string,
+		stackPages: SyncBackfillStackPage[]
+	): Promise<SyncBackfillStateApiResponse[]> {
 		if (!syncState) return [];
 		const chainSlug = syncState.chain.slug;
-		const plan = buildSyncBackfillStackFetchPlan(stack, nextStack, visibleLevels);
-		const fetchedStates = await Promise.all(
-			plan.pagesToFetch.map((stackPage) => {
-				// Fetch only changed destination levels before URL mutation so scroll anchoring stays local.
-				return getSyncBackfillState(
-					fetch,
-					chainSlug,
-					buildSyncBackfillStateApiParams(nextCollection, stackPage)
-				);
+		return Promise.all(
+			buildSyncBackfillStackStateApiParams(nextCollection, stackPages).map((apiParams) => {
+				// Fetch visible level state directly so component-owned refreshes avoid route reloads.
+				return getSyncBackfillState(fetch, chainSlug, apiParams);
 			})
 		);
-		return [...plan.reusedStates, ...fetchedStates];
 	}
 
 	function readLevelAnchorTop(levelKey: string): number | null {
@@ -523,7 +569,7 @@
 			backfillSelectionFromBlock = null;
 			backfillSelectionLevelKey = null;
 			backfillSelectionRange = null;
-			await invalidateAll();
+			await refreshVisibleStack();
 		} catch (error) {
 			feedback = error instanceof Error ? error.message : 'backfill request failed';
 		} finally {

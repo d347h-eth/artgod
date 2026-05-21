@@ -47,7 +47,8 @@ Avoid for the first pass:
 - Hard loads and shared links may fetch the full visible stack from the route load.
 - In-page drilldown should preserve already-loaded ancestor levels and fetch only the changed child suffix.
 - Stack URL changes made by the page should use shallow navigation so the route load does not refetch levels the component already owns.
-- Live refresh is still allowed to invalidate the route as a temporary path, but it should be replaced with a level-aware refresh loop that uses the same minimal stack-fetch planner.
+- Live refresh is component-owned and refetches the currently visible level pages directly, without route-level invalidation.
+- Backfill submission refreshes the visible level pages directly instead of invalidating every route load.
 
 ## Planned Slices
 
@@ -92,4 +93,3 @@ Avoid for the first pass:
 - Confirm the SVG event accessibility path for keyboard users.
 - Confirm rendered size and spacing at desktop and mobile widths.
 - Confirm selection-mode same-level enforcement remains obvious without extra helper text.
-- TODO: replace route-level live refresh invalidation with level-aware refreshes so polling does not refetch unchanged ancestors.

@@ -66,9 +66,26 @@ export function buildSyncBackfillStateApiParams(
 	return apiParams;
 }
 
+// Build backend state queries for a sequence of visible stack pages.
+export function buildSyncBackfillStackStateApiParams(
+	collection: string,
+	pages: SyncBackfillStackPage[]
+): URLSearchParams[] {
+	return pages.map((page) => buildSyncBackfillStateApiParams(collection, page));
+}
+
 // Resolve the ordered backend pages for a visible stack, including root.
 export function buildSyncBackfillVisibleStackPages(stack: string[]): SyncBackfillStackPage[] {
-	return [null, ...stack.map(requireSyncBackfillPageStackEntry)];
+	return buildSyncBackfillVisibleStackPagesFromEntries(
+		stack.map(requireSyncBackfillPageStackEntry)
+	);
+}
+
+// Resolve the ordered backend pages from parsed stack entries.
+export function buildSyncBackfillVisibleStackPagesFromEntries(
+	stackPages: SyncBackfillPageStackEntry[]
+): SyncBackfillStackPage[] {
+	return [null, ...stackPages];
 }
 
 // Plan the minimum client fetches needed when moving between stack URLs.
