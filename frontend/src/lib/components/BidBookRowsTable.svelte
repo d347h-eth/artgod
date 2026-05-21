@@ -5,6 +5,7 @@
 	import BidBookTraitList from '$lib/components/BidBookTraitList.svelte';
 	import FilterIcon from '$lib/components/FilterIcon.svelte';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
+	import { TEST_IDS } from '$lib/test-ids';
 
 	type MaybePromise<T> = T | Promise<T>;
 
@@ -46,6 +47,12 @@
 
 	function setHighlighted(row: BidBookRowsTableRow): void {
 		onSetHighlighted(row);
+	}
+
+	function rowTraitSignature(row: BidBookRowsTableRow): string {
+		return row.scope.kind === BID_BOOK_ROWS_TABLE_SCOPE_KIND.Traits
+			? row.scope.traits.map((trait) => `${trait.type}=${trait.value}`).join('|')
+			: '';
 	}
 </script>
 
@@ -114,6 +121,8 @@
 											<button
 												type="button"
 												class="bid-book-place-bid-icon-button"
+												data-testid={TEST_IDS.BidBookRowFilter}
+												data-traits={rowTraitSignature(row)}
 												aria-label={row.scope.filterLabel}
 												title={row.scope.filterLabel}
 												onclick={() => filterTraitBid(row)}
@@ -125,6 +134,8 @@
 											<button
 												type="button"
 												class="bid-book-place-bid-icon-button"
+												data-testid={TEST_IDS.BidBookRowBid}
+												data-traits={rowTraitSignature(row)}
 												aria-label={row.scope.placeBidLabel}
 												title={row.scope.placeBidLabel}
 												onclick={() => selectBid(row)}
@@ -139,6 +150,7 @@
 										<button
 											type="button"
 											class="bid-book-place-bid-icon-button"
+											data-testid={TEST_IDS.BidBookRowBid}
 											aria-label={row.scope.placeBidLabel}
 											title={row.scope.placeBidLabel}
 											onclick={() => selectBid(row)}

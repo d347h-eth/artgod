@@ -8,6 +8,7 @@
 	import BidBookTraitList from '$lib/components/BidBookTraitList.svelte';
 	import FilterIcon from '$lib/components/FilterIcon.svelte';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
+	import { TEST_IDS } from '$lib/test-ids';
 
 	type MaybePromise<T> = T | Promise<T>;
 	type BidBookDemandTableRow = BidBookDemandTableGroup['rows'][number];
@@ -40,6 +41,10 @@
 
 	function filterGroup(group: BidBookDemandTableGroup): void {
 		void onFilterGroup(group);
+	}
+
+	function groupTraitSignature(group: BidBookDemandTableGroup): string {
+		return group.traits.map((trait) => `${trait.type}=${trait.value}`).join('|');
 	}
 </script>
 
@@ -127,6 +132,8 @@
 									<button
 										type="button"
 										class="bid-book-place-bid-icon-button"
+										data-testid={TEST_IDS.BidBookTraitBucketFilter}
+										data-traits={groupTraitSignature(group)}
 										aria-label={group.filterLabel}
 										title={group.filterLabel}
 										onclick={() => filterGroup(group)}
@@ -138,6 +145,8 @@
 									<button
 										type="button"
 										class="bid-book-place-bid-icon-button"
+										data-testid={TEST_IDS.BidBookTraitBucketBid}
+										data-traits={groupTraitSignature(group)}
 										aria-label={group.placeBidLabel}
 										title={group.placeBidLabel}
 										onclick={() => selectGroupBid(group)}
