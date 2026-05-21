@@ -405,7 +405,7 @@
 					onSelectedFiltersChange={applyTraitFilters}
 				/>
 			</div>
-			{#if biddingSelectionControlPolicy.renderRow}
+			{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && biddingSelectionControlPolicy.renderRow}
 				<div class="panel-top-actions-row">
 					<BiddingSelectionControls
 						summary={biddingSelectionSummary}

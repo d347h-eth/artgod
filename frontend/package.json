@@ -6,6 +6,7 @@
     "scripts": {
         "dev": "vite dev --host 127.0.0.1 --port 5173 --strictPort",
         "dev:e2e:bidding": "vite dev --host 127.0.0.1 --port 5177 --strictPort",
+        "dev:e2e:bidding:public": "PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection PUBLIC_APP_CHAIN_REF=ethereum PUBLIC_APP_COLLECTION_REF=e2e-bidding vite dev --host 127.0.0.1 --port 5178 --strictPort",
         "build": "svelte-kit sync && vite build",
         "preview": "vite preview",
         "prepare": "svelte-kit sync || echo ''",
@@ -24,7 +25,8 @@
         "test:bidding:attached:artifacts": "ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts e2e/bidding-panel.attached.spec.ts",
         "test:bidding:attached:headed:artifacts": "ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS=1 playwright test -c playwright.attached.config.ts e2e/bidding-panel.attached.spec.ts --headed",
         "test:bidding:automation": "playwright test -c playwright.bidding-automation.config.ts e2e/bidding-automation.spec.ts",
-        "test:bidding:automation:headed": "playwright test -c playwright.bidding-automation.config.ts e2e/bidding-automation.spec.ts --headed"
+        "test:bidding:automation:headed": "playwright test -c playwright.bidding-automation.config.ts e2e/bidding-automation.spec.ts --headed",
+        "test:bidding:automation:public": "playwright test -c playwright.bidding-automation-public.config.ts e2e/bidding-automation-public.spec.ts"
     },
     "dependencies": {
         "@artgod/shared": "workspace:*",

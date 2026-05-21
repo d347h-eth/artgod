@@ -665,7 +665,7 @@
 				makerBidHref={bidBookMakerHref}
 				onFilterTraitDemandGroup={onBidBookTraitFilter}
 				canSelectBid={canSelectTokenDetailBidBookBid}
-				onSelectBid={onBidBookSelectBid}
+				onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
 				showRowActions={false}
 			/>
 		{/if}
