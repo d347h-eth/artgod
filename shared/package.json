@@ -8,6 +8,7 @@
         "test": "vitest run"
     },
     "exports": {
+        "./config/bootstrap": "./config/bootstrap.ts",
         "./config/pagination": "./config/pagination.ts",
         "./config/blockspace": "./config/blockspace.ts",
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
@@ -24,6 +25,8 @@
         "./extensions": "./extensions/index.ts",
         "./extensions/built-ins": "./extensions/built-ins.ts",
         "./extensions/terraforms": "./extensions/terraforms.ts",
+        "./media/token-resource-uri": "./media/token-resource-uri.ts",
+        "./media/token-image-cache": "./media/token-image-cache.ts",
         "./types": "./types/index.ts",
         "./types/browse": "./types/browse.ts",
         "./types/customization": "./types/customization.ts",

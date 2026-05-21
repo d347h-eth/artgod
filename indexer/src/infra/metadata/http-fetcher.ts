@@ -5,6 +5,10 @@ import type {
     MetadataAttribute,
     TokenMetadata,
 } from "../../domain/metadata.js";
+import {
+    parseJsonDataUriText,
+    resolveTokenResourceUri,
+} from "@artgod/shared/media/token-resource-uri";
 
 export type HttpMetadataFetcherConfig = {
     timeoutMs?: number;
@@ -14,17 +18,19 @@ export type HttpMetadataFetcherConfig = {
 
 export class HttpMetadataFetcher implements MetadataFetcherPort {
     private timeoutMs: number;
-    private ipfsGateway: string;
+    private ipfsGatewayOrigin: string;
     private metrics?: Metrics;
 
     constructor(config: HttpMetadataFetcherConfig = {}) {
         this.timeoutMs = config.timeoutMs ?? 10_000;
-        this.ipfsGateway = config.ipfsGateway ?? "https://ipfs.io/ipfs/";
+        this.ipfsGatewayOrigin = config.ipfsGateway ?? "https://ipfs.io";
         this.metrics = config.metrics;
     }
 
     async fetchMetadata(uri: string): Promise<TokenMetadata | null> {
-        const resolved = resolveUri(uri, this.ipfsGateway);
+        const resolved = resolveTokenResourceUri(uri, {
+            ipfsGatewayOrigin: this.ipfsGatewayOrigin,
+        });
         if (!resolved) {
             this.metrics?.increment("metadata.fetch.failure", 1, {
                 reason: "unsupported_uri",
@@ -76,19 +82,6 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
     }
 }
 
-function resolveUri(uri: string, ipfsGateway: string): string | null {
-    if (uri.startsWith("ipfs://")) {
-        return ipfsGateway + uri.replace("ipfs://", "");
-    }
-    if (uri.startsWith("http://") || uri.startsWith("https://")) {
-        return uri;
-    }
-    if (uri.startsWith("data:")) {
-        return uri;
-    }
-    return null;
-}
-
 async function fetchJson(uri: string, timeoutMs: number): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -107,14 +100,7 @@ async function fetchJson(uri: string, timeoutMs: number): Promise<unknown> {
 }
 
 function parseDataUri(uri: string): unknown {
-    const match = uri.match(/^data:application\/json(;base64)?,(.*)$/i);
-    if (!match) throw new Error("Unsupported data URI");
-    const isBase64 = Boolean(match[1]);
-    const payload = match[2] ?? "";
-    const decoded = isBase64
-        ? Buffer.from(payload, "base64").toString("utf8")
-        : decodeURIComponent(payload);
-    return JSON.parse(decoded);
+    return JSON.parse(parseJsonDataUriText(uri));
 }
 
 function normalizeMetadata(uri: string, raw: unknown): TokenMetadata | null {

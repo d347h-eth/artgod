@@ -513,6 +513,21 @@ default = "false"
 input = "checkbox"
 
 [[settings]]
+key = "ARTGOD_IPFS_GATEWAY_ORIGIN"
+group = "indexer"
+label = "artgod ipfs gateway origin"
+default = "https://ipfs.io"
+validation = "url"
+help = "HTTP origin used to resolve ipfs:// token metadata and media URLs."
+
+[[settings]]
+key = "ARTGOD_MEDIA_CACHE_DIR"
+group = "indexer"
+label = "artgod media cache dir"
+defaults = { local = "", deploy = "/data/media-cache/token-images", desktop = "" }
+help = "Optional token-image cache directory. Empty stores cached token images beside the SQLite database."
+
+[[settings]]
 key = "NATS_URL"
 group = "queue"
 label = "nats url"
@@ -743,6 +758,27 @@ key = "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS"
 group = "indexer"
 label = "bootstrap metadata retry max delay ms"
 defaults = { local = "1000", deploy = "3000", desktop = "1000" }
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE"
+group = "indexer"
+label = "bootstrap image cache batch size"
+default = "50"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_IMAGE_CACHE_CONCURRENCY"
+group = "indexer"
+label = "bootstrap image cache concurrency"
+default = "4"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES"
+group = "indexer"
+label = "bootstrap image cache max source bytes"
+default = "26214400"
 view = "basic"
 
 [[settings]]

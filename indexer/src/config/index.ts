@@ -33,6 +33,8 @@ import type {
     RpcEndpointResilienceConfig,
     RpcRetryPolicy,
 } from "@artgod/shared/evm/rpc-resilience";
+import { normalizeIpfsGatewayOrigin } from "@artgod/shared/media/token-resource-uri";
+import { resolveTokenImageCacheDir } from "@artgod/shared/media/token-image-cache";
 import {
     parseIndexerApmConfig,
     parseIndexerMetricsConfig,
@@ -75,6 +77,21 @@ const DEFAULT_BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS = getSettingDefaultNumber(
 );
 const DEFAULT_BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS = getSettingDefaultNumber(
     "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS",
+);
+const DEFAULT_ARTGOD_IPFS_GATEWAY_ORIGIN = getSettingDefault(
+    "ARTGOD_IPFS_GATEWAY_ORIGIN",
+);
+const DEFAULT_ARTGOD_MEDIA_CACHE_DIR = getSettingDefault(
+    "ARTGOD_MEDIA_CACHE_DIR",
+);
+const DEFAULT_BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE = getSettingDefaultNumber(
+    "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE",
+);
+const DEFAULT_BOOTSTRAP_IMAGE_CACHE_CONCURRENCY = getSettingDefaultNumber(
+    "BOOTSTRAP_IMAGE_CACHE_CONCURRENCY",
+);
+const DEFAULT_BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES = getSettingDefaultNumber(
+    "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
 );
 const DEFAULT_METADATA_REFRESH_RANGE_CHUNK_SIZE = getSettingDefaultNumber(
     "METADATA_REFRESH_RANGE_CHUNK_SIZE",
@@ -120,6 +137,15 @@ export type IndexerConfig = {
             baseDelayMs: number;
             maxDelayMs: number;
         };
+        imageCacheBatchSize: number;
+        imageCacheConcurrency: number;
+        imageCacheMaxSourceBytes: number;
+    };
+    ipfs: {
+        gatewayOrigin: string;
+    };
+    mediaCache: {
+        tokenImagesDir: string;
     };
     metadata: {
         refreshRangeChunkSize: number;
@@ -170,6 +196,14 @@ export function loadConfig(
         : undefined;
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
+    const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
+        env.ARTGOD_IPFS_GATEWAY_ORIGIN ?? DEFAULT_ARTGOD_IPFS_GATEWAY_ORIGIN,
+    );
+    const tokenImagesDir = resolveTokenImageCacheDir({
+        dbPath,
+        overrideDir:
+            env.ARTGOD_MEDIA_CACHE_DIR ?? DEFAULT_ARTGOD_MEDIA_CACHE_DIR,
+    });
 
     return {
         dbPath,
@@ -260,6 +294,27 @@ export function loadConfig(
                     DEFAULT_BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS,
                 ),
             },
+            imageCacheBatchSize: parsePositiveInteger(
+                env.BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE,
+                "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE",
+                DEFAULT_BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE,
+            ),
+            imageCacheConcurrency: parsePositiveInteger(
+                env.BOOTSTRAP_IMAGE_CACHE_CONCURRENCY,
+                "BOOTSTRAP_IMAGE_CACHE_CONCURRENCY",
+                DEFAULT_BOOTSTRAP_IMAGE_CACHE_CONCURRENCY,
+            ),
+            imageCacheMaxSourceBytes: parsePositiveInteger(
+                env.BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES,
+                "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
+                DEFAULT_BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES,
+            ),
+        },
+        ipfs: {
+            gatewayOrigin: ipfsGatewayOrigin,
+        },
+        mediaCache: {
+            tokenImagesDir,
         },
         metadata: {
             refreshRangeChunkSize: parseNumber(

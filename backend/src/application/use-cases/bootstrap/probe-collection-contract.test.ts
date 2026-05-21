@@ -33,6 +33,10 @@ describe("ProbeCollectionContractUseCase", () => {
                 tokenUriPayloadError: null,
                 name: null,
                 image: null,
+                imageBytes: null,
+                imageBytesSource: null,
+                imageContentType: null,
+                imageBytesError: null,
                 animationUrl: null,
                 metadataError: null,
                 candidates: [],
@@ -57,6 +61,7 @@ describe("ProbeCollectionContractUseCase", () => {
             projectedBytes: "300",
             totalSupply: "3",
         });
+        expect(result.imageStorageEstimate).toBeNull();
     });
 
     it("infers manual range input for non-enumerable token id starts", async () => {
@@ -81,6 +86,10 @@ describe("ProbeCollectionContractUseCase", () => {
                 tokenUriPayloadError: null,
                 name: null,
                 image: null,
+                imageBytes: 2048,
+                imageBytesSource: "download",
+                imageContentType: "image/png",
+                imageBytesError: null,
                 animationUrl: null,
                 metadataError: null,
                 candidates: [
@@ -109,6 +118,13 @@ describe("ProbeCollectionContractUseCase", () => {
             },
             ready: true,
             warnings: [],
+        });
+        expect(result.imageStorageEstimate).toEqual({
+            sampleTokenId: "0",
+            sampleImageBytes: 2048,
+            projectedBytes: "2045952",
+            totalSupply: "999",
+            contentType: "image/png",
         });
     });
 });
@@ -139,6 +155,10 @@ function makeUseCase(overrides: Partial<CollectionContractProbeResult>) {
             tokenUriPayloadError: null,
             name: null,
             image: null,
+            imageBytes: null,
+            imageBytesSource: null,
+            imageContentType: null,
+            imageBytesError: null,
             animationUrl: null,
             metadataError: null,
             candidates: [],

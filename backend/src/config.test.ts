@@ -159,6 +159,19 @@ describe("loadBackendConfig", () => {
         });
     });
 
+    it("parses shared IPFS gateway and media cache config", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            ARTGOD_IPFS_GATEWAY_ORIGIN: "https://gateway.example/ipfs",
+            ARTGOD_MEDIA_CACHE_DIR: "/tmp/artgod-token-media",
+        });
+
+        expect(config.ipfs.gatewayOrigin).toBe("https://gateway.example");
+        expect(config.mediaCache.tokenImagesDir).toBe(
+            "/tmp/artgod-token-media",
+        );
+    });
+
     it("parses backend observability overrides", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),

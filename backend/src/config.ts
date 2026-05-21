@@ -31,6 +31,8 @@ import type {
     RpcEndpointResilienceConfig,
     RpcRetryPolicy,
 } from "@artgod/shared/evm/rpc-resilience";
+import { normalizeIpfsGatewayOrigin } from "@artgod/shared/media/token-resource-uri";
+import { resolveTokenImageCacheDir } from "@artgod/shared/media/token-image-cache";
 import {
     QUERY_CACHE_PROVIDERS,
     type QueryCacheProvider,
@@ -101,6 +103,12 @@ const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = getSettingDefault(
 );
 const DEFAULT_PUBLIC_APP_DEPLOYMENT_MODE = getSettingDefault(
     "PUBLIC_APP_DEPLOYMENT_MODE",
+);
+const DEFAULT_ARTGOD_IPFS_GATEWAY_ORIGIN = getSettingDefault(
+    "ARTGOD_IPFS_GATEWAY_ORIGIN",
+);
+const DEFAULT_ARTGOD_MEDIA_CACHE_DIR = getSettingDefault(
+    "ARTGOD_MEDIA_CACHE_DIR",
 );
 
 export type BackendSecurityConfig = {
@@ -182,6 +190,12 @@ export type BackendConfig = {
     deployment: BackendDeploymentConfig;
     queryCache: BackendQueryCacheConfig;
     sync: BackendSyncConfig;
+    ipfs: {
+        gatewayOrigin: string;
+    };
+    mediaCache: {
+        tokenImagesDir: string;
+    };
     metrics: BackendMetricsConfig;
     apm: BackendApmConfig;
     integrations: {
@@ -237,6 +251,14 @@ export function loadBackendConfig(
     const deployment = parseDeploymentConfig(env);
     const queryCache = parseQueryCacheConfig(env);
     const sync = parseBackendSyncConfig(env);
+    const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
+        env.ARTGOD_IPFS_GATEWAY_ORIGIN ?? DEFAULT_ARTGOD_IPFS_GATEWAY_ORIGIN,
+    );
+    const tokenImagesDir = resolveTokenImageCacheDir({
+        dbPath,
+        overrideDir:
+            env.ARTGOD_MEDIA_CACHE_DIR ?? DEFAULT_ARTGOD_MEDIA_CACHE_DIR,
+    });
     const metrics = parseBackendMetricsConfig(env);
     const apm = parseBackendApmConfig(env);
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
@@ -263,6 +285,12 @@ export function loadBackendConfig(
         deployment,
         queryCache,
         sync,
+        ipfs: {
+            gatewayOrigin: ipfsGatewayOrigin,
+        },
+        mediaCache: {
+            tokenImagesDir,
+        },
         metrics,
         apm,
         integrations,

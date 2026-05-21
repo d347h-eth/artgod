@@ -34,6 +34,10 @@ export type BootstrapProbeFirstToken = {
     tokenUriPayloadError: string | null;
     name: string | null;
     image: string | null;
+    imageBytes: number | null;
+    imageBytesSource: "content_length" | "download" | "data_uri" | null;
+    imageContentType: string | null;
+    imageBytesError: string | null;
     animationUrl: string | null;
     metadataError: string | null;
     candidates: BootstrapProbeTokenCandidate[];
@@ -44,6 +48,14 @@ export type BootstrapProbeStorageEstimate = {
     samplePayloadBytes: number;
     projectedBytes: string;
     totalSupply: string;
+} | null;
+
+export type BootstrapProbeImageStorageEstimate = {
+    sampleTokenId: string;
+    sampleImageBytes: number;
+    projectedBytes: string;
+    totalSupply: string;
+    contentType: string | null;
 } | null;
 
 export type BootstrapProbeSuggestedInput = {
@@ -74,12 +86,18 @@ export type ProbeCollectionContractOutput = {
     totalSupply: BootstrapProbeTotalSupply;
     firstToken: BootstrapProbeFirstToken;
     storageEstimate: BootstrapProbeStorageEstimate;
+    imageStorageEstimate: BootstrapProbeImageStorageEstimate;
     suggestedInput: BootstrapProbeSuggestedInput;
 };
 
 export type CollectionContractProbeResult = Omit<
     ProbeCollectionContractOutput,
-    "chain" | "address" | "standard" | "suggestedInput" | "storageEstimate"
+    | "chain"
+    | "address"
+    | "standard"
+    | "suggestedInput"
+    | "storageEstimate"
+    | "imageStorageEstimate"
 >;
 
 export interface CollectionContractProbePort {
@@ -114,12 +132,14 @@ export class ProbeCollectionContractUseCase {
             },
         );
         const storageEstimate = estimateStorage(probe);
+        const imageStorageEstimate = estimateImageStorage(probe);
         return {
             chain,
             address,
             standard: "erc721",
             ...probe,
             storageEstimate,
+            imageStorageEstimate,
             suggestedInput: buildSuggestedInput(probe),
         };
     }
@@ -202,6 +222,27 @@ function estimateStorage(
         samplePayloadBytes: probe.firstToken.tokenUriPayloadBytes,
         projectedBytes: (samplePayloadBytes * totalSupply).toString(),
         totalSupply: probe.totalSupply.value,
+    };
+}
+
+function estimateImageStorage(
+    probe: CollectionContractProbeResult,
+): BootstrapProbeImageStorageEstimate {
+    if (
+        !probe.firstToken.tokenId ||
+        probe.firstToken.imageBytes === null ||
+        probe.totalSupply.value === null
+    ) {
+        return null;
+    }
+    const sampleImageBytes = BigInt(probe.firstToken.imageBytes);
+    const totalSupply = BigInt(probe.totalSupply.value);
+    return {
+        sampleTokenId: probe.firstToken.tokenId,
+        sampleImageBytes: probe.firstToken.imageBytes,
+        projectedBytes: (sampleImageBytes * totalSupply).toString(),
+        totalSupply: probe.totalSupply.value,
+        contentType: probe.firstToken.imageContentType,
     };
 }
 

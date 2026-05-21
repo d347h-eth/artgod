@@ -10,6 +10,11 @@ import {
     toBootstrapRangeTotalSupply,
     toSafeIntegerValue,
 } from "../../application/use-cases/bootstrap/probe-collection-contract.js";
+import {
+    parseImageDataUriBuffer,
+    parseJsonDataUriText,
+    resolveTokenResourceUri,
+} from "@artgod/shared/media/token-resource-uri";
 
 type BootstrapProbeRpc = {
     readContract<T = unknown>(params: {
@@ -96,13 +101,14 @@ const ERC721_INTERFACE_ID = "0x80ac58cd";
 const ERC721_ENUMERABLE_INTERFACE_ID = "0x780e9d63";
 // Preflight only needs enough payload to render a safe preview and estimate scale.
 const MAX_TOKEN_URI_PAYLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_MEDIA_PROBE_BYTES = 25 * 1024 * 1024;
 const TOKEN_URI_FETCH_TIMEOUT_MS = 10_000;
-const DEFAULT_IPFS_GATEWAY = "https://ipfs.io/ipfs/";
+const DEFAULT_IPFS_GATEWAY_ORIGIN = "https://ipfs.io";
 
 export class ViemBootstrapContractProbe implements CollectionContractProbePort {
     constructor(
         private readonly rpc: BootstrapProbeRpc,
-        private readonly ipfsGateway: string = DEFAULT_IPFS_GATEWAY,
+        private readonly ipfsGatewayOrigin: string = DEFAULT_IPFS_GATEWAY_ORIGIN,
     ) {}
 
     async probeErc721Contract(input: {
@@ -230,6 +236,10 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             tokenUriPayloadError: null,
             name: null,
             image: null,
+            imageBytes: null,
+            imageBytesSource: null,
+            imageContentType: null,
+            imageBytesError: null,
             animationUrl: null,
             metadataError: "token ids 0 and 1 were not confirmed",
             candidates,
@@ -297,10 +307,14 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
         try {
             const payload = await fetchTokenUriPayload(
                 uri,
-                this.ipfsGateway,
+                this.ipfsGatewayOrigin,
                 MAX_TOKEN_URI_PAYLOAD_BYTES,
             );
             const metadata = parseMetadataPayload(payload.text);
+            const image = resolveDisplayUrl(metadata.image, this.ipfsGatewayOrigin);
+            const imageSize = image
+                ? await probeMediaSize(image, MAX_MEDIA_PROBE_BYTES)
+                : null;
             return {
                 tokenId,
                 source,
@@ -309,10 +323,14 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 tokenUriPayloadTruncated: payload.truncated,
                 tokenUriPayloadError: null,
                 name: metadata.name,
-                image: resolveDisplayUrl(metadata.image, this.ipfsGateway),
+                image,
+                imageBytes: imageSize?.bytes ?? null,
+                imageBytesSource: imageSize?.source ?? null,
+                imageContentType: imageSize?.contentType ?? null,
+                imageBytesError: imageSize?.error ?? null,
                 animationUrl: resolveDisplayUrl(
                     metadata.animationUrl,
-                    this.ipfsGateway,
+                    this.ipfsGatewayOrigin,
                 ),
                 metadataError: metadata.error,
                 candidates,
@@ -327,6 +345,10 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
                 tokenUriPayloadError: compactError(error),
                 name: null,
                 image: null,
+                imageBytes: null,
+                imageBytesSource: null,
+                imageContentType: null,
+                imageBytesError: null,
                 animationUrl: null,
                 metadataError: null,
                 candidates,
@@ -389,6 +411,10 @@ function emptyFirstTokenWithError(
         tokenUriPayloadError: error,
         name: null,
         image: null,
+        imageBytes: null,
+        imageBytesSource: null,
+        imageContentType: null,
+        imageBytesError: null,
         animationUrl: null,
         metadataError: null,
         candidates,
@@ -397,11 +423,11 @@ function emptyFirstTokenWithError(
 
 async function fetchTokenUriPayload(
     uri: string,
-    ipfsGateway: string,
+    ipfsGatewayOrigin: string,
     maxBytes: number,
 ): Promise<TokenUriPayload> {
     if (uri.startsWith("data:")) {
-        const text = parseDataUriText(uri);
+        const text = parseJsonDataUriText(uri);
         return {
             text,
             byteSize: Buffer.byteLength(text, "utf8"),
@@ -409,7 +435,7 @@ async function fetchTokenUriPayload(
         };
     }
 
-    const resolved = resolveDisplayUrl(uri, ipfsGateway);
+    const resolved = resolveDisplayUrl(uri, ipfsGatewayOrigin);
     if (!resolved || !/^https?:\/\//i.test(resolved)) {
         throw new Error("unsupported tokenURI scheme");
     }
@@ -469,16 +495,6 @@ async function readResponseTextWithLimit(
     };
 }
 
-function parseDataUriText(uri: string): string {
-    const match = uri.match(/^data:application\/json(;base64)?,(.*)$/i);
-    if (!match) throw new Error("unsupported data tokenURI payload");
-    const isBase64 = Boolean(match[1]);
-    const payload = match[2] ?? "";
-    return isBase64
-        ? Buffer.from(payload, "base64").toString("utf8")
-        : decodeURIComponent(payload);
-}
-
 function parseMetadataPayload(text: string): {
     name: string | null;
     image: string | null;
@@ -505,13 +521,165 @@ function parseMetadataPayload(text: string): {
 
 function resolveDisplayUrl(
     value: string | null,
-    ipfsGateway: string,
+    ipfsGatewayOrigin: string,
 ): string | null {
-    if (!value) return null;
-    if (value.startsWith("ipfs://")) {
-        return ipfsGateway + value.replace("ipfs://", "");
+    return resolveTokenResourceUri(value, { ipfsGatewayOrigin });
+}
+
+async function probeMediaSize(
+    uri: string,
+    maxBytes: number,
+): Promise<{
+    bytes: number | null;
+    source: "content_length" | "download" | "data_uri" | null;
+    contentType: string | null;
+    error: string | null;
+}> {
+    if (uri.startsWith("data:")) {
+        try {
+            const data = parseImageDataUriBuffer(uri);
+            return {
+                bytes: data.buffer.byteLength,
+                source: "data_uri",
+                contentType: data.contentType,
+                error: null,
+            };
+        } catch (error) {
+            return emptyMediaSizeError(error);
+        }
     }
-    return value;
+
+    if (!/^https?:\/\//i.test(uri)) {
+        return {
+            bytes: null,
+            source: null,
+            contentType: null,
+            error: "unsupported image scheme",
+        };
+    }
+
+    const head = await readContentLength(uri);
+    if (head.bytes !== null) {
+        return head;
+    }
+
+    return downloadMediaSize(uri, maxBytes);
+}
+
+async function readContentLength(uri: string): Promise<{
+    bytes: number | null;
+    source: "content_length" | null;
+    contentType: string | null;
+    error: string | null;
+}> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TOKEN_URI_FETCH_TIMEOUT_MS);
+    try {
+        const response = await fetch(uri, {
+            method: "HEAD",
+            signal: controller.signal,
+            headers: { accept: "image/*,*/*;q=0.1" },
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const contentLength = Number(response.headers.get("content-length"));
+        return {
+            bytes:
+                Number.isFinite(contentLength) && contentLength >= 0
+                    ? contentLength
+                    : null,
+            source:
+                Number.isFinite(contentLength) && contentLength >= 0
+                    ? "content_length"
+                    : null,
+            contentType: response.headers.get("content-type"),
+            error: null,
+        };
+    } catch (error) {
+        return {
+            bytes: null,
+            source: null,
+            contentType: null,
+            error: compactError(error),
+        };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function downloadMediaSize(
+    uri: string,
+    maxBytes: number,
+): Promise<{
+    bytes: number | null;
+    source: "download" | null;
+    contentType: string | null;
+    error: string | null;
+}> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TOKEN_URI_FETCH_TIMEOUT_MS);
+    try {
+        const response = await fetch(uri, {
+            signal: controller.signal,
+            headers: { accept: "image/*,*/*;q=0.1" },
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await readResponseBytesWithLimit(response, maxBytes);
+        return {
+            bytes: payload.byteLength,
+            source: "download",
+            contentType: response.headers.get("content-type"),
+            error: null,
+        };
+    } catch (error) {
+        return emptyMediaSizeError(error);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function readResponseBytesWithLimit(
+    response: Response,
+    maxBytes: number,
+): Promise<{ byteLength: number }> {
+    const body = response.body;
+    if (!body) {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.byteLength > maxBytes) {
+            throw new Error(`image payload exceeds ${maxBytes} bytes`);
+        }
+        return { byteLength: buffer.byteLength };
+    }
+
+    const reader = body.getReader();
+    let received = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        received += value.byteLength;
+        if (received > maxBytes) {
+            throw new Error(`image payload exceeds ${maxBytes} bytes`);
+        }
+    }
+    return { byteLength: received };
+}
+
+function emptyMediaSizeError(error: unknown): {
+    bytes: null;
+    source: null;
+    contentType: null;
+    error: string;
+} {
+    return {
+        bytes: null,
+        source: null,
+        contentType: null,
+        error: compactError(error),
+    };
 }
 
 function asString(value: unknown): string | null {

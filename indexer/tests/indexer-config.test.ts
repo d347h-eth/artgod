@@ -120,6 +120,15 @@ describe("Indexer config", () => {
                     "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS",
                 ),
             },
+            imageCacheBatchSize: getSettingDefaultNumber(
+                "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE",
+            ),
+            imageCacheConcurrency: getSettingDefaultNumber(
+                "BOOTSTRAP_IMAGE_CACHE_CONCURRENCY",
+            ),
+            imageCacheMaxSourceBytes: getSettingDefaultNumber(
+                "BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES",
+            ),
         });
         expect(config.metadata.refreshRangeChunkSize).toBe(
             getSettingDefaultNumber("METADATA_REFRESH_RANGE_CHUNK_SIZE"),
@@ -150,6 +159,25 @@ describe("Indexer config", () => {
                 BACKFILL_WORKER_COUNT: "0",
             }),
         ).toThrow("Invalid BACKFILL_WORKER_COUNT");
+    });
+
+    it("parses IPFS gateway, media cache, and image cache bootstrap config", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            ARTGOD_IPFS_GATEWAY_ORIGIN: "https://gateway.example/ipfs",
+            ARTGOD_MEDIA_CACHE_DIR: "/tmp/artgod-token-media",
+            BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE: "25",
+            BOOTSTRAP_IMAGE_CACHE_CONCURRENCY: "3",
+            BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES: "123456",
+        });
+
+        expect(config.ipfs.gatewayOrigin).toBe("https://gateway.example");
+        expect(config.mediaCache.tokenImagesDir).toBe(
+            "/tmp/artgod-token-media",
+        );
+        expect(config.bootstrap.imageCacheBatchSize).toBe(25);
+        expect(config.bootstrap.imageCacheConcurrency).toBe(3);
+        expect(config.bootstrap.imageCacheMaxSourceBytes).toBe(123456);
     });
 
     it("treats missing OpenSea API key as disabled in auto mode", () => {
