@@ -237,7 +237,8 @@ export class GetSyncBackfillStateUseCase {
             genesisBlock,
         );
         const page = resolveCoveragePage(input, head.blockNumber, genesisBlock);
-        const pageTime = await this.resolvePageTime(
+        // Start timestamp resolution before local counts so RPC latency can overlap SQLite reads.
+        const pageTimePromise = this.resolvePageTime(
             chain.publicChainId,
             chain,
             page,
@@ -302,6 +303,7 @@ export class GetSyncBackfillStateUseCase {
                           context,
                       ),
               );
+        const pageTime = await pageTimePromise;
 
         return {
             chain,
@@ -387,7 +389,8 @@ export class GetSyncBackfillStateUseCase {
             head.blockNumber,
             genesisBlock,
         );
-        const time = await this.resolvePageTime(
+        // Start timestamp resolution before local counts so RPC latency can overlap SQLite reads.
+        const timePromise = this.resolvePageTime(
             chain.publicChainId,
             chain,
             range,
@@ -409,6 +412,7 @@ export class GetSyncBackfillStateUseCase {
                     range,
                 ),
         );
+        const time = await timePromise;
 
         return {
             chain,
