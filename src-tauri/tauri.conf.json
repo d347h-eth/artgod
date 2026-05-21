@@ -60,6 +60,13 @@
         ],
         "resources": [
             "resources/runtime"
-        ]
+        ],
+        "macOS": {
+            "hardenedRuntime": true
+        },
+        "windows": {
+            "digestAlgorithm": "sha256",
+            "timestampUrl": "http://timestamp.digicert.com"
+        }
     }
 }
