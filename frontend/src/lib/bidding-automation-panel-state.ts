@@ -7,7 +7,6 @@ import {
 	BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 	BIDDING_AUTOMATION_PRICING_MODE,
 	BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE,
-	biddingAutomationDraftTokenId,
 	type BiddingAutomationDraft,
 	type BiddingAutomationPricingMode
 } from '$lib/bidding-automation';
@@ -197,10 +196,7 @@ function resolveDraftKey(draft: BiddingAutomationDraft | null): string {
 			? draft.source.bid.orderId
 			: '',
 		draft.target.type,
-		biddingAutomationDraftTokenId(draft) ?? '',
-		draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch
-			? draft.target.tokenCount
-			: '',
+		resolveDraftTargetIdentityKey(draft),
 		draft.pricing.mode,
 		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? draft.pricing.floorEth : '',
 		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual
@@ -209,4 +205,46 @@ function resolveDraftKey(draft: BiddingAutomationDraft | null): string {
 		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Manual ? draft.pricing.deltaEth : '',
 		draft.pricing.mode === BIDDING_AUTOMATION_PRICING_MODE.Tier ? draft.pricing.tierId : ''
 	].join(':');
+}
+
+// Distinguishes draft targets with the same display count but different submit payloads.
+function resolveDraftTargetIdentityKey(draft: BiddingAutomationDraft): string {
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TokenBatch) {
+		return draft.target.tokenIds.join('\u0000');
+	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.FilteredTokenBatch) {
+		return [
+			draft.target.tokenCount,
+			draft.source.type === BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens
+				? resolveFilterIdentityKey(draft.source.filter)
+				: ''
+		].join('\u0000');
+	}
+	if (draft.target.type === BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.TraitJob) {
+		return draft.target.traits
+			.map((trait) => `${trait.key}=${trait.value}`)
+			.sort((left, right) => left.localeCompare(right))
+			.join('\u0000');
+	}
+	return BIDDING_AUTOMATION_DRAFT_TARGET_TYPE.CollectionJob;
+}
+
+function resolveFilterIdentityKey(
+	filter: Extract<
+		BiddingAutomationDraft['source'],
+		{ type: typeof BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.FilteredTokens }
+	>['filter']
+): string {
+	return [
+		filter.source,
+		filter.tokenStatus ?? '',
+		filter.makerAddress ?? '',
+		filter.traitJoinMode,
+		...filter.selectedTraits
+			.map((trait) => `${trait.key}=${trait.value}`)
+			.sort((left, right) => left.localeCompare(right)),
+		...filter.selectedTraitRanges
+			.map((range) => `${range.key}:${range.fromValue ?? ''}:${range.toValue ?? ''}`)
+			.sort((left, right) => left.localeCompare(right))
+	].join('\u0000');
 }

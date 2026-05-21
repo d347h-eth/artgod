@@ -1,6 +1,9 @@
 import type { Page, Request } from 'playwright/test';
 import {
 	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND,
+	TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND,
+	TRADING_BIDDING_TIER_SELECTION_MODE,
 	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
 	TRADING_JOB_STATUS,
 	TRADING_JOB_TARGET_KIND
@@ -26,6 +29,32 @@ const E2E_COLLECTION = {
 	createdAt: '2026-05-01T12:00:00Z',
 	updatedAt: '2026-05-01T12:00:00Z'
 };
+
+const E2E_BIDDING_SETTINGS = {
+	tierSelectionMode: TRADING_BIDDING_TIER_SELECTION_MODE.Buttons,
+	defaultDeltaEth: '0.004',
+	updatedAt: '2026-05-01T12:00:00Z'
+};
+
+const E2E_PRICE_TIERS = [
+	priceTier({
+		tierId: 'tier-base',
+		name: 'Base',
+		sortOrder: 1,
+		floorEth: '0.300',
+		ceilingEth: '0.400',
+		deltaEth: '0.004'
+	}),
+	priceTier({
+		tierId: 'tier-zone',
+		name: 'Zone Boost',
+		sortOrder: 2,
+		parentTierId: 'tier-base',
+		floorEth: '0.340',
+		ceilingEth: '0.450',
+		deltaEth: '0.006'
+	})
+];
 
 export type CapturedBiddingMutation = {
 	method: string;
@@ -69,14 +98,41 @@ export async function installBiddingAutomationApiMock(page: Page): Promise<Biddi
 			return;
 		}
 
+		if (request.method() === 'GET' && url.pathname.endsWith('/bidding/price-tiers')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					chain: E2E_CHAIN,
+					collection: E2E_COLLECTION,
+					settings: E2E_BIDDING_SETTINGS,
+					tiers: E2E_PRICE_TIERS
+				})
+			});
+			return;
+		}
+
+		if (request.method() === 'GET' && url.pathname.endsWith('/reapply-preview')) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify(reapplyPreviewResponse(url.pathname))
+			});
+			return;
+		}
+
 		const mutation = {
 			method: request.method(),
 			path: url.pathname,
 			body
 		};
-		mutations.push(mutation);
-		pendingResolve?.(mutation);
-		pendingResolve = null;
+		if (pendingResolve) {
+			const resolve = pendingResolve;
+			pendingResolve = null;
+			resolve(mutation);
+		} else {
+			mutations.push(mutation);
+		}
 
 		await route.fulfill({
 			status: 200,
@@ -108,6 +164,36 @@ function requestBody(request: Request): unknown {
 }
 
 function mutationResponse(path: string, body: unknown): unknown {
+	if (path.endsWith('/bidding/settings')) {
+		return {
+			chain: E2E_CHAIN,
+			collection: E2E_COLLECTION,
+			settings: {
+				...E2E_BIDDING_SETTINGS,
+				...(isSettingsMutationBody(body) ? body : {})
+			}
+		};
+	}
+
+	if (path.endsWith('/reapply')) {
+		const preview = reapplyPreviewResponse(path).jobs;
+		return {
+			...reapplyPreviewResponse(path),
+			jobs: preview.map((item) => item.job),
+			preview
+		};
+	}
+
+	if (path.endsWith('/bidding/price-tiers')) {
+		const tier = priceTierFromMutation(body);
+		return {
+			chain: E2E_CHAIN,
+			collection: E2E_COLLECTION,
+			tier,
+			tiers: [tier, ...E2E_PRICE_TIERS.filter((item) => item.tierId !== tier.tierId)]
+		};
+	}
+
 	if (path.endsWith('/bidding/jobs/tokens/batch')) {
 		const tokenIds = batchMutationTokenIds(body);
 		return {
@@ -283,6 +369,109 @@ function jobResponse(input: {
 	};
 }
 
+function priceTier(input: {
+	tierId: string;
+	name: string;
+	sortOrder: number;
+	parentTierId?: string | null;
+	floorEth: string;
+	ceilingEth: string;
+	deltaEth: string;
+}) {
+	return {
+		tierId: input.tierId,
+		name: input.name,
+		status: TRADING_JOB_STATUS.Enabled,
+		sortOrder: input.sortOrder,
+		parentTierId: input.parentTierId ?? null,
+		floorConfig: {
+			kind: TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed,
+			valueEth: input.floorEth
+		},
+		ceilingConfig: {
+			kind: TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed,
+			valueEth: input.ceilingEth
+		},
+		deltaEth: input.deltaEth,
+		resolvedFloorEth: input.floorEth,
+		resolvedCeilingEth: input.ceilingEth,
+		resolvedAt: '2026-05-01T12:00:00Z',
+		lastError: null,
+		revision: 1,
+		createdAt: '2026-05-01T12:00:00Z',
+		updatedAt: '2026-05-01T12:00:00Z',
+		archivedAt: null
+	};
+}
+
+function priceTierFromMutation(body: unknown): unknown {
+	if (!isPriceTierMutationBody(body)) {
+		return E2E_PRICE_TIERS[0];
+	}
+	return {
+		...E2E_PRICE_TIERS[0],
+		tierId: body.tierId ?? 'tier-created',
+		name: body.name,
+		status: body.status,
+		sortOrder: body.sortOrder,
+		parentTierId: body.parentTierId,
+		floorConfig: body.floorConfig,
+		ceilingConfig: body.ceilingConfig,
+		deltaEth: body.deltaEth,
+		resolvedFloorEth:
+			body.floorConfig.kind === TRADING_BIDDING_PRICE_TIER_FLOOR_CONFIG_KIND.Fixed
+				? body.floorConfig.valueEth
+				: E2E_PRICE_TIERS[0].resolvedFloorEth,
+		resolvedCeilingEth:
+			body.ceilingConfig.kind === TRADING_BIDDING_PRICE_TIER_CEILING_CONFIG_KIND.Fixed
+				? body.ceilingConfig.valueEth
+				: E2E_PRICE_TIERS[0].resolvedCeilingEth,
+		revision: 2
+	};
+}
+
+function reapplyPreviewResponse(path: string) {
+	const tierId = path.split('/price-tiers/')[1]?.split('/')[0] ?? 'tier-base';
+	const tier = E2E_PRICE_TIERS.find((item) => item.tierId === tierId) ?? E2E_PRICE_TIERS[0];
+	const changedJob = jobResponse({
+		jobId: 'job-token-101',
+		target: {
+			type: TRADING_JOB_TARGET_KIND.Token,
+			tokenId: '101'
+		},
+		body: {
+			status: TRADING_JOB_STATUS.Enabled,
+			floorEth: '0.700',
+			ceilingEth: '0.720',
+			deltaEth: '0.010'
+		},
+		revision: 2
+	});
+	return {
+		chain: E2E_CHAIN,
+		collection: E2E_COLLECTION,
+		tier,
+		jobs: [
+			{
+				job: changedJob,
+				before: {
+					floorEth: '0.700',
+					ceilingEth: '0.720',
+					deltaEth: '0.010',
+					pricingSource: null
+				},
+				after: {
+					floorEth: tier.resolvedFloorEth,
+					ceilingEth: tier.resolvedCeilingEth,
+					deltaEth: tier.deltaEth,
+					pricingSource: null
+				},
+				changed: true
+			}
+		]
+	};
+}
+
 function batchMutationTokenIds(body: unknown): string[] {
 	if (!isBatchMutationBody(body)) {
 		return ['999'];
@@ -351,5 +540,35 @@ function isTraitMutationBody(value: unknown): value is {
 		!!value &&
 		typeof value === 'object' &&
 		Array.isArray((value as { targetTraits?: unknown }).targetTraits)
+	);
+}
+
+function isSettingsMutationBody(value: unknown): value is {
+	tierSelectionMode: string;
+	defaultDeltaEth: string;
+} {
+	return (
+		!!value &&
+		typeof value === 'object' &&
+		typeof (value as { tierSelectionMode?: unknown }).tierSelectionMode === 'string' &&
+		typeof (value as { defaultDeltaEth?: unknown }).defaultDeltaEth === 'string'
+	);
+}
+
+function isPriceTierMutationBody(value: unknown): value is {
+	tierId?: string;
+	name: string;
+	status: string;
+	sortOrder: number;
+	parentTierId: string | null;
+	floorConfig: { kind: string; valueEth?: string };
+	ceilingConfig: { kind: string; valueEth?: string };
+	deltaEth: string;
+} {
+	return (
+		!!value &&
+		typeof value === 'object' &&
+		typeof (value as { name?: unknown }).name === 'string' &&
+		typeof (value as { deltaEth?: unknown }).deltaEth === 'string'
 	);
 }
