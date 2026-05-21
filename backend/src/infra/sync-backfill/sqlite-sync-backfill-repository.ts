@@ -1,4 +1,8 @@
 import { db } from "@artgod/shared/database";
+import {
+    NOOP_APM,
+    type ApmPort,
+} from "@artgod/shared/observability/apm";
 import type {
     SyncBackfillCollectionOption,
     SyncBackfillCoverageContext,
@@ -6,6 +10,11 @@ import type {
     SyncBackfillCoverageRange,
     SyncBackfillReadPort,
 } from "../../application/use-cases/sync-backfill/get-sync-backfill-state.js";
+import {
+    SYNC_BACKFILL_SPAN_ATTRIBUTE,
+    syncBackfillContextSpanAttributes,
+    syncBackfillRangeSpanAttributes,
+} from "../../application/use-cases/sync-backfill/sync-backfill-observability.js";
 
 type CollectionRow = {
     chain_id: number;
@@ -115,7 +124,21 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
             "GROUP BY bucket_index",
     );
 
+    constructor(private readonly apm: ApmPort = NOOP_APM) {}
+
     listLiveCollections(chainId: number): SyncBackfillCollectionOption[] {
+        return this.apm.withSyncSpan(
+            "backend.sync_backfill.sqlite.live_collections",
+            {
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+            },
+            () => this.listLiveCollectionsInner(chainId),
+        );
+    }
+
+    private listLiveCollectionsInner(
+        chainId: number,
+    ): SyncBackfillCollectionOption[] {
         const rows = this.selectLiveCollections.all({
             chainId,
         }) as CollectionRow[];
@@ -132,6 +155,16 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
     }
 
     getHighestSyncedBlock(chainId: number): number | null {
+        return this.apm.withSyncSpan(
+            "backend.sync_backfill.sqlite.highest_synced_block",
+            {
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+            },
+            () => this.getHighestSyncedBlockInner(chainId),
+        );
+    }
+
+    private getHighestSyncedBlockInner(chainId: number): number | null {
         const row = this.selectMaxSyncedBlock.get({
             chainId,
         }) as MaxBlockRow | undefined;
@@ -139,6 +172,20 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
     }
 
     getBlockTimestamp(chainId: number, blockNumber: number): number | null {
+        return this.apm.withSyncSpan(
+            "backend.sync_backfill.sqlite.block_timestamp",
+            {
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.BlockNumber]: blockNumber,
+            },
+            () => this.getBlockTimestampInner(chainId, blockNumber),
+        );
+    }
+
+    private getBlockTimestampInner(
+        chainId: number,
+        blockNumber: number,
+    ): number | null {
         const row = this.selectBlockTimestamp.get({
             chainId,
             blockNumber,
@@ -147,6 +194,20 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
     }
 
     countSyncedBlocks(
+        chainId: number,
+        context: SyncBackfillCoverageContext,
+    ): number {
+        return this.apm.withSyncSpan(
+            "backend.sync_backfill.sqlite.total_count",
+            {
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+                ...syncBackfillContextSpanAttributes(context),
+            },
+            () => this.countSyncedBlocksInner(chainId, context),
+        );
+    }
+
+    private countSyncedBlocksInner(
         chainId: number,
         context: SyncBackfillCoverageContext,
     ): number {
@@ -162,6 +223,22 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
     }
 
     countSyncedBlocksInRange(
+        chainId: number,
+        context: SyncBackfillCoverageContext,
+        range: SyncBackfillCoverageRange,
+    ): number {
+        return this.apm.withSyncSpan(
+            "backend.sync_backfill.sqlite.range_count",
+            {
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+                ...syncBackfillContextSpanAttributes(context),
+                ...syncBackfillRangeSpanAttributes(range),
+            },
+            () => this.countSyncedBlocksInRangeInner(chainId, context, range),
+        );
+    }
+
+    private countSyncedBlocksInRangeInner(
         chainId: number,
         context: SyncBackfillCoverageContext,
         range: SyncBackfillCoverageRange,
@@ -192,6 +269,41 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
         ranges: SyncBackfillCoverageRange[],
     ): SyncBackfillCoverageCount[] {
         const bucketQuery = resolveBucketQueryInput(ranges);
+        return this.apm.withSyncSpan(
+            "backend.sync_backfill.sqlite.count_by_range",
+            {
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+                ...syncBackfillContextSpanAttributes(context),
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.RangesCount]: ranges.length,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketQueryPresent]:
+                    bucketQuery !== null,
+                ...(bucketQuery
+                    ? {
+                          [SYNC_BACKFILL_SPAN_ATTRIBUTE.FromBlock]:
+                              bucketQuery.fromBlock,
+                          [SYNC_BACKFILL_SPAN_ATTRIBUTE.ToBlock]:
+                              bucketQuery.toBlock,
+                          [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketSize]:
+                              bucketQuery.bucketSize,
+                      }
+                    : {}),
+            },
+            () =>
+                this.countSyncedBlocksByRangeInner(
+                    chainId,
+                    context,
+                    ranges,
+                    bucketQuery,
+                ),
+        );
+    }
+
+    private countSyncedBlocksByRangeInner(
+        chainId: number,
+        context: SyncBackfillCoverageContext,
+        ranges: SyncBackfillCoverageRange[],
+        bucketQuery: BucketQueryInput | null,
+    ): SyncBackfillCoverageCount[] {
         if (bucketQuery) {
             return this.countSyncedBlocksByBucket(
                 chainId,
@@ -203,7 +315,7 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
 
         return ranges.map((range) => ({
             ...range,
-            syncedBlockCount: this.countSyncedBlocksInRange(
+            syncedBlockCount: this.countSyncedBlocksInRangeInner(
                 chainId,
                 context,
                 range,

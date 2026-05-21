@@ -5,6 +5,11 @@ import { strict as assert } from "node:assert";
 import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
+import type {
+    ApmPort,
+    SpanAttributes,
+} from "@artgod/shared/observability/apm";
+import { SYNC_BACKFILL_SPAN_ATTRIBUTE } from "../../application/use-cases/sync-backfill/sync-backfill-observability.js";
 import { SqliteSyncBackfillRepository } from "./sqlite-sync-backfill-repository.js";
 
 type QueryPlanRow = {
@@ -98,7 +103,65 @@ describe("SqliteSyncBackfillRepository", () => {
             "collection_sync_blocks_range_idx",
         );
     });
+
+    it("records APM spans for sync-backfill SQLite adapter calls", () => {
+        seedBlocks([0, 1, 2, 3]);
+        const apm = new CapturingApm();
+        const repository = new SqliteSyncBackfillRepository(apm);
+
+        repository.countSyncedBlocksByRange(1, { kind: "any" }, [
+            { fromBlock: 0, toBlock: 1 },
+            { fromBlock: 2, toBlock: 3 },
+        ]);
+
+        assert.deepEqual(apm.names(), [
+            "backend.sync_backfill.sqlite.count_by_range",
+        ]);
+        assert.deepEqual(
+            apm.span("backend.sync_backfill.sqlite.count_by_range")
+                ?.attributes,
+            {
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: 1,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ContextKind]: "any",
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.RangesCount]: 2,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketQueryPresent]: true,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.FromBlock]: 0,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ToBlock]: 3,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketSize]: 2,
+            },
+        );
+    });
 });
+
+class CapturingApm implements ApmPort {
+    readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
+
+    async withSpan<T>(
+        name: string,
+        attributes: SpanAttributes,
+        run: () => Promise<T>,
+    ): Promise<T> {
+        this.spans.push({ name, attributes });
+        return run();
+    }
+
+    withSyncSpan<T>(
+        name: string,
+        attributes: SpanAttributes,
+        run: () => T,
+    ): T {
+        this.spans.push({ name, attributes });
+        return run();
+    }
+
+    names(): string[] {
+        return this.spans.map((span) => span.name);
+    }
+
+    span(name: string): { name: string; attributes: SpanAttributes } | null {
+        return this.spans.find((span) => span.name === name) ?? null;
+    }
+}
 
 function seedCollection(): number {
     const result = db

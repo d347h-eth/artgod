@@ -5,10 +5,18 @@ import {
     ReadModelNotFoundError,
 } from "@artgod/shared/read-models/errors";
 import { SYNC_BACKFILL_CONTEXT_ANY } from "@artgod/shared/config/sync-backfill";
+import {
+    NOOP_APM,
+    type ApmPort,
+} from "@artgod/shared/observability/apm";
 import type {
     SyncBackfillCollectionOption,
     SyncBackfillReadPort,
 } from "./get-sync-backfill-state.js";
+import {
+    SYNC_BACKFILL_SPAN_ATTRIBUTE,
+    syncBackfillRangeSpanAttributes,
+} from "./sync-backfill-observability.js";
 
 export type ScheduleSyncBackfillInput = {
     chainRef: string;
@@ -56,6 +64,7 @@ export class ScheduleSyncBackfillUseCase {
             "listLiveCollections"
         >,
         private readonly syncBackfillCommandQueuePort: SyncBackfillCommandQueuePort,
+        private readonly apm: ApmPort = NOOP_APM,
     ) {}
 
     async scheduleBackfill(
@@ -69,12 +78,34 @@ export class ScheduleSyncBackfillUseCase {
             );
         }
 
-        const chain = this.chainRefResolverPort.resolveChainRef(
-            input.chainRef,
-            this.defaultChainId,
+        const requestAttributes = {
+            ...syncBackfillRangeSpanAttributes(input),
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.CollectionRefPresent]: Boolean(
+                input.collectionRef?.trim(),
+            ),
+        };
+        // Resolve the requested chain before publishing chain-scoped backfill jobs.
+        const chain = this.apm.withSyncSpan(
+            "backend.sync_backfill.schedule.chain",
+            requestAttributes,
+            () =>
+                this.chainRefResolverPort.resolveChainRef(
+                    input.chainRef,
+                    this.defaultChainId,
+                ),
         );
-        const collections = this.syncBackfillReadPort.listLiveCollections(
-            chain.publicChainId,
+        const chainAttributes = {
+            ...requestAttributes,
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
+        };
+        // Load live collections to validate optional collection-scoped backfill.
+        const collections = this.apm.withSyncSpan(
+            "backend.sync_backfill.schedule.live_collections",
+            chainAttributes,
+            () =>
+                this.syncBackfillReadPort.listLiveCollections(
+                    chain.publicChainId,
+                ),
         );
         const collection = resolveBackfillCollection(
             input.collectionRef,
@@ -88,7 +119,24 @@ export class ScheduleSyncBackfillUseCase {
             batchSize: this.backfillBatchSize,
         });
 
-        await this.syncBackfillCommandQueuePort.publishBackfillRanges(commands);
+        // Publish range commands through the configured sync/backfill queue adapter.
+        await this.apm.withSpan(
+            "backend.sync_backfill.schedule.publish_ranges",
+            {
+                ...chainAttributes,
+                ...(collection
+                    ? {
+                          [SYNC_BACKFILL_SPAN_ATTRIBUTE.CollectionId]:
+                              collection.collectionId,
+                      }
+                    : {}),
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.CommandsCount]: commands.length,
+            },
+            () =>
+                this.syncBackfillCommandQueuePort.publishBackfillRanges(
+                    commands,
+                ),
+        );
 
         return {
             chain,

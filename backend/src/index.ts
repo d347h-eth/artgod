@@ -162,7 +162,10 @@ export function createBackendApp(
     const activitiesReadModel = new SqliteActivitiesReadModel(
         backendObservability.apm,
     );
-    const backendRpcClient = new ViemBackendRpcClient(config.rpcUrl);
+    const backendRpcClient = new ViemBackendRpcClient(
+        config.rpcUrl,
+        backendObservability.apm,
+    );
     const collectionExtensionRecords = new SqliteCollectionExtensionRecords();
     const collectionCustomizationRecords =
         new SqliteCollectionCustomizationRecords();
@@ -194,10 +197,13 @@ export function createBackendApp(
     const biddingPriceTiersRepository = new SqliteBiddingPriceTiersRepository();
     const collectionSettingsRepository =
         new SqliteCollectionSettingsRepository();
-    const syncBackfillRepository = new SqliteSyncBackfillRepository();
+    const syncBackfillRepository = new SqliteSyncBackfillRepository(
+        backendObservability.apm,
+    );
     const syncBackfillCommandQueue = new NatsSyncBackfillCommandQueue(
         config.natsUrl,
         config.natsStreamPrefix,
+        backendObservability.apm,
     );
     const tradingJobCommandSignalPublisher =
         new NatsTradingJobCommandSignalPublisher(
@@ -259,6 +265,7 @@ export function createBackendApp(
         chainsReadModel,
         syncBackfillRepository,
         backendRpcClient,
+        backendObservability.apm,
     );
     const scheduleSyncBackfillUseCase = new ScheduleSyncBackfillUseCase(
         config.defaultChainId,
@@ -266,6 +273,7 @@ export function createBackendApp(
         chainsReadModel,
         syncBackfillRepository,
         syncBackfillCommandQueue,
+        backendObservability.apm,
     );
     const resolveOwnerRefUseCase = new ResolveOwnerRefUseCase(
         config.defaultChainId,

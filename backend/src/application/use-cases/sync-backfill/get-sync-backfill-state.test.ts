@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { ChainRecord } from "@artgod/shared/types/browse";
+import type {
+    ApmPort,
+    SpanAttributes,
+} from "@artgod/shared/observability/apm";
 import { GetSyncBackfillStateUseCase } from "./get-sync-backfill-state.js";
 import type {
     SyncBackfillCoverageContext,
     SyncBackfillCoverageRange,
     SyncBackfillReadPort,
 } from "./get-sync-backfill-state.js";
+import { SYNC_BACKFILL_SPAN_ATTRIBUTE } from "./sync-backfill-observability.js";
 
 const CHAIN: ChainRecord = {
     id: 1,
@@ -383,7 +388,83 @@ describe("GetSyncBackfillStateUseCase", () => {
             durationSeconds: 72,
         });
     });
+
+    it("records APM spans around page state adapter calls", async () => {
+        const apm = new CapturingApm();
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([1_024, 1_025, 2_047]),
+                headBlock: 2_047,
+                blockTimestamps: new Map([[1_024, 100]]),
+            }),
+            rpcPort(2_047, new Map([[2_047, 172]])),
+            apm,
+        );
+
+        await useCase.getState({
+            chainRef: "ethereum",
+            collectionRef: "any",
+            pageStartBlock: 1_024,
+            bucketSize: 1,
+        });
+
+        expect(apm.names()).toEqual(
+            expect.arrayContaining([
+                "backend.sync_backfill.state.chain",
+                "backend.sync_backfill.state.live_collections",
+                "backend.sync_backfill.state.highest_synced_block",
+                "backend.sync_backfill.rpc.current_block_number",
+                "backend.sync_backfill.state.block_timestamp_db",
+                "backend.sync_backfill.rpc.block_timestamp",
+                "backend.sync_backfill.state.bucket_counts",
+                "backend.sync_backfill.state.selected_range_count",
+                "backend.sync_backfill.state.total_count",
+            ]),
+        );
+        expect(
+            apm.span("backend.sync_backfill.state.bucket_counts")
+                ?.attributes,
+        ).toMatchObject({
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: 1,
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.FromBlock]: 1_024,
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.ToBlock]: 2_047,
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketSize]: 1,
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.RangesCount]: 1_024,
+        });
+    });
 });
+
+class CapturingApm implements ApmPort {
+    readonly spans: Array<{ name: string; attributes: SpanAttributes }> = [];
+
+    async withSpan<T>(
+        name: string,
+        attributes: SpanAttributes,
+        run: () => Promise<T>,
+    ): Promise<T> {
+        this.spans.push({ name, attributes });
+        return run();
+    }
+
+    withSyncSpan<T>(
+        name: string,
+        attributes: SpanAttributes,
+        run: () => T,
+    ): T {
+        this.spans.push({ name, attributes });
+        return run();
+    }
+
+    names(): string[] {
+        return this.spans.map((span) => span.name);
+    }
+
+    span(name: string): { name: string; attributes: SpanAttributes } | null {
+        return this.spans.find((span) => span.name === name) ?? null;
+    }
+}
 
 function chainResolver(overrides: Partial<ChainRecord> = {}) {
     return {

@@ -8,6 +8,15 @@ import {
     ReadModelBadRequestError,
     ReadModelNotFoundError,
 } from "@artgod/shared/read-models/errors";
+import {
+    NOOP_APM,
+    type ApmPort,
+} from "@artgod/shared/observability/apm";
+import {
+    SYNC_BACKFILL_SPAN_ATTRIBUTE,
+    syncBackfillContextSpanAttributes,
+    syncBackfillRangeSpanAttributes,
+} from "./sync-backfill-observability.js";
 
 export type SyncBackfillCoverageState = "empty" | "partial" | "complete";
 
@@ -175,28 +184,55 @@ export class GetSyncBackfillStateUseCase {
         private readonly chainRefResolverPort: ChainRefResolverPort,
         private readonly syncBackfillReadPort: SyncBackfillReadPort,
         private readonly chainHeadPort: ChainHeadPort,
+        private readonly apm: ApmPort = NOOP_APM,
     ) {}
 
     async getState(
         input: GetSyncBackfillStateInput,
     ): Promise<GetSyncBackfillStateOutput> {
-        const chain = this.chainRefResolverPort.resolveChainRef(
-            input.chainRef,
-            this.defaultChainId,
+        // Resolve the requested chain before reading sync coverage from adapters.
+        const chain = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.chain",
+            requestSpanAttributes(input),
+            () =>
+                this.chainRefResolverPort.resolveChainRef(
+                    input.chainRef,
+                    this.defaultChainId,
+                ),
         );
-        const collections = this.syncBackfillReadPort.listLiveCollections(
-            chain.publicChainId,
+        const chainAttributes = {
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
+            ...requestSpanAttributes(input),
+        };
+        // Load live collections so collection-scoped coverage can be resolved by slug.
+        const collections = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.live_collections",
+            chainAttributes,
+            () =>
+                this.syncBackfillReadPort.listLiveCollections(
+                    chain.publicChainId,
+                ),
         );
         const context = resolveCoverageContext(
             input.collectionRef,
             collections,
         );
-        const highestSyncedBlock =
-            this.syncBackfillReadPort.getHighestSyncedBlock(
-                chain.publicChainId,
-            );
+        const contextAttributes = {
+            ...chainAttributes,
+            ...syncBackfillContextSpanAttributes(context),
+        };
+        // Read the local sync tip so the page can still render when RPC head is unavailable.
+        const highestSyncedBlock = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.highest_synced_block",
+            contextAttributes,
+            () =>
+                this.syncBackfillReadPort.getHighestSyncedBlock(
+                    chain.publicChainId,
+                ),
+        );
         const genesisBlock = resolveGenesisBlockNumber(chain);
         const head = await this.resolveHeadBlock(
+            chain.publicChainId,
             highestSyncedBlock,
             genesisBlock,
         );
@@ -208,26 +244,60 @@ export class GetSyncBackfillStateUseCase {
             genesisBlock,
         );
         const buckets = buildGridRanges(page);
-        const counts = this.syncBackfillReadPort.countSyncedBlocksByRange(
-            chain.publicChainId,
-            context,
-            buckets,
+        const pageAttributes = {
+            ...contextAttributes,
+            ...syncBackfillRangeSpanAttributes(page),
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketSize]: page.bucketSize,
+        };
+        // Count each visible bucket with the sync/backfill read adapter.
+        const counts = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.bucket_counts",
+            {
+                ...pageAttributes,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.RangesCount]: buckets.length,
+            },
+            () =>
+                this.syncBackfillReadPort.countSyncedBlocksByRange(
+                    chain.publicChainId,
+                    context,
+                    buckets,
+                ),
         );
-        const deploymentMarker = resolveCollectionDeploymentMarker(
-            chain.publicChainId,
-            context,
-            page,
-            this.syncBackfillReadPort,
+        const deploymentMarker = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.deployment_marker",
+            pageAttributes,
+            () =>
+                resolveCollectionDeploymentMarker(
+                    chain.publicChainId,
+                    context,
+                    page,
+                    this.syncBackfillReadPort,
+                ),
         );
         const grid = counts.map((count, index) =>
             mapGridCell(index, count, page.bucketSize, deploymentMarker),
         );
-        const selectedRangeSyncedBlockCount =
-            this.syncBackfillReadPort.countSyncedBlocksInRange(
-                chain.publicChainId,
-                context,
-                page,
-            );
+        // Count the selected page separately for the summary chip and trace its cost.
+        const selectedRangeSyncedBlockCount = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.selected_range_count",
+            pageAttributes,
+            () =>
+                this.syncBackfillReadPort.countSyncedBlocksInRange(
+                    chain.publicChainId,
+                    context,
+                    page,
+                ),
+        );
+        // Count the total selected context for global summary diagnostics.
+        const syncedBlockCount = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.total_count",
+            contextAttributes,
+            () =>
+                this.syncBackfillReadPort.countSyncedBlocks(
+                    chain.publicChainId,
+                    context,
+                ),
+        );
 
         return {
             chain,
@@ -252,10 +322,7 @@ export class GetSyncBackfillStateUseCase {
                 headBlock: head.blockNumber,
                 headSource: head.source,
                 highestSyncedBlock,
-                syncedBlockCount: this.syncBackfillReadPort.countSyncedBlocks(
-                    chain.publicChainId,
-                    context,
-                ),
+                syncedBlockCount,
                 selectedRangeSyncedBlockCount,
             },
             grid,
@@ -265,23 +332,49 @@ export class GetSyncBackfillStateUseCase {
     async getRangeSummary(
         input: GetSyncBackfillRangeSummaryInput,
     ): Promise<GetSyncBackfillRangeSummaryOutput> {
-        const chain = this.chainRefResolverPort.resolveChainRef(
-            input.chainRef,
-            this.defaultChainId,
+        // Resolve the chain before range-summary reads cross adapter boundaries.
+        const chain = this.apm.withSyncSpan(
+            "backend.sync_backfill.range.chain",
+            explicitRangeRequestSpanAttributes(input),
+            () =>
+                this.chainRefResolverPort.resolveChainRef(
+                    input.chainRef,
+                    this.defaultChainId,
+                ),
         );
-        const collections = this.syncBackfillReadPort.listLiveCollections(
-            chain.publicChainId,
+        const chainAttributes = {
+            [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
+            ...explicitRangeRequestSpanAttributes(input),
+        };
+        // Load live collections so range summaries use the same context rules as pages.
+        const collections = this.apm.withSyncSpan(
+            "backend.sync_backfill.range.live_collections",
+            chainAttributes,
+            () =>
+                this.syncBackfillReadPort.listLiveCollections(
+                    chain.publicChainId,
+                ),
         );
         const context = resolveCoverageContext(
             input.collectionRef,
             collections,
         );
-        const highestSyncedBlock =
-            this.syncBackfillReadPort.getHighestSyncedBlock(
-                chain.publicChainId,
-            );
+        const contextAttributes = {
+            ...chainAttributes,
+            ...syncBackfillContextSpanAttributes(context),
+        };
+        // Read the local sync tip to bound explicit range validation.
+        const highestSyncedBlock = this.apm.withSyncSpan(
+            "backend.sync_backfill.range.highest_synced_block",
+            contextAttributes,
+            () =>
+                this.syncBackfillReadPort.getHighestSyncedBlock(
+                    chain.publicChainId,
+                ),
+        );
         const genesisBlock = resolveGenesisBlockNumber(chain);
         const head = await this.resolveHeadBlock(
+            chain.publicChainId,
             highestSyncedBlock,
             genesisBlock,
         );
@@ -297,6 +390,21 @@ export class GetSyncBackfillStateUseCase {
             genesisBlock,
         );
         const blockCount = countBlocks(range);
+        const rangeAttributes = {
+            ...contextAttributes,
+            ...syncBackfillRangeSpanAttributes(range),
+        };
+        // Count selected blocks for the dynamic range summary widget.
+        const syncedBlockCount = this.apm.withSyncSpan(
+            "backend.sync_backfill.range.selected_range_count",
+            rangeAttributes,
+            () =>
+                this.syncBackfillReadPort.countSyncedBlocksInRange(
+                    chain.publicChainId,
+                    context,
+                    range,
+                ),
+        );
 
         return {
             chain,
@@ -310,23 +418,26 @@ export class GetSyncBackfillStateUseCase {
                 ...range,
                 blockCount,
                 bucketSize: blockCount,
-                syncedBlockCount:
-                    this.syncBackfillReadPort.countSyncedBlocksInRange(
-                        chain.publicChainId,
-                        context,
-                        range,
-                    ),
+                syncedBlockCount,
                 time,
             },
         };
     }
 
     private async resolveHeadBlock(
+        chainId: number,
         highestSyncedBlock: number | null,
         genesisBlock: number,
     ): Promise<{ blockNumber: number; source: "rpc" | "indexed" }> {
         try {
-            const current = await this.chainHeadPort.getCurrentBlockNumber();
+            // Ask the configured chain head adapter for the live tip.
+            const current = await this.apm.withSpan(
+                "backend.sync_backfill.rpc.current_block_number",
+                {
+                    [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+                },
+                () => this.chainHeadPort.getCurrentBlockNumber(),
+            );
             if (Number.isInteger(current) && current >= genesisBlock) {
                 return { blockNumber: current, source: "rpc" };
             }
@@ -386,13 +497,21 @@ export class GetSyncBackfillStateUseCase {
             };
         }
         if (isGenesisBlock) {
-            return this.resolveRpcBlockTimestamp(blockNumber);
+            return this.resolveRpcBlockTimestamp(chainId, blockNumber);
         }
 
         // Prefer indexed block metadata so time labels match local sync state.
-        const localTimestamp = this.syncBackfillReadPort.getBlockTimestamp(
-            chainId,
-            blockNumber,
+        const localTimestamp = this.apm.withSyncSpan(
+            "backend.sync_backfill.state.block_timestamp_db",
+            {
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+                [SYNC_BACKFILL_SPAN_ATTRIBUTE.BlockNumber]: blockNumber,
+            },
+            () =>
+                this.syncBackfillReadPort.getBlockTimestamp(
+                    chainId,
+                    blockNumber,
+                ),
         );
         if (
             localTimestamp !== null &&
@@ -406,16 +525,23 @@ export class GetSyncBackfillStateUseCase {
             };
         }
 
-        return this.resolveRpcBlockTimestamp(blockNumber);
+        return this.resolveRpcBlockTimestamp(chainId, blockNumber);
     }
 
     private async resolveRpcBlockTimestamp(
+        chainId: number,
         blockNumber: number,
     ): Promise<SyncBackfillBlockTimestamp> {
         try {
             // Read JSON-RPC timestamps for explicit chain endpoints or DB misses.
-            const rpcTimestamp =
-                await this.chainHeadPort.getBlockTimestamp(blockNumber);
+            const rpcTimestamp = await this.apm.withSpan(
+                "backend.sync_backfill.rpc.block_timestamp",
+                {
+                    [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
+                    [SYNC_BACKFILL_SPAN_ATTRIBUTE.BlockNumber]: blockNumber,
+                },
+                () => this.chainHeadPort.getBlockTimestamp(blockNumber),
+            );
             if (Number.isInteger(rpcTimestamp) && rpcTimestamp >= 0) {
                 return {
                     blockNumber,
@@ -709,4 +835,49 @@ function resolveGenesisBlockTimestamp(chain: ChainRecord): number | null {
         return value;
     }
     return null;
+}
+
+function requestSpanAttributes(
+    input: Pick<
+        GetSyncBackfillStateInput,
+        "collectionRef" | "pageStartBlock" | "bucketSize"
+    >,
+) {
+    return {
+        [SYNC_BACKFILL_SPAN_ATTRIBUTE.CollectionRefPresent]:
+            Boolean(input.collectionRef?.trim()),
+        [SYNC_BACKFILL_SPAN_ATTRIBUTE.PageStartPresent]:
+            input.pageStartBlock !== null && input.pageStartBlock !== undefined,
+        ...(input.pageStartBlock !== null &&
+        input.pageStartBlock !== undefined
+            ? {
+                  [SYNC_BACKFILL_SPAN_ATTRIBUTE.PageStartBlock]:
+                      input.pageStartBlock,
+              }
+            : {}),
+        ...(input.bucketSize !== null && input.bucketSize !== undefined
+            ? {
+                  [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketSize]:
+                      input.bucketSize,
+              }
+            : {}),
+    };
+}
+
+function explicitRangeRequestSpanAttributes(
+    input: Pick<
+        GetSyncBackfillRangeSummaryInput,
+        "collectionRef" | "fromBlock" | "toBlock"
+    >,
+) {
+    return {
+        [SYNC_BACKFILL_SPAN_ATTRIBUTE.CollectionRefPresent]:
+            Boolean(input.collectionRef?.trim()),
+        [SYNC_BACKFILL_SPAN_ATTRIBUTE.FromBlock]: input.fromBlock,
+        [SYNC_BACKFILL_SPAN_ATTRIBUTE.ToBlock]: input.toBlock,
+        [SYNC_BACKFILL_SPAN_ATTRIBUTE.BlockCount]:
+            input.fromBlock > input.toBlock
+                ? 0
+                : input.toBlock - input.fromBlock + 1,
+    };
 }
