@@ -92,7 +92,7 @@ jobs:
               run: |
                   set -euo pipefail
                   missing=0
-                  for key in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+                  for key in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY_P8_B64 APPLE_API_KEY_ID APPLE_API_ISSUER; do
                     if [ -z "${!key:-}" ]; then
                       echo "Missing required secret: $key"
                       missing=1
@@ -105,7 +105,7 @@ jobs:
                   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
                   APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
                   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
@@ -120,7 +120,7 @@ jobs:
                   KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
                   echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
-                  echo "$APPLE_API_KEY" | base64 --decode > "$KEY_PATH"
+                  echo "$APPLE_API_KEY_P8_B64" | base64 --decode > "$KEY_PATH"
 
                   security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
                   security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -136,15 +136,138 @@ jobs:
               env:
                   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
                   APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-                  APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+                  APPLE_API_KEY_P8_B64: ${{ secrets.APPLE_API_KEY_P8_B64 }}
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
+            - name: Select Windows signing backend
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                  $trustedSigningSecrets = @(
+                    "AZURE_ARTIFACT_SIGNING_ENDPOINT",
+                    "AZURE_ARTIFACT_SIGNING_ACCOUNT",
+                    "AZURE_ARTIFACT_SIGNING_CERT_PROFILE",
+                    "AZURE_CLIENT_ID",
+                    "AZURE_CLIENT_SECRET",
+                    "AZURE_TENANT_ID"
+                  )
+                  $pfxSecrets = @("WINDOWS_CERT_PFX_B64", "WINDOWS_CERT_PASSWORD")
+
+                  $trustedReady = $true
+                  foreach ($key in $trustedSigningSecrets) {
+                    if ([string]::IsNullOrWhiteSpace((Get-Item -Path "Env:$key" -ErrorAction SilentlyContinue).Value)) {
+                      $trustedReady = $false
+                    }
+                  }
+
+                  $pfxReady = $true
+                  foreach ($key in $pfxSecrets) {
+                    if ([string]::IsNullOrWhiteSpace((Get-Item -Path "Env:$key" -ErrorAction SilentlyContinue).Value)) {
+                      $pfxReady = $false
+                    }
+                  }
+
+                  if ($trustedReady) {
+                    "WINDOWS_SIGNING_BACKEND=artifact-signing" | Out-File -FilePath $env:GITHUB_ENV -Append
+                  } elseif ($pfxReady) {
+                    "WINDOWS_SIGNING_BACKEND=pfx" | Out-File -FilePath $env:GITHUB_ENV -Append
+                  } else {
+                    throw "Missing Windows signing secrets. Provide Azure Artifact Signing secrets, or WINDOWS_CERT_PFX_B64 and WINDOWS_CERT_PASSWORD."
+                  }
+              env:
+                  AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+                  AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+                  AZURE_ARTIFACT_SIGNING_CERT_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_CERT_PROFILE }}
+                  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+                  AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+                  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+                  WINDOWS_CERT_PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_B64 }}
+                  WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+
+            - name: Install Azure Artifact Signing CLI
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                  if ($env:WINDOWS_SIGNING_BACKEND -ne "artifact-signing") {
+                    Write-Host "Skipping Azure Artifact Signing CLI install."
+                    exit 0
+                  }
+                  cargo install artifact-signing-cli --locked
+
+            - name: Prepare Windows Azure Artifact Signing config
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                  if ($env:WINDOWS_SIGNING_BACKEND -ne "artifact-signing") {
+                    Write-Host "Skipping Azure Artifact Signing config."
+                    exit 0
+                  }
+                  $config = @{
+                    bundle = @{
+                      windows = @{
+                        signCommand = "trusted-signing-cli -e $env:AZURE_ARTIFACT_SIGNING_ENDPOINT -a $env:AZURE_ARTIFACT_SIGNING_ACCOUNT -c $env:AZURE_ARTIFACT_SIGNING_CERT_PROFILE -d ArtGod %1"
+                      }
+                    }
+                  } | ConvertTo-Json -Depth 4
+                  $config | Out-File -FilePath src-tauri/tauri.windows.signing.conf.json -Encoding utf8
+              env:
+                  AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+                  AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+                  AZURE_ARTIFACT_SIGNING_CERT_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_CERT_PROFILE }}
+
+            - name: Prepare Windows PFX signing certificate
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                  if ($env:WINDOWS_SIGNING_BACKEND -ne "pfx") {
+                    Write-Host "Skipping Windows PFX signing config."
+                    exit 0
+                  }
+                  $pfxPath = Join-Path $env:RUNNER_TEMP "artgod-signing-cert.pfx"
+                  [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_B64))
+
+                  $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERT_PASSWORD -AsPlainText -Force
+                  $importedCert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword -Exportable
+
+                  $thumbprint = $env:WINDOWS_CERT_SHA1
+                  if ([string]::IsNullOrWhiteSpace($thumbprint)) {
+                    if (-not $importedCert) {
+                      throw "Could not determine certificate thumbprint"
+                    }
+                    $thumbprint = $importedCert.Thumbprint
+                  }
+                  $thumbprint = $thumbprint -replace '\s', ''
+
+                  $config = @{
+                    bundle = @{
+                      windows = @{
+                        certificateThumbprint = $thumbprint
+                      }
+                    }
+                  } | ConvertTo-Json -Depth 4
+                  $config | Out-File -FilePath src-tauri/tauri.windows.signing.conf.json -Encoding utf8
+              env:
+                  WINDOWS_CERT_PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_B64 }}
+                  WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+                  WINDOWS_CERT_SHA1: ${{ secrets.WINDOWS_CERT_SHA1 }}
+
             - name: Build Tauri bundle
+              if: runner.os != 'Windows'
               env:
                   DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
                   DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
                   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
               run: yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+            - name: Build signed Tauri bundle
+              if: runner.os == 'Windows'
+              env:
+                  DESKTOP_NODE_DIST_TARGET: ${{ matrix.node_dist_target }}
+                  DESKTOP_NATS_DIST_TARGET: ${{ matrix.node_dist_target }}
+                  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+                  AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+                  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+              run: yarn tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.windows.signing.conf.json
 
             - name: Verify bundled Yarn runtime dependencies
               shell: bash
@@ -174,7 +297,6 @@ jobs:
                     exit 1
                   fi
                   codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-                  spctl --assess --type execute --verbose=4 "$APP_PATH"
 
             - name: Collect release artifacts
               shell: bash
@@ -208,6 +330,7 @@ jobs:
 
                   xcrun stapler staple "$DMG_PATH"
                   xcrun stapler validate "$DMG_PATH"
+                  spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
               env:
                   APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
                   APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -266,42 +389,10 @@ jobs:
                   LINUX_GPG_KEY_ID: ${{ secrets.LINUX_GPG_KEY_ID }}
                   LINUX_GPG_OWNERTRUST: ${{ secrets.LINUX_GPG_OWNERTRUST }}
 
-            - name: Validate Windows signing secrets
+            - name: Verify Windows Authenticode signatures
               if: runner.os == 'Windows'
               shell: pwsh
               run: |
-                  $required = @("WINDOWS_CERT_PFX_B64", "WINDOWS_CERT_PASSWORD")
-                  $missing = @()
-                  foreach ($key in $required) {
-                    if ([string]::IsNullOrWhiteSpace((Get-Item -Path "Env:$key" -ErrorAction SilentlyContinue).Value)) {
-                      $missing += $key
-                    }
-                  }
-                  if ($missing.Count -gt 0) {
-                    throw "Missing required secrets: $($missing -join ', ')"
-                  }
-              env:
-                  WINDOWS_CERT_PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_B64 }}
-                  WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-
-            - name: Sign Windows artifacts (Authenticode)
-              if: runner.os == 'Windows'
-              shell: pwsh
-              run: |
-                  $pfxPath = Join-Path $env:RUNNER_TEMP "artgod-signing-cert.pfx"
-                  [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_B64))
-
-                  $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERT_PASSWORD -AsPlainText -Force
-                  $importedCert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword -Exportable
-
-                  $thumbprint = $env:WINDOWS_CERT_SHA1
-                  if ([string]::IsNullOrWhiteSpace($thumbprint)) {
-                    if (-not $importedCert) {
-                      throw "Could not determine certificate thumbprint"
-                    }
-                    $thumbprint = $importedCert.Thumbprint
-                  }
-
                   $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
                   if (-not $signtool) {
                     $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
@@ -312,27 +403,17 @@ jobs:
                     throw "signtool.exe was not found on runner"
                   }
 
-                  $timestampUrl = if ([string]::IsNullOrWhiteSpace($env:WINDOWS_TIMESTAMP_URL)) { "http://timestamp.digicert.com" } else { $env:WINDOWS_TIMESTAMP_URL }
                   $artifacts = Get-ChildItem release-assets -File | Where-Object { $_.Extension -in @('.exe', '.msi') }
                   if (-not $artifacts) {
-                    throw "No Windows artifacts found to sign"
+                    throw "No Windows artifacts found for signature verification"
                   }
 
                   foreach ($artifact in $artifacts) {
-                    & $signtool sign /fd SHA256 /td SHA256 /tr $timestampUrl /sha1 $thumbprint $artifact.FullName
-                    if ($LASTEXITCODE -ne 0) {
-                      throw "Signing failed for $($artifact.FullName)"
-                    }
                     & $signtool verify /pa /v $artifact.FullName
                     if ($LASTEXITCODE -ne 0) {
                       throw "Signature verification failed for $($artifact.FullName)"
                     }
                   }
-              env:
-                  WINDOWS_CERT_PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_B64 }}
-                  WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-                  WINDOWS_CERT_SHA1: ${{ secrets.WINDOWS_CERT_SHA1 }}
-                  WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
 
             - name: Upload build artifacts
               uses: actions/upload-artifact@v4
