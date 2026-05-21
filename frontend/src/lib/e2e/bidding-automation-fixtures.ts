@@ -361,6 +361,21 @@ const JOBS: ApiBiddingJob[] = [
 	})
 ];
 
+// Archived job fixture keeps panel/status tests able to opt into archived-state coverage.
+export const BIDDING_E2E_ARCHIVED_JOB: ApiBiddingJob = biddingJob({
+	jobId: 'job-token-104-archived',
+	status: TRADING_JOB_STATUS.Archived,
+	target: {
+		type: TRADING_JOB_TARGET_KIND.Token,
+		tokenId: '104'
+	},
+	floorEth: '0.100',
+	ceilingEth: '0.120',
+	deltaEth: '0.004',
+	revision: 5,
+	archivedAt: FIXTURE_NOW
+});
+
 // Builds fixture data for the collection token browser harness route.
 export function buildBiddingE2eCollectionDetailData(searchParams: URLSearchParams) {
 	const selectedTraits = parseSelectedTraits(searchParams);
@@ -833,6 +848,7 @@ function biddingJob(params: {
 	ceilingEth: string;
 	deltaEth: string;
 	revision: number;
+	archivedAt?: string | null;
 }): ApiBiddingJob {
 	return {
 		jobId: params.jobId,
@@ -840,7 +856,7 @@ function biddingJob(params: {
 		revision: params.revision,
 		createdAt: FIXTURE_NOW,
 		updatedAt: FIXTURE_NOW,
-		archivedAt: null,
+		archivedAt: params.archivedAt ?? null,
 		target: params.target,
 		config: {
 			floorEth: params.floorEth,

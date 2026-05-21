@@ -8,11 +8,25 @@ import {
 import { TOKEN_BROWSER_STATUS } from '@artgod/shared/types/browse';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
 import { TEST_IDS } from '../src/lib/test-ids';
+import {
+	attachDiagnosticsForTestFailure,
+	captureDiagnosticsForTest,
+	type PageDiagnosticsRegistry
+} from './attached-app';
 import { installBiddingAutomationApiMock } from './helpers/bidding-automation-api';
 
 const COLLECTION_PATH = '/e2e-harness/collection';
 const BIDDING_PATH = `${COLLECTION_PATH}/bidding`;
 const MARKET_MAKER_A = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
+
+test.beforeEach(({ page }, testInfo) => {
+	captureDiagnosticsForTest(diagnosticsByTest, page, testInfo);
+});
+
+test.afterEach(async ({}, testInfo) => {
+	await attachDiagnosticsForTestFailure(diagnosticsByTest, testInfo);
+});
 
 test.describe('bidding automation fixture harness', () => {
 	test('renders token-scope offers from fixtures and captures a TokenOfferFilter mutation', async ({

@@ -1,9 +1,23 @@
 import { expect, test, type Page } from 'playwright/test';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
 import { TEST_IDS } from '../src/lib/test-ids';
+import {
+	attachDiagnosticsForTestFailure,
+	captureDiagnosticsForTest,
+	type PageDiagnosticsRegistry
+} from './attached-app';
 
 const COLLECTION_PATH = '/e2e-harness/collection';
 const BIDDING_PATH = `${COLLECTION_PATH}/bidding`;
+const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
+
+test.beforeEach(({ page }, testInfo) => {
+	captureDiagnosticsForTest(diagnosticsByTest, page, testInfo);
+});
+
+test.afterEach(async ({}, testInfo) => {
+	await attachDiagnosticsForTestFailure(diagnosticsByTest, testInfo);
+});
 
 test.describe('bidding automation public read-only guardrails', () => {
 	test('renders offers bid books without local bidding write controls', async ({ page }) => {

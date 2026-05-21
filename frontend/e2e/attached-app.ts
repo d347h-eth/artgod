@@ -5,6 +5,8 @@ export type PageDiagnostics = {
 	pageErrors: string[];
 };
 
+export type PageDiagnosticsRegistry = Map<string, PageDiagnostics>;
+
 export function capturePageDiagnostics(page: Page): PageDiagnostics {
 	const consoleMessages: string[] = [];
 	const pageErrors: string[] = [];
@@ -37,6 +39,26 @@ export async function attachDiagnostics(
 			contentType: 'text/plain'
 		});
 	}
+}
+
+// Starts per-test browser diagnostics capture so failures include console/page errors.
+export function captureDiagnosticsForTest(
+	registry: PageDiagnosticsRegistry,
+	page: Page,
+	testInfo: TestInfo
+): void {
+	registry.set(testInfo.testId, capturePageDiagnostics(page));
+}
+
+// Attaches captured browser diagnostics only when the current Playwright test failed.
+export async function attachDiagnosticsForTestFailure(
+	registry: PageDiagnosticsRegistry,
+	testInfo: TestInfo
+): Promise<void> {
+	const diagnostics = registry.get(testInfo.testId);
+	registry.delete(testInfo.testId);
+	if (!diagnostics || testInfo.status === testInfo.expectedStatus) return;
+	await attachDiagnostics(testInfo, diagnostics);
 }
 
 export async function assertAttachedAppReachable(
