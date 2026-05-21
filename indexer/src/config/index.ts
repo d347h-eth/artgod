@@ -13,6 +13,7 @@ import {
 import {
     parseBoolean,
     parseNumber,
+    parsePositiveInteger,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
 import {
@@ -53,6 +54,9 @@ const DEFAULT_NATS_STREAM_PREFIX = getSettingDefault("NATS_STREAM_PREFIX");
 const DEFAULT_REORG_DEPTH = getSettingDefaultNumber("REORG_DEPTH");
 const DEFAULT_BACKFILL_BATCH_SIZE = getSettingDefaultNumber(
     "BACKFILL_BATCH_SIZE",
+);
+const DEFAULT_BACKFILL_WORKER_COUNT = getSettingDefaultNumber(
+    "BACKFILL_WORKER_COUNT",
 );
 const DEFAULT_LOG_CHUNK_SIZE = getSettingDefaultNumber("LOG_CHUNK_SIZE");
 const DEFAULT_CACHE_MAX_ENTRIES = getSettingDefaultNumber("CACHE_MAX_ENTRIES");
@@ -119,6 +123,7 @@ export type IndexerConfig = {
     sync: {
         reorgDepth: number;
         backfillBatchSize: number;
+        backfillWorkerCount: number;
         logChunkSize: number;
     };
     cache: {
@@ -247,6 +252,11 @@ export function loadConfig(
                 env.BACKFILL_BATCH_SIZE,
                 "BACKFILL_BATCH_SIZE",
                 DEFAULT_BACKFILL_BATCH_SIZE,
+            ),
+            backfillWorkerCount: parsePositiveInteger(
+                env.BACKFILL_WORKER_COUNT,
+                "BACKFILL_WORKER_COUNT",
+                DEFAULT_BACKFILL_WORKER_COUNT,
             ),
             logChunkSize: parseNumber(
                 env.LOG_CHUNK_SIZE,

@@ -2,6 +2,10 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { setDbPath } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import { loadConfig } from "../config/index.js";
+import {
+    BackfillExecutionGate,
+    resolveBackfillExecutionMode,
+} from "../application/backfill-execution.js";
 import { resolveIndexerCollectionExtension } from "../application/collection-extensions/index.js";
 import type { CollectionExtensionSyncWatchSpec } from "../application/collection-extensions/types.js";
 import { syncRange, type SyncRange } from "../application/sync.js";
@@ -54,6 +58,7 @@ import type { CollectionScopeResolverPort } from "../ports/collections.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
 const BIDDER_INDEX_REFRESH_MS = 30_000;
+const BACKFILL_LEASE_EXTENSION_MS = 10_000;
 
 async function main() {
     try {
@@ -141,6 +146,7 @@ async function main() {
                 });
             }
         }, BIDDER_INDEX_REFRESH_MS);
+        const backfillExecutionGate = new BackfillExecutionGate();
 
         const stopRealtime = await runWorker(
             queue,
@@ -221,7 +227,8 @@ async function main() {
             {
                 queue: QUEUE_NAMES.BackfillSync,
                 consumerName: `sync-backfill-${config.chainId}`,
-                maxInFlight: 1,
+                maxInFlight: config.sync.backfillWorkerCount,
+                extendLeaseMs: BACKFILL_LEASE_EXTENSION_MS,
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
@@ -248,42 +255,51 @@ async function main() {
                 };
                 const orderMaintenancePolicy =
                     job.payload.orderMaintenancePolicy;
-                const { data, blocks } = await processRange(
-                    backfillRpc,
-                    storage,
-                    collectionRegistry,
-                    collectionExtensions,
-                    config.chainId,
+                const executionMode = resolveBackfillExecutionMode(
                     collections,
                     range,
-                    bidderIndex,
-                    config.tokens.wethAddress,
-                    orderMaintenancePolicy,
                 );
-                await publishDomainJobs(
-                    queue,
-                    config.chainId,
-                    collections,
-                    range,
-                    job,
-                    "backfill",
-                    data,
-                    orderMaintenancePolicy,
-                );
-                logger.info("Backfill range processed", {
-                    component: "IndexerSyncWorker",
-                    action: "backfillRange",
-                    fromBlock: job.payload.fromBlock,
-                    toBlock: job.payload.toBlock,
-                    source: job.payload.source,
-                    orderMaintenancePolicy,
-                    collectionIds: collections.map(
-                        (collection) => collection.id,
-                    ),
-                    blocks: blocks.length,
-                    transfers: data.collectionScoped.nftTransferEvents.length,
-                    balanceDeltas:
-                        data.collectionScoped.nftBalanceDeltas.length,
+                await backfillExecutionGate.run(executionMode, async () => {
+                    const { data, blocks } = await processRange(
+                        backfillRpc,
+                        storage,
+                        collectionRegistry,
+                        collectionExtensions,
+                        config.chainId,
+                        collections,
+                        range,
+                        bidderIndex,
+                        config.tokens.wethAddress,
+                        orderMaintenancePolicy,
+                    );
+                    await publishDomainJobs(
+                        queue,
+                        config.chainId,
+                        collections,
+                        range,
+                        job,
+                        "backfill",
+                        data,
+                        orderMaintenancePolicy,
+                    );
+                    logger.info("Backfill range processed", {
+                        component: "IndexerSyncWorker",
+                        action: "backfillRange",
+                        fromBlock: job.payload.fromBlock,
+                        toBlock: job.payload.toBlock,
+                        source: job.payload.source,
+                        orderMaintenancePolicy,
+                        collectionIds: collections.map(
+                            (collection) => collection.id,
+                        ),
+                        backfillExecutionMode: executionMode,
+                        backfillWorkerCount: config.sync.backfillWorkerCount,
+                        blocks: blocks.length,
+                        transfers:
+                            data.collectionScoped.nftTransferEvents.length,
+                        balanceDeltas:
+                            data.collectionScoped.nftBalanceDeltas.length,
+                    });
                 });
             },
             {
@@ -295,6 +311,7 @@ async function main() {
         logger.info("Sync worker ready", {
             component: "IndexerSyncWorker",
             action: "main",
+            backfillWorkerCount: config.sync.backfillWorkerCount,
         });
 
         const shutdown = async () => {

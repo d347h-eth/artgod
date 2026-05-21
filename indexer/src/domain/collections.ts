@@ -363,6 +363,20 @@ export class CollectionRecord {
         );
     }
 
+    // True when the whole range is at or before the settled bootstrap anchor.
+    isRangeAtOrBeforeBootstrapAnchor(
+        fromBlock: number,
+        toBlock: number,
+    ): boolean {
+        if (fromBlock > toBlock) {
+            return false;
+        }
+        if (this.bootstrapAnchorBlock === null) {
+            return false;
+        }
+        return toBlock <= this.bootstrapAnchorBlock;
+    }
+
     containsTokenInScope(
         tokenId: string,
         hasExplicitToken: (tokenId: string) => boolean = () => false,
