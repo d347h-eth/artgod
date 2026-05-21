@@ -15,7 +15,7 @@ Config is loaded in `indexer/src/config/index.ts` (core indexer workers) and `in
     - `rpc`: `primaryUrl`, optional `backfillUrl`, optional `wsUrl`
     - `tokens`: `wethAddress`
     - `queue`: NATS URL and stream prefix
-- `sync`: reorg depth, backfill batch size, log chunk size
+- `sync`: reorg depth, backfill batch size, backfill worker count, log chunk size
 - `cache`: max entries and TTL
 - `offchain`: raw observation persistence toggle
 - collections are stored in SQLite (`collections` table), not in env
@@ -35,6 +35,9 @@ The indexer reads these variables from the root `.env`:
 - `NATS_STREAM_PREFIX` (default: `artgod`)
 - `REORG_DEPTH` (default: 32)
 - `BACKFILL_BATCH_SIZE` (default: 50)
+- `BACKFILL_WORKER_COUNT` (default: 1)
+    - Controls how many backfill sync jobs may be in flight in the sync worker.
+    - Only fully pre-anchor facts-only ranges run concurrently; ranges that may touch current state are serialized by the worker.
 - `LOG_CHUNK_SIZE` (default: 2000)
 - `CACHE_MAX_ENTRIES` (default: 5000)
 - `CACHE_TTL_MS` (default: 30000)
@@ -88,6 +91,7 @@ NATS_URL=nats://127.0.0.1:42720
 NATS_STREAM_PREFIX=artgod
 REORG_DEPTH=32
 BACKFILL_BATCH_SIZE=50
+BACKFILL_WORKER_COUNT=1
 LOG_CHUNK_SIZE=2000
 CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
