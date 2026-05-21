@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll, pushState } from '$app/navigation';
+	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import {
 		SYNC_BACKFILL_CONTEXT_ANY,
@@ -27,10 +28,12 @@
 		SyncBackfillVisibleLevel
 	} from '$lib/sync-backfill-isometric-levels';
 	import {
+		buildSyncBackfillStackFetchPlan,
 		buildSyncBackfillStateApiParams,
 		buildSyncBackfillVisibleLevels,
 		formatSyncBackfillPageStackEntry,
-		parseSyncBackfillPageStackEntry
+		parseSyncBackfillPageStack,
+		resolveSyncBackfillStackAnchorLevelKey
 	} from '$lib/sync-backfill-page-stack';
 	import {
 		formatSyncBackfillAnchoredBlockDuration,
@@ -51,6 +54,16 @@
 		showError?: boolean;
 	};
 
+	type StackNavigationOptions = {
+		updateUrl?: boolean;
+	};
+
+	type RouteStackNavigation = {
+		collection: string;
+		stack: string[];
+		stackKey: string;
+	};
+
 	type ProjectionLine = {
 		key: string;
 		start: SyncBackfillIsometricPoint;
@@ -66,10 +79,6 @@
 
 	const PROJECTION_SOURCE_GAP_PX = 8;
 	const PROJECTION_TARGET_GAP_PX = 14;
-	const SYNC_BACKFILL_DRILLDOWN_GOTO_OPTIONS = {
-		keepFocus: true,
-		noScroll: true
-	} as const;
 
 	let {
 		state: pageSyncState,
@@ -123,6 +132,7 @@
 				? [{ key: 'root', label: 'root', stack: [], state: syncState }]
 				: []
 	);
+	let routeStackNavigation = $derived(resolveRouteStackNavigation(page.url.searchParams));
 	let visibleLevelsLiveKey = $derived(
 		visibleLevels.map((level) => buildSyncBackfillIsometricLevelRenderKey(level)).join('||')
 	);
@@ -153,6 +163,20 @@
 		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		clearRangeSummary();
+	});
+
+	$effect(() => {
+		if (!routeStackNavigation) return;
+		if (routeStackNavigation.collection !== selectedCollection) return;
+		if (routeStackNavigation.stackKey === stack.join(',')) return;
+		const anchorLevelKey = resolveSyncBackfillStackAnchorLevelKey(
+			stack,
+			routeStackNavigation.stack,
+			visibleLevels
+		);
+		void navigateToStack(routeStackNavigation.stack, anchorLevelKey, {
+			updateUrl: false
+		});
 	});
 
 	$effect(() => {
@@ -188,6 +212,18 @@
 		}
 		const suffix = query.toString();
 		return suffix ? `${basePath}?${suffix}` : basePath;
+	}
+
+	function resolveRouteStackNavigation(searchParams: URLSearchParams): RouteStackNavigation | null {
+		const parsedStack = parseSyncBackfillPageStack(searchParams.get('stack'));
+		if (!parsedStack) return null;
+		const collection = searchParams.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
+		const stack = parsedStack.map(formatSyncBackfillPageStackEntry);
+		return {
+			collection,
+			stack,
+			stackKey: stack.join(',')
+		};
 	}
 
 	function onCollectionChange(event: Event): void {
@@ -328,14 +364,19 @@
 		};
 	}
 
-	async function navigateToStack(nextStack: string[], anchorLevelKey: string): Promise<void> {
+	async function navigateToStack(
+		nextStack: string[],
+		anchorLevelKey: string,
+		options: StackNavigationOptions = {}
+	): Promise<void> {
 		if (!syncState) return;
+		const updateUrl = options.updateUrl ?? true;
 		const requestId = drilldownRequestId + 1;
 		drilldownRequestId = requestId;
 		const href = queryHref(selectedCollection, nextStack);
 		const anchorTop = readLevelAnchorTop(anchorLevelKey);
 		try {
-			const states = await fetchVisibleStackStates(selectedCollection, nextStack);
+			const states = await fetchChangedStackStates(selectedCollection, nextStack);
 			if (drilldownRequestId !== requestId) return;
 			const nextState = states.at(-1);
 			if (!nextState) return;
@@ -345,7 +386,9 @@
 			stack = nextStack;
 			await tick();
 			restoreLevelAnchor(anchorLevelKey, anchorTop);
-			await goto(href, SYNC_BACKFILL_DRILLDOWN_GOTO_OPTIONS);
+			if (updateUrl) {
+				pushState(href, page.state);
+			}
 			await tick();
 			restoreLevelAnchor(anchorLevelKey, anchorTop);
 		} catch (error) {
@@ -355,30 +398,24 @@
 		}
 	}
 
-	async function fetchVisibleStackStates(
+	async function fetchChangedStackStates(
 		nextCollection: string,
 		nextStack: string[]
 	): Promise<SyncBackfillStateApiResponse[]> {
 		if (!syncState) return [];
 		const chainSlug = syncState.chain.slug;
-		return Promise.all(
-			[null, ...nextStack.map(requirePageStackEntry)].map((page) => {
-				// Fetch the destination level before route mutation so scroll anchoring stays local.
+		const plan = buildSyncBackfillStackFetchPlan(stack, nextStack, visibleLevels);
+		const fetchedStates = await Promise.all(
+			plan.pagesToFetch.map((stackPage) => {
+				// Fetch only changed destination levels before URL mutation so scroll anchoring stays local.
 				return getSyncBackfillState(
 					fetch,
 					chainSlug,
-					buildSyncBackfillStateApiParams(nextCollection, page)
+					buildSyncBackfillStateApiParams(nextCollection, stackPage)
 				);
 			})
 		);
-	}
-
-	function requirePageStackEntry(entry: string) {
-		const page = parseSyncBackfillPageStackEntry(entry);
-		if (!page) {
-			throw new Error('invalid sync level stack');
-		}
-		return page;
+		return [...plan.reusedStates, ...fetchedStates];
 	}
 
 	function readLevelAnchorTop(levelKey: string): number | null {
