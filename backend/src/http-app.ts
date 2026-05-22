@@ -204,6 +204,21 @@ export function createApiApp(
     );
     const getSyncBackfillRangeSummaryAdapter =
         new GetSyncBackfillRangeSummaryHttpAdapter(getSyncBackfillStateUseCase);
+    const publicCollectionRef =
+        deploymentConfig.publicCollectionScope?.collectionRef ?? null;
+    const publicGetSyncBackfillStateAdapter = publicCollectionRef
+        ? new GetSyncBackfillStateHttpAdapter(
+              getSyncBackfillStateUseCase,
+              publicCollectionRef,
+              "selected",
+          )
+        : null;
+    const publicGetSyncBackfillRangeSummaryAdapter = publicCollectionRef
+        ? new GetSyncBackfillRangeSummaryHttpAdapter(
+              getSyncBackfillStateUseCase,
+              publicCollectionRef,
+          )
+        : null;
     const scheduleSyncBackfillAdapter = new ScheduleSyncBackfillHttpAdapter(
         scheduleSyncBackfillUseCase,
     );
@@ -326,6 +341,8 @@ export function createApiApp(
         listCollectionsAdapter,
         getSyncBackfillStateAdapter,
         getSyncBackfillRangeSummaryAdapter,
+        publicGetSyncBackfillStateAdapter,
+        publicGetSyncBackfillRangeSummaryAdapter,
         scheduleSyncBackfillAdapter,
         resolveOwnerRefAdapter,
         getCollectionActivityAdapter,

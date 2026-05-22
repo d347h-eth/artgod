@@ -66,6 +66,7 @@ export type GetSyncBackfillStateInput = {
     collectionRef?: string | null;
     pageStartBlock?: number | null;
     bucketSize?: number | null;
+    collectionOptions?: "all" | "selected";
 };
 
 export type GetSyncBackfillRangeSummaryInput = {
@@ -312,7 +313,11 @@ export class GetSyncBackfillStateUseCase {
                     context.kind === "collection"
                         ? context.slug
                         : SYNC_BACKFILL_CONTEXT_ANY,
-                collections,
+                collections: visibleContextCollections(
+                    collections,
+                    context,
+                    input.collectionOptions ?? "all",
+                ),
             },
             range: {
                 fromBlock: page.fromBlock,
@@ -572,6 +577,22 @@ export class GetSyncBackfillStateUseCase {
             source: "unavailable",
         };
     }
+}
+
+function visibleContextCollections(
+    collections: SyncBackfillCollectionOption[],
+    context: SyncBackfillCoverageContext,
+    options: "all" | "selected",
+): SyncBackfillCollectionOption[] {
+    if (options === "all") {
+        return collections;
+    }
+    if (context.kind !== "collection") {
+        return [];
+    }
+    return collections.filter(
+        (collection) => collection.collectionId === context.collectionId,
+    );
 }
 
 function resolveCoverageContext(

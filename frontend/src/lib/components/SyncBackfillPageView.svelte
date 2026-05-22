@@ -101,13 +101,23 @@
 		levels: pageLevels = [],
 		basePath,
 		collection: pageCollection,
-		stack: pageStack
+		stack: pageStack,
+		showListNavigation = true,
+		showContextSelector = true,
+		includeCollectionQueryParam = true,
+		canCommitBackfill = true,
+		showPanelShell = true
 	}: {
 		state: SyncBackfillStateApiResponse | null;
 		levels?: SyncBackfillVisibleLevel[];
 		basePath: string;
 		collection: string;
 		stack: string[];
+		showListNavigation?: boolean;
+		showContextSelector?: boolean;
+		includeCollectionQueryParam?: boolean;
+		canCommitBackfill?: boolean;
+		showPanelShell?: boolean;
 	} = $props();
 
 	let syncState = $state<SyncBackfillStateApiResponse | null>(pageSyncState);
@@ -143,7 +153,9 @@
 				? [{ key: 'root', label: 'root', stack: [], state: syncState }]
 				: []
 	);
-	let routeStackNavigation = $derived(resolveRouteStackNavigation(page.url));
+	let routeStackNavigation = $derived(
+		resolveRouteStackNavigation(page.url, includeCollectionQueryParam ? null : selectedCollection)
+	);
 	let rangeDetailsLiveVersion = $state(0);
 	let rangeDetailsLiveKey = $derived(String(rangeDetailsLiveVersion));
 	let selectedRangeDetailsRenderKey = $derived(
@@ -244,7 +256,11 @@
 
 	function queryHref(nextCollection: string, nextStack: string[]): string {
 		const query = new URLSearchParams();
-		if (nextCollection && nextCollection !== SYNC_BACKFILL_CONTEXT_ANY) {
+		if (
+			includeCollectionQueryParam &&
+			nextCollection &&
+			nextCollection !== SYNC_BACKFILL_CONTEXT_ANY
+		) {
 			query.set('collection', nextCollection);
 		}
 		if (nextStack.length > 0) {
@@ -254,10 +270,14 @@
 		return suffix ? `${basePath}?${suffix}` : basePath;
 	}
 
-	function resolveRouteStackNavigation(url: URL): RouteStackNavigation | null {
+	function resolveRouteStackNavigation(
+		url: URL,
+		collectionOverride: string | null = null
+	): RouteStackNavigation | null {
 		const parsedStack = parseSyncBackfillPageStack(url.searchParams.get('stack'));
 		if (!parsedStack) return null;
-		const collection = url.searchParams.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
+		const rawCollection = url.searchParams.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
+		const collection = collectionOverride ?? rawCollection;
 		const stack = parsedStack.map(formatSyncBackfillPageStackEntry);
 		return {
 			collection,
@@ -660,7 +680,7 @@
 	}
 
 	async function commitBackfillSelection(): Promise<void> {
-		if (!syncState || !backfillSelectionRange) return;
+		if (!canCommitBackfill || !syncState || !backfillSelectionRange) return;
 		submitting = true;
 		feedback = null;
 		try {
@@ -907,13 +927,7 @@
 
 </script>
 
-<section class="panel">
-	<header class="panel-header">
-		<h1 class="app-title">ArtGod {APP_VERSION}</h1>
-	</header>
-
-	<ListPagesTabs chainSlug={syncState?.chain.slug ?? null} active="sync-backfill" />
-
+{#snippet syncBackfillContent()}
 	<header class="panel-header sync-backfill-controls-header">
 		<div>
 			<p class="panel-subtitle">
@@ -925,15 +939,17 @@
 			</p>
 		</div>
 		<div class="sync-toolbar">
-			<label class="status-form" for="sync-collection">
-				<span>context</span>
-				<select id="sync-collection" value={selectedCollection} onchange={onCollectionChange}>
-					<option value={SYNC_BACKFILL_CONTEXT_ANY}>any</option>
-					{#each syncState?.context.collections ?? [] as option}
-						<option value={option.slug}>{option.slug}</option>
-					{/each}
-				</select>
-			</label>
+			{#if showContextSelector}
+				<label class="status-form" for="sync-collection">
+					<span>context</span>
+					<select id="sync-collection" value={selectedCollection} onchange={onCollectionChange}>
+						<option value={SYNC_BACKFILL_CONTEXT_ANY}>any</option>
+						{#each syncState?.context.collections ?? [] as option}
+							<option value={option.slug}>{option.slug}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
 			<div
 				class={backfillSelectionMode
 					? 'sync-backfill-actions sync-backfill-actions-selection'
@@ -952,7 +968,7 @@
 						type="button"
 						class="action-button-positive"
 						onclick={commitBackfillSelection}
-						disabled={!backfillSelectionRange || submitting}
+						disabled={!canCommitBackfill || !backfillSelectionRange || submitting}
 					>
 						{submitting ? 'queueing...' : 'commit to backfill'}
 					</button>
@@ -1055,4 +1071,20 @@
 	{:else}
 		<div class="empty-cell">loading sync state</div>
 	{/if}
-</section>
+{/snippet}
+
+{#if showPanelShell}
+	<section class="panel">
+		<header class="panel-header">
+			<h1 class="app-title">ArtGod {APP_VERSION}</h1>
+		</header>
+
+		{#if showListNavigation}
+			<ListPagesTabs chainSlug={syncState?.chain.slug ?? null} active="sync-backfill" />
+		{/if}
+
+		{@render syncBackfillContent()}
+	</section>
+{:else}
+	{@render syncBackfillContent()}
+{/if}

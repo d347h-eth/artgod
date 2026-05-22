@@ -27,15 +27,18 @@ export class GetSyncBackfillRangeSummaryHttpAdapter {
                   ): MaybePromise<GetSyncBackfillRangeSummaryOutput>;
               }
             | GetSyncBackfillStateUseCase,
+        private readonly fixedCollectionRef: string | null = null,
     ) {}
 
     readonly handle = async (
         request: FastifyRequest<GetSyncBackfillRangeSummaryRoute>,
     ) => {
         const searchParams = getSearchParams(request);
+        const collectionRef =
+            this.fixedCollectionRef ?? searchParams.get("collection");
         return this.getSyncBackfillRangeSummaryPort.getRangeSummary({
             chainRef: request.params.chain_ref,
-            collectionRef: searchParams.get("collection"),
+            collectionRef,
             fromBlock: parseRequiredInteger(searchParams, "from_block"),
             toBlock: parseRequiredInteger(searchParams, "to_block"),
         });

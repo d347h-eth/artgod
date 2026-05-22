@@ -24,7 +24,7 @@
 		showCustomization = true
 	}: {
 		navigation: CollectionNavigation;
-		active: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
+		active: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | 'blockspace' | null;
 		activeTokenStatus?: CollectionTokenStatus | null;
 		activeActivityKind?: ActivityFeedFilterKind | null;
 		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
@@ -130,6 +130,13 @@
 		<span class="runtime-tab-active">holders</span>
 	{:else}
 		<a href={navigation.hrefs.holders}>holders</a>
+	{/if}
+	{#if navigation.showBlockspace && navigation.hrefs.blockspace}
+		{#if active === 'blockspace'}
+			<span class="runtime-tab-active">blockspace</span>
+		{:else}
+			<a href={navigation.hrefs.blockspace}>blockspace</a>
+		{/if}
 	{/if}
 	{#if showCustomization}
 		{#if active === 'customization'}

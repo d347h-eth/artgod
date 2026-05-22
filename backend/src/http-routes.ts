@@ -227,6 +227,8 @@ export function registerApiRoutes(
     listCollectionsAdapter: ListCollectionsHttpAdapter,
     getSyncBackfillStateAdapter: GetSyncBackfillStateHttpAdapter,
     getSyncBackfillRangeSummaryAdapter: GetSyncBackfillRangeSummaryHttpAdapter,
+    publicGetSyncBackfillStateAdapter: GetSyncBackfillStateHttpAdapter | null,
+    publicGetSyncBackfillRangeSummaryAdapter: GetSyncBackfillRangeSummaryHttpAdapter | null,
     scheduleSyncBackfillAdapter: ScheduleSyncBackfillHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
@@ -297,6 +299,30 @@ export function registerApiRoutes(
             preHandler: publicChainScopeGuard,
         },
     );
+    if (
+        options.publicCollectionScope &&
+        publicGetSyncBackfillStateAdapter &&
+        publicGetSyncBackfillRangeSummaryAdapter
+    ) {
+        registerObservedGet<GetSyncBackfillStateRoute>(
+            app,
+            options,
+            "/api/:chain_ref/sync-backfill",
+            publicGetSyncBackfillStateAdapter.handle,
+            {
+                preHandler: publicChainScopeGuard,
+            },
+        );
+        registerObservedGet<GetSyncBackfillRangeSummaryRoute>(
+            app,
+            options,
+            "/api/:chain_ref/sync-backfill/range",
+            publicGetSyncBackfillRangeSummaryAdapter.handle,
+            {
+                preHandler: publicChainScopeGuard,
+            },
+        );
+    }
     registerObservedGet<GetCollectionActivityRoute>(
         app,
         options,

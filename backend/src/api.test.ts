@@ -72,6 +72,8 @@ let dbPath = "";
 let app: FastifyInstance | null = null;
 let publicApp: FastifyInstance | null = null;
 let cachedApp: FastifyInstance | null = null;
+let syncBackfillStateInputs: unknown[] = [];
+let syncBackfillRangeInputs: unknown[] = [];
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -537,8 +539,15 @@ beforeAll(async () => {
             bootstrapRepository,
             bootstrapQueueMock,
         );
+    syncBackfillStateInputs = [];
+    syncBackfillRangeInputs = [];
     const getSyncBackfillStateUseCase = {
-        async getState() {
+        async getState(input: {
+            collectionRef?: string | null;
+            collectionOptions?: "all" | "selected";
+        }) {
+            syncBackfillStateInputs.push(input);
+            const selectedCollection = input.collectionRef ?? "any";
             return {
                 chain: {
                     id: 1,
@@ -548,7 +557,25 @@ beforeAll(async () => {
                     name: "Ethereum",
                     averageBlockTimeSeconds: 12,
                 },
-                context: { selected: "any", collections: [] },
+                context: {
+                    selected: selectedCollection,
+                    collections:
+                        input.collectionOptions === "selected"
+                            ? [
+                                  {
+                                      chainId: 1,
+                                      collectionId: 1,
+                                      slug: selectedCollection,
+                                      address:
+                                          "0x4e1f41613c9084fdb9e34e11fae9412427480e56",
+                                      status: "live" as const,
+                                      deploymentBlock: 1,
+                                      bootstrapAnchorBlock: null,
+                                      bootstrapLastSyncedBlock: null,
+                                  },
+                              ]
+                            : [],
+                },
                 range: {
                     fromBlock: 0,
                     toBlock: 0,
@@ -581,7 +608,9 @@ beforeAll(async () => {
                 grid: [],
             };
         },
-        async getRangeSummary() {
+        async getRangeSummary(input: { collectionRef?: string | null }) {
+            syncBackfillRangeInputs.push(input);
+            const selectedCollection = input.collectionRef ?? "any";
             return {
                 chain: {
                     id: 1,
@@ -591,7 +620,7 @@ beforeAll(async () => {
                     name: "Ethereum",
                     averageBlockTimeSeconds: 12,
                 },
-                context: { selected: "any" },
+                context: { selected: selectedCollection },
                 range: {
                     fromBlock: 0,
                     toBlock: 0,
@@ -847,6 +876,34 @@ describe("backend api routes", () => {
         });
     });
 
+    it("returns public sync/backfill reads scoped to Terraforms", async () => {
+        syncBackfillStateInputs = [];
+        syncBackfillRangeInputs = [];
+
+        const state = await resolvePublic(
+            "GET",
+            "/api/ethereum/sync-backfill?collection=any",
+        );
+        expect(state.statusCode).toBe(200);
+        expect(syncBackfillStateInputs.at(-1)).toMatchObject({
+            collectionRef: "terraforms",
+            collectionOptions: "selected",
+        });
+        expect(state.payload.context.selected).toBe("terraforms");
+        expect(state.payload.context.collections).toHaveLength(1);
+        expect(state.payload.context.collections[0].slug).toBe("terraforms");
+
+        const range = await resolvePublic(
+            "GET",
+            "/api/ethereum/sync-backfill/range?collection=any&from_block=0&to_block=0",
+        );
+        expect(range.statusCode).toBe(200);
+        expect(syncBackfillRangeInputs.at(-1)).toMatchObject({
+            collectionRef: "terraforms",
+        });
+        expect(range.payload.context.selected).toBe("terraforms");
+    });
+
     it("resolves ENS owner refs on the public API", async () => {
         const result = await resolvePublic(
             "GET",
@@ -882,11 +939,18 @@ describe("backend api routes", () => {
         );
         expect(collections.statusCode).toBe(404);
 
-        const syncBackfill = await resolvePublic(
+        const syncBackfillWriteGet = await resolvePublic(
             "GET",
-            "/api/ethereum/sync-backfill",
+            "/api/ethereum/sync-backfill/backfill",
         );
-        expect(syncBackfill.statusCode).toBe(404);
+        expect(syncBackfillWriteGet.statusCode).toBe(404);
+
+        const syncBackfillWritePost = await resolvePublic(
+            "POST",
+            "/api/ethereum/sync-backfill/backfill",
+            { fromBlock: 0, toBlock: 0 },
+        );
+        expect(syncBackfillWritePost.statusCode).toBe(403);
 
         const customization = await resolvePublic(
             "GET",

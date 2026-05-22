@@ -26,15 +26,19 @@ export class GetSyncBackfillStateHttpAdapter {
                   ): MaybePromise<GetSyncBackfillStateOutput>;
               }
             | GetSyncBackfillStateUseCase,
+        private readonly fixedCollectionRef: string | null = null,
+        private readonly collectionOptions: "all" | "selected" = "all",
     ) {}
 
     readonly handle = async (
         request: FastifyRequest<GetSyncBackfillStateRoute>,
     ) => {
         const searchParams = getSearchParams(request);
+        const collectionRef =
+            this.fixedCollectionRef ?? searchParams.get("collection");
         return this.getSyncBackfillStatePort.getState({
             chainRef: request.params.chain_ref,
-            collectionRef: searchParams.get("collection"),
+            collectionRef,
             pageStartBlock: parseOptionalInteger(
                 searchParams.get("page_start"),
                 "page_start",
@@ -43,6 +47,7 @@ export class GetSyncBackfillStateHttpAdapter {
                 searchParams.get("bucket_size"),
                 "bucket_size",
             ),
+            collectionOptions: this.collectionOptions,
         });
     };
 }

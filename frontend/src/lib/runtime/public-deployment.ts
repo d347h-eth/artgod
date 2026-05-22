@@ -60,6 +60,10 @@ export function publicCollectionHoldersPath(): string {
 	return '/holders';
 }
 
+export function publicCollectionBlockspacePath(): string {
+	return '/blockspace';
+}
+
 export function publicCollectionOwnerTokensPath(ownerRef: string): string {
 	return `/holders/${encodeURIComponent(ownerRef)}`;
 }

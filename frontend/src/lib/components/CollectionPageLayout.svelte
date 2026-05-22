@@ -22,7 +22,14 @@
 		children
 	}: {
 		navigation: CollectionNavigation;
-		activeSection: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | null;
+		activeSection:
+			| 'tokens'
+			| 'activities'
+			| 'holders'
+			| 'customization'
+			| 'bidding'
+			| 'blockspace'
+			| null;
 		activeTokenStatus?: CollectionTokenStatus | null;
 		activeActivityKind?: ActivityFeedFilterKind | null;
 		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
