@@ -280,7 +280,13 @@ export class GetSyncBackfillStateUseCase {
                 ),
         );
         const grid = counts.map((count, index) =>
-            mapGridCell(index, count, page.bucketSize, deploymentMarker),
+            mapGridCell(
+                index,
+                count,
+                page.bucketSize,
+                deploymentMarker,
+                resolveDrillDownFloorBlock(context),
+            ),
         );
         // Derive the selected page count from already-read bucket counts.
         const selectedRangeSyncedBlockCount = this.apm.withSyncSpan(
@@ -753,6 +759,7 @@ function mapGridCell(
     count: SyncBackfillCoverageCount,
     bucketSize: number,
     deploymentMarker: SyncBackfillGridCellDeploymentMarker | null,
+    drillDownFloorBlock: number | null,
 ): SyncBackfillGridCell {
     const blockCount = countBlocks(count);
     return {
@@ -762,7 +769,10 @@ function mapGridCell(
         blockCount,
         syncedBlockCount: count.syncedBlockCount,
         state: resolveCoverageState(blockCount, count.syncedBlockCount),
-        canDrillDown: bucketSize > 1 && blockCount > 0,
+        canDrillDown:
+            bucketSize > 1 &&
+            blockCount > 0 &&
+            !rangeEndsBeforeBlock(count, drillDownFloorBlock),
         collectionDeploymentBlock: rangeContainsBlock(
             count,
             deploymentMarker?.blockNumber ?? null,
@@ -770,6 +780,12 @@ function mapGridCell(
             ? deploymentMarker
             : null,
     };
+}
+
+function resolveDrillDownFloorBlock(
+    context: SyncBackfillCoverageContext,
+): number | null {
+    return context.kind === "collection" ? context.deploymentBlock : null;
 }
 
 function resolveCollectionDeploymentMarker(
@@ -862,6 +878,13 @@ function rangeContainsBlock(
         range.fromBlock <= blockNumber &&
         blockNumber <= range.toBlock
     );
+}
+
+function rangeEndsBeforeBlock(
+    range: SyncBackfillCoverageRange,
+    blockNumber: number | null,
+): boolean {
+    return blockNumber !== null && range.toBlock < blockNumber;
 }
 
 function resolveDurationSeconds(

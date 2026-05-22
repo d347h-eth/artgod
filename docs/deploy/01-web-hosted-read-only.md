@@ -127,6 +127,7 @@ cp .env.deploy.example .env.deploy
 - `PUBLIC_APP_CHAIN_REF=ethereum`
 - `PUBLIC_APP_COLLECTION_REF=terraforms`
 - `BACKEND_QUERY_CACHE_PROVIDER=memory`
+- `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS=60000`
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS=600000`
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS=1200000`
 - `RPC_URL`
@@ -205,10 +206,11 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
 - When the deploy observability profile is enabled, the same shared network also exposes `artgod-grafana:3000` for a reverse proxy managed outside this compose file.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
-- `BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, and `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.
+- `BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS`, and `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.
 - `BACKEND_QUERY_CACHE_PROVIDER=memory` enables the backend in-memory query cache for the public VPS deployment.
 - `BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS` controls how often the backend refreshes the cached public collection page (`listed`, first page, no filters) in the background.
 - `BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS` controls how often those background collection refreshes also trigger preview warmup for the current 250 visible tokens.
+- `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` controls how often the backend fully rebuilds the compact public blockspace cache for the configured single collection.
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` controls the preview-modal cache itself. That cache stores only default-media token previews, serves stale responses during the grace window, and refreshes them in the background when an individual preview entry goes stale.
 - `INDEXER_METRICS_ENABLED=true` starts per-worker Prometheus HTTP endpoints; `BACKEND_METRICS_ENABLED=true` starts the backend API Prometheus endpoint on `BACKEND_METRICS_PORT` (`9480` by default).
 - `INDEXER_METRICS_HOST=0.0.0.0` and `BACKEND_METRICS_HOST=0.0.0.0` are required so Prometheus can scrape across the compose network.

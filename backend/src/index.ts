@@ -43,7 +43,10 @@ import {
 import { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
 import { UpdateCollectionCustomizationUseCase } from "./application/use-cases/collections/update-collection-customization.js";
 import { ListCollectionsUseCase } from "./application/use-cases/collections/list-collections.js";
-import { GetSyncBackfillStateUseCase } from "./application/use-cases/sync-backfill/get-sync-backfill-state.js";
+import {
+    GetSyncBackfillStateUseCase,
+    type SyncBackfillReadPort,
+} from "./application/use-cases/sync-backfill/get-sync-backfill-state.js";
 import { ScheduleSyncBackfillUseCase } from "./application/use-cases/sync-backfill/schedule-sync-backfill.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
@@ -86,6 +89,7 @@ import { NatsRuntimeHealthAdapter } from "./infra/runtime-health/nats-runtime-he
 import { SqliteRuntimeHealthAdapter } from "./infra/runtime-health/sqlite-runtime-health.js";
 import { ViemBackendRpcClient } from "./infra/rpc/viem-backend-rpc.js";
 import { NatsSyncBackfillCommandQueue } from "./infra/sync-backfill/nats-sync-backfill-command-queue.js";
+import { PublicCollectionBlockspaceCache } from "./infra/sync-backfill/public-collection-blockspace-cache.js";
 import { SqliteSyncBackfillRepository } from "./infra/sync-backfill/sqlite-sync-backfill-repository.js";
 import { NatsTradingJobCommandSignalPublisher } from "./infra/trading/nats-trading-job-command-signals.js";
 import { SqliteBiddingBidBookRepository } from "./infra/trading/sqlite-bidding-bid-book-repository.js";
@@ -267,6 +271,20 @@ export function createBackendApp(
         backendRpcClient,
         backendObservability.apm,
     );
+    const publicBlockspace = maybeCreatePublicBlockspacePort(
+        config,
+        syncBackfillRepository,
+        chainsReadModel,
+    );
+    const publicGetSyncBackfillStateUseCase = publicBlockspace.lifecycle
+        ? new GetSyncBackfillStateUseCase(
+              config.defaultChainId,
+              chainsReadModel,
+              publicBlockspace.port,
+              backendRpcClient,
+              backendObservability.apm,
+          )
+        : null;
     const scheduleSyncBackfillUseCase = new ScheduleSyncBackfillUseCase(
         config.defaultChainId,
         config.sync.backfillBatchSize,
@@ -539,13 +557,58 @@ export function createBackendApp(
         config.security,
         config.deployment,
         backendObservability,
+        publicGetSyncBackfillStateUseCase,
     );
     collectionDetail.lifecycle?.start();
+    app.addHook("onReady", () => {
+        publicBlockspace.lifecycle?.start();
+    });
     app.addHook("onClose", async () => {
         collectionDetail.lifecycle?.stop();
+        publicBlockspace.lifecycle?.stop();
         await tradingJobCommandSignalPublisher.close();
     });
     return app;
+}
+
+function maybeCreatePublicBlockspacePort(
+    config: BackendConfig,
+    port: SyncBackfillReadPort,
+    chainRefResolverPort: {
+        resolveChainRef(
+            chainRef: string | undefined,
+            defaultPublicChainId: number,
+        ): { publicChainId: number };
+    },
+): {
+    port: SyncBackfillReadPort;
+    lifecycle: PublicCollectionBlockspaceCache | null;
+} {
+    if (
+        config.deployment.mode !== "public_single_collection" ||
+        !config.deployment.publicCollectionScope ||
+        config.queryCache.provider === QUERY_CACHE_PROVIDERS.Disabled
+    ) {
+        return {
+            port,
+            lifecycle: null,
+        };
+    }
+
+    const publicChain = chainRefResolverPort.resolveChainRef(
+        config.deployment.publicCollectionScope.chainRef,
+        config.defaultChainId,
+    );
+    const cachedPort = new PublicCollectionBlockspaceCache(port, {
+        chainId: publicChain.publicChainId,
+        collectionRef: config.deployment.publicCollectionScope.collectionRef,
+        refreshMs: config.queryCache.publicBlockspace.refreshMs,
+    });
+
+    return {
+        port: cachedPort,
+        lifecycle: cachedPort,
+    };
 }
 
 function maybeCreateCollectionDetailPort(

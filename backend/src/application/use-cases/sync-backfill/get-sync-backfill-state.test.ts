@@ -222,6 +222,37 @@ describe("GetSyncBackfillStateUseCase", () => {
         });
     });
 
+    it("does not drill into collection buckets that end before deployment", async () => {
+        const useCase = new GetSyncBackfillStateUseCase(
+            1,
+            chainResolver(),
+            readPort({
+                anyBlocks: new Set([0, 1_024, 2_047]),
+                collectionBlocks: new Map([[7, new Set([1_024, 2_047])]]),
+                deploymentBlock: 1_024,
+                headBlock: 2_047,
+            }),
+            rpcPort(2_047),
+        );
+
+        const output = await useCase.getState({
+            chainRef: "ethereum",
+            collectionRef: "terraforms",
+        });
+
+        expect(output.range.bucketSize).toBe(1_024);
+        expect(output.grid[0]).toMatchObject({
+            fromBlock: 0,
+            toBlock: 1_023,
+            canDrillDown: false,
+        });
+        expect(output.grid[1]).toMatchObject({
+            fromBlock: 1_024,
+            toBlock: 2_047,
+            canDrillDown: true,
+        });
+    });
+
     it("builds a range summary for an arbitrary visible bucket", async () => {
         const useCase = new GetSyncBackfillStateUseCase(
             1,

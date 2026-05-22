@@ -168,6 +168,7 @@ export function createApiApp(
     observability: BackendHttpObservability = createNoopBackendHttpObservability(
         deploymentConfig.mode,
     ),
+    publicGetSyncBackfillStateUseCase: GetSyncBackfillStatePort | null = null,
 ): FastifyInstance {
     const app = Fastify({
         logger: false,
@@ -206,16 +207,18 @@ export function createApiApp(
         new GetBlockspaceRangeSummaryHttpAdapter(getSyncBackfillStateUseCase);
     const publicCollectionRef =
         deploymentConfig.publicCollectionScope?.collectionRef ?? null;
+    const publicBlockspaceStatePort =
+        publicGetSyncBackfillStateUseCase ?? getSyncBackfillStateUseCase;
     const publicGetBlockspaceStateAdapter = publicCollectionRef
         ? new GetBlockspaceStateHttpAdapter(
-              getSyncBackfillStateUseCase,
+              publicBlockspaceStatePort,
               publicCollectionRef,
               "selected",
           )
         : null;
     const publicGetBlockspaceRangeSummaryAdapter = publicCollectionRef
         ? new GetBlockspaceRangeSummaryHttpAdapter(
-              getSyncBackfillStateUseCase,
+              publicBlockspaceStatePort,
               publicCollectionRef,
           )
         : null;

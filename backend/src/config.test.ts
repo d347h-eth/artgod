@@ -21,6 +21,9 @@ describe("loadBackendConfig", () => {
                 detailRefreshMs: 30000,
                 previewWarmRefreshMs: 600000,
             },
+            publicBlockspace: {
+                refreshMs: 60000,
+            },
             tokenPreview: {
                 maxEntries: 250,
                 freshMs: 600000,
@@ -162,6 +165,7 @@ describe("loadBackendConfig", () => {
             BACKEND_QUERY_CACHE_PROVIDER: QUERY_CACHE_PROVIDERS.Memory,
             BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS: "4321",
             BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS: "6543",
+            BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS: "7654",
             BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES: "250",
             BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS: "600000",
             BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS: "1200000",
@@ -173,6 +177,9 @@ describe("loadBackendConfig", () => {
             publicCollection: {
                 detailRefreshMs: 4321,
                 previewWarmRefreshMs: 6543,
+            },
+            publicBlockspace: {
+                refreshMs: 7654,
             },
             tokenPreview: {
                 maxEntries: 250,

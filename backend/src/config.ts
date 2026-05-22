@@ -32,6 +32,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
 const DEFAULT_BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS = 30 * 1000;
 const DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS =
     10 * 60 * 1000;
+const DEFAULT_BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS = 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES = 250;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS = 10 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS = 20 * 60 * 1000;
@@ -65,6 +66,9 @@ export type BackendQueryCacheConfig = {
     publicCollection: {
         detailRefreshMs: number;
         previewWarmRefreshMs: number;
+    };
+    publicBlockspace: {
+        refreshMs: number;
     };
     tokenPreview: {
         maxEntries: number;
@@ -292,6 +296,13 @@ function parseQueryCacheConfig(
                 env.BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS,
                 "BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS",
                 DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS,
+            ),
+        },
+        publicBlockspace: {
+            refreshMs: parsePositiveInteger(
+                env.BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS,
+                "BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS",
+                DEFAULT_BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS,
             ),
         },
         tokenPreview: {

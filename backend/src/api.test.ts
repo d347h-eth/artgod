@@ -786,6 +786,9 @@ beforeAll(async () => {
                 detailRefreshMs: 5000,
                 previewWarmRefreshMs: 600000,
             },
+            publicBlockspace: {
+                refreshMs: 5000,
+            },
             tokenPreview: {
                 maxEntries: 16,
                 freshMs: 600_000,
@@ -904,6 +907,26 @@ describe("backend api routes", () => {
             collectionRef: "terraforms",
         });
         expect(range.payload.context.selected).toBe("terraforms");
+    });
+
+    it("marks cached public blockspace responses with query cache headers", async () => {
+        const state = await resolveCached("GET", "/api/ethereum/blockspace");
+        expect(state.statusCode).toBe(200);
+        expect(
+            state.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
+        expect(
+            state.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("5000");
+
+        const range = await resolveCached(
+            "GET",
+            "/api/ethereum/blockspace/range?from_block=0&to_block=0",
+        );
+        expect(range.statusCode).toBe(200);
+        expect(
+            range.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
     });
 
     it("resolves ENS owner refs on the public API", async () => {
@@ -4404,7 +4427,7 @@ function seedData(): void {
             "milady",
             MILADY_ADDRESS,
             "erc721",
-            "live",
+            COLLECTION_STATUS.Live,
             1,
             null,
             "2026-01-01T00:00:00Z",
@@ -4418,9 +4441,9 @@ function seedData(): void {
             "terraforms",
             TERRAFORMS_ADDRESS,
             "erc721",
-            "bootstrapping",
+            COLLECTION_STATUS.Bootstrapping,
             1,
-            null,
+            1,
             "2025-12-01T00:00:00Z",
             "2025-12-01T00:00:00Z",
         ).lastInsertRowid,
