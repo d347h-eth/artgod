@@ -144,9 +144,8 @@
 				: []
 	);
 	let routeStackNavigation = $derived(resolveRouteStackNavigation(page.url));
-	let visibleLevelsLiveKey = $derived(
-		visibleLevels.map((level) => buildSyncBackfillIsometricLevelRenderKey(level)).join('||')
-	);
+	let rangeDetailsLiveVersion = $state(0);
+	let rangeDetailsLiveKey = $derived(String(rangeDetailsLiveVersion));
 	let selectedRangeDetailsRenderKey = $derived(
 		[
 			formatSelectedRangeDetailsRenderKey(selectedBucketDetailsByLevel),
@@ -384,7 +383,7 @@
 	): void {
 		for (const [levelKey, detail] of Object.entries(details)) {
 			if (!visibleLevelKeys.has(levelKey) || detail.loading || detail.refreshInFlight) continue;
-			const refreshKey = formatRangeSummaryRefreshKey(detail.range, visibleLevelsLiveKey);
+			const refreshKey = formatRangeSummaryRefreshKey(detail.range, rangeDetailsLiveKey);
 			if (detail.refreshKey === refreshKey) continue;
 			void loadRangeSummary(target, detail.range, { showLoading: false, showError: false });
 		}
@@ -507,6 +506,7 @@
 			syncState = nextState;
 			levels = buildSyncBackfillVisibleLevels(refreshStack, states);
 			collection = refreshCollection;
+			rangeDetailsLiveVersion += 1;
 			await tick();
 			restoreLevelAnchor(anchorLevelKey, anchorTop);
 		} catch {
@@ -587,7 +587,7 @@
 			loading: showLoading,
 			error: showError ? null : currentDetail?.error ?? null,
 			requestId,
-			refreshKey: formatRangeSummaryRefreshKey(range, visibleLevelsLiveKey),
+			refreshKey: formatRangeSummaryRefreshKey(range, rangeDetailsLiveKey),
 			refreshInFlight: !showLoading
 		});
 		try {
@@ -1020,6 +1020,7 @@
 										<SyncBackfillSummary
 											chain={selectedBucketDetail.summary.chain}
 											range={selectedBucketDetail.summary.range}
+											observedLabel="selected"
 											ariaLabel={level.label + ' selected bucket summary'}
 										/>
 									{/if}
@@ -1039,6 +1040,7 @@
 										<SyncBackfillSummary
 											chain={selectedBackfillRangeDetail.summary.chain}
 											range={selectedBackfillRangeDetail.summary.range}
+											observedLabel="selected"
 											ariaLabel={level.label + ' selected backfill range summary'}
 										/>
 									{/if}

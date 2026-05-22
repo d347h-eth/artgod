@@ -11,11 +11,13 @@
 	let {
 		chain,
 		range,
-		ariaLabel = 'Sync summary'
+		ariaLabel = 'Sync summary',
+		observedLabel = 'observed'
 	}: {
 		chain: ApiChain;
 		range: ApiSyncBackfillRangeSummary;
 		ariaLabel?: string;
+		observedLabel?: string;
 	} = $props();
 
 	let isSingleBlock = $derived(range.fromBlock === range.toBlock);
@@ -41,7 +43,7 @@
 
 <section class="sync-summary" aria-label={ariaLabel}>
 	<div>
-		<span class="sync-summary-label">observed</span>
+		<span class="sync-summary-label">{observedLabel}</span>
 		<span class="sync-summary-value">{formatSyncBackfillInteger(range.blockCount)}</span>
 		<span class="sync-summary-meta">{observedDuration()}</span>
 	</div>
