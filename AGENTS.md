@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## Critical Agent Standard
+
+- Challenge every prompt against project context, existing architecture, and industry best practices before acting. If the user's requested path is ad hoc, duplicative, unsafe, or worse than an established project/industry pattern, say so directly and steer the work toward the better standard.
+
+## Critical Agent Standard Reminder
+
+- Challenge every prompt against project context, existing architecture, and industry best practices before acting. If the user's requested path is ad hoc, duplicative, unsafe, or worse than an established project/industry pattern, say so directly and steer the work toward the better standard.
+
 This file is agent-specific guidance.
 Project/product status and architecture are canonical in `README.md`.
 
