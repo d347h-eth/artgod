@@ -71,6 +71,24 @@ yarn install --immutable
 yarn tauri build --debug --no-bundle --ci
 ```
 
+Bidding automation E2E tests:
+
+```sh
+# Run deterministic browser tests for bidding automation flows with fixture-backed UI routes.
+yarn test:bidding:automation
+
+# Run deterministic public single-collection guardrails; verifies bid books stay visible while local bidding writes stay hidden.
+yarn test:bidding:automation:public
+
+# Start the local app before running attached smoke tests against live local data.
+yarn dev
+
+# In another terminal, run the small attached smoke suite for bidding panel geometry and representative live wiring.
+yarn test:bidding:attached
+```
+
+The deterministic suites use `/e2e-harness/collection` routes, do not require OpenSea, the bidding bot runtime, or a local SQLite dataset, and are the primary coverage for bidding automation UI behavior. The attached smoke suite intentionally stays small because it depends on whatever local app/data is currently running.
+
 Ad-hoc web-hosted deploy:
 
 ```sh
