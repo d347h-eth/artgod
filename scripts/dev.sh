@@ -12,4 +12,4 @@ exec yarn concurrently \
   --prefix-colors "blue,green,yellow" \
   "./scripts/backend-dev.sh" \
   "yarn workspace @artgod/indexer run dev" \
-  "yarn workspace @artgod/frontend run dev"
+  "./scripts/frontend-dev.sh"

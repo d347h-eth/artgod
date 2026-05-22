@@ -1,16 +1,27 @@
 import Fastify from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
-import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
+} from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import type {
     MetricLabels,
     Metrics,
 } from "@artgod/shared/observability/metrics";
+import { logger } from "@artgod/shared/utils";
+import type { BackendSecurityConfig } from "../../config.js";
+import {
+    markCurrentQueryCacheHit,
+    QUERY_CACHE_DEBUG_HEADER_NAME,
+    QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
+} from "../../utils/query-cache-debug.js";
 import {
     observeRouteHandler,
     registerBackendHttpObservabilityHooks,
     type BackendHttpObservability,
 } from "./observability.js";
+import { registerApiResponseHeaders } from "./response-headers.js";
 
 class CapturingMetrics implements Metrics {
     readonly increments: Array<{
@@ -68,6 +79,7 @@ describe("backend http observability", () => {
 
     afterEach(async () => {
         await Promise.all(apps.splice(0).map((app) => app.close()));
+        vi.restoreAllMocks();
     });
 
     it("records successful request metrics and wraps route handlers in spans", async () => {
@@ -284,9 +296,71 @@ describe("backend http observability", () => {
             "http.handler.duration_ms",
         );
     });
+
+    it("logs query-cache response details for backend API requests", async () => {
+        const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+        const { app, observability } = createObservedApp(apps, {
+            responseHeaders: true,
+        });
+        const now = Date.now();
+
+        app.get(
+            "/api/cache",
+            observeRouteHandler(
+                observability,
+                { method: "GET", route: "/api/cache" },
+                async () => {
+                    markCurrentQueryCacheHit({
+                        storedAt: now - 42,
+                        ttlMs: 60_000,
+                        now,
+                    });
+                    return { ok: true };
+                },
+            ),
+        );
+
+        const response = await app.inject({
+            method: "GET",
+            url: "/api/cache?collection=terraforms",
+            headers: {
+                [ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME]: "ssr-request-1",
+            },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(
+            response.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
+        expect(
+            response.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("60000");
+        expect(info).toHaveBeenCalledWith(
+            "Backend API query cache response",
+            expect.objectContaining({
+                component: "BackendApi",
+                action: "query_cache_response",
+                method: "GET",
+                route: "/api/cache",
+                url: "/api/cache?collection=terraforms",
+                statusCode: 200,
+                ssrBackendRequestId: "ssr-request-1",
+                queryCacheStatus: "hit",
+                queryCacheAgeMs: 42,
+                queryCacheTtlMs: 60_000,
+                responseHeaders: expect.objectContaining({
+                    [QUERY_CACHE_DEBUG_HEADER_NAME]: "hit",
+                    [QUERY_CACHE_DEBUG_TTL_HEADER_NAME]: "60000",
+                }),
+            }),
+        );
+    });
 });
 
-function createObservedApp(apps: Array<{ close(): Promise<void> }>): {
+function createObservedApp(
+    apps: Array<{ close(): Promise<void> }>,
+    options: { responseHeaders?: boolean } = {},
+): {
     app: ReturnType<typeof Fastify>;
     metrics: CapturingMetrics;
     apm: CapturingApm;
@@ -303,6 +377,9 @@ function createObservedApp(apps: Array<{ close(): Promise<void> }>): {
         deploymentMode: "standard",
     } satisfies BackendHttpObservability;
 
+    if (options.responseHeaders) {
+        registerApiResponseHeaders(app, TEST_SECURITY_CONFIG);
+    }
     registerBackendHttpObservabilityHooks(app, observability);
     return {
         app,
@@ -311,3 +388,9 @@ function createObservedApp(apps: Array<{ close(): Promise<void> }>): {
         observability,
     };
 }
+
+const TEST_SECURITY_CONFIG: BackendSecurityConfig = {
+    allowedHosts: ["127.0.0.1", "localhost"],
+    allowedOrigins: ["http://127.0.0.1:5173"],
+    csrfCookieSecure: false,
+};

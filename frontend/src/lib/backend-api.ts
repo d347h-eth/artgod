@@ -34,9 +34,19 @@ import type {
 	TraitBiddingJobMutationApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
-import { recordQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
+import {
+	extractQueryCacheResponseHeaders,
+	recordQueryCacheResponseHeaders
+} from '$lib/query-cache-response-headers';
 import { browser } from '$app/environment';
 import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from '@artgod/shared/types';
+import {
+	QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
+	QUERY_CACHE_DEBUG_HEADER_NAME,
+	QUERY_CACHE_DEBUG_TTL_HEADER_NAME
+} from '@artgod/shared/config/query-cache-debug';
+import { ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME } from '@artgod/shared/observability/http';
+import { logger } from '@artgod/shared/utils';
 import type {
 	CollectionBiddingTraitFilterJoinMode,
 	TokenBrowserStatus,
@@ -47,6 +57,9 @@ import type {
 const STARTUP_RETRY_WINDOW_MS = 12_000;
 // Delay between startup retry attempts for transient backend failures.
 const STARTUP_RETRY_DELAY_MS = 250;
+const FRONTEND_SSR_LOG_COMPONENT = 'FrontendSSR';
+const FRONTEND_SSR_BACKEND_API_RESPONSE_ACTION = 'backend_api_response';
+const FRONTEND_SSR_BACKEND_API_FAILURE_ACTION = 'backend_api_failure';
 let csrfTokenCache: string | null = null;
 
 export type BackendJsonResponse<T> = {
@@ -738,8 +751,16 @@ async function requestJsonOnce<T>(
 	fetchFn: typeof fetch,
 	url: string
 ): Promise<BackendJsonResponse<T>> {
-	const response = await fetchFn(url, { credentials: 'include' });
+	const requestLog = createSsrBackendRequestLogContext('GET', url);
+	let response: Response;
+	try {
+		response = await fetchFn(url, buildBackendRequestInit({ credentials: 'include' }, requestLog));
+	} catch (cause) {
+		logSsrBackendApiFailure(requestLog, cause);
+		throw cause;
+	}
 	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+	logSsrBackendApiResponse(requestLog, response);
 
 	if (!response.ok) {
 		throw new BackendApiError(
@@ -764,16 +785,30 @@ async function requestJsonWithBody<T>(
 	const backendOrigin = await resolveBackendOrigin();
 	const url = `${backendOrigin}${path}`;
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
-	const response = await requestFetch(url, {
-		method,
-		credentials: 'include',
-		headers: {
-			'content-type': 'application/json',
-			'x-artgod-csrf': csrfTokenCache ?? ''
-		},
-		body: JSON.stringify(body)
-	});
+	const requestLog = createSsrBackendRequestLogContext(method, url);
+	let response: Response;
+	try {
+		response = await requestFetch(
+			url,
+			buildBackendRequestInit(
+				{
+					method,
+					credentials: 'include',
+					headers: {
+						'content-type': 'application/json',
+						'x-artgod-csrf': csrfTokenCache ?? ''
+					},
+					body: JSON.stringify(body)
+				},
+				requestLog
+			)
+		);
+	} catch (cause) {
+		logSsrBackendApiFailure(requestLog, cause);
+		throw cause;
+	}
 	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+	logSsrBackendApiResponse(requestLog, response);
 	if (!response.ok) {
 		throw new BackendApiError(
 			payload?.message ?? `Backend request failed with ${response.status}`,
@@ -787,11 +822,26 @@ async function ensureCsrfToken(fetchFn: typeof fetch): Promise<void> {
 	if (csrfTokenCache) return;
 	const backendOrigin = await resolveBackendOrigin();
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
-	const response = await requestFetch(`${backendOrigin}/api/security/csrf`, {
-		method: 'GET',
-		credentials: 'include'
-	});
+	const url = `${backendOrigin}/api/security/csrf`;
+	const requestLog = createSsrBackendRequestLogContext('GET', url);
+	let response: Response;
+	try {
+		response = await requestFetch(
+			url,
+			buildBackendRequestInit(
+				{
+					method: 'GET',
+					credentials: 'include'
+				},
+				requestLog
+			)
+		);
+	} catch (cause) {
+		logSsrBackendApiFailure(requestLog, cause);
+		throw cause;
+	}
 	const payload = (await response.json().catch(() => null)) as { token?: string } | null;
+	logSsrBackendApiResponse(requestLog, response);
 	if (!response.ok || !payload?.token) {
 		throw new BackendApiError('Unable to initialize CSRF token', response.status);
 	}
@@ -830,4 +880,85 @@ function selectRequestFetch(fetchFn: typeof fetch, backendOrigin: string): typeo
 		return globalThis.fetch;
 	}
 	return fetchFn;
+}
+
+type SsrBackendRequestLogContext = {
+	requestId: string;
+	method: string;
+	url: string;
+	startedAtMs: number;
+};
+
+function createSsrBackendRequestLogContext(
+	method: string,
+	url: string
+): SsrBackendRequestLogContext | null {
+	if (browser) return null;
+	return {
+		requestId: createBackendRequestId(),
+		method,
+		url,
+		startedAtMs: Date.now()
+	};
+}
+
+function buildBackendRequestInit(
+	init: RequestInit,
+	requestLog: SsrBackendRequestLogContext | null
+): RequestInit {
+	if (!requestLog) return init;
+
+	const headers = new Headers(init.headers);
+	headers.set(ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME, requestLog.requestId);
+	return {
+		...init,
+		headers
+	};
+}
+
+function logSsrBackendApiResponse(
+	requestLog: SsrBackendRequestLogContext | null,
+	response: Response
+): void {
+	if (!requestLog) return;
+	const cacheHeaders = extractQueryCacheResponseHeaders(response.headers);
+	logger.info('Frontend SSR backend API response', {
+		component: FRONTEND_SSR_LOG_COMPONENT,
+		action: FRONTEND_SSR_BACKEND_API_RESPONSE_ACTION,
+		method: requestLog.method,
+		url: requestLog.url,
+		statusCode: response.status,
+		durationMs: Date.now() - requestLog.startedAtMs,
+		ssrBackendRequestId: requestLog.requestId,
+		queryCacheStatus: cacheHeaders[QUERY_CACHE_DEBUG_HEADER_NAME] ?? null,
+		queryCacheAgeMs: parseOptionalInteger(cacheHeaders[QUERY_CACHE_DEBUG_AGE_HEADER_NAME]),
+		queryCacheTtlMs: parseOptionalInteger(cacheHeaders[QUERY_CACHE_DEBUG_TTL_HEADER_NAME]),
+		responseHeaders: cacheHeaders
+	});
+}
+
+function logSsrBackendApiFailure(
+	requestLog: SsrBackendRequestLogContext | null,
+	cause: unknown
+): void {
+	if (!requestLog) return;
+	logger.warn('Frontend SSR backend API request failed', {
+		component: FRONTEND_SSR_LOG_COMPONENT,
+		action: FRONTEND_SSR_BACKEND_API_FAILURE_ACTION,
+		method: requestLog.method,
+		url: requestLog.url,
+		durationMs: Date.now() - requestLog.startedAtMs,
+		ssrBackendRequestId: requestLog.requestId,
+		error: toErrorMessage(cause)
+	});
+}
+
+function createBackendRequestId(): string {
+	return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function parseOptionalInteger(value: string | undefined): number | null {
+	if (!value) return null;
+	const parsed = Number.parseInt(value, 10);
+	return Number.isFinite(parsed) ? parsed : null;
 }

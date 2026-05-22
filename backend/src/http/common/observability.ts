@@ -10,13 +10,23 @@ import {
     type ApmPort,
     type SpanAttributes,
 } from "@artgod/shared/observability/apm";
-import { ARTGOD_SPAN_ATTRIBUTE } from "@artgod/shared/observability";
+import {
+    ARTGOD_SPAN_ATTRIBUTE,
+    ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
+} from "@artgod/shared/observability";
+import { logger } from "@artgod/shared/utils";
 import {
     noopMetrics,
     type MetricLabels,
     type Metrics,
 } from "@artgod/shared/observability/metrics";
-import { getCurrentQueryCacheDebugInfo } from "../../utils/query-cache-debug.js";
+import {
+    getCurrentQueryCacheDebugInfo,
+    QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
+    QUERY_CACHE_DEBUG_HEADER_NAME,
+    QUERY_CACHE_DEBUG_STATUSES,
+    QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
+} from "../../utils/query-cache-debug.js";
 
 export type BackendHttpObservability = {
     apm: ApmPort;
@@ -50,6 +60,8 @@ type RequestMetricsState = {
 
 const requestStates = new WeakMap<FastifyRequest, RequestMetricsState>();
 const inflightByLabelKey = new Map<string, number>();
+const BACKEND_API_LOG_COMPONENT = "BackendApi";
+const BACKEND_QUERY_CACHE_RESPONSE_ACTION = "query_cache_response";
 
 // Provides a no-op observability boundary for tests and disabled runtimes.
 export function createNoopBackendHttpObservability(
@@ -150,6 +162,7 @@ export function registerBackendHttpObservabilityHooks(
         }
 
         recordQueryCacheMetrics(observability.metrics, request);
+        logQueryCacheResponse(request, reply);
         requestStates.delete(request);
         done();
     });
@@ -243,6 +256,56 @@ function recordQueryCacheMetrics(
             status: queryCacheDebug.status,
         });
     }
+}
+
+function logQueryCacheResponse(
+    request: FastifyRequest,
+    reply: FastifyReply,
+): void {
+    const queryCacheDebug = getCurrentQueryCacheDebugInfo();
+    const ssrBackendRequestId = getSsrBackendRequestId(request);
+    if (!queryCacheDebug.status && !ssrBackendRequestId) return;
+
+    const cacheStatus =
+        queryCacheDebug.status ?? QUERY_CACHE_DEBUG_STATUSES.Bypass;
+    const cacheHeaders: Record<string, string> = {
+        [QUERY_CACHE_DEBUG_HEADER_NAME]: cacheStatus,
+    };
+    if (queryCacheDebug.ageMs !== null) {
+        cacheHeaders[QUERY_CACHE_DEBUG_AGE_HEADER_NAME] = String(
+            queryCacheDebug.ageMs,
+        );
+    }
+    if (queryCacheDebug.ttlMs !== null) {
+        cacheHeaders[QUERY_CACHE_DEBUG_TTL_HEADER_NAME] = String(
+            queryCacheDebug.ttlMs,
+        );
+    }
+
+    logger.info("Backend API query cache response", {
+        component: BACKEND_API_LOG_COMPONENT,
+        action: BACKEND_QUERY_CACHE_RESPONSE_ACTION,
+        method: request.method,
+        route: getRouteTemplate(request),
+        url: request.raw.url ?? null,
+        statusCode: reply.statusCode,
+        ssrBackendRequestId,
+        queryCacheStatus: cacheStatus,
+        queryCacheAgeMs: queryCacheDebug.ageMs,
+        queryCacheTtlMs: queryCacheDebug.ttlMs,
+        responseHeaders: cacheHeaders,
+    });
+}
+
+function getSsrBackendRequestId(request: FastifyRequest): string | null {
+    const value =
+        request.headers[
+            ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME.toLowerCase()
+        ];
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
+    }
+    return null;
 }
 
 function updateInflight(

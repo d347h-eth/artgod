@@ -30,6 +30,7 @@
         "./utils/time": "./utils/time.ts",
         "./observability": "./observability/index.ts",
         "./observability/apm": "./observability/apm.ts",
+        "./observability/http": "./observability/http.ts",
         "./observability/metrics": "./observability/metrics/index.ts",
         "./database": "./database/db.ts",
         "./migrations": "./database/migrations.ts",

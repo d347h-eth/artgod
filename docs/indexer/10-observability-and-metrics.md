@@ -43,9 +43,11 @@ Observability containers run behind the `observability` compose profile in `dock
 ### Log Pipeline
 
 - Backend launcher script `scripts/backend-dev.sh` truncates and rewrites `tmp/logs/backend-api.log`.
+- Frontend launcher script `scripts/frontend-dev.sh` truncates and rewrites `tmp/logs/frontend-web.log`.
 - Indexer launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
 - Alloy config in `observability/alloy/config.alloy`:
     - `local.file_match` targets `/var/log/artgod/backend-api.log` and `/var/log/artgod/indexer-*.log`.
+    - frontend SSR logs are tailed from `/var/log/artgod/frontend-web.log`.
     - `loki.source.file` tails from end.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
@@ -140,6 +142,27 @@ Fastify lifecycle hooks in `backend/src/http/common/observability.ts` emit:
 - `query_cache.requests`, `query_cache.age_ms`, `query_cache.ttl_ms` for cached backend query paths that set cache debug context
 
 These export with the `artgod_backend_` Prometheus prefix.
+
+Backend API requests that use query-cache state, or that are called by frontend SSR with an SSR backend request ID, also emit a structured Loki log:
+
+- `component=BackendApi`
+- `action=query_cache_response`
+- `method`, `route`, `url`, `statusCode`
+- `ssrBackendRequestId` when the request came from frontend SSR
+- `queryCacheStatus` (`hit`, `miss`, or `bypass`)
+- `queryCacheAgeMs`
+- `queryCacheTtlMs`
+- `responseHeaders` containing the cache diagnostic response headers sent by the backend
+
+Frontend SSR backend API calls emit a matching structured Loki log from `frontend/src/lib/backend-api.ts`:
+
+- `component=FrontendSSR`
+- `action=backend_api_response`
+- `method`, `url`, `statusCode`, `durationMs`
+- `ssrBackendRequestId`
+- `responseHeaders` containing the cache diagnostic response headers received from the backend
+
+The shared `ssrBackendRequestId` correlates the frontend SSR log with the backend API log for the same internal server-to-server request.
 
 ### Backend API Traces
 

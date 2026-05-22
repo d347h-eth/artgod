@@ -15,6 +15,18 @@ local.file_match "artgod_backend_logs" {
   sync_period = "5s"
 }
 
+local.file_match "artgod_frontend_logs" {
+  path_targets = [
+    {
+      __path__ = "/var/log/artgod/frontend-web.log",
+      app      = "artgod",
+      runtime  = "frontend-web",
+      host     = "local-dev",
+    },
+  ]
+  sync_period = "5s"
+}
+
 local.file_match "artgod_indexer_logs" {
   path_targets = [
     {
@@ -31,6 +43,14 @@ loki.source.file "artgod_backend" {
   targets = local.file_match.artgod_backend_logs.targets
 
   // Backend logs are tailed from the host launcher log file.
+  forward_to    = [loki.process.artgod_runtime.receiver]
+  tail_from_end = true
+}
+
+loki.source.file "artgod_frontend" {
+  targets = local.file_match.artgod_frontend_logs.targets
+
+  // Frontend SSR logs are tailed from the host launcher log file.
   forward_to    = [loki.process.artgod_runtime.receiver]
   tail_from_end = true
 }
