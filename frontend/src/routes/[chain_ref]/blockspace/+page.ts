@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { BLOCKSPACE_CONTEXT_ANY } from '@artgod/shared/config/blockspace';
+import { BLOCKSPACE_CONTEXT_ANY, BLOCKSPACE_QUERY_PARAMS } from '@artgod/shared/config/blockspace';
 import { BackendApiError, getBlockspaceStateWithHeaders } from '$lib/backend-api';
 import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
@@ -38,10 +38,10 @@ export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 				getBlockspaceStateWithHeaders(fetch, params.chain_ref, apiParams)
 			)
 		);
-		const primaryStateResponse = stateResponses.at(-1);
-		if (primaryStateResponse) {
-			forwardQueryCacheResponseHeaders(setHeaders, primaryStateResponse.headers);
-		}
+		forwardQueryCacheResponseHeaders(
+			setHeaders,
+			stateResponses.map((response) => response.headers)
+		);
 		const states = stateResponses.map((response) => response.payload);
 		const state = states.at(-1) ?? null;
 		if (!state) {
@@ -64,7 +64,7 @@ function normalizeBlockspaceParams(raw: URLSearchParams): {
 	stack: string[];
 	stackPages: BlockspacePageStackEntry[];
 } {
-	const collection = raw.get('collection')?.trim() || BLOCKSPACE_CONTEXT_ANY;
+	const collection = raw.get(BLOCKSPACE_QUERY_PARAMS.Collection)?.trim() || BLOCKSPACE_CONTEXT_ANY;
 	const stack = parseBlockspacePageStack(raw.get('stack'));
 	if (!stack) {
 		throw error(400, 'Invalid page stack');

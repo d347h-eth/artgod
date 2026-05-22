@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import { BLOCKSPACE_QUERY_PARAMS } from "@artgod/shared/config/blockspace";
 import type {
     GetSyncBackfillStateInput,
     GetSyncBackfillStateOutput,
@@ -35,17 +36,18 @@ export class GetBlockspaceStateHttpAdapter {
     ) => {
         const searchParams = getSearchParams(request);
         const collectionRef =
-            this.fixedCollectionRef ?? searchParams.get("collection");
+            this.fixedCollectionRef ??
+            searchParams.get(BLOCKSPACE_QUERY_PARAMS.Collection);
         return this.getBlockspaceStatePort.getState({
             chainRef: request.params.chain_ref,
             collectionRef,
             pageStartBlock: parseOptionalInteger(
-                searchParams.get("page_start"),
-                "page_start",
+                searchParams.get(BLOCKSPACE_QUERY_PARAMS.PageStart),
+                BLOCKSPACE_QUERY_PARAMS.PageStart,
             ),
             bucketSize: parseOptionalInteger(
-                searchParams.get("bucket_size"),
-                "bucket_size",
+                searchParams.get(BLOCKSPACE_QUERY_PARAMS.BucketSize),
+                BLOCKSPACE_QUERY_PARAMS.BucketSize,
             ),
             collectionOptions: this.collectionOptions,
         });

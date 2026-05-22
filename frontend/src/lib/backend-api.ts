@@ -34,24 +34,22 @@ import type {
 	TraitBiddingJobMutationApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
-import {
-	extractQueryCacheResponseHeaders,
-	recordQueryCacheResponseHeaders
-} from '$lib/query-cache-response-headers';
+import { extractQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { browser } from '$app/environment';
-import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from '@artgod/shared/types';
 import {
+	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+	type CollectionBiddingTraitFilterJoinMode,
+	type TokenBrowserStatus,
+	type TradingBiddingTierSelectionMode
+} from '@artgod/shared/types';
+import {
+	ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
 	QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
 	QUERY_CACHE_DEBUG_HEADER_NAME,
-	QUERY_CACHE_DEBUG_TTL_HEADER_NAME
-} from '@artgod/shared/config/query-cache-debug';
-import { ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME } from '@artgod/shared/observability/http';
-import { logger } from '@artgod/shared/utils';
-import type {
-	CollectionBiddingTraitFilterJoinMode,
-	TokenBrowserStatus,
-	TradingBiddingTierSelectionMode
-} from '@artgod/shared/types';
+	QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
+	sanitizeHttpRequestTarget
+} from '@artgod/shared/observability/http';
+import { logger } from '@artgod/shared/utils/logger';
 
 // Max duration for transient backend retry loop during early runtime startup.
 const STARTUP_RETRY_WINDOW_MS = 12_000;
@@ -769,7 +767,6 @@ async function requestJsonOnce<T>(
 		);
 	}
 
-	recordQueryCacheResponseHeaders(url, response.headers);
 	return {
 		payload: payload as T,
 		headers: response.headers
@@ -922,11 +919,15 @@ function logSsrBackendApiResponse(
 ): void {
 	if (!requestLog) return;
 	const cacheHeaders = extractQueryCacheResponseHeaders(response.headers);
+	const target = sanitizeHttpRequestTarget(requestLog.url);
 	logger.info('Frontend SSR backend API response', {
 		component: FRONTEND_SSR_LOG_COMPONENT,
 		action: FRONTEND_SSR_BACKEND_API_RESPONSE_ACTION,
 		method: requestLog.method,
-		url: requestLog.url,
+		path: target.path,
+		queryKeys: target.queryKeys,
+		queryParamCount: target.queryParamCount,
+		redactedQueryParamCount: target.redactedQueryParamCount,
 		statusCode: response.status,
 		durationMs: Date.now() - requestLog.startedAtMs,
 		ssrBackendRequestId: requestLog.requestId,
@@ -942,11 +943,15 @@ function logSsrBackendApiFailure(
 	cause: unknown
 ): void {
 	if (!requestLog) return;
+	const target = sanitizeHttpRequestTarget(requestLog.url);
 	logger.warn('Frontend SSR backend API request failed', {
 		component: FRONTEND_SSR_LOG_COMPONENT,
 		action: FRONTEND_SSR_BACKEND_API_FAILURE_ACTION,
 		method: requestLog.method,
-		url: requestLog.url,
+		path: target.path,
+		queryKeys: target.queryKeys,
+		queryParamCount: target.queryParamCount,
+		redactedQueryParamCount: target.redactedQueryParamCount,
 		durationMs: Date.now() - requestLog.startedAtMs,
 		ssrBackendRequestId: requestLog.requestId,
 		error: toErrorMessage(cause)

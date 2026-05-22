@@ -39,7 +39,6 @@ import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
 import {
     QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
     QUERY_CACHE_DEBUG_HEADER_NAME,
-    QUERY_CACHE_DEBUG_HEADER_NAMES,
     QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
 } from "./utils/query-cache-debug.js";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
@@ -911,7 +910,9 @@ describe("backend api routes", () => {
     });
 
     it("marks cached public blockspace responses with query cache headers", async () => {
-        const state = await resolveCached("GET", "/api/ethereum/blockspace");
+        const state = await resolveCached("GET", "/api/ethereum/blockspace", undefined, {
+            origin: "http://127.0.0.1:5173",
+        });
         expect(state.statusCode).toBe(200);
         expect(
             state.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
@@ -922,6 +923,7 @@ describe("backend api routes", () => {
         expect(
             Number(state.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()]),
         ).toBeGreaterThanOrEqual(0);
+        expect(state.headers["access-control-expose-headers"]).toBeUndefined();
 
         const range = await resolveCached(
             "GET",
@@ -3937,9 +3939,7 @@ describe("backend api routes", () => {
         expect(response.headers["access-control-allow-credentials"]).toBe(
             "true",
         );
-        expect(response.headers["access-control-expose-headers"]).toBe(
-            QUERY_CACHE_DEBUG_HEADER_NAMES.join(","),
-        );
+        expect(response.headers["access-control-expose-headers"]).toBeUndefined();
     });
 
     it("persists embedded extension key when bootstrap scope matches", async () => {

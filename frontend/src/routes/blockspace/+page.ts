@@ -48,12 +48,10 @@ export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 				minimalCollectionQuery()
 			)
 		]);
-		const primaryStateResponse = stateResponses.at(-1);
-		if (primaryStateResponse) {
-			forwardQueryCacheResponseHeaders(setHeaders, primaryStateResponse.headers);
-		} else {
-			forwardQueryCacheResponseHeaders(setHeaders, collectionResponseWithHeaders.headers);
-		}
+		forwardQueryCacheResponseHeaders(setHeaders, [
+			...stateResponses.map((response) => response.headers),
+			collectionResponseWithHeaders.headers
+		]);
 		const states = stateResponses.map((response) => response.payload);
 		const collectionResponse = collectionResponseWithHeaders.payload;
 		const state = states.at(-1) ?? null;

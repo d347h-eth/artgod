@@ -13,7 +13,7 @@ It also records known limitations and what is still missing for complete trace-t
 
 Current setup is local-first and split by signal type:
 
-- Logs: local backend API and indexer runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
+- Logs: local backend API, frontend SSR, and indexer runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
 - Metrics: backend API and indexer runtimes expose `/metrics` over HTTP; Prometheus scrapes them and Grafana reads Prometheus.
 - Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:4318`), and Grafana reads Tempo.
 - Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:4040`), and Grafana reads Pyroscope.
@@ -46,8 +46,7 @@ Observability containers run behind the `observability` compose profile in `dock
 - Frontend launcher script `scripts/frontend-dev.sh` truncates and rewrites `tmp/logs/frontend-web.log`.
 - Indexer launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
 - Alloy config in `observability/alloy/config.alloy`:
-    - `local.file_match` targets `/var/log/artgod/backend-api.log` and `/var/log/artgod/indexer-*.log`.
-    - frontend SSR logs are tailed from `/var/log/artgod/frontend-web.log`.
+    - `local.file_match` targets `/var/log/artgod/backend-api.log`, `/var/log/artgod/frontend-web.log`, and `/var/log/artgod/indexer-*.log`.
     - `loki.source.file` tails from end.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
@@ -143,26 +142,29 @@ Fastify lifecycle hooks in `backend/src/http/common/observability.ts` emit:
 
 These export with the `artgod_backend_` Prometheus prefix.
 
-Backend API requests that use query-cache state, or that are called by frontend SSR with an SSR backend request ID, also emit a structured Loki log:
+### Backend API Query-Cache Logs
+
+Backend API responses that touch query-cache-aware paths emit structured logs from `backend/src/http/common/observability.ts` with:
 
 - `component=BackendApi`
 - `action=query_cache_response`
-- `method`, `route`, `url`, `statusCode`
-- `ssrBackendRequestId` when the request came from frontend SSR
-- `queryCacheStatus` (`hit`, `miss`, or `bypass`)
-- `queryCacheAgeMs`
-- `queryCacheTtlMs`
-- `responseHeaders` containing the cache diagnostic response headers sent by the backend
+- sanitized `path`, allowlisted `queryKeys`, `queryParamCount`, and `redactedQueryParamCount`
+- `ssrBackendRequestId` when the request came through frontend SSR
+- query cache status, age, ttl, event count, per-request events, and the actual response headers set on the backend reply
 
-Frontend SSR backend API calls emit a matching structured Loki log from `frontend/src/lib/backend-api.ts`:
+The backend intentionally avoids logging raw URLs, query values, and unrecognized query keys for these diagnostics.
+
+### Frontend SSR Backend API Logs
+
+Frontend SSR backend fetches emit structured logs from `frontend/src/lib/backend-api.ts` with:
 
 - `component=FrontendSSR`
-- `action=backend_api_response`
-- `method`, `url`, `statusCode`, `durationMs`
-- `ssrBackendRequestId`
-- `responseHeaders` containing the cache diagnostic response headers received from the backend
+- `action=backend_api_response` or `action=backend_api_failure`
+- sanitized `path`, allowlisted `queryKeys`, `queryParamCount`, and `redactedQueryParamCount`
+- request duration and `ssrBackendRequestId`
+- cache debug headers observed on the backend response
 
-The shared `ssrBackendRequestId` correlates the frontend SSR log with the backend API log for the same internal server-to-server request.
+The SSR request id is sent to the backend with `X-ArtGod-SSR-Backend-Request-Id`, which lets Grafana/Loki queries join frontend SSR fetch logs to backend API response logs without relying on browser-visible response headers.
 
 ### Backend API Traces
 
@@ -337,7 +339,8 @@ The profile type is intentionally `wall:cpu...` for Node workers, not `process_c
 
 ### Logs
 
-- If logs do not appear in Grafana Explore, verify `scripts/backend-dev.sh` and/or `scripts/indexer-dev.sh` are writing into `tmp/logs` and Alloy is mounted to that same host path.
+- If logs do not appear in Grafana Explore, verify `scripts/backend-dev.sh`, `scripts/frontend-dev.sh`, and/or `scripts/indexer-dev.sh` are writing into `tmp/logs` and Alloy is mounted to that same host path.
+- After triggering a frontend SSR page that calls the backend API, run `./scripts/check-observability-log-ingestion.sh` to verify Loki has both frontend SSR backend-fetch logs and backend API query-cache logs.
 - Because worker logs are truncated on worker start, tail behavior is easiest to reason about when observability stack is already running before worker startup.
 
 ### Metrics
@@ -389,7 +392,10 @@ To reach full trace-profile correlation:
     - `docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana`
 - Start runtimes with file logs:
     - `./scripts/backend-dev.sh`
+    - `./scripts/frontend-dev.sh`
     - `./scripts/indexer-dev.sh`
+- Check Loki ingestion for SSR/backend cache diagnostics:
+    - `./scripts/check-observability-log-ingestion.sh`
 - Check metrics endpoint:
     - `curl http://127.0.0.1:9480/metrics`
     - `curl http://127.0.0.1:9465/metrics`

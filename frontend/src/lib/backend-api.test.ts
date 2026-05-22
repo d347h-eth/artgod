@@ -1,18 +1,19 @@
 import {
+	ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
 	QUERY_CACHE_DEBUG_HEADER_NAME,
+	QUERY_CACHE_DEBUG_STATUSES,
 	QUERY_CACHE_DEBUG_TTL_HEADER_NAME
-} from '@artgod/shared/config/query-cache-debug';
-import { ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME } from '@artgod/shared/observability/http';
-import { logger } from '@artgod/shared/utils';
+} from '@artgod/shared/observability/http';
+import { logger } from '@artgod/shared/utils/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getBlockspaceStateWithHeaders, getCollectionDetailWithHeaders } from './backend-api';
 
-describe('backend api response headers', () => {
+describe('backend api observability', () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
 	});
 
-	it('returns backend response headers for collection detail requests', async () => {
+	it('returns backend response headers and logs sanitized SSR backend fetches', async () => {
 		const loggerInfo = vi.spyOn(logger, 'info').mockImplementation(() => {});
 		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
 			new Response(
@@ -25,29 +26,34 @@ describe('backend api response headers', () => {
 				}),
 				{
 					headers: {
-						[QUERY_CACHE_DEBUG_HEADER_NAME]: 'hit',
+						[QUERY_CACHE_DEBUG_HEADER_NAME]: QUERY_CACHE_DEBUG_STATUSES.Hit,
 						[QUERY_CACHE_DEBUG_TTL_HEADER_NAME]: '60000'
 					}
 				}
 			)
 		);
+		const params = new URLSearchParams();
+		params.set('owner', '0xabc');
 
 		const response = await getCollectionDetailWithHeaders(
 			globalThis.fetch,
 			'ethereum',
 			'terraforms',
-			new URLSearchParams()
+			params
 		);
 
-		expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:3000/api/ethereum/terraforms', {
-			credentials: 'include',
-			headers: expect.any(Headers)
-		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			'http://127.0.0.1:3000/api/ethereum/terraforms?owner=0xabc',
+			{
+				credentials: 'include',
+				headers: expect.any(Headers)
+			}
+		);
 		const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
 		expect(new Headers(requestInit.headers).get(ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME)).toEqual(
 			expect.any(String)
 		);
-		expect(response.headers.get(QUERY_CACHE_DEBUG_HEADER_NAME)).toBe('hit');
+		expect(response.headers.get(QUERY_CACHE_DEBUG_HEADER_NAME)).toBe(QUERY_CACHE_DEBUG_STATUSES.Hit);
 		expect(response.headers.get(QUERY_CACHE_DEBUG_TTL_HEADER_NAME)).toBe('60000');
 		expect(loggerInfo).toHaveBeenCalledWith(
 			'Frontend SSR backend API response',
@@ -55,25 +61,31 @@ describe('backend api response headers', () => {
 				component: 'FrontendSSR',
 				action: 'backend_api_response',
 				method: 'GET',
-				url: 'http://127.0.0.1:3000/api/ethereum/terraforms',
+				path: '/api/ethereum/terraforms',
+				queryKeys: ['owner'],
+				queryParamCount: 1,
+				redactedQueryParamCount: 0,
 				statusCode: 200,
-				queryCacheStatus: 'hit',
+				queryCacheStatus: QUERY_CACHE_DEBUG_STATUSES.Hit,
 				queryCacheAgeMs: null,
 				queryCacheTtlMs: 60000,
 				responseHeaders: {
-					[QUERY_CACHE_DEBUG_HEADER_NAME]: 'hit',
+					[QUERY_CACHE_DEBUG_HEADER_NAME]: QUERY_CACHE_DEBUG_STATUSES.Hit,
 					[QUERY_CACHE_DEBUG_TTL_HEADER_NAME]: '60000'
 				}
 			})
 		);
+		expect(loggerInfo.mock.calls[0][1]).not.toMatchObject({
+			url: expect.any(String)
+		});
 	});
 
-	it('returns backend response headers for blockspace requests', async () => {
+	it('keeps blockspace request headers available for SSR page aggregation', async () => {
 		vi.spyOn(logger, 'info').mockImplementation(() => {});
 		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
 			new Response(JSON.stringify({}), {
 				headers: {
-					[QUERY_CACHE_DEBUG_HEADER_NAME]: 'miss',
+					[QUERY_CACHE_DEBUG_HEADER_NAME]: QUERY_CACHE_DEBUG_STATUSES.Miss,
 					[QUERY_CACHE_DEBUG_TTL_HEADER_NAME]: '60000'
 				}
 			})
@@ -90,11 +102,7 @@ describe('backend api response headers', () => {
 				headers: expect.any(Headers)
 			}
 		);
-		const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
-		expect(new Headers(requestInit.headers).get(ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME)).toEqual(
-			expect.any(String)
-		);
-		expect(response.headers.get(QUERY_CACHE_DEBUG_HEADER_NAME)).toBe('miss');
+		expect(response.headers.get(QUERY_CACHE_DEBUG_HEADER_NAME)).toBe(QUERY_CACHE_DEBUG_STATUSES.Miss);
 		expect(response.headers.get(QUERY_CACHE_DEBUG_TTL_HEADER_NAME)).toBe('60000');
 	});
 });

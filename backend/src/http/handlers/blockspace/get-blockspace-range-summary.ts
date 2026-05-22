@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import { BLOCKSPACE_QUERY_PARAMS } from "@artgod/shared/config/blockspace";
 import { ReadModelBadRequestError } from "@artgod/shared/read-models/errors";
 import type {
     GetSyncBackfillRangeSummaryInput,
@@ -35,12 +36,19 @@ export class GetBlockspaceRangeSummaryHttpAdapter {
     ) => {
         const searchParams = getSearchParams(request);
         const collectionRef =
-            this.fixedCollectionRef ?? searchParams.get("collection");
+            this.fixedCollectionRef ??
+            searchParams.get(BLOCKSPACE_QUERY_PARAMS.Collection);
         return this.getBlockspaceRangeSummaryPort.getRangeSummary({
             chainRef: request.params.chain_ref,
             collectionRef,
-            fromBlock: parseRequiredInteger(searchParams, "from_block"),
-            toBlock: parseRequiredInteger(searchParams, "to_block"),
+            fromBlock: parseRequiredInteger(
+                searchParams,
+                BLOCKSPACE_QUERY_PARAMS.FromBlock,
+            ),
+            toBlock: parseRequiredInteger(
+                searchParams,
+                BLOCKSPACE_QUERY_PARAMS.ToBlock,
+            ),
         });
     };
 }

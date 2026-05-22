@@ -10,7 +10,6 @@
     "exports": {
         "./config/pagination": "./config/pagination.ts",
         "./config/blockspace": "./config/blockspace.ts",
-        "./config/query-cache-debug": "./config/query-cache-debug.ts",
         "./config/opensea-integration": "./config/opensea-integration.ts",
         "./evm/transactions": "./evm/transactions.ts",
         "./extensions": "./extensions/index.ts",

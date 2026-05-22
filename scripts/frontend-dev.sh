@@ -8,6 +8,5 @@ LOG_FILE="$LOG_DIR/frontend-web.log"
 mkdir -p "$LOG_DIR"
 : > "$LOG_FILE"
 
-echo "Starting frontend web (log: $LOG_FILE)"
+echo "Starting frontend web server (log: $LOG_FILE)"
 exec yarn workspace @artgod/frontend run dev > >(tee -a "$LOG_FILE") 2> >(tee -a "$LOG_FILE" >&2)
-

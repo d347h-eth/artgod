@@ -3,18 +3,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     ARTGOD_SPAN_ATTRIBUTE,
     ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
+    QUERY_CACHE_DEBUG_EVENT_COUNT_HEADER_NAME,
+    QUERY_CACHE_DEBUG_HEADER_NAME,
+    QUERY_CACHE_DEBUG_STATUSES,
+    QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
 } from "@artgod/shared/observability";
 import type { ApmPort, SpanAttributes } from "@artgod/shared/observability/apm";
 import type {
     MetricLabels,
     Metrics,
 } from "@artgod/shared/observability/metrics";
-import { logger } from "@artgod/shared/utils";
+import { logger } from "@artgod/shared/utils/logger";
 import type { BackendSecurityConfig } from "../../config.js";
 import {
+    markCurrentQueryCacheBypass,
     markCurrentQueryCacheHit,
-    QUERY_CACHE_DEBUG_HEADER_NAME,
-    QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
 } from "../../utils/query-cache-debug.js";
 import {
     observeRouteHandler,
@@ -22,6 +25,8 @@ import {
     type BackendHttpObservability,
 } from "./observability.js";
 import { registerApiResponseHeaders } from "./response-headers.js";
+
+const CORS_EXPOSE_HEADERS_RESPONSE_HEADER = "access-control-expose-headers";
 
 class CapturingMetrics implements Metrics {
     readonly increments: Array<{
@@ -297,7 +302,7 @@ describe("backend http observability", () => {
         );
     });
 
-    it("logs query-cache response details for backend API requests", async () => {
+    it("logs sanitized SSR cache diagnostics and actual response headers", async () => {
         const info = vi.spyOn(logger, "info").mockImplementation(() => {});
         const { app, observability } = createObservedApp(apps, {
             responseHeaders: true,
@@ -322,7 +327,7 @@ describe("backend http observability", () => {
 
         const response = await app.inject({
             method: "GET",
-            url: "/api/cache?collection=terraforms",
+            url: "/api/cache?collection=terraforms&owner=0xabc&0xsecret=value",
             headers: {
                 [ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME]: "ssr-request-1",
             },
@@ -331,10 +336,10 @@ describe("backend http observability", () => {
         expect(response.statusCode).toBe(200);
         expect(
             response.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
-        ).toBe("hit");
+        ).toBe(QUERY_CACHE_DEBUG_STATUSES.Hit);
         expect(
-            response.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
-        ).toBe("60000");
+            response.headers[QUERY_CACHE_DEBUG_EVENT_COUNT_HEADER_NAME.toLowerCase()],
+        ).toBe("1");
         expect(info).toHaveBeenCalledWith(
             "Backend API query cache response",
             expect.objectContaining({
@@ -342,16 +347,89 @@ describe("backend http observability", () => {
                 action: "query_cache_response",
                 method: "GET",
                 route: "/api/cache",
-                url: "/api/cache?collection=terraforms",
+                path: "/api/cache",
+                queryKeys: ["collection", "owner"],
+                queryParamCount: 3,
+                redactedQueryParamCount: 1,
                 statusCode: 200,
                 ssrBackendRequestId: "ssr-request-1",
-                queryCacheStatus: "hit",
+                queryCacheStatus: QUERY_CACHE_DEBUG_STATUSES.Hit,
                 queryCacheAgeMs: 42,
                 queryCacheTtlMs: 60_000,
+                queryCacheEventCount: 1,
                 responseHeaders: expect.objectContaining({
-                    [QUERY_CACHE_DEBUG_HEADER_NAME]: "hit",
+                    [QUERY_CACHE_DEBUG_HEADER_NAME]: QUERY_CACHE_DEBUG_STATUSES.Hit,
                     [QUERY_CACHE_DEBUG_TTL_HEADER_NAME]: "60000",
+                    [QUERY_CACHE_DEBUG_EVENT_COUNT_HEADER_NAME]: "1",
                 }),
+            }),
+        );
+        expect(info.mock.calls[0][1]).not.toMatchObject({
+            url: expect.any(String),
+        });
+    });
+
+    it("reports mixed cache events without defaulting cacheless SSR requests to bypass", async () => {
+        const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+        const { app, observability } = createObservedApp(apps, {
+            responseHeaders: true,
+        });
+
+        app.get(
+            "/api/mixed",
+            observeRouteHandler(
+                observability,
+                { method: "GET", route: "/api/mixed" },
+                async () => {
+                    markCurrentQueryCacheHit({
+                        storedAt: Date.now() - 1,
+                        ttlMs: 60_000,
+                    });
+                    markCurrentQueryCacheBypass();
+                    return { ok: true };
+                },
+            ),
+        );
+        app.get(
+            "/api/cacheless",
+            observeRouteHandler(
+                observability,
+                { method: "GET", route: "/api/cacheless" },
+                async () => ({ ok: true }),
+            ),
+        );
+
+        const mixed = await app.inject({
+            method: "GET",
+            url: "/api/mixed",
+        });
+        const cacheless = await app.inject({
+            method: "GET",
+            url: "/api/cacheless",
+            headers: {
+                [ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME]: "ssr-request-2",
+                origin: "http://127.0.0.1:5173",
+            },
+        });
+
+        expect(
+            mixed.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe(QUERY_CACHE_DEBUG_STATUSES.Mixed);
+        expect(
+            mixed.headers[QUERY_CACHE_DEBUG_EVENT_COUNT_HEADER_NAME.toLowerCase()],
+        ).toBe("2");
+        expect(
+            cacheless.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBeUndefined();
+        expect(cacheless.headers[CORS_EXPOSE_HEADERS_RESPONSE_HEADER]).toBeUndefined();
+        expect(info).toHaveBeenCalledWith(
+            "Backend API query cache response",
+            expect.objectContaining({
+                route: "/api/cacheless",
+                ssrBackendRequestId: "ssr-request-2",
+                queryCacheStatus: null,
+                queryCacheEventCount: 0,
+                responseHeaders: {},
             }),
         );
     });

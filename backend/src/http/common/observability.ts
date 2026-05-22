@@ -13,20 +13,19 @@ import {
 import {
     ARTGOD_SPAN_ATTRIBUTE,
     ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
+    sanitizeHttpRequestTarget,
 } from "@artgod/shared/observability";
-import { logger } from "@artgod/shared/utils";
+import { logger } from "@artgod/shared/utils/logger";
 import {
     noopMetrics,
     type MetricLabels,
     type Metrics,
 } from "@artgod/shared/observability/metrics";
 import {
-    getCurrentQueryCacheDebugInfo,
-    QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
-    QUERY_CACHE_DEBUG_HEADER_NAME,
-    QUERY_CACHE_DEBUG_STATUSES,
-    QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
+    getCurrentQueryCacheDebugEvents,
+    getCurrentQueryCacheDebugSummary,
 } from "../../utils/query-cache-debug.js";
+import { extractQueryCacheDebugReplyHeaders } from "./response-headers.js";
 
 export type BackendHttpObservability = {
     apm: ApmPort;
@@ -237,8 +236,8 @@ function recordQueryCacheMetrics(
     metrics: Metrics,
     request: FastifyRequest,
 ): void {
-    const queryCacheDebug = getCurrentQueryCacheDebugInfo();
-    if (!queryCacheDebug.status) return;
+    const queryCacheDebug = getCurrentQueryCacheDebugSummary();
+    if (!queryCacheDebug) return;
 
     metrics.increment("query_cache.requests", 1, {
         ...createRequestLabels(request),
@@ -262,38 +261,30 @@ function logQueryCacheResponse(
     request: FastifyRequest,
     reply: FastifyReply,
 ): void {
-    const queryCacheDebug = getCurrentQueryCacheDebugInfo();
+    const queryCacheDebug = getCurrentQueryCacheDebugSummary();
     const ssrBackendRequestId = getSsrBackendRequestId(request);
-    if (!queryCacheDebug.status && !ssrBackendRequestId) return;
+    if (!queryCacheDebug && !ssrBackendRequestId) return;
 
-    const cacheStatus =
-        queryCacheDebug.status ?? QUERY_CACHE_DEBUG_STATUSES.Bypass;
-    const cacheHeaders: Record<string, string> = {
-        [QUERY_CACHE_DEBUG_HEADER_NAME]: cacheStatus,
-    };
-    if (queryCacheDebug.ageMs !== null) {
-        cacheHeaders[QUERY_CACHE_DEBUG_AGE_HEADER_NAME] = String(
-            queryCacheDebug.ageMs,
-        );
-    }
-    if (queryCacheDebug.ttlMs !== null) {
-        cacheHeaders[QUERY_CACHE_DEBUG_TTL_HEADER_NAME] = String(
-            queryCacheDebug.ttlMs,
-        );
-    }
-
+    const target = sanitizeHttpRequestTarget(request.raw.url ?? "");
     logger.info("Backend API query cache response", {
         component: BACKEND_API_LOG_COMPONENT,
         action: BACKEND_QUERY_CACHE_RESPONSE_ACTION,
         method: request.method,
         route: getRouteTemplate(request),
-        url: request.raw.url ?? null,
+        path: target.path,
+        queryKeys: target.queryKeys,
+        queryParamCount: target.queryParamCount,
+        redactedQueryParamCount: target.redactedQueryParamCount,
         statusCode: reply.statusCode,
         ssrBackendRequestId,
-        queryCacheStatus: cacheStatus,
-        queryCacheAgeMs: queryCacheDebug.ageMs,
-        queryCacheTtlMs: queryCacheDebug.ttlMs,
-        responseHeaders: cacheHeaders,
+        queryCacheStatus: queryCacheDebug?.status ?? null,
+        queryCacheAgeMs: queryCacheDebug?.ageMs ?? null,
+        queryCacheTtlMs: queryCacheDebug?.ttlMs ?? null,
+        queryCacheEventCount: queryCacheDebug?.eventCount ?? 0,
+        queryCacheEvents: getCurrentQueryCacheDebugEvents(),
+        responseHeaders: extractQueryCacheDebugReplyHeaders((headerName) =>
+            reply.getHeader(headerName),
+        ),
     });
 }
 

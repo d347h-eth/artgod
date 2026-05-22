@@ -1,3 +1,4 @@
+import { BLOCKSPACE_QUERY_PARAMS } from '@artgod/shared/config/blockspace';
 import type { BlockspaceStateApiResponse } from '$lib/api-types';
 import type { BlockspaceVisibleLevel } from '$lib/blockspace-isometric-levels';
 
@@ -58,10 +59,10 @@ export function buildBlockspaceStateApiParams(
 	page: BlockspaceStackPage
 ): URLSearchParams {
 	const apiParams = new URLSearchParams();
-	apiParams.set('collection', collection);
+	apiParams.set(BLOCKSPACE_QUERY_PARAMS.Collection, collection);
 	if (page) {
-		apiParams.set('page_start', String(page.pageStartBlock));
-		apiParams.set('bucket_size', String(page.bucketSize));
+		apiParams.set(BLOCKSPACE_QUERY_PARAMS.PageStart, String(page.pageStartBlock));
+		apiParams.set(BLOCKSPACE_QUERY_PARAMS.BucketSize, String(page.bucketSize));
 	}
 	return apiParams;
 }
