@@ -57,6 +57,8 @@
 		showError?: boolean;
 	};
 
+	type RangeDetailTarget = 'bucket' | 'backfill';
+
 	type LevelRangeDetail = {
 		range: BlockRangeSelection;
 		summary: SyncBackfillRangeSummaryApiResponse | null;
@@ -114,7 +116,8 @@
 	let stack = $state<string[]>(pageStack);
 	let submitting = $state(false);
 	let feedback: string | null = $state(null);
-	let selectedRangeDetailsByLevel = $state<Record<string, LevelRangeDetail>>({});
+	let selectedBucketDetailsByLevel = $state<Record<string, LevelRangeDetail>>({});
+	let selectedBackfillRangeDetailsByLevel = $state<Record<string, LevelRangeDetail>>({});
 	let selectedRangeRequestSequence = 0;
 	let drilldownRequestId = 0;
 	let liveRefreshRequestId = 0;
@@ -145,7 +148,10 @@
 		visibleLevels.map((level) => buildSyncBackfillIsometricLevelRenderKey(level)).join('||')
 	);
 	let selectedRangeDetailsRenderKey = $derived(
-		formatSelectedRangeDetailsRenderKey(selectedRangeDetailsByLevel)
+		[
+			formatSelectedRangeDetailsRenderKey(selectedBucketDetailsByLevel),
+			formatSelectedRangeDetailsRenderKey(selectedBackfillRangeDetailsByLevel)
+		].join('|')
 	);
 	let isometricRenderKey = $derived(
 		[
@@ -190,7 +196,12 @@
 		backfillSelectionFromBlock = null;
 		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
-		clearRangeSummary();
+		clearAllRangeDetails();
+	});
+
+	$effect(() => {
+		const visibleLevelKeys = new Set(visibleLevels.map((level) => level.key));
+		pruneRangeDetailsToVisibleLevels(visibleLevelKeys);
 	});
 
 	$effect(() => {
@@ -211,11 +222,9 @@
 
 	$effect(() => {
 		const visibleLevelKeys = new Set(visibleLevels.map((level) => level.key));
-		for (const [levelKey, detail] of Object.entries(selectedRangeDetailsByLevel)) {
-			if (!visibleLevelKeys.has(levelKey) || detail.loading || detail.refreshInFlight) continue;
-			const refreshKey = formatRangeSummaryRefreshKey(detail.range, visibleLevelsLiveKey);
-			if (detail.refreshKey === refreshKey) continue;
-			void loadRangeSummary(detail.range, { showLoading: false, showError: false });
+		refreshRangeDetails(selectedBucketDetailsByLevel, visibleLevelKeys, 'bucket');
+		if (backfillSelectionMode) {
+			refreshRangeDetails(selectedBackfillRangeDetailsByLevel, visibleLevelKeys, 'backfill');
 		}
 	});
 
@@ -278,7 +287,7 @@
 		if (cell.blockCount <= 0) return;
 
 		feedback = null;
-		void loadRangeSummary(buildCellRangeSelection(level, cell));
+		void loadRangeSummary('bucket', buildCellRangeSelection(level, cell));
 		if (!cell.canDrillDown) return;
 
 		const childBucketSize = level.state.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
@@ -305,10 +314,14 @@
 			backfillSelectionFromBlock = cell.fromBlock;
 			backfillSelectionLevelKey = level.key;
 			backfillSelectionRange = null;
+			clearBackfillRangeDetails();
 			return;
 		}
 		if (backfillSelectionLevelKey !== level.key) {
-			feedback = 'select to block on the same level';
+			backfillSelectionFromBlock = cell.fromBlock;
+			backfillSelectionLevelKey = level.key;
+			backfillSelectionRange = null;
+			clearBackfillRangeDetails();
 			return;
 		}
 
@@ -327,7 +340,7 @@
 		backfillSelectionFromBlock = null;
 		backfillSelectionLevelKey = null;
 		backfillSelectionRange = nextRange;
-		await loadRangeSummary(nextRange);
+		await loadRangeSummary('backfill', nextRange);
 	}
 
 	function beginBackfillSelection(): void {
@@ -337,6 +350,7 @@
 		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		feedback = null;
+		clearBackfillRangeDetails();
 	}
 
 	function cancelBackfillSelection(): void {
@@ -345,6 +359,7 @@
 		backfillSelectionLevelKey = null;
 		backfillSelectionRange = null;
 		feedback = null;
+		clearBackfillRangeDetails();
 	}
 
 	function formatBackfillSelectionRangeKey(range: BlockRangeSelection | null): string {
@@ -360,6 +375,42 @@
 			.map(([levelKey, detail]) => `${levelKey}:${formatBackfillSelectionRangeKey(detail.range)}`)
 			.sort()
 			.join('|');
+	}
+
+	function refreshRangeDetails(
+		details: Record<string, LevelRangeDetail>,
+		visibleLevelKeys: Set<string>,
+		target: RangeDetailTarget
+	): void {
+		for (const [levelKey, detail] of Object.entries(details)) {
+			if (!visibleLevelKeys.has(levelKey) || detail.loading || detail.refreshInFlight) continue;
+			const refreshKey = formatRangeSummaryRefreshKey(detail.range, visibleLevelsLiveKey);
+			if (detail.refreshKey === refreshKey) continue;
+			void loadRangeSummary(target, detail.range, { showLoading: false, showError: false });
+		}
+	}
+
+	function pruneRangeDetailsToVisibleLevels(visibleLevelKeys: Set<string>): void {
+		const nextBucketDetails = pruneRangeDetails(selectedBucketDetailsByLevel, visibleLevelKeys);
+		const nextBackfillDetails = pruneRangeDetails(
+			selectedBackfillRangeDetailsByLevel,
+			visibleLevelKeys
+		);
+		if (nextBucketDetails !== selectedBucketDetailsByLevel) {
+			selectedBucketDetailsByLevel = nextBucketDetails;
+		}
+		if (nextBackfillDetails !== selectedBackfillRangeDetailsByLevel) {
+			selectedBackfillRangeDetailsByLevel = nextBackfillDetails;
+		}
+	}
+
+	function pruneRangeDetails(
+		details: Record<string, LevelRangeDetail>,
+		visibleLevelKeys: Set<string>
+	): Record<string, LevelRangeDetail> {
+		const entries = Object.entries(details).filter(([levelKey]) => visibleLevelKeys.has(levelKey));
+		if (entries.length === Object.keys(details).length) return details;
+		return Object.fromEntries(entries);
 	}
 
 	function buildCellRangeSelection(
@@ -508,12 +559,19 @@
 		);
 	}
 
-	function clearRangeSummary(): void {
+	function clearAllRangeDetails(): void {
 		selectedRangeRequestSequence += 1;
-		selectedRangeDetailsByLevel = {};
+		selectedBucketDetailsByLevel = {};
+		selectedBackfillRangeDetailsByLevel = {};
+	}
+
+	function clearBackfillRangeDetails(): void {
+		selectedRangeRequestSequence += 1;
+		selectedBackfillRangeDetailsByLevel = {};
 	}
 
 	async function loadRangeSummary(
+		target: RangeDetailTarget,
 		range: BlockRangeSelection,
 		options: RangeSummaryLoadOptions = {}
 	): Promise<void> {
@@ -522,8 +580,8 @@
 		const showError = options.showError ?? true;
 		const requestId = selectedRangeRequestSequence + 1;
 		selectedRangeRequestSequence = requestId;
-		const currentDetail = selectedRangeDetailsByLevel[range.levelKey] ?? null;
-		setRangeDetail(range.levelKey, {
+		const currentDetail = detailMapForTarget(target)[range.levelKey] ?? null;
+		setRangeDetail(target, range.levelKey, {
 			range,
 			summary: showLoading ? null : currentDetail?.summary ?? null,
 			loading: showLoading,
@@ -540,7 +598,7 @@
 				params.set('collection', selectedCollection);
 			}
 			const summary = await getSyncBackfillRangeSummary(fetch, syncState.chain.slug, params);
-			updateRangeDetail(range.levelKey, requestId, (detail) => ({
+			updateRangeDetail(target, range.levelKey, requestId, (detail) => ({
 				...detail,
 				summary: {
 					...summary,
@@ -553,13 +611,13 @@
 			}));
 		} catch (error) {
 			if (showError) {
-				updateRangeDetail(range.levelKey, requestId, (detail) => ({
+				updateRangeDetail(target, range.levelKey, requestId, (detail) => ({
 					...detail,
 					error: error instanceof Error ? error.message : 'range request failed'
 				}));
 			}
 		} finally {
-			updateRangeDetail(range.levelKey, requestId, (detail) => ({
+			updateRangeDetail(target, range.levelKey, requestId, (detail) => ({
 				...detail,
 				loading: showLoading ? false : detail.loading,
 				refreshInFlight: showLoading ? detail.refreshInFlight : false
@@ -567,21 +625,38 @@
 		}
 	}
 
-	function setRangeDetail(levelKey: string, detail: LevelRangeDetail): void {
-		selectedRangeDetailsByLevel = {
-			...selectedRangeDetailsByLevel,
+	function detailMapForTarget(target: RangeDetailTarget): Record<string, LevelRangeDetail> {
+		return target === 'bucket' ? selectedBucketDetailsByLevel : selectedBackfillRangeDetailsByLevel;
+	}
+
+	function setRangeDetail(
+		target: RangeDetailTarget,
+		levelKey: string,
+		detail: LevelRangeDetail
+	): void {
+		if (target === 'bucket') {
+			selectedBucketDetailsByLevel = {
+				...selectedBucketDetailsByLevel,
+				[levelKey]: detail
+			};
+			return;
+		}
+
+		selectedBackfillRangeDetailsByLevel = {
+			...selectedBackfillRangeDetailsByLevel,
 			[levelKey]: detail
 		};
 	}
 
 	function updateRangeDetail(
+		target: RangeDetailTarget,
 		levelKey: string,
 		requestId: number,
 		update: (detail: LevelRangeDetail) => LevelRangeDetail
 	): void {
-		const detail = selectedRangeDetailsByLevel[levelKey];
+		const detail = detailMapForTarget(target)[levelKey];
 		if (!detail || detail.requestId !== requestId) return;
-		setRangeDetail(levelKey, update(detail));
+		setRangeDetail(target, levelKey, update(detail));
 	}
 
 	async function commitBackfillSelection(): Promise<void> {
@@ -600,6 +675,7 @@
 			backfillSelectionFromBlock = null;
 			backfillSelectionLevelKey = null;
 			backfillSelectionRange = null;
+			clearBackfillRangeDetails();
 			await refreshVisibleStack();
 		} catch (error) {
 			feedback = error instanceof Error ? error.message : 'backfill request failed';
@@ -623,7 +699,7 @@
 		if (isSelectionCell(level.key, cell)) {
 			classes.push('sync-isometric-tile-selected');
 		}
-		if (isActiveRangeCell(level.key, cell)) {
+		if (!backfillSelectionMode && isActiveBucketCell(level.key, cell)) {
 			classes.push('sync-isometric-tile-active');
 		}
 		return classes.join(' ');
@@ -671,13 +747,19 @@
 		return rangeContainsBlock(cell, backfillSelectionFromBlock);
 	}
 
-	function isActiveRangeCell(levelKey: string, cell: ApiSyncBackfillGridCell): boolean {
-		const detail = selectedRangeDetailsByLevel[levelKey];
+	function isActiveBucketCell(levelKey: string, cell: ApiSyncBackfillGridCell): boolean {
+		const detail = selectedBucketDetailsByLevel[levelKey];
 		return Boolean(detail && rangeContainsBlock(cell, detail.range.markerBlock));
 	}
 
-	function selectedRangeDetailForLevel(levelKey: string): LevelRangeDetail[] {
-		const detail = selectedRangeDetailsByLevel[levelKey];
+	function selectedBucketDetailForLevel(levelKey: string): LevelRangeDetail[] {
+		const detail = selectedBucketDetailsByLevel[levelKey];
+		return detail ? [detail] : [];
+	}
+
+	function selectedBackfillRangeDetailForLevel(levelKey: string): LevelRangeDetail[] {
+		if (!backfillSelectionMode) return [];
+		const detail = selectedBackfillRangeDetailsByLevel[levelKey];
 		return detail ? [detail] : [];
 	}
 
@@ -928,18 +1010,39 @@
 							/>
 						</div>
 						<aside class="sync-level-selection-panel">
-							{#each selectedRangeDetailForLevel(level.key) as selectedRangeDetail}
-								{#if selectedRangeDetail.loading}
-									<div class="sync-range-detail-status muted">loading range</div>
-								{:else if selectedRangeDetail.error}
-									<div class="sync-range-detail-status muted">{selectedRangeDetail.error}</div>
-								{:else if selectedRangeDetail.summary}
-									<SyncBackfillSummary
-										chain={selectedRangeDetail.summary.chain}
-										range={selectedRangeDetail.summary.range}
-										ariaLabel={level.label + ' selected range summary'}
-									/>
-								{/if}
+							{#each selectedBucketDetailForLevel(level.key) as selectedBucketDetail}
+								<div class="sync-level-detail-panel">
+									{#if selectedBucketDetail.loading}
+										<div class="sync-range-detail-status muted">loading range</div>
+									{:else if selectedBucketDetail.error}
+										<div class="sync-range-detail-status muted">{selectedBucketDetail.error}</div>
+									{:else if selectedBucketDetail.summary}
+										<SyncBackfillSummary
+											chain={selectedBucketDetail.summary.chain}
+											range={selectedBucketDetail.summary.range}
+											ariaLabel={level.label + ' selected bucket summary'}
+										/>
+									{/if}
+								</div>
+							{/each}
+							{#each selectedBackfillRangeDetailForLevel(level.key) as selectedBackfillRangeDetail}
+								<div class="sync-level-detail-panel sync-level-detail-panel-backfill">
+									{#if selectedBackfillRangeDetail.loading}
+										<div class="sync-range-detail-status sync-range-detail-status-backfill muted">
+											loading range
+										</div>
+									{:else if selectedBackfillRangeDetail.error}
+										<div class="sync-range-detail-status sync-range-detail-status-backfill muted">
+											{selectedBackfillRangeDetail.error}
+										</div>
+									{:else if selectedBackfillRangeDetail.summary}
+										<SyncBackfillSummary
+											chain={selectedBackfillRangeDetail.summary.chain}
+											range={selectedBackfillRangeDetail.summary.range}
+											ariaLabel={level.label + ' selected backfill range summary'}
+										/>
+									{/if}
+								</div>
 							{/each}
 						</aside>
 					</section>

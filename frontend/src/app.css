@@ -387,8 +387,9 @@ a:hover {
 
 .sync-toolbar {
 	display: inline-flex;
-	align-items: center;
+	align-items: flex-start;
 	justify-content: flex-start;
+	flex-direction: column;
 	gap: 0.45rem;
 	flex-wrap: wrap;
 }
@@ -430,8 +431,15 @@ a:hover {
 }
 
 .sync-backfill-content {
-	--sync-side-panel-width: 16rem;
-	--sync-center-column-width: min(62rem, max(28rem, calc(100vw - 36rem)));
+	--sync-side-panel-width: 11.25rem;
+	--sync-detail-panel-gap: 0.5rem;
+	--sync-detail-panel-stack-width: calc(
+		var(--sync-side-panel-width) * 2 + var(--sync-detail-panel-gap)
+	);
+	--sync-center-column-width: min(
+		62rem,
+		max(28rem, calc(100vw - var(--sync-side-panel-width) - var(--sync-detail-panel-stack-width) - 4rem))
+	);
 	display: grid;
 	justify-content: center;
 	max-width: 100%;
@@ -444,7 +452,7 @@ a:hover {
 	grid-template-columns:
 		var(--sync-side-panel-width)
 		var(--sync-center-column-width)
-		var(--sync-side-panel-width);
+		var(--sync-detail-panel-stack-width);
 	align-items: center;
 	align-content: start;
 	column-gap: 0.75rem;
@@ -468,20 +476,38 @@ a:hover {
 .sync-level-selection-panel {
 	position: relative;
 	z-index: 2;
-	width: var(--sync-side-panel-width);
 	align-self: center;
 }
 
+.sync-level-summary-panel {
+	width: var(--sync-side-panel-width);
+}
+
+.sync-level-selection-panel {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--sync-detail-panel-gap);
+	width: var(--sync-detail-panel-stack-width);
+}
+
+.sync-level-detail-panel {
+	width: var(--sync-side-panel-width);
+}
+
 .sync-level-summary-panel .sync-summary,
-.sync-level-selection-panel .sync-summary {
+.sync-level-detail-panel .sync-summary {
 	flex-direction: column;
 	gap: 0.5rem;
 	padding: 0.55rem;
 	border: 1px solid var(--c-blue);
 }
 
+.sync-level-detail-panel-backfill .sync-summary {
+	border-color: var(--c-orange);
+}
+
 .sync-level-summary-panel .sync-summary div,
-.sync-level-selection-panel .sync-summary div {
+.sync-level-detail-panel .sync-summary div {
 	min-width: 0;
 }
 
@@ -587,6 +613,10 @@ a:hover {
 	font-size: 0.72rem;
 }
 
+.sync-range-detail-status-backfill {
+	border-color: var(--c-orange);
+}
+
 .sync-backfill-actions {
 	display: inline-flex;
 	align-items: center;
@@ -601,7 +631,8 @@ a:hover {
 
 @media (max-width: 900px) {
 	.sync-backfill-content {
-		--sync-side-panel-width: min(28rem, 100%);
+		--sync-side-panel-width: min(20rem, 100%);
+		--sync-detail-panel-stack-width: var(--sync-side-panel-width);
 		--sync-center-column-width: min(32rem, 82vw);
 	}
 
@@ -609,6 +640,11 @@ a:hover {
 		grid-template-columns: var(--sync-side-panel-width);
 		justify-items: center;
 		width: fit-content;
+	}
+
+	.sync-level-selection-panel {
+		flex-direction: column;
+		width: var(--sync-side-panel-width);
 	}
 }
 
