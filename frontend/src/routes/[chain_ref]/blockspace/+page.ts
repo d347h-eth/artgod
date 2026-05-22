@@ -1,7 +1,8 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { BLOCKSPACE_CONTEXT_ANY } from '@artgod/shared/config/blockspace';
-import { BackendApiError, getBlockspaceState } from '$lib/backend-api';
+import { BackendApiError, getBlockspaceStateWithHeaders } from '$lib/backend-api';
+import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import {
@@ -13,7 +14,7 @@ import {
 	type BlockspacePageStackEntry
 } from '$lib/blockspace-page-stack';
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		throw error(404, 'Not found');
 	}
@@ -29,14 +30,19 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	const query = normalizeBlockspaceParams(url.searchParams);
 	try {
 		// Fetch each visible path page so the renderer can stack the current navigation branch.
-		const states = await Promise.all(
+		const stateResponses = await Promise.all(
 			buildBlockspaceStackStateApiParams(
 				query.collection,
 				buildBlockspaceVisibleStackPagesFromEntries(query.stackPages)
 			).map((apiParams) =>
-				getBlockspaceState(fetch, params.chain_ref, apiParams)
+				getBlockspaceStateWithHeaders(fetch, params.chain_ref, apiParams)
 			)
 		);
+		const primaryStateResponse = stateResponses.at(-1);
+		if (primaryStateResponse) {
+			forwardQueryCacheResponseHeaders(setHeaders, primaryStateResponse.headers);
+		}
+		const states = stateResponses.map((response) => response.payload);
 		const state = states.at(-1) ?? null;
 		if (!state) {
 			throw error(500, 'Backend request failed');

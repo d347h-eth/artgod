@@ -1,14 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { QUERY_CACHE_DEBUG_STATUSES } from "@artgod/shared/config/query-cache-debug";
 
-export const QUERY_CACHE_DEBUG_HEADER_NAME = "X-ArtGod-Query-Cache";
-export const QUERY_CACHE_DEBUG_AGE_HEADER_NAME = "X-ArtGod-Query-Cache-Age-Ms";
-export const QUERY_CACHE_DEBUG_TTL_HEADER_NAME = "X-ArtGod-Query-Cache-Ttl-Ms";
-
-export const QUERY_CACHE_DEBUG_STATUSES = {
-    Hit: "hit",
-    Miss: "miss",
-    Bypass: "bypass",
-} as const;
+export {
+    QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
+    QUERY_CACHE_DEBUG_HEADER_NAME,
+    QUERY_CACHE_DEBUG_HEADER_NAMES,
+    QUERY_CACHE_DEBUG_STATUSES,
+    QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
+} from "@artgod/shared/config/query-cache-debug";
 
 export type QueryCacheDebugStatus =
     (typeof QUERY_CACHE_DEBUG_STATUSES)[keyof typeof QUERY_CACHE_DEBUG_STATUSES];
@@ -45,6 +44,36 @@ export function setCurrentQueryCacheDebugInfo(params: {
     store.status = status;
     store.ageMs = ageMs;
     store.ttlMs = ttlMs;
+}
+
+// Mark the current request as served from a query cache entry.
+export function markCurrentQueryCacheHit(params: {
+    storedAt: number;
+    ttlMs: number;
+    now?: number;
+}): void {
+    const { storedAt, ttlMs, now = Date.now() } = params;
+    setCurrentQueryCacheDebugInfo({
+        status: QUERY_CACHE_DEBUG_STATUSES.Hit,
+        ageMs: Math.max(0, now - storedAt),
+        ttlMs,
+    });
+}
+
+// Mark the current request as requiring a cold cache fill.
+export function markCurrentQueryCacheMiss(params: { ttlMs: number }): void {
+    setCurrentQueryCacheDebugInfo({
+        status: QUERY_CACHE_DEBUG_STATUSES.Miss,
+        ageMs: 0,
+        ttlMs: params.ttlMs,
+    });
+}
+
+// Mark the current request as intentionally bypassing cache lookup.
+export function markCurrentQueryCacheBypass(): void {
+    setCurrentQueryCacheDebugInfo({
+        status: QUERY_CACHE_DEBUG_STATUSES.Bypass,
+    });
 }
 
 export function getCurrentQueryCacheDebugInfo(): {

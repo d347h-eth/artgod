@@ -39,6 +39,7 @@ import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
 import {
     QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
     QUERY_CACHE_DEBUG_HEADER_NAME,
+    QUERY_CACHE_DEBUG_HEADER_NAMES,
     QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
 } from "./utils/query-cache-debug.js";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
@@ -918,6 +919,9 @@ describe("backend api routes", () => {
         expect(
             state.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
         ).toBe("5000");
+        expect(
+            Number(state.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()]),
+        ).toBeGreaterThanOrEqual(0);
 
         const range = await resolveCached(
             "GET",
@@ -927,6 +931,12 @@ describe("backend api routes", () => {
         expect(
             range.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
         ).toBe("hit");
+        expect(
+            range.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("5000");
+        expect(
+            Number(range.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()]),
+        ).toBeGreaterThanOrEqual(0);
     });
 
     it("resolves ENS owner refs on the public API", async () => {
@@ -3926,6 +3936,9 @@ describe("backend api routes", () => {
         );
         expect(response.headers["access-control-allow-credentials"]).toBe(
             "true",
+        );
+        expect(response.headers["access-control-expose-headers"]).toBe(
+            QUERY_CACHE_DEBUG_HEADER_NAMES.join(","),
         );
     });
 

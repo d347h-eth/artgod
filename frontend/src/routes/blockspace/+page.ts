@@ -1,6 +1,11 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { BackendApiError, getCollectionDetail, getBlockspaceState } from '$lib/backend-api';
+import {
+	BackendApiError,
+	getBlockspaceStateWithHeaders,
+	getCollectionDetailWithHeaders
+} from '$lib/backend-api';
+import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE,
@@ -15,7 +20,7 @@ import {
 	type BlockspacePageStackEntry
 } from '$lib/blockspace-page-stack';
 
-export const load: PageLoad = async ({ fetch, url }) => {
+export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		throw error(404, 'Not found');
 	}
@@ -27,22 +32,30 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	const query = normalizePublicBlockspaceParams(url.searchParams);
 	try {
 		// Fetch the public collection's visible blockspace path without exposing other contexts.
-		const [states, collectionResponse] = await Promise.all([
+		const [stateResponses, collectionResponseWithHeaders] = await Promise.all([
 			Promise.all(
 				buildBlockspaceStackStateApiParams(
 					publicScope.collectionRef,
 					buildBlockspaceVisibleStackPagesFromEntries(query.stackPages)
 				).map((apiParams) =>
-					getBlockspaceState(fetch, publicScope.chainRef, apiParams)
+					getBlockspaceStateWithHeaders(fetch, publicScope.chainRef, apiParams)
 				)
 			),
-			getCollectionDetail(
+			getCollectionDetailWithHeaders(
 				fetch,
 				publicScope.chainRef,
 				publicScope.collectionRef,
 				minimalCollectionQuery()
 			)
 		]);
+		const primaryStateResponse = stateResponses.at(-1);
+		if (primaryStateResponse) {
+			forwardQueryCacheResponseHeaders(setHeaders, primaryStateResponse.headers);
+		} else {
+			forwardQueryCacheResponseHeaders(setHeaders, collectionResponseWithHeaders.headers);
+		}
+		const states = stateResponses.map((response) => response.payload);
+		const collectionResponse = collectionResponseWithHeaders.payload;
 		const state = states.at(-1) ?? null;
 		if (!state) {
 			throw error(500, 'Backend request failed');

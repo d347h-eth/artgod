@@ -307,10 +307,16 @@
 
 		feedback = null;
 		void loadRangeSummary('bucket', buildCellRangeSelection(level, cell));
-		if (!cell.canDrillDown) return;
+		if (!cell.canDrillDown) {
+			await collapseDrilldownAtLevel(level);
+			return;
+		}
 
 		const childBucketSize = level.state.range.bucketSize / BLOCKSPACE_GRID_CELL_COUNT;
-		if (!Number.isInteger(childBucketSize) || childBucketSize < 1) return;
+		if (!Number.isInteger(childBucketSize) || childBucketSize < 1) {
+			await collapseDrilldownAtLevel(level);
+			return;
+		}
 		await navigateToStack(
 			[
 				...level.stack,
@@ -321,6 +327,35 @@
 			],
 			level.key
 		);
+	}
+
+	async function collapseDrilldownAtLevel(level: BlockspaceVisibleLevel): Promise<void> {
+		if (!blockspaceState || blockspaceStacksEqual(level.stack, stack)) return;
+		const levelIndex = visibleLevels.findIndex((candidate) => candidate.key === level.key);
+		if (levelIndex < 0) return;
+
+		const requestId = drilldownRequestId + 1;
+		drilldownRequestId = requestId;
+		const nextStack = [...level.stack];
+		const nextLevels = visibleLevels.slice(0, levelIndex + 1);
+		const nextState = nextLevels.at(-1)?.state ?? null;
+		if (!nextState) return;
+
+		const anchorTop = readLevelAnchorTop(level.key);
+		blockspaceState = nextState;
+		levels = nextLevels;
+		collection = selectedCollection;
+		stack = nextStack;
+		await tick();
+		if (drilldownRequestId !== requestId) return;
+		restoreLevelAnchor(level.key, anchorTop);
+		pushState(queryHref(selectedCollection, nextStack), page.state);
+		await tick();
+		restoreLevelAnchor(level.key, anchorTop);
+	}
+
+	function blockspaceStacksEqual(left: string[], right: string[]): boolean {
+		return left.length === right.length && left.every((entry, index) => entry === right[index]);
 	}
 
 	async function handleBackfillSelectionClick(

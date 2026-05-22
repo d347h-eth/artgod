@@ -1,7 +1,13 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionDetail, getCollectionsPage, getDefaultChain } from '$lib/backend-api';
+import {
+	BackendApiError,
+	getCollectionDetailWithHeaders,
+	getCollectionsPage,
+	getDefaultChain
+} from '$lib/backend-api';
+import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE
@@ -14,7 +20,7 @@ import {
 	parseDisplayMode
 } from '$lib/token-browser-query';
 
-export const load: PageLoad = async ({ fetch, url }) => {
+export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		if (!PUBLIC_COLLECTION_SCOPE) {
 			throw error(500, 'Public collection scope is not configured');
@@ -25,12 +31,14 @@ export const load: PageLoad = async ({ fetch, url }) => {
 		const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
 		try {
-			const response = await getCollectionDetail(
+			const responseWithHeaders = await getCollectionDetailWithHeaders(
 				fetch,
 				PUBLIC_COLLECTION_SCOPE.chainRef,
 				PUBLIC_COLLECTION_SCOPE.collectionRef,
 				query
 			);
+			forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
+			const response = responseWithHeaders.payload;
 			return {
 				mode: 'public_collection' as const,
 				chain: response.chain,

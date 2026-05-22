@@ -34,6 +34,7 @@ import type {
 	TraitBiddingJobMutationApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
+import { recordQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { browser } from '$app/environment';
 import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from '@artgod/shared/types';
 import type {
@@ -47,6 +48,11 @@ const STARTUP_RETRY_WINDOW_MS = 12_000;
 // Delay between startup retry attempts for transient backend failures.
 const STARTUP_RETRY_DELAY_MS = 250;
 let csrfTokenCache: string | null = null;
+
+export type BackendJsonResponse<T> = {
+	payload: T;
+	headers: Headers;
+};
 
 export class BackendApiError extends Error {
 	constructor(
@@ -84,9 +90,17 @@ export async function getBlockspaceState(
 	chainRef: string,
 	params: URLSearchParams
 ): Promise<BlockspaceStateApiResponse> {
+	return (await getBlockspaceStateWithHeaders(fetchFn, chainRef, params)).payload;
+}
+
+export async function getBlockspaceStateWithHeaders(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	params: URLSearchParams
+): Promise<BackendJsonResponse<BlockspaceStateApiResponse>> {
 	const query = params.toString();
 	const suffix = query ? `?${query}` : '';
-	return requestJson<BlockspaceStateApiResponse>(
+	return requestJsonResponse<BlockspaceStateApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/blockspace${suffix}`
 	);
@@ -129,9 +143,18 @@ export async function getCollectionDetail(
 	collectionRef: string,
 	params: URLSearchParams
 ): Promise<CollectionDetailApiResponse> {
+	return (await getCollectionDetailWithHeaders(fetchFn, chainRef, collectionRef, params)).payload;
+}
+
+export async function getCollectionDetailWithHeaders(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	params: URLSearchParams
+): Promise<BackendJsonResponse<CollectionDetailApiResponse>> {
 	const query = params.toString();
 	const suffix = query ? `?${query}` : '';
-	return requestJson<CollectionDetailApiResponse>(
+	return requestJsonResponse<CollectionDetailApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}${suffix}`
 	);
@@ -682,6 +705,13 @@ export async function retryBootstrapFailedTasks(
 }
 
 async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
+	return (await requestJsonResponse<T>(fetchFn, path)).payload;
+}
+
+async function requestJsonResponse<T>(
+	fetchFn: typeof fetch,
+	path: string
+): Promise<BackendJsonResponse<T>> {
 	let backendOrigin: string;
 	try {
 		backendOrigin = await resolveBackendOrigin();
@@ -704,7 +734,10 @@ async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
 	}
 }
 
-async function requestJsonOnce<T>(fetchFn: typeof fetch, url: string): Promise<T> {
+async function requestJsonOnce<T>(
+	fetchFn: typeof fetch,
+	url: string
+): Promise<BackendJsonResponse<T>> {
 	const response = await fetchFn(url, { credentials: 'include' });
 	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
 
@@ -715,7 +748,11 @@ async function requestJsonOnce<T>(fetchFn: typeof fetch, url: string): Promise<T
 		);
 	}
 
-	return payload as T;
+	recordQueryCacheResponseHeaders(url, response.headers);
+	return {
+		payload: payload as T,
+		headers: response.headers
+	};
 }
 
 async function requestJsonWithBody<T>(

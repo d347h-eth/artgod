@@ -2,8 +2,9 @@ import { BLOCKSPACE_GRID_CELL_COUNT } from "@artgod/shared/config/blockspace";
 import { db } from "@artgod/shared/database";
 import { logger } from "@artgod/shared/utils";
 import {
-    QUERY_CACHE_DEBUG_STATUSES,
-    setCurrentQueryCacheDebugInfo,
+    markCurrentQueryCacheBypass,
+    markCurrentQueryCacheHit,
+    markCurrentQueryCacheMiss,
 } from "../../utils/query-cache-debug.js";
 import type {
     SyncBackfillCollectionOption,
@@ -275,11 +276,7 @@ export class PublicCollectionBlockspaceCache implements SyncBackfillReadPort {
     ): PublicCollectionBlockspaceSnapshot | null {
         const snapshot = this.snapshot;
         if (!snapshot) {
-            setCurrentQueryCacheDebugInfo({
-                status: QUERY_CACHE_DEBUG_STATUSES.Miss,
-                ageMs: 0,
-                ttlMs: this.refreshMs,
-            });
+            markCurrentQueryCacheMiss({ ttlMs: this.refreshMs });
             return null;
         }
         if (
@@ -287,18 +284,15 @@ export class PublicCollectionBlockspaceCache implements SyncBackfillReadPort {
             context.kind !== "collection" ||
             context.collectionId !== snapshot.collectionId
         ) {
-            setCurrentQueryCacheDebugInfo({
-                status: QUERY_CACHE_DEBUG_STATUSES.Bypass,
-            });
+            markCurrentQueryCacheBypass();
             return null;
         }
         return snapshot;
     }
 
     private markHit(snapshot: PublicCollectionBlockspaceSnapshot): void {
-        setCurrentQueryCacheDebugInfo({
-            status: QUERY_CACHE_DEBUG_STATUSES.Hit,
-            ageMs: Math.max(0, Date.now() - snapshot.storedAt),
+        markCurrentQueryCacheHit({
+            storedAt: snapshot.storedAt,
             ttlMs: this.refreshMs,
         });
     }

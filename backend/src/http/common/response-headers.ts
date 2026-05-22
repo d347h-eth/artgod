@@ -4,6 +4,8 @@ import {
     getCurrentQueryCacheDebugInfo,
     QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
     QUERY_CACHE_DEBUG_HEADER_NAME,
+    QUERY_CACHE_DEBUG_HEADER_NAMES,
+    QUERY_CACHE_DEBUG_STATUSES,
     QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
     runWithQueryCacheDebugContext,
 } from "../../utils/query-cache-debug.js";
@@ -42,9 +44,14 @@ export function registerApiResponseHeaders(
             "Access-Control-Allow-Headers",
             "Content-Type,X-ArtGod-CSRF",
         );
-        if (queryCacheDebug.status) {
-            reply.header(QUERY_CACHE_DEBUG_HEADER_NAME, queryCacheDebug.status);
-        }
+        reply.header(
+            "Access-Control-Expose-Headers",
+            QUERY_CACHE_DEBUG_HEADER_NAMES.join(","),
+        );
+        reply.header(
+            QUERY_CACHE_DEBUG_HEADER_NAME,
+            queryCacheDebug.status ?? QUERY_CACHE_DEBUG_STATUSES.Bypass,
+        );
         if (queryCacheDebug.ageMs !== null) {
             reply.header(
                 QUERY_CACHE_DEBUG_AGE_HEADER_NAME,

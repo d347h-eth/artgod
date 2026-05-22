@@ -3,8 +3,9 @@ import { DEFAULT_PAGE_LIMIT } from "@artgod/shared/config/pagination";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import type { CollectionMediaState } from "@artgod/shared/types/browse";
 import {
-    QUERY_CACHE_DEBUG_STATUSES,
-    setCurrentQueryCacheDebugInfo,
+    markCurrentQueryCacheBypass,
+    markCurrentQueryCacheHit,
+    markCurrentQueryCacheMiss,
 } from "../../../utils/query-cache-debug.js";
 import type { TokenPreviewWarmupPort } from "./cached-get-token-preview.js";
 import type {
@@ -78,9 +79,7 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
         input: GetCollectionDetailInput,
     ): GetCollectionDetailOutput | Promise<GetCollectionDetailOutput> {
         if (!isPublicCollectionDetailCacheShapeEligible(input, this.defaultInput)) {
-            setCurrentQueryCacheDebugInfo({
-                status: QUERY_CACHE_DEBUG_STATUSES.Bypass,
-            });
+            markCurrentQueryCacheBypass();
             return this.inner.getCollectionDetail(input);
         }
 
@@ -98,27 +97,20 @@ export class PublicCollectionDetailCache implements GetCollectionDetailPort {
         requestMode: PublicCollectionRequestMode,
     ): GetCollectionDetailOutput | Promise<GetCollectionDetailOutput> {
         if (requestMode === PUBLIC_COLLECTION_REQUEST_MODES.Bypass) {
-            setCurrentQueryCacheDebugInfo({
-                status: QUERY_CACHE_DEBUG_STATUSES.Bypass,
-            });
+            markCurrentQueryCacheBypass();
             return this.inner.getCollectionDetail(input);
         }
 
         const cachedEntry = this.cachedEntry;
         if (cachedEntry) {
-            setCurrentQueryCacheDebugInfo({
-                status: QUERY_CACHE_DEBUG_STATUSES.Hit,
-                ageMs: Math.max(0, Date.now() - cachedEntry.storedAt),
+            markCurrentQueryCacheHit({
+                storedAt: cachedEntry.storedAt,
                 ttlMs: this.refreshMs,
             });
             return cachedEntry.output;
         }
 
-        setCurrentQueryCacheDebugInfo({
-            status: QUERY_CACHE_DEBUG_STATUSES.Miss,
-            ageMs: 0,
-            ttlMs: this.refreshMs,
-        });
+        markCurrentQueryCacheMiss({ ttlMs: this.refreshMs });
         return this.refreshDefaultCollectionDetail();
     }
 
