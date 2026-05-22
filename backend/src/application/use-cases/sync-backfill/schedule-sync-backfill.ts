@@ -61,7 +61,7 @@ export class ScheduleSyncBackfillUseCase {
         private readonly chainRefResolverPort: ChainRefResolverPort,
         private readonly syncBackfillReadPort: Pick<
             SyncBackfillReadPort,
-            "listLiveCollections"
+            "listBlockspaceCollections"
         >,
         private readonly syncBackfillCommandQueuePort: SyncBackfillCommandQueuePort,
         private readonly apm: ApmPort = NOOP_APM,
@@ -98,12 +98,12 @@ export class ScheduleSyncBackfillUseCase {
             ...requestAttributes,
             [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
         };
-        // Load live collections to validate optional collection-scoped backfill.
+        // Load collection options to validate optional collection-scoped backfill.
         const collections = this.apm.withSyncSpan(
-            "backend.sync_backfill.schedule.live_collections",
+            "backend.sync_backfill.schedule.blockspace_collections",
             chainAttributes,
             () =>
-                this.syncBackfillReadPort.listLiveCollections(
+                this.syncBackfillReadPort.listBlockspaceCollections(
                     chain.publicChainId,
                 ),
         );
@@ -169,7 +169,7 @@ function resolveBackfillCollection(
         (candidate) => candidate.slug === normalized,
     );
     if (!collection) {
-        throw new ReadModelNotFoundError("Unknown live collection");
+        throw new ReadModelNotFoundError("Unknown blockspace collection");
     }
     return collection;
 }

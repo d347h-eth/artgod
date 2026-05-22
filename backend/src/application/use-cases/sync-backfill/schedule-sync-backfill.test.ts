@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChainRecord } from "@artgod/shared/types/browse";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import { ScheduleSyncBackfillUseCase } from "./schedule-sync-backfill.js";
 import type { SyncBackfillRangeCommand } from "./schedule-sync-backfill.js";
 import type { SyncBackfillReadPort } from "./get-sync-backfill-state.js";
@@ -82,16 +83,16 @@ function chainResolver() {
     };
 }
 
-function readPort(): Pick<SyncBackfillReadPort, "listLiveCollections"> {
+function readPort(): Pick<SyncBackfillReadPort, "listBlockspaceCollections"> {
     return {
-        listLiveCollections() {
+        listBlockspaceCollections() {
             return [
                 {
                     chainId: 1,
                     collectionId: 7,
                     slug: "terraforms",
                     address: "0x1111111111111111111111111111111111111111",
-                    status: "live" as const,
+                    status: COLLECTION_STATUS.Live,
                     deploymentBlock: null,
                     bootstrapAnchorBlock: 1,
                     bootstrapLastSyncedBlock: null,

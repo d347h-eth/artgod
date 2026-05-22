@@ -28,6 +28,8 @@ import {
     TRADING_BOT_RUNTIME_STATE,
     TRADING_BIDDING_TIER_SELECTION_MODE,
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+    COLLECTION_STATUS,
+    type CollectionStatus,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_TARGET_KIND,
     TRADING_JOB_STATUS,
@@ -568,7 +570,7 @@ beforeAll(async () => {
                                       slug: selectedCollection,
                                       address:
                                           "0x4e1f41613c9084fdb9e34e11fae9412427480e56",
-                                      status: "live" as const,
+                                      status: COLLECTION_STATUS.Live,
                                       deploymentBlock: 1,
                                       bootstrapAnchorBlock: null,
                                       bootstrapLastSyncedBlock: null,
@@ -3963,7 +3965,7 @@ describe("backend api routes", () => {
         insertBootstrapMetadataTask(runId, "1", "failed_terminal");
         insertBootstrapMetadataTask(runId, "2", "succeeded");
         updateCollectionLifecycle(MILADY_ADDRESS, {
-            status: "live",
+            status: COLLECTION_STATUS.Live,
             bootstrapFinishedAt: "2026-02-01T00:01:00Z",
             bootstrapLastSyncedBlock: 24_500_100,
             openseaSlug: "milady-maker",
@@ -4063,7 +4065,7 @@ describe("backend api routes", () => {
             anchorBlockTimestamp: 1_726_000_210,
         });
         updateCollectionLifecycle(MILADY_ADDRESS, {
-            status: "live",
+            status: COLLECTION_STATUS.Live,
             openseaSlug: "milady-maker",
             openseaStatus: "ready",
             openseaReadyAt: "2026-02-02T00:02:00Z",
@@ -5315,7 +5317,7 @@ function insertBootstrapRunEvent(
 function updateCollectionLifecycle(
     collectionAddress: string,
     input: {
-        status?: "bootstrapping" | "live" | "paused" | "disabled";
+        status?: CollectionStatus;
         bootstrapFinishedAt?: string | null;
         bootstrapLastSyncedBlock?: number | null;
         openseaSlug?: string | null;

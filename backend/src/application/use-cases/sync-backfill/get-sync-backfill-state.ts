@@ -2,7 +2,10 @@ import {
     BLOCKSPACE_CONTEXT_ANY,
     BLOCKSPACE_GRID_CELL_COUNT,
 } from "@artgod/shared/config/blockspace";
-import type { ChainRecord } from "@artgod/shared/types/browse";
+import type {
+    ChainRecord,
+    CollectionStatus,
+} from "@artgod/shared/types/browse";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import {
     ReadModelBadRequestError,
@@ -25,7 +28,7 @@ export type SyncBackfillCollectionOption = {
     collectionId: number;
     slug: string;
     address: string;
-    status: "live";
+    status: CollectionStatus;
     deploymentBlock: number | null;
     bootstrapAnchorBlock: number | null;
     bootstrapLastSyncedBlock: number | null;
@@ -153,7 +156,7 @@ type ChainRefResolverPort = {
 };
 
 export type SyncBackfillReadPort = {
-    listLiveCollections(chainId: number): SyncBackfillCollectionOption[];
+    listBlockspaceCollections(chainId: number): SyncBackfillCollectionOption[];
     getHighestSyncedBlock(chainId: number): number | null;
     getBlockTimestamp(chainId: number, blockNumber: number): number | null;
     countSyncedBlocks(
@@ -205,12 +208,12 @@ export class GetSyncBackfillStateUseCase {
             [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
             ...requestSpanAttributes(input),
         };
-        // Load live collections so collection-scoped coverage can be resolved by slug.
+        // Load collection options so collection-scoped coverage can be resolved by slug.
         const collections = this.apm.withSyncSpan(
-            "backend.sync_backfill.state.live_collections",
+            "backend.sync_backfill.state.blockspace_collections",
             chainAttributes,
             () =>
-                this.syncBackfillReadPort.listLiveCollections(
+                this.syncBackfillReadPort.listBlockspaceCollections(
                     chain.publicChainId,
                 ),
         );
@@ -357,12 +360,12 @@ export class GetSyncBackfillStateUseCase {
             [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chain.publicChainId,
             ...explicitRangeRequestSpanAttributes(input),
         };
-        // Load live collections so range summaries use the same context rules as pages.
+        // Load collection options so range summaries use the same context rules as pages.
         const collections = this.apm.withSyncSpan(
-            "backend.sync_backfill.range.live_collections",
+            "backend.sync_backfill.range.blockspace_collections",
             chainAttributes,
             () =>
-                this.syncBackfillReadPort.listLiveCollections(
+                this.syncBackfillReadPort.listBlockspaceCollections(
                     chain.publicChainId,
                 ),
         );
@@ -611,7 +614,7 @@ function resolveCoverageContext(
         (candidate) => candidate.slug === normalized,
     );
     if (!collection) {
-        throw new ReadModelNotFoundError("Unknown live collection");
+        throw new ReadModelNotFoundError("Unknown blockspace collection");
     }
     return {
         kind: "collection",

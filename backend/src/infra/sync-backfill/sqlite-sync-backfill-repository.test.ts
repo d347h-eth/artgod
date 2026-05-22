@@ -9,6 +9,7 @@ import type {
     ApmPort,
     SpanAttributes,
 } from "@artgod/shared/observability/apm";
+import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
 import { SYNC_BACKFILL_SPAN_ATTRIBUTE } from "../../application/use-cases/sync-backfill/sync-backfill-observability.js";
 import { SqliteSyncBackfillRepository } from "./sqlite-sync-backfill-repository.js";
 
@@ -116,6 +117,41 @@ describe("SqliteSyncBackfillRepository", () => {
         );
     });
 
+    it("lists live and anchored bootstrapping collections for blockspace context", () => {
+        seedCollection({
+            slug: "active-bootstrap",
+            status: COLLECTION_STATUS.Bootstrapping,
+            bootstrapAnchorBlock: 10,
+        });
+        seedCollection({
+            slug: "unanchored-bootstrap",
+            status: COLLECTION_STATUS.Bootstrapping,
+            bootstrapAnchorBlock: null,
+        });
+        seedCollection({
+            slug: "paused",
+            status: COLLECTION_STATUS.Paused,
+            bootstrapAnchorBlock: 10,
+        });
+        const repository = new SqliteSyncBackfillRepository();
+
+        const collections = repository.listBlockspaceCollections(1);
+
+        assert.deepEqual(
+            collections.map((collection) => ({
+                slug: collection.slug,
+                status: collection.status,
+            })),
+            [
+                {
+                    slug: "active-bootstrap",
+                    status: COLLECTION_STATUS.Bootstrapping,
+                },
+                { slug: "terraforms", status: COLLECTION_STATUS.Live },
+            ],
+        );
+    });
+
     it("records APM spans for sync-backfill SQLite adapter calls", () => {
         seedBlocks([0, 1, 2, 3]);
         const apm = new CapturingApm();
@@ -175,7 +211,14 @@ class CapturingApm implements ApmPort {
     }
 }
 
-function seedCollection(): number {
+function seedCollection(
+    overrides: Partial<{
+        slug: string;
+        address: string;
+        status: CollectionStatus;
+        bootstrapAnchorBlock: number | null;
+    }> = {},
+): number {
     const result = db
         .prepare<{
             chainId: number;
@@ -184,7 +227,7 @@ function seedCollection(): number {
             standard: string;
             status: string;
             tokenScopeKind: string;
-            bootstrapAnchorBlock: number;
+            bootstrapAnchorBlock: number | null;
         }>(
             "INSERT INTO collections " +
                 "(chain_id, slug, address, standard, status, token_scope_kind, bootstrap_anchor_block) " +
@@ -192,12 +235,17 @@ function seedCollection(): number {
         )
         .run({
             chainId: 1,
-            slug: "terraforms",
-            address: "0x1111111111111111111111111111111111111111",
+            slug: overrides.slug ?? "terraforms",
+            address:
+                overrides.address ??
+                "0x1111111111111111111111111111111111111111",
             standard: "erc721",
-            status: "live",
+            status: overrides.status ?? COLLECTION_STATUS.Live,
             tokenScopeKind: "contract_all_tokens",
-            bootstrapAnchorBlock: 1,
+            bootstrapAnchorBlock:
+                overrides.bootstrapAnchorBlock === undefined
+                    ? 1
+                    : overrides.bootstrapAnchorBlock,
         });
     return Number(result.lastInsertRowid);
 }

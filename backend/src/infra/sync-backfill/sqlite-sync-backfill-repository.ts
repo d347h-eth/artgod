@@ -1,8 +1,6 @@
 import { db } from "@artgod/shared/database";
-import {
-    NOOP_APM,
-    type ApmPort,
-} from "@artgod/shared/observability/apm";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
+import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
 import type {
     SyncBackfillCollectionOption,
     SyncBackfillCoverageContext,
@@ -21,7 +19,7 @@ type CollectionRow = {
     collection_id: number;
     slug: string;
     address: string;
-    status: "live";
+    status: CollectionStatus;
     deployment_block: number | null;
     bootstrap_anchor_block: number | null;
     bootstrap_last_synced_block: number | null;
@@ -54,10 +52,15 @@ const COLLECTION_COLUMNS =
     "chain_id, collection_id, slug, address, status, deployment_block, bootstrap_anchor_block, bootstrap_last_synced_block";
 
 export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
-    private selectLiveCollections = db.prepare<{ chainId: number }>(
+    private selectBlockspaceCollections = db.prepare<{
+        chainId: number;
+        liveStatus: CollectionStatus;
+        bootstrappingStatus: CollectionStatus;
+    }>(
         `SELECT ${COLLECTION_COLUMNS} ` +
             "FROM collections " +
-            "WHERE chain_id = @chainId AND status = 'live' " +
+            "WHERE chain_id = @chainId " +
+            "AND status IN (@liveStatus, @bootstrappingStatus) " +
             "AND bootstrap_anchor_block IS NOT NULL " +
             "ORDER BY slug ASC",
     );
@@ -138,21 +141,23 @@ export class SqliteSyncBackfillRepository implements SyncBackfillReadPort {
 
     constructor(private readonly apm: ApmPort = NOOP_APM) {}
 
-    listLiveCollections(chainId: number): SyncBackfillCollectionOption[] {
+    listBlockspaceCollections(chainId: number): SyncBackfillCollectionOption[] {
         return this.apm.withSyncSpan(
-            "backend.sync_backfill.sqlite.live_collections",
+            "backend.sync_backfill.sqlite.blockspace_collections",
             {
                 [SYNC_BACKFILL_SPAN_ATTRIBUTE.ChainId]: chainId,
             },
-            () => this.listLiveCollectionsInner(chainId),
+            () => this.listBlockspaceCollectionsInner(chainId),
         );
     }
 
-    private listLiveCollectionsInner(
+    private listBlockspaceCollectionsInner(
         chainId: number,
     ): SyncBackfillCollectionOption[] {
-        const rows = this.selectLiveCollections.all({
+        const rows = this.selectBlockspaceCollections.all({
             chainId,
+            liveStatus: COLLECTION_STATUS.Live,
+            bootstrappingStatus: COLLECTION_STATUS.Bootstrapping,
         }) as CollectionRow[];
         return rows.map((row) => ({
             chainId: row.chain_id,

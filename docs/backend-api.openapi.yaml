@@ -1698,7 +1698,7 @@ components:
                     type: string
                 status:
                     type: string
-                    enum: [live]
+                    enum: [bootstrapping, live]
                 deploymentBlock:
                     type: integer
                     nullable: true
@@ -1913,7 +1913,7 @@ components:
                 collectionRef:
                     type: string
                     nullable: true
-                    description: "`any` or omitted for all live/bootstrapping collections; otherwise a live collection slug"
+                    description: "`any` or omitted for all live/bootstrapping collections; otherwise a live/bootstrapping collection slug"
                 fromBlock:
                     type: integer
                     minimum: 0

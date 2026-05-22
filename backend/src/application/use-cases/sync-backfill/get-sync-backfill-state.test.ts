@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChainRecord } from "@artgod/shared/types/browse";
+import { COLLECTION_STATUS } from "@artgod/shared/types";
 import type {
     ApmPort,
     SpanAttributes,
@@ -413,7 +414,7 @@ describe("GetSyncBackfillStateUseCase", () => {
         expect(apm.names()).toEqual(
             expect.arrayContaining([
                 "backend.sync_backfill.state.chain",
-                "backend.sync_backfill.state.live_collections",
+                "backend.sync_backfill.state.blockspace_collections",
                 "backend.sync_backfill.state.highest_synced_block",
                 "backend.sync_backfill.rpc.current_block_number",
                 "backend.sync_backfill.state.block_timestamp_db",
@@ -487,7 +488,7 @@ function readPort(input: {
             collectionId: 7,
             slug: "terraforms",
             address: "0x1111111111111111111111111111111111111111",
-            status: "live" as const,
+            status: COLLECTION_STATUS.Live,
             deploymentBlock: input.deploymentBlock ?? null,
             bootstrapAnchorBlock: 1,
             bootstrapLastSyncedBlock: null,
@@ -495,7 +496,7 @@ function readPort(input: {
     ];
 
     return {
-        listLiveCollections() {
+        listBlockspaceCollections() {
             return collections;
         },
         getHighestSyncedBlock() {

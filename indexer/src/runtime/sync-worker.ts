@@ -154,7 +154,7 @@ async function main() {
                     "realtime",
                 );
                 if (collections.length === 0) {
-                    logger.debug("No live collections for realtime sync", {
+                    logger.debug("No realtime collections for sync", {
                         component: "IndexerSyncWorker",
                         action: "syncBlock",
                         blockNumber: job.payload.blockNumber,

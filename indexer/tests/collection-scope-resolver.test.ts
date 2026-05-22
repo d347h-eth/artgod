@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
+import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
 import { createTempDbPath } from "./helpers/test-helpers.js";
 import { loadTestEnv } from "./helpers/test-env.js";
 import { SqliteCollectionRegistry } from "../src/infra/collections/sqlite.js";
@@ -136,6 +137,58 @@ describe("collection scope resolver", () => {
             },
         ]);
     });
+
+    it("selects live and anchored bootstrapping collections for realtime sync", () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const live = insertCollection({
+            chainId,
+            slug: "live",
+            address: contract,
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            status: COLLECTION_STATUS.Live,
+        });
+        const bootstrapping = insertCollection({
+            chainId,
+            slug: "bootstrapping",
+            address: contract,
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            status: COLLECTION_STATUS.Bootstrapping,
+            bootstrapAnchorBlock: 100,
+        });
+        insertCollection({
+            chainId,
+            slug: "unanchored",
+            address: contract,
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            status: COLLECTION_STATUS.Bootstrapping,
+        });
+        insertCollection({
+            chainId,
+            slug: "paused",
+            address: contract,
+            tokenScopeKind: "contract_all_tokens",
+            scopeStartTokenId: null,
+            scopeTotalSupply: null,
+            status: COLLECTION_STATUS.Paused,
+        });
+
+        const registry = new SqliteCollectionRegistry();
+        const collectionIds = registry
+            .listCollectionsForSync(chainId, "realtime")
+            .map((collection) => collection.id)
+            .sort((a, b) => a - b);
+
+        expect(collectionIds).toEqual(
+            [live, bootstrapping].sort((a, b) => a - b),
+        );
+    });
 });
 
 function insertCollection(input: {
@@ -145,19 +198,34 @@ function insertCollection(input: {
     tokenScopeKind: string;
     scopeStartTokenId: string | null;
     scopeTotalSupply: number | null;
+    status?: CollectionStatus;
+    bootstrapAnchorBlock?: number | null;
 }): number {
     const result = db
-        .prepare<
-            [number, string, string, string, string | null, number | null]
-        >("INSERT INTO collections " + "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply) " + "VALUES (?, ?, ?, 'erc721', 'live', ?, ?, ?)")
-        .run(
-            input.chainId,
-            input.slug,
-            input.address.toLowerCase(),
-            input.tokenScopeKind,
-            input.scopeStartTokenId,
-            input.scopeTotalSupply,
-        );
+        .prepare<{
+            chainId: number;
+            slug: string;
+            address: string;
+            status: string;
+            tokenScopeKind: string;
+            scopeStartTokenId: string | null;
+            scopeTotalSupply: number | null;
+            bootstrapAnchorBlock: number | null;
+        }>(
+            "INSERT INTO collections " +
+                "(chain_id, slug, address, standard, status, token_scope_kind, scope_start_token_id, scope_total_supply, bootstrap_anchor_block) " +
+                "VALUES (@chainId, @slug, @address, 'erc721', @status, @tokenScopeKind, @scopeStartTokenId, @scopeTotalSupply, @bootstrapAnchorBlock)",
+        )
+        .run({
+            chainId: input.chainId,
+            slug: input.slug,
+            address: input.address.toLowerCase(),
+            status: input.status ?? COLLECTION_STATUS.Live,
+            tokenScopeKind: input.tokenScopeKind,
+            scopeStartTokenId: input.scopeStartTokenId,
+            scopeTotalSupply: input.scopeTotalSupply,
+            bootstrapAnchorBlock: input.bootstrapAnchorBlock ?? null,
+        });
 
     return Number(result.lastInsertRowid);
 }

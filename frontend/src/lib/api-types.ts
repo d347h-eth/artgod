@@ -3,6 +3,7 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode,
+	type CollectionStatus,
 	type TradingBiddingBidBookSource,
 	type TradingBiddingBidBookOwnJobPhase,
 	type TradingBiddingJobPricingSource,
@@ -26,7 +27,7 @@ export type ApiCollection = {
 	slug: string;
 	address: string;
 	standard: 'erc721' | 'erc1155';
-	status: 'bootstrapping' | 'live' | 'paused' | 'disabled';
+	status: CollectionStatus;
 	deploymentBlock: number | null;
 	bootstrapAnchorBlock: number | null;
 	createdAt: string;
@@ -832,7 +833,7 @@ export type ApiBlockspaceCollectionOption = {
 	collectionId: number;
 	slug: string;
 	address: string;
-	status: 'live';
+	status: CollectionStatus;
 	deploymentBlock: number | null;
 	bootstrapAnchorBlock: number | null;
 	bootstrapLastSyncedBlock: number | null;

@@ -35,6 +35,7 @@ The sync worker:
 The worker uses `maxInFlight = 1` to keep block processing strictly ordered within each queue.
 
 Backfill jobs use `RPC_BACKFILL_URL` when configured; realtime jobs always use `RPC_URL`.
+Realtime sync targets live collections and anchored bootstrapping collections so collection-scoped blockspace coverage keeps moving while bootstrap work is still in progress.
 
 ## Log Fetching and Decoding
 
