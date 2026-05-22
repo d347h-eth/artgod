@@ -1,38 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import type { SyncBackfillStateApiResponse } from './api-types';
+import type { BlockspaceStateApiResponse } from './api-types';
 import {
-	buildSyncBackfillStackFetchPlan,
-	buildSyncBackfillStackStateApiParams,
-	buildSyncBackfillStateApiParams,
-	buildSyncBackfillVisibleStackPages,
-	buildSyncBackfillVisibleStackPagesFromEntries,
-	buildSyncBackfillVisibleLevels,
-	formatSyncBackfillPageStackEntry,
-	parseSyncBackfillPageStack,
-	resolveSyncBackfillStackAnchorLevelKey
-} from './sync-backfill-page-stack';
+	buildBlockspaceStackFetchPlan,
+	buildBlockspaceStackStateApiParams,
+	buildBlockspaceStateApiParams,
+	buildBlockspaceVisibleStackPages,
+	buildBlockspaceVisibleStackPagesFromEntries,
+	buildBlockspaceVisibleLevels,
+	formatBlockspacePageStackEntry,
+	parseBlockspacePageStack,
+	resolveBlockspaceStackAnchorLevelKey
+} from './blockspace-page-stack';
 
-describe('sync backfill page stack', () => {
+describe('blockspace page stack', () => {
 	it('parses and formats visible child page stack entries', () => {
-		const stack = parseSyncBackfillPageStack('1024:32,2048:1');
+		const stack = parseBlockspacePageStack('1024:32,2048:1');
 
 		expect(stack).toEqual([
 			{ pageStartBlock: 1024, bucketSize: 32 },
 			{ pageStartBlock: 2048, bucketSize: 1 }
 		]);
-		expect(stack?.map(formatSyncBackfillPageStackEntry)).toEqual(['1024:32', '2048:1']);
+		expect(stack?.map(formatBlockspacePageStackEntry)).toEqual(['1024:32', '2048:1']);
 	});
 
 	it('rejects malformed stack entries', () => {
-		expect(parseSyncBackfillPageStack('1024:0')).toBeNull();
-		expect(parseSyncBackfillPageStack('-1:32')).toBeNull();
-		expect(parseSyncBackfillPageStack('1024:32:extra')).toBeNull();
+		expect(parseBlockspacePageStack('1024:0')).toBeNull();
+		expect(parseBlockspacePageStack('-1:32')).toBeNull();
+		expect(parseBlockspacePageStack('1024:32:extra')).toBeNull();
 	});
 
 	it('builds backend query params for root and child pages', () => {
-		expect(buildSyncBackfillStateApiParams('any', null).toString()).toBe('collection=any');
+		expect(buildBlockspaceStateApiParams('any', null).toString()).toBe('collection=any');
 		expect(
-			buildSyncBackfillStateApiParams('terraforms', {
+			buildBlockspaceStateApiParams('terraforms', {
 				pageStartBlock: 1024,
 				bucketSize: 32
 			}).toString()
@@ -40,13 +40,13 @@ describe('sync backfill page stack', () => {
 	});
 
 	it('builds ordered visible stack pages including root', () => {
-		expect(buildSyncBackfillVisibleStackPages(['1024:32', '2048:1'])).toEqual([
+		expect(buildBlockspaceVisibleStackPages(['1024:32', '2048:1'])).toEqual([
 			null,
 			{ pageStartBlock: 1024, bucketSize: 32 },
 			{ pageStartBlock: 2048, bucketSize: 1 }
 		]);
 		expect(
-			buildSyncBackfillVisibleStackPagesFromEntries([
+			buildBlockspaceVisibleStackPagesFromEntries([
 				{ pageStartBlock: 1024, bucketSize: 32 },
 				{ pageStartBlock: 2048, bucketSize: 1 }
 			])
@@ -59,7 +59,7 @@ describe('sync backfill page stack', () => {
 
 	it('builds backend query params for visible stack pages', () => {
 		expect(
-			buildSyncBackfillStackStateApiParams('terraforms', [
+			buildBlockspaceStackStateApiParams('terraforms', [
 				null,
 				{ pageStartBlock: 1024, bucketSize: 32 }
 			]).map((params) => params.toString())
@@ -70,7 +70,7 @@ describe('sync backfill page stack', () => {
 	});
 
 	it('builds render levels from fetched page states', () => {
-		const levels = buildSyncBackfillVisibleLevels(['1024:32'], [
+		const levels = buildBlockspaceVisibleLevels(['1024:32'], [
 			buildState(0),
 			buildState(1024)
 		]);
@@ -82,13 +82,13 @@ describe('sync backfill page stack', () => {
 	});
 
 	it('plans only changed child suffix fetches when switching sibling buckets', () => {
-		const levels = buildSyncBackfillVisibleLevels(['1024:32', '2048:1'], [
+		const levels = buildBlockspaceVisibleLevels(['1024:32', '2048:1'], [
 			buildState(0),
 			buildState(1024),
 			buildState(2048)
 		]);
 
-		const plan = buildSyncBackfillStackFetchPlan(
+		const plan = buildBlockspaceStackFetchPlan(
 			['1024:32', '2048:1'],
 			['1024:32', '3072:1'],
 			levels
@@ -99,59 +99,59 @@ describe('sync backfill page stack', () => {
 	});
 
 	it('reuses root when switching top-level buckets', () => {
-		const levels = buildSyncBackfillVisibleLevels(['1024:32', '2048:1'], [
+		const levels = buildBlockspaceVisibleLevels(['1024:32', '2048:1'], [
 			buildState(0),
 			buildState(1024),
 			buildState(2048)
 		]);
 
-		const plan = buildSyncBackfillStackFetchPlan(['1024:32', '2048:1'], ['4096:32'], levels);
+		const plan = buildBlockspaceStackFetchPlan(['1024:32', '2048:1'], ['4096:32'], levels);
 
 		expect(plan.reusedStates.map((state) => state.range.fromBlock)).toEqual([0]);
 		expect(plan.pagesToFetch).toEqual([{ pageStartBlock: 4096, bucketSize: 32 }]);
 	});
 
 	it('reuses all destination levels when navigating back to an ancestor stack', () => {
-		const levels = buildSyncBackfillVisibleLevels(['1024:32', '2048:1'], [
+		const levels = buildBlockspaceVisibleLevels(['1024:32', '2048:1'], [
 			buildState(0),
 			buildState(1024),
 			buildState(2048)
 		]);
 
-		const plan = buildSyncBackfillStackFetchPlan(['1024:32', '2048:1'], ['1024:32'], levels);
+		const plan = buildBlockspaceStackFetchPlan(['1024:32', '2048:1'], ['1024:32'], levels);
 
 		expect(plan.reusedStates.map((state) => state.range.fromBlock)).toEqual([0, 1024]);
 		expect(plan.pagesToFetch).toEqual([]);
 	});
 
 	it('falls back to full visible-stack fetches when no current levels are reusable', () => {
-		const plan = buildSyncBackfillStackFetchPlan([], ['1024:32'], []);
+		const plan = buildBlockspaceStackFetchPlan([], ['1024:32'], []);
 
 		expect(plan.reusedStates).toEqual([]);
 		expect(plan.pagesToFetch).toEqual([null, { pageStartBlock: 1024, bucketSize: 32 }]);
 	});
 
 	it('resolves a stable transition anchor from the deepest common level', () => {
-		const levels = buildSyncBackfillVisibleLevels(['1024:32', '2048:1'], [
+		const levels = buildBlockspaceVisibleLevels(['1024:32', '2048:1'], [
 			buildState(0),
 			buildState(1024),
 			buildState(2048)
 		]);
 
 		expect(
-			resolveSyncBackfillStackAnchorLevelKey(
+			resolveBlockspaceStackAnchorLevelKey(
 				['1024:32', '2048:1'],
 				['1024:32', '3072:1'],
 				levels
 			)
 		).toBe('L1:1024:32');
 		expect(
-			resolveSyncBackfillStackAnchorLevelKey(['1024:32', '2048:1'], ['4096:32'], levels)
+			resolveBlockspaceStackAnchorLevelKey(['1024:32', '2048:1'], ['4096:32'], levels)
 		).toBe('root');
 	});
 });
 
-function buildState(fromBlock: number): SyncBackfillStateApiResponse {
+function buildState(fromBlock: number): BlockspaceStateApiResponse {
 	return {
 		chain: {
 			id: 1,

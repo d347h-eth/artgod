@@ -13,17 +13,17 @@ type DurationFormatOptions = {
 };
 
 // Formats block counts and block numbers with locale-aware digit grouping.
-export function formatSyncBackfillInteger(value: number): string {
+export function formatBlockspaceInteger(value: number): string {
 	return INTEGER_FORMATTER.format(value);
 }
 
 // Formats an inclusive block range with grouped endpoint numbers.
-export function formatSyncBackfillBlockRange(fromBlock: number, toBlock: number): string {
-	return `${formatSyncBackfillInteger(fromBlock)}-${formatSyncBackfillInteger(toBlock)}`;
+export function formatBlockspaceBlockRange(fromBlock: number, toBlock: number): string {
+	return `${formatBlockspaceInteger(fromBlock)}-${formatBlockspaceInteger(toBlock)}`;
 }
 
 // Formats an anchored elapsed duration in compact units.
-export function formatSyncBackfillDurationSeconds(
+export function formatBlockspaceDurationSeconds(
 	durationSeconds: number | null,
 	options: DurationFormatOptions = {}
 ): string {
@@ -58,7 +58,7 @@ export function formatSyncBackfillDurationSeconds(
 }
 
 // Derives a visible block span duration from the current page's anchored endpoints.
-export function formatSyncBackfillAnchoredBlockDuration(input: {
+export function formatBlockspaceAnchoredBlockDuration(input: {
 	blockCount: number;
 	pageBlockCount: number;
 	pageDurationSeconds: number | null;
@@ -73,25 +73,25 @@ export function formatSyncBackfillAnchoredBlockDuration(input: {
 	const pageIntervals = input.pageBlockCount - 1;
 	const blockIntervals = input.blockCount - 1;
 	const durationSeconds = (input.pageDurationSeconds * blockIntervals) / pageIntervals;
-	return formatSyncBackfillDurationSeconds(durationSeconds);
+	return formatBlockspaceDurationSeconds(durationSeconds);
 }
 
 // Formats an anchored UTC timestamp without timezone suffix or subseconds.
-export function formatSyncBackfillUtc(timestampSeconds: number | null): string {
+export function formatBlockspaceUtc(timestampSeconds: number | null): string {
 	if (timestampSeconds === null || !Number.isFinite(timestampSeconds)) return 'unknown';
 	return new Date(timestampSeconds * 1_000).toISOString().replace(/\.\d{3}Z$/, '');
 }
 
 // Formats the anchored UTC time range for the visible block endpoints.
-export function formatSyncBackfillTimeRange(input: {
+export function formatBlockspaceTimeRange(input: {
 	fromTimestamp: number | null;
 	toTimestamp: number | null;
 }): string {
-	return `${formatSyncBackfillUtc(input.fromTimestamp)} / ${formatSyncBackfillUtc(input.toTimestamp)}`;
+	return `${formatBlockspaceUtc(input.fromTimestamp)} / ${formatBlockspaceUtc(input.toTimestamp)}`;
 }
 
 // Formats integer synced percentage for range summary chips.
-export function formatSyncBackfillSyncedPercent(syncedCount: number, blockCount: number): string {
+export function formatBlockspaceSyncedPercent(syncedCount: number, blockCount: number): string {
 	if (blockCount <= 0) return '0%';
 	return `${Math.round((syncedCount / blockCount) * 100)}%`;
 }
@@ -113,5 +113,5 @@ function formatApproximateBlockDuration(
 	) {
 		return 'unknown';
 	}
-	return formatSyncBackfillDurationSeconds(averageBlockTimeSeconds, { approximate: true });
+	return formatBlockspaceDurationSeconds(averageBlockTimeSeconds, { approximate: true });
 }

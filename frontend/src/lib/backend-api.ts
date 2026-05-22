@@ -23,9 +23,9 @@ import type {
 	DefaultChainResponse,
 	OwnerRefResolutionApiResponse,
 	RuntimeConfigApiResponse,
-	ScheduleSyncBackfillApiResponse,
-	SyncBackfillRangeSummaryApiResponse,
-	SyncBackfillStateApiResponse,
+	ScheduleBlockspaceBackfillApiResponse,
+	BlockspaceRangeSummaryApiResponse,
+	BlockspaceStateApiResponse,
 	TokenBiddingBidBookApiResponse,
 	TokenBiddingJobApiResponse,
 	TokenBiddingJobMutationApiResponse,
@@ -79,33 +79,33 @@ export async function getCollectionsPage(
 	);
 }
 
-export async function getSyncBackfillState(
+export async function getBlockspaceState(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	params: URLSearchParams
-): Promise<SyncBackfillStateApiResponse> {
+): Promise<BlockspaceStateApiResponse> {
 	const query = params.toString();
 	const suffix = query ? `?${query}` : '';
-	return requestJson<SyncBackfillStateApiResponse>(
+	return requestJson<BlockspaceStateApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/sync-backfill${suffix}`
+		`/api/${encodeURIComponent(chainRef)}/blockspace${suffix}`
 	);
 }
 
-export async function getSyncBackfillRangeSummary(
+export async function getBlockspaceRangeSummary(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	params: URLSearchParams
-): Promise<SyncBackfillRangeSummaryApiResponse> {
+): Promise<BlockspaceRangeSummaryApiResponse> {
 	const query = params.toString();
 	const suffix = query ? `?${query}` : '';
-	return requestJson<SyncBackfillRangeSummaryApiResponse>(
+	return requestJson<BlockspaceRangeSummaryApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/sync-backfill/range${suffix}`
+		`/api/${encodeURIComponent(chainRef)}/blockspace/range${suffix}`
 	);
 }
 
-export async function scheduleSyncBackfill(
+export async function scheduleBlockspaceBackfill(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	body: {
@@ -113,11 +113,11 @@ export async function scheduleSyncBackfill(
 		fromBlock: number;
 		toBlock: number;
 	}
-): Promise<ScheduleSyncBackfillApiResponse> {
+): Promise<ScheduleBlockspaceBackfillApiResponse> {
 	await ensureCsrfToken(fetchFn);
-	return requestJsonWithBody<ScheduleSyncBackfillApiResponse>(
+	return requestJsonWithBody<ScheduleBlockspaceBackfillApiResponse>(
 		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/sync-backfill/backfill`,
+		`/api/${encodeURIComponent(chainRef)}/blockspace/backfill`,
 		'POST',
 		body
 	);

@@ -203,7 +203,7 @@ function resolveBlockspaceHref(basePath: string): string | null {
 	if (!chainRef || !collectionRef) return null;
 	const query = new URLSearchParams();
 	query.set('collection', collectionRef);
-	return withQuery(`/${encodeURIComponent(chainRef)}/sync-backfill`, query);
+	return withQuery(`/${encodeURIComponent(chainRef)}/blockspace`, query);
 }
 
 // Applies collection-level numeric navigation after modal/text-input guards in page key handlers.

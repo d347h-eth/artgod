@@ -1,10 +1,10 @@
-# Sync Backfill Isometric View Plan
+# Blockspace Isometric View Plan
 
 Status: in progress.
 
 ## Goal
 
-Replace the current flat sync/backfill block grid with an isometric stacked-level view while preserving the existing page behavior.
+Replace the current flat blockspace block grid with an isometric stacked-level view while preserving the existing page behavior.
 
 The first pass renders the current navigable path only:
 
@@ -29,7 +29,7 @@ This keeps the rendered tile count bounded and matches the existing drill-down m
 
 Keep the control layer tight:
 
-- reuse existing sync/backfill API responses for each visible path level
+- reuse existing blockspace API responses for each visible path level
 - reuse the existing range-summary endpoint for Ctrl-click and selected ranges
 - reuse the current stack URL contract for navigation
 - isolate isometric rendering in a dedicated frontend component
@@ -56,7 +56,7 @@ Avoid for the first pass:
 
 - Add the pinned isometric package dependency.
 - Extend the page load path so the frontend can fetch the root plus each selected stack page.
-- Introduce a small frontend type for visible sync/backfill levels.
+- Introduce a small frontend type for visible blockspace levels.
 - Preserve the existing single-page state as the active/current level for summaries and controls.
 
 ### Slice 2: Isometric Renderer
@@ -70,7 +70,7 @@ Avoid for the first pass:
 ### Slice 3: Interaction Parity
 
 - Route normal clicks through the existing drill-down behavior.
-- Preserve Ctrl-click range-summary behavior.
+- Preserve click range-summary behavior.
 - Preserve leaf block click summary behavior.
 - Preserve deployment block marker coloring.
 - Preserve selection mode with same-level two-click selection.

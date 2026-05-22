@@ -1,7 +1,7 @@
 import {
-    SYNC_BACKFILL_CONTEXT_ANY,
-    SYNC_BACKFILL_GRID_CELL_COUNT,
-} from "@artgod/shared/config/sync-backfill";
+    BLOCKSPACE_CONTEXT_ANY,
+    BLOCKSPACE_GRID_CELL_COUNT,
+} from "@artgod/shared/config/blockspace";
 import type { ChainRecord } from "@artgod/shared/types/browse";
 import { normalizeSlugRef } from "@artgod/shared/utils/ref-resolver";
 import {
@@ -92,7 +92,7 @@ export type SyncBackfillRangeSummary = {
 export type GetSyncBackfillStateOutput = {
     chain: ChainRecord;
     context: {
-        selected: typeof SYNC_BACKFILL_CONTEXT_ANY | string;
+        selected: typeof BLOCKSPACE_CONTEXT_ANY | string;
         collections: SyncBackfillCollectionOption[];
     };
     range: {
@@ -122,7 +122,7 @@ export type GetSyncBackfillStateOutput = {
 export type GetSyncBackfillRangeSummaryOutput = {
     chain: ChainRecord;
     context: {
-        selected: typeof SYNC_BACKFILL_CONTEXT_ANY | string;
+        selected: typeof BLOCKSPACE_CONTEXT_ANY | string;
     };
     range: SyncBackfillRangeSummary;
 };
@@ -251,7 +251,7 @@ export class GetSyncBackfillStateUseCase {
             ...syncBackfillRangeSpanAttributes(page),
             [SYNC_BACKFILL_SPAN_ATTRIBUTE.BucketSize]: page.bucketSize,
         };
-        // Count each visible bucket with the sync/backfill read adapter.
+        // Count each visible bucket with the blockspace read adapter.
         const counts = this.apm.withSyncSpan(
             "backend.sync_backfill.state.bucket_counts",
             {
@@ -312,7 +312,7 @@ export class GetSyncBackfillStateUseCase {
                 selected:
                     context.kind === "collection"
                         ? context.slug
-                        : SYNC_BACKFILL_CONTEXT_ANY,
+                        : BLOCKSPACE_CONTEXT_ANY,
                 collections: visibleContextCollections(
                     collections,
                     context,
@@ -425,7 +425,7 @@ export class GetSyncBackfillStateUseCase {
                 selected:
                     context.kind === "collection"
                         ? context.slug
-                        : SYNC_BACKFILL_CONTEXT_ANY,
+                        : BLOCKSPACE_CONTEXT_ANY,
             },
             range: {
                 ...range,
@@ -602,8 +602,8 @@ function resolveCoverageContext(
     const normalized =
         collectionRef && collectionRef.trim()
             ? normalizeSlugRef(collectionRef)
-            : SYNC_BACKFILL_CONTEXT_ANY;
-    if (normalized === SYNC_BACKFILL_CONTEXT_ANY) {
+            : BLOCKSPACE_CONTEXT_ANY;
+    if (normalized === BLOCKSPACE_CONTEXT_ANY) {
         return { kind: "any" };
     }
 
@@ -669,7 +669,7 @@ function resolveCoveragePage(
         fromBlock: pageStartBlock,
         toBlock: Math.min(pageStartBlock + pageSpan - 1, headBlock),
         bucketSize,
-        gridCellCount: SYNC_BACKFILL_GRID_CELL_COUNT,
+        gridCellCount: BLOCKSPACE_GRID_CELL_COUNT,
     };
 }
 
@@ -721,8 +721,8 @@ function assertBucketSize(value: number, rootBucketSize: number): void {
 function isPowerOfGridCellCount(value: number): boolean {
     let remaining = value;
     while (remaining > 1) {
-        if (remaining % SYNC_BACKFILL_GRID_CELL_COUNT !== 0) return false;
-        remaining /= SYNC_BACKFILL_GRID_CELL_COUNT;
+        if (remaining % BLOCKSPACE_GRID_CELL_COUNT !== 0) return false;
+        remaining /= BLOCKSPACE_GRID_CELL_COUNT;
     }
     return true;
 }
@@ -814,8 +814,8 @@ function resolveRootBucketSize(
 ): number {
     const blockCount = headBlock - genesisBlock + 1;
     let bucketSize = 1;
-    while (Math.ceil(blockCount / bucketSize) > SYNC_BACKFILL_GRID_CELL_COUNT) {
-        bucketSize *= SYNC_BACKFILL_GRID_CELL_COUNT;
+    while (Math.ceil(blockCount / bucketSize) > BLOCKSPACE_GRID_CELL_COUNT) {
+        bucketSize *= BLOCKSPACE_GRID_CELL_COUNT;
     }
     return bucketSize;
 }
@@ -830,7 +830,7 @@ function countRootGridCells(
 }
 
 function resolvePageSpan(bucketSize: number): number {
-    return bucketSize * SYNC_BACKFILL_GRID_CELL_COUNT;
+    return bucketSize * BLOCKSPACE_GRID_CELL_COUNT;
 }
 
 function countBlocks(range: SyncBackfillCoverageRange): number {

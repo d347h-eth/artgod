@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import type { ApiSyncBackfillGridCell } from '$lib/api-types';
+	import type { ApiBlockspaceGridCell } from '$lib/api-types';
 	import {
-		buildSyncBackfillIsometricSlots,
-		resolveSyncBackfillIsometricDimension,
-		type SyncBackfillIsometricAnchorLayout,
-		type SyncBackfillIsometricPoint,
-		type SyncBackfillVisibleLevel
-	} from '$lib/sync-backfill-isometric-levels';
+		buildBlockspaceIsometricSlots,
+		resolveBlockspaceIsometricDimension,
+		type BlockspaceIsometricAnchorLayout,
+		type BlockspaceIsometricPoint,
+		type BlockspaceVisibleLevel
+	} from '$lib/blockspace-isometric-levels';
 
 	type IsometricModule = typeof import('@elchininet/isometric');
 
@@ -19,29 +19,29 @@
 	};
 
 	type IsometricSideCorners = {
-		left: SyncBackfillIsometricPoint;
-		right: SyncBackfillIsometricPoint;
+		left: BlockspaceIsometricPoint;
+		right: BlockspaceIsometricPoint;
 	};
 
 	type Props = {
-		level: SyncBackfillVisibleLevel;
+		level: BlockspaceVisibleLevel;
 		selectionMode: boolean;
 		renderKey: string;
-		projectionSourceCell?: ApiSyncBackfillGridCell | null;
+		projectionSourceCell?: ApiBlockspaceGridCell | null;
 		resolveCellClass: (
-			level: SyncBackfillVisibleLevel,
-			cell: ApiSyncBackfillGridCell
+			level: BlockspaceVisibleLevel,
+			cell: ApiBlockspaceGridCell
 		) => string;
 		resolveCellLabel: (
-			level: SyncBackfillVisibleLevel,
-			cell: ApiSyncBackfillGridCell
+			level: BlockspaceVisibleLevel,
+			cell: ApiBlockspaceGridCell
 		) => string;
 		onCellClick: (
 			event: MouseEvent,
-			level: SyncBackfillVisibleLevel,
-			cell: ApiSyncBackfillGridCell
+			level: BlockspaceVisibleLevel,
+			cell: ApiBlockspaceGridCell
 		) => void | Promise<void>;
-		onAnchorLayout?: (layout: SyncBackfillIsometricAnchorLayout) => void;
+		onAnchorLayout?: (layout: BlockspaceIsometricAnchorLayout) => void;
 	};
 
 	const ISOMETRIC_TILE_UNIT = 1;
@@ -118,7 +118,7 @@
 			height: layout.height,
 			scale: layout.scale
 		});
-		canvas.getElement().classList.add('sync-isometric-svg');
+		canvas.getElement().classList.add('blockspace-isometric-svg');
 
 		const group = new isometricModule.IsometricGroup({
 			right: 0,
@@ -133,7 +133,7 @@
 	function renderLevelTiles(
 		group: InstanceType<IsometricModule['IsometricGroup']>,
 		layout: IsometricCanvasLayout,
-		level: SyncBackfillVisibleLevel
+		level: BlockspaceVisibleLevel
 	): IsometricSideCorners | null {
 		if (!isometricModule) return null;
 		const markers: Array<{
@@ -144,7 +144,7 @@
 			liftScale: number;
 		}> = [];
 		let sourceCorners: IsometricSideCorners | null = null;
-		for (const slot of buildSyncBackfillIsometricSlots(level.state.grid)) {
+		for (const slot of buildBlockspaceIsometricSlots(level.state.grid)) {
 			if (!slot.cell) {
 				group.addChild(
 					new isometricModule.IsometricRectangle({
@@ -154,7 +154,7 @@
 						top: 0,
 						width: ISOMETRIC_TILE_UNIT,
 						height: ISOMETRIC_TILE_UNIT,
-						className: 'sync-isometric-tile sync-isometric-tile-padding',
+						className: 'blockspace-isometric-tile blockspace-isometric-tile-padding',
 						fillColor: 'transparent',
 						strokeColor: 'transparent',
 						strokeWidth: 1
@@ -185,7 +185,7 @@
 					column: slot.column,
 					row: slot.row,
 					glyph: '❀',
-					className: 'sync-isometric-marker-deployment',
+					className: 'blockspace-isometric-marker-deployment',
 					liftScale: ISOMETRIC_DEPLOYMENT_MARKER_LIFT_SCALE
 				});
 			}
@@ -206,8 +206,8 @@
 
 	function configureTileElement(
 		element: SVGElement,
-		level: SyncBackfillVisibleLevel,
-		cell: ApiSyncBackfillGridCell
+		level: BlockspaceVisibleLevel,
+		cell: ApiBlockspaceGridCell
 	): void {
 		const disabled = cell.blockCount <= 0;
 		const label = resolveCellLabel(level, cell);
@@ -259,7 +259,7 @@
 		marker.textContent = glyph;
 		marker.setAttribute('x', String(center.x));
 		marker.setAttribute('y', String(center.y - layout.scale * liftScale));
-		marker.setAttribute('class', `sync-isometric-marker ${className}`);
+		marker.setAttribute('class', `blockspace-isometric-marker ${className}`);
 		marker.setAttribute(
 			'font-size',
 			String(Math.max(ISOMETRIC_MARKER_MIN_FONT_SIZE, layout.scale * ISOMETRIC_MARKER_FONT_SCALE))
@@ -273,11 +273,11 @@
 	function reportAnchorLayout(
 		group: InstanceType<IsometricModule['IsometricGroup']>,
 		layout: IsometricCanvasLayout,
-		level: SyncBackfillVisibleLevel,
+		level: BlockspaceVisibleLevel,
 		sourceCorners: IsometricSideCorners | null
 	): void {
 		if (!onAnchorLayout) return;
-		const dimension = resolveSyncBackfillIsometricDimension(level.state.grid.length);
+		const dimension = resolveBlockspaceIsometricDimension(level.state.grid.length);
 		const gridCorners = resolveGridSideCorners(layout, dimension);
 		const groupElement = group.getElement();
 		if (!(groupElement instanceof SVGGraphicsElement)) return;
@@ -290,7 +290,7 @@
 		});
 	}
 
-	function isProjectionSourceCell(cell: ApiSyncBackfillGridCell): boolean {
+	function isProjectionSourceCell(cell: ApiBlockspaceGridCell): boolean {
 		return (
 			projectionSourceCell !== null &&
 			cell.fromBlock <= projectionSourceCell.fromBlock &&
@@ -321,8 +321,8 @@
 
 	function toClientPoint(
 		element: SVGGraphicsElement,
-		point: SyncBackfillIsometricPoint
-	): SyncBackfillIsometricPoint {
+		point: BlockspaceIsometricPoint
+	): BlockspaceIsometricPoint {
 		const matrix = element.getScreenCTM();
 		if (!matrix) return point;
 		const transformed = new DOMPoint(point.x, point.y).matrixTransform(matrix);
@@ -344,10 +344,10 @@
 	}
 
 	function resolveCanvasLayout(
-		visibleLevel: SyncBackfillVisibleLevel,
+		visibleLevel: BlockspaceVisibleLevel,
 		viewportWidth: number
 	): IsometricCanvasLayout {
-		const dimension = resolveSyncBackfillIsometricDimension(visibleLevel.state.grid.length);
+		const dimension = resolveBlockspaceIsometricDimension(visibleLevel.state.grid.length);
 		const sideAllowance =
 			viewportWidth > 900 ? ISOMETRIC_DESKTOP_SIDE_ALLOWANCE : ISOMETRIC_MOBILE_SIDE_ALLOWANCE;
 		const availableCanvasWidth = Math.max(viewportWidth - sideAllowance, 320);
@@ -376,9 +376,9 @@
 	}
 </script>
 
-<div class={`sync-isometric-grid ${selectionMode ? 'sync-isometric-grid-selection-mode' : ''}`}>
-	<div bind:this={container} class="sync-isometric-canvas" aria-label="Block sync coverage grid"></div>
+<div class={`blockspace-isometric-grid ${selectionMode ? 'blockspace-isometric-grid-selection-mode' : ''}`}>
+	<div bind:this={container} class="blockspace-isometric-canvas" aria-label="Blockspace coverage grid"></div>
 	{#if renderError}
-		<div class="sync-range-detail-status muted">{renderError}</div>
+		<div class="blockspace-range-detail-status muted">{renderError}</div>
 	{/if}
 </div>

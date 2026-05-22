@@ -2,13 +2,13 @@
 	import { collectionBiddingNavigationVisibilityForDeployment } from '$lib/runtime/public-deployment';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
-	import SyncBackfillPageView from '$lib/components/SyncBackfillPageView.svelte';
-	import type { ApiCollection, SyncBackfillStateApiResponse } from '$lib/api-types';
-	import type { SyncBackfillVisibleLevel } from '$lib/sync-backfill-isometric-levels';
+	import BlockspacePageView from '$lib/components/BlockspacePageView.svelte';
+	import type { ApiCollection, BlockspaceStateApiResponse } from '$lib/api-types';
+	import type { BlockspaceVisibleLevel } from '$lib/blockspace-isometric-levels';
 
 	type PageData = {
-		state: SyncBackfillStateApiResponse | null;
-		levels?: SyncBackfillVisibleLevel[];
+		state: BlockspaceStateApiResponse | null;
+		levels?: BlockspaceVisibleLevel[];
 		basePath: string;
 		collection: string;
 		collectionDetail?: ApiCollection | null;
@@ -42,7 +42,7 @@
 		<span class="breadcrumbs-current">blockspace</span>
 	{/snippet}
 
-	<SyncBackfillPageView
+	<BlockspacePageView
 		state={data?.state ?? null}
 		levels={data?.levels ?? []}
 		basePath={data?.basePath ?? '/blockspace'}

@@ -26,4 +26,17 @@ describe('ListPagesTabs', () => {
 		expect(body).toContain('<a href="/ethereum">collections</a>');
 		expect(body).toContain('<span class="runtime-tab-active">bootstrapping</span>');
 	});
+
+	it('renders blockspace as non-clickable text when active', () => {
+		const { body } = render(ListPagesTabs, {
+			props: {
+				chainSlug: 'ethereum',
+				active: 'blockspace'
+			}
+		});
+
+		expect(body).toContain('<a href="/ethereum">collections</a>');
+		expect(body).toContain('<a href="/ethereum/bootstrap-runs">bootstrapping</a>');
+		expect(body).toContain('<span class="runtime-tab-active">blockspace</span>');
+	});
 });

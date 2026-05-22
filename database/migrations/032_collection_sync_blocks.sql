@@ -1,4 +1,4 @@
--- Per-collection block sync coverage used by sync/backfill visibility and bootstrap completion checks.
+-- Per-collection block sync coverage used by blockspace visibility and bootstrap completion checks.
 CREATE TABLE IF NOT EXISTS collection_sync_blocks (
   chain_id INTEGER NOT NULL,
   collection_id INTEGER NOT NULL,

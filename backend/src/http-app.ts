@@ -64,9 +64,9 @@ import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-toke
 import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-uri.js";
 import { UpdateCollectionCustomizationHttpAdapter } from "./http/handlers/collections/update-collection-customization.js";
 import { ListCollectionsHttpAdapter } from "./http/handlers/collections/list-collections.js";
-import { GetSyncBackfillRangeSummaryHttpAdapter } from "./http/handlers/sync-backfill/get-sync-backfill-range-summary.js";
-import { GetSyncBackfillStateHttpAdapter } from "./http/handlers/sync-backfill/get-sync-backfill-state.js";
-import { ScheduleSyncBackfillHttpAdapter } from "./http/handlers/sync-backfill/schedule-sync-backfill.js";
+import { GetBlockspaceRangeSummaryHttpAdapter } from "./http/handlers/blockspace/get-blockspace-range-summary.js";
+import { GetBlockspaceStateHttpAdapter } from "./http/handlers/blockspace/get-blockspace-state.js";
+import { ScheduleBlockspaceBackfillHttpAdapter } from "./http/handlers/blockspace/schedule-blockspace-backfill.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
 import { ResolveOwnerRefHttpAdapter } from "./http/handlers/owners/resolve-owner-ref.js";
 import { ListCollectionBiddingJobsHttpAdapter } from "./http/handlers/trading/list-collection-bidding-jobs.js";
@@ -199,27 +199,27 @@ export function createApiApp(
     const listCollectionsAdapter = new ListCollectionsHttpAdapter(
         listCollectionsUseCase,
     );
-    const getSyncBackfillStateAdapter = new GetSyncBackfillStateHttpAdapter(
+    const getBlockspaceStateAdapter = new GetBlockspaceStateHttpAdapter(
         getSyncBackfillStateUseCase,
     );
-    const getSyncBackfillRangeSummaryAdapter =
-        new GetSyncBackfillRangeSummaryHttpAdapter(getSyncBackfillStateUseCase);
+    const getBlockspaceRangeSummaryAdapter =
+        new GetBlockspaceRangeSummaryHttpAdapter(getSyncBackfillStateUseCase);
     const publicCollectionRef =
         deploymentConfig.publicCollectionScope?.collectionRef ?? null;
-    const publicGetSyncBackfillStateAdapter = publicCollectionRef
-        ? new GetSyncBackfillStateHttpAdapter(
+    const publicGetBlockspaceStateAdapter = publicCollectionRef
+        ? new GetBlockspaceStateHttpAdapter(
               getSyncBackfillStateUseCase,
               publicCollectionRef,
               "selected",
           )
         : null;
-    const publicGetSyncBackfillRangeSummaryAdapter = publicCollectionRef
-        ? new GetSyncBackfillRangeSummaryHttpAdapter(
+    const publicGetBlockspaceRangeSummaryAdapter = publicCollectionRef
+        ? new GetBlockspaceRangeSummaryHttpAdapter(
               getSyncBackfillStateUseCase,
               publicCollectionRef,
           )
         : null;
-    const scheduleSyncBackfillAdapter = new ScheduleSyncBackfillHttpAdapter(
+    const scheduleBlockspaceBackfillAdapter = new ScheduleBlockspaceBackfillHttpAdapter(
         scheduleSyncBackfillUseCase,
     );
     const resolveOwnerRefAdapter = new ResolveOwnerRefHttpAdapter(
@@ -339,11 +339,11 @@ export function createApiApp(
         getDefaultChainAdapter,
         getRuntimeConfigAdapter,
         listCollectionsAdapter,
-        getSyncBackfillStateAdapter,
-        getSyncBackfillRangeSummaryAdapter,
-        publicGetSyncBackfillStateAdapter,
-        publicGetSyncBackfillRangeSummaryAdapter,
-        scheduleSyncBackfillAdapter,
+        getBlockspaceStateAdapter,
+        getBlockspaceRangeSummaryAdapter,
+        publicGetBlockspaceStateAdapter,
+        publicGetBlockspaceRangeSummaryAdapter,
+        scheduleBlockspaceBackfillAdapter,
         resolveOwnerRefAdapter,
         getCollectionActivityAdapter,
         getActivityEventPreviewAdapter,

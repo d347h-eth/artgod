@@ -4,7 +4,7 @@ import {
     ReadModelBadRequestError,
     ReadModelNotFoundError,
 } from "@artgod/shared/read-models/errors";
-import { SYNC_BACKFILL_CONTEXT_ANY } from "@artgod/shared/config/sync-backfill";
+import { BLOCKSPACE_CONTEXT_ANY } from "@artgod/shared/config/blockspace";
 import {
     NOOP_APM,
     type ApmPort,
@@ -119,7 +119,7 @@ export class ScheduleSyncBackfillUseCase {
             batchSize: this.backfillBatchSize,
         });
 
-        // Publish range commands through the configured sync/backfill queue adapter.
+        // Publish range commands through the configured blockspace queue adapter.
         await this.apm.withSpan(
             "backend.sync_backfill.schedule.publish_ranges",
             {
@@ -160,8 +160,8 @@ function resolveBackfillCollection(
     const normalized =
         collectionRef && collectionRef.trim()
             ? normalizeSlugRef(collectionRef)
-            : SYNC_BACKFILL_CONTEXT_ANY;
-    if (normalized === SYNC_BACKFILL_CONTEXT_ANY) {
+            : BLOCKSPACE_CONTEXT_ANY;
+    if (normalized === BLOCKSPACE_CONTEXT_ANY) {
         return null;
     }
 

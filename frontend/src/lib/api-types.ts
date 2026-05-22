@@ -825,9 +825,9 @@ export type BootstrapRetryFailedResponse = {
 	status: string;
 };
 
-export type ApiSyncBackfillCoverageState = 'empty' | 'partial' | 'complete';
+export type ApiBlockspaceCoverageState = 'empty' | 'partial' | 'complete';
 
-export type ApiSyncBackfillCollectionOption = {
+export type ApiBlockspaceCollectionOption = {
 	chainId: number;
 	collectionId: number;
 	slug: string;
@@ -838,46 +838,46 @@ export type ApiSyncBackfillCollectionOption = {
 	bootstrapLastSyncedBlock: number | null;
 };
 
-export type ApiSyncBackfillGridCellDeploymentMarker = {
+export type ApiBlockspaceGridCellDeploymentMarker = {
 	blockNumber: number;
 	synced: boolean;
 };
 
-export type ApiSyncBackfillGridCell = {
+export type ApiBlockspaceGridCell = {
 	index: number;
 	fromBlock: number;
 	toBlock: number;
 	blockCount: number;
 	syncedBlockCount: number;
-	state: ApiSyncBackfillCoverageState;
+	state: ApiBlockspaceCoverageState;
 	canDrillDown: boolean;
-	collectionDeploymentBlock: ApiSyncBackfillGridCellDeploymentMarker | null;
+	collectionDeploymentBlock: ApiBlockspaceGridCellDeploymentMarker | null;
 };
 
-export type ApiSyncBackfillBlockTimestamp = {
+export type ApiBlockspaceBlockTimestamp = {
 	blockNumber: number;
 	timestamp: number | null;
 	source: 'chain' | 'db' | 'rpc' | 'unavailable';
 };
 
-export type ApiSyncBackfillRangeSummary = {
+export type ApiBlockspaceRangeSummary = {
 	fromBlock: number;
 	toBlock: number;
 	blockCount: number;
 	bucketSize: number;
 	syncedBlockCount: number;
 	time: {
-		from: ApiSyncBackfillBlockTimestamp;
-		to: ApiSyncBackfillBlockTimestamp;
+		from: ApiBlockspaceBlockTimestamp;
+		to: ApiBlockspaceBlockTimestamp;
 		durationSeconds: number | null;
 	};
 };
 
-export type SyncBackfillStateApiResponse = {
+export type BlockspaceStateApiResponse = {
 	chain: ApiChain;
 	context: {
 		selected: string;
-		collections: ApiSyncBackfillCollectionOption[];
+		collections: ApiBlockspaceCollectionOption[];
 	};
 	range: {
 		fromBlock: number;
@@ -887,8 +887,8 @@ export type SyncBackfillStateApiResponse = {
 		gridCellCount: number;
 		canDrillDown: boolean;
 		time: {
-			from: ApiSyncBackfillBlockTimestamp;
-			to: ApiSyncBackfillBlockTimestamp;
+			from: ApiBlockspaceBlockTimestamp;
+			to: ApiBlockspaceBlockTimestamp;
 			durationSeconds: number | null;
 		};
 	};
@@ -900,18 +900,18 @@ export type SyncBackfillStateApiResponse = {
 		syncedBlockCount: number;
 		selectedRangeSyncedBlockCount: number;
 	};
-	grid: ApiSyncBackfillGridCell[];
+	grid: ApiBlockspaceGridCell[];
 };
 
-export type SyncBackfillRangeSummaryApiResponse = {
+export type BlockspaceRangeSummaryApiResponse = {
 	chain: ApiChain;
 	context: {
 		selected: string;
 	};
-	range: ApiSyncBackfillRangeSummary;
+	range: ApiBlockspaceRangeSummary;
 };
 
-export type ScheduleSyncBackfillApiResponse = {
+export type ScheduleBlockspaceBackfillApiResponse = {
 	chain: ApiChain;
 	collection: {
 		collectionId: number;

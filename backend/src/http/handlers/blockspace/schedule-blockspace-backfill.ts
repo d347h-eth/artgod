@@ -6,7 +6,7 @@ import type {
     ScheduleSyncBackfillUseCase,
 } from "../../../application/use-cases/sync-backfill/schedule-sync-backfill.js";
 
-export type ScheduleSyncBackfillRoute = {
+export type ScheduleBlockspaceBackfillRoute = {
     Params: {
         chain_ref: string;
     };
@@ -19,9 +19,9 @@ export type ScheduleSyncBackfillRoute = {
 
 type MaybePromise<T> = T | Promise<T>;
 
-export class ScheduleSyncBackfillHttpAdapter {
+export class ScheduleBlockspaceBackfillHttpAdapter {
     constructor(
-        private readonly scheduleSyncBackfillPort:
+        private readonly scheduleBlockspaceBackfillPort:
             | {
                   scheduleBackfill(
                       input: ScheduleSyncBackfillInput,
@@ -31,10 +31,10 @@ export class ScheduleSyncBackfillHttpAdapter {
     ) {}
 
     readonly handle = async (
-        request: FastifyRequest<ScheduleSyncBackfillRoute>,
+        request: FastifyRequest<ScheduleBlockspaceBackfillRoute>,
     ) => {
         const body = request.body ?? {};
-        return this.scheduleSyncBackfillPort.scheduleBackfill({
+        return this.scheduleBlockspaceBackfillPort.scheduleBackfill({
             chainRef: request.params.chain_ref,
             collectionRef: parseOptionalString(body.collectionRef),
             fromBlock: mustInteger(body.fromBlock, "fromBlock"),

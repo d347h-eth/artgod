@@ -1,50 +1,50 @@
 import {
-	SYNC_BACKFILL_GRID_CELL_COUNT,
-	SYNC_BACKFILL_GRID_DIMENSION
-} from '@artgod/shared/config/sync-backfill';
-import type { ApiSyncBackfillGridCell, SyncBackfillStateApiResponse } from '$lib/api-types';
+	BLOCKSPACE_GRID_CELL_COUNT,
+	BLOCKSPACE_GRID_DIMENSION
+} from '@artgod/shared/config/blockspace';
+import type { ApiBlockspaceGridCell, BlockspaceStateApiResponse } from '$lib/api-types';
 
-// Visible sync/backfill levels represent the current URL path, not the full chain tree.
-export type SyncBackfillVisibleLevel = {
+// Visible blockspace levels represent the current URL path, not the full chain tree.
+export type BlockspaceVisibleLevel = {
 	key: string;
 	label: string;
 	stack: string[];
-	state: SyncBackfillStateApiResponse;
+	state: BlockspaceStateApiResponse;
 };
 
-export type SyncBackfillIsometricSlot = {
+export type BlockspaceIsometricSlot = {
 	key: string;
 	row: number;
 	column: number;
-	cell: ApiSyncBackfillGridCell | null;
+	cell: ApiBlockspaceGridCell | null;
 };
 
-export type SyncBackfillIsometricPoint = {
+export type BlockspaceIsometricPoint = {
 	x: number;
 	y: number;
 };
 
 // Client-space anchors let the page draw overlays without coupling to renderer internals.
-export type SyncBackfillIsometricAnchorLayout = {
+export type BlockspaceIsometricAnchorLayout = {
 	levelKey: string;
-	gridLeftCorner: SyncBackfillIsometricPoint;
-	gridRightCorner: SyncBackfillIsometricPoint;
-	sourceLeftCorner: SyncBackfillIsometricPoint | null;
-	sourceRightCorner: SyncBackfillIsometricPoint | null;
+	gridLeftCorner: BlockspaceIsometricPoint;
+	gridRightCorner: BlockspaceIsometricPoint;
+	sourceLeftCorner: BlockspaceIsometricPoint | null;
+	sourceRightCorner: BlockspaceIsometricPoint | null;
 };
 
 // Resolve the presentation square for a level without changing its block-range math.
-export function resolveSyncBackfillIsometricDimension(cellCount: number): number {
+export function resolveBlockspaceIsometricDimension(cellCount: number): number {
 	if (cellCount <= 0) return 1;
-	if (cellCount === SYNC_BACKFILL_GRID_CELL_COUNT) return SYNC_BACKFILL_GRID_DIMENSION;
+	if (cellCount === BLOCKSPACE_GRID_CELL_COUNT) return BLOCKSPACE_GRID_DIMENSION;
 	return Math.ceil(Math.sqrt(cellCount));
 }
 
 // Build render slots and padded blanks for an isometric level.
-export function buildSyncBackfillIsometricSlots(
-	cells: ApiSyncBackfillGridCell[]
-): SyncBackfillIsometricSlot[] {
-	const dimension = resolveSyncBackfillIsometricDimension(cells.length);
+export function buildBlockspaceIsometricSlots(
+	cells: ApiBlockspaceGridCell[]
+): BlockspaceIsometricSlot[] {
+	const dimension = resolveBlockspaceIsometricDimension(cells.length);
 	return Array.from({ length: dimension * dimension }, (_, index) => ({
 		key: cells[index] ? `cell:${cells[index].index}` : `pad:${index}`,
 		row: Math.floor(index / dimension),
@@ -54,7 +54,7 @@ export function buildSyncBackfillIsometricSlots(
 }
 
 // Capture live grid content changes that require the SVG renderer to redraw.
-export function buildSyncBackfillIsometricLevelRenderKey(level: SyncBackfillVisibleLevel): string {
+export function buildBlockspaceIsometricLevelRenderKey(level: BlockspaceVisibleLevel): string {
 	const range = level.state.range;
 	const summary = level.state.summary;
 	const gridKey = level.state.grid

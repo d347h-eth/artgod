@@ -1,17 +1,17 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { SYNC_BACKFILL_CONTEXT_ANY } from '@artgod/shared/config/sync-backfill';
-import { BackendApiError, getSyncBackfillState } from '$lib/backend-api';
+import { BLOCKSPACE_CONTEXT_ANY } from '@artgod/shared/config/blockspace';
+import { BackendApiError, getBlockspaceState } from '$lib/backend-api';
 import { IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT } from '$lib/runtime/public-deployment';
 import { IS_ADMIN_FRONTEND_TARGET } from '$lib/runtime/frontend-target';
 import {
-	buildSyncBackfillStackStateApiParams,
-	buildSyncBackfillVisibleLevels,
-	buildSyncBackfillVisibleStackPagesFromEntries,
-	formatSyncBackfillPageStackEntry,
-	parseSyncBackfillPageStack,
-	type SyncBackfillPageStackEntry
-} from '$lib/sync-backfill-page-stack';
+	buildBlockspaceStackStateApiParams,
+	buildBlockspaceVisibleLevels,
+	buildBlockspaceVisibleStackPagesFromEntries,
+	formatBlockspacePageStackEntry,
+	parseBlockspacePageStack,
+	type BlockspacePageStackEntry
+} from '$lib/blockspace-page-stack';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
@@ -26,15 +26,15 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		};
 	}
 
-	const query = normalizeSyncBackfillParams(url.searchParams);
+	const query = normalizeBlockspaceParams(url.searchParams);
 	try {
 		// Fetch each visible path page so the renderer can stack the current navigation branch.
 		const states = await Promise.all(
-			buildSyncBackfillStackStateApiParams(
+			buildBlockspaceStackStateApiParams(
 				query.collection,
-				buildSyncBackfillVisibleStackPagesFromEntries(query.stackPages)
+				buildBlockspaceVisibleStackPagesFromEntries(query.stackPages)
 			).map((apiParams) =>
-				getSyncBackfillState(fetch, params.chain_ref, apiParams)
+				getBlockspaceState(fetch, params.chain_ref, apiParams)
 			)
 		);
 		const state = states.at(-1) ?? null;
@@ -43,8 +43,8 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		}
 		return {
 			state,
-			levels: buildSyncBackfillVisibleLevels(query.stack, states),
-			basePath: `/${state.chain.slug}/sync-backfill`,
+			levels: buildBlockspaceVisibleLevels(query.stack, states),
+			basePath: `/${state.chain.slug}/blockspace`,
 			collection: query.collection,
 			stack: query.stack
 		};
@@ -53,20 +53,20 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	}
 };
 
-function normalizeSyncBackfillParams(raw: URLSearchParams): {
+function normalizeBlockspaceParams(raw: URLSearchParams): {
 	collection: string;
 	stack: string[];
-	stackPages: SyncBackfillPageStackEntry[];
+	stackPages: BlockspacePageStackEntry[];
 } {
-	const collection = raw.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
-	const stack = parseSyncBackfillPageStack(raw.get('stack'));
+	const collection = raw.get('collection')?.trim() || BLOCKSPACE_CONTEXT_ANY;
+	const stack = parseBlockspacePageStack(raw.get('stack'));
 	if (!stack) {
 		throw error(400, 'Invalid page stack');
 	}
 
 	return {
 		collection,
-		stack: stack.map(formatSyncBackfillPageStackEntry),
+		stack: stack.map(formatBlockspacePageStackEntry),
 		stackPages: stack
 	};
 }

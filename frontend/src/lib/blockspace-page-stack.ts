@@ -1,27 +1,27 @@
-import type { SyncBackfillStateApiResponse } from '$lib/api-types';
-import type { SyncBackfillVisibleLevel } from '$lib/sync-backfill-isometric-levels';
+import type { BlockspaceStateApiResponse } from '$lib/api-types';
+import type { BlockspaceVisibleLevel } from '$lib/blockspace-isometric-levels';
 
-export type SyncBackfillPageStackEntry = {
+export type BlockspacePageStackEntry = {
 	pageStartBlock: number;
 	bucketSize: number;
 };
 
-export type SyncBackfillStackPage = SyncBackfillPageStackEntry | null;
+export type BlockspaceStackPage = BlockspacePageStackEntry | null;
 
-export type SyncBackfillStackFetchPlan = {
-	reusedStates: SyncBackfillStateApiResponse[];
-	pagesToFetch: SyncBackfillStackPage[];
+export type BlockspaceStackFetchPlan = {
+	reusedStates: BlockspaceStateApiResponse[];
+	pagesToFetch: BlockspaceStackPage[];
 };
 
-// Serialize one visible sync/backfill page into the URL stack query.
-export function formatSyncBackfillPageStackEntry(page: SyncBackfillPageStackEntry): string {
+// Serialize one visible blockspace page into the URL stack query.
+export function formatBlockspacePageStackEntry(page: BlockspacePageStackEntry): string {
 	return `${page.pageStartBlock}:${page.bucketSize}`;
 }
 
 // Parse one URL stack segment without binding the helper to SvelteKit errors.
-export function parseSyncBackfillPageStackEntry(
+export function parseBlockspacePageStackEntry(
 	entry: string
-): SyncBackfillPageStackEntry | null {
+): BlockspacePageStackEntry | null {
 	const [pageStartRaw, bucketSizeRaw, extra] = entry.split(':');
 	const pageStartBlock = Number(pageStartRaw);
 	const bucketSize = Number(bucketSizeRaw);
@@ -38,24 +38,24 @@ export function parseSyncBackfillPageStackEntry(
 }
 
 // Parse the URL stack query into ordered visible child pages.
-export function parseSyncBackfillPageStack(raw: string | null): SyncBackfillPageStackEntry[] | null {
+export function parseBlockspacePageStack(raw: string | null): BlockspacePageStackEntry[] | null {
 	if (!raw?.trim()) return [];
-	const stack: SyncBackfillPageStackEntry[] = [];
+	const stack: BlockspacePageStackEntry[] = [];
 	for (const entry of raw
 		.split(',')
 		.map((value) => value.trim())
 		.filter(Boolean)) {
-		const parsed = parseSyncBackfillPageStackEntry(entry);
+		const parsed = parseBlockspacePageStackEntry(entry);
 		if (!parsed) return null;
 		stack.push(parsed);
 	}
 	return stack;
 }
 
-// Build the backend state query for one visible sync/backfill page.
-export function buildSyncBackfillStateApiParams(
+// Build the backend state query for one visible blockspace page.
+export function buildBlockspaceStateApiParams(
 	collection: string,
-	page: SyncBackfillStackPage
+	page: BlockspaceStackPage
 ): URLSearchParams {
 	const apiParams = new URLSearchParams();
 	apiParams.set('collection', collection);
@@ -67,35 +67,35 @@ export function buildSyncBackfillStateApiParams(
 }
 
 // Build backend state queries for a sequence of visible stack pages.
-export function buildSyncBackfillStackStateApiParams(
+export function buildBlockspaceStackStateApiParams(
 	collection: string,
-	pages: SyncBackfillStackPage[]
+	pages: BlockspaceStackPage[]
 ): URLSearchParams[] {
-	return pages.map((page) => buildSyncBackfillStateApiParams(collection, page));
+	return pages.map((page) => buildBlockspaceStateApiParams(collection, page));
 }
 
 // Resolve the ordered backend pages for a visible stack, including root.
-export function buildSyncBackfillVisibleStackPages(stack: string[]): SyncBackfillStackPage[] {
-	return buildSyncBackfillVisibleStackPagesFromEntries(
-		stack.map(requireSyncBackfillPageStackEntry)
+export function buildBlockspaceVisibleStackPages(stack: string[]): BlockspaceStackPage[] {
+	return buildBlockspaceVisibleStackPagesFromEntries(
+		stack.map(requireBlockspacePageStackEntry)
 	);
 }
 
 // Resolve the ordered backend pages from parsed stack entries.
-export function buildSyncBackfillVisibleStackPagesFromEntries(
-	stackPages: SyncBackfillPageStackEntry[]
-): SyncBackfillStackPage[] {
+export function buildBlockspaceVisibleStackPagesFromEntries(
+	stackPages: BlockspacePageStackEntry[]
+): BlockspaceStackPage[] {
 	return [null, ...stackPages];
 }
 
 // Plan the minimum client fetches needed when moving between stack URLs.
-export function buildSyncBackfillStackFetchPlan(
+export function buildBlockspaceStackFetchPlan(
 	currentStack: string[],
 	nextStack: string[],
-	currentLevels: SyncBackfillVisibleLevel[]
-): SyncBackfillStackFetchPlan {
+	currentLevels: BlockspaceVisibleLevel[]
+): BlockspaceStackFetchPlan {
 	const commonStackEntries = countCommonStackEntries(currentStack, nextStack);
-	const nextPages = buildSyncBackfillVisibleStackPages(nextStack);
+	const nextPages = buildBlockspaceVisibleStackPages(nextStack);
 	const reusableLevelCount = Math.min(
 		commonStackEntries + 1,
 		currentLevels.length,
@@ -108,10 +108,10 @@ export function buildSyncBackfillStackFetchPlan(
 }
 
 // Pair fetched page states with their URL stack entries for rendering.
-export function buildSyncBackfillVisibleLevels(
+export function buildBlockspaceVisibleLevels(
 	stack: string[],
-	states: SyncBackfillStateApiResponse[]
-): SyncBackfillVisibleLevel[] {
+	states: BlockspaceStateApiResponse[]
+): BlockspaceVisibleLevel[] {
 	return states.map((state, index) => ({
 		key: index === 0 ? 'root' : `L${index}:${stack[index - 1]}`,
 		label: index === 0 ? 'root' : `L${index}`,
@@ -121,10 +121,10 @@ export function buildSyncBackfillVisibleLevels(
 }
 
 // Pick the deepest stable level as a scroll anchor for stack transitions.
-export function resolveSyncBackfillStackAnchorLevelKey(
+export function resolveBlockspaceStackAnchorLevelKey(
 	currentStack: string[],
 	nextStack: string[],
-	currentLevels: SyncBackfillVisibleLevel[]
+	currentLevels: BlockspaceVisibleLevel[]
 ): string {
 	const commonStackEntries = countCommonStackEntries(currentStack, nextStack);
 	const anchorIndex = Math.min(commonStackEntries, currentLevels.length - 1);
@@ -140,8 +140,8 @@ function countCommonStackEntries(currentStack: string[], nextStack: string[]): n
 	return count;
 }
 
-function requireSyncBackfillPageStackEntry(entry: string): SyncBackfillPageStackEntry {
-	const page = parseSyncBackfillPageStackEntry(entry);
+function requireBlockspacePageStackEntry(entry: string): BlockspacePageStackEntry {
+	const page = parseBlockspacePageStackEntry(entry);
 	if (!page) {
 		throw new Error('invalid sync level stack');
 	}

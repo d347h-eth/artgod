@@ -155,11 +155,11 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
-    /api/{chain_ref}/sync-backfill:
+    /api/{chain_ref}/blockspace:
         get:
             tags: [Sync]
-            summary: Get chain sync/backfill coverage grid
-            operationId: getSyncBackfillState
+            summary: Get chain blockspace coverage grid
+            operationId: getBlockspaceState
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - name: collection
@@ -172,7 +172,7 @@ paths:
                 - name: page_start
                   in: query
                   required: false
-                  description: Aligned first block for a drilled sync/backfill page. Omit with `bucket_size` for the organic root page.
+                  description: Aligned first block for a drilled blockspace page. Omit with `bucket_size` for the organic root page.
                   schema:
                       type: integer
                       minimum: 0
@@ -185,11 +185,11 @@ paths:
                       minimum: 1
             responses:
                 "200":
-                    description: Sync/backfill coverage state
+                    description: Blockspace coverage state
                     content:
                         application/json:
                             schema:
-                                $ref: "#/components/schemas/SyncBackfillStateResponse"
+                                $ref: "#/components/schemas/BlockspaceStateResponse"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "404":
@@ -197,11 +197,11 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
-    /api/{chain_ref}/sync-backfill/range:
+    /api/{chain_ref}/blockspace/range:
         get:
             tags: [Sync]
-            summary: Get sync/backfill summary for a block range
-            operationId: getSyncBackfillRangeSummary
+            summary: Get blockspace summary for a block range
+            operationId: getBlockspaceRangeSummary
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
                 - name: collection
@@ -225,11 +225,11 @@ paths:
                       minimum: 0
             responses:
                 "200":
-                    description: Sync/backfill range summary
+                    description: Blockspace range summary
                     content:
                         application/json:
                             schema:
-                                $ref: "#/components/schemas/SyncBackfillRangeSummaryResponse"
+                                $ref: "#/components/schemas/BlockspaceRangeSummaryResponse"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "404":
@@ -237,11 +237,11 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
-    /api/{chain_ref}/sync-backfill/backfill:
+    /api/{chain_ref}/blockspace/backfill:
         post:
             tags: [Sync]
             summary: Queue manual backfill for a block range
-            operationId: scheduleSyncBackfill
+            operationId: scheduleBlockspaceBackfill
             parameters:
                 - $ref: "#/components/parameters/ChainRef"
             requestBody:
@@ -249,14 +249,14 @@ paths:
                 content:
                     application/json:
                         schema:
-                            $ref: "#/components/schemas/ScheduleSyncBackfillRequest"
+                            $ref: "#/components/schemas/ScheduleBlockspaceBackfillRequest"
             responses:
                 "200":
                     description: Manual backfill jobs queued
                     content:
                         application/json:
                             schema:
-                                $ref: "#/components/schemas/ScheduleSyncBackfillResponse"
+                                $ref: "#/components/schemas/ScheduleBlockspaceBackfillResponse"
                 "400":
                     $ref: "#/components/responses/BadRequest"
                 "404":
@@ -1671,11 +1671,11 @@ components:
                 page:
                     $ref: "#/components/schemas/CursorPageCollection"
 
-        SyncBackfillCoverageState:
+        BlockspaceCoverageState:
             type: string
             enum: [empty, partial, complete]
 
-        SyncBackfillCollectionOption:
+        BlockspaceCollectionOption:
             type: object
             required:
                 - chainId
@@ -1709,7 +1709,7 @@ components:
                     type: integer
                     nullable: true
 
-        SyncBackfillBlockTimestamp:
+        BlockspaceBlockTimestamp:
             type: object
             required: [blockNumber, timestamp, source]
             additionalProperties: false
@@ -1724,7 +1724,7 @@ components:
                     type: string
                     enum: [chain, db, rpc, unavailable]
 
-        SyncBackfillGridCell:
+        BlockspaceGridCell:
             type: object
             required:
                 - index
@@ -1751,7 +1751,7 @@ components:
                 syncedBlockCount:
                     type: integer
                 state:
-                    $ref: "#/components/schemas/SyncBackfillCoverageState"
+                    $ref: "#/components/schemas/BlockspaceCoverageState"
                 canDrillDown:
                     type: boolean
                 collectionDeploymentBlock:
@@ -1765,7 +1765,7 @@ components:
                         synced:
                             type: boolean
 
-        SyncBackfillRangeSummary:
+        BlockspaceRangeSummary:
             type: object
             required:
                 - fromBlock
@@ -1793,15 +1793,15 @@ components:
                     additionalProperties: false
                     properties:
                         from:
-                            $ref: "#/components/schemas/SyncBackfillBlockTimestamp"
+                            $ref: "#/components/schemas/BlockspaceBlockTimestamp"
                         to:
-                            $ref: "#/components/schemas/SyncBackfillBlockTimestamp"
+                            $ref: "#/components/schemas/BlockspaceBlockTimestamp"
                         durationSeconds:
                             type: integer
                             nullable: true
                             description: Elapsed seconds between the range endpoint block timestamps.
 
-        SyncBackfillRangeSummaryResponse:
+        BlockspaceRangeSummaryResponse:
             type: object
             required: [chain, context, range]
             additionalProperties: false
@@ -1816,9 +1816,9 @@ components:
                         selected:
                             type: string
                 range:
-                    $ref: "#/components/schemas/SyncBackfillRangeSummary"
+                    $ref: "#/components/schemas/BlockspaceRangeSummary"
 
-        SyncBackfillStateResponse:
+        BlockspaceStateResponse:
             type: object
             required: [chain, context, range, summary, grid]
             additionalProperties: false
@@ -1835,7 +1835,7 @@ components:
                         collections:
                             type: array
                             items:
-                                $ref: "#/components/schemas/SyncBackfillCollectionOption"
+                                $ref: "#/components/schemas/BlockspaceCollectionOption"
                 range:
                     type: object
                     required:
@@ -1868,9 +1868,9 @@ components:
                             additionalProperties: false
                             properties:
                                 from:
-                                    $ref: "#/components/schemas/SyncBackfillBlockTimestamp"
+                                    $ref: "#/components/schemas/BlockspaceBlockTimestamp"
                                 to:
-                                    $ref: "#/components/schemas/SyncBackfillBlockTimestamp"
+                                    $ref: "#/components/schemas/BlockspaceBlockTimestamp"
                                 durationSeconds:
                                     type: integer
                                     nullable: true
@@ -1903,9 +1903,9 @@ components:
                 grid:
                     type: array
                     items:
-                        $ref: "#/components/schemas/SyncBackfillGridCell"
+                        $ref: "#/components/schemas/BlockspaceGridCell"
 
-        ScheduleSyncBackfillRequest:
+        ScheduleBlockspaceBackfillRequest:
             type: object
             required: [fromBlock, toBlock]
             additionalProperties: false
@@ -1921,7 +1921,7 @@ components:
                     type: integer
                     minimum: 0
 
-        ScheduleSyncBackfillResponse:
+        ScheduleBlockspaceBackfillResponse:
             type: object
             required: [chain, collection, fromBlock, toBlock, queuedJobs]
             additionalProperties: false

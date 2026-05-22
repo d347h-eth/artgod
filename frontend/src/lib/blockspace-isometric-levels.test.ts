@@ -1,25 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { SYNC_BACKFILL_GRID_CELL_COUNT } from '@artgod/shared/config/sync-backfill';
-import type { ApiSyncBackfillGridCell } from './api-types';
+import { BLOCKSPACE_GRID_CELL_COUNT } from '@artgod/shared/config/blockspace';
+import type { ApiBlockspaceGridCell } from './api-types';
 import {
-	buildSyncBackfillIsometricSlots,
-	buildSyncBackfillIsometricLevelRenderKey,
-	resolveSyncBackfillIsometricDimension,
-	type SyncBackfillVisibleLevel
-} from './sync-backfill-isometric-levels';
+	buildBlockspaceIsometricSlots,
+	buildBlockspaceIsometricLevelRenderKey,
+	resolveBlockspaceIsometricDimension,
+	type BlockspaceVisibleLevel
+} from './blockspace-isometric-levels';
 
-describe('sync backfill isometric levels', () => {
-	it('keeps full sync backfill pages at 32x32', () => {
-		expect(resolveSyncBackfillIsometricDimension(SYNC_BACKFILL_GRID_CELL_COUNT)).toBe(32);
+describe('blockspace isometric levels', () => {
+	it('keeps full blockspace pages at 32x32', () => {
+		expect(resolveBlockspaceIsometricDimension(BLOCKSPACE_GRID_CELL_COUNT)).toBe(32);
 	});
 
 	it('uses the smallest square that fits incomplete levels', () => {
-		expect(resolveSyncBackfillIsometricDimension(24)).toBe(5);
+		expect(resolveBlockspaceIsometricDimension(24)).toBe(5);
 	});
 
 	it('pads incomplete visual levels without changing real cells', () => {
 		const cells = Array.from({ length: 24 }, (_, index) => buildCell(index));
-		const slots = buildSyncBackfillIsometricSlots(cells);
+		const slots = buildBlockspaceIsometricSlots(cells);
 		expect(slots).toHaveLength(25);
 		expect(slots[23].cell?.index).toBe(23);
 		expect(slots[24].cell).toBeNull();
@@ -27,7 +27,7 @@ describe('sync backfill isometric levels', () => {
 
 	it('changes the render key when live coverage changes inside a fixed range', () => {
 		const level = buildLevel([buildCell(0), buildCell(1)]);
-		const initialKey = buildSyncBackfillIsometricLevelRenderKey(level);
+		const initialKey = buildBlockspaceIsometricLevelRenderKey(level);
 
 		level.state.grid[1] = {
 			...level.state.grid[1],
@@ -35,11 +35,11 @@ describe('sync backfill isometric levels', () => {
 			state: 'complete'
 		};
 
-		expect(buildSyncBackfillIsometricLevelRenderKey(level)).not.toBe(initialKey);
+		expect(buildBlockspaceIsometricLevelRenderKey(level)).not.toBe(initialKey);
 	});
 });
 
-function buildCell(index: number): ApiSyncBackfillGridCell {
+function buildCell(index: number): ApiBlockspaceGridCell {
 	return {
 		index,
 		fromBlock: index,
@@ -52,7 +52,7 @@ function buildCell(index: number): ApiSyncBackfillGridCell {
 	};
 }
 
-function buildLevel(cells: ApiSyncBackfillGridCell[]) {
+function buildLevel(cells: ApiBlockspaceGridCell[]) {
 	return {
 		key: 'root',
 		label: 'root',
@@ -95,5 +95,5 @@ function buildLevel(cells: ApiSyncBackfillGridCell[]) {
 			},
 			grid: cells
 		}
-	} satisfies SyncBackfillVisibleLevel;
+	} satisfies BlockspaceVisibleLevel;
 }

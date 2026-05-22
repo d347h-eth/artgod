@@ -1,20 +1,20 @@
-export const SYNC_BACKFILL_LIVE_POLL_INTERVAL_MS = 5_000;
+export const BLOCKSPACE_LIVE_POLL_INTERVAL_MS = 5_000;
 
-export type SyncBackfillLiveRefreshHandle = {
+export type BlockspaceLiveRefreshHandle = {
 	refreshNow(): Promise<void>;
 	stop(): void;
 };
 
-type SyncBackfillLiveRefreshOptions = {
+type BlockspaceLiveRefreshOptions = {
 	refresh: () => Promise<unknown> | unknown;
 	intervalMs?: number;
 };
 
-// Poll the visible sync/backfill state without overlapping backend refreshes.
-export function startSyncBackfillLiveRefresh({
+// Poll the visible blockspace state without overlapping backend refreshes.
+export function startBlockspaceLiveRefresh({
 	refresh,
-	intervalMs = SYNC_BACKFILL_LIVE_POLL_INTERVAL_MS
-}: SyncBackfillLiveRefreshOptions): SyncBackfillLiveRefreshHandle {
+	intervalMs = BLOCKSPACE_LIVE_POLL_INTERVAL_MS
+}: BlockspaceLiveRefreshOptions): BlockspaceLiveRefreshHandle {
 	let stopped = false;
 	let refreshInFlight = false;
 

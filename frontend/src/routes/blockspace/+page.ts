@@ -1,19 +1,19 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { BackendApiError, getCollectionDetail, getSyncBackfillState } from '$lib/backend-api';
+import { BackendApiError, getCollectionDetail, getBlockspaceState } from '$lib/backend-api';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE,
 	publicCollectionBlockspacePath
 } from '$lib/runtime/public-deployment';
 import {
-	buildSyncBackfillStackStateApiParams,
-	buildSyncBackfillVisibleLevels,
-	buildSyncBackfillVisibleStackPagesFromEntries,
-	formatSyncBackfillPageStackEntry,
-	parseSyncBackfillPageStack,
-	type SyncBackfillPageStackEntry
-} from '$lib/sync-backfill-page-stack';
+	buildBlockspaceStackStateApiParams,
+	buildBlockspaceVisibleLevels,
+	buildBlockspaceVisibleStackPagesFromEntries,
+	formatBlockspacePageStackEntry,
+	parseBlockspacePageStack,
+	type BlockspacePageStackEntry
+} from '$lib/blockspace-page-stack';
 
 export const load: PageLoad = async ({ fetch, url }) => {
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
@@ -29,11 +29,11 @@ export const load: PageLoad = async ({ fetch, url }) => {
 		// Fetch the public collection's visible blockspace path without exposing other contexts.
 		const [states, collectionResponse] = await Promise.all([
 			Promise.all(
-				buildSyncBackfillStackStateApiParams(
+				buildBlockspaceStackStateApiParams(
 					publicScope.collectionRef,
-					buildSyncBackfillVisibleStackPagesFromEntries(query.stackPages)
+					buildBlockspaceVisibleStackPagesFromEntries(query.stackPages)
 				).map((apiParams) =>
-					getSyncBackfillState(fetch, publicScope.chainRef, apiParams)
+					getBlockspaceState(fetch, publicScope.chainRef, apiParams)
 				)
 			),
 			getCollectionDetail(
@@ -49,7 +49,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 		}
 		return {
 			state,
-			levels: buildSyncBackfillVisibleLevels(query.stack, states),
+			levels: buildBlockspaceVisibleLevels(query.stack, states),
 			basePath: publicCollectionBlockspacePath(),
 			collection: publicScope.collectionRef,
 			collectionDetail: collectionResponse.collection,
@@ -62,15 +62,15 @@ export const load: PageLoad = async ({ fetch, url }) => {
 
 function normalizePublicBlockspaceParams(raw: URLSearchParams): {
 	stack: string[];
-	stackPages: SyncBackfillPageStackEntry[];
+	stackPages: BlockspacePageStackEntry[];
 } {
-	const stack = parseSyncBackfillPageStack(raw.get('stack'));
+	const stack = parseBlockspacePageStack(raw.get('stack'));
 	if (!stack) {
 		throw error(400, 'Invalid page stack');
 	}
 
 	return {
-		stack: stack.map(formatSyncBackfillPageStackEntry),
+		stack: stack.map(formatBlockspacePageStackEntry),
 		stackPages: stack
 	};
 }

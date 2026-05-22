@@ -9,7 +9,7 @@ import {
     parseOptionalInteger,
 } from "../../common/request-query.js";
 
-export type GetSyncBackfillStateRoute = {
+export type GetBlockspaceStateRoute = {
     Params: {
         chain_ref: string;
     };
@@ -17,9 +17,9 @@ export type GetSyncBackfillStateRoute = {
 
 type MaybePromise<T> = T | Promise<T>;
 
-export class GetSyncBackfillStateHttpAdapter {
+export class GetBlockspaceStateHttpAdapter {
     constructor(
-        private readonly getSyncBackfillStatePort:
+        private readonly getBlockspaceStatePort:
             | {
                   getState(
                       input: GetSyncBackfillStateInput,
@@ -31,12 +31,12 @@ export class GetSyncBackfillStateHttpAdapter {
     ) {}
 
     readonly handle = async (
-        request: FastifyRequest<GetSyncBackfillStateRoute>,
+        request: FastifyRequest<GetBlockspaceStateRoute>,
     ) => {
         const searchParams = getSearchParams(request);
         const collectionRef =
             this.fixedCollectionRef ?? searchParams.get("collection");
-        return this.getSyncBackfillStatePort.getState({
+        return this.getBlockspaceStatePort.getState({
             chainRef: request.params.chain_ref,
             collectionRef,
             pageStartBlock: parseOptionalInteger(

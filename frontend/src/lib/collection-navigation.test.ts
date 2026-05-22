@@ -42,7 +42,7 @@ describe('buildCollectionNavigation', () => {
 			'/ethereum/milady/activity?limit=25&kind=listings&media_mode=artifact&traits=Mode%3ATerrain'
 		);
 		expect(navigation.hrefs.holders).toBe('/ethereum/milady/holders?media_mode=artifact');
-		expect(navigation.hrefs.blockspace).toBe('/ethereum/sync-backfill?collection=milady');
+		expect(navigation.hrefs.blockspace).toBe('/ethereum/blockspace?collection=milady');
 	});
 
 	it('can hide blockspace navigation explicitly', () => {

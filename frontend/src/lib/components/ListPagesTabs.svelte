@@ -4,12 +4,12 @@
 		active = null
 	}: {
 		chainSlug: string | null;
-		active?: 'collections' | 'bootstrapping' | 'sync-backfill' | null;
+		active?: 'collections' | 'bootstrapping' | 'blockspace' | null;
 	} = $props();
 
 	let collectionsHref = $derived(chainSlug ? `/${chainSlug}` : '/');
 	let bootstrappingHref = $derived(chainSlug ? `/${chainSlug}/bootstrap-runs` : '#');
-	let syncBackfillHref = $derived(chainSlug ? `/${chainSlug}/sync-backfill` : '#');
+	let blockspaceHref = $derived(chainSlug ? `/${chainSlug}/blockspace` : '#');
 </script>
 
 <nav class="panel-header" aria-label="Collections tabs">
@@ -24,10 +24,10 @@
 		{:else}
 			<a href={bootstrappingHref}>bootstrapping</a>
 		{/if}
-		{#if active === 'sync-backfill'}
-			<span class="runtime-tab-active">sync/backfill</span>
+		{#if active === 'blockspace'}
+			<span class="runtime-tab-active">blockspace</span>
 		{:else}
-			<a href={syncBackfillHref}>sync/backfill</a>
+			<a href={blockspaceHref}>blockspace</a>
 		{/if}
 	</div>
 </nav>

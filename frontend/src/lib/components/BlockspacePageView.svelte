@@ -3,46 +3,46 @@
 	import { page } from '$app/state';
 	import { onMount, tick } from 'svelte';
 	import {
-		SYNC_BACKFILL_CONTEXT_ANY,
-		SYNC_BACKFILL_GRID_CELL_COUNT
-	} from '@artgod/shared/config/sync-backfill';
+		BLOCKSPACE_CONTEXT_ANY,
+		BLOCKSPACE_GRID_CELL_COUNT
+	} from '@artgod/shared/config/blockspace';
 	import type {
-		ApiSyncBackfillGridCell,
-		ApiSyncBackfillRangeSummary,
-		SyncBackfillRangeSummaryApiResponse,
-		SyncBackfillStateApiResponse
+		ApiBlockspaceGridCell,
+		ApiBlockspaceRangeSummary,
+		BlockspaceRangeSummaryApiResponse,
+		BlockspaceStateApiResponse
 	} from '$lib/api-types';
 	import {
-		getSyncBackfillRangeSummary,
-		getSyncBackfillState,
-		scheduleSyncBackfill
+		getBlockspaceRangeSummary,
+		getBlockspaceState,
+		scheduleBlockspaceBackfill
 	} from '$lib/backend-api';
-	import SyncBackfillIsometricGrid from '$lib/components/SyncBackfillIsometricGrid.svelte';
+	import BlockspaceIsometricGrid from '$lib/components/BlockspaceIsometricGrid.svelte';
 	import ListPagesTabs from '$lib/components/ListPagesTabs.svelte';
-	import SyncBackfillSummary from '$lib/components/SyncBackfillSummary.svelte';
+	import BlockspaceSummary from '$lib/components/BlockspaceSummary.svelte';
 	import { APP_VERSION } from '$lib/runtime/app-version';
-	import { buildSyncBackfillIsometricLevelRenderKey } from '$lib/sync-backfill-isometric-levels';
+	import { buildBlockspaceIsometricLevelRenderKey } from '$lib/blockspace-isometric-levels';
 	import type {
-		SyncBackfillIsometricAnchorLayout,
-		SyncBackfillIsometricPoint,
-		SyncBackfillVisibleLevel
-	} from '$lib/sync-backfill-isometric-levels';
+		BlockspaceIsometricAnchorLayout,
+		BlockspaceIsometricPoint,
+		BlockspaceVisibleLevel
+	} from '$lib/blockspace-isometric-levels';
 	import {
-		buildSyncBackfillStackFetchPlan,
-		buildSyncBackfillStackStateApiParams,
-		buildSyncBackfillVisibleLevels,
-		buildSyncBackfillVisibleStackPages,
-		formatSyncBackfillPageStackEntry,
-		parseSyncBackfillPageStack,
-		resolveSyncBackfillStackAnchorLevelKey,
-		type SyncBackfillStackPage
-	} from '$lib/sync-backfill-page-stack';
-	import { startSyncBackfillLiveRefresh } from '$lib/sync-backfill-live-refresh';
+		buildBlockspaceStackFetchPlan,
+		buildBlockspaceStackStateApiParams,
+		buildBlockspaceVisibleLevels,
+		buildBlockspaceVisibleStackPages,
+		formatBlockspacePageStackEntry,
+		parseBlockspacePageStack,
+		resolveBlockspaceStackAnchorLevelKey,
+		type BlockspaceStackPage
+	} from '$lib/blockspace-page-stack';
+	import { startBlockspaceLiveRefresh } from '$lib/blockspace-live-refresh';
 	import {
-		formatSyncBackfillAnchoredBlockDuration,
-		formatSyncBackfillBlockRange,
-		formatSyncBackfillInteger
-	} from '$lib/sync-backfill-format';
+		formatBlockspaceAnchoredBlockDuration,
+		formatBlockspaceBlockRange,
+		formatBlockspaceInteger
+	} from '$lib/blockspace-format';
 
 	type BlockRangeSelection = {
 		fromBlock: number;
@@ -61,7 +61,7 @@
 
 	type LevelRangeDetail = {
 		range: BlockRangeSelection;
-		summary: SyncBackfillRangeSummaryApiResponse | null;
+		summary: BlockspaceRangeSummaryApiResponse | null;
 		loading: boolean;
 		error: string | null;
 		requestId: number;
@@ -82,22 +82,22 @@
 
 	type ProjectionLine = {
 		key: string;
-		start: SyncBackfillIsometricPoint;
-		end: SyncBackfillIsometricPoint;
+		start: BlockspaceIsometricPoint;
+		end: BlockspaceIsometricPoint;
 	};
 
 	type ProjectionAnchorLayout = {
-		gridLeftCorner: SyncBackfillIsometricPoint;
-		gridRightCorner: SyncBackfillIsometricPoint;
-		sourceLeftCorner: SyncBackfillIsometricPoint | null;
-		sourceRightCorner: SyncBackfillIsometricPoint | null;
+		gridLeftCorner: BlockspaceIsometricPoint;
+		gridRightCorner: BlockspaceIsometricPoint;
+		sourceLeftCorner: BlockspaceIsometricPoint | null;
+		sourceRightCorner: BlockspaceIsometricPoint | null;
 	};
 
 	const PROJECTION_SOURCE_GAP_PX = 8;
 	const PROJECTION_TARGET_GAP_PX = 14;
 
 	let {
-		state: pageSyncState,
+		state: pageBlockspaceState,
 		levels: pageLevels = [],
 		basePath,
 		collection: pageCollection,
@@ -108,8 +108,8 @@
 		canCommitBackfill = true,
 		showPanelShell = true
 	}: {
-		state: SyncBackfillStateApiResponse | null;
-		levels?: SyncBackfillVisibleLevel[];
+		state: BlockspaceStateApiResponse | null;
+		levels?: BlockspaceVisibleLevel[];
 		basePath: string;
 		collection: string;
 		stack: string[];
@@ -120,8 +120,8 @@
 		showPanelShell?: boolean;
 	} = $props();
 
-	let syncState = $state<SyncBackfillStateApiResponse | null>(pageSyncState);
-	let levels = $state<SyncBackfillVisibleLevel[]>(pageLevels);
+	let blockspaceState = $state<BlockspaceStateApiResponse | null>(pageBlockspaceState);
+	let levels = $state<BlockspaceVisibleLevel[]>(pageLevels);
 	let collection = $state(pageCollection);
 	let stack = $state<string[]>(pageStack);
 	let submitting = $state(false);
@@ -139,18 +139,18 @@
 	let isometricAnchorLayouts = $state<Record<string, ProjectionAnchorLayout>>({});
 	let reservedLevelsLayoutHeight = $state(0);
 
-	let selectedCollection = $derived(syncState?.context.selected ?? collection ?? SYNC_BACKFILL_CONTEXT_ANY);
+	let selectedCollection = $derived(blockspaceState?.context.selected ?? collection ?? BLOCKSPACE_CONTEXT_ANY);
 	let currentPageKey = $derived(
-		syncState
-			? `${syncState.chain.slug}:${selectedCollection}:${syncState.range.fromBlock}:${syncState.range.toBlock}:${syncState.range.bucketSize}`
+		blockspaceState
+			? `${blockspaceState.chain.slug}:${selectedCollection}:${blockspaceState.range.fromBlock}:${blockspaceState.range.toBlock}:${blockspaceState.range.bucketSize}`
 			: null
 	);
 	let selectedRangeScopeKey = $derived(`${basePath}:${selectedCollection}`);
 	let visibleLevels = $derived(
 		levels.length > 0
 			? levels
-			: syncState
-				? [{ key: 'root', label: 'root', stack: [], state: syncState }]
+			: blockspaceState
+				? [{ key: 'root', label: 'root', stack: [], state: blockspaceState }]
 				: []
 	);
 	let routeStackNavigation = $derived(
@@ -179,8 +179,8 @@
 	let appliedRouteNavigationUrlKey: string | null = $state(null);
 
 	onMount(() => {
-		if (!syncState) return;
-		const refresh = startSyncBackfillLiveRefresh({ refresh: refreshVisibleStack });
+		if (!blockspaceState) return;
+		const refresh = startBlockspaceLiveRefresh({ refresh: refreshVisibleStack });
 		const handleKeydown = (event: KeyboardEvent) => {
 			if (event.key !== 'Escape' || !backfillSelectionMode) return;
 			event.preventDefault();
@@ -194,7 +194,7 @@
 	});
 
 	$effect(() => {
-		syncState = pageSyncState;
+		blockspaceState = pageBlockspaceState;
 		levels = pageLevels;
 		collection = pageCollection;
 		stack = pageStack;
@@ -221,7 +221,7 @@
 		if (routeStackNavigation.urlKey === appliedRouteNavigationUrlKey) return;
 		appliedRouteNavigationUrlKey = routeStackNavigation.urlKey;
 		if (routeStackNavigation.stackKey === stack.join(',')) return;
-		const anchorLevelKey = resolveSyncBackfillStackAnchorLevelKey(
+		const anchorLevelKey = resolveBlockspaceStackAnchorLevelKey(
 			stack,
 			routeStackNavigation.stack,
 			visibleLevels
@@ -259,7 +259,7 @@
 		if (
 			includeCollectionQueryParam &&
 			nextCollection &&
-			nextCollection !== SYNC_BACKFILL_CONTEXT_ANY
+			nextCollection !== BLOCKSPACE_CONTEXT_ANY
 		) {
 			query.set('collection', nextCollection);
 		}
@@ -274,11 +274,11 @@
 		url: URL,
 		collectionOverride: string | null = null
 	): RouteStackNavigation | null {
-		const parsedStack = parseSyncBackfillPageStack(url.searchParams.get('stack'));
+		const parsedStack = parseBlockspacePageStack(url.searchParams.get('stack'));
 		if (!parsedStack) return null;
-		const rawCollection = url.searchParams.get('collection')?.trim() || SYNC_BACKFILL_CONTEXT_ANY;
+		const rawCollection = url.searchParams.get('collection')?.trim() || BLOCKSPACE_CONTEXT_ANY;
 		const collection = collectionOverride ?? rawCollection;
-		const stack = parsedStack.map(formatSyncBackfillPageStackEntry);
+		const stack = parsedStack.map(formatBlockspacePageStackEntry);
 		return {
 			collection,
 			stack,
@@ -296,8 +296,8 @@
 
 	async function handleCellClick(
 		_event: MouseEvent,
-		level: SyncBackfillVisibleLevel,
-		cell: ApiSyncBackfillGridCell
+		level: BlockspaceVisibleLevel,
+		cell: ApiBlockspaceGridCell
 	): Promise<void> {
 		if (backfillSelectionMode) {
 			await handleBackfillSelectionClick(level, cell);
@@ -309,12 +309,12 @@
 		void loadRangeSummary('bucket', buildCellRangeSelection(level, cell));
 		if (!cell.canDrillDown) return;
 
-		const childBucketSize = level.state.range.bucketSize / SYNC_BACKFILL_GRID_CELL_COUNT;
+		const childBucketSize = level.state.range.bucketSize / BLOCKSPACE_GRID_CELL_COUNT;
 		if (!Number.isInteger(childBucketSize) || childBucketSize < 1) return;
 		await navigateToStack(
 			[
 				...level.stack,
-				formatSyncBackfillPageStackEntry({
+				formatBlockspacePageStackEntry({
 					pageStartBlock: cell.fromBlock,
 					bucketSize: childBucketSize
 				})
@@ -324,8 +324,8 @@
 	}
 
 	async function handleBackfillSelectionClick(
-		level: SyncBackfillVisibleLevel,
-		cell: ApiSyncBackfillGridCell
+		level: BlockspaceVisibleLevel,
+		cell: ApiBlockspaceGridCell
 	): Promise<void> {
 		if (cell.blockCount <= 0) return;
 		feedback = null;
@@ -352,7 +352,7 @@
 			markerBlock: cell.fromBlock
 		};
 		if (nextRange.toBlock < nextRange.fromBlock) {
-			feedback = `select to block >= ${formatSyncBackfillInteger(nextRange.fromBlock)}`;
+			feedback = `select to block >= ${formatBlockspaceInteger(nextRange.fromBlock)}`;
 			return;
 		}
 
@@ -363,7 +363,7 @@
 	}
 
 	function beginBackfillSelection(): void {
-		if (!syncState) return;
+		if (!blockspaceState) return;
 		backfillSelectionMode = true;
 		backfillSelectionFromBlock = null;
 		backfillSelectionLevelKey = null;
@@ -433,8 +433,8 @@
 	}
 
 	function buildCellRangeSelection(
-		level: SyncBackfillVisibleLevel,
-		cell: ApiSyncBackfillGridCell
+		level: BlockspaceVisibleLevel,
+		cell: ApiBlockspaceGridCell
 	): BlockRangeSelection {
 		return {
 			fromBlock: cell.fromBlock,
@@ -445,7 +445,7 @@
 		};
 	}
 
-	function handleIsometricAnchorLayout(layout: SyncBackfillIsometricAnchorLayout): void {
+	function handleIsometricAnchorLayout(layout: BlockspaceIsometricAnchorLayout): void {
 		if (!levelsLayoutElement) return;
 		const bounds = levelsLayoutElement.getBoundingClientRect();
 		const nextLayout = {
@@ -471,7 +471,7 @@
 		anchorLevelKey: string,
 		options: StackNavigationOptions = {}
 	): Promise<void> {
-		if (!syncState) return;
+		if (!blockspaceState) return;
 		const updateUrl = options.updateUrl ?? true;
 		const requestId = drilldownRequestId + 1;
 		drilldownRequestId = requestId;
@@ -482,8 +482,8 @@
 			if (drilldownRequestId !== requestId) return;
 			const nextState = states.at(-1);
 			if (!nextState) return;
-			syncState = nextState;
-			levels = buildSyncBackfillVisibleLevels(nextStack, states);
+			blockspaceState = nextState;
+			levels = buildBlockspaceVisibleLevels(nextStack, states);
 			collection = selectedCollection;
 			stack = nextStack;
 			await tick();
@@ -495,13 +495,13 @@
 			restoreLevelAnchor(anchorLevelKey, anchorTop);
 		} catch (error) {
 			if (drilldownRequestId === requestId) {
-				feedback = error instanceof Error ? error.message : 'sync level request failed';
+				feedback = error instanceof Error ? error.message : 'blockspace level request failed';
 			}
 		}
 	}
 
 	async function refreshVisibleStack(): Promise<void> {
-		if (!syncState) return;
+		if (!blockspaceState) return;
 		const requestId = liveRefreshRequestId + 1;
 		liveRefreshRequestId = requestId;
 		const refreshCollection = selectedCollection;
@@ -512,7 +512,7 @@
 		try {
 			const states = await fetchStackPages(
 				refreshCollection,
-				buildSyncBackfillVisibleStackPages(refreshStack)
+				buildBlockspaceVisibleStackPages(refreshStack)
 			);
 			if (
 				liveRefreshRequestId !== requestId ||
@@ -523,8 +523,8 @@
 			}
 			const nextState = states.at(-1);
 			if (!nextState) return;
-			syncState = nextState;
-			levels = buildSyncBackfillVisibleLevels(refreshStack, states);
+			blockspaceState = nextState;
+			levels = buildBlockspaceVisibleLevels(refreshStack, states);
 			collection = refreshCollection;
 			rangeDetailsLiveVersion += 1;
 			await tick();
@@ -537,22 +537,22 @@
 	async function fetchChangedStackStates(
 		nextCollection: string,
 		nextStack: string[]
-	): Promise<SyncBackfillStateApiResponse[]> {
-		const plan = buildSyncBackfillStackFetchPlan(stack, nextStack, visibleLevels);
+	): Promise<BlockspaceStateApiResponse[]> {
+		const plan = buildBlockspaceStackFetchPlan(stack, nextStack, visibleLevels);
 		const fetchedStates = await fetchStackPages(nextCollection, plan.pagesToFetch);
 		return [...plan.reusedStates, ...fetchedStates];
 	}
 
 	async function fetchStackPages(
 		nextCollection: string,
-		stackPages: SyncBackfillStackPage[]
-	): Promise<SyncBackfillStateApiResponse[]> {
-		if (!syncState) return [];
-		const chainSlug = syncState.chain.slug;
+		stackPages: BlockspaceStackPage[]
+	): Promise<BlockspaceStateApiResponse[]> {
+		if (!blockspaceState) return [];
+		const chainSlug = blockspaceState.chain.slug;
 		return Promise.all(
-			buildSyncBackfillStackStateApiParams(nextCollection, stackPages).map((apiParams) => {
+			buildBlockspaceStackStateApiParams(nextCollection, stackPages).map((apiParams) => {
 				// Fetch visible level state directly so component-owned refreshes avoid route reloads.
-				return getSyncBackfillState(fetch, chainSlug, apiParams);
+				return getBlockspaceState(fetch, chainSlug, apiParams);
 			})
 		);
 	}
@@ -573,9 +573,9 @@
 
 	function findLevelAnchor(levelKey: string): HTMLElement | null {
 		if (!levelsLayoutElement) return null;
-		const anchors = levelsLayoutElement.querySelectorAll<HTMLElement>('[data-sync-level-anchor]');
+		const anchors = levelsLayoutElement.querySelectorAll<HTMLElement>('[data-blockspace-level-anchor]');
 		return (
-			Array.from(anchors).find((element) => element.dataset.syncLevelAnchor === levelKey) ?? null
+			Array.from(anchors).find((element) => element.dataset.blockspaceLevelAnchor === levelKey) ?? null
 		);
 	}
 
@@ -595,7 +595,7 @@
 		range: BlockRangeSelection,
 		options: RangeSummaryLoadOptions = {}
 	): Promise<void> {
-		if (!syncState || range.fromBlock > range.toBlock) return;
+		if (!blockspaceState || range.fromBlock > range.toBlock) return;
 		const showLoading = options.showLoading ?? true;
 		const showError = options.showError ?? true;
 		const requestId = selectedRangeRequestSequence + 1;
@@ -614,10 +614,10 @@
 			const params = new URLSearchParams();
 			params.set('from_block', String(range.fromBlock));
 			params.set('to_block', String(range.toBlock));
-			if (selectedCollection !== SYNC_BACKFILL_CONTEXT_ANY) {
+			if (selectedCollection !== BLOCKSPACE_CONTEXT_ANY) {
 				params.set('collection', selectedCollection);
 			}
-			const summary = await getSyncBackfillRangeSummary(fetch, syncState.chain.slug, params);
+			const summary = await getBlockspaceRangeSummary(fetch, blockspaceState.chain.slug, params);
 			updateRangeDetail(target, range.levelKey, requestId, (detail) => ({
 				...detail,
 				summary: {
@@ -680,13 +680,13 @@
 	}
 
 	async function commitBackfillSelection(): Promise<void> {
-		if (!canCommitBackfill || !syncState || !backfillSelectionRange) return;
+		if (!canCommitBackfill || !blockspaceState || !backfillSelectionRange) return;
 		submitting = true;
 		feedback = null;
 		try {
-			const result = await scheduleSyncBackfill(fetch, syncState.chain.slug, {
+			const result = await scheduleBlockspaceBackfill(fetch, blockspaceState.chain.slug, {
 				collectionRef:
-					selectedCollection === SYNC_BACKFILL_CONTEXT_ANY ? null : selectedCollection,
+					selectedCollection === BLOCKSPACE_CONTEXT_ANY ? null : selectedCollection,
 				fromBlock: backfillSelectionRange.fromBlock,
 				toBlock: backfillSelectionRange.toBlock
 			});
@@ -704,49 +704,49 @@
 		}
 	}
 
-	function cellClass(level: SyncBackfillVisibleLevel, cell: ApiSyncBackfillGridCell): string {
-		const classes = ['sync-isometric-tile', `sync-isometric-tile-${cell.state}`];
+	function cellClass(level: BlockspaceVisibleLevel, cell: ApiBlockspaceGridCell): string {
+		const classes = ['blockspace-isometric-tile', `blockspace-isometric-tile-${cell.state}`];
 		if (cell.blockCount <= 0) {
-			classes.push('sync-isometric-tile-disabled');
+			classes.push('blockspace-isometric-tile-disabled');
 		}
 		if (cell.collectionDeploymentBlock) {
 			classes.push(
 				cell.collectionDeploymentBlock.synced
-					? 'sync-isometric-tile-deployment-synced'
-					: 'sync-isometric-tile-deployment-unsynced'
+					? 'blockspace-isometric-tile-deployment-synced'
+					: 'blockspace-isometric-tile-deployment-unsynced'
 			);
 		}
 		if (isSelectionCell(level.key, cell)) {
-			classes.push('sync-isometric-tile-selected');
+			classes.push('blockspace-isometric-tile-selected');
 		}
 		if (!backfillSelectionMode && isActiveBucketCell(level.key, cell)) {
-			classes.push('sync-isometric-tile-active');
+			classes.push('blockspace-isometric-tile-active');
 		}
 		return classes.join(' ');
 	}
 
-	function cellLabel(level: SyncBackfillVisibleLevel, cell: ApiSyncBackfillGridCell): string {
+	function cellLabel(level: BlockspaceVisibleLevel, cell: ApiBlockspaceGridCell): string {
 		const range = formatRange(cell.fromBlock, cell.toBlock, cell.blockCount);
 		const duration =
 			cell.blockCount > 0
 				? `, ${formatVisibleBlockDuration(level.state, cell.blockCount)}`
 				: '';
 		const marker = cell.collectionDeploymentBlock
-			? `, deployment block ${formatSyncBackfillInteger(cell.collectionDeploymentBlock.blockNumber)} ${
+			? `, deployment block ${formatBlockspaceInteger(cell.collectionDeploymentBlock.blockNumber)} ${
 					cell.collectionDeploymentBlock.synced ? 'synced' : 'not synced'
 				}`
 			: '';
 		const action = resolveCellActionLabel(cell);
-		return `${range}: ${formatSyncBackfillInteger(cell.syncedBlockCount)}/${formatSyncBackfillInteger(cell.blockCount)} synced${duration}${marker}${action}`;
+		return `${range}: ${formatBlockspaceInteger(cell.syncedBlockCount)}/${formatBlockspaceInteger(cell.blockCount)} synced${duration}${marker}${action}`;
 	}
 
 	function formatRange(fromBlock: number, toBlock: number, blockCount: number): string {
 		if (blockCount <= 0) return 'outside range';
-		if (fromBlock === toBlock) return `block ${formatSyncBackfillInteger(fromBlock)}`;
-		return formatSyncBackfillBlockRange(fromBlock, toBlock);
+		if (fromBlock === toBlock) return `block ${formatBlockspaceInteger(fromBlock)}`;
+		return formatBlockspaceBlockRange(fromBlock, toBlock);
 	}
 
-	function resolveCellActionLabel(cell: ApiSyncBackfillGridCell): string {
+	function resolveCellActionLabel(cell: ApiBlockspaceGridCell): string {
 		if (backfillSelectionMode) {
 			return backfillSelectionFromBlock === null
 				? ', click to select from block'
@@ -757,7 +757,7 @@
 		return '';
 	}
 
-	function isSelectionCell(levelKey: string, cell: ApiSyncBackfillGridCell): boolean {
+	function isSelectionCell(levelKey: string, cell: ApiBlockspaceGridCell): boolean {
 		if (!backfillSelectionMode || cell.blockCount <= 0) return false;
 		if (backfillSelectionRange) {
 			if (backfillSelectionRange.levelKey !== levelKey) return false;
@@ -767,7 +767,7 @@
 		return rangeContainsBlock(cell, backfillSelectionFromBlock);
 	}
 
-	function isActiveBucketCell(levelKey: string, cell: ApiSyncBackfillGridCell): boolean {
+	function isActiveBucketCell(levelKey: string, cell: ApiBlockspaceGridCell): boolean {
 		const detail = selectedBucketDetailsByLevel[levelKey];
 		return Boolean(detail && rangeContainsBlock(cell, detail.range.markerBlock));
 	}
@@ -783,21 +783,21 @@
 		return detail ? [detail] : [];
 	}
 
-	function rangesOverlap(cell: ApiSyncBackfillGridCell, range: BlockRangeSelection): boolean {
+	function rangesOverlap(cell: ApiBlockspaceGridCell, range: BlockRangeSelection): boolean {
 		return cell.fromBlock <= range.toBlock && range.fromBlock <= cell.toBlock;
 	}
 
 	function rangeContainsBlock(
-		cell: ApiSyncBackfillGridCell,
+		cell: ApiBlockspaceGridCell,
 		blockNumber: number | null
 	): boolean {
 		return blockNumber !== null && cell.fromBlock <= blockNumber && blockNumber <= cell.toBlock;
 	}
 
 	function resolveProjectionSourceCell(
-		level: SyncBackfillVisibleLevel,
+		level: BlockspaceVisibleLevel,
 		levelIndex: number
-	): ApiSyncBackfillGridCell | null {
+	): ApiBlockspaceGridCell | null {
 		const childLevel = visibleLevels[levelIndex + 1];
 		if (!childLevel) return null;
 		return (
@@ -810,7 +810,7 @@
 	}
 
 	function resolveProjectionLines(
-		levels: SyncBackfillVisibleLevel[],
+		levels: BlockspaceVisibleLevel[],
 		anchors: Record<string, ProjectionAnchorLayout>
 	): ProjectionLine[] {
 		const lines: ProjectionLine[] = [];
@@ -842,9 +842,9 @@
 	}
 
 	function insetProjectionLine(
-		start: SyncBackfillIsometricPoint,
-		end: SyncBackfillIsometricPoint
-	): { start: SyncBackfillIsometricPoint; end: SyncBackfillIsometricPoint } {
+		start: BlockspaceIsometricPoint,
+		end: BlockspaceIsometricPoint
+	): { start: BlockspaceIsometricPoint; end: BlockspaceIsometricPoint } {
 		const deltaX = end.x - start.x;
 		const deltaY = end.y - start.y;
 		const length = Math.hypot(deltaX, deltaY);
@@ -866,9 +866,9 @@
 	}
 
 	function toLayoutPoint(
-		point: SyncBackfillIsometricPoint,
+		point: BlockspaceIsometricPoint,
 		bounds: DOMRect
-	): SyncBackfillIsometricPoint {
+	): BlockspaceIsometricPoint {
 		return {
 			x: point.x - bounds.left,
 			y: point.y - bounds.top
@@ -888,21 +888,21 @@
 	}
 
 	function nullablePointsEqual(
-		left: SyncBackfillIsometricPoint | null,
-		right: SyncBackfillIsometricPoint | null
+		left: BlockspaceIsometricPoint | null,
+		right: BlockspaceIsometricPoint | null
 	): boolean {
 		if (left === null || right === null) return left === right;
 		return pointsEqual(left, right);
 	}
 
 	function pointsEqual(
-		left: SyncBackfillIsometricPoint,
-		right: SyncBackfillIsometricPoint
+		left: BlockspaceIsometricPoint,
+		right: BlockspaceIsometricPoint
 	): boolean {
 		return Math.abs(left.x - right.x) < 0.5 && Math.abs(left.y - right.y) < 0.5;
 	}
 
-	function buildLevelSummaryRange(level: SyncBackfillVisibleLevel): ApiSyncBackfillRangeSummary {
+	function buildLevelSummaryRange(level: BlockspaceVisibleLevel): ApiBlockspaceRangeSummary {
 		return {
 			fromBlock: level.state.range.fromBlock,
 			toBlock: level.state.range.toBlock,
@@ -914,10 +914,10 @@
 	}
 
 	function formatVisibleBlockDuration(
-		state: SyncBackfillStateApiResponse,
+		state: BlockspaceStateApiResponse,
 		blockCount: number
 	): string {
-		return formatSyncBackfillAnchoredBlockDuration({
+		return formatBlockspaceAnchoredBlockDuration({
 			blockCount,
 			pageBlockCount: state.range.blockCount,
 			pageDurationSeconds: state.range.time.durationSeconds,
@@ -927,24 +927,24 @@
 
 </script>
 
-{#snippet syncBackfillContent()}
-	<header class="panel-header sync-backfill-controls-header">
+{#snippet blockspaceContent()}
+	<header class="panel-header blockspace-controls-header">
 		<div>
 			<p class="panel-subtitle">
-				{#if syncState}
-					{syncState.chain.name} ({syncState.chain.slug} / {syncState.chain.publicChainId})
+				{#if blockspaceState}
+					{blockspaceState.chain.name} ({blockspaceState.chain.slug} / {blockspaceState.chain.publicChainId})
 				{:else}
 					Loading chain...
 				{/if}
 			</p>
 		</div>
-		<div class="sync-toolbar">
+		<div class="blockspace-toolbar">
 			{#if showContextSelector}
-				<label class="status-form" for="sync-collection">
+				<label class="status-form" for="blockspace-collection">
 					<span>context</span>
-					<select id="sync-collection" value={selectedCollection} onchange={onCollectionChange}>
-						<option value={SYNC_BACKFILL_CONTEXT_ANY}>any</option>
-						{#each syncState?.context.collections ?? [] as option}
+					<select id="blockspace-collection" value={selectedCollection} onchange={onCollectionChange}>
+						<option value={BLOCKSPACE_CONTEXT_ANY}>any</option>
+						{#each blockspaceState?.context.collections ?? [] as option}
 							<option value={option.slug}>{option.slug}</option>
 						{/each}
 					</select>
@@ -952,8 +952,8 @@
 			{/if}
 			<div
 				class={backfillSelectionMode
-					? 'sync-backfill-actions sync-backfill-actions-selection'
-					: 'sync-backfill-actions'}
+					? 'blockspace-actions blockspace-actions-selection'
+					: 'blockspace-actions'}
 			>
 				{#if backfillSelectionMode}
 					<button
@@ -973,7 +973,7 @@
 						{submitting ? 'queueing...' : 'commit to backfill'}
 					</button>
 				{:else}
-					<button type="button" onclick={beginBackfillSelection} disabled={!syncState || submitting}>
+					<button type="button" onclick={beginBackfillSelection} disabled={!blockspaceState || submitting}>
 						backfill range
 					</button>
 				{/if}
@@ -984,19 +984,19 @@
 		</div>
 	</header>
 
-	{#if syncState}
-		<div class="sync-backfill-content">
+	{#if blockspaceState}
+		<div class="blockspace-content">
 			<div
-				class="sync-levels-layout"
+				class="blockspace-levels-layout"
 				style:min-height={reservedLevelsLayoutHeight > 0
 					? `${reservedLevelsLayoutHeight}px`
 					: undefined}
 				bind:this={levelsLayoutElement}
 			>
-				<svg class="sync-projection-overlay" aria-hidden="true">
+				<svg class="blockspace-projection-overlay" aria-hidden="true">
 					{#each projectionLines as line (line.key)}
 						<line
-							class="sync-projection-line"
+							class="blockspace-projection-line"
 							x1={line.start.x}
 							y1={line.start.y}
 							x2={line.end.x}
@@ -1005,19 +1005,19 @@
 					{/each}
 				</svg>
 				{#each visibleLevels as level, levelIndex (levelIndex)}
-					<section class="sync-level-row" aria-label={`${level.label} sync level`}>
-						<aside class="sync-level-summary-panel">
-							<SyncBackfillSummary
+					<section class="blockspace-level-row" aria-label={`${level.label} blockspace level`}>
+						<aside class="blockspace-level-summary-panel">
+							<BlockspaceSummary
 								chain={level.state.chain}
 								range={buildLevelSummaryRange(level)}
-								ariaLabel={`${level.label} sync summary`}
+								ariaLabel={`${level.label} blockspace summary`}
 							/>
 						</aside>
-						<div class="sync-grid-wrap" data-sync-level-anchor={level.key}>
-							<SyncBackfillIsometricGrid
+						<div class="blockspace-grid-wrap" data-blockspace-level-anchor={level.key}>
+							<BlockspaceIsometricGrid
 								{level}
 								selectionMode={backfillSelectionMode}
-								renderKey={`${isometricRenderKey}:${buildSyncBackfillIsometricLevelRenderKey(level)}`}
+								renderKey={`${isometricRenderKey}:${buildBlockspaceIsometricLevelRenderKey(level)}`}
 								projectionSourceCell={resolveProjectionSourceCell(level, levelIndex)}
 								resolveCellClass={cellClass}
 								resolveCellLabel={cellLabel}
@@ -1025,15 +1025,15 @@
 								onAnchorLayout={handleIsometricAnchorLayout}
 							/>
 						</div>
-						<aside class="sync-level-selection-panel">
+						<aside class="blockspace-level-selection-panel">
 							{#each selectedBucketDetailForLevel(level.key) as selectedBucketDetail}
-								<div class="sync-level-detail-panel">
+								<div class="blockspace-level-detail-panel">
 									{#if selectedBucketDetail.loading}
-										<div class="sync-range-detail-status muted">loading range</div>
+										<div class="blockspace-range-detail-status muted">loading range</div>
 									{:else if selectedBucketDetail.error}
-										<div class="sync-range-detail-status muted">{selectedBucketDetail.error}</div>
+										<div class="blockspace-range-detail-status muted">{selectedBucketDetail.error}</div>
 									{:else if selectedBucketDetail.summary}
-										<SyncBackfillSummary
+										<BlockspaceSummary
 											chain={selectedBucketDetail.summary.chain}
 											range={selectedBucketDetail.summary.range}
 											observedLabel="selected"
@@ -1043,17 +1043,17 @@
 								</div>
 							{/each}
 							{#each selectedBackfillRangeDetailForLevel(level.key) as selectedBackfillRangeDetail}
-								<div class="sync-level-detail-panel sync-level-detail-panel-backfill">
+								<div class="blockspace-level-detail-panel blockspace-level-detail-panel-backfill">
 									{#if selectedBackfillRangeDetail.loading}
-										<div class="sync-range-detail-status sync-range-detail-status-backfill muted">
+										<div class="blockspace-range-detail-status blockspace-range-detail-status-backfill muted">
 											loading range
 										</div>
 									{:else if selectedBackfillRangeDetail.error}
-										<div class="sync-range-detail-status sync-range-detail-status-backfill muted">
+										<div class="blockspace-range-detail-status blockspace-range-detail-status-backfill muted">
 											{selectedBackfillRangeDetail.error}
 										</div>
 									{:else if selectedBackfillRangeDetail.summary}
-										<SyncBackfillSummary
+										<BlockspaceSummary
 											chain={selectedBackfillRangeDetail.summary.chain}
 											range={selectedBackfillRangeDetail.summary.range}
 											observedLabel="selected"
@@ -1069,7 +1069,7 @@
 
 		</div>
 	{:else}
-		<div class="empty-cell">loading sync state</div>
+		<div class="empty-cell">loading blockspace state</div>
 	{/if}
 {/snippet}
 
@@ -1080,11 +1080,11 @@
 		</header>
 
 		{#if showListNavigation}
-			<ListPagesTabs chainSlug={syncState?.chain.slug ?? null} active="sync-backfill" />
+			<ListPagesTabs chainSlug={blockspaceState?.chain.slug ?? null} active="blockspace" />
 		{/if}
 
-		{@render syncBackfillContent()}
+		{@render blockspaceContent()}
 	</section>
 {:else}
-	{@render syncBackfillContent()}
+	{@render blockspaceContent()}
 {/if}

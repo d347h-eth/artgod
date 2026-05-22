@@ -83,17 +83,17 @@ import type {
     ListCollectionsRoute,
 } from "./http/handlers/collections/list-collections.js";
 import type {
-    GetSyncBackfillRangeSummaryHttpAdapter,
-    GetSyncBackfillRangeSummaryRoute,
-} from "./http/handlers/sync-backfill/get-sync-backfill-range-summary.js";
+    GetBlockspaceRangeSummaryHttpAdapter,
+    GetBlockspaceRangeSummaryRoute,
+} from "./http/handlers/blockspace/get-blockspace-range-summary.js";
 import type {
-    GetSyncBackfillStateHttpAdapter,
-    GetSyncBackfillStateRoute,
-} from "./http/handlers/sync-backfill/get-sync-backfill-state.js";
+    GetBlockspaceStateHttpAdapter,
+    GetBlockspaceStateRoute,
+} from "./http/handlers/blockspace/get-blockspace-state.js";
 import type {
-    ScheduleSyncBackfillHttpAdapter,
-    ScheduleSyncBackfillRoute,
-} from "./http/handlers/sync-backfill/schedule-sync-backfill.js";
+    ScheduleBlockspaceBackfillHttpAdapter,
+    ScheduleBlockspaceBackfillRoute,
+} from "./http/handlers/blockspace/schedule-blockspace-backfill.js";
 import type {
     GetRuntimeHealthHttpAdapter,
     GetRuntimeHealthRoute,
@@ -225,11 +225,11 @@ export function registerApiRoutes(
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     getRuntimeConfigAdapter: GetRuntimeConfigHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
-    getSyncBackfillStateAdapter: GetSyncBackfillStateHttpAdapter,
-    getSyncBackfillRangeSummaryAdapter: GetSyncBackfillRangeSummaryHttpAdapter,
-    publicGetSyncBackfillStateAdapter: GetSyncBackfillStateHttpAdapter | null,
-    publicGetSyncBackfillRangeSummaryAdapter: GetSyncBackfillRangeSummaryHttpAdapter | null,
-    scheduleSyncBackfillAdapter: ScheduleSyncBackfillHttpAdapter,
+    getBlockspaceStateAdapter: GetBlockspaceStateHttpAdapter,
+    getBlockspaceRangeSummaryAdapter: GetBlockspaceRangeSummaryHttpAdapter,
+    publicGetBlockspaceStateAdapter: GetBlockspaceStateHttpAdapter | null,
+    publicGetBlockspaceRangeSummaryAdapter: GetBlockspaceRangeSummaryHttpAdapter | null,
+    scheduleBlockspaceBackfillAdapter: ScheduleBlockspaceBackfillHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
     getActivityEventPreviewAdapter: GetActivityEventPreviewHttpAdapter,
@@ -301,23 +301,23 @@ export function registerApiRoutes(
     );
     if (
         options.publicCollectionScope &&
-        publicGetSyncBackfillStateAdapter &&
-        publicGetSyncBackfillRangeSummaryAdapter
+        publicGetBlockspaceStateAdapter &&
+        publicGetBlockspaceRangeSummaryAdapter
     ) {
-        registerObservedGet<GetSyncBackfillStateRoute>(
+        registerObservedGet<GetBlockspaceStateRoute>(
             app,
             options,
-            "/api/:chain_ref/sync-backfill",
-            publicGetSyncBackfillStateAdapter.handle,
+            "/api/:chain_ref/blockspace",
+            publicGetBlockspaceStateAdapter.handle,
             {
                 preHandler: publicChainScopeGuard,
             },
         );
-        registerObservedGet<GetSyncBackfillRangeSummaryRoute>(
+        registerObservedGet<GetBlockspaceRangeSummaryRoute>(
             app,
             options,
-            "/api/:chain_ref/sync-backfill/range",
-            publicGetSyncBackfillRangeSummaryAdapter.handle,
+            "/api/:chain_ref/blockspace/range",
+            publicGetBlockspaceRangeSummaryAdapter.handle,
             {
                 preHandler: publicChainScopeGuard,
             },
@@ -436,23 +436,23 @@ export function registerApiRoutes(
         "/api/:chain_ref/collections",
         listCollectionsAdapter.handle,
     );
-    registerObservedGet<GetSyncBackfillStateRoute>(
+    registerObservedGet<GetBlockspaceStateRoute>(
         app,
         options,
-        "/api/:chain_ref/sync-backfill",
-        getSyncBackfillStateAdapter.handle,
+        "/api/:chain_ref/blockspace",
+        getBlockspaceStateAdapter.handle,
     );
-    registerObservedGet<GetSyncBackfillRangeSummaryRoute>(
+    registerObservedGet<GetBlockspaceRangeSummaryRoute>(
         app,
         options,
-        "/api/:chain_ref/sync-backfill/range",
-        getSyncBackfillRangeSummaryAdapter.handle,
+        "/api/:chain_ref/blockspace/range",
+        getBlockspaceRangeSummaryAdapter.handle,
     );
-    registerObservedPost<ScheduleSyncBackfillRoute>(
+    registerObservedPost<ScheduleBlockspaceBackfillRoute>(
         app,
         options,
-        "/api/:chain_ref/sync-backfill/backfill",
-        scheduleSyncBackfillAdapter.handle,
+        "/api/:chain_ref/blockspace/backfill",
+        scheduleBlockspaceBackfillAdapter.handle,
     );
     registerObservedGet<GetCollectionCustomizationRoute>(
         app,

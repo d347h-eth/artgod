@@ -10,7 +10,7 @@ import {
     parseOptionalInteger,
 } from "../../common/request-query.js";
 
-export type GetSyncBackfillRangeSummaryRoute = {
+export type GetBlockspaceRangeSummaryRoute = {
     Params: {
         chain_ref: string;
     };
@@ -18,9 +18,9 @@ export type GetSyncBackfillRangeSummaryRoute = {
 
 type MaybePromise<T> = T | Promise<T>;
 
-export class GetSyncBackfillRangeSummaryHttpAdapter {
+export class GetBlockspaceRangeSummaryHttpAdapter {
     constructor(
-        private readonly getSyncBackfillRangeSummaryPort:
+        private readonly getBlockspaceRangeSummaryPort:
             | {
                   getRangeSummary(
                       input: GetSyncBackfillRangeSummaryInput,
@@ -31,12 +31,12 @@ export class GetSyncBackfillRangeSummaryHttpAdapter {
     ) {}
 
     readonly handle = async (
-        request: FastifyRequest<GetSyncBackfillRangeSummaryRoute>,
+        request: FastifyRequest<GetBlockspaceRangeSummaryRoute>,
     ) => {
         const searchParams = getSearchParams(request);
         const collectionRef =
             this.fixedCollectionRef ?? searchParams.get("collection");
-        return this.getSyncBackfillRangeSummaryPort.getRangeSummary({
+        return this.getBlockspaceRangeSummaryPort.getRangeSummary({
             chainRef: request.params.chain_ref,
             collectionRef,
             fromBlock: parseRequiredInteger(searchParams, "from_block"),

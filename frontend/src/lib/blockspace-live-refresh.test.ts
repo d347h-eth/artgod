@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startSyncBackfillLiveRefresh } from './sync-backfill-live-refresh';
+import { startBlockspaceLiveRefresh } from './blockspace-live-refresh';
 
-describe('sync backfill live refresh', () => {
+describe('blockspace live refresh', () => {
 	afterEach(() => {
 		vi.useRealTimers();
 	});
 
-	it('refreshes sync backfill state on each interval', async () => {
+	it('refreshes blockspace state on each interval', async () => {
 		vi.useFakeTimers();
 		const refreshState = vi.fn().mockResolvedValue(undefined);
-		const refresh = startSyncBackfillLiveRefresh({ refresh: refreshState, intervalMs: 100 });
+		const refresh = startBlockspaceLiveRefresh({ refresh: refreshState, intervalMs: 100 });
 
 		await vi.advanceTimersByTimeAsync(100);
 		await vi.advanceTimersByTimeAsync(100);
@@ -27,7 +27,7 @@ describe('sync backfill live refresh', () => {
 					resolveRefresh = resolve;
 				})
 		);
-		const refresh = startSyncBackfillLiveRefresh({ refresh: refreshState, intervalMs: 100 });
+		const refresh = startBlockspaceLiveRefresh({ refresh: refreshState, intervalMs: 100 });
 
 		await vi.advanceTimersByTimeAsync(300);
 		expect(refreshState).toHaveBeenCalledTimes(1);
@@ -41,7 +41,7 @@ describe('sync backfill live refresh', () => {
 	it('stops interval refresh', async () => {
 		vi.useFakeTimers();
 		const refreshState = vi.fn().mockResolvedValue(undefined);
-		const refresh = startSyncBackfillLiveRefresh({ refresh: refreshState, intervalMs: 100 });
+		const refresh = startBlockspaceLiveRefresh({ refresh: refreshState, intervalMs: 100 });
 
 		refresh.stop();
 		await vi.advanceTimersByTimeAsync(300);

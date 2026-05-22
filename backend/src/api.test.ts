@@ -853,17 +853,17 @@ describe("backend api routes", () => {
         );
     });
 
-    it("returns chain sync/backfill state on the local API", async () => {
-        const result = await resolve("GET", "/api/ethereum/sync-backfill");
+    it("returns chain blockspace state on the local API", async () => {
+        const result = await resolve("GET", "/api/ethereum/blockspace");
 
         expect(result.statusCode).toBe(200);
         expect(result.payload.range.gridCellCount).toBe(1024);
     });
 
-    it("returns a sync/backfill range summary on the local API", async () => {
+    it("returns a blockspace range summary on the local API", async () => {
         const result = await resolve(
             "GET",
-            "/api/ethereum/sync-backfill/range?from_block=0&to_block=0",
+            "/api/ethereum/blockspace/range?from_block=0&to_block=0",
         );
 
         expect(result.statusCode).toBe(200);
@@ -876,13 +876,13 @@ describe("backend api routes", () => {
         });
     });
 
-    it("returns public sync/backfill reads scoped to Terraforms", async () => {
+    it("returns public blockspace reads scoped to Terraforms", async () => {
         syncBackfillStateInputs = [];
         syncBackfillRangeInputs = [];
 
         const state = await resolvePublic(
             "GET",
-            "/api/ethereum/sync-backfill?collection=any",
+            "/api/ethereum/blockspace?collection=any",
         );
         expect(state.statusCode).toBe(200);
         expect(syncBackfillStateInputs.at(-1)).toMatchObject({
@@ -895,7 +895,7 @@ describe("backend api routes", () => {
 
         const range = await resolvePublic(
             "GET",
-            "/api/ethereum/sync-backfill/range?collection=any&from_block=0&to_block=0",
+            "/api/ethereum/blockspace/range?collection=any&from_block=0&to_block=0",
         );
         expect(range.statusCode).toBe(200);
         expect(syncBackfillRangeInputs.at(-1)).toMatchObject({
@@ -941,13 +941,13 @@ describe("backend api routes", () => {
 
         const syncBackfillWriteGet = await resolvePublic(
             "GET",
-            "/api/ethereum/sync-backfill/backfill",
+            "/api/ethereum/blockspace/backfill",
         );
         expect(syncBackfillWriteGet.statusCode).toBe(404);
 
         const syncBackfillWritePost = await resolvePublic(
             "POST",
-            "/api/ethereum/sync-backfill/backfill",
+            "/api/ethereum/blockspace/backfill",
             { fromBlock: 0, toBlock: 0 },
         );
         expect(syncBackfillWritePost.statusCode).toBe(403);
