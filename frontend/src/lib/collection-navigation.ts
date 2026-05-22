@@ -101,7 +101,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	const defaultBiddingVisibility = state.bidding?.enabled ?? true;
 	const showBiddingOffers = state.bidding?.showOffers ?? defaultBiddingVisibility;
 	const showBiddingJobs = state.bidding?.showJobs ?? defaultBiddingVisibility;
-	const showBlockspace = state.blockspace?.enabled ?? IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT;
+	const blockspaceHref = resolveBlockspaceHref(normalizedBasePath);
+	const showBlockspace = (state.blockspace?.enabled ?? true) && blockspaceHref !== null;
 
 	const tokenQuery = buildCollectionTokenNavigationQuery({
 		limit: tokenLimit,
@@ -178,7 +179,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			tokens: tokenStatusHref('all'),
 			bidding: biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.Jobs),
 			holders: withQuery(joinPath(normalizedBasePath, 'holders'), holdersQuery),
-			blockspace: showBlockspace ? publicCollectionBlockspacePath() : null,
+			blockspace: showBlockspace ? blockspaceHref : null,
 			customization: buildCollectionCustomizationHref({
 				basePath: normalizedBasePath,
 				selectedTraits: state.selectedTraits,
@@ -191,6 +192,18 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			biddingView: biddingViewHref
 		}
 	};
+}
+
+function resolveBlockspaceHref(basePath: string): string | null {
+	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+		return publicCollectionBlockspacePath();
+	}
+
+	const [chainRef, collectionRef] = basePath.split('/').filter(Boolean);
+	if (!chainRef || !collectionRef) return null;
+	const query = new URLSearchParams();
+	query.set('collection', collectionRef);
+	return withQuery(`/${encodeURIComponent(chainRef)}/sync-backfill`, query);
 }
 
 // Applies collection-level numeric navigation after modal/text-input guards in page key handlers.

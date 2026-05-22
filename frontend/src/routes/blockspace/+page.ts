@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import { BackendApiError, getSyncBackfillState } from '$lib/backend-api';
+import { BackendApiError, getCollectionDetail, getSyncBackfillState } from '$lib/backend-api';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE,
@@ -27,14 +27,22 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	const query = normalizePublicBlockspaceParams(url.searchParams);
 	try {
 		// Fetch the public collection's visible blockspace path without exposing other contexts.
-		const states = await Promise.all(
-			buildSyncBackfillStackStateApiParams(
+		const [states, collectionResponse] = await Promise.all([
+			Promise.all(
+				buildSyncBackfillStackStateApiParams(
+					publicScope.collectionRef,
+					buildSyncBackfillVisibleStackPagesFromEntries(query.stackPages)
+				).map((apiParams) =>
+					getSyncBackfillState(fetch, publicScope.chainRef, apiParams)
+				)
+			),
+			getCollectionDetail(
+				fetch,
+				publicScope.chainRef,
 				publicScope.collectionRef,
-				buildSyncBackfillVisibleStackPagesFromEntries(query.stackPages)
-			).map((apiParams) =>
-				getSyncBackfillState(fetch, publicScope.chainRef, apiParams)
+				minimalCollectionQuery()
 			)
-		);
+		]);
 		const state = states.at(-1) ?? null;
 		if (!state) {
 			throw error(500, 'Backend request failed');
@@ -44,6 +52,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			levels: buildSyncBackfillVisibleLevels(query.stack, states),
 			basePath: publicCollectionBlockspacePath(),
 			collection: publicScope.collectionRef,
+			collectionDetail: collectionResponse.collection,
 			stack: query.stack
 		};
 	} catch (cause) {
@@ -64,6 +73,12 @@ function normalizePublicBlockspaceParams(raw: URLSearchParams): {
 		stack: stack.map(formatSyncBackfillPageStackEntry),
 		stackPages: stack
 	};
+}
+
+function minimalCollectionQuery(): URLSearchParams {
+	const params = new URLSearchParams();
+	params.set('limit', '1');
+	return params;
 }
 
 function toKitError(cause: unknown): never {

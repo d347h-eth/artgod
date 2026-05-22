@@ -3,7 +3,7 @@
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
 	import SyncBackfillPageView from '$lib/components/SyncBackfillPageView.svelte';
-	import type { SyncBackfillStateApiResponse } from '$lib/api-types';
+	import type { ApiCollection, SyncBackfillStateApiResponse } from '$lib/api-types';
 	import type { SyncBackfillVisibleLevel } from '$lib/sync-backfill-isometric-levels';
 
 	type PageData = {
@@ -11,6 +11,7 @@
 		levels?: SyncBackfillVisibleLevel[];
 		basePath: string;
 		collection: string;
+		collectionDetail?: ApiCollection | null;
 		stack: string[];
 	};
 
@@ -19,6 +20,7 @@
 	function collectionNavigation() {
 		return buildCollectionNavigation({
 			basePath: '/',
+			activityEventFeeds: data?.collectionDetail?.activityEventFeeds ?? [],
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			bidding: {
