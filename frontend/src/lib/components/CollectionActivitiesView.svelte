@@ -229,6 +229,7 @@
 				extensionEvent
 			},
 			activityEventFeeds: collection?.activityEventFeeds ?? [],
+			collectionExtensions: collection?.extensions ?? [],
 			bidding: {
 				...collectionBiddingNavigationVisibilityForDeployment()
 			}

@@ -99,6 +99,7 @@
 				kind: 'sales'
 			},
 			activityEventFeeds: collection?.activityEventFeeds ?? [],
+			collectionExtensions: collection?.extensions ?? [],
 			bidding: {
 				...collectionBiddingNavigationVisibilityForDeployment()
 			}

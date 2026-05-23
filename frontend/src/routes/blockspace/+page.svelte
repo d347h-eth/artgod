@@ -21,6 +21,7 @@
 		return buildCollectionNavigation({
 			basePath: '/',
 			activityEventFeeds: data?.collectionDetail?.activityEventFeeds ?? [],
+			collectionExtensions: data?.collectionDetail?.extensions ?? [],
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			bidding: {

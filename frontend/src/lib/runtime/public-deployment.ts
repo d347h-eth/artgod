@@ -64,6 +64,10 @@ export function publicCollectionBlockspacePath(): string {
 	return '/blockspace';
 }
 
+export function publicCollectionExtensionPagePath(extensionKey: string, pageRef: string): string {
+	return `/extensions/${encodeURIComponent(extensionKey)}/${encodeURIComponent(pageRef)}`;
+}
+
 export function publicCollectionOwnerTokensPath(ownerRef: string): string {
 	return `/holders/${encodeURIComponent(ownerRef)}`;
 }
