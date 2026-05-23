@@ -231,17 +231,27 @@ Produced sidecar artifacts:
 
 During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked through Tauri's sidecar mechanism.
 
-## Desktop Runtime Config File
+## Desktop Runtime Config Store
 
-Desktop config is generated on first app launch in app-data:
+Desktop configuration is Admin-managed in app-data. The Rust app creates config/log directories during setup, but it does not create a runnable `.env` or start the supervisor until the operator chooses a launch path in Admin UI.
+
+Versioned Admin settings file:
+
+- Linux: `~/.local/share/network.artgod.desktop/config/settings.json`
+- macOS: `~/Library/Application Support/network.artgod.desktop/config/settings.json`
+- Windows: `%APPDATA%\network.artgod.desktop\config\settings.json`
+
+Rendered runtime env file:
 
 - Linux: `~/.local/share/network.artgod.desktop/config/.env`
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\network.artgod.desktop\config\.env`
 
+The settings file is the operator-edited source. The rendered `.env` remains the startup contract for backend/indexer/trading child processes and is regenerated when Admin defaults are applied or configuration is saved.
+
 Desktop-specific required keys:
 
-- `DESKTOP_AUTO_START`
+- `DESKTOP_AUTO_START` (rendered from the Admin `launch on startup` checkbox)
 - `DESKTOP_RESTART_BACKOFF_MS`
 - `USERLAND_UI_DIST_DIR`
 
@@ -295,11 +305,11 @@ Desktop-first default path behavior:
 
 Important:
 
-- if this file was generated before new desktop runtime keys were introduced, regenerate or update it manually
+- if this file was generated before new desktop runtime keys were introduced, open Admin `configuration`, review settings, and save to render the current shape
 - desktop runtime sets `ARTGOD_ENV_FILE` for child processes, so backend/indexer read this desktop config path explicitly
 - runtime artifact paths are resolved from bundled app resources, not from a workspace root path
 
-Startup-critical config remains env-file based. Do not move supervisor bootstrap config into the main SQLite database until Rust-owned startup and TS migrations have a shared ordering contract; the backend/indexer still own DB migrations. Dynamic user-managed provider choices can live in an Admin-owned config store later, but the first-launch `.env` must stay sufficient to start NATS, backend, indexer, and userland.
+Startup-critical config remains env-file based at the child-process boundary. Do not move supervisor bootstrap config into the main SQLite database until Rust-owned startup and TS migrations have a shared ordering contract; the backend/indexer still own DB migrations. The Admin settings JSON is Rust-owned app-data, and the rendered `.env` must stay sufficient to start NATS, backend, indexer, and userland.
 
 ## Supervisor Runtime Composition
 
@@ -313,7 +323,9 @@ Startup trigger:
 
 1. Rust app setup initializes commands and logs startup, but does **not** auto-start supervisor work in `setup()`.
 2. Frontend lifecycle orchestrator (`runtime/lifecycle/orchestrator.ts`) waits for Tauri bridge and invokes `runtime_auto_start`.
-3. `runtime_auto_start` calls `RuntimeManager::auto_start`, which loads/validates desktop config and starts supervisor thread.
+3. `runtime_auto_start` calls `RuntimeManager::auto_start`, which checks Admin configuration state.
+4. If no settings exist, or if `launch on startup` is disabled, runtime remains cleanly `stopped` and the Admin `configuration` section shows the launch prompt.
+5. If `launch on startup` is enabled, Rust renders/loads the desktop `.env`, validates runtime config, and starts the supervisor thread.
 
 Supervisor startup order:
 
@@ -420,8 +432,9 @@ Desktop UI is split into:
 
 Admin UI mounts a dedicated shell in root layout (`frontend/src/routes/+layout.svelte`):
 
-- shell tabs: `lifecycle`, `wallets`, `bots`, `logs`, `status`
+- shell tabs: `configuration`, `lifecycle`, `wallets`, `bots`, `logs`, `status`
 - header action to open the userland browser UI
+- Admin configuration controls: launch with defaults, launch saved settings, edit all `.env.example` settings grouped by topic, render `.env`, and toggle `launch on startup`
 - live runtime state (`runtime-state-changed` event)
 - live log stream (`runtime-log` event)
 - controls: start / stop / restart / preflight
@@ -437,6 +450,9 @@ Admin lifecycle UX is embedded in the `lifecycle` tab:
 
 Tauri commands used by desktop frontend runtime UI/state:
 
+- `app_config_get`
+- `app_config_save`
+- `app_config_use_defaults`
 - `runtime_auto_start` (boot lifecycle orchestrator startup handshake)
 - `runtime_start`
 - `runtime_stop`

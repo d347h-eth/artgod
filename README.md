@@ -100,11 +100,20 @@ Hosted deployment is currently documented as a public read-only instance that ca
 
 - `docs/deploy/01-web-hosted-read-only.md`
 
-Desktop runtime env file is generated on first launch at:
+Desktop runtime configuration is managed from the native Admin UI `configuration` section.
+The Rust app stores the operator-edited settings in a versioned app-data JSON file and renders the runtime `.env` only after the operator chooses defaults, saves configuration, or launches from saved configuration.
+
+Rendered desktop runtime env file:
 
 - Linux: `~/.local/share/network.artgod.desktop/config/.env`
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\\network.artgod.desktop\\config\\.env`
+
+Versioned Admin settings file:
+
+- Linux: `~/.local/share/network.artgod.desktop/config/settings.json`
+- macOS: `~/Library/Application Support/network.artgod.desktop/config/settings.json`
+- Windows: `%APPDATA%\\network.artgod.desktop\\config\\settings.json`
 
 Desktop-first path defaults:
 
@@ -205,15 +214,15 @@ Desktop executable lifecycle:
 
 1. Rust app process initializes and exposes runtime commands (startup is deferred; no immediate supervisor auto-start in `setup`).
 2. System tray is initialized with native actions: `open ArtGod in browser`, `open admin UI`, `shutdown`.
-3. Admin UI runs in the native Tauri window and exposes the privileged desktop control plane (`lifecycle`, `wallets`, `bots`, `logs`, `status` + userland-open action).
+3. Admin UI runs in the native Tauri window and exposes the privileged desktop control plane (`configuration`, `lifecycle`, `wallets`, `bots`, `logs`, `status` + userland-open action).
 4. Userland UI runs in a regular browser tab and is served by the local backend origin.
-5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`.
-6. Supervisor starts local NATS from bundled `nats-server`, then backend, then enabled indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; OpenSea workers are skipped when OpenSea integration is disabled, and wallet-bound trading bots are staged too but start only on explicit operator action after unlock.
+5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`; unconfigured installs and installs with `launch on startup` disabled stay stopped and show the Admin configuration launch prompt.
+6. When startup is requested, the supervisor starts local NATS from bundled `nats-server`, then backend, then enabled indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; OpenSea workers are skipped when OpenSea integration is disabled, and wallet-bound trading bots are staged too but start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe succeeds (not merely until process state is `running`).
 8. Any core composition process exit triggers fail-fast full stack restart; wallet-bound trading bots are supervised separately and stop only when they crash or when one of their declared critical dependencies becomes unhealthy.
 9. Closing the admin window hides it (runtime keeps running in tray). Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app exit.
 
-If your desktop config file was generated before runtime-artifact keys were added, either update it manually or delete it to regenerate:
+If your desktop config file was generated before runtime-artifact keys were added, open Admin `configuration`, review settings, and save to render the current `.env` shape:
 
 - Linux: `~/.local/share/network.artgod.desktop/config/.env`
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
