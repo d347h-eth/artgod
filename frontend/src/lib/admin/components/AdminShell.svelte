@@ -54,6 +54,21 @@
 		};
 	});
 
+	$effect(() => {
+		if (activeTab !== null) {
+			return;
+		}
+		const state = $runtimeState.status?.state;
+		if (
+			state === 'starting' ||
+			state === 'running' ||
+			state === 'restarting' ||
+			$runtimeState.lifecycle.phase === 'fatal'
+		) {
+			activeTab = 'system';
+		}
+	});
+
 	function resolveRuntimeTab(tab: AdminShellTab | null): AdminConsoleTab | null {
 		if (tab === 'system') {
 			return 'lifecycle';
@@ -103,6 +118,7 @@
 				return;
 			}
 		}
+		activeTab = 'system';
 		await adminRuntimeStore.start();
 	}
 
@@ -307,6 +323,7 @@
 		max-width: 100%;
 		overflow-x: auto;
 		padding-bottom: 0.1rem;
+		justify-self: center;
 	}
 
 	.admin-flow-actions button {

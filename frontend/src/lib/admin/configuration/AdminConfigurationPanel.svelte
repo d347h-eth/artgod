@@ -224,10 +224,10 @@
 
 	.admin-config-row {
 		display: grid;
-		grid-template-columns: minmax(9.5rem, 13.6rem) minmax(8rem, 27.2rem);
+		grid-template-columns: minmax(9.5rem, 13.6rem) minmax(8rem, 25.85rem);
 		align-items: center;
 		gap: 0.7rem;
-		width: min(41.5rem, 100%);
+		width: min(40.15rem, 100%);
 		max-width: 100%;
 	}
 
@@ -247,7 +247,7 @@
 	}
 
 	.admin-config-control {
-		width: min(27.2rem, 100%);
+		width: min(25.85rem, 100%);
 	}
 
 	.admin-config-textarea {
@@ -257,10 +257,10 @@
 
 	.admin-config-actions {
 		display: grid;
-		grid-template-columns: max-content max-content;
+		grid-template-columns: max-content 1fr;
 		align-items: center;
 		gap: 2rem;
-		width: fit-content;
+		width: min(40.15rem, 100%);
 		max-width: 100%;
 		overflow-x: auto;
 		padding-bottom: 0.1rem;
@@ -270,6 +270,10 @@
 		display: flex;
 		align-items: center;
 		gap: 0.45rem;
+	}
+
+	.admin-config-action-group:last-child {
+		justify-self: end;
 	}
 
 	.admin-config-actions button {
