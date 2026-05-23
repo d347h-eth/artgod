@@ -20,7 +20,7 @@ Current implementation snapshot:
 - Blockspace exploration is implemented with stacked isometric levels, stable bucket ranges, live coverage refresh, manual backfill selection, and public single-collection cache diagnostics.
 - Local observability stack is available (logs, metrics, traces, profiles).
 - Tauri desktop runtime supervisor composes local NATS + backend + indexer workers from production runtime artifacts.
-- Desktop admin UI now includes config, system, control, wallets, bots, and logs surfaces behind the native Tauri shell.
+- Desktop admin UI now includes a header config action plus system, control, wallets, bots, and logs surfaces behind the native Tauri shell.
 - Desktop wallet custody is implemented with Rust-owned Ethereum keystore storage, native secret prompts, and one-shot stdin secret handoff into wallet-bound trading runtimes.
 - Bidding runtime is operational with DB-backed job management, secure wallet unlock, direct OpenSea bidding/snapshot lanes, WETH allowance bootstrap, and live command reconciliation.
 - Bid-book UI is implemented for collection bidding and token detail pages, sourcing from the live/fresh bot snapshot projection when bidding is active and from canonical orders otherwise.
@@ -217,7 +217,7 @@ Desktop executable lifecycle:
 2. System tray is initialized with native actions: `open ArtGod in browser`, `open admin UI`, `shutdown`.
 3. Admin UI runs in the native Tauri window and exposes the privileged desktop control plane (`config`, `system`, `control`, `wallets`, `bots`, `logs` + userland-open action).
 4. Userland UI runs in a regular browser tab and is served by the local backend origin.
-5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`; unconfigured installs and installs with `launch on startup` disabled stay stopped behind the Admin header action sequence.
+5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`; unconfigured installs and installs with `autostart infra` disabled stay stopped behind the Admin header action sequence.
 6. When startup is requested, the supervisor starts local NATS from bundled `nats-server`, then backend, then enabled indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; OpenSea workers are skipped when OpenSea integration is disabled, and wallet-bound trading bots are staged too but start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe succeeds (not merely until process state is `running`).
 8. Any core composition process exit triggers fail-fast full stack restart; wallet-bound trading bots are supervised separately and stop only when they crash or when one of their declared critical dependencies becomes unhealthy.

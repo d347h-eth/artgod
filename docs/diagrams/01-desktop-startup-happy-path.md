@@ -20,14 +20,14 @@ sequenceDiagram
 
     A->>T: Wait bridge, then invoke runtime_auto_start
     T->>R: runtime_auto_start
-    alt settings.json missing or launch on startup disabled
+    alt settings.json missing or autostart infra disabled
         R-->>A: status=stopped
-        A->>A: Show configuration -> boot system -> userland actions
+        A->>A: Show config -> start infra -> userland actions
         U->>A: Boot defaults or saved settings
         A->>T: Save/render config, then runtime_start
         T->>R: runtime_start
         R->>S: Start supervisor
-    else launch on startup enabled
+    else autostart infra enabled
         R->>S: Start supervisor
     end
 

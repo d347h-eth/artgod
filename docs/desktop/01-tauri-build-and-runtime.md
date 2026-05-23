@@ -251,7 +251,7 @@ The settings file is the operator-edited source. The rendered `.env` remains the
 
 Desktop-specific required keys:
 
-- `DESKTOP_AUTO_START` (rendered from the Admin `launch on startup` checkbox)
+- `DESKTOP_AUTO_START` (rendered from the Admin `autostart infra` checkbox)
 - `DESKTOP_RESTART_BACKOFF_MS`
 - `USERLAND_UI_DIST_DIR`
 
@@ -324,8 +324,8 @@ Startup trigger:
 1. Rust app setup initializes commands and logs startup, but does **not** auto-start supervisor work in `setup()`.
 2. Frontend lifecycle orchestrator (`runtime/lifecycle/orchestrator.ts`) waits for Tauri bridge and invokes `runtime_auto_start`.
 3. `runtime_auto_start` calls `RuntimeManager::auto_start`, which checks Admin configuration state.
-4. If no settings exist, or if `launch on startup` is disabled, runtime remains cleanly `stopped` and the Admin header action sequence guides `configuration` -> `boot system` -> `enter the userland`.
-5. If `launch on startup` is enabled, Rust renders/loads the desktop `.env`, validates runtime config, and starts the supervisor thread.
+4. If no settings exist, or if `autostart infra` is disabled, runtime remains cleanly `stopped` and the Admin header action sequence guides `config` -> `start infra` -> `enter the userland`.
+5. If `autostart infra` is enabled, Rust renders/loads the desktop `.env`, validates runtime config, and starts the supervisor thread.
 
 Supervisor startup order:
 
@@ -432,9 +432,9 @@ Desktop UI is split into:
 
 Admin UI mounts a dedicated shell in root layout (`frontend/src/routes/+layout.svelte`):
 
-- shell tabs: `config`, `system`, `control`, `wallets`, `bots`, `logs`
-- header action sequence: `configuration` -> `boot system` -> `enter the userland`
-- Admin configuration controls: edit all `.env.example` settings grouped by topic, render `.env`, and toggle `launch on startup`
+- shell tabs: `system`, `control`, `wallets`, `bots`, `logs`
+- header action sequence: `config` -> `start infra` -> `enter the userland`
+- Admin configuration controls: edit all `.env.example` settings grouped by topic, render `.env`, and toggle `autostart infra`
 - live runtime state (`runtime-state-changed` event)
 - live log stream (`runtime-log` event)
 - controls: start / stop / restart / preflight
