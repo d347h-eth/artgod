@@ -166,6 +166,72 @@ Frontend SSR backend fetches emit structured logs from `frontend/src/lib/backend
 
 The SSR request id is sent to the backend with `X-ArtGod-SSR-Backend-Request-Id`, which lets Grafana/Loki queries join frontend SSR fetch logs to backend API response logs without relying on browser-visible response headers.
 
+### SSR Backend Cache Diagnostics
+
+The public web frontend is SSR-rendered. During SSR, the browser does not call
+the backend API directly; the SvelteKit server calls the backend and then returns
+the rendered page to the browser. That means browser DevTools cannot show the
+original backend API subrequest as a normal browser network entry.
+
+The durable debugging path is:
+
+1. Frontend SSR adds `X-ArtGod-SSR-Backend-Request-Id` to each backend fetch.
+2. Backend HTTP observability logs the same id, sanitized request metadata,
+   query-cache state, cache age/ttl, cache event count, and the actual query-cache
+   response headers that were set on the Fastify reply.
+3. Frontend SSR logs the backend response it observed, including sanitized
+   request metadata and the query-cache headers returned by the backend.
+4. SSR route loads forward an aggregate query-cache summary onto the page
+   response via `frontend/src/lib/query-cache-response-headers.ts`.
+
+Only the stable query-cache debug headers are forwarded from SSR page loads:
+
+- `X-ArtGod-Query-Cache`
+- `X-ArtGod-Query-Cache-Age-Ms`
+- `X-ArtGod-Query-Cache-Ttl-Ms`
+- `X-ArtGod-Query-Cache-Events`
+
+When a page load performs multiple backend calls, the forwarded page response
+headers represent the aggregate cache state. Mixed hit/miss/bypass state is
+reported as `mixed`; event counts are summed; age uses the maximum observed age
+and ttl uses the minimum observed ttl when all calls share the same cache state.
+The exact per-backend-call headers remain available in Loki logs through the
+`responseHeaders` field.
+
+### HTTP Log Sanitization Registry
+
+Backend API and frontend SSR logs both use the shared request-target sanitizer in
+`shared/observability/http.ts`.
+
+The sanitizer keeps:
+
+- path only, never the origin
+- allowlisted query parameter names
+- total query parameter count
+- redacted query parameter count
+
+The sanitizer drops:
+
+- raw URLs
+- query parameter values
+- query parameter names that are not in the allowlist
+
+The allowlist is the registry that controls which query keys can appear in
+Grafana logs. It is assembled in `shared/observability/http.ts` from exported
+query-param constants owned by their feature modules:
+
+- blockspace params from `shared/config/blockspace.ts`
+- pagination params from `shared/config/pagination.ts`
+- collection media params from `shared/extensions/index.ts`
+- collection detail and trait params from `shared/types/browse.ts`
+- activity params from `shared/types/activity-feed.ts`
+- bidding params from `shared/types/trading.ts`
+- small generic params from `HTTP_OBSERVABILITY_GENERIC_QUERY_PARAMS`
+
+When adding a new safe query key, define it in the owning feature/domain module,
+then import that exported constant into the sanitizer registry. Do not add raw
+string literals directly in frontend/server call sites, and do not log values.
+
 ### Backend API Traces
 
 Registered backend API and health handlers are wrapped in `backend.http.route` spans with:
@@ -341,6 +407,8 @@ The profile type is intentionally `wall:cpu...` for Node workers, not `process_c
 
 - If logs do not appear in Grafana Explore, verify `scripts/backend-dev.sh`, `scripts/frontend-dev.sh`, and/or `scripts/indexer-dev.sh` are writing into `tmp/logs` and Alloy is mounted to that same host path.
 - After triggering a frontend SSR page that calls the backend API, run `./scripts/check-observability-log-ingestion.sh` to verify Loki has both frontend SSR backend-fetch logs and backend API query-cache logs.
+- Use `ssrBackendRequestId` in Loki to correlate `FrontendSSR/backend_api_response` entries with `BackendApi/query_cache_response` entries for the same backend call.
+- Browser response headers on an SSR-rendered page show the aggregate query-cache summary forwarded by the SSR route load. Exact backend subrequest headers are recorded in the backend and frontend SSR Loki log payloads.
 - Because worker logs are truncated on worker start, tail behavior is easiest to reason about when observability stack is already running before worker startup.
 
 ### Metrics
@@ -388,6 +456,11 @@ To reach full trace-profile correlation:
 
 ## Quick Verification Checklist
 
+- Run focused unit tests for SSR/backend cache diagnostics:
+    - `yarn workspace @artgod/shared test observability/http.test.ts`
+    - `yarn workspace @artgod/backend test src/http/common/observability.test.ts src/utils/query-cache-debug.test.ts`
+    - `yarn workspace @artgod/frontend test src/lib/backend-api.test.ts src/lib/backend-api-browser.test.ts src/lib/query-cache-response-headers.test.ts src/lib/blockspace-page-load.test.ts`
+    - These tests are part of their normal workspace test suites; the commands above are just the focused subset for this observability path.
 - Start stack:
     - `docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana`
 - Start runtimes with file logs:
