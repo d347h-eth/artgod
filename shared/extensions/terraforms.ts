@@ -5,6 +5,8 @@ import {
 } from "./index.js";
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
 
+export * from "./terraforms-structure.js";
+
 export const TERRAFORMS_EXTENSION_KEY = "terraforms";
 
 export const TERRAFORMS_EXTENSION_ARTIFACT_REFS = {
