@@ -210,22 +210,26 @@ The original explorer tables are not independent static tables. They are views o
 The catalog shape in `terraform-explorer/public/terraform-metadata.min.json` decodes through `decodeTerraform(...)` as:
 
 ```text
-[tokenId, mode, biome, level, zone, chroma, x, y, questionMarks, seedValue]
+[tokenId, mode, biome, level, zone, chroma, x, y, resource, seedValue]
 ```
+
+The old source calls the ninth field question marks. ArtGod prose and UI should call it `Resource`.
 
 The old table sources, used here only to understand feature parity, are:
 
 - Zones table:
     - iterates `zoneColors` keys
-    - derives count, levels, biomes, floor, and owned count from `byZone`
+    - derives count, levels, and biomes from `byZone`
     - shows the 10-color palette from `zoneColors`
 - Biomes table:
     - iterates `byBiome`
-    - derives count, zones, levels, floor, and owned count
+    - derives count, zones, and levels
     - renders the 9-character biome set with the Mathcastles Remix font
 - Levels table:
     - iterates `levelsList` from 1 through 20
-    - derives count, zones, biomes, floor, owned count, and parcel list from `byLevel`
+    - derives count, zones, biomes, and parcel list from `byLevel`
+
+The legacy tables also displayed market floor and connected-wallet owned counts. Those are explicitly out of scope for the ArtGod Hypercastle explorer.
 
 Rarity in those tables is display-only:
 
@@ -247,6 +251,7 @@ Implementation boundary:
 - Do not import this old minified catalog as ArtGod's canonical source.
 - The ArtGod implementation should derive/verify token distribution from ArtGod's normalized local metadata DB and derive structural rules from the contracts.
 - The old explorer can remain a parity checklist for what the user should be able to inspect.
+- Token `seedValue` is not exposed through the tokenURI payload and is not captured by the existing normalized metadata path. It matters for hidden X/Y seed traits, but seed persistence is a separate task and should not block the first Hypercastle structure pass.
 
 Important identity warning:
 
@@ -370,14 +375,15 @@ Better shape:
 - Put Terraforms static structure data in extension-local typed modules, probably under a Terraforms frontend/shared extension directory.
 - Keep full zone palettes and biome charsets as data, not component literals.
 - Generate or hand-transcribe static contract arrays from the Solidity sources with tests that make drift obvious.
-- Use ArtGod's normalized local metadata as the source for token trait distribution and rarity.
+- Use ArtGod's normalized local metadata as the source for token trait distribution only when the first UI needs exact minted-token counts.
+- Do not add a generated token-specific fixture unless a concrete missing query/storage boundary is identified first.
 - Build derived indexes with pure helpers:
     - by level
     - by zone
     - by biome
     - by zone+biome
 - Expose level, level-group, zone, and biome rows for table-like deep dives, but make the primary page a structure-first visualization.
-- Keep tile/token lookup out of the initial UI unless it is needed to explain a selected level.
+- Keep token-specific records, tile lookup, and seed-based hidden traits out of the initial UI.
 - Keep the ArtGod core generic: it should know that an extension page exists and how to route/render it, not what a Zone, Biome, or Level means.
 
 The existing `frontend/static/fonts/MathcastlesRemix-Regular.woff2` should be wired as the Terraforms biome font. The original explorer used the font family label `Mathcastles Remix` and rendered each biome as a row of 9 inline glyphs.
@@ -411,34 +417,33 @@ The implementation should include a browser performance spike before committing 
 
 ## Recommended Milestones
 
-### Milestone 1: Static Catalog Module
+### Milestone 1: Static Structure Module
 
-Goal: make all Terraforms static contract data and local metadata-derived distributions available through extension-local typed helpers, with tests before any UI depends on it.
+Goal: make Terraforms' fixed Hypercastle structure, Zone catalog, Biome catalog, and contract-derived distribution rules available through extension-local typed helpers, with tests before any UI depends on them.
 
 Expected work:
 
 - add Terraforms static data modules for levels, zones, biomes, palettes, character sets, dimensions, topology, and weights
-- add a local metadata-derived read path or generated fixture that produces clear domain records:
-    - token id
-    - mode
-    - level
-    - x/y coordinate
-    - zone name
-    - biome index
-    - chroma
-    - question mark count
-    - seed value
-- build pure derived indexes and row builders for the three legacy static trait views
-- test static contract totals and local metadata-derived distribution counts
+- model Level, Zone, Biome, Resource, topography, and biome group concepts directly from contract data
+- build pure derived indexes and row builders for structure-first views:
+    - levels
+    - level groups
+    - zones
+    - biomes
+    - zone availability by level
+    - biome group weights by level
+- read normalized DB metadata only if the first UI needs exact minted-token distribution counts that cannot be represented by contract rules alone
+- do not prepare token-specific generated fixtures in this milestone
+- test static contract totals and derived structure summaries
 - decide whether static data lives in `frontend` only or in `shared/extensions/terraforms/*`
 
 Acceptance checks:
 
-- token record count derived from the selected local metadata source and documented in tests
 - 75 zones
 - 92 biomes
 - 20 levels with contract-derived dimensions, capacities, zone windows, and biome group weights
-- level/mode/chroma distribution counts derived from local normalized metadata
+- level groups can be derived from Zone-set relationships without token-specific records
+- no token-specific fixture is introduced unless the implementation documents a storage/query gap first
 - every zone has 10 colors
 - every biome has 9 characters plus font metadata
 
@@ -517,28 +522,27 @@ Expected work:
 
 ## Suggested First Implementation Rule
 
-Keep immutable Terraforms structure separate from live ArtGod state.
+Keep the first implementation centered on aggregate Hypercastle structure, not individual tokens.
 
 Static contract data should answer:
 
 - what exists in the Terraforms structure
-- where each parcel sits
 - which zones and biomes are possible on each level
-- how palettes, character sets, weights, and static rarity work
+- which level groups emerge from related Zone sets
+- how palettes, character sets, topography, weights, and static rarity rules work
 
-Local normalized metadata should answer:
+Local normalized metadata should answer only the aggregate facts the contract data cannot answer directly:
 
-- current token mode from canonical metadata
 - token trait distribution
 - token-derived rarity counts
-- any distribution facts not directly recoverable from the static arrays alone
+- any exact minted-token distribution facts not directly recoverable from the static arrays alone
 
-Market and ownership state should stay out of this page. Mixing market data into the Hypercastle explorer would make the purpose weaker and the verification surface larger without serving the requested static exploration goal.
+Market, ownership, token-detail drilldown, and seed-based hidden traits should stay out of this first pass. Mixing them into the Hypercastle explorer would make the purpose weaker and the verification surface larger without serving the requested static exploration goal.
 
 ## Open Questions
 
 - Should Terraforms contract arrays be generated from Solidity into TypeScript, manually mirrored with tests, or exposed through a small build-time extraction tool?
-- Should local metadata-derived distribution stats be served by backend read models or precomputed into an extension-local static fixture during development?
+- If exact minted-token distribution is needed, should it be served by backend read models over normalized metadata, or can existing `collection_trait_stats` plus targeted joins cover the UI?
 - What exact level groups emerge from shared Zone-set relationships once grouped intentionally instead of only by visual stack position?
 - How much of the original table behavior should remain as a deep-dive panel versus a separate sortable grid inside the new visualization page?
 - Should the first extension-page contract support SSR data loading, or should Terraforms v1 be client-only after the generic route resolves collection/install state?
