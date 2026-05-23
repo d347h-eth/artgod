@@ -247,7 +247,7 @@ Rendered runtime env file:
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\network.artgod.desktop\config\.env`
 
-The settings file is the operator-edited source. The rendered `.env` remains the startup contract for backend/indexer/trading child processes and is regenerated when Admin defaults are applied or configuration is saved.
+The settings file is the operator-edited source. The rendered `.env` remains the startup contract for backend/indexer/trading child processes and is regenerated when Admin defaults are applied or configuration is saved. A stale `.env` without `settings.json` is not treated as configured and cannot drive supervisor auto-start.
 
 Desktop-specific required keys:
 
@@ -305,7 +305,7 @@ Desktop-first default path behavior:
 
 Important:
 
-- if this file was generated before new desktop runtime keys were introduced, open Admin `configuration`, review settings, and save to render the current shape
+- if this file was generated before new desktop runtime keys were introduced, open Admin `config`, review settings, and save to render the current shape
 - desktop runtime sets `ARTGOD_ENV_FILE` for child processes, so backend/indexer read this desktop config path explicitly
 - runtime artifact paths are resolved from bundled app resources, not from a workspace root path
 
@@ -324,7 +324,7 @@ Startup trigger:
 1. Rust app setup initializes commands and logs startup, but does **not** auto-start supervisor work in `setup()`.
 2. Frontend lifecycle orchestrator (`runtime/lifecycle/orchestrator.ts`) waits for Tauri bridge and invokes `runtime_auto_start`.
 3. `runtime_auto_start` calls `RuntimeManager::auto_start`, which checks Admin configuration state.
-4. If no settings exist, or if `launch on startup` is disabled, runtime remains cleanly `stopped` and the Admin `configuration` section shows the launch prompt.
+4. If no settings exist, or if `launch on startup` is disabled, runtime remains cleanly `stopped` and the Admin header action sequence guides `configuration` -> `boot system` -> `enter the userland`.
 5. If `launch on startup` is enabled, Rust renders/loads the desktop `.env`, validates runtime config, and starts the supervisor thread.
 
 Supervisor startup order:
@@ -351,8 +351,8 @@ If any step fails:
 
 Frontend readiness behavior:
 
-- admin runtime console is shown immediately on app mount (native WebView)
-- lifecycle tab remains active during boot until lifecycle becomes `ready`
+- admin shell is shown immediately on app mount (native WebView), with no tab active by default
+- system tab exposes the lifecycle stream while the header action sequence remains the primary launch path
 - lifecycle reaches `ready` only after lifecycle orchestrator backend readiness probe succeeds, not merely when runtime status becomes `running`
 - admin UI does not execute userland collection/token route loads
 - userland browser UI uses `backend-api.ts` directly against backend localhost origin (`/api/*`)
@@ -432,19 +432,19 @@ Desktop UI is split into:
 
 Admin UI mounts a dedicated shell in root layout (`frontend/src/routes/+layout.svelte`):
 
-- shell tabs: `configuration`, `lifecycle`, `wallets`, `bots`, `logs`, `status`
-- header action to open the userland browser UI
-- Admin configuration controls: launch with defaults, launch saved settings, edit all `.env.example` settings grouped by topic, render `.env`, and toggle `launch on startup`
+- shell tabs: `config`, `system`, `control`, `wallets`, `bots`, `logs`
+- header action sequence: `configuration` -> `boot system` -> `enter the userland`
+- Admin configuration controls: edit all `.env.example` settings grouped by topic, render `.env`, and toggle `launch on startup`
 - live runtime state (`runtime-state-changed` event)
 - live log stream (`runtime-log` event)
 - controls: start / stop / restart / preflight
-- paths: config path and logs path with open actions
+- paths: settings/env/logs paths, with settings/env existence status and open actions
 - wallet metadata controls: import / export / remove
 - bot controls: list / assign wallet / start / stop
 
-Admin lifecycle UX is embedded in the `lifecycle` tab:
+Admin lifecycle UX is embedded in the `system` tab:
 
-- visible immediately on startup while lifecycle phase is not `ready`
+- available from the `system` tab while lifecycle phase is not `ready`
 - shows lifecycle events as single-line rows with bracket tokens (`[level] [code]`) for copy-friendly logs
 - remains in admin UI after startup as historical lifecycle stream
 
@@ -548,7 +548,7 @@ Common issues and checks:
   : Run `yarn clean:build`.
 
 - Desktop config key errors on startup
-  : Check desktop app-data `.env` and required `DESKTOP_*` keys.
+  : Check Admin `config`, app-data `settings.json`, the rendered `.env`, and required `DESKTOP_*` keys.
 
 - Port already in use after abrupt stop
   : Current supervisor includes graceful stop + forced cleanup; if interrupted externally, verify no stale `nats-server`/runtime process remains before restart.

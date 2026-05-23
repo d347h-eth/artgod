@@ -16,14 +16,14 @@ sequenceDiagram
     U->>R: Launch app
     R->>R: Initialize tray + commands
     R->>A: Show admin window
-    A->>A: Mount admin shell and configuration tab
+    A->>A: Mount admin shell with no active tab
 
     A->>T: Wait bridge, then invoke runtime_auto_start
     T->>R: runtime_auto_start
-    alt configuration missing or launch on startup disabled
+    alt settings.json missing or launch on startup disabled
         R-->>A: status=stopped
-        A->>A: Show launch/configuration prompt
-        U->>A: Launch defaults or saved configuration
+        A->>A: Show configuration -> boot system -> userland actions
+        U->>A: Boot defaults or saved settings
         A->>T: Save/render config, then runtime_start
         T->>R: runtime_start
         R->>S: Start supervisor
