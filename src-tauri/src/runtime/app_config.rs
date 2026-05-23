@@ -40,7 +40,9 @@ pub struct SaveAppConfigInput {
 pub struct AppConfigState {
     pub configured: bool,
     pub env_file_path: String,
+    pub env_file_exists: bool,
     pub settings_file_path: String,
+    pub settings_file_exists: bool,
     pub auto_launch_on_startup: bool,
     pub values: HashMap<String, String>,
     pub defaults: HashMap<String, String>,
@@ -123,43 +125,38 @@ pub fn load_app_config_state(app: &AppHandle) -> Result<AppConfigState, String> 
     let paths = ensure_desktop_config_paths(app)?;
     let model = env_example_model();
     let settings = read_settings_document_if_exists(&paths)?;
-    let env_values = if settings.is_none() && paths.env_file_path.exists() {
-        Some(parse_env_file(&paths.env_file_path)?)
-    } else {
-        None
-    };
+    Ok(build_app_config_state(&paths, settings.as_ref(), &model))
+}
 
+fn build_app_config_state(
+    paths: &DesktopConfigPaths,
+    settings: Option<&AppSettingsDocument>,
+    model: &EnvExampleModel,
+) -> AppConfigState {
     let mut defaults = model.defaults.clone();
     apply_desktop_default_overrides(&mut defaults);
 
-    let configured = settings.is_some() || env_values.is_some();
+    let configured = settings.is_some();
     let mut values = defaults.clone();
-    if let Some(document) = &settings {
+    if let Some(document) = settings {
         merge_known_values(&mut values, &document.values, &model.ordered_keys);
-    } else if let Some(env_values) = &env_values {
-        merge_known_values(&mut values, env_values, &model.ordered_keys);
     }
 
     let auto_launch_on_startup = settings
-        .as_ref()
         .map(|document| document.desktop.auto_launch_on_startup)
-        .or_else(|| {
-            env_values
-                .as_ref()
-                .and_then(|values| values.get("DESKTOP_AUTO_START"))
-                .and_then(|value| parse_bool(value).ok())
-        })
         .unwrap_or(false);
 
-    Ok(AppConfigState {
+    AppConfigState {
         configured,
         env_file_path: paths.env_file_path.to_string_lossy().into_owned(),
+        env_file_exists: paths.env_file_path.exists(),
         settings_file_path: paths.settings_file_path.to_string_lossy().into_owned(),
+        settings_file_exists: paths.settings_file_path.exists(),
         auto_launch_on_startup,
         values,
         defaults,
         groups: build_schema_groups(&model.ordered_keys),
-    })
+    }
 }
 
 /// Persists Admin-managed settings and renders the runtime `.env` from them.
@@ -212,9 +209,6 @@ pub fn load_or_materialize_process_env(
     let paths = ensure_desktop_config_paths(app)?;
     if let Some(document) = read_settings_document_if_exists(&paths)? {
         render_env_file(&paths, &document, &env_example_model().ordered_keys)?;
-        return parse_env_file(&paths.env_file_path).map(Some);
-    }
-    if paths.env_file_path.exists() {
         return parse_env_file(&paths.env_file_path).map(Some);
     }
     Ok(None)
@@ -584,16 +578,6 @@ fn is_secret_key(key: &str) -> bool {
     key.contains("API_KEY") || key.contains("SECRET_KEY") || key.contains("PASSWORD")
 }
 
-fn parse_bool(raw: &str) -> Result<bool, String> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Ok(true),
-        "0" | "false" | "no" | "off" => Ok(false),
-        _ => Err(format!(
-            "Invalid boolean value \"{raw}\". Use true/false, 1/0, yes/no, on/off."
-        )),
-    }
-}
-
 fn now_rfc3339() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -756,5 +740,25 @@ mod tests {
         assert!(rendered.contains("USERLAND_UI_DIST_DIR=frontend/userland\n"));
         assert!(rendered.contains("ARTGOD_DB_PATH=sqlite/main/db\n"));
         assert!(rendered.contains("BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION="));
+    }
+
+    #[test]
+    fn app_state_does_not_treat_legacy_env_as_configured() {
+        let model = env_example_model();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = DesktopConfigPaths {
+            app_data_dir: temp.path().to_path_buf(),
+            logs_dir: temp.path().join("logs"),
+            env_file_path: temp.path().join(".env"),
+            settings_file_path: temp.path().join("settings.json"),
+        };
+        fs::write(&paths.env_file_path, "DESKTOP_AUTO_START=true\n").expect("write env");
+
+        let state = build_app_config_state(&paths, None, &model);
+
+        assert!(!state.configured);
+        assert!(!state.auto_launch_on_startup);
+        assert!(state.env_file_exists);
+        assert!(!state.settings_file_exists);
     }
 }
