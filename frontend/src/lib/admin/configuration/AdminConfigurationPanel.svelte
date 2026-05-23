@@ -1,57 +1,46 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import AdminSectionFrame from '$lib/admin/components/AdminSectionFrame.svelte';
-	import { createTauriAdminConfigPort } from '$lib/admin/configuration/adapters/tauri-admin-config-port';
 	import type {
 		AdminConfigField,
 		AdminConfigGroup,
+		AdminConfigSaveInput,
 		AdminConfigState
 	} from '$lib/admin/configuration/ports';
-	import { adminRuntimeStore } from '$lib/admin/runtime/store';
 
-	const configPort = createTauriAdminConfigPort();
-	const runtimeState = adminRuntimeStore.state;
+	let {
+		config,
+		loading,
+		busyAction = null,
+		errorMessage = null,
+		onSave,
+		onClose
+	}: {
+		config: AdminConfigState | null;
+		loading: boolean;
+		busyAction?: string | null;
+		errorMessage?: string | null;
+		onSave: (input: AdminConfigSaveInput) => Promise<void>;
+		onClose: () => void;
+	} = $props();
 
-	let config = $state<AdminConfigState | null>(null);
+	let appliedConfig = $state<AdminConfigState | null>(null);
 	let values = $state<Record<string, string>>({});
 	let autoLaunchOnStartup = $state(false);
-	let loading = $state(true);
-	let editing = $state(false);
-	let busyAction = $state<string | null>(null);
-	let errorMessage = $state<string | null>(null);
-	let saveMessage = $state<string | null>(null);
 
 	const editableGroups = $derived((config?.groups ?? []).filter((group) => group.fields.length > 0));
-	const isRuntimeStopped = $derived($runtimeState.status?.state !== 'running');
-	const launchDisabled = $derived(
-		busyAction !== null ||
-			$runtimeState.busyAction !== null ||
-			!isRuntimeStopped ||
-			($runtimeState.status?.state === 'starting' || $runtimeState.status?.state === 'restarting')
-	);
+	const formDisabled = $derived(loading || busyAction !== null || config === null);
 
-	onMount(() => {
-		void loadConfig();
+	$effect(() => {
+		if (!config || config === appliedConfig) {
+			return;
+		}
+		applyConfigState(config);
 	});
 
 	function applyConfigState(next: AdminConfigState): void {
-		config = next;
+		appliedConfig = next;
 		values = { ...next.values };
 		autoLaunchOnStartup = next.autoLaunchOnStartup;
-	}
-
-	async function loadConfig(): Promise<void> {
-		loading = true;
-		errorMessage = null;
-		try {
-			const next = await configPort.getConfig();
-			applyConfigState(next);
-			editing = false;
-		} catch (error) {
-			errorMessage = toErrorMessage(error, 'Configuration could not be loaded.');
-		} finally {
-			loading = false;
-		}
 	}
 
 	function setValue(key: string, value: string): void {
@@ -67,55 +56,16 @@
 		}
 		values = { ...config.defaults };
 		autoLaunchOnStartup = false;
-		saveMessage = null;
-		errorMessage = null;
 	}
 
-	async function useDefaultsAndLaunch(): Promise<void> {
-		await withBusyAction('defaults', async () => {
-			const next = await configPort.useDefaults();
-			applyConfigState(next);
-			editing = false;
-			await adminRuntimeStore.start();
-			saveMessage = 'default settings applied';
-		});
-	}
-
-	async function launchSavedConfig(): Promise<void> {
-		await withBusyAction('launch', async () => {
-			await adminRuntimeStore.start();
-		});
-	}
-
-	async function saveConfig(launchAfterSave: boolean): Promise<void> {
-		await withBusyAction(launchAfterSave ? 'saveLaunch' : 'save', async () => {
-			const next = await configPort.saveConfig({
-				values,
-				autoLaunchOnStartup
-			});
-			applyConfigState(next);
-			editing = false;
-			saveMessage = 'configuration saved';
-			if (launchAfterSave) {
-				await adminRuntimeStore.start();
-			}
-		});
-	}
-
-	async function withBusyAction(action: string, work: () => Promise<void>): Promise<void> {
-		if (busyAction !== null) {
+	async function saveConfig(): Promise<void> {
+		if (formDisabled) {
 			return;
 		}
-		busyAction = action;
-		errorMessage = null;
-		saveMessage = null;
-		try {
-			await work();
-		} catch (error) {
-			errorMessage = toErrorMessage(error, 'Configuration action failed.');
-		} finally {
-			busyAction = null;
-		}
+		await onSave({
+			values,
+			autoLaunchOnStartup
+		});
 	}
 
 	function fieldValue(field: AdminConfigField): string {
@@ -125,87 +75,21 @@
 	function fieldChecked(field: AdminConfigField): boolean {
 		return ['1', 'true', 'yes', 'on'].includes(fieldValue(field).trim().toLowerCase());
 	}
-
-	function toErrorMessage(error: unknown, fallback: string): string {
-		if (error instanceof Error && error.message.trim().length > 0) {
-			return error.message;
-		}
-		if (typeof error === 'string' && error.trim().length > 0) {
-			return error;
-		}
-		return fallback;
-	}
 </script>
 
 <AdminSectionFrame>
 	<div class="admin-config-body">
 		<div class="admin-config-inlay">
-			<section class="runtime-section">
-				<h3>Launch</h3>
-				{#if loading}
+			{#if loading}
+				<section class="runtime-section">
 					<p class="muted">loading configuration</p>
-				{:else if config && !config.configured && !editing}
-					<div class="runtime-controls">
-						<button
-							type="button"
-							class="runtime-primary-cta"
-							onclick={() => void useDefaultsAndLaunch()}
-							disabled={launchDisabled}
-						>
-							launch with default settings
-						</button>
-						<button
-							type="button"
-							onclick={() => {
-								editing = true;
-							}}
-							disabled={busyAction !== null}
-						>
-							configure first
-						</button>
-					</div>
-				{:else if config && !editing}
-					<div class="runtime-controls">
-						<button
-							type="button"
-							class="runtime-primary-cta"
-							onclick={() => void launchSavedConfig()}
-							disabled={launchDisabled}
-						>
-							launch ArtGod
-						</button>
-						<button
-							type="button"
-							onclick={() => {
-								editing = true;
-							}}
-							disabled={busyAction !== null}
-						>
-							configuration
-						</button>
-					</div>
-				{/if}
-
-				{#if busyAction}
-					<p class="muted">running action: {busyAction}</p>
-				{/if}
-				{#if errorMessage}
-					<p class="runtime-error" role="alert">{errorMessage}</p>
-				{/if}
-				{#if $runtimeState.error}
-					<p class="runtime-error" role="alert">{$runtimeState.error}</p>
-				{/if}
-				{#if saveMessage}
-					<p class="runtime-pass">{saveMessage}</p>
-				{/if}
-			</section>
-
-			{#if config && editing}
+				</section>
+			{:else if config}
 				<form
 					class="admin-config-form"
 					onsubmit={(event) => {
 						event.preventDefault();
-						void saveConfig(false);
+						void saveConfig();
 					}}
 				>
 					<section class="runtime-section admin-config-group">
@@ -216,6 +100,7 @@
 								type="checkbox"
 								class="bootstrap-checkbox"
 								checked={autoLaunchOnStartup}
+								disabled={formDisabled}
 								onchange={(event) => {
 									autoLaunchOnStartup = (event.currentTarget as HTMLInputElement).checked;
 								}}
@@ -234,6 +119,7 @@
 											type="checkbox"
 											class="bootstrap-checkbox"
 											checked={fieldChecked(field)}
+											disabled={formDisabled}
 											onchange={(event) => {
 												setValue(field.key, (event.currentTarget as HTMLInputElement).checked ? 'true' : 'false');
 											}}
@@ -242,6 +128,7 @@
 										<select
 											class="bootstrap-control-select admin-config-control"
 											value={fieldValue(field)}
+											disabled={formDisabled}
 											onchange={(event) => {
 												setValue(field.key, (event.currentTarget as HTMLSelectElement).value);
 											}}
@@ -254,6 +141,7 @@
 										<textarea
 											class="bootstrap-control-textarea admin-config-control admin-config-textarea"
 											value={fieldValue(field)}
+											disabled={formDisabled}
 											oninput={(event) => {
 												setValue(field.key, (event.currentTarget as HTMLTextAreaElement).value);
 											}}
@@ -263,6 +151,7 @@
 											class="bootstrap-control admin-config-control"
 											type={field.inputKind === 'password' ? 'password' : 'text'}
 											value={fieldValue(field)}
+											disabled={formDisabled}
 											oninput={(event) => {
 												setValue(field.key, (event.currentTarget as HTMLInputElement).value);
 											}}
@@ -275,54 +164,21 @@
 
 					<section class="runtime-section">
 						<div class="runtime-controls admin-config-actions">
-							<button type="submit" disabled={busyAction !== null}>
+							<button type="submit" disabled={formDisabled}>
 								{busyAction === 'save' ? 'saving...' : 'save'}
 							</button>
-							<button
-								type="button"
-								class="runtime-primary-cta"
-								onclick={() => void saveConfig(true)}
-								disabled={busyAction !== null || !isRuntimeStopped}
-							>
-								{busyAction === 'saveLaunch' ? 'saving...' : 'save and launch'}
-							</button>
-							<button type="button" onclick={resetDraftToDefaults} disabled={busyAction !== null}>
+							<button type="button" onclick={resetDraftToDefaults} disabled={formDisabled}>
 								reset to defaults
 							</button>
-							{#if config.configured}
-								<button
-									type="button"
-									onclick={() => {
-										if (config) {
-											applyConfigState(config);
-										}
-										editing = false;
-										errorMessage = null;
-										saveMessage = null;
-									}}
-									disabled={busyAction !== null}
-								>
-									cancel
-								</button>
-							{/if}
+							<button type="button" onclick={onClose} disabled={busyAction !== null}>
+								cancel
+							</button>
 						</div>
 					</section>
 				</form>
-			{/if}
-
-			{#if config}
+			{:else}
 				<section class="runtime-section">
-					<h3>Paths</h3>
-					<div class="runtime-kv-grid">
-						<div>
-							<span class="runtime-k">settings</span>
-							<span class="runtime-v mono admin-config-path">{config.settingsFilePath}</span>
-						</div>
-						<div>
-							<span class="runtime-k">env</span>
-							<span class="runtime-v mono admin-config-path">{config.envFilePath}</span>
-						</div>
-					</div>
+					<p class="runtime-error" role="alert">{errorMessage ?? 'configuration unavailable'}</p>
 				</section>
 			{/if}
 		</div>
@@ -386,10 +242,6 @@
 
 	.admin-config-actions {
 		align-items: center;
-	}
-
-	.admin-config-path {
-		overflow-wrap: anywhere;
 	}
 
 	@media (max-width: 48rem) {

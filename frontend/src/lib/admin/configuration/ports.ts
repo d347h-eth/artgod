@@ -17,7 +17,9 @@ export type AdminConfigGroup = {
 export type AdminConfigState = {
 	configured: boolean;
 	envFilePath: string;
+	envFileExists: boolean;
 	settingsFilePath: string;
+	settingsFileExists: boolean;
 	autoLaunchOnStartup: boolean;
 	values: Record<string, string>;
 	defaults: Record<string, string>;
