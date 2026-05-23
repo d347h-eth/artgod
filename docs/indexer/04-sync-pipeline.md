@@ -35,6 +35,7 @@ The sync worker:
 The worker uses `maxInFlight = 1` to keep block processing strictly ordered within each queue.
 
 Backfill jobs use `RPC_BACKFILL_URL` when configured; realtime jobs always use `RPC_URL`.
+Realtime sync targets live collections and anchored bootstrapping collections so collection-scoped blockspace coverage keeps moving while bootstrap work is still in progress.
 
 ## Log Fetching and Decoding
 
@@ -125,6 +126,7 @@ After persisting a realtime block, the sync worker checks whether the previous b
 `SqliteStorage.persistSyncResult()`:
 
 - Writes blocks to `blocks` table.
+- Marks each processed block in `collection_sync_blocks` for every collection the sync job actually targeted.
 - Inserts transfer events into `nft_transfer_events`.
 - Inserts fill events into `fills`.
 - Applies balance updates for newly inserted transfers only when the event block is strictly after the affected collection's `bootstrap_anchor_block`.
@@ -132,6 +134,7 @@ After persisting a realtime block, the sync worker checks whether the previous b
 The storage layer is idempotent:
 
 - Transfers are inserted with `INSERT OR IGNORE` against a unique constraint.
+- Collection block coverage is upserted by `(chain_id, collection_id, block_number)`.
 - Balances are updated only for transfers that were newly inserted.
 
 This is the key ownership invariant for historical backfill:

@@ -4,8 +4,9 @@ import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import {
 	BackendApiError,
 	getCollectionBiddingBidBook,
-	getCollectionDetail
+	getCollectionDetailWithHeaders
 } from '$lib/backend-api';
+import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
@@ -25,7 +26,7 @@ import {
 	publicCollectionTokensPath
 } from '$lib/runtime/public-deployment';
 
-export const load: PageLoad = async ({ fetch, url }) => {
+export const load: PageLoad = async ({ fetch, setHeaders, url }) => {
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
 		throw error(404, 'Not found');
 	}
@@ -44,20 +45,22 @@ export const load: PageLoad = async ({ fetch, url }) => {
 
 	try {
 		// Load bid-book data and collection media without exposing bidding job management.
-		const [bidBookResponse, collectionResponse] = await Promise.all([
+		const [bidBookResponse, collectionResponseWithHeaders] = await Promise.all([
 			getCollectionBiddingBidBook(
 				fetch,
 				PUBLIC_COLLECTION_SCOPE.chainRef,
 				PUBLIC_COLLECTION_SCOPE.collectionRef,
 				url.searchParams
 			),
-			getCollectionDetail(
+			getCollectionDetailWithHeaders(
 				fetch,
 				PUBLIC_COLLECTION_SCOPE.chainRef,
 				PUBLIC_COLLECTION_SCOPE.collectionRef,
 				buildMediaModeQuery(mediaMode)
 			)
 		]);
+		forwardQueryCacheResponseHeaders(setHeaders, collectionResponseWithHeaders.headers);
+		const collectionResponse = collectionResponseWithHeaders.payload;
 		return {
 			chain: bidBookResponse.chain,
 			collection: bidBookResponse.collection,

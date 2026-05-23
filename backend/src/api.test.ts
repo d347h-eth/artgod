@@ -28,6 +28,8 @@ import {
     TRADING_BOT_RUNTIME_STATE,
     TRADING_BIDDING_TIER_SELECTION_MODE,
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
+    COLLECTION_STATUS,
+    type CollectionStatus,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_TARGET_KIND,
     TRADING_JOB_STATUS,
@@ -72,6 +74,8 @@ let dbPath = "";
 let app: FastifyInstance | null = null;
 let publicApp: FastifyInstance | null = null;
 let cachedApp: FastifyInstance | null = null;
+let syncBackfillStateInputs: unknown[] = [];
+let syncBackfillRangeInputs: unknown[] = [];
 
 beforeAll(async () => {
     dbPath = path.join(
@@ -537,6 +541,129 @@ beforeAll(async () => {
             bootstrapRepository,
             bootstrapQueueMock,
         );
+    syncBackfillStateInputs = [];
+    syncBackfillRangeInputs = [];
+    const getSyncBackfillStateUseCase = {
+        async getState(input: {
+            collectionRef?: string | null;
+            collectionOptions?: "all" | "selected";
+        }) {
+            syncBackfillStateInputs.push(input);
+            const selectedCollection = input.collectionRef ?? "any";
+            return {
+                chain: {
+                    id: 1,
+                    type: "evm",
+                    publicChainId: 1,
+                    slug: "ethereum",
+                    name: "Ethereum",
+                    averageBlockTimeSeconds: 12,
+                },
+                context: {
+                    selected: selectedCollection,
+                    collections:
+                        input.collectionOptions === "selected"
+                            ? [
+                                  {
+                                      chainId: 1,
+                                      collectionId: 1,
+                                      slug: selectedCollection,
+                                      address:
+                                          "0x4e1f41613c9084fdb9e34e11fae9412427480e56",
+                                      status: COLLECTION_STATUS.Live,
+                                      deploymentBlock: 1,
+                                      bootstrapAnchorBlock: null,
+                                      bootstrapLastSyncedBlock: null,
+                                  },
+                              ]
+                            : [],
+                },
+                range: {
+                    fromBlock: 0,
+                    toBlock: 0,
+                    blockCount: 1,
+                    bucketSize: 1,
+                    gridCellCount: 1024,
+                    canDrillDown: false,
+                    time: {
+                        from: {
+                            blockNumber: 0,
+                            timestamp: 100,
+                            source: "db" as const,
+                        },
+                        to: {
+                            blockNumber: 0,
+                            timestamp: 100,
+                            source: "db" as const,
+                        },
+                        durationSeconds: 0,
+                    },
+                },
+                summary: {
+                    genesisBlock: 0,
+                    headBlock: 0,
+                    headSource: "indexed" as const,
+                    highestSyncedBlock: null,
+                    syncedBlockCount: 0,
+                    selectedRangeSyncedBlockCount: 0,
+                },
+                grid: [],
+            };
+        },
+        async getRangeSummary(input: { collectionRef?: string | null }) {
+            syncBackfillRangeInputs.push(input);
+            const selectedCollection = input.collectionRef ?? "any";
+            return {
+                chain: {
+                    id: 1,
+                    type: "evm",
+                    publicChainId: 1,
+                    slug: "ethereum",
+                    name: "Ethereum",
+                    averageBlockTimeSeconds: 12,
+                },
+                context: { selected: selectedCollection },
+                range: {
+                    fromBlock: 0,
+                    toBlock: 0,
+                    blockCount: 1,
+                    bucketSize: 1,
+                    syncedBlockCount: 0,
+                    time: {
+                        from: {
+                            blockNumber: 0,
+                            timestamp: 100,
+                            source: "db" as const,
+                        },
+                        to: {
+                            blockNumber: 0,
+                            timestamp: 100,
+                            source: "db" as const,
+                        },
+                        durationSeconds: 0,
+                    },
+                },
+            };
+        },
+    };
+    const scheduleSyncBackfillUseCase = {
+        async scheduleBackfill() {
+            return {
+                chain: {
+                    id: 1,
+                    type: "evm",
+                    publicChainId: 1,
+                    slug: "ethereum",
+                    name: "Ethereum",
+                    averageBlockTimeSeconds: 12,
+                },
+                collection: null,
+                fromBlock: 0,
+                toBlock: 0,
+                queuedJobs: 1,
+            };
+        },
+    };
 
     app = appModule.createApiApp(
         createBootstrapRunUseCase,
@@ -547,6 +674,8 @@ beforeAll(async () => {
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
+        getSyncBackfillStateUseCase,
+        scheduleSyncBackfillUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,
@@ -592,6 +721,8 @@ beforeAll(async () => {
         getDefaultChainUseCase,
         getRuntimeConfigUseCase,
         listCollectionsUseCase,
+        getSyncBackfillStateUseCase,
+        scheduleSyncBackfillUseCase,
         resolveOwnerRefUseCase,
         getCollectionActivityUseCase,
         getActivityEventPreviewUseCase,
@@ -655,12 +786,18 @@ beforeAll(async () => {
                 detailRefreshMs: 5000,
                 previewWarmRefreshMs: 600000,
             },
+            publicBlockspace: {
+                refreshMs: 5000,
+            },
             tokenPreview: {
                 maxEntries: 16,
                 freshMs: 600_000,
                 staleMs: 1_200_000,
                 warmupConcurrency: 2,
             },
+        },
+        sync: {
+            backfillBatchSize: 50,
         },
         metrics: {
             enabled: false,
@@ -708,6 +845,9 @@ describe("backend api routes", () => {
         expect(result.statusCode).toBe(200);
         expect(result.payload.chain.publicChainId).toBe(1);
         expect(result.payload.chain.slug).toBe("ethereum");
+        expect(result.payload.chain.averageBlockTimeSeconds).toBe(12);
+        expect(result.payload.chain.genesisBlockNumber).toBe(0);
+        expect(result.payload.chain.genesisBlockTimestamp).toBe(1_438_269_973);
     });
 
     it("returns runtime integration config", async () => {
@@ -716,6 +856,89 @@ describe("backend api routes", () => {
         expect(result.payload.integrations.opensea).toEqual(
             ENABLED_OPENSEA_INTEGRATION,
         );
+    });
+
+    it("returns chain blockspace state on the local API", async () => {
+        const result = await resolve("GET", "/api/ethereum/blockspace");
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.range.gridCellCount).toBe(1024);
+    });
+
+    it("returns a blockspace range summary on the local API", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/blockspace/range?from_block=0&to_block=0",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.range).toMatchObject({
+            fromBlock: 0,
+            toBlock: 0,
+            blockCount: 1,
+            bucketSize: 1,
+            syncedBlockCount: 0,
+        });
+    });
+
+    it("returns public blockspace reads scoped to Terraforms", async () => {
+        syncBackfillStateInputs = [];
+        syncBackfillRangeInputs = [];
+
+        const state = await resolvePublic(
+            "GET",
+            "/api/ethereum/blockspace?collection=any",
+        );
+        expect(state.statusCode).toBe(200);
+        expect(syncBackfillStateInputs.at(-1)).toMatchObject({
+            collectionRef: "terraforms",
+            collectionOptions: "selected",
+        });
+        expect(state.payload.context.selected).toBe("terraforms");
+        expect(state.payload.context.collections).toHaveLength(1);
+        expect(state.payload.context.collections[0].slug).toBe("terraforms");
+
+        const range = await resolvePublic(
+            "GET",
+            "/api/ethereum/blockspace/range?collection=any&from_block=0&to_block=0",
+        );
+        expect(range.statusCode).toBe(200);
+        expect(syncBackfillRangeInputs.at(-1)).toMatchObject({
+            collectionRef: "terraforms",
+        });
+        expect(range.payload.context.selected).toBe("terraforms");
+    });
+
+    it("marks cached public blockspace responses with query cache headers", async () => {
+        const state = await resolveCached("GET", "/api/ethereum/blockspace", undefined, {
+            origin: "http://127.0.0.1:5173",
+        });
+        expect(state.statusCode).toBe(200);
+        expect(
+            state.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
+        expect(
+            state.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("5000");
+        expect(
+            Number(state.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()]),
+        ).toBeGreaterThanOrEqual(0);
+        expect(state.headers["access-control-expose-headers"]).toBeUndefined();
+
+        const range = await resolveCached(
+            "GET",
+            "/api/ethereum/blockspace/range?from_block=0&to_block=0",
+        );
+        expect(range.statusCode).toBe(200);
+        expect(
+            range.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
+        ).toBe("hit");
+        expect(
+            range.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
+        ).toBe("5000");
+        expect(
+            Number(range.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()]),
+        ).toBeGreaterThanOrEqual(0);
     });
 
     it("resolves ENS owner refs on the public API", async () => {
@@ -752,6 +975,19 @@ describe("backend api routes", () => {
             "/api/ethereum/collections?limit=10",
         );
         expect(collections.statusCode).toBe(404);
+
+        const syncBackfillWriteGet = await resolvePublic(
+            "GET",
+            "/api/ethereum/blockspace/backfill",
+        );
+        expect(syncBackfillWriteGet.statusCode).toBe(404);
+
+        const syncBackfillWritePost = await resolvePublic(
+            "POST",
+            "/api/ethereum/blockspace/backfill",
+            { fromBlock: 0, toBlock: 0 },
+        );
+        expect(syncBackfillWritePost.statusCode).toBe(403);
 
         const customization = await resolvePublic(
             "GET",
@@ -3703,6 +3939,7 @@ describe("backend api routes", () => {
         expect(response.headers["access-control-allow-credentials"]).toBe(
             "true",
         );
+        expect(response.headers["access-control-expose-headers"]).toBeUndefined();
     });
 
     it("persists embedded extension key when bootstrap scope matches", async () => {
@@ -3764,7 +4001,7 @@ describe("backend api routes", () => {
         insertBootstrapMetadataTask(runId, "1", "failed_terminal");
         insertBootstrapMetadataTask(runId, "2", "succeeded");
         updateCollectionLifecycle(MILADY_ADDRESS, {
-            status: "live",
+            status: COLLECTION_STATUS.Live,
             bootstrapFinishedAt: "2026-02-01T00:01:00Z",
             bootstrapLastSyncedBlock: 24_500_100,
             openseaSlug: "milady-maker",
@@ -3864,7 +4101,7 @@ describe("backend api routes", () => {
             anchorBlockTimestamp: 1_726_000_210,
         });
         updateCollectionLifecycle(MILADY_ADDRESS, {
-            status: "live",
+            status: COLLECTION_STATUS.Live,
             openseaSlug: "milady-maker",
             openseaStatus: "ready",
             openseaReadyAt: "2026-02-02T00:02:00Z",
@@ -4203,7 +4440,7 @@ function seedData(): void {
             "milady",
             MILADY_ADDRESS,
             "erc721",
-            "live",
+            COLLECTION_STATUS.Live,
             1,
             null,
             "2026-01-01T00:00:00Z",
@@ -4217,9 +4454,9 @@ function seedData(): void {
             "terraforms",
             TERRAFORMS_ADDRESS,
             "erc721",
-            "bootstrapping",
+            COLLECTION_STATUS.Bootstrapping,
             1,
-            null,
+            1,
             "2025-12-01T00:00:00Z",
             "2025-12-01T00:00:00Z",
         ).lastInsertRowid,
@@ -5116,7 +5353,7 @@ function insertBootstrapRunEvent(
 function updateCollectionLifecycle(
     collectionAddress: string,
     input: {
-        status?: "bootstrapping" | "live" | "paused" | "disabled";
+        status?: CollectionStatus;
         bootstrapFinishedAt?: string | null;
         bootstrapLastSyncedBlock?: number | null;
         openseaSlug?: string | null;

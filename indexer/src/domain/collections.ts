@@ -1,9 +1,9 @@
 // Collection identity is the primary anchor of the indexer. Everything
 // downstream should depend on this domain model, not on raw contract-address
 // heuristics or ad hoc scope-kind string checks.
-export type CollectionStandard = "erc721" | "erc1155";
+import type { CollectionStatus } from "@artgod/shared/types";
 
-export type CollectionStatus = "bootstrapping" | "live" | "paused" | "disabled";
+export type CollectionStandard = "erc721" | "erc1155";
 
 export type OpenSeaCollectionStatus =
     | "pending"

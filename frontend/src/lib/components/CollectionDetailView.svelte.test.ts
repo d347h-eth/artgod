@@ -98,6 +98,7 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;traits=Hat%3ABeanie&amp;bidding_view=jobs'
 		);
+		expect(body).toContain('/ethereum/blockspace?collection=milady');
 		expect(body).toContain('placeholder="jump to token #/owner/.eth"');
 		expect(body).toContain('<span class="secondary-tab-active">artifact</span>');
 		expect(body).toContain(

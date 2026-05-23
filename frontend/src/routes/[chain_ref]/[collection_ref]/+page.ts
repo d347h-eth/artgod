@@ -4,8 +4,9 @@ import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import {
 	BackendApiError,
 	getCollectionBiddingPriceTiers,
-	getCollectionDetail
+	getCollectionDetailWithHeaders
 } from '$lib/backend-api';
+import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
 import { withQuery } from '$lib/route-paths';
 import {
@@ -21,7 +22,7 @@ import {
 	parseDisplayMode
 } from '$lib/token-browser-query';
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
 		if (!PUBLIC_COLLECTION_SCOPE) {
 			throw error(500, 'Public collection scope is not configured');
@@ -68,10 +69,12 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
 	try {
-		const [response, priceTiersResponse] = await Promise.all([
-			getCollectionDetail(fetch, params.chain_ref, params.collection_ref, query),
+		const [responseWithHeaders, priceTiersResponse] = await Promise.all([
+			getCollectionDetailWithHeaders(fetch, params.chain_ref, params.collection_ref, query),
 			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
 		]);
+		forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
+		const response = responseWithHeaders.payload;
 		return {
 			chain: response.chain,
 			collection: response.collection,

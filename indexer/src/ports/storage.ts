@@ -15,5 +15,11 @@ export interface StoragePort {
         fromBlock: number,
         toBlock: number,
     ): number;
+    countCollectionSyncedBlocksInRange(
+        chainId: number,
+        collectionId: number,
+        fromBlock: number,
+        toBlock: number,
+    ): number;
     rollbackFromBlock(chainId: number, fromBlock: number): void;
 }

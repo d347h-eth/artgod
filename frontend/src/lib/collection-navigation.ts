@@ -26,6 +26,10 @@ import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 import { buildCollectionCustomizationHref } from '$lib/customization-query';
 import { appendMediaModeParam } from '$lib/media-mode';
 import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
+import {
+	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
+	publicCollectionBlockspacePath
+} from '$lib/runtime/public-deployment';
 import { TOKEN_STATUS_QUERY_PARAM, type CollectionTokenStatus } from '$lib/token-browser-query';
 import { buildCollectionTokenNavigationQuery } from '$lib/token-browser-navigation-preferences';
 
@@ -54,12 +58,16 @@ export type CollectionNavigationState = {
 		maker?: string | null;
 		showMuted?: boolean;
 	};
+	blockspace?: {
+		enabled?: boolean;
+	};
 };
 
 export type CollectionNavigation = {
 	basePath: string;
 	showBiddingOffers: boolean;
 	showBiddingJobs: boolean;
+	showBlockspace: boolean;
 	activityEventFeeds: ApiActivityExtensionEventFeed[];
 	queries: {
 		tokens: URLSearchParams;
@@ -72,6 +80,7 @@ export type CollectionNavigation = {
 		tokens: string;
 		bidding: string | null;
 		holders: string;
+		blockspace: string | null;
 		customization: string;
 		tokenStatus: (tokenStatus: CollectionTokenStatus) => string;
 		activityKind: (kind: ActivityFeedFilterKind) => string;
@@ -92,6 +101,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	const defaultBiddingVisibility = state.bidding?.enabled ?? true;
 	const showBiddingOffers = state.bidding?.showOffers ?? defaultBiddingVisibility;
 	const showBiddingJobs = state.bidding?.showJobs ?? defaultBiddingVisibility;
+	const blockspaceHref = resolveBlockspaceHref(normalizedBasePath);
+	const showBlockspace = (state.blockspace?.enabled ?? true) && blockspaceHref !== null;
 
 	const tokenQuery = buildCollectionTokenNavigationQuery({
 		limit: tokenLimit,
@@ -155,6 +166,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		basePath: normalizedBasePath,
 		showBiddingOffers,
 		showBiddingJobs,
+		showBlockspace,
 		activityEventFeeds,
 		queries: {
 			tokens: tokenQuery,
@@ -167,6 +179,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			tokens: tokenStatusHref('all'),
 			bidding: biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.Jobs),
 			holders: withQuery(joinPath(normalizedBasePath, 'holders'), holdersQuery),
+			blockspace: showBlockspace ? blockspaceHref : null,
 			customization: buildCollectionCustomizationHref({
 				basePath: normalizedBasePath,
 				selectedTraits: state.selectedTraits,
@@ -179,6 +192,18 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			biddingView: biddingViewHref
 		}
 	};
+}
+
+function resolveBlockspaceHref(basePath: string): string | null {
+	if (IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT) {
+		return publicCollectionBlockspacePath();
+	}
+
+	const [chainRef, collectionRef] = basePath.split('/').filter(Boolean);
+	if (!chainRef || !collectionRef) return null;
+	const query = new URLSearchParams();
+	query.set('collection', collectionRef);
+	return withQuery(`/${encodeURIComponent(chainRef)}/blockspace`, query);
 }
 
 // Applies collection-level numeric navigation after modal/text-input guards in page key handlers.

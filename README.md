@@ -17,6 +17,7 @@ Current implementation snapshot:
 - Collection extensions are build-bundled and DB-activated; Terraforms is the first embedded extension for metadata-side artifacts, sync enrichment, and backend media overrides.
     - collection browsing stays on `artifact` / `snapshot`, while Terraforms token detail and preview can expose a token-local `lost` mode when the extra V2 lost-terrain artifact exists
 - Userland collection browsing includes shared collection-page chrome, tokens / activities / holders sections, reusable trait facets, collection activity feeds, and owner-scoped token browsing.
+- Blockspace exploration is implemented with stacked isometric levels, stable bucket ranges, live coverage refresh, manual backfill selection, and public single-collection cache diagnostics.
 - Local observability stack is available (logs, metrics, traces, profiles).
 - Tauri desktop runtime supervisor composes local NATS + backend + indexer workers from production runtime artifacts.
 - Desktop admin UI now includes lifecycle, wallets, bots, logs, and status surfaces behind the native Tauri shell.
@@ -367,7 +368,7 @@ Reference docs:
 
 Use these as primary references for design and implementation details:
 
-- `docs/indexer/00-overview.md` through `docs/indexer/15-fill-decoding.md`
+- `docs/indexer/00-overview.md` through `docs/indexer/16-blockspace-exploration.md`
 - `docs/extensions/01-collection-extensions.md`
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`

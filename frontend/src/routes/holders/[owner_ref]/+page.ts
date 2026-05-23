@@ -2,14 +2,15 @@ import { error } from '@sveltejs/kit';
 import { normalizeAddressRef } from '@artgod/shared/utils/ref-resolver';
 import type { PageLoad } from './$types';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { BackendApiError, getCollectionDetail } from '$lib/backend-api';
+import { BackendApiError, getCollectionDetailWithHeaders } from '$lib/backend-api';
+import { forwardQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import {
 	IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
 	PUBLIC_COLLECTION_SCOPE
 } from '$lib/runtime/public-deployment';
 import { normalizeTokenBrowserParams, parseDisplayMode } from '$lib/token-browser-query';
 
-export const load: PageLoad = async ({ fetch, params, url }) => {
+export const load: PageLoad = async ({ fetch, params, setHeaders, url }) => {
 	if (!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT || !PUBLIC_COLLECTION_SCOPE) {
 		throw error(404, 'Not found');
 	}
@@ -20,12 +21,14 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	const displayMode = parseDisplayMode(url.searchParams.get('mode'));
 
 	try {
-		const response = await getCollectionDetail(
+		const responseWithHeaders = await getCollectionDetailWithHeaders(
 			fetch,
 			PUBLIC_COLLECTION_SCOPE.chainRef,
 			PUBLIC_COLLECTION_SCOPE.collectionRef,
 			query
 		);
+		forwardQueryCacheResponseHeaders(setHeaders, responseWithHeaders.headers);
+		const response = responseWithHeaders.payload;
 		const collectionBasePath = '/';
 		const holdersBasePath = '/holders';
 		const browserBasePath = `/holders/${encodeURIComponent(owner)}`;

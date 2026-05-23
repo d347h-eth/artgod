@@ -12,6 +12,7 @@ import {
     COLLECTION_BIDDING_BID_SCOPE_FILTERS,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES,
+    COLLECTION_STATUS,
     TRAIT_FILTER_QUERY_PARAMS,
     TOKEN_BROWSER_STATUS,
     type ActivityFeedFilterKind,
@@ -30,10 +31,10 @@ import type {
 } from "../../application/use-cases/bootstrap/types.js";
 
 const ALLOWED_COLLECTION_STATUSES = new Set<CollectionStatus>([
-    "bootstrapping",
-    "live",
-    "paused",
-    "disabled",
+    COLLECTION_STATUS.Bootstrapping,
+    COLLECTION_STATUS.Live,
+    COLLECTION_STATUS.Paused,
+    COLLECTION_STATUS.Disabled,
 ]);
 
 const ALLOWED_TOKEN_BROWSER_STATUSES = new Set<TokenBrowserStatus>([
@@ -91,6 +92,18 @@ export function parseLimit(raw: string | null): number {
     const parsed = Number(raw);
     if (!Number.isInteger(parsed) || parsed <= 0) {
         throw new ReadModelBadRequestError("Invalid limit");
+    }
+    return parsed;
+}
+
+export function parseOptionalInteger(
+    raw: string | null,
+    field: string,
+): number | null {
+    if (!raw || !raw.trim()) return null;
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed)) {
+        throw new ReadModelBadRequestError(`Invalid ${field}`);
     }
     return parsed;
 }

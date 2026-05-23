@@ -23,6 +23,9 @@ import type {
 	DefaultChainResponse,
 	OwnerRefResolutionApiResponse,
 	RuntimeConfigApiResponse,
+	ScheduleBlockspaceBackfillApiResponse,
+	BlockspaceRangeSummaryApiResponse,
+	BlockspaceStateApiResponse,
 	TokenBiddingBidBookApiResponse,
 	TokenBiddingJobApiResponse,
 	TokenBiddingJobMutationApiResponse,
@@ -31,19 +34,36 @@ import type {
 	TraitBiddingJobMutationApiResponse
 } from '$lib/api-types';
 import { resolveBackendOrigin } from '$lib/runtime/backend-origin';
+import { extractQueryCacheResponseHeaders } from '$lib/query-cache-response-headers';
 import { browser } from '$app/environment';
-import { TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND } from '@artgod/shared/types';
-import type {
-	CollectionBiddingTraitFilterJoinMode,
-	TokenBrowserStatus,
-	TradingBiddingTierSelectionMode
+import {
+	TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+	type CollectionBiddingTraitFilterJoinMode,
+	type TokenBrowserStatus,
+	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
+import {
+	ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME,
+	QUERY_CACHE_DEBUG_AGE_HEADER_NAME,
+	QUERY_CACHE_DEBUG_HEADER_NAME,
+	QUERY_CACHE_DEBUG_TTL_HEADER_NAME,
+	sanitizeHttpRequestTarget
+} from '@artgod/shared/observability/http';
+import { logger } from '@artgod/shared/utils/logger';
 
 // Max duration for transient backend retry loop during early runtime startup.
 const STARTUP_RETRY_WINDOW_MS = 12_000;
 // Delay between startup retry attempts for transient backend failures.
 const STARTUP_RETRY_DELAY_MS = 250;
+const FRONTEND_SSR_LOG_COMPONENT = 'FrontendSSR';
+const FRONTEND_SSR_BACKEND_API_RESPONSE_ACTION = 'backend_api_response';
+const FRONTEND_SSR_BACKEND_API_FAILURE_ACTION = 'backend_api_failure';
 let csrfTokenCache: string | null = null;
+
+export type BackendJsonResponse<T> = {
+	payload: T;
+	headers: Headers;
+};
 
 export class BackendApiError extends Error {
 	constructor(
@@ -76,15 +96,76 @@ export async function getCollectionsPage(
 	);
 }
 
+export async function getBlockspaceState(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	params: URLSearchParams
+): Promise<BlockspaceStateApiResponse> {
+	return (await getBlockspaceStateWithHeaders(fetchFn, chainRef, params)).payload;
+}
+
+export async function getBlockspaceStateWithHeaders(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	params: URLSearchParams
+): Promise<BackendJsonResponse<BlockspaceStateApiResponse>> {
+	const query = params.toString();
+	const suffix = query ? `?${query}` : '';
+	return requestJsonResponse<BlockspaceStateApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/blockspace${suffix}`
+	);
+}
+
+export async function getBlockspaceRangeSummary(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	params: URLSearchParams
+): Promise<BlockspaceRangeSummaryApiResponse> {
+	const query = params.toString();
+	const suffix = query ? `?${query}` : '';
+	return requestJson<BlockspaceRangeSummaryApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/blockspace/range${suffix}`
+	);
+}
+
+export async function scheduleBlockspaceBackfill(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	body: {
+		collectionRef?: string | null;
+		fromBlock: number;
+		toBlock: number;
+	}
+): Promise<ScheduleBlockspaceBackfillApiResponse> {
+	await ensureCsrfToken(fetchFn);
+	return requestJsonWithBody<ScheduleBlockspaceBackfillApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/blockspace/backfill`,
+		'POST',
+		body
+	);
+}
+
 export async function getCollectionDetail(
 	fetchFn: typeof fetch,
 	chainRef: string,
 	collectionRef: string,
 	params: URLSearchParams
 ): Promise<CollectionDetailApiResponse> {
+	return (await getCollectionDetailWithHeaders(fetchFn, chainRef, collectionRef, params)).payload;
+}
+
+export async function getCollectionDetailWithHeaders(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	params: URLSearchParams
+): Promise<BackendJsonResponse<CollectionDetailApiResponse>> {
 	const query = params.toString();
 	const suffix = query ? `?${query}` : '';
-	return requestJson<CollectionDetailApiResponse>(
+	return requestJsonResponse<CollectionDetailApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}${suffix}`
 	);
@@ -635,6 +716,13 @@ export async function retryBootstrapFailedTasks(
 }
 
 async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
+	return (await requestJsonResponse<T>(fetchFn, path)).payload;
+}
+
+async function requestJsonResponse<T>(
+	fetchFn: typeof fetch,
+	path: string
+): Promise<BackendJsonResponse<T>> {
 	let backendOrigin: string;
 	try {
 		backendOrigin = await resolveBackendOrigin();
@@ -657,9 +745,20 @@ async function requestJson<T>(fetchFn: typeof fetch, path: string): Promise<T> {
 	}
 }
 
-async function requestJsonOnce<T>(fetchFn: typeof fetch, url: string): Promise<T> {
-	const response = await fetchFn(url, { credentials: 'include' });
+async function requestJsonOnce<T>(
+	fetchFn: typeof fetch,
+	url: string
+): Promise<BackendJsonResponse<T>> {
+	const requestLog = createSsrBackendRequestLogContext('GET', url);
+	let response: Response;
+	try {
+		response = await fetchFn(url, buildBackendRequestInit({ credentials: 'include' }, requestLog));
+	} catch (cause) {
+		logSsrBackendApiFailure(requestLog, cause);
+		throw cause;
+	}
 	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+	logSsrBackendApiResponse(requestLog, response);
 
 	if (!response.ok) {
 		throw new BackendApiError(
@@ -668,7 +767,10 @@ async function requestJsonOnce<T>(fetchFn: typeof fetch, url: string): Promise<T
 		);
 	}
 
-	return payload as T;
+	return {
+		payload: payload as T,
+		headers: response.headers
+	};
 }
 
 async function requestJsonWithBody<T>(
@@ -680,16 +782,30 @@ async function requestJsonWithBody<T>(
 	const backendOrigin = await resolveBackendOrigin();
 	const url = `${backendOrigin}${path}`;
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
-	const response = await requestFetch(url, {
-		method,
-		credentials: 'include',
-		headers: {
-			'content-type': 'application/json',
-			'x-artgod-csrf': csrfTokenCache ?? ''
-		},
-		body: JSON.stringify(body)
-	});
+	const requestLog = createSsrBackendRequestLogContext(method, url);
+	let response: Response;
+	try {
+		response = await requestFetch(
+			url,
+			buildBackendRequestInit(
+				{
+					method,
+					credentials: 'include',
+					headers: {
+						'content-type': 'application/json',
+						'x-artgod-csrf': csrfTokenCache ?? ''
+					},
+					body: JSON.stringify(body)
+				},
+				requestLog
+			)
+		);
+	} catch (cause) {
+		logSsrBackendApiFailure(requestLog, cause);
+		throw cause;
+	}
 	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+	logSsrBackendApiResponse(requestLog, response);
 	if (!response.ok) {
 		throw new BackendApiError(
 			payload?.message ?? `Backend request failed with ${response.status}`,
@@ -703,11 +819,26 @@ async function ensureCsrfToken(fetchFn: typeof fetch): Promise<void> {
 	if (csrfTokenCache) return;
 	const backendOrigin = await resolveBackendOrigin();
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
-	const response = await requestFetch(`${backendOrigin}/api/security/csrf`, {
-		method: 'GET',
-		credentials: 'include'
-	});
+	const url = `${backendOrigin}/api/security/csrf`;
+	const requestLog = createSsrBackendRequestLogContext('GET', url);
+	let response: Response;
+	try {
+		response = await requestFetch(
+			url,
+			buildBackendRequestInit(
+				{
+					method: 'GET',
+					credentials: 'include'
+				},
+				requestLog
+			)
+		);
+	} catch (cause) {
+		logSsrBackendApiFailure(requestLog, cause);
+		throw cause;
+	}
 	const payload = (await response.json().catch(() => null)) as { token?: string } | null;
+	logSsrBackendApiResponse(requestLog, response);
 	if (!response.ok || !payload?.token) {
 		throw new BackendApiError('Unable to initialize CSRF token', response.status);
 	}
@@ -746,4 +877,93 @@ function selectRequestFetch(fetchFn: typeof fetch, backendOrigin: string): typeo
 		return globalThis.fetch;
 	}
 	return fetchFn;
+}
+
+type SsrBackendRequestLogContext = {
+	requestId: string;
+	method: string;
+	url: string;
+	startedAtMs: number;
+};
+
+function createSsrBackendRequestLogContext(
+	method: string,
+	url: string
+): SsrBackendRequestLogContext | null {
+	if (browser) return null;
+	return {
+		requestId: createBackendRequestId(),
+		method,
+		url,
+		startedAtMs: Date.now()
+	};
+}
+
+function buildBackendRequestInit(
+	init: RequestInit,
+	requestLog: SsrBackendRequestLogContext | null
+): RequestInit {
+	if (!requestLog) return init;
+
+	const headers = new Headers(init.headers);
+	headers.set(ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME, requestLog.requestId);
+	return {
+		...init,
+		headers
+	};
+}
+
+function logSsrBackendApiResponse(
+	requestLog: SsrBackendRequestLogContext | null,
+	response: Response
+): void {
+	if (!requestLog) return;
+	const cacheHeaders = extractQueryCacheResponseHeaders(response.headers);
+	const target = sanitizeHttpRequestTarget(requestLog.url);
+	logger.info('Frontend SSR backend API response', {
+		component: FRONTEND_SSR_LOG_COMPONENT,
+		action: FRONTEND_SSR_BACKEND_API_RESPONSE_ACTION,
+		method: requestLog.method,
+		path: target.path,
+		queryKeys: target.queryKeys,
+		queryParamCount: target.queryParamCount,
+		redactedQueryParamCount: target.redactedQueryParamCount,
+		statusCode: response.status,
+		durationMs: Date.now() - requestLog.startedAtMs,
+		ssrBackendRequestId: requestLog.requestId,
+		queryCacheStatus: cacheHeaders[QUERY_CACHE_DEBUG_HEADER_NAME] ?? null,
+		queryCacheAgeMs: parseOptionalInteger(cacheHeaders[QUERY_CACHE_DEBUG_AGE_HEADER_NAME]),
+		queryCacheTtlMs: parseOptionalInteger(cacheHeaders[QUERY_CACHE_DEBUG_TTL_HEADER_NAME]),
+		responseHeaders: cacheHeaders
+	});
+}
+
+function logSsrBackendApiFailure(
+	requestLog: SsrBackendRequestLogContext | null,
+	cause: unknown
+): void {
+	if (!requestLog) return;
+	const target = sanitizeHttpRequestTarget(requestLog.url);
+	logger.warn('Frontend SSR backend API request failed', {
+		component: FRONTEND_SSR_LOG_COMPONENT,
+		action: FRONTEND_SSR_BACKEND_API_FAILURE_ACTION,
+		method: requestLog.method,
+		path: target.path,
+		queryKeys: target.queryKeys,
+		queryParamCount: target.queryParamCount,
+		redactedQueryParamCount: target.redactedQueryParamCount,
+		durationMs: Date.now() - requestLog.startedAtMs,
+		ssrBackendRequestId: requestLog.requestId,
+		error: toErrorMessage(cause)
+	});
+}
+
+function createBackendRequestId(): string {
+	return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function parseOptionalInteger(value: string | undefined): number | null {
+	if (!value) return null;
+	const parsed = Number.parseInt(value, 10);
+	return Number.isFinite(parsed) ? parsed : null;
 }

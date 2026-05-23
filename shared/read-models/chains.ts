@@ -13,6 +13,9 @@ type ChainRow = {
     public_chain_id: number;
     slug: string;
     name: string;
+    average_block_time_seconds: number;
+    genesis_block_number: number | null;
+    genesis_block_timestamp: number | null;
 };
 
 export class SqliteChainsReadModel {
@@ -20,14 +23,14 @@ export class SqliteChainsReadModel {
         type: string;
         publicChainId: number;
     }>(
-        "SELECT id, type, public_chain_id, slug, name " +
+        "SELECT id, type, public_chain_id, slug, name, average_block_time_seconds, genesis_block_number, genesis_block_timestamp " +
             "FROM chains " +
             "WHERE type = @type AND public_chain_id = @publicChainId " +
             "LIMIT 1",
     );
 
     private selectBySlug = db.prepare<{ type: string; slug: string }>(
-        "SELECT id, type, public_chain_id, slug, name " +
+        "SELECT id, type, public_chain_id, slug, name, average_block_time_seconds, genesis_block_number, genesis_block_timestamp " +
             "FROM chains " +
             "WHERE type = @type AND slug = @slug " +
             "LIMIT 1",
@@ -84,5 +87,8 @@ function mapChainRow(row: ChainRow): ChainRecord {
         publicChainId: row.public_chain_id,
         slug: row.slug,
         name: row.name,
+        averageBlockTimeSeconds: row.average_block_time_seconds,
+        genesisBlockNumber: row.genesis_block_number,
+        genesisBlockTimestamp: row.genesis_block_timestamp,
     };
 }

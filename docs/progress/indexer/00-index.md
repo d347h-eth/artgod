@@ -20,3 +20,5 @@ Files:
 - `docs/progress/indexer/14-bootstrap-metadata-first.md`
 - `docs/progress/indexer/15-unified-backlog.md`
 - `docs/progress/indexer/16-trace-profile-linking-plan.md`
+- `docs/progress/indexer/18-blockspace-isometric-view-plan.md`
+- `docs/progress/indexer/19-large-manual-backfill-durability-plan.md`

@@ -1,4 +1,5 @@
 import { db } from "@artgod/shared/database";
+import { COLLECTION_STATUS, type CollectionStatus } from "@artgod/shared/types";
 import {
     CollectionRecord,
     CollectionUpsertInput,
@@ -53,28 +54,42 @@ export class SqliteCollectionRegistry
         SELECT_COLLECTIONS_FIELDS +
             "WHERE chain_id = @chainId AND collection_id = @collectionId LIMIT 1",
     );
-    private selectLive = db.prepare<{ chainId: number }>(
-        SELECT_COLLECTIONS_FIELDS +
-            "WHERE chain_id = @chainId AND status = 'live'",
-    );
-    private selectBackfill = db.prepare<{ chainId: number }>(
-        SELECT_COLLECTIONS_FIELDS +
-            "WHERE chain_id = @chainId AND status IN ('live', 'bootstrapping')",
-    );
-    private selectOpenSeaSubscription = db.prepare<{ chainId: number }>(
+    private selectRealtime = db.prepare<{
+        chainId: number;
+        liveStatus: CollectionStatus;
+        bootstrappingStatus: CollectionStatus;
+    }>(
         SELECT_COLLECTIONS_FIELDS +
             "WHERE chain_id = @chainId " +
-            "AND status IN ('live', 'bootstrapping') " +
+            "AND (status = @liveStatus OR (status = @bootstrappingStatus AND bootstrap_anchor_block IS NOT NULL))",
+    );
+    private selectBackfill = db.prepare<{
+        chainId: number;
+        liveStatus: CollectionStatus;
+        bootstrappingStatus: CollectionStatus;
+    }>(
+        SELECT_COLLECTIONS_FIELDS +
+            "WHERE chain_id = @chainId AND status IN (@liveStatus, @bootstrappingStatus)",
+    );
+    private selectOpenSeaSubscription = db.prepare<{
+        chainId: number;
+        liveStatus: CollectionStatus;
+        bootstrappingStatus: CollectionStatus;
+    }>(
+        SELECT_COLLECTIONS_FIELDS +
+            "WHERE chain_id = @chainId " +
+            "AND status IN (@liveStatus, @bootstrappingStatus) " +
             "AND opensea_slug IS NOT NULL " +
             "AND opensea_status IS NOT NULL",
     );
     private selectOpenSeaReconcile = db.prepare<{
         chainId: number;
         staleBeforeIso: string;
+        liveStatus: CollectionStatus;
     }>(
         SELECT_COLLECTIONS_FIELDS +
             "WHERE chain_id = @chainId " +
-            "AND status = 'live' " +
+            "AND status = @liveStatus " +
             "AND opensea_slug IS NOT NULL " +
             "AND opensea_status IS NOT NULL " +
             "AND (opensea_reconcile_completed_at IS NULL OR opensea_reconcile_completed_at < @staleBeforeIso)",
@@ -114,9 +129,10 @@ export class SqliteCollectionRegistry
         chainId: number;
         collectionId: number;
         anchorBlock: number;
+        status: CollectionStatus;
     }>(
         "UPDATE collections SET " +
-            "status = 'bootstrapping', " +
+            "status = @status, " +
             "bootstrap_anchor_block = @anchorBlock, " +
             "bootstrap_started_at = COALESCE(bootstrap_started_at, CURRENT_TIMESTAMP), " +
             "updated_at = CURRENT_TIMESTAMP " +
@@ -136,9 +152,10 @@ export class SqliteCollectionRegistry
         chainId: number;
         collectionId: number;
         lastSyncedBlock: number;
+        status: CollectionStatus;
     }>(
         "UPDATE collections SET " +
-            "status = 'live', " +
+            "status = @status, " +
             "bootstrap_last_synced_block = @lastSyncedBlock, " +
             "bootstrap_finished_at = CURRENT_TIMESTAMP, " +
             "updated_at = CURRENT_TIMESTAMP " +
@@ -289,15 +306,19 @@ export class SqliteCollectionRegistry
     ): CollectionRecord[] {
         const rows =
             mode === "realtime"
-                ? (this.selectLive.all({ chainId }) as CollectionRow[])
-                : (this.selectBackfill.all({ chainId }) as CollectionRow[]);
+                ? (this.selectRealtime.all(
+                      syncStatusQuery(chainId),
+                  ) as CollectionRow[])
+                : (this.selectBackfill.all(
+                      syncStatusQuery(chainId),
+                  ) as CollectionRow[]);
         return rows.map(mapRow);
     }
 
     listCollectionsForOpenSeaSubscription(chainId: number): CollectionRecord[] {
-        const rows = this.selectOpenSeaSubscription.all({
-            chainId,
-        }) as CollectionRow[];
+        const rows = this.selectOpenSeaSubscription.all(
+            syncStatusQuery(chainId),
+        ) as CollectionRow[];
         return rows.map(mapRow);
     }
 
@@ -308,6 +329,7 @@ export class SqliteCollectionRegistry
         const rows = this.selectOpenSeaReconcile.all({
             chainId,
             staleBeforeIso,
+            liveStatus: COLLECTION_STATUS.Live,
         }) as CollectionRow[];
         return rows.map(mapRow);
     }
@@ -340,6 +362,7 @@ export class SqliteCollectionRegistry
             chainId,
             collectionId,
             anchorBlock,
+            status: COLLECTION_STATUS.Bootstrapping,
         });
         return result.changes > 0;
     }
@@ -366,6 +389,7 @@ export class SqliteCollectionRegistry
             chainId,
             collectionId,
             lastSyncedBlock,
+            status: COLLECTION_STATUS.Live,
         });
         return result.changes > 0;
     }
@@ -607,7 +631,7 @@ function mapRow(row: CollectionRow): CollectionRecord {
         slug: row.slug,
         address: row.address,
         standard: row.standard as "erc721" | "erc1155",
-        status: row.status as "bootstrapping" | "live" | "paused" | "disabled",
+        status: row.status as CollectionStatus,
         tokenScopeKind: row.token_scope_kind,
         scopeStartTokenId: row.scope_start_token_id,
         scopeTotalSupply: row.scope_total_supply,
@@ -627,4 +651,16 @@ function mapRow(row: CollectionRow): CollectionRecord {
         openseaLastStreamHealthyAt: row.opensea_last_stream_healthy_at,
         openseaLastError: row.opensea_last_error,
     });
+}
+
+function syncStatusQuery(chainId: number): {
+    chainId: number;
+    liveStatus: CollectionStatus;
+    bootstrappingStatus: CollectionStatus;
+} {
+    return {
+        chainId,
+        liveStatus: COLLECTION_STATUS.Live,
+        bootstrappingStatus: COLLECTION_STATUS.Bootstrapping,
+    };
 }

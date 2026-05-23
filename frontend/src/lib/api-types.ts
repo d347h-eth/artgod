@@ -3,6 +3,7 @@ import {
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
 	type CollectionBiddingBidScopeFilter,
 	type CollectionBiddingTraitFilterJoinMode,
+	type CollectionStatus,
 	type TradingBiddingBidBookSource,
 	type TradingBiddingBidBookOwnJobPhase,
 	type TradingBiddingJobPricingSource,
@@ -15,6 +16,9 @@ export type ApiChain = {
 	publicChainId: number;
 	slug: string;
 	name: string;
+	averageBlockTimeSeconds?: number;
+	genesisBlockNumber?: number | null;
+	genesisBlockTimestamp?: number | null;
 };
 
 export type ApiCollection = {
@@ -23,7 +27,7 @@ export type ApiCollection = {
 	slug: string;
 	address: string;
 	standard: 'erc721' | 'erc1155';
-	status: 'bootstrapping' | 'live' | 'paused' | 'disabled';
+	status: CollectionStatus;
 	deploymentBlock: number | null;
 	bootstrapAnchorBlock: number | null;
 	createdAt: string;
@@ -820,4 +824,101 @@ export type BootstrapRetryFailedResponse = {
 	runId: number;
 	updatedCount: number;
 	status: string;
+};
+
+export type ApiBlockspaceCoverageState = 'empty' | 'partial' | 'complete';
+
+export type ApiBlockspaceCollectionOption = {
+	chainId: number;
+	collectionId: number;
+	slug: string;
+	address: string;
+	status: CollectionStatus;
+	deploymentBlock: number | null;
+	bootstrapAnchorBlock: number | null;
+	bootstrapLastSyncedBlock: number | null;
+};
+
+export type ApiBlockspaceGridCellDeploymentMarker = {
+	blockNumber: number;
+	synced: boolean;
+};
+
+export type ApiBlockspaceGridCell = {
+	index: number;
+	fromBlock: number;
+	toBlock: number;
+	blockCount: number;
+	syncedBlockCount: number;
+	state: ApiBlockspaceCoverageState;
+	canDrillDown: boolean;
+	collectionDeploymentBlock: ApiBlockspaceGridCellDeploymentMarker | null;
+};
+
+export type ApiBlockspaceBlockTimestamp = {
+	blockNumber: number;
+	timestamp: number | null;
+	source: 'chain' | 'db' | 'rpc' | 'unavailable';
+};
+
+export type ApiBlockspaceRangeSummary = {
+	fromBlock: number;
+	toBlock: number;
+	blockCount: number;
+	bucketSize: number;
+	syncedBlockCount: number;
+	time: {
+		from: ApiBlockspaceBlockTimestamp;
+		to: ApiBlockspaceBlockTimestamp;
+		durationSeconds: number | null;
+	};
+};
+
+export type BlockspaceStateApiResponse = {
+	chain: ApiChain;
+	context: {
+		selected: string;
+		collections: ApiBlockspaceCollectionOption[];
+	};
+	range: {
+		fromBlock: number;
+		toBlock: number;
+		blockCount: number;
+		bucketSize: number;
+		gridCellCount: number;
+		canDrillDown: boolean;
+		time: {
+			from: ApiBlockspaceBlockTimestamp;
+			to: ApiBlockspaceBlockTimestamp;
+			durationSeconds: number | null;
+		};
+	};
+	summary: {
+		genesisBlock: number;
+		headBlock: number;
+		headSource: 'rpc' | 'indexed';
+		highestSyncedBlock: number | null;
+		syncedBlockCount: number;
+		selectedRangeSyncedBlockCount: number;
+	};
+	grid: ApiBlockspaceGridCell[];
+};
+
+export type BlockspaceRangeSummaryApiResponse = {
+	chain: ApiChain;
+	context: {
+		selected: string;
+	};
+	range: ApiBlockspaceRangeSummary;
+};
+
+export type ScheduleBlockspaceBackfillApiResponse = {
+	chain: ApiChain;
+	collection: {
+		collectionId: number;
+		slug: string;
+	} | null;
+	fromBlock: number;
+	toBlock: number;
+	queuedJobs: number;
 };

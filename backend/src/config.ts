@@ -32,6 +32,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
 const DEFAULT_BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS = 30 * 1000;
 const DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS =
     10 * 60 * 1000;
+const DEFAULT_BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS = 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES = 250;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS = 10 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS = 20 * 60 * 1000;
@@ -66,6 +67,9 @@ export type BackendQueryCacheConfig = {
         detailRefreshMs: number;
         previewWarmRefreshMs: number;
     };
+    publicBlockspace: {
+        refreshMs: number;
+    };
     tokenPreview: {
         maxEntries: number;
         freshMs: number;
@@ -96,6 +100,10 @@ export type BackendApmConfig = {
     };
 };
 
+export type BackendSyncConfig = {
+    backfillBatchSize: number;
+};
+
 export type BackendConfig = {
     host: string;
     port: number;
@@ -109,6 +117,7 @@ export type BackendConfig = {
     security: BackendSecurityConfig;
     deployment: BackendDeploymentConfig;
     queryCache: BackendQueryCacheConfig;
+    sync: BackendSyncConfig;
     metrics: BackendMetricsConfig;
     apm: BackendApmConfig;
     integrations: {
@@ -152,6 +161,7 @@ export function loadBackendConfig(
     };
     const deployment = parseDeploymentConfig(env);
     const queryCache = parseQueryCacheConfig(env);
+    const sync = parseBackendSyncConfig(env);
     const metrics = parseBackendMetricsConfig(env);
     const apm = parseBackendApmConfig(env);
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
@@ -173,9 +183,22 @@ export function loadBackendConfig(
         security,
         deployment,
         queryCache,
+        sync,
         metrics,
         apm,
         integrations,
+    };
+}
+
+function parseBackendSyncConfig(
+    env: Record<string, string | undefined>,
+): BackendSyncConfig {
+    return {
+        backfillBatchSize: parsePositiveInteger(
+            env.BACKFILL_BATCH_SIZE,
+            "BACKFILL_BATCH_SIZE",
+            50,
+        ),
     };
 }
 
@@ -273,6 +296,13 @@ function parseQueryCacheConfig(
                 env.BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS,
                 "BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS",
                 DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS,
+            ),
+        },
+        publicBlockspace: {
+            refreshMs: parsePositiveInteger(
+                env.BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS,
+                "BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS",
+                DEFAULT_BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS,
             ),
         },
         tokenPreview: {

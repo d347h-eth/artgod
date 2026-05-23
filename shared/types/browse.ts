@@ -7,7 +7,16 @@ import type { TraitFilterDisplayKind } from "./customization.js";
 
 export type CollectionStandard = "erc721" | "erc1155";
 
-export type CollectionStatus = "bootstrapping" | "live" | "paused" | "disabled";
+// Names collection lifecycle states shared by backend, frontend, and workers.
+export const COLLECTION_STATUS = {
+    Bootstrapping: "bootstrapping",
+    Live: "live",
+    Paused: "paused",
+    Disabled: "disabled",
+} as const;
+
+export type CollectionStatus =
+    (typeof COLLECTION_STATUS)[keyof typeof COLLECTION_STATUS];
 
 // Public collection extension summaries expose enabled extension identity without install config.
 export type CollectionExtensionSummary = {
@@ -20,6 +29,9 @@ export type ChainRecord = {
     publicChainId: number;
     slug: string;
     name: string;
+    averageBlockTimeSeconds?: number;
+    genesisBlockNumber?: number | null;
+    genesisBlockTimestamp?: number | null;
 };
 
 export type CollectionListItem = {

@@ -22,6 +22,7 @@ describe("ownership balance persistence", () => {
             [
                 "DELETE FROM nft_balance_snapshots;",
                 "DELETE FROM nft_balances;",
+                "DELETE FROM collection_sync_blocks;",
                 "DELETE FROM nft_transfer_events;",
                 "DELETE FROM transactions;",
                 "DELETE FROM blocks;",
@@ -130,6 +131,77 @@ describe("ownership balance persistence", () => {
         expect(selectBalanceOwners(chainId, collectionId, "5081")).toEqual([
             { owner: buyer, amount: "1" },
         ]);
+    });
+
+    it("records collection-specific block sync coverage for the targeted collections", () => {
+        const chainId = 1;
+        const contract = "0xabc0000000000000000000000000000000000000";
+        const collectionId = insertCollection({
+            chainId,
+            slug: "terraforms",
+            address: contract,
+            anchorBlock: 100,
+        });
+        const untouchedCollectionId = insertCollection({
+            chainId,
+            slug: "milady",
+            address: "0xdef0000000000000000000000000000000000000",
+            anchorBlock: 100,
+        });
+
+        const storage = new SqliteStorage();
+        const collection = loadCollection(chainId, collectionId);
+        const blocks = [
+            {
+                number: 101,
+                hash: `0x${"22".repeat(32)}`,
+                parentHash: `0x${"11".repeat(32)}`,
+                timestamp: 1_726_000_100,
+            },
+            {
+                number: 102,
+                hash: `0x${"33".repeat(32)}`,
+                parentHash: `0x${"22".repeat(32)}`,
+                timestamp: 1_726_000_101,
+            },
+        ];
+
+        storage.persistSyncResult(chainId, blocks, emptyOnChainData(), [
+            collection,
+        ]);
+        storage.persistSyncResult(chainId, blocks, emptyOnChainData(), [
+            collection,
+        ]);
+
+        expect(storage.countBlocksInRange(chainId, 101, 102)).toBe(2);
+        expect(
+            storage.countCollectionSyncedBlocksInRange(
+                chainId,
+                collectionId,
+                101,
+                102,
+            ),
+        ).toBe(2);
+        expect(
+            storage.countCollectionSyncedBlocksInRange(
+                chainId,
+                untouchedCollectionId,
+                101,
+                102,
+            ),
+        ).toBe(0);
+
+        storage.rollbackFromBlock(chainId, 102);
+
+        expect(storage.countBlocksInRange(chainId, 101, 102)).toBe(1);
+        expect(
+            storage.countCollectionSyncedBlocksInRange(
+                chainId,
+                collectionId,
+                101,
+                102,
+            ),
+        ).toBe(1);
     });
 
     it("keeps bootstrap ownership unchanged for pre-anchor historical backfill", () => {
@@ -389,4 +461,25 @@ function selectTransferCount(
                 "WHERE chain_id = ? AND collection_id = ? AND token_id = ?",
         ).get(chainId, collectionId, tokenId)?.count ?? 0
     );
+}
+
+function emptyOnChainData() {
+    return {
+        transactions: [],
+        collectionScoped: {
+            nftTransferEvents: [],
+            nftBalanceDeltas: [],
+            fillEvents: [],
+            orderInfos: [],
+            makerTriggers: [],
+            metadataRefreshEvents: [],
+            metadataRefreshRangeEvents: [],
+            collectionExtensionEvents: [],
+            collectionExtensionEventMedia: [],
+        },
+        global: {
+            cancelEvents: [],
+            makerTriggers: [],
+        },
+    };
 }

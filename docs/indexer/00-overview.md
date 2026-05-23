@@ -198,4 +198,4 @@ The most important directories:
 - `database/migrations/`: SQLite schema
 - `indexer/tests/`: unit, DB-backed, and smoke tests
 
-See `docs/indexer/14-collection-bootstrap.md` for the per-collection bootstrap sequence, `docs/indexer/15-fill-decoding.md` for sale/fill decoding semantics, and `docs/indexer/13-sequence-diagrams.md` for the key end-to-end flows.
+See `docs/indexer/14-collection-bootstrap.md` for the per-collection bootstrap sequence, `docs/indexer/15-fill-decoding.md` for sale/fill decoding semantics, `docs/indexer/16-blockspace-exploration.md` for the blockspace explorer and public cache, and `docs/indexer/13-sequence-diagrams.md` for the key end-to-end flows.

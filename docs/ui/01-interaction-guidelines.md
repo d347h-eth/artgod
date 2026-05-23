@@ -36,8 +36,28 @@ Rules:
 - every top-action row should use the same vertical gap
 - controls inside one row should use the same compact horizontal gap
 - left-side controls stay aligned to the left edge of the page content
-- media mode is the only standard control that should sit on the far right of token-browser result toolbars
+- do not push buttons, tabs, or action groups to the far-right edge by spanning the whole page width
+- keep controls in compact left-aligned groups unless a specific layout is explicitly approved
 - bidding/filter controls belong in top-action rows, not inside token-card grids or result summaries
+
+## Shared Page Skeleton
+
+The userland page skeleton is shared product chrome and must stay stable across pages.
+
+Shared skeleton includes:
+
+- page title/header rows
+- primary navigation tabs
+- chain/context selectors and top control rows
+- shared page-shell spacing and alignment
+
+Rules:
+
+- do not center, stretch, or otherwise reposition shared skeleton elements to satisfy a feature-body layout request
+- when a feature body needs centered content, scope the centering to a dedicated wrapper below the relevant top controls
+- preserve the existing left-aligned compact chrome unless a request explicitly names the page shell/navigation itself
+- feature-specific visualizations may use their own centered grids, but their CSS must not mutate generic `.panel`, `.panel-header`, navigation tab, or shared top-action behavior
+- side panels attached to a centered visualization should align through one shared layout grid, not through per-row content width
 
 ## Default Width Policy
 
@@ -232,6 +252,14 @@ Control rules:
 - public single-collection deployments may show read-only offers, but must not expose bidding job or tier write controls.
 
 ### Button and focus behavior
+
+Action polarity and placement:
+
+- negative, cancel, discard, or exit buttons go on the left side of the action group and use the orange control family
+- positive, accept, confirm, commit, or submit buttons go on the right side of the action group and use the cyan control family
+- when the row is compact instead of full-width, keep a significant visual gap between the negative-left and positive-right buttons
+- do not render a positive/confirm button before the matching negative/cancel button
+- use the shared `.action-button-negative` and `.action-button-positive` classes unless a component has an existing documented equivalent
 
 Button-like controls should not retain pointer focus after mouse or touch activation.
 

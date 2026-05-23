@@ -83,6 +83,18 @@ import type {
     ListCollectionsRoute,
 } from "./http/handlers/collections/list-collections.js";
 import type {
+    GetBlockspaceRangeSummaryHttpAdapter,
+    GetBlockspaceRangeSummaryRoute,
+} from "./http/handlers/blockspace/get-blockspace-range-summary.js";
+import type {
+    GetBlockspaceStateHttpAdapter,
+    GetBlockspaceStateRoute,
+} from "./http/handlers/blockspace/get-blockspace-state.js";
+import type {
+    ScheduleBlockspaceBackfillHttpAdapter,
+    ScheduleBlockspaceBackfillRoute,
+} from "./http/handlers/blockspace/schedule-blockspace-backfill.js";
+import type {
     GetRuntimeHealthHttpAdapter,
     GetRuntimeHealthRoute,
 } from "./http/handlers/health/get-runtime-health.js";
@@ -213,6 +225,11 @@ export function registerApiRoutes(
     getDefaultChainAdapter: GetDefaultChainHttpAdapter,
     getRuntimeConfigAdapter: GetRuntimeConfigHttpAdapter,
     listCollectionsAdapter: ListCollectionsHttpAdapter,
+    getBlockspaceStateAdapter: GetBlockspaceStateHttpAdapter,
+    getBlockspaceRangeSummaryAdapter: GetBlockspaceRangeSummaryHttpAdapter,
+    publicGetBlockspaceStateAdapter: GetBlockspaceStateHttpAdapter | null,
+    publicGetBlockspaceRangeSummaryAdapter: GetBlockspaceRangeSummaryHttpAdapter | null,
+    scheduleBlockspaceBackfillAdapter: ScheduleBlockspaceBackfillHttpAdapter,
     resolveOwnerRefAdapter: ResolveOwnerRefHttpAdapter,
     getCollectionActivityAdapter: GetCollectionActivityHttpAdapter,
     getActivityEventPreviewAdapter: GetActivityEventPreviewHttpAdapter,
@@ -282,6 +299,30 @@ export function registerApiRoutes(
             preHandler: publicChainScopeGuard,
         },
     );
+    if (
+        options.publicCollectionScope &&
+        publicGetBlockspaceStateAdapter &&
+        publicGetBlockspaceRangeSummaryAdapter
+    ) {
+        registerObservedGet<GetBlockspaceStateRoute>(
+            app,
+            options,
+            "/api/:chain_ref/blockspace",
+            publicGetBlockspaceStateAdapter.handle,
+            {
+                preHandler: publicChainScopeGuard,
+            },
+        );
+        registerObservedGet<GetBlockspaceRangeSummaryRoute>(
+            app,
+            options,
+            "/api/:chain_ref/blockspace/range",
+            publicGetBlockspaceRangeSummaryAdapter.handle,
+            {
+                preHandler: publicChainScopeGuard,
+            },
+        );
+    }
     registerObservedGet<GetCollectionActivityRoute>(
         app,
         options,
@@ -394,6 +435,24 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/collections",
         listCollectionsAdapter.handle,
+    );
+    registerObservedGet<GetBlockspaceStateRoute>(
+        app,
+        options,
+        "/api/:chain_ref/blockspace",
+        getBlockspaceStateAdapter.handle,
+    );
+    registerObservedGet<GetBlockspaceRangeSummaryRoute>(
+        app,
+        options,
+        "/api/:chain_ref/blockspace/range",
+        getBlockspaceRangeSummaryAdapter.handle,
+    );
+    registerObservedPost<ScheduleBlockspaceBackfillRoute>(
+        app,
+        options,
+        "/api/:chain_ref/blockspace/backfill",
+        scheduleBlockspaceBackfillAdapter.handle,
     );
     registerObservedGet<GetCollectionCustomizationRoute>(
         app,

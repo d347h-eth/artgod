@@ -2,6 +2,14 @@
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
+@font-face {
+	font-family: 'Mathcastles Remix';
+	src: url('/fonts/MathcastlesRemix-Regular.woff2') format('woff2');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
 :root {
 	--c-bg: #292726;
 	--c-cyan: #93d1de;
@@ -370,6 +378,276 @@ a:hover {
 	border-bottom: 1px solid var(--c-blue);
 }
 
+.blockspace-controls-header {
+	align-items: flex-start;
+	justify-content: flex-start;
+	flex-direction: column;
+	gap: 0.55rem;
+}
+
+.blockspace-toolbar {
+	display: inline-flex;
+	align-items: flex-start;
+	justify-content: flex-start;
+	flex-direction: column;
+	gap: 0.45rem;
+	flex-wrap: wrap;
+}
+
+.blockspace-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.65rem 1rem;
+	padding: 0.75rem;
+	border-bottom: 1px solid var(--c-blue);
+	font-size: 0.76rem;
+}
+
+.blockspace-summary div {
+	display: inline-grid;
+	gap: 0.12rem;
+	min-width: 7rem;
+}
+
+.blockspace-summary-label {
+	color: var(--c-pink);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.blockspace-summary-value {
+	color: var(--c-ice);
+}
+
+.blockspace-summary-meta {
+	color: color-mix(in srgb, var(--c-sand) 72%, transparent);
+	font-size: 0.72rem;
+	line-height: 1.2;
+}
+
+.blockspace-summary-date-stack {
+	display: inline-grid;
+	gap: 0.08rem;
+}
+
+.blockspace-content {
+	--blockspace-side-panel-width: 11.25rem;
+	--blockspace-detail-panel-gap: 0.5rem;
+	--blockspace-detail-panel-stack-width: calc(
+		var(--blockspace-side-panel-width) * 2 + var(--blockspace-detail-panel-gap)
+	);
+	--blockspace-center-column-width: min(
+		62rem,
+		max(28rem, calc(100vw - var(--blockspace-side-panel-width) - var(--blockspace-detail-panel-stack-width) - 4rem))
+	);
+	display: grid;
+	justify-content: center;
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+.blockspace-levels-layout {
+	position: relative;
+	display: grid;
+	grid-template-columns:
+		var(--blockspace-side-panel-width)
+		var(--blockspace-center-column-width)
+		var(--blockspace-detail-panel-stack-width);
+	align-items: center;
+	align-content: start;
+	column-gap: 0.75rem;
+	row-gap: 1rem;
+	width: max-content;
+	max-width: 100%;
+	padding: 0.75rem;
+}
+
+.blockspace-level-row {
+	display: contents;
+}
+
+.blockspace-grid-wrap {
+	position: relative;
+	z-index: 2;
+	justify-self: center;
+}
+
+.blockspace-level-summary-panel,
+.blockspace-level-selection-panel {
+	position: relative;
+	z-index: 2;
+	align-self: center;
+}
+
+.blockspace-level-summary-panel {
+	width: var(--blockspace-side-panel-width);
+}
+
+.blockspace-level-selection-panel {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--blockspace-detail-panel-gap);
+	width: var(--blockspace-detail-panel-stack-width);
+}
+
+.blockspace-level-detail-panel {
+	width: var(--blockspace-side-panel-width);
+}
+
+.blockspace-level-summary-panel .blockspace-summary,
+.blockspace-level-detail-panel .blockspace-summary {
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 0.55rem;
+	border: 1px solid var(--c-blue);
+}
+
+.blockspace-level-detail-panel-backfill .blockspace-summary {
+	border-color: var(--c-orange);
+}
+
+.blockspace-level-summary-panel .blockspace-summary div,
+.blockspace-level-detail-panel .blockspace-summary div {
+	min-width: 0;
+}
+
+.blockspace-isometric-grid {
+	display: inline-grid;
+	gap: 0.35rem;
+}
+
+.blockspace-isometric-canvas {
+	width: fit-content;
+	min-width: 0;
+	overflow: visible;
+}
+
+.blockspace-isometric-svg {
+	display: block;
+	max-width: none;
+	overflow: visible;
+}
+
+.blockspace-isometric-tile {
+	fill: var(--c-ice);
+	stroke: var(--c-sand);
+	stroke-width: 1;
+	cursor: pointer;
+	vector-effect: non-scaling-stroke;
+}
+
+.blockspace-isometric-tile:focus {
+	outline: none;
+}
+
+.blockspace-isometric-tile:hover:not(.blockspace-isometric-tile-disabled),
+.blockspace-isometric-tile:focus-visible:not(.blockspace-isometric-tile-disabled),
+.blockspace-isometric-tile-active:not(.blockspace-isometric-tile-disabled) {
+	outline: none;
+	stroke: var(--c-yellow);
+	stroke-width: 2;
+}
+
+.blockspace-isometric-tile-disabled {
+	cursor: default;
+	opacity: 0.32;
+}
+
+.blockspace-isometric-tile-padding {
+	cursor: default;
+	fill: transparent;
+	stroke: transparent;
+	pointer-events: none;
+}
+
+.blockspace-isometric-tile-empty {
+	fill: var(--c-ice);
+}
+
+.blockspace-isometric-tile-partial {
+	fill: var(--c-cyan);
+}
+
+.blockspace-isometric-tile-complete {
+	fill: var(--c-blue);
+}
+
+.blockspace-isometric-grid-selection-mode .blockspace-isometric-tile:not(.blockspace-isometric-tile-disabled) {
+	cursor: crosshair;
+}
+
+.blockspace-isometric-tile-selected {
+	fill: var(--c-orange);
+}
+
+.blockspace-isometric-marker {
+	font-family: 'Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
+	pointer-events: none;
+}
+
+.blockspace-isometric-marker-deployment {
+	fill: var(--c-pink);
+}
+
+.blockspace-projection-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.blockspace-projection-line {
+	stroke: var(--c-cyan);
+	stroke-width: 1;
+	stroke-dasharray: 5 5;
+	opacity: 0.72;
+	vector-effect: non-scaling-stroke;
+}
+
+.blockspace-range-detail-status {
+	border: 1px solid var(--c-blue);
+	padding: 0.4rem 0.55rem;
+	font-size: 0.72rem;
+}
+
+.blockspace-range-detail-status-backfill {
+	border-color: var(--c-orange);
+}
+
+.blockspace-actions {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.45rem;
+	flex-wrap: wrap;
+}
+
+.blockspace-actions-selection {
+	gap: 1.75rem;
+}
+
+@media (max-width: 900px) {
+	.blockspace-content {
+		--blockspace-side-panel-width: min(20rem, 100%);
+		--blockspace-detail-panel-stack-width: var(--blockspace-side-panel-width);
+		--blockspace-center-column-width: min(32rem, 82vw);
+	}
+
+	.blockspace-levels-layout {
+		grid-template-columns: var(--blockspace-side-panel-width);
+		justify-items: center;
+		width: fit-content;
+	}
+
+	.blockspace-level-selection-panel {
+		flex-direction: column;
+		width: var(--blockspace-side-panel-width);
+	}
+}
+
 .status-form label {
 	font-size: 0.75rem;
 	text-transform: uppercase;
@@ -401,6 +679,16 @@ button:disabled {
 button:not(:disabled):hover {
 	border-color: var(--c-yellow);
 	color: var(--c-yellow);
+}
+
+.action-button-negative:not(:disabled) {
+	border-color: var(--c-orange);
+	color: var(--c-orange);
+}
+
+.action-button-positive:not(:disabled) {
+	border-color: var(--c-cyan);
+	color: var(--c-cyan);
 }
 
 .table-wrap {

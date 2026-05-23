@@ -4,8 +4,9 @@ import {
     type QueryCachePort,
 } from "../../../ports/query-cache.js";
 import {
-    QUERY_CACHE_DEBUG_STATUSES,
-    setCurrentQueryCacheDebugInfo,
+    markCurrentQueryCacheBypass,
+    markCurrentQueryCacheHit,
+    markCurrentQueryCacheMiss,
 } from "../../../utils/query-cache-debug.js";
 import type {
     GetTokenPreviewInput,
@@ -60,11 +61,12 @@ export class CachedGetTokenPreview
             key,
         );
         if (cached) {
-            const ageMs = Math.max(0, Date.now() - cached.storedAt);
-            setCurrentQueryCacheDebugInfo({
-                status: QUERY_CACHE_DEBUG_STATUSES.Hit,
-                ageMs,
+            const now = Date.now();
+            const ageMs = Math.max(0, now - cached.storedAt);
+            markCurrentQueryCacheHit({
+                storedAt: cached.storedAt,
                 ttlMs: this.staleMs,
+                now,
             });
             if (ageMs > this.freshMs) {
                 this.scheduleRefresh(key, input);
@@ -113,9 +115,7 @@ export class CachedGetTokenPreview
         output: GetTokenPreviewOutput,
     ): GetTokenPreviewOutput {
         if (!isTokenPreviewDefaultCacheEligible(output)) {
-            setCurrentQueryCacheDebugInfo({
-                status: QUERY_CACHE_DEBUG_STATUSES.Bypass,
-            });
+            markCurrentQueryCacheBypass();
             return output;
         }
 
@@ -125,11 +125,7 @@ export class CachedGetTokenPreview
             output,
             this.staleMs,
         );
-        setCurrentQueryCacheDebugInfo({
-            status: QUERY_CACHE_DEBUG_STATUSES.Miss,
-            ageMs: 0,
-            ttlMs: this.staleMs,
-        });
+        markCurrentQueryCacheMiss({ ttlMs: this.staleMs });
         return output;
     }
 

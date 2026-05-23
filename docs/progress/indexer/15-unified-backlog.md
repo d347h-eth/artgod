@@ -89,6 +89,8 @@ Priority legend:
       Sources: `docs/progress/indexer/08-deferred.md`, `docs/progress/indexer/15-unified-backlog.md` (`BKL-032`)
 - [ ] `BKL-024` Add queue depth/backpressure controls and operational scaling signals as explicit runtime policy.
       Sources: `docs/blueprint/01-architecture-overview.md`, `docs/progress/indexer/01-architecture-gaps.md`
+- [ ] `BKL-046` Replace direct manual blockspace backfill fan-out with persisted run state, deterministic range job ids, and a bounded JetStream feeder.
+      Sources: `docs/progress/indexer/19-large-manual-backfill-durability-plan.md`, `docs/progress/indexer/04-job-queueing-gaps.md`
 - [ ] `BKL-037` Add concurrency controls for bootstrap ownership snapshot and token ID enumeration paths (similar to metadata concurrency controls).
       Sources: `indexer/src/runtime/bootstrap-worker.ts`, user notes
 - [ ] `BKL-038` Move well-known on-chain contract addresses from env/config into DB-backed canonical address registry (for example `canonical_addresses` by chain + role).

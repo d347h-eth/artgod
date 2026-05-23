@@ -17,6 +17,7 @@ tags:
     - name: Collections
     - name: Activities
     - name: Bootstrap
+    - name: Sync
     - name: Trading
 
 paths:
@@ -151,6 +152,117 @@ paths:
                     $ref: "#/components/responses/BadRequest"
                 "404":
                     $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/blockspace:
+        get:
+            tags: [Sync]
+            summary: Get chain blockspace coverage grid
+            operationId: getBlockspaceState
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - name: collection
+                  in: query
+                  required: false
+                  description: "`any` for global block coverage, or a live collection slug for collection-specific coverage"
+                  schema:
+                      type: string
+                      default: any
+                - name: page_start
+                  in: query
+                  required: false
+                  description: Aligned first block for a drilled blockspace page. Omit with `bucket_size` for the organic root page.
+                  schema:
+                      type: integer
+                      minimum: 0
+                - name: bucket_size
+                  in: query
+                  required: false
+                  description: Real blocks represented by each visual cell. Must be a power-of-1024 divisor from the current root page.
+                  schema:
+                      type: integer
+                      minimum: 1
+            responses:
+                "200":
+                    description: Blockspace coverage state
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BlockspaceStateResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/blockspace/range:
+        get:
+            tags: [Sync]
+            summary: Get blockspace summary for a block range
+            operationId: getBlockspaceRangeSummary
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - name: collection
+                  in: query
+                  required: false
+                  description: "`any` for global block coverage, or a live collection slug for collection-specific coverage"
+                  schema:
+                      type: string
+                      default: any
+                - name: from_block
+                  in: query
+                  required: true
+                  schema:
+                      type: integer
+                      minimum: 0
+                - name: to_block
+                  in: query
+                  required: true
+                  schema:
+                      type: integer
+                      minimum: 0
+            responses:
+                "200":
+                    description: Blockspace range summary
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/BlockspaceRangeSummaryResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
+    /api/{chain_ref}/blockspace/backfill:
+        post:
+            tags: [Sync]
+            summary: Queue manual backfill for a block range
+            operationId: scheduleBlockspaceBackfill
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/ScheduleBlockspaceBackfillRequest"
+            responses:
+                "200":
+                    description: Manual backfill jobs queued
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ScheduleBlockspaceBackfillResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "409":
+                    $ref: "#/components/responses/Conflict"
                 "500":
                     $ref: "#/components/responses/InternalError"
 
@@ -1410,7 +1522,15 @@ components:
 
         ChainRecord:
             type: object
-            required: [id, type, publicChainId, slug, name]
+            required:
+                - id
+                - type
+                - publicChainId
+                - slug
+                - name
+                - averageBlockTimeSeconds
+                - genesisBlockNumber
+                - genesisBlockTimestamp
             additionalProperties: false
             properties:
                 id:
@@ -1423,6 +1543,17 @@ components:
                     type: string
                 name:
                     type: string
+                averageBlockTimeSeconds:
+                    type: number
+                    description: Chain-level average block duration used for single-block display estimates.
+                genesisBlockNumber:
+                    type: integer
+                    nullable: true
+                    description: Optional chain-specific genesis block number; backend defaults to 0 when absent.
+                genesisBlockTimestamp:
+                    type: integer
+                    nullable: true
+                    description: Optional Unix timestamp override for the configured genesis block.
 
         CollectionStandard:
             type: string
@@ -1539,6 +1670,280 @@ components:
                             nullable: true
                 page:
                     $ref: "#/components/schemas/CursorPageCollection"
+
+        BlockspaceCoverageState:
+            type: string
+            enum: [empty, partial, complete]
+
+        BlockspaceCollectionOption:
+            type: object
+            required:
+                - chainId
+                - collectionId
+                - slug
+                - address
+                - status
+                - deploymentBlock
+                - bootstrapAnchorBlock
+                - bootstrapLastSyncedBlock
+            additionalProperties: false
+            properties:
+                chainId:
+                    type: integer
+                collectionId:
+                    type: integer
+                slug:
+                    type: string
+                address:
+                    type: string
+                status:
+                    type: string
+                    enum: [bootstrapping, live]
+                deploymentBlock:
+                    type: integer
+                    nullable: true
+                bootstrapAnchorBlock:
+                    type: integer
+                    nullable: true
+                bootstrapLastSyncedBlock:
+                    type: integer
+                    nullable: true
+
+        BlockspaceBlockTimestamp:
+            type: object
+            required: [blockNumber, timestamp, source]
+            additionalProperties: false
+            properties:
+                blockNumber:
+                    type: integer
+                timestamp:
+                    type: integer
+                    nullable: true
+                    description: Unix timestamp seconds read from chain metadata, local block storage, or JSON-RPC.
+                source:
+                    type: string
+                    enum: [chain, db, rpc, unavailable]
+
+        BlockspaceGridCell:
+            type: object
+            required:
+                - index
+                - fromBlock
+                - toBlock
+                - blockCount
+                - syncedBlockCount
+                - state
+                - canDrillDown
+                - collectionDeploymentBlock
+            additionalProperties: false
+            properties:
+                index:
+                    type: integer
+                fromBlock:
+                    type: integer
+                    description: First existing block covered by the cell slot.
+                toBlock:
+                    type: integer
+                    description: Last existing block covered by the cell slot; future live-tip slots may report a value below `fromBlock`.
+                blockCount:
+                    type: integer
+                    description: Existing chain blocks in the cell slot, excluding future live-tip slots.
+                syncedBlockCount:
+                    type: integer
+                state:
+                    $ref: "#/components/schemas/BlockspaceCoverageState"
+                canDrillDown:
+                    type: boolean
+                collectionDeploymentBlock:
+                    type: object
+                    nullable: true
+                    required: [blockNumber, synced]
+                    additionalProperties: false
+                    properties:
+                        blockNumber:
+                            type: integer
+                        synced:
+                            type: boolean
+
+        BlockspaceRangeSummary:
+            type: object
+            required:
+                - fromBlock
+                - toBlock
+                - blockCount
+                - bucketSize
+                - syncedBlockCount
+                - time
+            additionalProperties: false
+            properties:
+                fromBlock:
+                    type: integer
+                toBlock:
+                    type: integer
+                blockCount:
+                    type: integer
+                bucketSize:
+                    type: integer
+                    description: Real blocks represented by the summarized bucket or block.
+                syncedBlockCount:
+                    type: integer
+                time:
+                    type: object
+                    required: [from, to, durationSeconds]
+                    additionalProperties: false
+                    properties:
+                        from:
+                            $ref: "#/components/schemas/BlockspaceBlockTimestamp"
+                        to:
+                            $ref: "#/components/schemas/BlockspaceBlockTimestamp"
+                        durationSeconds:
+                            type: integer
+                            nullable: true
+                            description: Elapsed seconds between the range endpoint block timestamps.
+
+        BlockspaceRangeSummaryResponse:
+            type: object
+            required: [chain, context, range]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                context:
+                    type: object
+                    required: [selected]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: string
+                range:
+                    $ref: "#/components/schemas/BlockspaceRangeSummary"
+
+        BlockspaceStateResponse:
+            type: object
+            required: [chain, context, range, summary, grid]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                context:
+                    type: object
+                    required: [selected, collections]
+                    additionalProperties: false
+                    properties:
+                        selected:
+                            type: string
+                        collections:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/BlockspaceCollectionOption"
+                range:
+                    type: object
+                    required:
+                        - fromBlock
+                        - toBlock
+                        - blockCount
+                        - bucketSize
+                        - gridCellCount
+                        - canDrillDown
+                        - time
+                    additionalProperties: false
+                    properties:
+                        fromBlock:
+                            type: integer
+                        toBlock:
+                            type: integer
+                        blockCount:
+                            type: integer
+                        bucketSize:
+                            type: integer
+                            description: Real blocks represented by each visual cell on this page.
+                        gridCellCount:
+                            type: integer
+                            description: Root pages may use fewer than 1024 cells; drilled pages always use 1024 stable slots.
+                        canDrillDown:
+                            type: boolean
+                        time:
+                            type: object
+                            required: [from, to, durationSeconds]
+                            additionalProperties: false
+                            properties:
+                                from:
+                                    $ref: "#/components/schemas/BlockspaceBlockTimestamp"
+                                to:
+                                    $ref: "#/components/schemas/BlockspaceBlockTimestamp"
+                                durationSeconds:
+                                    type: integer
+                                    nullable: true
+                                    description: Elapsed seconds between the visible range endpoint block timestamps.
+                summary:
+                    type: object
+                    required:
+                        - genesisBlock
+                        - headBlock
+                        - headSource
+                        - highestSyncedBlock
+                        - syncedBlockCount
+                        - selectedRangeSyncedBlockCount
+                    additionalProperties: false
+                    properties:
+                        genesisBlock:
+                            type: integer
+                        headBlock:
+                            type: integer
+                        headSource:
+                            type: string
+                            enum: [rpc, indexed]
+                        highestSyncedBlock:
+                            type: integer
+                            nullable: true
+                        syncedBlockCount:
+                            type: integer
+                        selectedRangeSyncedBlockCount:
+                            type: integer
+                grid:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/BlockspaceGridCell"
+
+        ScheduleBlockspaceBackfillRequest:
+            type: object
+            required: [fromBlock, toBlock]
+            additionalProperties: false
+            properties:
+                collectionRef:
+                    type: string
+                    nullable: true
+                    description: "`any` or omitted for all live/bootstrapping collections; otherwise a live/bootstrapping collection slug"
+                fromBlock:
+                    type: integer
+                    minimum: 0
+                toBlock:
+                    type: integer
+                    minimum: 0
+
+        ScheduleBlockspaceBackfillResponse:
+            type: object
+            required: [chain, collection, fromBlock, toBlock, queuedJobs]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    type: object
+                    nullable: true
+                    required: [collectionId, slug]
+                    additionalProperties: false
+                    properties:
+                        collectionId:
+                            type: integer
+                        slug:
+                            type: string
+                fromBlock:
+                    type: integer
+                toBlock:
+                    type: integer
+                queuedJobs:
+                    type: integer
 
         TokenAttribute:
             type: object
@@ -2842,7 +3247,14 @@ components:
         ListCollectionBiddingBidBookResponse:
             type: object
             required:
-                [chain, collection, scopeFilter, traits, bidBook, tokenOfferCards]
+                [
+                    chain,
+                    collection,
+                    scopeFilter,
+                    traits,
+                    bidBook,
+                    tokenOfferCards,
+                ]
             additionalProperties: false
             properties:
                 chain:
@@ -3154,7 +3566,14 @@ components:
         TokenPresentationSummary:
             type: object
             required:
-                [tokenId, name, image, traitSummary, hasMetadata, metadataUpdatedAt]
+                [
+                    tokenId,
+                    name,
+                    image,
+                    traitSummary,
+                    hasMetadata,
+                    metadataUpdatedAt,
+                ]
             additionalProperties: false
             properties:
                 tokenId:
