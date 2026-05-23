@@ -46,8 +46,9 @@ Current decisions:
 
 - Do not source implementation data from Terraform Explorer directly.
 - Treat the Terraform Explorer tables and JSON as a comparison/reference surface only.
-- Source ArtGod's Terraforms explorer data from the original smart contracts and ArtGod's local synced normalized metadata.
-- Keep the new page strictly focused on static Hypercastle exploration, trait distribution, rarity, and structure.
+- Source the first-pass ArtGod Terraforms explorer data from the original smart contracts.
+- Keep the new page strictly focused on static Hypercastle exploration, trait data, original contract-based distribution, original rarity, and structure.
+- Treat ArtGod's local synced normalized metadata as the source for a later minted/exact rarity mode, not for the first pass.
 - Do not include market, floor, bid/ask, or ownership overlays in this view.
 - Add the explorer as a collection-page navigation tab.
 - Place the tab between generic asset-feed tabs and custom extension-enabled event-feed tabs.
@@ -60,6 +61,11 @@ Initial drilldown model:
 3. Drill into one level and show complete level information.
 4. Represent each level's area at a stable scaled size relative to the other levels, rather than rendering every tile 1:1.
 5. Defer deeper tile/token-level drilldown until after the structure, group, and level views are correct.
+
+Rarity modes:
+
+- First pass: original/contract-based rarity and fixed distribution rules engaged by the mint.
+- Later pass: minted/exact rarity backed by ArtGod's normalized token metadata.
 
 ## ArtGod Extension Boundary
 
@@ -249,7 +255,8 @@ Observed catalog counts:
 Implementation boundary:
 
 - Do not import this old minified catalog as ArtGod's canonical source.
-- The ArtGod implementation should derive/verify token distribution from ArtGod's normalized local metadata DB and derive structural rules from the contracts.
+- The first ArtGod implementation should derive structure, availability, and original rarity from the contracts.
+- Exact minted-token rarity should be a later mode that reads ArtGod's normalized local metadata DB.
 - The old explorer can remain a parity checklist for what the user should be able to inspect.
 - Token `seedValue` is not exposed through the tokenURI payload and is not captured by the existing normalized metadata path. It matters for hidden X/Y seed traits, but seed persistence is a separate task and should not block the first Hypercastle structure pass.
 
@@ -298,6 +305,8 @@ The requested three static contracts are necessary but not sufficient by themsel
 ## Level Catalog Summary
 
 The old catalog's observed level counts differ from raw square capacity because not every level grid slot corresponds to a minted parcel in the 9,911-row token catalog.
+
+The `Parcels`, `Empty Slots`, and concrete `Biome Count` columns below are useful as comparison context from the legacy catalog. They are not first-pass acceptance criteria. The first pass should depend on contract-derived dimensions, capacities, Zone windows, topography rules, and biome group weights.
 
 | Level | Dimension | Capacity | Parcels | Empty Slots | Zone Count | Biome Count |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -375,8 +384,9 @@ Better shape:
 - Put Terraforms static structure data in extension-local typed modules, probably under a Terraforms frontend/shared extension directory.
 - Keep full zone palettes and biome charsets as data, not component literals.
 - Generate or hand-transcribe static contract arrays from the Solidity sources with tests that make drift obvious.
-- Use ArtGod's normalized local metadata as the source for token trait distribution only when the first UI needs exact minted-token counts.
-- Do not add a generated token-specific fixture unless a concrete missing query/storage boundary is identified first.
+- Use contract data as the first-pass source for original rarity and fixed distribution rules.
+- Do not read ArtGod's normalized metadata or add generated token-specific fixtures in this first pass.
+- Introduce DB-backed minted/exact rarity only as a later explicit mode.
 - Build derived indexes with pure helpers:
     - by level
     - by zone
@@ -419,7 +429,7 @@ The implementation should include a browser performance spike before committing 
 
 ### Milestone 1: Static Structure Module
 
-Goal: make Terraforms' fixed Hypercastle structure, Zone catalog, Biome catalog, and contract-derived distribution rules available through extension-local typed helpers, with tests before any UI depends on them.
+Goal: make Terraforms' fixed Hypercastle structure, Zone catalog, Biome catalog, and contract-derived original rarity/distribution rules available through extension-local typed helpers, with tests before any UI depends on them.
 
 Expected work:
 
@@ -432,7 +442,7 @@ Expected work:
     - biomes
     - zone availability by level
     - biome group weights by level
-- read normalized DB metadata only if the first UI needs exact minted-token distribution counts that cannot be represented by contract rules alone
+- keep all first-pass distribution and rarity values contract-derived
 - do not prepare token-specific generated fixtures in this milestone
 - test static contract totals and derived structure summaries
 - decide whether static data lives in `frontend` only or in `shared/extensions/terraforms/*`
@@ -442,8 +452,9 @@ Acceptance checks:
 - 75 zones
 - 92 biomes
 - 20 levels with contract-derived dimensions, capacities, zone windows, and biome group weights
+- original rarity/distribution views are clearly labeled as contract-based, not exact minted rarity
 - level groups can be derived from Zone-set relationships without token-specific records
-- no token-specific fixture is introduced unless the implementation documents a storage/query gap first
+- no token-specific fixture is introduced in the first pass
 - every zone has 10 colors
 - every biome has 9 characters plus font metadata
 
@@ -529,21 +540,21 @@ Static contract data should answer:
 - what exists in the Terraforms structure
 - which zones and biomes are possible on each level
 - which level groups emerge from related Zone sets
-- how palettes, character sets, topography, weights, and static rarity rules work
+- how palettes, character sets, topography, weights, and original contract-based rarity rules work
 
-Local normalized metadata should answer only the aggregate facts the contract data cannot answer directly:
+The later minted/exact rarity mode should answer:
 
 - token trait distribution
 - token-derived rarity counts
 - any exact minted-token distribution facts not directly recoverable from the static arrays alone
 
-Market, ownership, token-detail drilldown, and seed-based hidden traits should stay out of this first pass. Mixing them into the Hypercastle explorer would make the purpose weaker and the verification surface larger without serving the requested static exploration goal.
+Market, ownership, token-detail drilldown, minted/exact rarity, and seed-based hidden traits should stay out of this first pass. Mixing them into the Hypercastle explorer now would make the purpose weaker and the verification surface larger without serving the requested static exploration goal.
 
 ## Open Questions
 
 - Should Terraforms contract arrays be generated from Solidity into TypeScript, manually mirrored with tests, or exposed through a small build-time extraction tool?
-- If exact minted-token distribution is needed, should it be served by backend read models over normalized metadata, or can existing `collection_trait_stats` plus targeted joins cover the UI?
 - What exact level groups emerge from shared Zone-set relationships once grouped intentionally instead of only by visual stack position?
 - How much of the original table behavior should remain as a deep-dive panel versus a separate sortable grid inside the new visualization page?
 - Should the first extension-page contract support SSR data loading, or should Terraforms v1 be client-only after the generic route resolves collection/install state?
 - What minimum browser-performance threshold should the whole-Hypercastle renderer satisfy before accepting the visualization approach?
+- Later minted/exact rarity mode: should it be served by backend read models over normalized metadata, or can existing `collection_trait_stats` plus targeted joins cover the UI?
