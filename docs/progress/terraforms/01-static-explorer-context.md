@@ -480,6 +480,17 @@ Likely route shape:
 
 This route keeps the core path generic and avoids giving Terraforms a privileged top-level route. The user-visible tab should appear inside the collection page between the generic asset-feed tabs and extension-enabled event-feed tabs. A later UX pass can choose whether the tab label shown to users is `Hypercastle`, `Structure`, or another extension-provided label.
 
+Current implementation notes:
+
+- `frontend/src/lib/collection-extension-pages/` owns the frontend page registry, page outlet, and generic page load helper.
+- `frontend/src/lib/collection-extension-navigation.ts` supports activity-event targets and collection-extension page targets.
+- Page tabs resolve only when the collection's enabled extension descriptors include the target extension and a frontend page registration exists.
+- `frontend/src/lib/collection-navigation.ts` exposes `hrefs.extensionPage()`. It preserves `media_mode` only when the page target opts in; trait filters are not carried into static extension pages by default.
+- Generic routes exist for standard collection pages and public single-collection deployments:
+    - `/:chain_ref/:collection_ref/extensions/:extension_key/:page_ref`
+    - `/extensions/:extension_key/:page_ref`
+- Route load stays generic: it fetches collection context, checks the extension is enabled for that collection, and leaves page-specific behavior to the registered frontend extension page.
+
 ### Milestone 3: Terraforms Catalog Page Registration
 
 Goal: register the Terraforms static explorer as the first extension-owned page contribution.
@@ -499,6 +510,12 @@ Expected work:
     - biomes
 - no token/parcel detail panel in the first implementation unless a level view cannot be understood without it
 - add the Mathcastles Remix font face in the Terraforms extension UI boundary
+
+Current implementation notes:
+
+- Terraforms registers the first page contribution as `terraforms:hypercastle`.
+- The Hypercastle tab is extension-owned and ordered between generic asset-event tabs and Terraforms extension-event tabs.
+- The current Hypercastle page is a contract smoke page backed by the static structure module. The richer controller, focus state, and deep-dive catalog panels remain Milestone 3/5 work.
 
 ### Milestone 4: Visualization Spike
 
@@ -555,6 +572,5 @@ Market, ownership, token-detail drilldown, minted/exact rarity, and seed-based h
 - Should Terraforms contract arrays be generated from Solidity into TypeScript, manually mirrored with tests, or exposed through a small build-time extraction tool?
 - What exact level groups emerge from shared Zone-set relationships once grouped intentionally instead of only by visual stack position?
 - How much of the original table behavior should remain as a deep-dive panel versus a separate sortable grid inside the new visualization page?
-- Should the first extension-page contract support SSR data loading, or should Terraforms v1 be client-only after the generic route resolves collection/install state?
 - What minimum browser-performance threshold should the whole-Hypercastle renderer satisfy before accepting the visualization approach?
 - Later minted/exact rarity mode: should it be served by backend read models over normalized metadata, or can existing `collection_trait_stats` plus targeted joins cover the UI?

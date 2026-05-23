@@ -1,4 +1,8 @@
 import type { Component } from 'svelte';
+import {
+	TERRAFORMS_EXTENSION_EVENT_KEYS,
+	TERRAFORMS_EXTENSION_KEY
+} from '@artgod/shared/extensions/terraforms';
 import { describe, expect, it } from 'vitest';
 import {
 	COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND,
@@ -11,6 +15,12 @@ import {
 	registerCollectionExtensionPage,
 	type CollectionExtensionPageProps
 } from '$lib/collection-extension-pages';
+import { installBuiltInCollectionExtensions } from '$lib/collection-extension-built-ins';
+import {
+	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_IDS,
+	TERRAFORMS_EXTENSION_PAGE_NAVIGATION_GROUP_IDS
+} from '$lib/activity-extension-views/terraforms/constants';
+import { TERRAFORMS_EXTENSION_PAGE_LABELS } from '$lib/collection-extension-pages/terraforms/constants';
 
 const EmptyExtensionPage = {} as Component<CollectionExtensionPageProps>;
 
@@ -117,4 +127,35 @@ describe('resolveCollectionExtensionNavigationGroups', () => {
 		});
 	});
 
+	it('places the Terraforms Hypercastle page before Terraforms event feeds', () => {
+		installBuiltInCollectionExtensions();
+
+		const groups = resolveCollectionExtensionNavigationGroups({
+			activityEventFeeds: [
+				{
+					extensionKey: TERRAFORMS_EXTENSION_KEY,
+					eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Terraformed,
+					label: 'dreams'
+				},
+				{
+					extensionKey: TERRAFORMS_EXTENSION_KEY,
+					eventKey: TERRAFORMS_EXTENSION_EVENT_KEYS.Beacon,
+					label: 'beacon'
+				}
+			],
+			collectionExtensions: [{ key: TERRAFORMS_EXTENSION_KEY }]
+		});
+		const pageGroupIndex = groups.findIndex(
+			(group) => group.id === TERRAFORMS_EXTENSION_PAGE_NAVIGATION_GROUP_IDS.CollectionPages
+		);
+		const eventGroupIndex = groups.findIndex(
+			(group) => group.id === TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_IDS.CollectionEvents
+		);
+
+		expect(pageGroupIndex).toBeGreaterThanOrEqual(0);
+		expect(eventGroupIndex).toBeGreaterThan(pageGroupIndex);
+		expect(groups[pageGroupIndex].tabs.map((tab) => tab.label)).toEqual([
+			TERRAFORMS_EXTENSION_PAGE_LABELS.Hypercastle
+		]);
+	});
 });

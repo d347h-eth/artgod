@@ -10,9 +10,19 @@ export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_LABELS = {
 	CollectionEvents: 'Hypercastle events'
 } as const;
 
+// Navigation group labels owned by Terraforms collection page views.
+export const TERRAFORMS_EXTENSION_PAGE_NAVIGATION_GROUP_LABELS = {
+	CollectionPages: 'terraforms'
+} as const;
+
 // Navigation group ids owned by Terraforms activity event views.
 export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_IDS = {
 	CollectionEvents: 'terraforms-collection-events'
+} as const;
+
+// Navigation group ids owned by Terraforms collection page views.
+export const TERRAFORMS_EXTENSION_PAGE_NAVIGATION_GROUP_IDS = {
+	CollectionPages: 'terraforms-pages'
 } as const;
 
 // Navigation tab labels owned by Terraforms activity event views.
@@ -25,6 +35,11 @@ export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_LABELS = {
 export const TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS = {
 	Dreams: 'terraforms-dreams',
 	Beacon: 'terraforms-beacon'
+} as const;
+
+// Navigation tab ids owned by Terraforms collection page views.
+export const TERRAFORMS_EXTENSION_PAGE_NAVIGATION_TAB_IDS = {
+	Hypercastle: 'terraforms-hypercastle'
 } as const;
 
 // Field labels used by the Terraforms beacon filter form.

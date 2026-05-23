@@ -23,6 +23,11 @@ export const TERRAFORMS_EXTENSION_EVENT_KEYS = {
     Beacon: "beacon",
 } as const;
 
+// Terraforms collection page refs exposed through the frontend extension page port.
+export const TERRAFORMS_EXTENSION_PAGE_REFS = {
+    Hypercastle: "hypercastle",
+} as const;
+
 // Terraforms beacon rows use one feed with token-owner and Mathcastles admin groups.
 export const TERRAFORMS_BEACON_EVENT_GROUPS = {
     ParcelModified: "parcel_modified",
