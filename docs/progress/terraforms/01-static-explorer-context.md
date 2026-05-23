@@ -374,6 +374,130 @@ The implementation should include a browser performance spike before committing 
 - use SVG/isometric for the 20-level shell and a simpler grid/canvas layer for dense level inspection
 - preserve full data access through side panels even if the overview is aggregated
 
+## Recommended Milestones
+
+### Milestone 1: Static Catalog Module
+
+Goal: make all Terraforms static data available through extension-local typed helpers, with tests before any UI depends on it.
+
+Expected work:
+
+- add Terraforms static data modules for levels, zones, biomes, palettes, character sets, and the minified immutable token catalog
+- normalize the old explorer catalog into clear domain records:
+    - token id
+    - mode
+    - level
+    - x/y coordinate
+    - zone name
+    - biome index
+    - chroma
+    - question mark count
+    - seed value
+- build pure derived indexes and row builders for the three legacy table views
+- test counts against the known totals in this document
+- decide whether static data lives in `frontend` only or in `shared/extensions/terraforms/*`
+
+Acceptance checks:
+
+- 9,911 token records
+- 75 zones
+- 92 biomes
+- exact level counts from the level summary table
+- exact mode/chroma counts from the original explorer catalog
+- every zone has 10 colors
+- every biome has 9 characters plus font metadata
+
+### Milestone 2: Generic Collection-Extension Page Contract
+
+Goal: allow installed collection extensions to contribute collection-scoped pages without hard-coding Terraforms into core navigation.
+
+Expected work:
+
+- extend frontend extension navigation target kinds beyond activity events
+- add an extension page target shape with stable ids and labels
+- add a generic collection-extension page route
+- resolve page availability from the collection's installed/enabled extension descriptors
+- keep core route load generic and delegate only after the extension page is resolved
+- preserve collection navigation state such as `media_mode` and trait filters only when the target page declares that it understands them
+
+Likely route shape:
+
+```text
+/:chain_ref/:collection_ref/extensions/:extension_key/:page_ref
+```
+
+This route keeps the core path generic and avoids giving Terraforms a privileged top-level route. A later UX pass can choose whether the tab label shown to users is `terraform`, `structure`, or another extension-provided label.
+
+### Milestone 3: Terraforms Catalog Page Registration
+
+Goal: register the Terraforms static explorer as the first extension-owned page contribution.
+
+Expected work:
+
+- register a Terraforms page descriptor through the bundled frontend extension installer
+- implement a Terraforms page controller that owns:
+    - focused level
+    - selected tile
+    - active catalog lens
+    - sort state for deep-dive data
+    - URL serialization for shareable focus state
+- implement compact catalog panels for:
+    - levels
+    - zones
+    - biomes
+    - selected parcel/tile
+- add the Mathcastles Remix font face in the Terraforms extension UI boundary
+
+### Milestone 4: Visualization Spike
+
+Goal: verify the renderer choice before committing to a large SVG/isometric implementation.
+
+Expected work:
+
+- create a static in-browser spike using levels 13 and 14 with 2,000-plus parcel tiles
+- compare:
+    - current `@elchininet/isometric` SVG rectangle approach
+    - canvas or hybrid level renderer
+    - aggregated overview plus focused detail renderer
+- measure first render time, interaction latency, memory, and mobile layout pressure
+- use Playwright screenshots and pixel checks once a candidate renderer exists
+
+The spike should happen before building polish around a renderer. A beautiful 2,000-SVG-node level that stutters on selection would be the wrong base.
+
+### Milestone 5: Full Explorer UX
+
+Goal: replace table-first browsing with a structure-first Terraforms exploration page while preserving complete catalog access.
+
+Expected work:
+
+- whole-structure overview for 20 levels
+- level focus/drilldown
+- selected tile details with token link and static traits
+- zone palette inspection with level/biome relationships
+- biome character inspection using Mathcastles Remix
+- sortable deep-dive panels for level, zone, and biome rows
+- optional overlays from live ArtGod data, only after static parity is correct
+
+## Suggested First Implementation Rule
+
+Keep immutable Terraforms structure separate from live ArtGod state.
+
+Static extension data should answer:
+
+- what exists in the Terraforms structure
+- where each parcel sits
+- which zones and biomes are possible on each level
+- how palettes, character sets, weights, and static rarity work
+
+Live ArtGod data should answer:
+
+- current token mode from canonical metadata
+- current ownership
+- active asks/offers/floors
+- extension artifact/media readiness
+
+Mixing those sources too early will make the explorer harder to verify. Static parity should pass first, then live overlays can be layered in.
+
 ## Open Questions
 
 - Should extension pages appear as standalone top-level collection tabs, grouped under an extension menu, or as a collection-specific `explore` child?
