@@ -34,6 +34,7 @@ type LifecycleOrchestratorOptions = {
 type LifecycleOrchestrator = {
 	init(): Promise<void>;
 	waitUntilReady(timeoutMs?: number): Promise<void>;
+	shouldWaitUntilReady(): boolean;
 	isReady(): boolean;
 	isDesktopShellExpected(): boolean;
 	reportEvent(
@@ -125,7 +126,11 @@ export function createLifecycleOrchestrator(
 		try {
 			const startedStatus = await options.runtimePort.autoStart();
 			handleStatusChange(startedStatus);
-			reportEvent('info', 'runtime.auto_start.accepted', 'Runtime auto-start command accepted');
+			if (isStoppedWithoutError(startedStatus)) {
+				reportEvent('info', 'runtime.auto_start.skipped', 'Runtime auto-start is disabled');
+			} else {
+				reportEvent('info', 'runtime.auto_start.accepted', 'Runtime auto-start command accepted');
+			}
 			options.onError(null);
 			initialized = true;
 		} catch (error) {
@@ -340,6 +345,13 @@ export function createLifecycleOrchestrator(
 		return lifecycle.phase === 'ready';
 	}
 
+	function shouldWaitUntilReady(): boolean {
+		if (!options.desktopShellExpected) {
+			return false;
+		}
+		return !isStoppedWithoutError(statusSnapshot);
+	}
+
 	function isDesktopShellExpected(): boolean {
 		return options.desktopShellExpected;
 	}
@@ -428,6 +440,7 @@ export function createLifecycleOrchestrator(
 	return {
 		init,
 		waitUntilReady,
+		shouldWaitUntilReady,
 		isReady,
 		isDesktopShellExpected,
 		reportEvent,
@@ -446,6 +459,10 @@ function isFatalRuntimeStatus(status: RuntimeStatus | null): boolean {
 		return false;
 	}
 	return Boolean(status.lastError?.trim());
+}
+
+function isStoppedWithoutError(status: RuntimeStatus | null): boolean {
+	return status?.state === 'stopped' && !status.lastError?.trim();
 }
 
 function isLifecycleFatal(state: LifecycleState): boolean {

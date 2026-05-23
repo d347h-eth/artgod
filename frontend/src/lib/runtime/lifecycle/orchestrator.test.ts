@@ -264,6 +264,20 @@ describe('lifecycle orchestrator', () => {
 		expect(orchestrator.isReady()).toBe(true);
 	});
 
+	it('does not require readiness polling when auto-start returns a clean stopped state', async () => {
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('stopped');
+		runtimePort.autoStartStatus = makeStatus('stopped');
+
+		const { orchestrator, lifecycleStates } = createHarness({ runtimePort });
+
+		await orchestrator.init();
+
+		expect(orchestrator.shouldWaitUntilReady()).toBe(false);
+		expect(eventCodes(lifecycleStates)).toContain('runtime.auto_start.skipped');
+		expect(eventCodes(lifecycleStates)).not.toContain('ready.poll.start');
+	});
+
 	it('retries boot once on fatal -> running transition without background probe loop', async () => {
 		const runtimePort = new FakeRuntimePort();
 		runtimePort.statusValue = makeStatus('starting');
