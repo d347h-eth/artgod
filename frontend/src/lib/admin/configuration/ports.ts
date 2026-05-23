@@ -1,0 +1,36 @@
+export type AdminConfigInputKind = 'text' | 'password' | 'checkbox' | 'textarea' | 'select';
+
+export type AdminConfigField = {
+	key: string;
+	label: string;
+	inputKind: AdminConfigInputKind;
+	secret: boolean;
+	options: string[];
+};
+
+export type AdminConfigGroup = {
+	id: string;
+	label: string;
+	fields: AdminConfigField[];
+};
+
+export type AdminConfigState = {
+	configured: boolean;
+	envFilePath: string;
+	settingsFilePath: string;
+	autoLaunchOnStartup: boolean;
+	values: Record<string, string>;
+	defaults: Record<string, string>;
+	groups: AdminConfigGroup[];
+};
+
+export type AdminConfigSaveInput = {
+	values: Record<string, string>;
+	autoLaunchOnStartup: boolean;
+};
+
+export interface AdminConfigPort {
+	getConfig(): Promise<AdminConfigState>;
+	saveConfig(input: AdminConfigSaveInput): Promise<AdminConfigState>;
+	useDefaults(): Promise<AdminConfigState>;
+}

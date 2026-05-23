@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AdminConfigurationPanel from '$lib/admin/configuration/AdminConfigurationPanel.svelte';
 	import AdminRuntimePanel from '$lib/admin/runtime/AdminRuntimePanel.svelte';
 	import AdminBotsPanel from '$lib/admin/bots/AdminBotsPanel.svelte';
 	import AdminWalletsPanel from '$lib/admin/wallets/AdminWalletsPanel.svelte';
@@ -6,12 +7,13 @@
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import type { AdminConsoleTab } from '$lib/runtime/lifecycle-ui-policy';
 
-	type AdminShellTab = 'lifecycle' | 'wallets' | 'bots' | 'logs' | 'status';
+	type AdminShellTab = 'configuration' | 'lifecycle' | 'wallets' | 'bots' | 'logs' | 'status';
 
 	const runtimeState = adminRuntimeStore.state;
-	let activeTab = $state<AdminShellTab>('lifecycle');
+	let activeTab = $state<AdminShellTab>('configuration');
 
 	const tabs: Array<{ id: AdminShellTab; label: string }> = [
+		{ id: 'configuration', label: 'configuration' },
 		{ id: 'lifecycle', label: 'lifecycle' },
 		{ id: 'wallets', label: 'wallets' },
 		{ id: 'bots', label: 'bots' },
@@ -78,6 +80,8 @@
 		<section class="admin-shell-surface">
 			{#if activeRuntimeTab !== null}
 				<AdminRuntimePanel tab={activeRuntimeTab} />
+			{:else if activeTab === 'configuration'}
+				<AdminConfigurationPanel />
 			{:else if activeTab === 'wallets'}
 				<AdminWalletsPanel />
 			{:else}
