@@ -9,7 +9,7 @@ import {
     TERRAFORMS_BIOME_GROUP_WEIGHTS_BY_LEVEL,
     TERRAFORMS_HYPERCASTLE_LEVELS,
     TERRAFORMS_HYPERCASTLE_LEVEL_GROUPS,
-    TERRAFORMS_HYPERCASTLE_TOTAL_CAPACITY,
+    TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS,
     TERRAFORMS_LEVEL_DIMENSIONS,
     TERRAFORMS_RESOURCE_ATTRIBUTE_KEY,
     TERRAFORMS_TOPOGRAPHY_BUCKETS,
@@ -17,15 +17,15 @@ import {
 } from "./terraforms-structure.js";
 
 describe("Terraforms Hypercastle static structure", () => {
-    it("mirrors contract level dimensions and total square capacity", () => {
+    it("mirrors contract level dimensions and total parcel count", () => {
         assert.equal(TERRAFORMS_HYPERCASTLE_LEVELS.length, 20);
         assert.deepEqual(TERRAFORMS_LEVEL_DIMENSIONS, [
             4, 8, 8, 16, 16, 24, 24, 24, 16, 32, 32, 16, 48, 48, 24, 24, 16,
             8, 8, 4,
         ]);
-        assert.equal(TERRAFORMS_HYPERCASTLE_TOTAL_CAPACITY, 11104);
-        assert.equal(TERRAFORMS_HYPERCASTLE_LEVELS[12].capacity, 2304);
-        assert.equal(TERRAFORMS_HYPERCASTLE_LEVELS[13].capacity, 2304);
+        assert.equal(TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS, 11104);
+        assert.equal(TERRAFORMS_HYPERCASTLE_LEVELS[12].parcelCount, 2304);
+        assert.equal(TERRAFORMS_HYPERCASTLE_LEVELS[13].parcelCount, 2304);
     });
 
     it("mirrors contract Zones and 10-color palettes", () => {

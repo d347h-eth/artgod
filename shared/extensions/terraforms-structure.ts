@@ -385,7 +385,7 @@ export type TerraformsLevelSummary = {
     readonly levelNumber: number;
     readonly levelIndex: number;
     readonly dimension: number;
-    readonly capacity: number;
+    readonly parcelCount: number;
     readonly zoneStartIndex: number;
     readonly zoneCount: number;
     readonly zones: readonly TerraformsZone[];
@@ -401,11 +401,11 @@ export type TerraformsLevelGroupSummary = {
     readonly zoneIndices: readonly number[];
     readonly zoneNames: readonly string[];
     readonly maxDimension: number;
-    readonly totalCapacity: number;
+    readonly totalParcels: number;
 };
 
-// Contract-derived total square capacity across all Hypercastle levels.
-export const TERRAFORMS_HYPERCASTLE_TOTAL_CAPACITY =
+// Contract-derived total parcel count across all Hypercastle levels.
+export const TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS =
     TERRAFORMS_LEVEL_DIMENSIONS.reduce((sum, dimension) => sum + dimension ** 2, 0);
 
 // Contract-derived Zone catalog with names and 10-color palettes.
@@ -536,7 +536,7 @@ export function buildTerraformsLevelSummary(
         levelNumber,
         levelIndex,
         dimension,
-        capacity: dimension ** 2,
+        parcelCount: dimension ** 2,
         zoneStartIndex,
         zoneCount,
         zones,
@@ -580,7 +580,7 @@ export function buildTerraformsLevelGroups(
             zoneIndices: zones.map((zone) => zone.index),
             zoneNames: zones.map((zone) => zone.name),
             maxDimension: Math.max(...groupLevels.map((level) => level.dimension)),
-            totalCapacity: groupLevels.reduce((sum, level) => sum + level.capacity, 0),
+            totalParcels: groupLevels.reduce((sum, level) => sum + level.parcelCount, 0),
         };
     });
 }

@@ -292,7 +292,7 @@ Important identity warning:
 
 `TerraformsData.sol` contains the generation logic that ties those tables together:
 
-- `levelAndTile(placement, seed)` rotates placement, then walks cumulative `levelDimensions[level] ** 2` capacity to resolve level and tile.
+- `levelAndTile(placement, seed)` rotates placement, then walks cumulative `levelDimensions[level] ** 2` parcel slots to resolve level and tile.
 - `xOrigin(...)` and `yOrigin(...)` center each level inside the 48-by-48 maximum footprint.
 - `zOrigin(...)` uses level spacing, token elevation, decay, and long-period oscillation.
 - `tokenElevation(...)` maps Perlin topography to an integer range from `4` down to `-4`.
@@ -304,7 +304,7 @@ The requested three static contracts are necessary but not sufficient by themsel
 
 ## Level Catalog Summary
 
-The old catalog's observed level counts differ from raw square capacity because not every level grid slot corresponds to a minted parcel in the 9,911-row token catalog.
+The old catalog's observed level counts differ from raw square parcel slots because not every level grid slot corresponds to a minted parcel in the 9,911-row token catalog.
 
 The `Parcels`, `Empty Slots`, and concrete `Biome Count` columns below are useful as comparison context from the legacy catalog. They are not first-pass acceptance criteria. The first pass should depend on contract-derived dimensions, capacities, Zone windows, topography rules, and biome group weights.
 

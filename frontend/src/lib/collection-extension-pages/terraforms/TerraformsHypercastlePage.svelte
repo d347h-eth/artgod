@@ -3,7 +3,7 @@
 		TERRAFORMS_BIOMES,
 		TERRAFORMS_HYPERCASTLE_LEVEL_COUNT,
 		TERRAFORMS_HYPERCASTLE_LEVEL_GROUPS,
-		TERRAFORMS_HYPERCASTLE_TOTAL_CAPACITY,
+		TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS,
 		TERRAFORMS_ZONES
 	} from '@artgod/shared/extensions/terraforms';
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
@@ -31,8 +31,8 @@
 				<span>biomes</span>
 			</div>
 			<div>
-				<strong>{TERRAFORMS_HYPERCASTLE_TOTAL_CAPACITY}</strong>
-				<span>capacity</span>
+				<strong>{TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS}</strong>
+				<span>parcels</span>
 			</div>
 		</div>
 	</header>
@@ -52,7 +52,7 @@
 				</div>
 				<div class="level-group-meta">
 					<span>{group.maxDimension}x{group.maxDimension}</span>
-					<span>{group.totalCapacity} capacity</span>
+					<span>{group.totalParcels} parcels</span>
 				</div>
 			</article>
 		{/each}
