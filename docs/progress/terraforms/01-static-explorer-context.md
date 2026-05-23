@@ -1,6 +1,6 @@
 # Terraforms Static Explorer Context
 
-Status: context gathering.
+Status: context gathering and milestone shaping.
 
 This document is the working context map for bringing Terraforms static trait and structure exploration into ArtGod through the collection-extension system. It intentionally captures durable facts as they are verified, so implementation work can proceed without repeatedly rediscovering collection-specific rules.
 
@@ -23,7 +23,7 @@ ArtGod references:
 - `frontend/src/lib/components/BlockspacePageView.svelte`
 - `frontend/src/lib/components/BlockspaceIsometricGrid.svelte`
 
-Terraforms reference sources still to be mined:
+Terraforms reference sources inspected:
 
 - `terraform-explorer/components/ZonesTable.tsx`
 - `terraform-explorer/components/BiomesTable.tsx`
@@ -37,6 +37,29 @@ Terraforms reference sources still to be mined:
 - `terraforms/main/src/TerraformsDataStorage.sol`
 - `terraforms/main/src/TerraformsData.sol`
 - `terraforms/main/src/Terraforms.sol`
+
+## Product Direction Decisions
+
+The Terraforms structure is The Hypercastle. The explorer should make that structure the primary object, with Zones and Biomes as supporting trait systems.
+
+Current decisions:
+
+- Do not source implementation data from Terraform Explorer directly.
+- Treat the Terraform Explorer tables and JSON as a comparison/reference surface only.
+- Source ArtGod's Terraforms explorer data from the original smart contracts and ArtGod's local synced normalized metadata.
+- Keep the new page strictly focused on static Hypercastle exploration, trait distribution, rarity, and structure.
+- Do not include market, floor, bid/ask, or ownership overlays in this view.
+- Add the explorer as a collection-page navigation tab.
+- Place the tab between generic asset-feed tabs and custom extension-enabled event-feed tabs.
+- Optimize the first UX for whole-structure and level exploration, not token/parcel lookup.
+
+Initial drilldown model:
+
+1. Show all 20 levels with a minimal Zone/Biome availability breakdown.
+2. Drill into level groups, primarily grouped by shared or related Zone sets.
+3. Drill into one level and show complete level information.
+4. Represent each level's area at a stable scaled size relative to the other levels, rather than rendering every tile 1:1.
+5. Defer deeper tile/token-level drilldown until after the structure, group, and level views are correct.
 
 ## ArtGod Extension Boundary
 
@@ -190,7 +213,7 @@ The catalog shape in `terraform-explorer/public/terraform-metadata.min.json` dec
 [tokenId, mode, biome, level, zone, chroma, x, y, questionMarks, seedValue]
 ```
 
-The old table sources are:
+The old table sources, used here only to understand feature parity, are:
 
 - Zones table:
     - iterates `zoneColors` keys
@@ -210,7 +233,7 @@ Rarity in those tables is display-only:
 count / total catalog count
 ```
 
-The static catalog contains 9,911 token rows. `TerraformsAdmin.sol` declares `MAX_SUPPLY = 11104`, `OWNER_ALLOTMENT = 1200`, and public `SUPPLY = 9904`; the extra 7 catalog rows are the origin/mintpass dream tokens represented by mode value `4`.
+The old static catalog contains 9,911 token rows. `TerraformsAdmin.sol` declares `MAX_SUPPLY = 11104`, `OWNER_ALLOTMENT = 1200`, and public `SUPPLY = 9904`; the extra 7 catalog rows are the origin/mintpass dream tokens represented by mode value `4`.
 
 Observed catalog counts:
 
@@ -218,6 +241,12 @@ Observed catalog counts:
 - chroma: Flow 5,970; Pulse 2,915; Hyper 1,019; Plague 7
 - zones: 75
 - biomes: 92
+
+Implementation boundary:
+
+- Do not import this old minified catalog as ArtGod's canonical source.
+- The ArtGod implementation should derive/verify token distribution from ArtGod's normalized local metadata DB and derive structural rules from the contracts.
+- The old explorer can remain a parity checklist for what the user should be able to inspect.
 
 Important identity warning:
 
@@ -334,19 +363,21 @@ The page UI should preserve both forms of biome information:
 
 ## Static Data Implementation Direction
 
-Do not copy the old React table logic into Svelte components.
+Do not copy the old React table logic or its minified JSON fixture into Svelte components.
 
 Better shape:
 
-- Put Terraforms static catalog data in extension-local typed modules, probably under a Terraforms frontend/shared extension directory.
+- Put Terraforms static structure data in extension-local typed modules, probably under a Terraforms frontend/shared extension directory.
 - Keep full zone palettes and biome charsets as data, not component literals.
+- Generate or hand-transcribe static contract arrays from the Solidity sources with tests that make drift obvious.
+- Use ArtGod's normalized local metadata as the source for token trait distribution and rarity.
 - Build derived indexes with pure helpers:
     - by level
     - by zone
     - by biome
     - by zone+biome
-    - tile lookup by level/x/y
-- Expose reusable catalog rows for table-like deep dives, but make the primary page a structure-first visualization.
+- Expose level, level-group, zone, and biome rows for table-like deep dives, but make the primary page a structure-first visualization.
+- Keep tile/token lookup out of the initial UI unless it is needed to explain a selected level.
 - Keep the ArtGod core generic: it should know that an extension page exists and how to route/render it, not what a Zone, Biome, or Level means.
 
 The existing `frontend/static/fonts/MathcastlesRemix-Regular.woff2` should be wired as the Terraforms biome font. The original explorer used the font family label `Mathcastles Remix` and rendered each biome as a row of 9 inline glyphs.
@@ -355,11 +386,13 @@ The existing `frontend/static/fonts/MathcastlesRemix-Regular.woff2` should be wi
 
 The primary visualization should be a fixed 20-level explorer:
 
-- first viewport shows the whole bicone/stack at a glance
-- selecting a level focuses that level
-- selecting a tile shows its token/static detail
-- side/deep-dive panels expose the complete zone/biome/level catalog rows
+- first viewport shows the whole Hypercastle stack at a glance
+- each level shows compact Zone/Biome availability
+- selecting a level group focuses related levels, primarily by Zone-set relationships
+- selecting a level focuses complete level information
+- side/deep-dive panels expose complete level, zone, and biome catalog rows
 - the UI should support table-grade sorting/filtering for the catalog data without making tables the primary experience
+- the initial view should not require rendering every tile 1:1
 
 Rendering risk:
 
@@ -369,7 +402,9 @@ Rendering risk:
 
 The implementation should include a browser performance spike before committing to the renderer shape for full levels. Candidate approaches:
 
-- render level overview tiles at aggregated density first, then hydrate individual parcel tiles after focus/zoom
+- render levels as scaled area shapes that preserve relative size and broad structure
+- render Zone/Biome availability summaries on each shape rather than individual parcel tiles
+- render dense parcel grids only in a later drilldown if the product needs token-level exploration
 - virtualize or canvas-render large focused levels
 - use SVG/isometric for the 20-level shell and a simpler grid/canvas layer for dense level inspection
 - preserve full data access through side panels even if the overview is aggregated
@@ -378,12 +413,12 @@ The implementation should include a browser performance spike before committing 
 
 ### Milestone 1: Static Catalog Module
 
-Goal: make all Terraforms static data available through extension-local typed helpers, with tests before any UI depends on it.
+Goal: make all Terraforms static contract data and local metadata-derived distributions available through extension-local typed helpers, with tests before any UI depends on it.
 
 Expected work:
 
-- add Terraforms static data modules for levels, zones, biomes, palettes, character sets, and the minified immutable token catalog
-- normalize the old explorer catalog into clear domain records:
+- add Terraforms static data modules for levels, zones, biomes, palettes, character sets, dimensions, topology, and weights
+- add a local metadata-derived read path or generated fixture that produces clear domain records:
     - token id
     - mode
     - level
@@ -393,17 +428,17 @@ Expected work:
     - chroma
     - question mark count
     - seed value
-- build pure derived indexes and row builders for the three legacy table views
-- test counts against the known totals in this document
+- build pure derived indexes and row builders for the three legacy static trait views
+- test static contract totals and local metadata-derived distribution counts
 - decide whether static data lives in `frontend` only or in `shared/extensions/terraforms/*`
 
 Acceptance checks:
 
-- 9,911 token records
+- token record count derived from the selected local metadata source and documented in tests
 - 75 zones
 - 92 biomes
-- exact level counts from the level summary table
-- exact mode/chroma counts from the original explorer catalog
+- 20 levels with contract-derived dimensions, capacities, zone windows, and biome group weights
+- level/mode/chroma distribution counts derived from local normalized metadata
 - every zone has 10 colors
 - every biome has 9 characters plus font metadata
 
@@ -418,6 +453,7 @@ Expected work:
 - add a generic collection-extension page route
 - resolve page availability from the collection's installed/enabled extension descriptors
 - keep core route load generic and delegate only after the extension page is resolved
+- allow extension pages to declare their collection-tab placement relative to generic asset feeds and extension event feeds
 - preserve collection navigation state such as `media_mode` and trait filters only when the target page declares that it understands them
 
 Likely route shape:
@@ -426,7 +462,7 @@ Likely route shape:
 /:chain_ref/:collection_ref/extensions/:extension_key/:page_ref
 ```
 
-This route keeps the core path generic and avoids giving Terraforms a privileged top-level route. A later UX pass can choose whether the tab label shown to users is `terraform`, `structure`, or another extension-provided label.
+This route keeps the core path generic and avoids giving Terraforms a privileged top-level route. The user-visible tab should appear inside the collection page between the generic asset-feed tabs and extension-enabled event-feed tabs. A later UX pass can choose whether the tab label shown to users is `Hypercastle`, `Structure`, or another extension-provided label.
 
 ### Milestone 3: Terraforms Catalog Page Registration
 
@@ -436,8 +472,8 @@ Expected work:
 
 - register a Terraforms page descriptor through the bundled frontend extension installer
 - implement a Terraforms page controller that owns:
+    - focused level group
     - focused level
-    - selected tile
     - active catalog lens
     - sort state for deep-dive data
     - URL serialization for shareable focus state
@@ -445,24 +481,25 @@ Expected work:
     - levels
     - zones
     - biomes
-    - selected parcel/tile
+- no token/parcel detail panel in the first implementation unless a level view cannot be understood without it
 - add the Mathcastles Remix font face in the Terraforms extension UI boundary
 
 ### Milestone 4: Visualization Spike
 
-Goal: verify the renderer choice before committing to a large SVG/isometric implementation.
+Goal: verify the renderer choice before committing to a large structure visualization implementation.
 
 Expected work:
 
-- create a static in-browser spike using levels 13 and 14 with 2,000-plus parcel tiles
+- create a static in-browser spike using the full 20-level Hypercastle overview and focused level representations
 - compare:
     - current `@elchininet/isometric` SVG rectangle approach
+    - scaled area/shape representations without 1:1 parcel tiles
     - canvas or hybrid level renderer
     - aggregated overview plus focused detail renderer
 - measure first render time, interaction latency, memory, and mobile layout pressure
 - use Playwright screenshots and pixel checks once a candidate renderer exists
 
-The spike should happen before building polish around a renderer. A beautiful 2,000-SVG-node level that stutters on selection would be the wrong base.
+The spike should happen before building polish around a renderer. The first accepted renderer should make the 20-level structure readable and responsive before attempting any tile-dense mode.
 
 ### Milestone 5: Full Explorer UX
 
@@ -471,39 +508,38 @@ Goal: replace table-first browsing with a structure-first Terraforms exploration
 Expected work:
 
 - whole-structure overview for 20 levels
-- level focus/drilldown
-- selected tile details with token link and static traits
+- level-group focus/drilldown based primarily on Zone relationships
+- level focus/drilldown with complete level data
 - zone palette inspection with level/biome relationships
 - biome character inspection using Mathcastles Remix
 - sortable deep-dive panels for level, zone, and biome rows
-- optional overlays from live ArtGod data, only after static parity is correct
+- no market, floor, bid/ask, or ownership overlays
 
 ## Suggested First Implementation Rule
 
 Keep immutable Terraforms structure separate from live ArtGod state.
 
-Static extension data should answer:
+Static contract data should answer:
 
 - what exists in the Terraforms structure
 - where each parcel sits
 - which zones and biomes are possible on each level
 - how palettes, character sets, weights, and static rarity work
 
-Live ArtGod data should answer:
+Local normalized metadata should answer:
 
 - current token mode from canonical metadata
-- current ownership
-- active asks/offers/floors
-- extension artifact/media readiness
+- token trait distribution
+- token-derived rarity counts
+- any distribution facts not directly recoverable from the static arrays alone
 
-Mixing those sources too early will make the explorer harder to verify. Static parity should pass first, then live overlays can be layered in.
+Market and ownership state should stay out of this page. Mixing market data into the Hypercastle explorer would make the purpose weaker and the verification surface larger without serving the requested static exploration goal.
 
 ## Open Questions
 
-- Should extension pages appear as standalone top-level collection tabs, grouped under an extension menu, or as a collection-specific `explore` child?
-- Should Terraforms static catalogs be served by backend read models, imported as frontend static modules, or shared through `@artgod/shared` extension data?
-- Should the first implementation include indexed collection statistics, or only protocol/static rarity rules from the original contracts?
+- Should Terraforms contract arrays be generated from Solidity into TypeScript, manually mirrored with tests, or exposed through a small build-time extraction tool?
+- Should local metadata-derived distribution stats be served by backend read models or precomputed into an extension-local static fixture during development?
+- What exact level groups emerge from shared Zone-set relationships once grouped intentionally instead of only by visual stack position?
 - How much of the original table behavior should remain as a deep-dive panel versus a separate sortable grid inside the new visualization page?
-- What minimum browser-performance threshold should the isometric level renderer satisfy before accepting 2,000-plus tile levels?
-- Should ArtGod's canonical token metadata be used as the live source for current `Mode`/ownership/floor overlays, with the static catalog only supplying immutable structure?
-- Should the first extension-page contract support SSR data loading, or should Terraforms v1 be client-only static data after the generic route resolves collection/install state?
+- Should the first extension-page contract support SSR data loading, or should Terraforms v1 be client-only after the generic route resolves collection/install state?
+- What minimum browser-performance threshold should the whole-Hypercastle renderer satisfy before accepting the visualization approach?
