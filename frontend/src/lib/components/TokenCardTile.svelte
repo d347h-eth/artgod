@@ -18,6 +18,7 @@
 		resolveTokenCardSelectionGesture
 	} from '$lib/bidding-automation-controller';
 	import type { TokenCardSelectionProps } from '$lib/token-card-selection';
+	import { TEST_IDS } from '$lib/test-ids';
 
 	let {
 		chain,
@@ -96,6 +97,8 @@
 
 <article
 	class={cardClasses()}
+	data-testid={TEST_IDS.TokenCard}
+	data-token-id={token.tokenId}
 	data-selected={selection ? String(selection.state.selected) : undefined}
 	title={selection?.state.title ?? undefined}
 	onclickcapture={onCardSelectionMouseEvent}
@@ -119,6 +122,7 @@
 		<button
 			type="button"
 			class="mono token-grid-selection-marker"
+			data-testid={TEST_IDS.TokenCardBiddingToggle}
 			aria-label={`unselect token ${token.tokenId}`}
 			title="unselect"
 			onclick={onSelectionRemoveClick}>x</button

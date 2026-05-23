@@ -54,6 +54,7 @@
 	} from '$lib/compact-time-display';
 	import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
+	import { TEST_IDS } from '$lib/test-ids';
 
 	type BiddingAutomationPanelVariant = 'floating' | 'inline';
 	type ConfirmableBiddingAction = 'create' | 'modify' | 'activate' | 'pause' | 'archive';
@@ -647,6 +648,7 @@
 	<div
 		class="runtime-section bidding-automation-panel"
 		class:bidding-automation-panel-inline={variant === 'inline'}
+		data-testid={TEST_IDS.BiddingPanel}
 		role={variant === 'inline' ? 'region' : 'dialog'}
 		aria-label="bidding automation"
 	>
@@ -860,6 +862,7 @@
 							class="token-bidding-action-negative"
 							class:token-bidding-action-armed={armedAction === 'pause'}
 							data-bidding-action="pause"
+							data-testid={TEST_IDS.BiddingPanelPause}
 							onclick={() =>
 								void confirmBiddingAction('pause', () =>
 									handleSave(TRADING_JOB_STATUS.Paused)
@@ -874,6 +877,7 @@
 						class="token-bidding-action-negative"
 						class:token-bidding-action-armed={armedAction === 'archive'}
 						data-bidding-action="archive"
+						data-testid={TEST_IDS.BiddingPanelArchive}
 						onclick={() => void confirmBiddingAction('archive', handleArchive)}
 						disabled={!canArchiveJob}
 					>
@@ -887,6 +891,7 @@
 							class="token-bidding-action-positive"
 							class:token-bidding-action-armed={armedAction === 'modify'}
 							data-bidding-action="modify"
+							data-testid={TEST_IDS.BiddingPanelModify}
 							onclick={() => void confirmBiddingAction('modify', () => handleSave())}
 							disabled={!canModifyJob}
 						>
@@ -898,6 +903,7 @@
 								class="token-bidding-action-positive"
 								class:token-bidding-action-armed={armedAction === 'activate'}
 								data-bidding-action="activate"
+								data-testid={TEST_IDS.BiddingPanelActivate}
 								onclick={() =>
 									void confirmBiddingAction('activate', () =>
 										handleSave(TRADING_JOB_STATUS.Enabled)
@@ -913,6 +919,7 @@
 							class="token-bidding-action-positive"
 							class:token-bidding-action-armed={armedAction === 'create'}
 							data-bidding-action="create"
+							data-testid={TEST_IDS.BiddingPanelCreate}
 							onclick={() => void confirmBiddingAction('create', () => handleSave())}
 							disabled={!canCreateJob}
 						>

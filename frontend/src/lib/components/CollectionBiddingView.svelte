@@ -1000,7 +1000,7 @@
 						/>
 					</div>
 				{/if}
-				{#if biddingSelectionControlPolicy.renderRow && !biddingSelectionControlPolicy.showCollectionAction}
+				{#if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && biddingSelectionControlPolicy.renderRow && !biddingSelectionControlPolicy.showCollectionAction}
 					<div class="panel-top-actions-row">
 						<BiddingSelectionControls
 							summary={biddingSelectionSummary}
@@ -1016,7 +1016,7 @@
 							onClear={clearBiddingSelection}
 						/>
 					</div>
-				{:else if biddingSelectionControlPolicy.renderRow && biddingSelectionControlPolicy.showCollectionAction}
+				{:else if !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT && biddingSelectionControlPolicy.renderRow && biddingSelectionControlPolicy.showCollectionAction}
 					<div class="panel-top-actions-row">
 						<BiddingSelectionControls
 							summary={biddingSelectionSummary}

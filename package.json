@@ -46,7 +46,10 @@
         "test:bidding:attached": "yarn workspace @artgod/frontend test:bidding:attached",
         "test:bidding:attached:headed": "yarn workspace @artgod/frontend test:bidding:attached:headed",
         "test:bidding:attached:artifacts": "yarn workspace @artgod/frontend test:bidding:attached:artifacts",
-        "test:bidding:attached:headed:artifacts": "yarn workspace @artgod/frontend test:bidding:attached:headed:artifacts"
+        "test:bidding:attached:headed:artifacts": "yarn workspace @artgod/frontend test:bidding:attached:headed:artifacts",
+        "test:bidding:automation": "yarn workspace @artgod/frontend test:bidding:automation",
+        "test:bidding:automation:headed": "yarn workspace @artgod/frontend test:bidding:automation:headed",
+        "test:bidding:automation:public": "yarn workspace @artgod/frontend test:bidding:automation:public"
     },
     "dependencies": {
         "better-sqlite3": "^v12.2.0",
