@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use time::OffsetDateTime;
 
+use super::app_config::load_app_config_state;
 use crate::runtime::bot_runtime::{
     BOT_RUNTIME_SPECS, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
     bot_runtime_spec,
@@ -149,6 +150,16 @@ impl RuntimeManager {
     }
 
     pub fn auto_start(&self, app: AppHandle) -> Result<(), String> {
+        let app_config = load_app_config_state(&app)?;
+        if !app_config.configured {
+            self.update_status(&app, |status| {
+                status.state = "stopped".to_owned();
+                status.last_error = None;
+                status.running_processes.clear();
+                status.config_path = app_config.env_file_path;
+            });
+            return Ok(());
+        }
         let config = match DesktopRuntimeConfig::load_or_create(&app) {
             Ok(config) => config,
             Err(error) => {
