@@ -67,11 +67,11 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 	return {
 		state,
 		configure: {
-			label: 'configuration',
-			disabled: input.configLoading || input.configBusyAction !== null
+			label: 'config',
+			disabled: false
 		},
 		boot: {
-			label: bootUsesDefaults ? 'boot system with default settings' : 'boot system',
+			label: bootUsesDefaults ? 'start infra with default settings' : 'start infra',
 			usesDefaults: bootUsesDefaults,
 			disabled:
 				input.configLoading ||

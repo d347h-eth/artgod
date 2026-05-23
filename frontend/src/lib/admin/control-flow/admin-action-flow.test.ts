@@ -56,7 +56,7 @@ describe('resolveAdminActionFlow', () => {
 		const state = flow({ config: configState(false) });
 
 		expect(state.state).toBe('needs_config');
-		expect(state.boot.label).toBe('boot system with default settings');
+		expect(state.boot.label).toBe('start infra with default settings');
 		expect(state.boot.usesDefaults).toBe(true);
 		expect(state.boot.disabled).toBe(false);
 	});
@@ -65,7 +65,7 @@ describe('resolveAdminActionFlow', () => {
 		const state = flow({ config: configState(true) });
 
 		expect(state.state).toBe('ready_to_boot');
-		expect(state.boot.label).toBe('boot system');
+		expect(state.boot.label).toBe('start infra');
 		expect(state.boot.usesDefaults).toBe(false);
 		expect(state.boot.disabled).toBe(false);
 	});

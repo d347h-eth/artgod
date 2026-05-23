@@ -27,7 +27,6 @@
 	let configNotice = $state<string | null>(null);
 
 	const tabs: Array<{ id: AdminShellTab; label: string }> = [
-		{ id: 'config', label: 'config' },
 		{ id: 'system', label: 'system' },
 		{ id: 'control', label: 'control' },
 		{ id: 'wallets', label: 'wallets' },
@@ -163,15 +162,17 @@
 			<div class="admin-flow-actions" aria-label="Admin launch sequence">
 				<button
 					type="button"
+					class="admin-flow-action"
+					class:admin-flow-action-selected={activeTab === 'config'}
 					onclick={openConfiguration}
-					disabled={actionFlow.configure.disabled || activeTab === 'config'}
+					disabled={activeTab === 'config'}
 				>
 					{actionFlow.configure.label}
 				</button>
 				<span class="admin-flow-arrow" aria-hidden="true">⇨</span>
 				<button
 					type="button"
-					class="runtime-primary-cta"
+					class="admin-flow-action"
 					onclick={() => void bootSystem()}
 					disabled={actionFlow.boot.disabled}
 				>
@@ -180,7 +181,7 @@
 				<span class="admin-flow-arrow" aria-hidden="true">⇨</span>
 				<button
 					type="button"
-					class="runtime-primary-cta"
+					class="admin-flow-action"
 					onclick={handleEnterUserland}
 					disabled={actionFlow.userland.disabled}
 				>
@@ -312,6 +313,33 @@
 		white-space: nowrap;
 	}
 
+	.admin-flow-action {
+		border-color: var(--c-blue);
+		color: var(--c-ice);
+		background: color-mix(in srgb, var(--c-cyan) 18%, var(--c-bg));
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		min-width: 9rem;
+	}
+
+	.admin-flow-action:not(:disabled):hover,
+	.admin-flow-action:not(:disabled):focus-visible {
+		border-color: var(--c-blue);
+		color: var(--c-ice);
+		background: color-mix(in srgb, var(--c-blue) 45%, var(--c-bg));
+	}
+
+	.admin-flow-action-selected,
+	.admin-flow-action-selected:disabled,
+	.admin-flow-action-selected:disabled:hover,
+	.admin-flow-action-selected:disabled:focus-visible {
+		border-color: var(--c-orange);
+		color: var(--c-orange);
+		background: var(--c-bg);
+		cursor: default;
+		opacity: 1;
+	}
+
 	.admin-flow-arrow {
 		color: var(--c-sand);
 		font-size: 1rem;
@@ -320,7 +348,15 @@
 	}
 
 	.admin-shell-tabs {
-		flex-wrap: wrap;
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		align-items: stretch;
+		width: 100%;
+	}
+
+	.admin-shell-tabs button {
+		width: 100%;
+		min-width: 0;
 	}
 
 	.admin-shell-surface {

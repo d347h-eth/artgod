@@ -95,7 +95,7 @@
 					<section class="runtime-section admin-config-group">
 						<h3>Desktop</h3>
 						<label class="admin-config-row admin-config-checkbox-row">
-							<span>launch on startup</span>
+							<span>autostart infra</span>
 							<input
 								type="checkbox"
 								class="bootstrap-checkbox"
@@ -163,16 +163,30 @@
 					{/each}
 
 					<section class="runtime-section">
-						<div class="runtime-controls admin-config-actions">
-							<button type="submit" disabled={formDisabled}>
-								{busyAction === 'save' ? 'saving...' : 'save'}
-							</button>
-							<button type="button" onclick={resetDraftToDefaults} disabled={formDisabled}>
-								reset to defaults
-							</button>
-							<button type="button" onclick={onClose} disabled={busyAction !== null}>
-								cancel
-							</button>
+						<div class="admin-config-actions">
+							<div class="admin-config-action-group">
+								<button
+									type="button"
+									class="action-button-negative"
+									onclick={onClose}
+									disabled={busyAction !== null}
+								>
+									cancel
+								</button>
+								<button
+									type="button"
+									class="action-button-negative"
+									onclick={resetDraftToDefaults}
+									disabled={formDisabled}
+								>
+									reset defaults
+								</button>
+							</div>
+							<div class="admin-config-action-group">
+								<button type="submit" class="action-button-positive" disabled={formDisabled}>
+									{busyAction === 'save' ? 'saving...' : 'save'}
+								</button>
+							</div>
 						</div>
 					</section>
 				</form>
@@ -194,25 +208,26 @@
 
 	.admin-config-inlay {
 		display: grid;
-		gap: 0.85rem;
+		gap: 1.1rem;
 		width: min(62rem, 100%);
 	}
 
 	.admin-config-form {
 		display: grid;
-		gap: 0.85rem;
+		gap: 1.35rem;
 	}
 
 	.admin-config-group {
 		align-content: start;
+		gap: 0.72rem;
 	}
 
 	.admin-config-row {
 		display: grid;
-		grid-template-columns: minmax(12rem, 17rem) minmax(16rem, 34rem);
+		grid-template-columns: minmax(9.5rem, 13.6rem) minmax(8rem, 27.2rem);
 		align-items: center;
 		gap: 0.7rem;
-		width: fit-content;
+		width: min(41.5rem, 100%);
 		max-width: 100%;
 	}
 
@@ -224,7 +239,7 @@
 	}
 
 	.admin-config-checkbox-row {
-		grid-template-columns: minmax(12rem, 17rem) max-content;
+		grid-template-columns: minmax(9.5rem, 13.6rem) max-content;
 	}
 
 	.admin-config-textarea-row {
@@ -232,7 +247,7 @@
 	}
 
 	.admin-config-control {
-		width: min(34rem, 100%);
+		width: min(27.2rem, 100%);
 	}
 
 	.admin-config-textarea {
@@ -241,18 +256,23 @@
 	}
 
 	.admin-config-actions {
+		display: grid;
+		grid-template-columns: max-content max-content;
 		align-items: center;
+		gap: 2rem;
+		width: fit-content;
+		max-width: 100%;
+		overflow-x: auto;
+		padding-bottom: 0.1rem;
 	}
 
-	@media (max-width: 48rem) {
-		.admin-config-row,
-		.admin-config-checkbox-row {
-			grid-template-columns: 1fr;
-			gap: 0.35rem;
-		}
+	.admin-config-action-group {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
 
-		.admin-config-control {
-			width: 100%;
-		}
+	.admin-config-actions button {
+		min-width: 8.75rem;
 	}
 </style>
