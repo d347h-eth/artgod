@@ -607,6 +607,13 @@ a:hover {
 	vector-effect: non-scaling-stroke;
 }
 
+.blockspace-projection-grid-mask {
+	fill: black;
+	stroke: black;
+	stroke-width: 8;
+	stroke-linejoin: round;
+}
+
 .blockspace-range-detail-status {
 	border: 1px solid var(--c-blue);
 	padding: 0.4rem 0.55rem;

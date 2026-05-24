@@ -27,8 +27,10 @@ export type BlockspaceIsometricPoint = {
 // Client-space anchors let the page draw overlays without coupling to renderer internals.
 export type BlockspaceIsometricAnchorLayout = {
 	levelKey: string;
+	gridTopCorner: BlockspaceIsometricPoint;
 	gridLeftCorner: BlockspaceIsometricPoint;
 	gridRightCorner: BlockspaceIsometricPoint;
+	gridBottomCorner: BlockspaceIsometricPoint;
 	sourceLeftCorner: BlockspaceIsometricPoint | null;
 	sourceRightCorner: BlockspaceIsometricPoint | null;
 };

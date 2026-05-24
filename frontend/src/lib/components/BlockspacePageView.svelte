@@ -86,15 +86,23 @@
 		end: BlockspaceIsometricPoint;
 	};
 
+	type ProjectionGridMask = {
+		key: string;
+		points: string;
+	};
+
 	type ProjectionAnchorLayout = {
+		gridTopCorner: BlockspaceIsometricPoint;
 		gridLeftCorner: BlockspaceIsometricPoint;
 		gridRightCorner: BlockspaceIsometricPoint;
+		gridBottomCorner: BlockspaceIsometricPoint;
 		sourceLeftCorner: BlockspaceIsometricPoint | null;
 		sourceRightCorner: BlockspaceIsometricPoint | null;
 	};
 
 	const PROJECTION_SOURCE_GAP_PX = 8;
 	const PROJECTION_TARGET_GAP_PX = 14;
+	const PROJECTION_GRID_MASK_ID = 'blockspace-projection-grid-mask';
 
 	let {
 		state: pageBlockspaceState,
@@ -175,6 +183,7 @@
 		].join('|')
 	);
 	let projectionLines = $derived(resolveProjectionLines(visibleLevels, isometricAnchorLayouts));
+	let projectionGridMasks = $derived(resolveProjectionGridMasks(visibleLevels, isometricAnchorLayouts));
 	let activeSelectedRangeScopeKey: string | null = $state(null);
 	let appliedRouteNavigationUrlKey: string | null = $state(null);
 
@@ -484,8 +493,10 @@
 		if (!levelsLayoutElement) return;
 		const bounds = levelsLayoutElement.getBoundingClientRect();
 		const nextLayout = {
+			gridTopCorner: toLayoutPoint(layout.gridTopCorner, bounds),
 			gridLeftCorner: toLayoutPoint(layout.gridLeftCorner, bounds),
 			gridRightCorner: toLayoutPoint(layout.gridRightCorner, bounds),
+			gridBottomCorner: toLayoutPoint(layout.gridBottomCorner, bounds),
 			sourceLeftCorner: layout.sourceLeftCorner
 				? toLayoutPoint(layout.sourceLeftCorner, bounds)
 				: null,
@@ -876,6 +887,29 @@
 		return lines;
 	}
 
+	function resolveProjectionGridMasks(
+		levels: BlockspaceVisibleLevel[],
+		anchors: Record<string, ProjectionAnchorLayout>
+	): ProjectionGridMask[] {
+		return levels
+			.map((level) => {
+				const anchor = anchors[level.key];
+				if (!anchor) return null;
+				return {
+					key: level.key,
+					points: [
+						anchor.gridTopCorner,
+						anchor.gridRightCorner,
+						anchor.gridBottomCorner,
+						anchor.gridLeftCorner
+					]
+						.map(formatSvgPoint)
+						.join(' ')
+				};
+			})
+			.filter((mask): mask is ProjectionGridMask => mask !== null);
+	}
+
 	function insetProjectionLine(
 		start: BlockspaceIsometricPoint,
 		end: BlockspaceIsometricPoint
@@ -915,11 +949,17 @@
 		right: ProjectionAnchorLayout
 	): boolean {
 		return (
+			pointsEqual(left.gridTopCorner, right.gridTopCorner) &&
 			pointsEqual(left.gridLeftCorner, right.gridLeftCorner) &&
 			pointsEqual(left.gridRightCorner, right.gridRightCorner) &&
+			pointsEqual(left.gridBottomCorner, right.gridBottomCorner) &&
 			nullablePointsEqual(left.sourceLeftCorner, right.sourceLeftCorner) &&
 			nullablePointsEqual(left.sourceRightCorner, right.sourceRightCorner)
 		);
+	}
+
+	function formatSvgPoint(point: BlockspaceIsometricPoint): string {
+		return `${point.x},${point.y}`;
 	}
 
 	function nullablePointsEqual(
@@ -1029,6 +1069,23 @@
 				bind:this={levelsLayoutElement}
 			>
 				<svg class="blockspace-projection-overlay" aria-hidden="true">
+					<defs>
+						<mask id={PROJECTION_GRID_MASK_ID} maskUnits="userSpaceOnUse">
+							<rect
+								x="-100000"
+								y="-100000"
+								width="200000"
+								height="200000"
+								fill="white"
+							/>
+							{#each projectionGridMasks as gridMask (gridMask.key)}
+								<polygon
+									class="blockspace-projection-grid-mask"
+									points={gridMask.points}
+								/>
+							{/each}
+						</mask>
+					</defs>
 					{#each projectionLines as line (line.key)}
 						<line
 							class="blockspace-projection-line"
@@ -1036,6 +1093,7 @@
 							y1={line.start.y}
 							x2={line.end.x}
 							y2={line.end.y}
+							mask={`url(#${PROJECTION_GRID_MASK_ID})`}
 						/>
 					{/each}
 				</svg>

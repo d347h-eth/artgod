@@ -19,8 +19,10 @@
 	};
 
 	type IsometricSideCorners = {
+		top: BlockspaceIsometricPoint;
 		left: BlockspaceIsometricPoint;
 		right: BlockspaceIsometricPoint;
+		bottom: BlockspaceIsometricPoint;
 	};
 
 	type Props = {
@@ -283,8 +285,10 @@
 		if (!(groupElement instanceof SVGGraphicsElement)) return;
 		onAnchorLayout({
 			levelKey: level.key,
+			gridTopCorner: toClientPoint(groupElement, gridCorners.top),
 			gridLeftCorner: toClientPoint(groupElement, gridCorners.left),
 			gridRightCorner: toClientPoint(groupElement, gridCorners.right),
+			gridBottomCorner: toClientPoint(groupElement, gridCorners.bottom),
 			sourceLeftCorner: sourceCorners ? toClientPoint(groupElement, sourceCorners.left) : null,
 			sourceRightCorner: sourceCorners ? toClientPoint(groupElement, sourceCorners.right) : null
 		});
@@ -304,8 +308,10 @@
 		row: number
 	): IsometricSideCorners {
 		return {
+			top: projectIsometricPoint(layout, column, row),
 			left: projectIsometricPoint(layout, column, row + 1),
-			right: projectIsometricPoint(layout, column + 1, row)
+			right: projectIsometricPoint(layout, column + 1, row),
+			bottom: projectIsometricPoint(layout, column + 1, row + 1)
 		};
 	}
 
@@ -314,8 +320,10 @@
 		dimension: number
 	): IsometricSideCorners {
 		return {
+			top: projectIsometricPoint(layout, 0, 0),
 			left: projectIsometricPoint(layout, 0, dimension),
-			right: projectIsometricPoint(layout, dimension, 0)
+			right: projectIsometricPoint(layout, dimension, 0),
+			bottom: projectIsometricPoint(layout, dimension, dimension)
 		};
 	}
 
