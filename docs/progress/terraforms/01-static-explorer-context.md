@@ -553,7 +553,8 @@ Current implementation notes:
 
 - `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` renders the first overview using `@elchininet/isometric`.
 - `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-overview.ts` owns the slab geometry, centered-spine layout, and render key.
-- The overview renders 20 level groups and 60 faces, with filled solid-outline vertical faces, transparent dashed-outline top faces, every level centered on one spine, gaps at triple the slab height, full vertical-face hit targets, top faces limited to outline hit targets, and selection intentionally implemented as a no-op.
+- The overview renders 20 level groups and 60 faces, with filled blue vertical faces, transparent top faces, every level centered on one spine, gaps at triple the slab height, full vertical-face hit targets, and selection intentionally implemented as a no-op.
+- Hidden-line rendering is explicit: visible rear top outlines stay solid until intersected by higher slab silhouettes, hidden rear top outlines become dashed, and rear bottom outlines are always drawn as dashed blue segments.
 - Focused helper tests cover level count, relative area sizing, gap/height ratio, face anchoring, centered layout, and render-key stability.
 - `yarn test:terraforms:hypercastle` runs the fixture-backed Playwright page harness, records an in-browser SVG/interaction probe, and attaches screenshots for visual iteration.
 - Browser verification covered desktop and mobile screenshots plus SVG pixel checks for nonblank rendering and centered layer alignment.

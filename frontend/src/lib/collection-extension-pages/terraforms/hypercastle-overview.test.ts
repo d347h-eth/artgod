@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+	buildTerraformsHypercastleOverviewOutlineSegments,
 	buildTerraformsHypercastleOverviewLayers,
 	buildTerraformsHypercastleOverviewRenderKey,
 	resolveTerraformsHypercastleOverviewBounds,
 	resolveTerraformsHypercastleOverviewFaceGeometry,
-	resolveTerraformsHypercastleOverviewLayout
+	resolveTerraformsHypercastleOverviewLayout,
+	TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS,
+	TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_POSITIONS,
+	TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES,
+	TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS
 } from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
 
 describe('Terraforms Hypercastle overview geometry', () => {
@@ -42,18 +47,83 @@ describe('Terraforms Hypercastle overview geometry', () => {
 	it('anchors every slab face around the shared center spine', () => {
 		const layer = buildTerraformsHypercastleOverviewLayers()[12]!;
 
-		expect(resolveTerraformsHypercastleOverviewFaceGeometry(layer, 'front')).toMatchObject({
+		expect(
+			resolveTerraformsHypercastleOverviewFaceGeometry(
+				layer,
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front
+			)
+		).toMatchObject({
 			right: layer.halfSizeUnits,
 			left: -layer.halfSizeUnits
 		});
-		expect(resolveTerraformsHypercastleOverviewFaceGeometry(layer, 'side')).toMatchObject({
+		expect(
+			resolveTerraformsHypercastleOverviewFaceGeometry(
+				layer,
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
+			)
+		).toMatchObject({
 			right: -layer.halfSizeUnits,
 			left: layer.halfSizeUnits
 		});
-		expect(resolveTerraformsHypercastleOverviewFaceGeometry(layer, 'top')).toMatchObject({
+		expect(
+			resolveTerraformsHypercastleOverviewFaceGeometry(
+				layer,
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
+			)
+		).toMatchObject({
 			right: -layer.halfSizeUnits,
 			left: -layer.halfSizeUnits
 		});
+	});
+
+	it('marks rear slab outlines as solid until an upper slab hides them', () => {
+		const layers = buildTerraformsHypercastleOverviewLayers();
+		const segments = buildTerraformsHypercastleOverviewOutlineSegments(layers);
+		const topBackSegments = segments.filter(
+			(segment) => segment.position === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_POSITIONS.TopBack
+		);
+		const topLayerSegments = topBackSegments.filter((segment) => segment.levelNumber === 20);
+		const levelTwelveSegments = topBackSegments.filter((segment) => segment.levelNumber === 12);
+
+		expect(
+			topBackSegments.some(
+				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Solid
+			)
+		).toBe(true);
+		expect(
+			topBackSegments.some(
+				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
+			)
+		).toBe(true);
+		expect(topLayerSegments).toHaveLength(2);
+		expect(
+			topLayerSegments.every(
+				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Solid
+			)
+		).toBe(true);
+		expect(
+			levelTwelveSegments.some(
+				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
+			)
+		).toBe(true);
+		expect(new Set(segments.map((segment) => segment.key)).size).toBe(segments.length);
+	});
+
+	it('adds dashed lower rear outlines for every slab', () => {
+		const segments = buildTerraformsHypercastleOverviewOutlineSegments(
+			buildTerraformsHypercastleOverviewLayers()
+		);
+		const bottomBackSegments = segments.filter(
+			(segment) => segment.position === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_POSITIONS.BottomBack
+		);
+
+		expect(bottomBackSegments).toHaveLength(40);
+		expect(
+			bottomBackSegments.every(
+				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
+			)
+		).toBe(true);
+		expect(new Set(bottomBackSegments.map((segment) => segment.levelNumber)).size).toBe(20);
 	});
 
 	it('resolves a centered responsive layout for the shared spine', () => {
@@ -73,9 +143,14 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		const key = buildTerraformsHypercastleOverviewRenderKey(
 			buildTerraformsHypercastleOverviewLayers()
 		);
+		const levelKeys = key
+			.split(TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS.layer)
+			.map((levelKey) =>
+				levelKey.split(TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS.part).map(Number)
+			);
 
-		expect(key).toContain('1:4:1');
-		expect(key).toContain('13:48:12');
-		expect(key).toContain('20:4:1');
+		expect(levelKeys[0]).toEqual([1, 4, 1]);
+		expect(levelKeys[12]).toEqual([13, 48, 12]);
+		expect(levelKeys[19]).toEqual([20, 4, 1]);
 	});
 });

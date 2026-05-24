@@ -1,7 +1,11 @@
 import { defineConfig, devices } from 'playwright/test';
+import {
+	TERRAFORMS_EXTENSION_KEY,
+	TERRAFORMS_EXTENSION_PAGE_REFS
+} from '@artgod/shared/extensions/terraforms';
 
 const baseURL = process.env.ARTGOD_E2E_BASE_URL?.trim() || 'http://127.0.0.1:42704';
-const readinessURL = `${baseURL}/e2e-harness/collection/extensions/terraforms/hypercastle`;
+const readinessURL = `${baseURL}/e2e-harness/collection/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
 const persistSuccessArtifacts = process.env.ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS === '1';
 
 export default defineConfig({
