@@ -12,6 +12,7 @@ The runtime env defaults are sourced from `config/settings.manifest.toml` and ge
 | `42701` | Frontend dev/admin app             | Vite dev server, Tauri `devUrl`, attached Playwright    | `frontend/package.json`, `src-tauri/tauri.conf.json`     |
 | `42702` | Private bidding automation E2E app | Vite E2E server                                         | `frontend/package.json`                                  |
 | `42703` | Public bidding automation E2E app  | Vite E2E public server                                  | `frontend/package.json`                                  |
+| `42704` | Terraforms Hypercastle E2E app     | Vite E2E server                                         | `frontend/package.json`                                  |
 | `42710` | Backend HTTP API                   | Backend runtime, deploy Caddy proxy, frontend dev proxy | `config/settings.manifest.toml`, `backend/src/config.ts` |
 
 ## Local Infra
