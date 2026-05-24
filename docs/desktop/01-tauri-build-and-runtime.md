@@ -247,7 +247,7 @@ Rendered runtime env file:
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\network.artgod.desktop\config\.env`
 
-The settings file is the operator-edited source. The rendered `.env` remains the startup contract for backend/indexer/trading child processes and is regenerated when Admin defaults are applied or configuration is saved. A stale `.env` without `settings.json` is not treated as configured and cannot drive supervisor auto-start.
+The settings manifest at `config/settings.manifest.toml` is the embedded Admin schema/default source. The settings file is the operator-edited value source. The rendered `.env` remains the startup contract for backend/indexer/trading child processes and is regenerated when Admin defaults are applied or configuration is saved. A stale `.env` without `settings.json` is not treated as configured and cannot drive supervisor auto-start.
 
 Desktop-specific required keys:
 
@@ -305,7 +305,7 @@ Desktop-first default path behavior:
 
 Important:
 
-- if this file was generated before new desktop runtime keys were introduced, open Admin `config`, review settings, and save to render the current shape
+- if this file was generated before new desktop runtime keys were introduced, desktop startup normalizes missing settings from manifest defaults before rendering `.env`
 - desktop runtime sets `ARTGOD_ENV_FILE` for child processes, so backend/indexer read this desktop config path explicitly
 - runtime artifact paths are resolved from bundled app resources, not from a workspace root path
 
@@ -434,7 +434,7 @@ Admin UI mounts a dedicated shell in root layout (`frontend/src/routes/+layout.s
 
 - shell tabs: `system`, `control`, `wallets`, `bots`, `logs`
 - header action sequence: `config` -> `start infra` -> `enter the userland`
-- Admin configuration controls: edit all `.env.example` settings grouped by topic, render `.env`, and toggle `autostart infra`
+- Admin configuration controls: edit manifest-backed runtime settings grouped by topic, render `.env`, and toggle `autostart infra`
 - live runtime state (`runtime-state-changed` event)
 - live log stream (`runtime-log` event)
 - controls: start / stop / restart / preflight

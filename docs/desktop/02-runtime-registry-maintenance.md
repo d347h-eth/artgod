@@ -106,7 +106,8 @@ Files:
 
 - `indexer/src/runtime/*.ts` (worker string in APM/Metrics setup)
 - `indexer/src/config/observability-env.ts` (`metrics.ports.*` map)
-- `.env.example` (matching `INDEXER_METRICS_PORT_*` vars)
+- `config/settings.manifest.toml` (source for matching `INDEXER_METRICS_PORT_*` vars)
+- `.env.example` (generated from the settings manifest)
 - `observability/prometheus/prometheus.yml` (static scrape targets + runtime labels)
 
 What is explicit here:
@@ -216,12 +217,13 @@ When removing a runtime:
 Use these checks before merging runtime topology changes:
 
 ```sh
+yarn config:check
 yarn check:runtime-registry
 rg -n "dev:.*worker" indexer/package.json
 rg -n "start_worker" scripts/indexer-dev.sh
 rg -n "entryPoints|worker" scripts/build/build-runtime-artifacts.mjs
 rg -n "INDEXER_WORKERS|BACKEND_ARTIFACT" src-tauri/src/runtime/supervisor.rs
-rg -n "INDEXER_METRICS_PORT_|metrics\\.ports" indexer/src/config/observability-env.ts .env.example
+rg -n "INDEXER_METRICS_PORT_|metrics\\.ports" indexer/src/config/observability-env.ts config/settings.manifest.toml .env.example
 rg -n "runtime:|946" observability/prometheus/prometheus.yml
 ```
 

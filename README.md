@@ -101,7 +101,7 @@ Hosted deployment is currently documented as a public read-only instance that ca
 - `docs/deploy/01-web-hosted-read-only.md`
 
 Desktop runtime configuration is managed from the native Admin UI `config` section.
-The Rust app stores the operator-edited settings in a versioned app-data JSON file and renders the runtime `.env` only after the operator chooses defaults, saves configuration, or launches from saved configuration.
+The Rust app embeds `config/settings.manifest.toml` as the Admin config schema/default source, stores operator-edited settings in a versioned app-data JSON file, and renders the runtime `.env` only after the operator chooses defaults, saves configuration, or launches from saved configuration.
 A stale `.env` without `settings.json` is treated as an inactive legacy file: Admin can show that it exists, but the supervisor will not boot from it.
 
 Rendered desktop runtime env file:
@@ -241,9 +241,12 @@ yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --met
 Create env files:
 
 ```sh
+yarn config:check
 cp .env.example .env
 cp .env.test.example .env.test
 ```
+
+`.env.example` is generated from `config/settings.manifest.toml`. Edit the manifest first, then run `yarn config:generate` and commit both files.
 
 Required core env:
 
@@ -271,7 +274,7 @@ Useful optional env groups:
 - Indexer metrics (`INDEXER_METRICS_ENABLED`, `INDEXER_METRICS_HOST`, `INDEXER_METRICS_PORT_*`)
 - Indexer APM (`INDEXER_APM_ENABLED`, `INDEXER_APM_*`)
 
-See `.env.example` and `docs/indexer/01-config-and-env.md` for full definitions.
+See `config/settings.manifest.toml`, the generated `.env.example`, and `docs/indexer/01-config-and-env.md` for full definitions.
 
 `BACKEND_QUERY_CACHE_PROVIDER=memory` enables a lightweight in-memory cache for expensive backend read queries. The current cached paths are:
 
