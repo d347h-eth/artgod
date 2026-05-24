@@ -1,4 +1,5 @@
 export type AdminConfigInputKind = 'text' | 'password' | 'checkbox' | 'textarea' | 'select';
+export type AdminConfigValidationRule = 'url';
 
 export type AdminConfigField = {
 	key: string;
@@ -7,6 +8,8 @@ export type AdminConfigField = {
 	secret: boolean;
 	options: string[];
 	help: string;
+	requiredForLaunch: boolean;
+	validation: AdminConfigValidationRule | null;
 	view?: 'basic' | 'advanced';
 };
 

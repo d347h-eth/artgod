@@ -30,6 +30,8 @@ pub struct AppConfigManifestSetting {
     pub secret: bool,
     pub options: Vec<String>,
     pub help: String,
+    pub required_for_launch: bool,
+    pub validation: Option<String>,
     pub view: Option<String>,
 }
 
@@ -60,6 +62,9 @@ struct ManifestSettingDocument {
     options: Vec<String>,
     #[serde(default)]
     help: String,
+    #[serde(default)]
+    required_for_launch: bool,
+    validation: Option<String>,
     view: Option<String>,
 }
 
@@ -157,6 +162,14 @@ fn build_manifest_model(document: ManifestDocument) -> Result<AppConfigManifestM
                 setting.key, view
             ));
         }
+        if let Some(validation) = setting.validation.as_deref()
+            && !matches!(validation, "url")
+        {
+            errors.push(format!(
+                "settings manifest setting {} uses unsupported validation {}",
+                setting.key, validation
+            ));
+        }
 
         let default_value = setting.desktop_default.unwrap_or(setting.default);
         ordered_keys.push(setting.key.clone());
@@ -169,6 +182,8 @@ fn build_manifest_model(document: ManifestDocument) -> Result<AppConfigManifestM
             secret: setting.secret,
             options: setting.options,
             help: setting.help,
+            required_for_launch: setting.required_for_launch,
+            validation: setting.validation,
             view: setting.view,
         });
     }
@@ -213,5 +228,18 @@ mod tests {
 
         assert_eq!(keys.len(), model.ordered_keys.len());
         assert_eq!(model.settings.len(), model.ordered_keys.len());
+    }
+
+    #[test]
+    fn manifest_marks_rpc_url_required_for_launch() {
+        let model = load_app_config_manifest().expect("load settings manifest");
+        let setting = model
+            .settings
+            .iter()
+            .find(|setting| setting.key == "RPC_URL")
+            .expect("RPC_URL setting should exist");
+
+        assert!(setting.required_for_launch);
+        assert_eq!(setting.validation.as_deref(), Some("url"));
     }
 }

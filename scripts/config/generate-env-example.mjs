@@ -107,6 +107,24 @@ function validateManifest(manifest) {
         if (setting.view !== undefined) {
             requireString(setting.view, `${location}.view`, errors);
         }
+        if (
+            setting.required_for_launch !== undefined &&
+            typeof setting.required_for_launch !== "boolean"
+        ) {
+            errors.push(`${location}.required_for_launch: expected boolean`);
+        }
+        if (setting.validation !== undefined) {
+            const validation = requireString(
+                setting.validation,
+                `${location}.validation`,
+                errors,
+            );
+            if (validation && !["url"].includes(validation)) {
+                errors.push(
+                    `${location}.validation: unsupported validation "${validation}"`,
+                );
+            }
+        }
         if (setting.input !== undefined) {
             const input = requireString(setting.input, `${location}.input`, errors);
             if (

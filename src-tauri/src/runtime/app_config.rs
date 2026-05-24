@@ -68,6 +68,8 @@ pub struct AppConfigField {
     pub secret: bool,
     pub options: Vec<String>,
     pub help: String,
+    pub required_for_launch: bool,
+    pub validation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
 }
@@ -468,6 +470,8 @@ fn build_schema_field(setting: &AppConfigManifestSetting) -> AppConfigField {
         secret: setting.secret,
         options: setting.options.clone(),
         help: setting.help.clone(),
+        required_for_launch: setting.required_for_launch,
+        validation: setting.validation.clone(),
         view: setting.view.clone(),
     }
 }

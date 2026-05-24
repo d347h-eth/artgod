@@ -200,6 +200,9 @@ key = "RPC_URL"
 group = "chain-rpc"
 label = "rpc url"
 default = ""
+help = "Ethereum JSON-RPC endpoint used by the backend and indexer."
+required_for_launch = true
+validation = "url"
 view = "basic"
 
 [[settings]]
