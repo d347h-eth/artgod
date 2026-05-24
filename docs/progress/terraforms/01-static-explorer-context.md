@@ -549,6 +549,14 @@ Acceptance checks:
 - selecting a level does not yet change URL state or render a detail view
 - desktop and mobile screenshots show a nonblank, coherent isometric structure with no shell overlap
 
+Current implementation notes:
+
+- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` renders the first overview using `@elchininet/isometric`.
+- `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-overview.ts` owns the slab geometry, centered-spine layout, and render key.
+- The overview renders 20 level groups and 60 faces, with every level centered on one spine and selection intentionally implemented as a no-op.
+- Focused helper tests cover level count, relative area sizing, gap/height ratio, face anchoring, centered layout, and render-key stability.
+- Browser verification covered desktop and mobile screenshots plus SVG pixel checks for nonblank rendering and centered layer alignment.
+
 ### Milestone 5: Level Drilldown Foundation
 
 Goal: turn the overview into the entry point for level exploration, then render one selected level with basic static structure detail.
