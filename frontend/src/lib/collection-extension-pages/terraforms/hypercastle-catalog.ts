@@ -9,33 +9,25 @@ import {
 	type TerraformsLevelSummary,
 	type TerraformsZone
 } from '@artgod/shared/extensions/terraforms';
+import {
+	TERRAFORMS_HYPERCASTLE_CATALOG_KEYS,
+	TERRAFORMS_HYPERCASTLE_QUERY_PARAMS,
+	TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS,
+	TERRAFORMS_HYPERCASTLE_SORT_KEYS
+} from '$lib/collection-extension-pages/terraforms/constants';
 import { withQuery } from '$lib/route-paths';
 
-export const TERRAFORMS_HYPERCASTLE_CATALOGS = ['levels', 'zones', 'biomes'] as const;
-
-export const TERRAFORMS_HYPERCASTLE_QUERY_PARAMS = {
-	Group: 'group',
-	Level: 'level',
-	Catalog: 'catalog',
-	Sort: 'sort',
-	Direction: 'dir'
-} as const;
+export const TERRAFORMS_HYPERCASTLE_CATALOGS = [
+	TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels,
+	TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones,
+	TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Biomes
+] as const;
 
 export type TerraformsHypercastleCatalog = (typeof TERRAFORMS_HYPERCASTLE_CATALOGS)[number];
-export type TerraformsHypercastleSortDirection = 'asc' | 'desc';
+export type TerraformsHypercastleSortDirection =
+	(typeof TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS)[keyof typeof TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS];
 export type TerraformsHypercastleSortKey =
-	| 'level'
-	| 'parcels'
-	| 'dimension'
-	| 'zones'
-	| 'biomes'
-	| 'index'
-	| 'name'
-	| 'levels'
-	| 'buckets'
-	| 'group'
-	| 'weight'
-	| 'resource';
+	(typeof TERRAFORMS_HYPERCASTLE_SORT_KEYS)[keyof typeof TERRAFORMS_HYPERCASTLE_SORT_KEYS];
 
 export type TerraformsHypercastleState = {
 	selectedGroup: TerraformsLevelGroupSummary | null;
@@ -78,9 +70,9 @@ const DEFAULT_SORT_BY_CATALOG: Record<
 	TerraformsHypercastleCatalog,
 	TerraformsHypercastleSortKey
 > = {
-	levels: 'level',
-	zones: 'index',
-	biomes: 'index'
+	[TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels]: TERRAFORMS_HYPERCASTLE_SORT_KEYS.Level,
+	[TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones]: TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index,
+	[TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Biomes]: TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index
 };
 const TERRAFORMS_RESOURCE_CHARACTER = '?';
 
@@ -228,15 +220,15 @@ export function sortTerraformsLevelCatalogRows(
 ): TerraformsLevelCatalogRow[] {
 	return [...rows].sort(compareRows(direction, (left, right) => {
 		switch (sort) {
-			case 'parcels':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels:
 				return compareNumber(left.level.parcelCount, right.level.parcelCount);
-			case 'dimension':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Dimension:
 				return compareNumber(left.level.dimension, right.level.dimension);
-			case 'zones':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Zones:
 				return compareNumber(left.level.zones.length, right.level.zones.length);
-			case 'biomes':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Biomes:
 				return compareNumber(left.availableBiomeCount, right.availableBiomeCount);
-			case 'level':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Level:
 			default:
 				return compareNumber(left.level.levelNumber, right.level.levelNumber);
 		}
@@ -250,15 +242,15 @@ export function sortTerraformsZoneCatalogRows(
 ): TerraformsZoneCatalogRow[] {
 	return [...rows].sort(compareRows(direction, (left, right) => {
 		switch (sort) {
-			case 'name':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Name:
 				return left.zone.name.localeCompare(right.zone.name);
-			case 'levels':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Levels:
 				return compareNumber(left.levelNumbers.length, right.levelNumbers.length);
-			case 'parcels':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels:
 				return compareNumber(left.levelParcels, right.levelParcels);
-			case 'buckets':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Buckets:
 				return compareNumber(left.topographyBuckets, right.topographyBuckets);
-			case 'index':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index:
 			default:
 				return compareNumber(left.zone.index, right.zone.index);
 		}
@@ -272,17 +264,17 @@ export function sortTerraformsBiomeCatalogRows(
 ): TerraformsBiomeCatalogRow[] {
 	return [...rows].sort(compareRows(direction, (left, right) => {
 		switch (sort) {
-			case 'group':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Group:
 				return compareNumber(left.biome.groupIndex, right.biome.groupIndex);
-			case 'levels':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Levels:
 				return compareNumber(left.levelNumbers.length, right.levelNumbers.length);
-			case 'parcels':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels:
 				return compareNumber(left.levelParcels, right.levelParcels);
-			case 'weight':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Weight:
 				return compareNumber(left.maxWeightPercent, right.maxWeightPercent);
-			case 'resource':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Resource:
 				return compareNumber(left.resourceCount, right.resourceCount);
-			case 'index':
+			case TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index:
 			default:
 				return compareNumber(left.biome.index, right.biome.index);
 		}
@@ -292,7 +284,10 @@ export function sortTerraformsBiomeCatalogRows(
 function normalizeTerraformsHypercastleCatalog(
 	value: string | null
 ): TerraformsHypercastleCatalog {
-	return TERRAFORMS_HYPERCASTLE_CATALOGS.find((catalog) => catalog === value) ?? 'levels';
+	return (
+		TERRAFORMS_HYPERCASTLE_CATALOGS.find((catalog) => catalog === value) ??
+		TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels
+	);
 }
 
 function normalizeTerraformsHypercastleSort(
@@ -308,20 +303,41 @@ function normalizeTerraformsHypercastleSort(
 function normalizeTerraformsHypercastleSortDirection(
 	value: string | null
 ): TerraformsHypercastleSortDirection {
-	return value === 'desc' ? 'desc' : 'asc';
+	return value === TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Desc
+		? TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Desc
+		: TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Asc;
 }
 
 function sortKeysForCatalog(
 	catalog: TerraformsHypercastleCatalog
 ): readonly TerraformsHypercastleSortKey[] {
 	switch (catalog) {
-		case 'zones':
-			return ['index', 'name', 'levels', 'parcels', 'buckets'];
-		case 'biomes':
-			return ['index', 'group', 'levels', 'parcels', 'weight', 'resource'];
-		case 'levels':
+		case TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones:
+			return [
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Name,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Levels,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Buckets
+			];
+		case TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Biomes:
+			return [
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Group,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Levels,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Weight,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Resource
+			];
+		case TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels:
 		default:
-			return ['level', 'parcels', 'dimension', 'zones', 'biomes'];
+			return [
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Level,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Dimension,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Zones,
+				TERRAFORMS_HYPERCASTLE_SORT_KEYS.Biomes
+			];
 	}
 }
 
@@ -358,7 +374,7 @@ function compareRows<T>(
 ): (left: T, right: T) => number {
 	return (left, right) => {
 		const result = compare(left, right);
-		return direction === 'desc' ? -result : result;
+		return direction === TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Desc ? -result : result;
 	};
 }
 

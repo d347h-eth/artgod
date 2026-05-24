@@ -8,24 +8,35 @@ import {
 	sortTerraformsLevelCatalogRows,
 	sortTerraformsZoneCatalogRows
 } from '$lib/collection-extension-pages/terraforms/hypercastle-catalog';
+import {
+	TERRAFORMS_HYPERCASTLE_CATALOG_KEYS,
+	TERRAFORMS_HYPERCASTLE_QUERY_PARAMS,
+	TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS,
+	TERRAFORMS_HYPERCASTLE_SORT_KEYS
+} from '$lib/collection-extension-pages/terraforms/constants';
 
 describe('Terraforms Hypercastle catalog helpers', () => {
 	it('resolves selected levels to their Zone-set group', () => {
-		const state = resolveTerraformsHypercastleState(
-			new URLSearchParams('level=13&catalog=zones&sort=buckets&dir=desc')
-		);
+		const params = new URLSearchParams();
+		params.set(TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Level, '13');
+		params.set(TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Catalog, TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones);
+		params.set(TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Sort, TERRAFORMS_HYPERCASTLE_SORT_KEYS.Buckets);
+		params.set(TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Direction, TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Desc);
+		const state = resolveTerraformsHypercastleState(params);
 
 		expect(state.selectedLevel?.levelNumber).toBe(13);
 		expect(state.selectedGroup?.levelNumbers).toEqual([13]);
-		expect(state.catalog).toBe('zones');
-		expect(state.sort).toBe('buckets');
-		expect(state.direction).toBe('desc');
+		expect(state.catalog).toBe(TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones);
+		expect(state.sort).toBe(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Buckets);
+		expect(state.direction).toBe(TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Desc);
 	});
 
 	it('builds shareable focus hrefs without dropping unrelated query params', () => {
 		const href = buildTerraformsHypercastleHref(
 			'/ethereum/terraforms/extensions/terraforms/hypercastle',
-			new URLSearchParams('media_mode=artifact&catalog=levels'),
+			new URLSearchParams(
+				`media_mode=artifact&${TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Catalog}=${TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels}`
+			),
 			{ levelNumber: 1 }
 		);
 
@@ -36,7 +47,11 @@ describe('Terraforms Hypercastle catalog helpers', () => {
 
 	it('builds level rows with parcel and available-biome totals', () => {
 		const rows = buildTerraformsLevelCatalogRows();
-		const sorted = sortTerraformsLevelCatalogRows(rows, 'parcels', 'desc');
+		const sorted = sortTerraformsLevelCatalogRows(
+			rows,
+			TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels,
+			TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Desc
+		);
 
 		expect(rows).toHaveLength(20);
 		expect(rows[12]).toMatchObject({
@@ -48,12 +63,16 @@ describe('Terraforms Hypercastle catalog helpers', () => {
 
 	it('builds Zone rows from contract topography bucket availability', () => {
 		const rows = buildTerraformsZoneCatalogRows();
-		const kairo = rows.find((row) => row.zone.name === 'Kairo');
-		const sorted = sortTerraformsZoneCatalogRows(rows, 'buckets', 'desc');
+		const lastZone = rows.at(-1);
+		const sorted = sortTerraformsZoneCatalogRows(
+			rows,
+			TERRAFORMS_HYPERCASTLE_SORT_KEYS.Buckets,
+			TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Desc
+		);
 
 		expect(rows).toHaveLength(75);
-		expect(kairo?.levelNumbers).toEqual([1, 2, 3, 4]);
-		expect(kairo?.topographyBuckets).toBe(36);
+		expect(lastZone?.levelNumbers).toEqual([1, 2, 3, 4]);
+		expect(lastZone?.topographyBuckets).toBe(36);
 		expect(sorted[0].topographyBuckets).toBeGreaterThanOrEqual(sorted[1].topographyBuckets);
 	});
 

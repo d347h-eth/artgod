@@ -16,6 +16,15 @@
 	} from '@artgod/shared/extensions/terraforms';
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
 	import {
+		TERRAFORMS_HYPERCASTLE_ARIA_LABELS,
+		TERRAFORMS_HYPERCASTLE_CATALOG_KEYS,
+		TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES,
+		TERRAFORMS_HYPERCASTLE_LABELS,
+		TERRAFORMS_HYPERCASTLE_NUMBER_FORMAT_LOCALE,
+		TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS,
+		TERRAFORMS_HYPERCASTLE_SORT_KEYS
+	} from '$lib/collection-extension-pages/terraforms/constants';
+	import {
 		TERRAFORMS_HYPERCASTLE_CATALOGS,
 		buildTerraformsBiomeCatalogRows,
 		buildTerraformsHypercastleHref,
@@ -71,13 +80,16 @@
 		return explorerHref({
 			sort,
 			direction:
-				explorerState.sort === sort && explorerState.direction === 'asc' ? 'desc' : 'asc'
+				explorerState.sort === sort &&
+				explorerState.direction === TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Asc
+					? TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Desc
+					: TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Asc
 		});
 	}
 
 	function sortMarker(sort: TerraformsHypercastleSortKey): string {
 		if (explorerState.sort !== sort) return '';
-		return explorerState.direction === 'asc' ? '^' : 'v';
+		return explorerState.direction === TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS.Asc ? '^' : 'v';
 	}
 
 	function groupHref(group: TerraformsLevelGroupSummary): string {
@@ -129,11 +141,13 @@
 	}
 
 	function formatInteger(value: number): string {
-		return value.toLocaleString('en-US');
+		return value.toLocaleString(TERRAFORMS_HYPERCASTLE_NUMBER_FORMAT_LOCALE);
 	}
 
 	function formatLevels(levelNumbers: readonly number[]): string {
-		return levelNumbers.map((levelNumber) => `L${levelNumber}`).join(' ');
+		return levelNumbers
+			.map((levelNumber) => `${TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.Level}${levelNumber}`)
+			.join(' ');
 	}
 
 	function formatZoneNames(zones: readonly TerraformsZone[]): string {
@@ -141,15 +155,25 @@
 	}
 
 	function formatBiomeIndices(indices: readonly number[]): string {
-		return indices.map((index) => `B${index}`).join(' ');
+		return indices
+			.map((index) => `${TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.Biome}${index}`)
+			.join(' ');
 	}
 
 	function formatThreshold(value: number | null): string {
-		return value === null ? 'base' : `>${formatInteger(value)}`;
+		return value === null ? TERRAFORMS_HYPERCASTLE_LABELS.Base : `>${formatInteger(value)}`;
 	}
 
 	function catalogLabel(catalog: TerraformsHypercastleCatalog): string {
-		return catalog;
+		switch (catalog) {
+			case TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones:
+				return TERRAFORMS_HYPERCASTLE_LABELS.Zones;
+			case TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Biomes:
+				return TERRAFORMS_HYPERCASTLE_LABELS.Biomes;
+			case TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels:
+			default:
+				return TERRAFORMS_HYPERCASTLE_LABELS.Levels;
+		}
 	}
 
 	function biomeGlyphStyle(biome: TerraformsBiome): string {
@@ -163,35 +187,35 @@
 			<h1>Hypercastle</h1>
 			<span>{collection.slug}</span>
 		</div>
-		<div class="hypercastle-stats" aria-label="Hypercastle contract totals">
+		<div class="hypercastle-stats" aria-label={TERRAFORMS_HYPERCASTLE_ARIA_LABELS.ContractTotals}>
 			<div>
 				<strong>{TERRAFORMS_HYPERCASTLE_LEVEL_COUNT}</strong>
-				<span>levels</span>
+				<span>{TERRAFORMS_HYPERCASTLE_LABELS.Levels}</span>
 			</div>
 			<div>
 				<strong>{TERRAFORMS_HYPERCASTLE_LEVEL_GROUPS.length}</strong>
-				<span>zone sets</span>
+				<span>{TERRAFORMS_HYPERCASTLE_LABELS.ZoneSets}</span>
 			</div>
 			<div>
 				<strong>{TERRAFORMS_ZONES.length}</strong>
-				<span>zones</span>
+				<span>{TERRAFORMS_HYPERCASTLE_LABELS.Zones}</span>
 			</div>
 			<div>
 				<strong>{TERRAFORMS_BIOMES.length}</strong>
-				<span>biomes</span>
+				<span>{TERRAFORMS_HYPERCASTLE_LABELS.Biomes}</span>
 			</div>
 			<div>
 				<strong>{formatInteger(TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS)}</strong>
-				<span>parcels</span>
+				<span>{TERRAFORMS_HYPERCASTLE_LABELS.Parcels}</span>
 			</div>
 		</div>
 	</header>
 
-	<section class="hypercastle-workbench" aria-label="Hypercastle structure">
-		<section class="hypercastle-stack" aria-label="Hypercastle levels">
+	<section class="hypercastle-workbench" aria-label={TERRAFORMS_HYPERCASTLE_ARIA_LABELS.Structure}>
+		<section class="hypercastle-stack" aria-label={TERRAFORMS_HYPERCASTLE_ARIA_LABELS.Levels}>
 			<header class="section-heading">
-				<h2>levels</h2>
-				<a href={clearFocusHref()}>all</a>
+				<h2>{TERRAFORMS_HYPERCASTLE_LABELS.Levels}</h2>
+				<a href={clearFocusHref()}>{TERRAFORMS_HYPERCASTLE_LABELS.All}</a>
 			</header>
 			<div class="level-stack">
 				{#each TERRAFORMS_HYPERCASTLE_LEVELS as level (level.levelNumber)}
@@ -204,7 +228,7 @@
 						href={levelHref(level)}
 						style={levelStyle(level)}
 					>
-						<span class="level-label">L{level.levelNumber}</span>
+						<span class="level-label">{TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.Level}{level.levelNumber}</span>
 						<span class="level-shape">
 							<span>{formatInteger(level.parcelCount)}</span>
 						</span>
@@ -214,51 +238,55 @@
 			</div>
 		</section>
 
-		<section class="hypercastle-focus" aria-label="Hypercastle focus">
+		<section class="hypercastle-focus" aria-label={TERRAFORMS_HYPERCASTLE_ARIA_LABELS.Focus}>
 			{#if explorerState.selectedLevel}
 				<header class="section-heading">
-					<h2>L{explorerState.selectedLevel.levelNumber}</h2>
+					<h2>{TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.Level}{explorerState.selectedLevel.levelNumber}</h2>
 					<a href={groupHref(explorerState.selectedGroup!)}>{explorerState.selectedGroup?.groupId}</a>
 				</header>
 				<div class="focus-stat-grid">
 					<div>
 						<strong>{explorerState.selectedLevel.dimension}x{explorerState.selectedLevel.dimension}</strong>
-						<span>grid</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.Grid}</span>
 					</div>
 					<div>
 						<strong>{formatInteger(explorerState.selectedLevel.parcelCount)}</strong>
-						<span>parcels</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.Parcels}</span>
 					</div>
 					<div>
 						<strong>{explorerState.selectedLevel.zones.length}</strong>
-						<span>zones</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.Zones}</span>
 					</div>
 					<div>
 						<strong>{explorerState.selectedLevel.availableBiomeGroupWeights.length}</strong>
-						<span>biome groups</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.BiomeGroups}</span>
 					</div>
 				</div>
 				<div class="focus-columns">
 					<div class="focus-block">
-						<h3>zones</h3>
+						<h3>{TERRAFORMS_HYPERCASTLE_LABELS.Zones}</h3>
 						<div class="zone-chip-list">
 							{#each explorerState.selectedLevel.zones as zone (zone.index)}
-								<a href={catalogHref('zones')} class="zone-chip" style={zoneStyle(zone)}>
+								<a
+									href={catalogHref(TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones)}
+									class="zone-chip"
+									style={zoneStyle(zone)}
+								>
 									<span>{zone.name}</span>
 								</a>
 							{/each}
 						</div>
 					</div>
 					<div class="focus-block">
-						<h3>biome weights</h3>
+						<h3>{TERRAFORMS_HYPERCASTLE_LABELS.BiomeWeights}</h3>
 						<div class="weight-list">
 							{#each explorerState.selectedLevel.availableBiomeGroupWeights as weight (weight.groupIndex)}
 								<a
-									href={catalogHref('biomes')}
+									href={catalogHref(TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Biomes)}
 									class="weight-row"
 									style={weightStyle(weight.weightPercent)}
 								>
-									<span>G{weight.groupIndex}</span>
+									<span>{TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.BiomeGroup}{weight.groupIndex}</span>
 									<span class="weight-meter"><span></span></span>
 									<span>{weight.weightPercent}%</span>
 									<span>{formatBiomeIndices(weight.biomeIndices)}</span>
@@ -271,9 +299,9 @@
 					<table>
 						<thead>
 							<tr>
-								<th>elev</th>
-								<th>threshold</th>
-								<th>zone</th>
+								<th>{TERRAFORMS_HYPERCASTLE_LABELS.Elevation}</th>
+								<th>{TERRAFORMS_HYPERCASTLE_LABELS.Threshold}</th>
+								<th>{TERRAFORMS_HYPERCASTLE_LABELS.Zone}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -290,30 +318,34 @@
 			{:else if explorerState.selectedGroup}
 				<header class="section-heading">
 					<h2>{explorerState.selectedGroup.groupId}</h2>
-					<a href={clearFocusHref()}>all</a>
+					<a href={clearFocusHref()}>{TERRAFORMS_HYPERCASTLE_LABELS.All}</a>
 				</header>
 				<div class="focus-stat-grid">
 					<div>
 						<strong>{formatLevels(explorerState.selectedGroup.levelNumbers)}</strong>
-						<span>levels</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.Levels}</span>
 					</div>
 					<div>
 						<strong>{explorerState.selectedGroup.zoneNames.length}</strong>
-						<span>zones</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.Zones}</span>
 					</div>
 					<div>
 						<strong>{formatInteger(explorerState.selectedGroup.totalParcels)}</strong>
-						<span>parcels</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.Parcels}</span>
 					</div>
 					<div>
 						<strong>{explorerState.selectedGroup.maxDimension}x{explorerState.selectedGroup.maxDimension}</strong>
-						<span>max grid</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.MaxGrid}</span>
 					</div>
 				</div>
 				<div class="zone-chip-list">
 					{#each explorerState.selectedGroup.zoneIndices as zoneIndex}
 						{@const zone = TERRAFORMS_ZONES[zoneIndex]}
-						<a href={catalogHref('zones')} class="zone-chip" style={zoneStyle(zone)}>
+						<a
+							href={catalogHref(TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones)}
+							class="zone-chip"
+							style={zoneStyle(zone)}
+						>
 							<span>{zone.name}</span>
 						</a>
 					{/each}
@@ -321,30 +353,32 @@
 				<div class="group-level-links">
 					{#each explorerState.selectedGroup.levelNumbers as levelNumber}
 						{@const level = TERRAFORMS_HYPERCASTLE_LEVELS[levelNumber - 1]}
-						<a href={levelHref(level)}>L{levelNumber}</a>
+						<a href={levelHref(level)}>{TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.Level}{levelNumber}</a>
 					{/each}
 				</div>
 			{:else}
 				<header class="section-heading">
-					<h2>overview</h2>
-					<a href={catalogHref('levels')}>catalog</a>
+					<h2>{TERRAFORMS_HYPERCASTLE_LABELS.Overview}</h2>
+					<a href={catalogHref(TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels)}>
+						{TERRAFORMS_HYPERCASTLE_LABELS.Catalog}
+					</a>
 				</header>
 				<div class="focus-stat-grid">
 					<div>
-						<strong>L13 L14</strong>
-						<span>widest</span>
+						<strong>{TERRAFORMS_HYPERCASTLE_LABELS.OverviewWidestLevels}</strong>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.Widest}</span>
 					</div>
 					<div>
-						<strong>48x48</strong>
-						<span>max grid</span>
+						<strong>{TERRAFORMS_HYPERCASTLE_LABELS.OverviewMaxGrid}</strong>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.MaxGrid}</span>
 					</div>
 					<div>
 						<strong>{formatInteger(TERRAFORMS_HYPERCASTLE_TOTAL_PARCELS)}</strong>
-						<span>parcels</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.Parcels}</span>
 					</div>
 					<div>
 						<strong>{TERRAFORMS_HYPERCASTLE_LEVEL_GROUPS.length}</strong>
-						<span>zone sets</span>
+						<span>{TERRAFORMS_HYPERCASTLE_LABELS.ZoneSets}</span>
 					</div>
 				</div>
 				<div class="zone-chip-list">
@@ -356,9 +390,9 @@
 		</section>
 	</section>
 
-	<section class="level-groups" aria-label="Hypercastle level groups">
+	<section class="level-groups" aria-label={TERRAFORMS_HYPERCASTLE_ARIA_LABELS.LevelGroups}>
 		<header class="section-heading">
-			<h2>zone sets</h2>
+			<h2>{TERRAFORMS_HYPERCASTLE_LABELS.ZoneSets}</h2>
 			<span>{TERRAFORMS_HYPERCASTLE_LEVEL_GROUPS.length}</span>
 		</header>
 		<div class="level-group-grid">
@@ -379,13 +413,13 @@
 		</div>
 	</section>
 
-	<section class="catalog-section" aria-label="Hypercastle catalog">
+	<section class="catalog-section" aria-label={TERRAFORMS_HYPERCASTLE_ARIA_LABELS.Catalog}>
 		<header class="catalog-header">
 			<div class="section-heading">
-				<h2>catalog</h2>
+				<h2>{TERRAFORMS_HYPERCASTLE_LABELS.Catalog}</h2>
 				<span>{catalogLabel(explorerState.catalog)}</span>
 			</div>
-			<nav class="secondary-tabs" aria-label="Hypercastle catalog tabs">
+			<nav class="secondary-tabs" aria-label={TERRAFORMS_HYPERCASTLE_ARIA_LABELS.CatalogTabs}>
 				{#each TERRAFORMS_HYPERCASTLE_CATALOGS as catalog}
 					{#if explorerState.catalog === catalog}
 						<span class="secondary-tab-active">{catalogLabel(catalog)}</span>
@@ -396,23 +430,23 @@
 			</nav>
 		</header>
 
-		{#if explorerState.catalog === 'levels'}
+		{#if explorerState.catalog === TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels}
 			<div class="table-wrap">
 				<table>
 					<thead>
 						<tr>
-							<th><a href={sortHref('level')}>level {sortMarker('level')}</a></th>
-							<th><a href={sortHref('parcels')}>parcels {sortMarker('parcels')}</a></th>
-							<th><a href={sortHref('dimension')}>grid {sortMarker('dimension')}</a></th>
-							<th><a href={sortHref('zones')}>zones {sortMarker('zones')}</a></th>
-							<th><a href={sortHref('biomes')}>biomes {sortMarker('biomes')}</a></th>
-							<th>zone set</th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Level)}>{TERRAFORMS_HYPERCASTLE_LABELS.Level} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Level)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels)}>{TERRAFORMS_HYPERCASTLE_LABELS.Parcels} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Dimension)}>{TERRAFORMS_HYPERCASTLE_LABELS.Grid} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Dimension)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Zones)}>{TERRAFORMS_HYPERCASTLE_LABELS.Zones} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Zones)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Biomes)}>{TERRAFORMS_HYPERCASTLE_LABELS.Biomes} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Biomes)}</a></th>
+							<th>{TERRAFORMS_HYPERCASTLE_LABELS.ZoneSet}</th>
 						</tr>
 					</thead>
 					<tbody>
 						{#each sortedLevelRows as row}
 							<tr>
-								<td><a href={levelHref(row.level)}>L{row.level.levelNumber}</a></td>
+								<td><a href={levelHref(row.level)}>{TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.Level}{row.level.levelNumber}</a></td>
 								<td>{formatInteger(row.level.parcelCount)}</td>
 								<td>{row.level.dimension}x{row.level.dimension}</td>
 								<td>{formatZoneNames(row.level.zones)}</td>
@@ -423,23 +457,23 @@
 					</tbody>
 				</table>
 			</div>
-		{:else if explorerState.catalog === 'zones'}
+		{:else if explorerState.catalog === TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones}
 			<div class="table-wrap">
 				<table>
 					<thead>
 						<tr>
-							<th><a href={sortHref('index')}>zone {sortMarker('index')}</a></th>
-							<th><a href={sortHref('name')}>name {sortMarker('name')}</a></th>
-							<th>palette</th>
-							<th><a href={sortHref('levels')}>levels {sortMarker('levels')}</a></th>
-							<th><a href={sortHref('parcels')}>level parcels {sortMarker('parcels')}</a></th>
-							<th><a href={sortHref('buckets')}>buckets {sortMarker('buckets')}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index)}>{TERRAFORMS_HYPERCASTLE_LABELS.Zone} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Name)}>{TERRAFORMS_HYPERCASTLE_LABELS.Name} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Name)}</a></th>
+							<th>{TERRAFORMS_HYPERCASTLE_LABELS.Palette}</th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Levels)}>{TERRAFORMS_HYPERCASTLE_LABELS.Levels} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Levels)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels)}>{TERRAFORMS_HYPERCASTLE_LABELS.LevelParcels} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Buckets)}>{TERRAFORMS_HYPERCASTLE_LABELS.Buckets} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Buckets)}</a></th>
 						</tr>
 					</thead>
 					<tbody>
 						{#each sortedZoneRows as row}
 							<tr>
-								<td>Z{row.zone.index}</td>
+								<td>{TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.Zone}{row.zone.index}</td>
 								<td>{row.zone.name}</td>
 								<td>
 									<span class="palette-strip" style={zoneStyle(row.zone)}></span>
@@ -457,20 +491,20 @@
 				<table>
 					<thead>
 						<tr>
-							<th><a href={sortHref('index')}>biome {sortMarker('index')}</a></th>
-							<th><a href={sortHref('group')}>group {sortMarker('group')}</a></th>
-							<th>characters</th>
-							<th><a href={sortHref('levels')}>levels {sortMarker('levels')}</a></th>
-							<th><a href={sortHref('parcels')}>level parcels {sortMarker('parcels')}</a></th>
-							<th><a href={sortHref('weight')}>max weight {sortMarker('weight')}</a></th>
-							<th><a href={sortHref('resource')}>{TERRAFORMS_RESOURCE_ATTRIBUTE_KEY} {sortMarker('resource')}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index)}>{TERRAFORMS_HYPERCASTLE_LABELS.Biome} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Index)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Group)}>{TERRAFORMS_HYPERCASTLE_LABELS.Group} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Group)}</a></th>
+							<th>{TERRAFORMS_HYPERCASTLE_LABELS.Characters}</th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Levels)}>{TERRAFORMS_HYPERCASTLE_LABELS.Levels} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Levels)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels)}>{TERRAFORMS_HYPERCASTLE_LABELS.LevelParcels} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Parcels)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Weight)}>{TERRAFORMS_HYPERCASTLE_LABELS.MaxWeight} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Weight)}</a></th>
+							<th><a href={sortHref(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Resource)}>{TERRAFORMS_RESOURCE_ATTRIBUTE_KEY} {sortMarker(TERRAFORMS_HYPERCASTLE_SORT_KEYS.Resource)}</a></th>
 						</tr>
 					</thead>
 					<tbody>
 						{#each sortedBiomeRows as row}
 							<tr>
-								<td>B{row.biome.index}</td>
-								<td>G{row.biome.groupIndex}</td>
+								<td>{TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.Biome}{row.biome.index}</td>
+								<td>{TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES.BiomeGroup}{row.biome.groupIndex}</td>
 								<td>
 									<span class="biome-glyphs" style={biomeGlyphStyle(row.biome)}>
 										{row.biome.characters.join('')}
@@ -502,7 +536,7 @@
 		flex-wrap: wrap;
 		gap: 18px;
 		align-items: end;
-		justify-content: space-between;
+		justify-content: flex-start;
 	}
 
 	.hypercastle-title,
