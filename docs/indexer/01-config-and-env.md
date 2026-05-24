@@ -31,7 +31,7 @@ The indexer reads these variables from the root `.env`:
 - `RPC_BACKFILL_URL` (optional)
 - `RPC_WS_URL` (optional)
 - `WETH_ADDRESS` (required)
-- `NATS_URL` (default: `nats://127.0.0.1:4222`)
+- `NATS_URL` (default: `nats://127.0.0.1:42720`)
 - `NATS_STREAM_PREFIX` (default: `artgod`)
 - `REORG_DEPTH` (default: 20)
 - `BACKFILL_BATCH_SIZE` (default: 50)
@@ -82,9 +82,9 @@ Example (from `.env.example`):
 ```
 ARTGOD_DB_PATH=database/sqlite/main/db
 CHAIN_ID=1
-RPC_URL=http://127.0.0.1:8545
+RPC_URL=http://127.0.0.1:42721
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
-NATS_URL=nats://127.0.0.1:4222
+NATS_URL=nats://127.0.0.1:42720
 NATS_STREAM_PREFIX=artgod
 REORG_DEPTH=32
 BACKFILL_BATCH_SIZE=50
@@ -133,8 +133,8 @@ Example (from `.env.test.example`):
 ARTGOD_DB_PATH=database/sqlite/test/db
 OPENSEA_INTEGRATION_MODE=auto
 OPENSEA_API_KEY=test-opensea-api-key
-SMOKE_NATS_PORT=10247
-SMOKE_RPC_URL=http://127.0.0.1:8545
+SMOKE_NATS_PORT=42724
+SMOKE_RPC_URL=http://127.0.0.1:42721
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 SMOKE_TARGET_COLLECTIONS='[{"id":"terraforms","address":"0x4E1f41613c9084FdB9E34E11fAE9412427480e56","deploymentBlock":13823015}]'

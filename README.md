@@ -166,7 +166,7 @@ Start optional observability stack (Grafana + Loki + Alloy + Prometheus + Tempo 
 docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana
 ```
 
-Open Grafana at `http://localhost:42701` (default `admin` / `admin`).
+Open Grafana at `http://localhost:42735` (default `admin` / `admin`).
 
 Use the local launchers to produce runtime log files under `tmp/logs/*.log`:
 
@@ -253,7 +253,7 @@ Required core env:
 ```sh
 ARTGOD_DB_PATH=database/sqlite/main/db
 BACKEND_HOST=127.0.0.1
-RPC_URL=http://127.0.0.1:8545
+RPC_URL=http://127.0.0.1:42721
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 ```
@@ -388,7 +388,7 @@ Signal paths:
 - Traces: backend/indexer OTLP -> Tempo -> Grafana
 - Profiles: Pyroscope -> Grafana
 
-The public deploy compose exposes the same stack behind its `observability` profile, with Grafana reachable inside the shared Docker edge network as `artgod-grafana:3000`.
+The public deploy compose exposes the same stack behind its `observability` profile, with Grafana reachable inside the shared Docker edge network as `artgod-grafana:42735`.
 
 Reference docs:
 
@@ -404,6 +404,7 @@ Use these as primary references for design and implementation details:
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
+- `docs/ports/01-port-catalog.md`
 - `docs/trading/01-bidding-runtime-and-jobs.md`
 - `docs/trading/02-bidding-automation-capabilities.md`
 - `docs/progress/trading/01-bidder-integration-plan.md`

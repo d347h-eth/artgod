@@ -291,7 +291,7 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `ARTGOD_DB_PATH`
 - `USERLAND_UI_DIST_DIR`
 - `RPC_URL`
-- `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:4222`)
+- `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:42720`)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
 - observability keys use the canonical desktop/runtime names: `OBSERVABILITY_OTLP_HTTP_URL`, `OBSERVABILITY_PYROSCOPE_URL`, `BACKEND_METRICS_*`, `BACKEND_APM_*`, `INDEXER_METRICS_*`, and `INDEXER_APM_*`

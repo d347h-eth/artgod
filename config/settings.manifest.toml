@@ -199,7 +199,7 @@ default = "1"
 key = "RPC_URL"
 group = "chain-rpc"
 label = "rpc url"
-default = "http://127.0.0.1:42721"
+default = ""
 view = "basic"
 
 [[settings]]
