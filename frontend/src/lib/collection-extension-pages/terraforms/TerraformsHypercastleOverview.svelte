@@ -216,6 +216,11 @@
 			stroke-width 120ms ease;
 	}
 
+	:global(.terraforms-hypercastle-overview-layer-face-front),
+	:global(.terraforms-hypercastle-overview-layer-face-side) {
+		pointer-events: all;
+	}
+
 	:global(.terraforms-hypercastle-overview-layer:hover .terraforms-hypercastle-overview-layer-face),
 	:global(
 			.terraforms-hypercastle-overview-layer:focus-visible
