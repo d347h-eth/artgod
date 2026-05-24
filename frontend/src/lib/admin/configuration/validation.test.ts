@@ -67,4 +67,10 @@ describe('admin config validation', () => {
 		);
 		expect(resolveAdminLaunchConfigIssues(config({ RPC_URL: 'wss://rpc.example' }))).toEqual([]);
 	});
+
+	it('rejects URLs without an explicit scheme separator', () => {
+		const issues = resolveAdminLaunchConfigIssues(config({ RPC_URL: 'https:localhost:8545' }));
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
+	});
 });

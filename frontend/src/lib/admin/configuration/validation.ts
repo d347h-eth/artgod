@@ -21,6 +21,7 @@ export type AdminConfigValidationIssue = {
 };
 
 const SUPPORTED_URL_PROTOCOLS = new Set(['http:', 'https:', 'ws:', 'wss:']);
+const EXPLICIT_URL_SCHEME_PATTERN = /^(https?|wss?):\/\//;
 
 // Validates every manifest-backed setting against lightweight frontend rules.
 export function resolveAdminConfigValidationIssues(
@@ -109,6 +110,9 @@ function buildValidationIssue(
 }
 
 function isSupportedUrl(value: string): boolean {
+	if (!EXPLICIT_URL_SCHEME_PATTERN.test(value)) {
+		return false;
+	}
 	try {
 		const url = new URL(value);
 		return SUPPORTED_URL_PROTOCOLS.has(url.protocol) && url.hostname.trim().length > 0;
