@@ -30,6 +30,8 @@
         "build:runtime": "node ./scripts/build/build-runtime-artifacts.mjs",
         "build:desktop-runtime-resources": "node ./scripts/build/prepare-desktop-runtime-resources.mjs",
         "build:desktop-sidecars": "node ./scripts/build/prepare-desktop-sidecars.mjs",
+        "config:generate": "node ./scripts/config/generate-env-example.mjs",
+        "config:check": "node ./scripts/config/generate-env-example.mjs --check",
         "check:runtime-registry": "node ./scripts/build/check-runtime-registry.mjs",
         "debug:ethereum-node": "node ./scripts/debug/ethereum-node-probe.mjs",
         "sync:version": "node ./scripts/build/sync-version.mjs",
