@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveAdminActionFlow } from './admin-action-flow';
+import {
+	ADMIN_ACTION_FLOW_CONFIG_KEYS,
+	ADMIN_ACTION_FLOW_LABELS,
+	ADMIN_FLOW_STATES,
+	resolveAdminActionFlow
+} from './admin-action-flow';
 import type { AdminConfigState } from '$lib/admin/configuration/ports';
 import type { LifecyclePhase } from '$lib/runtime/lifecycle/core/types';
 import type { RuntimeStatus } from '$lib/runtime/lifecycle/ports';
 
-function configState(configured: boolean): AdminConfigState {
+function configState(
+	configured: boolean,
+	values: Record<string, string> = {
+		[ADMIN_ACTION_FLOW_CONFIG_KEYS.rpcUrl]: 'https://rpc.example'
+	}
+): AdminConfigState {
 	return {
 		configured,
 		envFilePath: '/tmp/.env',
@@ -13,7 +23,7 @@ function configState(configured: boolean): AdminConfigState {
 		settingsFilePath: '/tmp/settings.json',
 		settingsFileExists: configured,
 		autoLaunchOnStartup: false,
-		values: {},
+		values,
 		defaults: {},
 		groups: []
 	};
@@ -55,8 +65,8 @@ describe('resolveAdminActionFlow', () => {
 	it('boots with defaults when settings are missing', () => {
 		const state = flow({ config: configState(false) });
 
-		expect(state.state).toBe('needs_config');
-		expect(state.boot.label).toBe('start infra with default settings');
+		expect(state.state).toBe(ADMIN_FLOW_STATES.needsConfig);
+		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.bootWithDefaults);
 		expect(state.boot.usesDefaults).toBe(true);
 		expect(state.boot.disabled).toBe(false);
 	});
@@ -64,16 +74,40 @@ describe('resolveAdminActionFlow', () => {
 	it('boots saved configuration when settings exist', () => {
 		const state = flow({ config: configState(true) });
 
-		expect(state.state).toBe('ready_to_boot');
-		expect(state.boot.label).toBe('start infra');
+		expect(state.state).toBe(ADMIN_FLOW_STATES.readyToBoot);
+		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.boot);
 		expect(state.boot.usesDefaults).toBe(false);
 		expect(state.boot.disabled).toBe(false);
+	});
+
+	it('requires a non-empty RPC URL before default boot is available', () => {
+		const state = flow({
+			config: configState(false, {
+				[ADMIN_ACTION_FLOW_CONFIG_KEYS.rpcUrl]: ''
+			})
+		});
+
+		expect(state.state).toBe(ADMIN_FLOW_STATES.needsConfig);
+		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.bootWithDefaults);
+		expect(state.boot.disabled).toBe(true);
+	});
+
+	it('requires a non-empty RPC URL before saved boot is available', () => {
+		const state = flow({
+			config: configState(true, {
+				[ADMIN_ACTION_FLOW_CONFIG_KEYS.rpcUrl]: '   '
+			})
+		});
+
+		expect(state.state).toBe(ADMIN_FLOW_STATES.needsRequiredConfig);
+		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.boot);
+		expect(state.boot.disabled).toBe(true);
 	});
 
 	it('disables boot during transient runtime states', () => {
 		const state = flow({ runtimeStatus: runtimeStatus('starting') });
 
-		expect(state.state).toBe('booting');
+		expect(state.state).toBe(ADMIN_FLOW_STATES.booting);
 		expect(state.boot.disabled).toBe(true);
 		expect(state.userland.disabled).toBe(true);
 	});
@@ -81,7 +115,7 @@ describe('resolveAdminActionFlow', () => {
 	it('waits for runtime initialization before booting', () => {
 		const state = flow({ runtimeInitialized: false });
 
-		expect(state.state).toBe('booting');
+		expect(state.state).toBe(ADMIN_FLOW_STATES.booting);
 		expect(state.boot.disabled).toBe(true);
 	});
 
@@ -91,7 +125,7 @@ describe('resolveAdminActionFlow', () => {
 			lifecyclePhase: 'ready'
 		});
 
-		expect(state.state).toBe('ready');
+		expect(state.state).toBe(ADMIN_FLOW_STATES.ready);
 		expect(state.boot.disabled).toBe(true);
 		expect(state.userland.disabled).toBe(false);
 	});

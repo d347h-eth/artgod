@@ -2,13 +2,30 @@ import type { AdminConfigState } from '$lib/admin/configuration/ports';
 import type { LifecyclePhase } from '$lib/runtime/lifecycle/core/types';
 import type { RuntimeStatus } from '$lib/runtime/lifecycle/ports';
 
-export type AdminFlowState =
-	| 'loading'
-	| 'needs_config'
-	| 'ready_to_boot'
-	| 'booting'
-	| 'running'
-	| 'ready';
+export const ADMIN_ACTION_FLOW_LABELS = {
+	config: 'config',
+	bootWithDefaults: 'start infra with default settings',
+	boot: 'start infra',
+	userland: 'enter the userland'
+} as const;
+
+export const ADMIN_FLOW_STATES = {
+	loading: 'loading',
+	needsConfig: 'needs_config',
+	needsRequiredConfig: 'needs_required_config',
+	readyToBoot: 'ready_to_boot',
+	booting: 'booting',
+	running: 'running',
+	ready: 'ready'
+} as const;
+
+export const ADMIN_ACTION_FLOW_CONFIG_KEYS = {
+	rpcUrl: 'RPC_URL'
+} as const;
+
+type AdminRuntimeState = (typeof ADMIN_RUNTIME_STATES)[keyof typeof ADMIN_RUNTIME_STATES];
+
+export type AdminFlowState = (typeof ADMIN_FLOW_STATES)[keyof typeof ADMIN_FLOW_STATES];
 
 export type AdminFlowAction = {
 	disabled: boolean;
@@ -36,42 +53,59 @@ export type AdminActionFlow = {
 	userland: AdminFlowAction;
 };
 
-const RUNTIME_TRANSIENT_STATES = new Set(['starting', 'restarting', 'stopping']);
+const ADMIN_RUNTIME_STATES = {
+	unknown: 'unknown',
+	starting: 'starting',
+	restarting: 'restarting',
+	stopping: 'stopping',
+	running: 'running'
+} as const;
+
+const ADMIN_LIFECYCLE_PHASES = {
+	ready: 'ready'
+} as const satisfies Record<string, LifecyclePhase>;
+
+const REQUIRED_BOOT_CONFIG_KEYS = [ADMIN_ACTION_FLOW_CONFIG_KEYS.rpcUrl] as const;
+const RUNTIME_TRANSIENT_STATES = new Set<AdminRuntimeState>([
+	ADMIN_RUNTIME_STATES.starting,
+	ADMIN_RUNTIME_STATES.restarting,
+	ADMIN_RUNTIME_STATES.stopping
+]);
 
 // Resolves the Admin header action sequence from configuration and runtime state.
 export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminActionFlow {
-	const runtimeState = input.runtimeStatus?.state ?? 'unknown';
+	const runtimeState = resolveRuntimeState(input.runtimeStatus);
 	const configBusy = input.configLoading || input.configBusyAction !== null;
 	const runtimeBusy =
 		!input.runtimeInitialized ||
 		input.runtimeBusyAction !== null ||
 		RUNTIME_TRANSIENT_STATES.has(runtimeState);
-	const runtimeRunning = runtimeState === 'running';
-	const userlandReady = input.lifecyclePhase === 'ready';
+	const runtimeRunning = runtimeState === ADMIN_RUNTIME_STATES.running;
+	const userlandReady = input.lifecyclePhase === ADMIN_LIFECYCLE_PHASES.ready;
 	const configured = input.config?.configured === true;
 	const bootUsesDefaults = !configured;
+	const requiredConfigReady =
+		input.config !== null && hasRequiredBootConfigValues(input.config.values);
 
-	let state: AdminFlowState = 'ready_to_boot';
-	if (input.configLoading || input.config === null) {
-		state = 'loading';
-	} else if (userlandReady) {
-		state = 'ready';
-	} else if (runtimeBusy) {
-		state = 'booting';
-	} else if (runtimeRunning) {
-		state = 'running';
-	} else if (!configured) {
-		state = 'needs_config';
-	}
+	const state = resolveFlowState({
+		configLoaded: !input.configLoading && input.config !== null,
+		configured,
+		requiredConfigReady,
+		runtimeBusy,
+		runtimeRunning,
+		userlandReady
+	});
 
 	return {
 		state,
 		configure: {
-			label: 'config',
+			label: ADMIN_ACTION_FLOW_LABELS.config,
 			disabled: false
 		},
 		boot: {
-			label: bootUsesDefaults ? 'start infra with default settings' : 'start infra',
+			label: bootUsesDefaults
+				? ADMIN_ACTION_FLOW_LABELS.bootWithDefaults
+				: ADMIN_ACTION_FLOW_LABELS.boot,
 			usesDefaults: bootUsesDefaults,
 			disabled:
 				input.configLoading ||
@@ -79,11 +113,64 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 				configBusy ||
 				runtimeBusy ||
 				runtimeRunning ||
-				userlandReady
+				userlandReady ||
+				!requiredConfigReady
 		},
 		userland: {
-			label: 'enter the userland',
+			label: ADMIN_ACTION_FLOW_LABELS.userland,
 			disabled: !userlandReady || input.runtimeBusyAction !== null
 		}
 	};
+}
+
+function resolveRuntimeState(status: RuntimeStatus | null): AdminRuntimeState {
+	const state = status?.state;
+	if (state === ADMIN_RUNTIME_STATES.starting) {
+		return ADMIN_RUNTIME_STATES.starting;
+	}
+	if (state === ADMIN_RUNTIME_STATES.restarting) {
+		return ADMIN_RUNTIME_STATES.restarting;
+	}
+	if (state === ADMIN_RUNTIME_STATES.stopping) {
+		return ADMIN_RUNTIME_STATES.stopping;
+	}
+	if (state === ADMIN_RUNTIME_STATES.running) {
+		return ADMIN_RUNTIME_STATES.running;
+	}
+	return ADMIN_RUNTIME_STATES.unknown;
+}
+
+function resolveFlowState(input: {
+	configLoaded: boolean;
+	configured: boolean;
+	requiredConfigReady: boolean;
+	runtimeBusy: boolean;
+	runtimeRunning: boolean;
+	userlandReady: boolean;
+}): AdminFlowState {
+	if (!input.configLoaded) {
+		return ADMIN_FLOW_STATES.loading;
+	}
+	if (input.userlandReady) {
+		return ADMIN_FLOW_STATES.ready;
+	}
+	if (input.runtimeBusy) {
+		return ADMIN_FLOW_STATES.booting;
+	}
+	if (input.runtimeRunning) {
+		return ADMIN_FLOW_STATES.running;
+	}
+	if (!input.requiredConfigReady) {
+		return input.configured
+			? ADMIN_FLOW_STATES.needsRequiredConfig
+			: ADMIN_FLOW_STATES.needsConfig;
+	}
+	if (!input.configured) {
+		return ADMIN_FLOW_STATES.needsConfig;
+	}
+	return ADMIN_FLOW_STATES.readyToBoot;
+}
+
+function hasRequiredBootConfigValues(values: Record<string, string>): boolean {
+	return REQUIRED_BOOT_CONFIG_KEYS.every((key) => values[key]?.trim().length > 0);
 }
