@@ -515,9 +515,11 @@ Current implementation notes:
 
 - Terraforms registers the first page contribution as `terraforms:hypercastle`.
 - The Hypercastle tab is extension-owned and ordered between generic asset-event tabs and Terraforms extension-event tabs.
-- The Hypercastle page now has URL-backed focus state for Zone-set groups, individual levels, catalog lens, sort key, and sort direction.
-- The first page pass renders the full 20-level stack, Zone-set group cards, selected-level topography buckets, selected-level biome group weights, and sortable Levels/Zones/Biomes catalog tables.
-- The current page still uses scaled aggregate level shapes instead of a full renderer spike. The richer visual renderer and more polished drilldown remain Milestone 4/5 work.
+- The Hypercastle page now has URL-backed focus state for Zone-set groups and individual levels.
+- The current page centers the primary viewport on a scaled 20-level Hypercastle stack. In overview, level clicks move into Zone-set group focus first; inside a focused group, level clicks move into a single-level focus.
+- The single-level focus uses aggregate isometric topography bands and visual Zone/Biome summaries instead of 1:1 parcel tiles.
+- The table-like catalog helpers still exist for future deep-dive panels, but the primary page no longer renders large Levels/Zones/Biomes tables.
+- The current page still needs browser screenshot/pixel/performance verification before treating the renderer choice as accepted.
 
 ### Milestone 4: Visualization Spike
 

@@ -44,6 +44,7 @@ export const TERRAFORMS_HYPERCASTLE_SORT_KEYS = {
 // User-facing labels owned by the Terraforms Hypercastle page.
 export const TERRAFORMS_HYPERCASTLE_LABELS = {
 	All: 'all',
+	AvailableBiomes: 'available biomes',
 	Base: 'base',
 	Band: 'band',
 	Biome: 'biome',
@@ -59,6 +60,7 @@ export const TERRAFORMS_HYPERCASTLE_LABELS = {
 	Hypercastle: 'Hypercastle',
 	Index: 'index',
 	Level: 'level',
+	LevelFocus: 'level focus',
 	LevelParcels: 'level parcels',
 	Levels: 'levels',
 	MaxGrid: 'max grid',
@@ -72,11 +74,13 @@ export const TERRAFORMS_HYPERCASTLE_LABELS = {
 	SelectedBand: 'selected band',
 	Threshold: 'threshold',
 	Topography: 'topography',
+	TopographyBands: 'topography bands',
 	Weight: 'weight',
 	Widest: 'widest',
 	Zone: 'zone',
 	ZoneSet: 'zone set',
 	ZoneSets: 'zone sets',
+	ZoneWindow: 'zone window',
 	Zones: 'zones'
 } as const;
 
@@ -89,7 +93,10 @@ export const TERRAFORMS_HYPERCASTLE_ARIA_LABELS = {
 	CatalogTabs: 'Hypercastle catalog tabs',
 	ContractTotals: 'Hypercastle contract totals',
 	Focus: 'Hypercastle focus',
+	GroupDrilldown: 'Hypercastle Zone-set drilldown',
 	LevelIsometric: 'Hypercastle level isometric topography',
+	LevelStack: 'Hypercastle level stack',
+	TopographyBands: 'Hypercastle topography bands',
 	LevelGroups: 'Hypercastle level groups',
 	Levels: 'Hypercastle levels',
 	Structure: 'Hypercastle structure'
