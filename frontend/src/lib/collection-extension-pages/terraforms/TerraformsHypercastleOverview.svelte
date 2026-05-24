@@ -11,6 +11,7 @@
 		resolveTerraformsHypercastleOverviewFaceClassName,
 		resolveTerraformsHypercastleOverviewFaceGeometry,
 		resolveTerraformsHypercastleOverviewLayerElementId,
+		resolveTerraformsHypercastleOverviewLevelGuideElementId,
 		resolveTerraformsHypercastleOverviewLayout,
 		resolveTerraformsHypercastleOverviewOutlinePositionClassName,
 		resolveTerraformsHypercastleOverviewOutlineStyleClassName,
@@ -306,6 +307,10 @@
 		const guideElement = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.group);
 		guideElement.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guide);
 		guideElement.setAttribute(
+			SVG_ATTRIBUTES.id,
+			resolveTerraformsHypercastleOverviewLevelGuideElementId(guide.levelNumber)
+		);
+		guideElement.setAttribute(
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelNumber,
 			String(guide.levelNumber)
 		);
@@ -315,16 +320,16 @@
 		guideElement.appendChild(createLevelGuideLeaderElement(guide));
 		guideElement.appendChild(createLevelGuideLabelElement(guide));
 		guideElement.addEventListener(DOM_EVENTS.pointerEnter, () =>
-			setLevelGuideHovered(guideElement, guide.levelNumber, true)
+			setLevelHoverState(guide.levelNumber, true)
 		);
 		guideElement.addEventListener(DOM_EVENTS.pointerLeave, () =>
-			setLevelGuideHovered(guideElement, guide.levelNumber, false)
+			setLevelHoverState(guide.levelNumber, false)
 		);
 		guideElement.addEventListener(DOM_EVENTS.focus, () =>
-			setLevelGuideHovered(guideElement, guide.levelNumber, true)
+			setLevelHoverState(guide.levelNumber, true)
 		);
 		guideElement.addEventListener(DOM_EVENTS.blur, () =>
-			setLevelGuideHovered(guideElement, guide.levelNumber, false)
+			setLevelHoverState(guide.levelNumber, false)
 		);
 		return guideElement;
 	}
@@ -361,11 +366,11 @@
 		);
 		leader.setAttribute(
 			SVG_ATTRIBUTES.strokeOpacity,
-			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelLabelLineOpacity)
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelGuideLineHiddenOpacity)
 		);
 		leader.setAttribute(
 			SVG_ATTRIBUTES.strokeWidth,
-			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeWidth)
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelGuideLineStrokeWidth)
 		);
 		return leader;
 	}
@@ -389,15 +394,25 @@
 		return label;
 	}
 
-	function setLevelGuideHovered(
-		guideElement: SVGGElement,
-		levelNumber: number,
-		hovered: boolean
-	): void {
-		guideElement.classList.toggle(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideHovered, hovered);
-		document
-			.getElementById(resolveTerraformsHypercastleOverviewLayerElementId(levelNumber))
-			?.classList.toggle(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerHovered, hovered);
+	function setLevelHoverState(levelNumber: number, hovered: boolean): void {
+		resolveLevelGuideElement(levelNumber)?.classList.toggle(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideHovered,
+			hovered
+		);
+		resolveLayerElement(levelNumber)?.classList.toggle(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerHovered,
+			hovered
+		);
+	}
+
+	function resolveLevelGuideElement(levelNumber: number): HTMLElement | null {
+		return document.getElementById(
+			resolveTerraformsHypercastleOverviewLevelGuideElementId(levelNumber)
+		);
+	}
+
+	function resolveLayerElement(levelNumber: number): HTMLElement | null {
+		return document.getElementById(resolveTerraformsHypercastleOverviewLayerElementId(levelNumber));
 	}
 
 	function configureLayerElement(element: SVGElement, layer: TerraformsHypercastleOverviewLayer): void {
@@ -415,6 +430,15 @@
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelDimension,
 			String(layer.dimension)
 		);
+		// Mirror slab hover onto the guide so hidden leaders appear from either hit target.
+		element.addEventListener(DOM_EVENTS.pointerEnter, () =>
+			setLevelHoverState(layer.levelNumber, true)
+		);
+		element.addEventListener(DOM_EVENTS.pointerLeave, () =>
+			setLevelHoverState(layer.levelNumber, false)
+		);
+		element.addEventListener(DOM_EVENTS.focus, () => setLevelHoverState(layer.levelNumber, true));
+		element.addEventListener(DOM_EVENTS.blur, () => setLevelHoverState(layer.levelNumber, false));
 		element.addEventListener(DOM_EVENTS.pointerDown, (event) => {
 			if (event.pointerType === POINTER_TYPE_MOUSE) {
 				event.preventDefault();
@@ -615,9 +639,7 @@
 
 	:global(.terraforms-hypercastle-overview-level-guide-leader) {
 		vector-effect: non-scaling-stroke;
-		transition:
-			stroke-opacity 120ms ease,
-			stroke-width 120ms ease;
+		transition: stroke-opacity 120ms ease;
 	}
 
 	:global(.terraforms-hypercastle-overview-level-guide-label) {
@@ -671,6 +693,5 @@
 				.terraforms-hypercastle-overview-level-guide-leader
 	) {
 		stroke-opacity: 1;
-		stroke-width: 2;
 	}
 </style>

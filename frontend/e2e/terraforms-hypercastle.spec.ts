@@ -9,6 +9,7 @@ import {
 	formatTerraformsHypercastleOverviewLevelGuideLabel,
 	resolveTerraformsHypercastleOverviewFaceClassName,
 	resolveTerraformsHypercastleOverviewLayerElementId,
+	resolveTerraformsHypercastleOverviewLevelGuideElementId,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS,
@@ -63,6 +64,8 @@ type HypercastleOverviewMetrics = {
 	levelGuideLeaderCount: number;
 	levelGuideLabelCount: number;
 	levelGuideLeaderStrokeDashArray: string[];
+	levelGuideLeaderStrokeOpacity: string[];
+	levelGuideLeaderStrokeWidth: string[];
 	levelGuideCutoffXs: string[];
 	levelGuideLabels: string[];
 	level12ReachableFrontPoint: ReachableLayerPoint | null;
@@ -95,6 +98,7 @@ const SVG_ATTRIBUTE_NAMES = {
 	strokeDashArray: 'stroke-dasharray',
 	strokeLinecap: 'stroke-linecap',
 	strokeOpacity: 'stroke-opacity',
+	strokeWidth: 'stroke-width',
 	width: 'width',
 	fillOpacity: 'fill-opacity',
 	x2: 'x2'
@@ -109,9 +113,16 @@ const TAG_NAMES = {
 const DATA_ATTRIBUTE_NAMES = {
 	testId: 'testid'
 } as const;
+const SCROLL_INTO_VIEW_POSITIONS = {
+	center: 'center'
+} as const;
 const TEST_ARTIFACTS = {
 	pageScreenshot: {
 		name: 'terraforms-hypercastle-page.png',
+		contentType: 'image/png'
+	},
+	hoverScreenshot: {
+		name: 'terraforms-hypercastle-hover-page.png',
 		contentType: 'image/png'
 	},
 	probe: {
@@ -137,6 +148,7 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 	outlinePositions: TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_POSITIONS,
 	outlineStyles: TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES,
 	reachabilityLevelNumber: String(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER),
+	scrollIntoViewPosition: SCROLL_INTO_VIEW_POSITIONS.center,
 	faceClasses: {
 		front: resolveTerraformsHypercastleOverviewFaceClassName(
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front
@@ -162,6 +174,11 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 		guideLabel: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLabel),
 		fadedLevelLayer: idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+		),
+		fadedLevelGuide: idSelector(
+			resolveTerraformsHypercastleOverviewLevelGuideElementId(
+				HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
+			)
 		),
 		stripePattern: idSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern),
 		reachableFrontFace: `${idSelector(
@@ -217,7 +234,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await expect(overview.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)).toBeVisible();
 
 		const metrics = await collectHypercastleOverviewMetrics(page);
-		await attachPageScreenshot(page, testInfo);
+		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.pageScreenshot);
 		await attachProbeResult(testInfo, { metrics, browserErrors });
 
 		expect(metrics.svg?.levelCount).toBe(String(HYPERCASTLE_EXPECTED_LEVEL_COUNT));
@@ -283,6 +300,12 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(metrics.levelGuideLeaderStrokeDashArray).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArrayDashed
 		]);
+		expect(metrics.levelGuideLeaderStrokeOpacity).toEqual([
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeOpacityHidden
+		]);
+		expect(metrics.levelGuideLeaderStrokeWidth).toEqual([
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeWidthSingle
+		]);
 		expect(metrics.levelGuideCutoffXs).toHaveLength(1);
 		expect(metrics.levelGuideLabels).toContain(
 			formatTerraformsHypercastleOverviewLevelGuideLabel(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
@@ -292,26 +315,32 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
 
-		await page
-			.locator(
-				[
-					HYPERCASTLE_PROBE_CONTRACT.selectors.guide,
-					attributeEqualsSelector(
-						TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelNumber,
-						String(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
-					)
-				].join('')
-			)
-			.hover();
-		await expect(
-			page.locator(
-				idSelector(
-					resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
-				)
-			)
-		).toHaveClass(
-			new RegExp(`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerHovered}\\b`)
+		const hoveredClassPattern = new RegExp(
+			`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerHovered}\\b`
 		);
+		const guideHoveredClassPattern = new RegExp(
+			`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideHovered}\\b`
+		);
+		const fadedLevelGuide = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.fadedLevelGuide);
+		const fadedLevelLayer = page.locator(
+			idSelector(
+				resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+			)
+		);
+
+		await fadedLevelGuide.hover();
+		await expect(
+			fadedLevelLayer
+		).toHaveClass(hoveredClassPattern);
+		await expect(fadedLevelGuide).toHaveClass(guideHoveredClassPattern);
+
+		await moveMouseToReachableLayerPoint(
+			page,
+			HYPERCASTLE_PROBE_CONTRACT.selectors.reachableFrontFace,
+			HYPERCASTLE_PROBE_CONTRACT.reachabilityLevelNumber
+		);
+		await expect(fadedLevelGuide).toHaveClass(guideHoveredClassPattern);
+		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.hoverScreenshot);
 	});
 });
 
@@ -329,12 +358,16 @@ function captureBrowserErrors(page: Page): { consoleErrors: string[]; pageErrors
 	return { consoleErrors, pageErrors };
 }
 
-async function attachPageScreenshot(page: Page, testInfo: TestInfo): Promise<void> {
-	const screenshotPath = testInfo.outputPath(TEST_ARTIFACTS.pageScreenshot.name);
+async function attachPageScreenshot(
+	page: Page,
+	testInfo: TestInfo,
+	artifact: { name: string; contentType: string }
+): Promise<void> {
+	const screenshotPath = testInfo.outputPath(artifact.name);
 	await page.screenshot({ path: screenshotPath, fullPage: true });
-	await testInfo.attach(TEST_ARTIFACTS.pageScreenshot.name, {
+	await testInfo.attach(artifact.name, {
 		path: screenshotPath,
-		contentType: TEST_ARTIFACTS.pageScreenshot.contentType
+		contentType: artifact.contentType
 	});
 }
 
@@ -367,6 +400,10 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 		): ReachableLayerPoint | null => {
 			const face = document.querySelector(selector);
 			if (!(face instanceof SVGGraphicsElement)) return null;
+			face.scrollIntoView({
+				block: contract.scrollIntoViewPosition,
+				inline: contract.scrollIntoViewPosition
+			});
 			const box = face.getBoundingClientRect();
 			const columns = 9;
 			const rows = 5;
@@ -490,6 +527,14 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 				guideLeaders,
 				contract.svgAttributes.strokeDashArray
 			),
+			levelGuideLeaderStrokeOpacity: uniqueAttribute(
+				guideLeaders,
+				contract.svgAttributes.strokeOpacity
+			),
+			levelGuideLeaderStrokeWidth: uniqueAttribute(
+				guideLeaders,
+				contract.svgAttributes.strokeWidth
+			),
 			levelGuideCutoffXs: Array.from(
 				new Set(
 					guideLeaders.map(
@@ -511,16 +556,48 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 	}, HYPERCASTLE_PROBE_CONTRACT);
 }
 
+async function moveMouseToReachableLayerPoint(
+	page: Page,
+	selector: string,
+	levelNumber: string
+): Promise<void> {
+	const point = await page.evaluate(
+		({ contract, selector, levelNumber }) => {
+			const face = document.querySelector(selector);
+			if (!(face instanceof SVGGraphicsElement)) return null;
+			face.scrollIntoView({
+				block: contract.scrollIntoViewPosition,
+				inline: contract.scrollIntoViewPosition
+			});
+			const box = face.getBoundingClientRect();
+			const columns = 9;
+			const rows = 5;
+			for (let row = 1; row < rows; row += 1) {
+				for (let column = 1; column < columns; column += 1) {
+					const x = box.left + (box.width * column) / columns;
+					const y = box.top + (box.height * row) / rows;
+					const target = document.elementFromPoint(x, y);
+					const layer = target?.closest?.(contract.selectors.layer);
+					if (layer?.getAttribute(contract.dom.attributes.levelNumber) === levelNumber) {
+						return { x, y };
+					}
+				}
+			}
+			return null;
+		},
+		{ contract: HYPERCASTLE_PROBE_CONTRACT, selector, levelNumber }
+	);
+
+	expect(point).not.toBeNull();
+	await page.mouse.move(point!.x, point!.y);
+}
+
 function classSelector(className: string): string {
 	return `.${className}`;
 }
 
 function dataAttributeSelector(attributeName: string, value: string): string {
 	return `[data-${attributeName}="${value}"]`;
-}
-
-function attributeEqualsSelector(attributeName: string, value: string): string {
-	return `[${attributeName}="${value}"]`;
 }
 
 function idSelector(id: string): string {

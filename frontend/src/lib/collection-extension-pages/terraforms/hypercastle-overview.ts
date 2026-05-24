@@ -129,6 +129,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 	testId: 'terraforms-hypercastle-overview',
 	ids: {
 		levelPrefix: 'terraforms-hypercastle-level-',
+		guidePrefix: 'terraforms-hypercastle-level-guide-',
 		outlineGroup: 'terraforms-hypercastle-overview-back-outlines',
 		guideGroup: 'terraforms-hypercastle-overview-level-guides',
 		stripePattern: 'terraforms-hypercastle-overview-level-12-stripes'
@@ -187,7 +188,8 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION = {
 	levelLabelFontSize: 13,
 	levelLabelHitWidth: 68,
 	levelGuideHitHeight: 18,
-	levelLabelLineOpacity: 0.72,
+	levelGuideLineHiddenOpacity: 0,
+	levelGuideLineStrokeWidth: 1,
 	levelLabelTextOpacity: 0.86
 } as const;
 
@@ -201,6 +203,8 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES = {
 	strokeDashArrayDashed: '4 3',
 	strokeDashArrayDotted: '1 4',
 	strokeLinecapRound: 'round',
+	strokeOpacityHidden: '0',
+	strokeWidthSingle: '1',
 	stripePatternFill: `url(#${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern})`
 } as const;
 
@@ -211,7 +215,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS = {
 } as const;
 
 const OVERVIEW_LAYER_HEIGHT_UNITS = 0.72;
-const OVERVIEW_LAYER_GAP_UNITS = OVERVIEW_LAYER_HEIGHT_UNITS * 3;
+const OVERVIEW_LAYER_GAP_UNITS = OVERVIEW_LAYER_HEIGHT_UNITS * 6;
 const OVERVIEW_MIN_LAYER_SIZE_UNITS = 1;
 const OVERVIEW_MAX_LAYER_SIZE_UNITS = 12;
 const OVERVIEW_CANVAS_MARGIN = 24;
@@ -257,6 +261,12 @@ export function resolveTerraformsHypercastleOverviewOutlinePositionClassName(
 
 export function resolveTerraformsHypercastleOverviewLayerElementId(levelNumber: number): string {
 	return `${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.levelPrefix}${levelNumber}`;
+}
+
+export function resolveTerraformsHypercastleOverviewLevelGuideElementId(
+	levelNumber: number
+): string {
+	return `${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.guidePrefix}${levelNumber}`;
 }
 
 export function formatTerraformsHypercastleOverviewLayerLabel(levelNumber: number): string {

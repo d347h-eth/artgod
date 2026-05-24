@@ -90,7 +90,7 @@ yarn dev
 yarn test:bidding:attached
 ```
 
-The deterministic suites use `/e2e-harness/collection` routes, do not require OpenSea, the bidding bot runtime, or a local SQLite dataset, and are the primary coverage for bidding automation and extension-page UI behavior. The Terraforms Hypercastle suite mounts the production collection extension page shell with fixture data, performs an in-browser SVG/interaction probe, and writes a full-page screenshot plus `terraforms-hypercastle-probe.json` under `frontend/test-results/playwright-terraforms-hypercastle/` for visual iteration. The attached smoke suite intentionally stays small because it depends on whatever local app/data is currently running.
+The deterministic suites use `/e2e-harness/collection` routes, do not require OpenSea, the bidding bot runtime, or a local SQLite dataset, and are the primary coverage for bidding automation and extension-page UI behavior. The Terraforms Hypercastle suite mounts the production collection extension page shell with fixture data, performs an in-browser SVG/interaction probe, and writes full-page default/hover screenshots plus `terraforms-hypercastle-probe.json` under `frontend/test-results/playwright-terraforms-hypercastle/` for visual iteration. The attached smoke suite intentionally stays small because it depends on whatever local app/data is currently running.
 
 Ad-hoc web-hosted deploy:
 
