@@ -6,6 +6,7 @@ import {
 	buildTerraformsHypercastleOverviewRenderKey,
 	formatTerraformsHypercastleOverviewLevelGuideLabel,
 	isTerraformsHypercastleOverviewFadedFace,
+	projectTerraformsHypercastleOverviewPointToScreen,
 	resolveTerraformsHypercastleOverviewBounds,
 	resolveTerraformsHypercastleOverviewFaceGeometry,
 	resolveTerraformsHypercastleOverviewLayout,
@@ -38,13 +39,13 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		expect(levelTwenty.sizeUnits).toBe(levelOne.sizeUnits);
 	});
 
-	it('keeps gaps at six times the slab height for the long-scroll overview experiment', () => {
+	it('keeps gaps at triple the slab height for the accepted overview pass', () => {
 		const layers = buildTerraformsHypercastleOverviewLayers();
 		const first = layers[0]!;
 		const second = layers[1]!;
 		const gap = second.baseTopUnits - first.topFaceTopUnits;
 
-		expect(gap).toBeCloseTo(first.layerHeightUnits * 6, 8);
+		expect(gap).toBeCloseTo(first.layerHeightUnits * 3, 8);
 		expect(new Set(layers.map((layer) => layer.layerHeightUnits)).size).toBe(1);
 	});
 
@@ -179,6 +180,15 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		expect(new Set(guides.map((guide) => guide.lineEnd.x)).size).toBe(1);
 		expect(guides.every((guide) => guide.lineStart.x > guide.corner.x)).toBe(true);
 		expect(guides.every((guide) => guide.labelAnchor.x > guide.lineEnd.x)).toBe(true);
+		const levelOneBottomCorner = projectTerraformsHypercastleOverviewPointToScreen(
+			{
+				right: layers[0]!.halfSizeUnits,
+				left: -layers[0]!.halfSizeUnits,
+				top: layers[0]!.baseTopUnits
+			},
+			layout
+		);
+		expect(guides[0]!.corner).toEqual(levelOneBottomCorner);
 		expect(guides[0]!.label).toBe(formatTerraformsHypercastleOverviewLevelGuideLabel(1));
 		expect(guides[19]!.label).toBe(formatTerraformsHypercastleOverviewLevelGuideLabel(20));
 	});

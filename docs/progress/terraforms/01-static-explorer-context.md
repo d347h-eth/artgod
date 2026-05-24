@@ -525,6 +525,8 @@ Acceptance checks:
 
 Goal: make the first visible page content the full Hypercastle: a simplified 20-level isometric structure rendered with `@elchininet/isometric`.
 
+Status: complete. The accepted browser state is the 20-level overview with compact gaps, blue slab faces, hidden-line outlines, hover-only level leaders, and reactive right-side level labels.
+
 Expected work:
 
 - render one isometric layer for each of the 20 contract levels
@@ -553,10 +555,10 @@ Current implementation notes:
 
 - `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` renders the first overview using `@elchininet/isometric`.
 - `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-overview.ts` owns the slab geometry, centered-spine layout, and render key.
-- The overview renders 20 level groups and 60 faces, with filled blue vertical faces, transparent top faces, every level centered on one spine, gaps at six times the slab height for the current long-scroll spacing experiment, full vertical-face hit targets, and selection intentionally implemented as a no-op.
+- The overview renders 20 level groups and 60 faces, with filled blue vertical faces, transparent top faces, every level centered on one spine, gaps at triple the slab height, full vertical-face hit targets, and selection intentionally implemented as a no-op.
 - Hidden-line rendering is explicit: visible rear top outlines stay solid until intersected by higher slab silhouettes, hidden rear top outlines become dotted, and rear bottom outlines are always drawn as dotted blue segments.
 - Level 12 uses faded striped vertical faces and dotted vertical-face outlines to show that it is occluded by the larger Level 13 slab.
-- Right-side level guide labels render one dashed 1px leader from each slab's right corner to a shared cutoff only while the label or slab is hovered, with either hover target applying the same hover treatment to the corresponding slab and label.
+- Right-side level guide labels render one dashed 1px leader from each slab's lower right corner to a shared cutoff only while the label or slab is hovered, with either hover target applying the same hover treatment to the corresponding slab and label.
 - Focused helper tests cover level count, relative area sizing, gap/height ratio, face anchoring, centered layout, and render-key stability.
 - `yarn test:terraforms:hypercastle` runs the fixture-backed Playwright page harness, records an in-browser SVG/interaction probe, and attaches default plus hover screenshots for visual iteration.
 - Browser verification covered desktop and mobile screenshots plus SVG pixel checks for nonblank rendering and centered layer alignment.
@@ -567,7 +569,7 @@ Goal: turn the overview into the entry point for level exploration, then render 
 
 Expected work:
 
-- add minimal level labels or affordances only if they help users choose a level from the overview
+- reuse the accepted overview slabs and reactive level labels as the entry points for level selection
 - make level selection URL-backed and shareable after the overview renderer is accepted
 - preserve the full 20-level overview as the user's way back to structure context
 - render the selected level in more detail than the overview, still without token-level tiles unless a later performance pass proves it is needed
@@ -609,5 +611,4 @@ Market, ownership, token-detail drilldown, minted/exact rarity, and seed-based h
 - Should Terraforms contract arrays be generated from Solidity into TypeScript, manually mirrored with tests, or exposed through a small build-time extraction tool?
 - What exact level groups emerge from shared Zone-set relationships once grouped intentionally instead of only by visual stack position?
 - How much of the original table behavior should remain as a deep-dive panel versus a separate sortable grid inside the new visualization page?
-- What minimum browser-performance threshold should the whole-Hypercastle renderer satisfy before accepting the visualization approach?
 - Later minted/exact rarity mode: should it be served by backend read models over normalized metadata, or can existing `collection_trait_stats` plus targeted joins cover the UI?

@@ -215,7 +215,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS = {
 } as const;
 
 const OVERVIEW_LAYER_HEIGHT_UNITS = 0.72;
-const OVERVIEW_LAYER_GAP_UNITS = OVERVIEW_LAYER_HEIGHT_UNITS * 6;
+const OVERVIEW_LAYER_GAP_UNITS = OVERVIEW_LAYER_HEIGHT_UNITS * 3;
 const OVERVIEW_MIN_LAYER_SIZE_UNITS = 1;
 const OVERVIEW_MAX_LAYER_SIZE_UNITS = 12;
 const OVERVIEW_CANVAS_MARGIN = 24;
@@ -419,7 +419,7 @@ export function buildTerraformsHypercastleOverviewLevelGuides(
 			{
 				right: layer.halfSizeUnits,
 				left: -layer.halfSizeUnits,
-				top: layer.topFaceTopUnits
+				top: layer.baseTopUnits
 			},
 			layout
 		);
