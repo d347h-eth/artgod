@@ -408,7 +408,7 @@ describe("backend http observability", () => {
             url: "/api/cacheless",
             headers: {
                 [ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME]: "ssr-request-2",
-                origin: "http://127.0.0.1:5173",
+                origin: "http://127.0.0.1:42701",
             },
         });
 
@@ -469,6 +469,6 @@ function createObservedApp(
 
 const TEST_SECURITY_CONFIG: BackendSecurityConfig = {
     allowedHosts: ["127.0.0.1", "localhost"],
-    allowedOrigins: ["http://127.0.0.1:5173"],
+    allowedOrigins: ["http://127.0.0.1:42701"],
     csrfCookieSecure: false,
 };

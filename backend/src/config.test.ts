@@ -6,7 +6,7 @@ describe("loadBackendConfig", () => {
     it("normalizes canonical address config to lowercase", () => {
         const config = loadBackendConfig(createBaseEnv());
 
-        expect(config.rpcUrl).toBe("http://127.0.0.1:8545");
+        expect(config.rpcUrl).toBe("http://127.0.0.1:42721");
         expect(config.wethAddress).toBe(
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
         );
@@ -50,7 +50,7 @@ describe("loadBackendConfig", () => {
         expect(config.metrics).toEqual({
             enabled: false,
             host: "0.0.0.0",
-            port: 9480,
+            port: 42740,
         });
         expect(config.apm).toEqual({
             enabled: false,
@@ -60,11 +60,11 @@ describe("loadBackendConfig", () => {
             },
             traces: {
                 enabled: true,
-                otlpHttpUrl: "http://127.0.0.1:4318/v1/traces",
+                otlpHttpUrl: "http://127.0.0.1:42732/v1/traces",
             },
             profiles: {
                 enabled: true,
-                pyroscopeUrl: "http://127.0.0.1:4040",
+                pyroscopeUrl: "http://127.0.0.1:42733",
             },
         });
     });
@@ -79,9 +79,9 @@ describe("loadBackendConfig", () => {
             BACKEND_APM_SERVICE_NAMESPACE: "artgod.backend-public",
             BACKEND_APM_SPAN_PROFILES_ENABLED: "false",
             BACKEND_APM_TRACES_ENABLED: "false",
-            BACKEND_APM_OTLP_HTTP_URL: "http://tempo:4318/v1/traces",
+            BACKEND_APM_OTLP_HTTP_URL: "http://tempo:42732/v1/traces",
             BACKEND_APM_PROFILES_ENABLED: "false",
-            BACKEND_APM_PYROSCOPE_URL: "http://pyroscope:4040",
+            BACKEND_APM_PYROSCOPE_URL: "http://pyroscope:42733",
         });
 
         expect(config.metrics).toEqual({
@@ -97,11 +97,11 @@ describe("loadBackendConfig", () => {
             },
             traces: {
                 enabled: false,
-                otlpHttpUrl: "http://tempo:4318/v1/traces",
+                otlpHttpUrl: "http://tempo:42732/v1/traces",
             },
             profiles: {
                 enabled: false,
-                pyroscopeUrl: "http://pyroscope:4040",
+                pyroscopeUrl: "http://pyroscope:42733",
             },
         });
     });
@@ -109,15 +109,15 @@ describe("loadBackendConfig", () => {
     it("uses composition-level observability endpoints when backend-specific endpoints are omitted", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),
-            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:4318/v1/traces",
-            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:4040",
+            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:42732/v1/traces",
+            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:42733",
         });
 
         expect(config.apm.traces.otlpHttpUrl).toBe(
-            "http://tempo:4318/v1/traces",
+            "http://tempo:42732/v1/traces",
         );
         expect(config.apm.profiles.pyroscopeUrl).toBe(
-            "http://pyroscope:4040",
+            "http://pyroscope:42733",
         );
     });
 
@@ -215,11 +215,11 @@ describe("loadBackendConfig", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),
             BACKEND_ALLOWED_ORIGINS:
-                "http://127.0.0.1:3000,tauri://localhost,http://tauri.localhost",
+                "http://127.0.0.1:42710,tauri://localhost,http://tauri.localhost",
         });
 
         expect(config.security.allowedOrigins).toEqual([
-            "http://127.0.0.1:3000",
+            "http://127.0.0.1:42710",
             "tauri://localhost",
             "http://tauri.localhost",
         ]);
@@ -238,16 +238,16 @@ describe("loadBackendConfig", () => {
 function createBaseEnv(): Record<string, string> {
     return {
         BACKEND_HOST: "127.0.0.1",
-        BACKEND_PORT: "3000",
+        BACKEND_PORT: "42710",
         CHAIN_ID: "1",
         ARTGOD_DB_PATH: "database/sqlite/main/db",
-        RPC_URL: "http://127.0.0.1:8545",
+        RPC_URL: "http://127.0.0.1:42721",
         WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-        NATS_URL: "nats://127.0.0.1:4222",
+        NATS_URL: "nats://127.0.0.1:42720",
         NATS_STREAM_PREFIX: "artgod",
         BACKEND_ALLOWED_HOSTS: "127.0.0.1,localhost,::1",
         BACKEND_ALLOWED_ORIGINS:
-            "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173",
+            "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701",
         BACKEND_CSRF_COOKIE_SECURE: "false",
     };
 }

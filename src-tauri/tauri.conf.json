@@ -5,7 +5,7 @@
     "identifier": "network.artgod.desktop",
     "build": {
         "frontendDist": "../frontend/dist",
-        "devUrl": "http://localhost:5173",
+        "devUrl": "http://localhost:42701",
         "beforeDevCommand": "yarn build:desktop-sidecars --profile debug && node ./scripts/build/dev-frontend-target.mjs admin",
         "beforeBuildCommand": "yarn build:admin && yarn build:userland && yarn build:runtime && yarn build:desktop-runtime-resources && yarn build:desktop-sidecars --profile release"
     },

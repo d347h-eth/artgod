@@ -64,7 +64,7 @@ describe("NatsTradingJobCommandSignalPublisher", () => {
             "./nats-trading-job-command-signals.js"
         );
         const publisher = new NatsTradingJobCommandSignalPublisher(
-            "nats://127.0.0.1:4222",
+            "nats://127.0.0.1:42720",
             "artgod",
         );
 
@@ -79,7 +79,7 @@ describe("NatsTradingJobCommandSignalPublisher", () => {
             "./nats-trading-job-command-signals.js"
         );
         const publisher = new NatsTradingJobCommandSignalPublisher(
-            "nats://127.0.0.1:4222",
+            "nats://127.0.0.1:42720",
             "artgod",
         );
 
@@ -98,7 +98,7 @@ describe("NatsTradingJobCommandSignalPublisher", () => {
             "./nats-trading-job-command-signals.js"
         );
         const publisher = new NatsTradingJobCommandSignalPublisher(
-            "nats://127.0.0.1:4222",
+            "nats://127.0.0.1:42720",
             "artgod",
         );
 
@@ -141,7 +141,7 @@ describe("NatsTradingJobCommandSignalPublisher", () => {
             "./nats-trading-job-command-signals.js"
         );
         const publisher = new NatsTradingJobCommandSignalPublisher(
-            "nats://127.0.0.1:4222",
+            "nats://127.0.0.1:42720",
             "artgod",
         );
 

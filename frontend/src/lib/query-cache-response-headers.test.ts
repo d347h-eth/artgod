@@ -53,7 +53,7 @@ describe('query cache response headers', () => {
 	it('sanitizes request targets without retaining query values or origins', () => {
 		expect(
 			sanitizeHttpRequestTarget(
-				'http://127.0.0.1:3000/api/ethereum/terraforms?owner=0xabc&cursor=secret&0xsecret=value'
+				'http://127.0.0.1:42710/api/ethereum/terraforms?owner=0xabc&cursor=secret&0xsecret=value'
 			)
 		).toEqual({
 			path: '/api/ethereum/terraforms',

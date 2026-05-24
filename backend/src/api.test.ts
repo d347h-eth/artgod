@@ -52,10 +52,10 @@ const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const API_SECURITY_CONFIG: BackendSecurityConfig = {
     allowedHosts: ["127.0.0.1", "localhost", "::1", "artgod.network"],
     allowedOrigins: [
-        "http://127.0.0.1:3000",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
+        "http://127.0.0.1:42710",
+        "http://localhost:42710",
+        "http://127.0.0.1:42701",
+        "http://localhost:42701",
         "http://tauri.localhost",
         "tauri://localhost",
         "https://artgod.network",
@@ -764,12 +764,12 @@ beforeAll(async () => {
     );
     cachedApp = backendAppModule.createBackendApp({
         host: "127.0.0.1",
-        port: 3000,
+        port: 42710,
         defaultChainId: 1,
         dbPath,
-        rpcUrl: "http://127.0.0.1:8545",
+        rpcUrl: "http://127.0.0.1:42721",
         wethAddress: WETH_ADDRESS,
-        natsUrl: "nats://127.0.0.1:4222",
+        natsUrl: "nats://127.0.0.1:42720",
         natsStreamPrefix: "artgod",
         userlandUiDistDir: null,
         security: API_SECURITY_CONFIG,
@@ -802,7 +802,7 @@ beforeAll(async () => {
         metrics: {
             enabled: false,
             host: "127.0.0.1",
-            port: 9480,
+            port: 42740,
         },
         apm: {
             enabled: false,
@@ -812,11 +812,11 @@ beforeAll(async () => {
             },
             traces: {
                 enabled: true,
-                otlpHttpUrl: "http://127.0.0.1:4318/v1/traces",
+                otlpHttpUrl: "http://127.0.0.1:42732/v1/traces",
             },
             profiles: {
                 enabled: true,
-                pyroscopeUrl: "http://127.0.0.1:4040",
+                pyroscopeUrl: "http://127.0.0.1:42733",
             },
         },
         integrations: {
@@ -911,7 +911,7 @@ describe("backend api routes", () => {
 
     it("marks cached public blockspace responses with query cache headers", async () => {
         const state = await resolveCached("GET", "/api/ethereum/blockspace", undefined, {
-            origin: "http://127.0.0.1:5173",
+            origin: "http://127.0.0.1:42701",
         });
         expect(state.statusCode).toBe(200);
         expect(
@@ -3592,8 +3592,8 @@ describe("backend api routes", () => {
 
     it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -3622,8 +3622,8 @@ describe("backend api routes", () => {
                 },
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
             },
@@ -3709,8 +3709,8 @@ describe("backend api routes", () => {
                 },
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
             },
@@ -3720,8 +3720,8 @@ describe("backend api routes", () => {
 
     it("updates trait summary templates and applies them to token cards and activity includes", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -3750,8 +3750,8 @@ describe("backend api routes", () => {
                 },
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
             },
@@ -3812,8 +3812,8 @@ describe("backend api routes", () => {
                 },
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
             },
@@ -3847,8 +3847,8 @@ describe("backend api routes", () => {
 
     it("creates and reads bootstrap run via secured endpoints", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         expect(csrf.statusCode).toBe(200);
         const token = csrf.payload.token as string;
@@ -3867,8 +3867,8 @@ describe("backend api routes", () => {
                 supportsEnumerable: true,
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -3882,8 +3882,8 @@ describe("backend api routes", () => {
             "/api/ethereum/terraforms/bootstrap",
             undefined,
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:3000",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42710",
             },
         );
         expect(status.statusCode).toBe(200);
@@ -3927,7 +3927,7 @@ describe("backend api routes", () => {
             "/api/chains/default",
             undefined,
             {
-                host: "127.0.0.1:3000",
+                host: "127.0.0.1:42710",
                 origin: "tauri://localhost",
             },
         );
@@ -3944,8 +3944,8 @@ describe("backend api routes", () => {
 
     it("persists embedded extension key when bootstrap scope matches", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -3961,8 +3961,8 @@ describe("backend api routes", () => {
                 supportsEnumerable: true,
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -4138,8 +4138,8 @@ describe("backend api routes", () => {
         insertBootstrapMetadataTask(runId, "101", "failed_terminal");
 
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -4149,8 +4149,8 @@ describe("backend api routes", () => {
             `/api/ethereum/bootstrap-runs/${runId}/retry-failed`,
             {},
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -4171,8 +4171,8 @@ describe("backend api routes", () => {
 
     it("removes legacy collection-scoped bootstrap mutation endpoints", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -4182,8 +4182,8 @@ describe("backend api routes", () => {
             "/api/ethereum/terraforms/bootstrap/retry-failed",
             {},
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -4202,8 +4202,8 @@ describe("backend api routes", () => {
                 supportsEnumerable: true,
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -4224,8 +4224,8 @@ describe("backend api routes", () => {
                 supportsEnumerable: true,
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 "content-type": "application/json",
             },
         );
@@ -4368,8 +4368,8 @@ async function resolveWith(
 
 async function issueAdminCsrf(): Promise<Record<string, string>> {
     const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-        host: "127.0.0.1:3000",
-        origin: "http://127.0.0.1:5173",
+        host: "127.0.0.1:42710",
+        origin: "http://127.0.0.1:42701",
     });
     if (csrf.statusCode !== 200) {
         throw new Error(
@@ -4378,8 +4378,8 @@ async function issueAdminCsrf(): Promise<Record<string, string>> {
     }
 
     return {
-        host: "127.0.0.1:3000",
-        origin: "http://127.0.0.1:5173",
+        host: "127.0.0.1:42710",
+        origin: "http://127.0.0.1:42701",
         cookie: csrf.headers["set-cookie"] as string,
         "x-artgod-csrf": csrf.payload.token as string,
     };

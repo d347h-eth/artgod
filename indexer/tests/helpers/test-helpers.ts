@@ -19,14 +19,14 @@ export type NatsHandle = {
 export async function startNats(natsPort: number): Promise<NatsHandle> {
     try {
         const containerBuilder = new GenericContainer("nats:2.10.17")
-            .withCommand(["-js"])
-            .withExposedPorts({ container: 4222, host: natsPort })
+            .withCommand(["-js", "-p", "42720"])
+            .withExposedPorts({ container: 42720, host: natsPort })
             .withWaitStrategy(Wait.forLogMessage("Server is ready"))
             .withStartupTimeout(5000);
 
         const container = await containerBuilder.start();
 
-        const url = `nats://${container.getHost()}:${container.getMappedPort(4222)}`;
+        const url = `nats://${container.getHost()}:${container.getMappedPort(42720)}`;
         return {
             url,
             stop: async () => {

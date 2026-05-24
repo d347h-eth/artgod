@@ -200,7 +200,10 @@ mod tests {
             model.defaults.get("ARTGOD_DB_PATH"),
             Some(&"sqlite/main/db".to_owned())
         );
-        assert_eq!(model.defaults.get("BACKEND_PORT"), Some(&"3000".to_owned()));
+        assert_eq!(
+            model.defaults.get("BACKEND_PORT"),
+            Some(&"42710".to_owned())
+        );
     }
 
     #[test]

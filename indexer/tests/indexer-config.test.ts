@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config/index.js";
 
 const REQUIRED_ENV = {
     ARTGOD_DB_PATH: "database/sqlite/test/db",
-    RPC_URL: "http://127.0.0.1:8545",
+    RPC_URL: "http://127.0.0.1:42721",
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     SEAPORT_CONDUIT_CONTROLLER: "0x00000000f9490004c11cef243f5400493c00ad63",
 };
@@ -67,19 +67,19 @@ describe("Indexer config", () => {
             ...REQUIRED_ENV,
             INDEXER_METRICS_ENABLED: "true",
             INDEXER_METRICS_HOST: "127.0.0.1",
-            INDEXER_METRICS_PORT_SYNC_WORKER: "9565",
+            INDEXER_METRICS_PORT_SYNC_WORKER: "42790",
             INDEXER_APM_ENABLED: "true",
             INDEXER_APM_SERVICE_NAMESPACE: "artgod.indexer-custom",
             INDEXER_APM_SPAN_PROFILES_ENABLED: "false",
             INDEXER_APM_TRACES_ENABLED: "false",
-            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:4318/v1/traces",
+            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:42732/v1/traces",
             INDEXER_APM_PROFILES_ENABLED: "false",
-            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:4040",
+            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:42733",
         });
 
         expect(config.metrics.enabled).toBe(true);
         expect(config.metrics.host).toBe("127.0.0.1");
-        expect(config.metrics.ports.syncWorker).toBe(9565);
+        expect(config.metrics.ports.syncWorker).toBe(42790);
         expect(config.apm).toMatchObject({
             enabled: true,
             serviceNamespace: "artgod.indexer-custom",
@@ -88,11 +88,11 @@ describe("Indexer config", () => {
             },
             traces: {
                 enabled: false,
-                otlpHttpUrl: "http://tempo:4318/v1/traces",
+                otlpHttpUrl: "http://tempo:42732/v1/traces",
             },
             profiles: {
                 enabled: false,
-                pyroscopeUrl: "http://pyroscope:4040",
+                pyroscopeUrl: "http://pyroscope:42733",
             },
         });
     });

@@ -58,7 +58,7 @@ default = "127.0.0.1"
 key = "BACKEND_PORT"
 group = "backend"
 label = "backend port"
-default = "3000"
+default = "42710"
 
 [[settings]]
 key = "BACKEND_ALLOWED_HOSTS"
@@ -70,7 +70,7 @@ default = "127.0.0.1,localhost,::1"
 key = "BACKEND_ALLOWED_ORIGINS"
 group = "backend"
 label = "backend allowed origins"
-default = "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173,http://tauri.localhost,tauri://localhost"
+default = "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701,http://tauri.localhost,tauri://localhost"
 
 [[settings]]
 key = "BACKEND_CSRF_COOKIE_SECURE"
@@ -147,7 +147,7 @@ default = "0.0.0.0"
 key = "BACKEND_METRICS_PORT"
 group = "backend-observability"
 label = "backend metrics port"
-default = "9480"
+default = "42740"
 
 [[settings]]
 key = "BACKEND_APM_ENABLED"
@@ -187,7 +187,7 @@ input = "checkbox"
 key = "PUBLIC_BACKEND_ORIGIN"
 group = "backend"
 label = "public backend origin"
-default = "http://127.0.0.1:3000"
+default = "http://127.0.0.1:42710"
 
 [[settings]]
 key = "CHAIN_ID"
@@ -199,7 +199,7 @@ default = "1"
 key = "RPC_URL"
 group = "chain-rpc"
 label = "rpc url"
-default = "http://127.0.0.1:8545"
+default = "http://127.0.0.1:42721"
 view = "basic"
 
 [[settings]]
@@ -279,7 +279,7 @@ input = "checkbox"
 key = "NATS_URL"
 group = "queue"
 label = "nats url"
-default = "nats://127.0.0.1:4222"
+default = "nats://127.0.0.1:42720"
 
 [[settings]]
 key = "NATS_STREAM_PREFIX"
@@ -291,13 +291,13 @@ default = "artgod"
 key = "OBSERVABILITY_OTLP_HTTP_URL"
 group = "indexer-observability"
 label = "observability otlp http url"
-default = "http://127.0.0.1:4318/v1/traces"
+default = "http://127.0.0.1:42732/v1/traces"
 
 [[settings]]
 key = "OBSERVABILITY_PYROSCOPE_URL"
 group = "indexer-observability"
 label = "observability pyroscope url"
-default = "http://127.0.0.1:4040"
+default = "http://127.0.0.1:42733"
 
 [[settings]]
 key = "INDEXER_APM_ENABLED"
@@ -350,73 +350,73 @@ default = "0.0.0.0"
 key = "INDEXER_METRICS_PORT_SCHEDULER_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port scheduler worker"
-default = "9464"
+default = "42741"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_SYNC_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port sync worker"
-default = "9465"
+default = "42742"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_REORG_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port reorg worker"
-default = "9466"
+default = "42743"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_DOMAIN_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port domain worker"
-default = "9467"
+default = "42744"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port offchain ingest worker"
-default = "9468"
+default = "42745"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port opensea stream worker"
-default = "9469"
+default = "42746"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port bootstrap worker"
-default = "9470"
+default = "42747"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port dead letter worker"
-default = "9471"
+default = "42748"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port opensea bootstrap worker"
-default = "9472"
+default = "42749"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port opensea reconcile worker"
-default = "9473"
+default = "42750"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port opensea reconcile scheduler worker"
-default = "9474"
+default = "42751"
 
 [[settings]]
 key = "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER"
 group = "indexer-observability"
 label = "indexer metrics port collection extension worker"
-default = "9475"
+default = "42752"
 
 [[settings]]
 key = "REORG_DEPTH"

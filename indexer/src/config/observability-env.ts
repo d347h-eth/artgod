@@ -2,8 +2,8 @@ import { parseBoolean, parseNumber } from "@artgod/shared/utils/env";
 
 export const DEFAULT_INDEXER_APM_SERVICE_NAMESPACE = "artgod.indexer";
 export const DEFAULT_OBSERVABILITY_OTLP_HTTP_URL =
-    "http://127.0.0.1:4318/v1/traces";
-export const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = "http://127.0.0.1:4040";
+    "http://127.0.0.1:42732/v1/traces";
+export const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = "http://127.0.0.1:42733";
 
 // Canonical APM config shared by all indexer runtimes.
 export type IndexerApmConfig = {
@@ -120,62 +120,62 @@ export function parseIndexerMetricsConfig(
             schedulerWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_SCHEDULER_WORKER,
                 "INDEXER_METRICS_PORT_SCHEDULER_WORKER",
-                9464,
+                42741,
             ),
             syncWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_SYNC_WORKER,
                 "INDEXER_METRICS_PORT_SYNC_WORKER",
-                9465,
+                42742,
             ),
             reorgWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_REORG_WORKER,
                 "INDEXER_METRICS_PORT_REORG_WORKER",
-                9466,
+                42743,
             ),
             domainWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_DOMAIN_WORKER,
                 "INDEXER_METRICS_PORT_DOMAIN_WORKER",
-                9467,
+                42744,
             ),
             offchainIngestWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER,
                 "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER",
-                9468,
+                42745,
             ),
             openseaStreamWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER",
-                9469,
+                42746,
             ),
             openseaBootstrapWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-                9472,
+                42749,
             ),
             openseaReconcileWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-                9473,
+                42750,
             ),
             openseaReconcileSchedulerWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-                9474,
+                42751,
             ),
             bootstrapWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_BOOTSTRAP_WORKER,
                 "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER",
-                9470,
+                42747,
             ),
             collectionExtensionWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER,
                 "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER",
-                9475,
+                42752,
             ),
             deadLetterWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_DEAD_LETTER_WORKER,
                 "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER",
-                9471,
+                42748,
             ),
         },
     };
@@ -191,22 +191,22 @@ export function parseOpenSeaMetricsConfig(
             openseaStreamWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER",
-                9469,
+                42746,
             ),
             openseaBootstrapWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-                9472,
+                42749,
             ),
             openseaReconcileWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-                9473,
+                42750,
             ),
             openseaReconcileSchedulerWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-                9474,
+                42751,
             ),
         },
     };

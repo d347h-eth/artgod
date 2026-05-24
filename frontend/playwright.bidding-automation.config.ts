@@ -1,6 +1,6 @@
 import { defineConfig, devices } from 'playwright/test';
 
-const baseURL = process.env.ARTGOD_E2E_BASE_URL?.trim() || 'http://127.0.0.1:5177';
+const baseURL = process.env.ARTGOD_E2E_BASE_URL?.trim() || 'http://127.0.0.1:42702';
 const readinessURL = `${baseURL}/e2e-harness/collection`;
 const persistSuccessArtifacts = process.env.ARTGOD_E2E_PERSIST_SUCCESS_ARTIFACTS === '1';
 

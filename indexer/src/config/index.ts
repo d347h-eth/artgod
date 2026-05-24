@@ -169,7 +169,7 @@ export function loadConfig(
             wethAddress: parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS"),
         },
         queue: {
-            natsUrl: env.NATS_URL ?? "nats://127.0.0.1:4222",
+            natsUrl: env.NATS_URL ?? "nats://127.0.0.1:42720",
             streamPrefix: env.NATS_STREAM_PREFIX ?? "artgod",
         },
         sync: {

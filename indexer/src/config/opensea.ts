@@ -62,7 +62,7 @@ export function loadOpenSeaConfig(
         dbPath,
         chainId,
         queue: {
-            natsUrl: env.NATS_URL ?? "nats://127.0.0.1:4222",
+            natsUrl: env.NATS_URL ?? "nats://127.0.0.1:42720",
             streamPrefix: env.NATS_STREAM_PREFIX ?? "artgod",
         },
         opensea: {

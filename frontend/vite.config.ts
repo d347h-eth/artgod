@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
 	const publicChainRef = resolvedEnv.PUBLIC_APP_CHAIN_REF?.trim() || '';
 	const publicCollectionRef = resolvedEnv.PUBLIC_APP_COLLECTION_REF?.trim() || '';
 	const devBackendOrigin =
-		internalBackendOrigin || publicBackendOrigin || 'http://127.0.0.1:3000';
+		internalBackendOrigin || publicBackendOrigin || 'http://127.0.0.1:42710';
 
 	return {
 		plugins: [tailwindcss(), sveltekit()],

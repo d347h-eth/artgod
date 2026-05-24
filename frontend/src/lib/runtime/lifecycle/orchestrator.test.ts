@@ -10,8 +10,8 @@ function makeStatus(state: string, overrides: Partial<RuntimeStatus> = {}): Runt
 		restartCount: 0,
 		lastError: null,
 		runningProcesses: [],
-		backendHttpBaseUrl: 'http://127.0.0.1:3000',
-		natsUrl: 'nats://127.0.0.1:4222',
+		backendHttpBaseUrl: 'http://127.0.0.1:42710',
+		natsUrl: 'nats://127.0.0.1:42720',
 		configPath: '/tmp/.env',
 		...overrides
 	};

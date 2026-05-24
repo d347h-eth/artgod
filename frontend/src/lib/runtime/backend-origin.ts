@@ -18,7 +18,8 @@ type TauriWindow = Window & {
 };
 
 const DEFAULT_BACKEND_ORIGIN =
-	(import.meta.env.PUBLIC_BACKEND_ORIGIN as string | undefined)?.trim() || 'http://127.0.0.1:3000';
+	(import.meta.env.PUBLIC_BACKEND_ORIGIN as string | undefined)?.trim() ||
+	'http://127.0.0.1:42710';
 
 let cachedOrigin: string | null = null;
 let inflightOrigin: Promise<string> | null = null;

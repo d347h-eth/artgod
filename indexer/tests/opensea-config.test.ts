@@ -18,21 +18,21 @@ describe("OpenSea config", () => {
             ARTGOD_DB_PATH: "database/sqlite/test/db",
             OPENSEA_API_KEY: "test-opensea-api-key",
             INDEXER_APM_ENABLED: "true",
-            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:4318/v1/traces",
-            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:4040",
+            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:42732/v1/traces",
+            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:42733",
             INDEXER_METRICS_ENABLED: "true",
-            INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER: "9573",
+            INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER: "42791",
         });
 
         expect(config.apm.enabled).toBe(true);
         expect(config.apm.traces.otlpHttpUrl).toBe(
-            "http://tempo:4318/v1/traces",
+            "http://tempo:42732/v1/traces",
         );
         expect(config.apm.profiles.pyroscopeUrl).toBe(
-            "http://pyroscope:4040",
+            "http://pyroscope:42733",
         );
         expect(config.metrics.enabled).toBe(true);
-        expect(config.metrics.ports.reconcileWorker).toBe(9573);
+        expect(config.metrics.ports.reconcileWorker).toBe(42791);
     });
 
     it("fails when an OpenSea worker starts without enabled integration", () => {

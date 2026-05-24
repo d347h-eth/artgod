@@ -22,10 +22,10 @@ dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 const DEFAULT_BACKEND_HOST = "127.0.0.1";
 const DEFAULT_ALLOWED_HOSTS = ["127.0.0.1", "localhost", "::1"];
 const DEFAULT_ALLOWED_ORIGINS = [
-    "http://127.0.0.1:3000",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
+    "http://127.0.0.1:42710",
+    "http://localhost:42710",
+    "http://127.0.0.1:42701",
+    "http://localhost:42701",
     "http://tauri.localhost",
     "tauri://localhost",
 ];
@@ -38,10 +38,10 @@ const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS = 10 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS = 20 * 60 * 1000;
 const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY = 3;
 const DEFAULT_BACKEND_METRICS_HOST = "0.0.0.0";
-const DEFAULT_BACKEND_METRICS_PORT = 9480;
+const DEFAULT_BACKEND_METRICS_PORT = 42740;
 const DEFAULT_BACKEND_APM_SERVICE_NAMESPACE = "artgod.backend";
-const DEFAULT_OBSERVABILITY_OTLP_HTTP_URL = "http://127.0.0.1:4318/v1/traces";
-const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = "http://127.0.0.1:4040";
+const DEFAULT_OBSERVABILITY_OTLP_HTTP_URL = "http://127.0.0.1:42732/v1/traces";
+const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = "http://127.0.0.1:42733";
 
 export type BackendSecurityConfig = {
     allowedHosts: string[];
@@ -139,7 +139,7 @@ export function loadBackendConfig(
     env: Record<string, string | undefined> = process.env,
 ): BackendConfig {
     const host = parseHost(env.BACKEND_HOST);
-    const port = parsePositiveInteger(env.BACKEND_PORT, "BACKEND_PORT", 3000);
+    const port = parsePositiveInteger(env.BACKEND_PORT, "BACKEND_PORT", 42710);
     const defaultChainId = parsePositiveInteger(env.CHAIN_ID, "CHAIN_ID", 1);
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const rpcUrl = parseRequiredString(env.RPC_URL, "RPC_URL");
