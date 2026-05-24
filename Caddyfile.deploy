@@ -2,7 +2,7 @@ terraforms.artgod.network {
 	encode zstd gzip
 
 	@backend path /api/* /health/*
-	reverse_proxy @backend backend:3000
+	reverse_proxy @backend backend:42710
 
-	reverse_proxy frontend-web:4173
+	reverse_proxy frontend-web:42700
 }

@@ -1,12 +1,12 @@
 server:
-    http_listen_port: 3200
+    http_listen_port: 42731
 
 distributor:
     receivers:
         otlp:
             protocols:
                 http:
-                    endpoint: 0.0.0.0:4318
+                    endpoint: 0.0.0.0:42732
 
 ingester:
     max_block_duration: 5m

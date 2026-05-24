@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOKI_URL="${ARTGOD_LOKI_URL:-http://127.0.0.1:3100}"
+LOKI_URL="${ARTGOD_LOKI_URL:-http://127.0.0.1:42730}"
 LOOKBACK="${ARTGOD_OBSERVABILITY_SMOKE_LOOKBACK:-15 minutes ago}"
 START_NS="$(date -u -d "$LOOKBACK" +%s%N)"
 

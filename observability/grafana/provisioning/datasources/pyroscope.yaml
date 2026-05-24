@@ -5,6 +5,6 @@ datasources:
       uid: pyroscope
       type: grafana-pyroscope-datasource
       access: proxy
-      url: http://127.0.0.1:4040
+      url: http://127.0.0.1:42733
       isDefault: false
       editable: true
