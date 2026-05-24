@@ -305,7 +305,7 @@ Desktop-first default path behavior:
 
 Important:
 
-- if this file was generated before new desktop runtime keys were introduced, desktop startup normalizes missing settings from manifest defaults before rendering `.env`
+- if `settings.json` is missing a current manifest key, `.env` rendering uses the manifest default for that key without rewriting the settings file during startup
 - desktop runtime sets `ARTGOD_ENV_FILE` for child processes, so backend/indexer read this desktop config path explicitly
 - runtime artifact paths are resolved from bundled app resources, not from a workspace root path
 

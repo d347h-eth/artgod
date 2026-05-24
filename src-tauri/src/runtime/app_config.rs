@@ -207,11 +207,7 @@ pub fn load_or_materialize_process_env(
     let paths = ensure_desktop_config_paths(app)?;
     if let Some(document) = read_settings_document_if_exists(&paths)? {
         let model = load_app_config_manifest()?;
-        let normalized = normalize_settings_document(&document, &model);
-        if normalized.values != document.values {
-            write_settings_document(&paths, &normalized)?;
-        }
-        render_env_file(&paths, &normalized, &model)?;
+        render_env_file(&paths, &document, &model)?;
         return parse_env_file(&paths.env_file_path).map(Some);
     }
     Ok(None)
@@ -295,23 +291,6 @@ fn merge_known_values(
         if let Some(value) = input.get(key) {
             target.insert(key.clone(), value.clone());
         }
-    }
-}
-
-fn normalize_settings_document(
-    document: &AppSettingsDocument,
-    model: &AppConfigManifestModel,
-) -> AppSettingsDocument {
-    let mut values = model.defaults.clone();
-    merge_known_values(&mut values, &document.values, &model.ordered_keys);
-    AppSettingsDocument {
-        version: document.version,
-        created_at: document.created_at.clone(),
-        updated_at: document.updated_at.clone(),
-        desktop: DesktopSettings {
-            auto_launch_on_startup: document.desktop.auto_launch_on_startup,
-        },
-        values,
     }
 }
 
@@ -664,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_settings_document_adds_new_manifest_defaults() {
+    fn rendered_env_uses_manifest_default_for_missing_document_value() {
         let model = load_app_config_manifest().expect("load settings manifest");
         let document = AppSettingsDocument {
             version: SETTINGS_VERSION,
@@ -675,17 +654,18 @@ mod tests {
             },
             values: HashMap::from([("ARTGOD_DB_PATH".to_owned(), "custom.sqlite".to_owned())]),
         };
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = DesktopConfigPaths {
+            app_data_dir: temp.path().to_path_buf(),
+            logs_dir: temp.path().join("logs"),
+            env_file_path: temp.path().join(".env"),
+            settings_file_path: temp.path().join("settings.json"),
+        };
 
-        let normalized = normalize_settings_document(&document, &model);
+        render_env_file(&paths, &document, &model).expect("render env");
+        let rendered = fs::read_to_string(paths.env_file_path).expect("read env");
 
-        assert_eq!(
-            normalized.values.get("ARTGOD_DB_PATH"),
-            Some(&"custom.sqlite".to_owned())
-        );
-        assert_eq!(
-            normalized.values.get("BIDDING_COMMAND_POLL_MS"),
-            Some(&"1000".to_owned())
-        );
-        assert_eq!(normalized.values.len(), model.ordered_keys.len());
+        assert!(rendered.contains("ARTGOD_DB_PATH=custom.sqlite\n"));
+        assert!(rendered.contains("BIDDING_COMMAND_POLL_MS=1000\n"));
     }
 }
