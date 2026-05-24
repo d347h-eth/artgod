@@ -6,6 +6,7 @@ import {
 	TERRAFORMS_HYPERCASTLE_LEVELS
 } from '@artgod/shared/extensions/terraforms';
 import {
+	formatTerraformsHypercastleOverviewLevelGuideLabel,
 	resolveTerraformsHypercastleOverviewFaceClassName,
 	resolveTerraformsHypercastleOverviewLayerElementId,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,
@@ -50,10 +51,20 @@ type HypercastleOverviewMetrics = {
 	outlineStrokeColor: string[];
 	outlinePointerEvents: string[];
 	outlineSolidCount: number;
-	outlineDashedCount: number;
+	outlineDottedCount: number;
 	topBackSolidCount: number;
-	topBackDashedCount: number;
-	bottomBackDashedCount: number;
+	topBackDottedCount: number;
+	bottomBackDottedCount: number;
+	level12VerticalFillColor: string[];
+	level12VerticalStrokeDashArray: string[];
+	level12VerticalStrokeLinecap: string[];
+	stripePatternFillOpacity: string | null;
+	levelGuideCount: number;
+	levelGuideLeaderCount: number;
+	levelGuideLabelCount: number;
+	levelGuideLeaderStrokeDashArray: string[];
+	levelGuideCutoffXs: string[];
+	levelGuideLabels: string[];
 	level12ReachableFrontPoint: ReachableLayerPoint | null;
 	level12ReachableSidePoint: ReachableLayerPoint | null;
 };
@@ -82,15 +93,18 @@ const SVG_ATTRIBUTE_NAMES = {
 	height: 'height',
 	stroke: 'stroke',
 	strokeDashArray: 'stroke-dasharray',
+	strokeLinecap: 'stroke-linecap',
 	strokeOpacity: 'stroke-opacity',
 	width: 'width',
-	fillOpacity: 'fill-opacity'
+	fillOpacity: 'fill-opacity',
+	x2: 'x2'
 } as const;
 const CSS_PROPERTY_NAMES = {
 	pointerEvents: 'pointer-events'
 } as const;
 const TAG_NAMES = {
-	svg: 'svg'
+	svg: 'svg',
+	rect: 'rect'
 } as const;
 const DATA_ATTRIBUTE_NAMES = {
 	testId: 'testid'
@@ -111,7 +125,8 @@ const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 3;
 const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 2;
 const HYPERCASTLE_EXPECTED_BOTTOM_BACK_OUTLINE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 2;
 const HYPERCASTLE_MIN_OUTLINE_SEGMENT_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 4;
-const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER = 12;
+const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER =
+	TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelNumber;
 const HYPERCASTLE_PATH = `/e2e-harness/collection/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
 const HYPERCASTLE_PROBE_CONTRACT = {
 	browserValues: TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,
@@ -142,6 +157,13 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 		layer: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layer),
 		face: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.face),
 		outline: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.outlineSegment),
+		guide: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guide),
+		guideLeader: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLeader),
+		guideLabel: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLabel),
+		fadedLevelLayer: idSelector(
+			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+		),
+		stripePattern: idSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern),
 		reachableFrontFace: `${idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		)} ${classSelector(
@@ -157,6 +179,7 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			)
 		)}`
 	},
+	svgTags: TAG_NAMES,
 	svgAttributes: SVG_ATTRIBUTE_NAMES
 } as const;
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
@@ -202,7 +225,10 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(metrics.faceCount).toBe(HYPERCASTLE_EXPECTED_FACE_COUNT);
 		expect(metrics.verticalFaceCount).toBe(HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT);
 		expect(metrics.topFaceCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
-		expect(metrics.verticalFillColor).toEqual([TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color]);
+		expect(metrics.verticalFillColor).toEqual([
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color,
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.stripePatternFill
+		]);
 		expect(metrics.verticalStrokeColor).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color
 		]);
@@ -216,7 +242,8 @@ test.describe('Terraforms Hypercastle overview', () => {
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillTransparent
 		]);
 		expect(metrics.verticalStrokeDashArray).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArraySolid
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArraySolid,
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArrayDotted
 		]);
 		expect(metrics.verticalPointerEvents).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.pointerEventsAll
@@ -234,14 +261,57 @@ test.describe('Terraforms Hypercastle overview', () => {
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.pointerEventsNone
 		]);
 		expect(metrics.outlineSolidCount).toBeGreaterThan(0);
-		expect(metrics.outlineDashedCount).toBeGreaterThan(0);
+		expect(metrics.outlineDottedCount).toBeGreaterThan(0);
 		expect(metrics.topBackSolidCount).toBeGreaterThan(0);
-		expect(metrics.topBackDashedCount).toBeGreaterThan(0);
-		expect(metrics.bottomBackDashedCount).toBe(HYPERCASTLE_EXPECTED_BOTTOM_BACK_OUTLINE_COUNT);
+		expect(metrics.topBackDottedCount).toBeGreaterThan(0);
+		expect(metrics.bottomBackDottedCount).toBe(HYPERCASTLE_EXPECTED_BOTTOM_BACK_OUTLINE_COUNT);
+		expect(metrics.level12VerticalFillColor).toEqual([
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.stripePatternFill
+		]);
+		expect(metrics.level12VerticalStrokeDashArray).toEqual([
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArrayDotted
+		]);
+		expect(metrics.level12VerticalStrokeLinecap).toEqual([
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeLinecapRound
+		]);
+		expect(metrics.stripePatternFillOpacity).toBe(
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelPatternFillOpacity)
+		);
+		expect(metrics.levelGuideCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
+		expect(metrics.levelGuideLeaderCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
+		expect(metrics.levelGuideLabelCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
+		expect(metrics.levelGuideLeaderStrokeDashArray).toEqual([
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArrayDashed
+		]);
+		expect(metrics.levelGuideCutoffXs).toHaveLength(1);
+		expect(metrics.levelGuideLabels).toContain(
+			formatTerraformsHypercastleOverviewLevelGuideLabel(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+		);
 		expect(metrics.level12ReachableFrontPoint).not.toBeNull();
 		expect(metrics.level12ReachableSidePoint).not.toBeNull();
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
+
+		await page
+			.locator(
+				[
+					HYPERCASTLE_PROBE_CONTRACT.selectors.guide,
+					attributeEqualsSelector(
+						TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelNumber,
+						String(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+					)
+				].join('')
+			)
+			.hover();
+		await expect(
+			page.locator(
+				idSelector(
+					resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+				)
+			)
+		).toHaveClass(
+			new RegExp(`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerHovered}\\b`)
+		);
 	});
 });
 
@@ -324,12 +394,25 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 		const layers = Array.from(document.querySelectorAll(contract.selectors.layer));
 		const faces = Array.from(document.querySelectorAll(contract.selectors.face));
 		const outlines = Array.from(document.querySelectorAll(contract.selectors.outline));
+		const guides = Array.from(document.querySelectorAll(contract.selectors.guide));
+		const guideLeaders = Array.from(document.querySelectorAll(contract.selectors.guideLeader));
+		const guideLabels = Array.from(document.querySelectorAll(contract.selectors.guideLabel));
+		const stripePattern = document.querySelector(contract.selectors.stripePattern);
+		const stripePatternRect = stripePattern?.querySelector(contract.svgTags.rect) ?? null;
 		const verticalFaces = faces.filter(
 			(face) =>
 				face.classList.contains(contract.faceClasses.front) ||
 				face.classList.contains(contract.faceClasses.side)
 		);
 		const topFaces = faces.filter((face) => face.classList.contains(contract.faceClasses.top));
+		const levelTwelveLayer = document.querySelector(contract.selectors.fadedLevelLayer);
+		const levelTwelveVerticalFaces = levelTwelveLayer
+			? Array.from(levelTwelveLayer.querySelectorAll(contract.selectors.face)).filter(
+					(face) =>
+						face.classList.contains(contract.faceClasses.front) ||
+						face.classList.contains(contract.faceClasses.side)
+				)
+			: [];
 
 		return {
 			svg: svg
@@ -362,10 +445,10 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 					outline.getAttribute(contract.dom.attributes.outlineStyle) ===
 					contract.outlineStyles.Solid
 			).length,
-			outlineDashedCount: outlines.filter(
+			outlineDottedCount: outlines.filter(
 				(outline) =>
 					outline.getAttribute(contract.dom.attributes.outlineStyle) ===
-					contract.outlineStyles.Dashed
+					contract.outlineStyles.Dotted
 			).length,
 			topBackSolidCount: outlines.filter(
 				(outline) =>
@@ -374,20 +457,48 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 					outline.getAttribute(contract.dom.attributes.outlineStyle) ===
 						contract.outlineStyles.Solid
 			).length,
-			topBackDashedCount: outlines.filter(
+			topBackDottedCount: outlines.filter(
 				(outline) =>
 					outline.getAttribute(contract.dom.attributes.outlinePosition) ===
 						contract.outlinePositions.TopBack &&
 					outline.getAttribute(contract.dom.attributes.outlineStyle) ===
-						contract.outlineStyles.Dashed
+						contract.outlineStyles.Dotted
 			).length,
-			bottomBackDashedCount: outlines.filter(
+			bottomBackDottedCount: outlines.filter(
 				(outline) =>
 					outline.getAttribute(contract.dom.attributes.outlinePosition) ===
 						contract.outlinePositions.BottomBack &&
 					outline.getAttribute(contract.dom.attributes.outlineStyle) ===
-						contract.outlineStyles.Dashed
+						contract.outlineStyles.Dotted
 			).length,
+			level12VerticalFillColor: uniqueAttribute(levelTwelveVerticalFaces, contract.svgAttributes.fill),
+			level12VerticalStrokeDashArray: uniqueAttribute(
+				levelTwelveVerticalFaces,
+				contract.svgAttributes.strokeDashArray
+			),
+			level12VerticalStrokeLinecap: uniqueAttribute(
+				levelTwelveVerticalFaces,
+				contract.svgAttributes.strokeLinecap
+			),
+			stripePatternFillOpacity: stripePatternRect?.getAttribute(
+				contract.svgAttributes.fillOpacity
+			) ?? null,
+			levelGuideCount: guides.length,
+			levelGuideLeaderCount: guideLeaders.length,
+			levelGuideLabelCount: guideLabels.length,
+			levelGuideLeaderStrokeDashArray: uniqueAttribute(
+				guideLeaders,
+				contract.svgAttributes.strokeDashArray
+			),
+			levelGuideCutoffXs: Array.from(
+				new Set(
+					guideLeaders.map(
+						(leader) =>
+							leader.getAttribute(contract.svgAttributes.x2) ?? contract.emptyAttributeValue
+					)
+				)
+			),
+			levelGuideLabels: guideLabels.map((label) => label.textContent ?? contract.emptyAttributeValue),
 			level12ReachableFrontPoint: findReachableLayerPoint(
 				contract.selectors.reachableFrontFace,
 				contract.reachabilityLevelNumber
@@ -406,6 +517,10 @@ function classSelector(className: string): string {
 
 function dataAttributeSelector(attributeName: string, value: string): string {
 	return `[data-${attributeName}="${value}"]`;
+}
+
+function attributeEqualsSelector(attributeName: string, value: string): string {
+	return `[${attributeName}="${value}"]`;
 }
 
 function idSelector(id: string): string {

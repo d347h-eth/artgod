@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+	buildTerraformsHypercastleOverviewLevelGuides,
 	buildTerraformsHypercastleOverviewOutlineSegments,
 	buildTerraformsHypercastleOverviewLayers,
 	buildTerraformsHypercastleOverviewRenderKey,
+	formatTerraformsHypercastleOverviewLevelGuideLabel,
+	isTerraformsHypercastleOverviewFadedFace,
 	resolveTerraformsHypercastleOverviewBounds,
 	resolveTerraformsHypercastleOverviewFaceGeometry,
 	resolveTerraformsHypercastleOverviewLayout,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_POSITIONS,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES,
+	TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS
 } from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
 
@@ -92,7 +96,7 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		).toBe(true);
 		expect(
 			topBackSegments.some(
-				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
+				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
 			)
 		).toBe(true);
 		expect(topLayerSegments).toHaveLength(2);
@@ -103,13 +107,13 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		).toBe(true);
 		expect(
 			levelTwelveSegments.some(
-				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
+				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
 			)
 		).toBe(true);
 		expect(new Set(segments.map((segment) => segment.key)).size).toBe(segments.length);
 	});
 
-	it('adds dashed lower rear outlines for every slab', () => {
+	it('adds dotted lower rear outlines for every slab', () => {
 		const segments = buildTerraformsHypercastleOverviewOutlineSegments(
 			buildTerraformsHypercastleOverviewLayers()
 		);
@@ -120,13 +124,39 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		expect(bottomBackSegments).toHaveLength(40);
 		expect(
 			bottomBackSegments.every(
-				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
+				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
 			)
 		).toBe(true);
 		expect(new Set(bottomBackSegments.map((segment) => segment.levelNumber)).size).toBe(20);
 	});
 
-	it('resolves a centered responsive layout for the shared spine', () => {
+	it('marks level 12 vertical faces as faded because level 13 overhangs them', () => {
+		const layer = buildTerraformsHypercastleOverviewLayers().find(
+			(candidate) =>
+				candidate.levelNumber === TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelNumber
+		)!;
+
+		expect(
+			isTerraformsHypercastleOverviewFadedFace(
+				layer,
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front
+			)
+		).toBe(true);
+		expect(
+			isTerraformsHypercastleOverviewFadedFace(
+				layer,
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
+			)
+		).toBe(true);
+		expect(
+			isTerraformsHypercastleOverviewFadedFace(
+				layer,
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
+			)
+		).toBe(false);
+	});
+
+	it('resolves a centered responsive layout with a right-side label lane', () => {
 		const layers = buildTerraformsHypercastleOverviewLayers();
 		const bounds = resolveTerraformsHypercastleOverviewBounds(layers);
 		const desktop = resolveTerraformsHypercastleOverviewLayout(layers, 1280);
@@ -134,9 +164,23 @@ describe('Terraforms Hypercastle overview geometry', () => {
 
 		expect(bounds.minX).toBeCloseTo(-bounds.maxX, 6);
 		expect(desktop.groupTopOffsetUnits).toBe(bounds.centerY);
+		expect(desktop.groupRightOffsetUnits).toBeCloseTo(-desktop.groupLeftOffsetUnits, 8);
 		expect(desktop.scale).toBeGreaterThan(mobile.scale);
 		expect(desktop.width).toBeGreaterThan(0);
 		expect(desktop.height).toBeGreaterThan(0);
+	});
+
+	it('builds one shared-cutoff level guide per slab', () => {
+		const layers = buildTerraformsHypercastleOverviewLayers();
+		const layout = resolveTerraformsHypercastleOverviewLayout(layers, 1280);
+		const guides = buildTerraformsHypercastleOverviewLevelGuides(layers, layout);
+
+		expect(guides).toHaveLength(20);
+		expect(new Set(guides.map((guide) => guide.lineEnd.x)).size).toBe(1);
+		expect(guides.every((guide) => guide.lineStart.x > guide.corner.x)).toBe(true);
+		expect(guides.every((guide) => guide.labelAnchor.x > guide.lineEnd.x)).toBe(true);
+		expect(guides[0]!.label).toBe(formatTerraformsHypercastleOverviewLevelGuideLabel(1));
+		expect(guides[19]!.label).toBe(formatTerraformsHypercastleOverviewLevelGuideLabel(20));
 	});
 
 	it('creates a render key from stable level dimensions', () => {

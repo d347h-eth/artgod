@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import {
+		buildTerraformsHypercastleOverviewLevelGuides,
 		buildTerraformsHypercastleOverviewOutlineSegments,
 		buildTerraformsHypercastleOverviewLayers,
 		buildTerraformsHypercastleOverviewRenderKey,
 		formatTerraformsHypercastleOverviewLayerLabel,
+		isTerraformsHypercastleOverviewFadedFace,
+		isTerraformsHypercastleOverviewVerticalFace,
 		resolveTerraformsHypercastleOverviewFaceClassName,
 		resolveTerraformsHypercastleOverviewFaceGeometry,
 		resolveTerraformsHypercastleOverviewLayerElementId,
@@ -16,6 +19,7 @@
 		TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES,
 		TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION,
 		type TerraformsHypercastleOverviewFaceKind,
+		type TerraformsHypercastleOverviewLevelGuide,
 		type TerraformsHypercastleOverviewLayer,
 		type TerraformsHypercastleOverviewOutlineSegment
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
@@ -24,6 +28,10 @@
 
 	const DOM_EVENTS = {
 		resize: 'resize',
+		pointerEnter: 'pointerenter',
+		pointerLeave: 'pointerleave',
+		focus: 'focus',
+		blur: 'blur',
 		pointerDown: 'pointerdown',
 		click: 'click',
 		keyDown: 'keydown'
@@ -40,6 +48,50 @@
 		true: 'true',
 		zero: '0'
 	} as const;
+	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+	const SVG_TAGS = {
+		defs: 'defs',
+		pattern: 'pattern',
+		rect: 'rect',
+		group: 'g',
+		line: 'line',
+		text: 'text'
+	} as const;
+	const SVG_ATTRIBUTES = {
+		id: 'id',
+		patternUnits: 'patternUnits',
+		patternTransform: 'patternTransform',
+		width: 'width',
+		height: 'height',
+		fill: 'fill',
+		fillOpacity: 'fill-opacity',
+		fontSize: 'font-size',
+		stroke: 'stroke',
+		strokeDashArray: 'stroke-dasharray',
+		strokeLinecap: 'stroke-linecap',
+		strokeOpacity: 'stroke-opacity',
+		strokeWidth: 'stroke-width',
+		x: 'x',
+		x1: 'x1',
+		x2: 'x2',
+		y: 'y',
+		y1: 'y1',
+		y2: 'y2',
+		dominantBaseline: 'dominant-baseline',
+		tabindex: 'tabindex',
+		role: 'role',
+		ariaLabel: 'aria-label'
+	} as const;
+	const SVG_ATTRIBUTE_VALUES = {
+		userSpaceOnUse: 'userSpaceOnUse',
+		middle: 'middle',
+		transparent: 'transparent'
+	} as const;
+	const SVG_TRANSFORMS = {
+		rotate: 'rotate'
+	} as const;
+	const CSS_URL_PREFIX = 'url(#';
+	const CSS_URL_SUFFIX = ')';
 	const POINTER_TYPE_MOUSE = 'mouse';
 	const KEYBOARD_SELECT_KEYS = new Set(['Enter', ' ']);
 
@@ -96,14 +148,14 @@
 			height: layout.height,
 			scale: layout.scale
 		});
-		canvas.getElement().classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.svg);
-		canvas
-			.getElement()
-			.setAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelCount, String(layers.length));
+		const svg = canvas.getElement();
+		svg.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.svg);
+		svg.setAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelCount, String(layers.length));
+		installFadedFacePattern(svg);
 
 		const group = new isometricModule.IsometricGroup({
-			right: 0,
-			left: 0,
+			right: layout.groupRightOffsetUnits,
+			left: layout.groupLeftOffsetUnits,
 			top: layout.groupTopOffsetUnits
 		});
 		canvas.addChild(group);
@@ -111,6 +163,7 @@
 			renderLayer(group, layer);
 		}
 		renderLayerOutlines(group);
+		renderLevelGuides(svg, buildTerraformsHypercastleOverviewLevelGuides(layers, layout));
 	}
 
 	function renderLayer(
@@ -152,6 +205,8 @@
 	): void {
 		if (!isometricModule) return;
 		const geometry = resolveTerraformsHypercastleOverviewFaceGeometry(layer, faceKind);
+		const fadedFace = isTerraformsHypercastleOverviewFadedFace(layer, faceKind);
+		const strokeDashArray = resolveLayerFaceStrokeDashArray(layer, faceKind);
 		const face = new isometricModule.IsometricRectangle({
 			planeView,
 			right: geometry.right,
@@ -161,12 +216,14 @@
 			height: geometry.height,
 			className: [
 				TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.face,
-				resolveTerraformsHypercastleOverviewFaceClassName(faceKind)
+				resolveTerraformsHypercastleOverviewFaceClassName(faceKind),
+				...(fadedFace ? [TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.faceFaded] : [])
 			].join(' '),
-			fillColor: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color,
+			fillColor: resolveLayerFaceFillColor(layer, faceKind),
 			fillOpacity: resolveLayerFaceFillOpacity(faceKind),
 			strokeColor: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color,
-			strokeDashArray: resolveLayerFaceStrokeDashArray(faceKind),
+			strokeDashArray,
+			strokeLinecap: resolveStrokeLineCap(strokeDashArray),
 			strokeOpacity: resolveLayerFaceStrokeOpacity(faceKind),
 			strokeWidth: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeWidth
 		});
@@ -207,6 +264,7 @@
 			fillOpacity: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.top,
 			strokeColor: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color,
 			strokeDashArray: resolveOutlineStrokeDashArray(segment),
+			strokeLinecap: resolveOutlineStrokeLineCap(segment),
 			strokeOpacity: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.visible,
 			strokeWidth: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeWidth
 		});
@@ -226,6 +284,120 @@
 			.getElement()
 			.setAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.outlineStyle, segment.style);
 		outlineGroup.addChild(outline);
+	}
+
+	function renderLevelGuides(
+		svg: SVGElement,
+		guides: readonly TerraformsHypercastleOverviewLevelGuide[]
+	): void {
+		const guideGroup = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.group);
+		guideGroup.setAttribute(SVG_ATTRIBUTES.id, TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.guideGroup);
+		guideGroup.setAttribute(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.guideCutoffX,
+			String(guides[0]?.lineEnd.x ?? 0)
+		);
+		for (const guide of guides) {
+			guideGroup.appendChild(createLevelGuideElement(guide));
+		}
+		svg.appendChild(guideGroup);
+	}
+
+	function createLevelGuideElement(guide: TerraformsHypercastleOverviewLevelGuide): SVGGElement {
+		const guideElement = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.group);
+		guideElement.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guide);
+		guideElement.setAttribute(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelNumber,
+			String(guide.levelNumber)
+		);
+		guideElement.setAttribute(SVG_ATTRIBUTES.tabindex, DOM_ATTRIBUTE_VALUES.zero);
+		guideElement.setAttribute(SVG_ATTRIBUTES.ariaLabel, guide.label);
+		guideElement.appendChild(createLevelGuideHitTargetElement(guide));
+		guideElement.appendChild(createLevelGuideLeaderElement(guide));
+		guideElement.appendChild(createLevelGuideLabelElement(guide));
+		guideElement.addEventListener(DOM_EVENTS.pointerEnter, () =>
+			setLevelGuideHovered(guideElement, guide.levelNumber, true)
+		);
+		guideElement.addEventListener(DOM_EVENTS.pointerLeave, () =>
+			setLevelGuideHovered(guideElement, guide.levelNumber, false)
+		);
+		guideElement.addEventListener(DOM_EVENTS.focus, () =>
+			setLevelGuideHovered(guideElement, guide.levelNumber, true)
+		);
+		guideElement.addEventListener(DOM_EVENTS.blur, () =>
+			setLevelGuideHovered(guideElement, guide.levelNumber, false)
+		);
+		return guideElement;
+	}
+
+	function createLevelGuideHitTargetElement(
+		guide: TerraformsHypercastleOverviewLevelGuide
+	): SVGRectElement {
+		const target = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.rect);
+		const height = TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelGuideHitHeight;
+		const width =
+			guide.labelAnchor.x -
+			guide.lineStart.x +
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelLabelHitWidth;
+		target.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideHitTarget);
+		target.setAttribute(SVG_ATTRIBUTES.x, String(guide.lineStart.x));
+		target.setAttribute(SVG_ATTRIBUTES.y, String(guide.labelAnchor.y - height / 2));
+		target.setAttribute(SVG_ATTRIBUTES.width, String(width));
+		target.setAttribute(SVG_ATTRIBUTES.height, String(height));
+		target.setAttribute(SVG_ATTRIBUTES.fill, SVG_ATTRIBUTE_VALUES.transparent);
+		return target;
+	}
+
+	function createLevelGuideLeaderElement(guide: TerraformsHypercastleOverviewLevelGuide): SVGLineElement {
+		const leader = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.line);
+		leader.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLeader);
+		leader.setAttribute(SVG_ATTRIBUTES.x1, String(guide.lineStart.x));
+		leader.setAttribute(SVG_ATTRIBUTES.y1, String(guide.lineStart.y));
+		leader.setAttribute(SVG_ATTRIBUTES.x2, String(guide.lineEnd.x));
+		leader.setAttribute(SVG_ATTRIBUTES.y2, String(guide.lineEnd.y));
+		leader.setAttribute(SVG_ATTRIBUTES.stroke, TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color);
+		leader.setAttribute(
+			SVG_ATTRIBUTES.strokeDashArray,
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeDashArray.dashed.join(' ')
+		);
+		leader.setAttribute(
+			SVG_ATTRIBUTES.strokeOpacity,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelLabelLineOpacity)
+		);
+		leader.setAttribute(
+			SVG_ATTRIBUTES.strokeWidth,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeWidth)
+		);
+		return leader;
+	}
+
+	function createLevelGuideLabelElement(guide: TerraformsHypercastleOverviewLevelGuide): SVGTextElement {
+		const label = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.text);
+		label.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLabel);
+		label.setAttribute(SVG_ATTRIBUTES.x, String(guide.labelAnchor.x));
+		label.setAttribute(SVG_ATTRIBUTES.y, String(guide.labelAnchor.y));
+		label.setAttribute(SVG_ATTRIBUTES.fill, TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color);
+		label.setAttribute(
+			SVG_ATTRIBUTES.fillOpacity,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelLabelTextOpacity)
+		);
+		label.setAttribute(
+			SVG_ATTRIBUTES.fontSize,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelLabelFontSize)
+		);
+		label.setAttribute(SVG_ATTRIBUTES.dominantBaseline, SVG_ATTRIBUTE_VALUES.middle);
+		label.textContent = guide.label;
+		return label;
+	}
+
+	function setLevelGuideHovered(
+		guideElement: SVGGElement,
+		levelNumber: number,
+		hovered: boolean
+	): void {
+		guideElement.classList.toggle(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideHovered, hovered);
+		document
+			.getElementById(resolveTerraformsHypercastleOverviewLayerElementId(levelNumber))
+			?.classList.toggle(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerHovered, hovered);
 	}
 
 	function configureLayerElement(element: SVGElement, layer: TerraformsHypercastleOverviewLayer): void {
@@ -263,21 +435,33 @@
 		void layer;
 	}
 
+	function resolveLayerFaceFillColor(
+		layer: TerraformsHypercastleOverviewLayer,
+		faceKind: TerraformsHypercastleOverviewFaceKind
+	): string {
+		return isTerraformsHypercastleOverviewFadedFace(layer, faceKind)
+			? `${CSS_URL_PREFIX}${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern}${CSS_URL_SUFFIX}`
+			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
+	}
+
 	function resolveLayerFaceFillOpacity(faceKind: TerraformsHypercastleOverviewFaceKind): number {
-		return isLayerVerticalFace(faceKind)
+		return isTerraformsHypercastleOverviewVerticalFace(faceKind)
 			? TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.vertical
 			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.top;
 	}
 
 	function resolveLayerFaceStrokeDashArray(
+		layer: TerraformsHypercastleOverviewLayer,
 		faceKind: TerraformsHypercastleOverviewFaceKind
 	): number[] {
-		void faceKind;
+		if (isTerraformsHypercastleOverviewFadedFace(layer, faceKind)) {
+			return [...TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeDashArray.dotted];
+		}
 		return [...TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeDashArray.solid];
 	}
 
 	function resolveLayerFaceStrokeOpacity(faceKind: TerraformsHypercastleOverviewFaceKind): number {
-		return isLayerVerticalFace(faceKind)
+		return isTerraformsHypercastleOverviewVerticalFace(faceKind)
 			? TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.visible
 			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.top;
 	}
@@ -285,16 +469,67 @@
 	function resolveOutlineStrokeDashArray(
 		segment: TerraformsHypercastleOverviewOutlineSegment
 	): number[] {
-		return segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
-			? [...TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeDashArray.dashed]
+		return segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
+			? [...TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeDashArray.dotted]
 			: [...TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeDashArray.solid];
 	}
 
-	function isLayerVerticalFace(faceKind: TerraformsHypercastleOverviewFaceKind): boolean {
-		return (
-			faceKind === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front ||
-			faceKind === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
+	function resolveOutlineStrokeLineCap(
+		segment: TerraformsHypercastleOverviewOutlineSegment
+	): IsometricModule['LineCap'][keyof IsometricModule['LineCap']] {
+		return segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
+			? resolveRoundLineCap()
+			: resolveButtLineCap();
+	}
+
+	function resolveStrokeLineCap(
+		strokeDashArray: readonly number[]
+	): IsometricModule['LineCap'][keyof IsometricModule['LineCap']] {
+		return strokeDashArray.length > 0 ? resolveRoundLineCap() : resolveButtLineCap();
+	}
+
+	function resolveRoundLineCap(): IsometricModule['LineCap'][keyof IsometricModule['LineCap']] {
+		return isometricModule!.LineCap.round;
+	}
+
+	function resolveButtLineCap(): IsometricModule['LineCap'][keyof IsometricModule['LineCap']] {
+		return isometricModule!.LineCap.butt;
+	}
+
+	function installFadedFacePattern(svg: SVGElement): void {
+		const defs = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.defs);
+		const pattern = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.pattern);
+		const stripe = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.rect);
+		pattern.setAttribute(SVG_ATTRIBUTES.id, TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern);
+		pattern.setAttribute(SVG_ATTRIBUTES.patternUnits, SVG_ATTRIBUTE_VALUES.userSpaceOnUse);
+		pattern.setAttribute(
+			SVG_ATTRIBUTES.width,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelPatternSize)
 		);
+		pattern.setAttribute(
+			SVG_ATTRIBUTES.height,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelPatternSize)
+		);
+		pattern.setAttribute(
+			SVG_ATTRIBUTES.patternTransform,
+			`${SVG_TRANSFORMS.rotate}(${TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelPatternRotation})`
+		);
+		stripe.setAttribute(
+			SVG_ATTRIBUTES.width,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelPatternStripeWidth)
+		);
+		stripe.setAttribute(
+			SVG_ATTRIBUTES.height,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelPatternSize)
+		);
+		stripe.setAttribute(SVG_ATTRIBUTES.fill, TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color);
+		stripe.setAttribute(
+			SVG_ATTRIBUTES.fillOpacity,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelPatternFillOpacity)
+		);
+		pattern.appendChild(stripe);
+		defs.appendChild(pattern);
+		svg.insertBefore(defs, svg.firstChild);
 	}
 </script>
 
@@ -369,12 +604,73 @@
 		vector-effect: non-scaling-stroke;
 	}
 
+	:global(.terraforms-hypercastle-overview-level-guide) {
+		cursor: pointer;
+		outline: none;
+	}
+
+	:global(.terraforms-hypercastle-overview-level-guide-hit-target) {
+		pointer-events: all;
+	}
+
+	:global(.terraforms-hypercastle-overview-level-guide-leader) {
+		vector-effect: non-scaling-stroke;
+		transition:
+			stroke-opacity 120ms ease,
+			stroke-width 120ms ease;
+	}
+
+	:global(.terraforms-hypercastle-overview-level-guide-label) {
+		font-family: var(--font-mono);
+		letter-spacing: 0;
+		pointer-events: none;
+		transition:
+			filter 120ms ease,
+			fill-opacity 120ms ease;
+	}
+
 	:global(.terraforms-hypercastle-overview-layer:hover .terraforms-hypercastle-overview-layer-face),
 	:global(
 			.terraforms-hypercastle-overview-layer:focus-visible
 				.terraforms-hypercastle-overview-layer-face
+	),
+	:global(
+			.terraforms-hypercastle-overview-layer-hovered
+				.terraforms-hypercastle-overview-layer-face
 	) {
 		filter: brightness(1.16);
+		stroke-width: 2;
+	}
+
+	:global(
+			.terraforms-hypercastle-overview-level-guide:hover
+				.terraforms-hypercastle-overview-level-guide-label
+	),
+	:global(
+			.terraforms-hypercastle-overview-level-guide:focus-visible
+				.terraforms-hypercastle-overview-level-guide-label
+	),
+	:global(
+			.terraforms-hypercastle-overview-level-guide-hovered
+				.terraforms-hypercastle-overview-level-guide-label
+	) {
+		filter: brightness(1.35);
+		fill-opacity: 1;
+	}
+
+	:global(
+			.terraforms-hypercastle-overview-level-guide:hover
+				.terraforms-hypercastle-overview-level-guide-leader
+	),
+	:global(
+			.terraforms-hypercastle-overview-level-guide:focus-visible
+				.terraforms-hypercastle-overview-level-guide-leader
+	),
+	:global(
+			.terraforms-hypercastle-overview-level-guide-hovered
+				.terraforms-hypercastle-overview-level-guide-leader
+	) {
+		stroke-opacity: 1;
 		stroke-width: 2;
 	}
 </style>

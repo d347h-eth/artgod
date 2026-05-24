@@ -31,7 +31,12 @@ export type TerraformsHypercastleOverviewLayout = {
 	width: number;
 	height: number;
 	scale: number;
+	groupRightOffsetUnits: number;
+	groupLeftOffsetUnits: number;
 	groupTopOffsetUnits: number;
+	levelGuideLineEndX: number;
+	levelGuideCornerGap: number;
+	levelGuideLabelGap: number;
 };
 
 // Face literals define the renderer contract shared by geometry, Svelte, and tests.
@@ -67,7 +72,7 @@ export type TerraformsHypercastleOverviewProjectedPoint = {
 // Hidden-line style literals define how rear outlines are painted.
 export const TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES = {
 	Solid: 'solid',
-	Dashed: 'dashed'
+	Dotted: 'dotted'
 } as const;
 
 export type TerraformsHypercastleOverviewOutlineStyle = ValueOf<
@@ -104,12 +109,29 @@ export type TerraformsHypercastleOverviewOutlineSegment = {
 	end: TerraformsHypercastleOverviewPoint;
 };
 
+export type TerraformsHypercastleOverviewScreenPoint = {
+	x: number;
+	y: number;
+};
+
+export type TerraformsHypercastleOverviewLevelGuide = {
+	key: string;
+	levelNumber: number;
+	label: string;
+	corner: TerraformsHypercastleOverviewScreenPoint;
+	lineStart: TerraformsHypercastleOverviewScreenPoint;
+	lineEnd: TerraformsHypercastleOverviewScreenPoint;
+	labelAnchor: TerraformsHypercastleOverviewScreenPoint;
+};
+
 // DOM names are exported so tests probe the same contract the renderer writes.
 export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 	testId: 'terraforms-hypercastle-overview',
 	ids: {
 		levelPrefix: 'terraforms-hypercastle-level-',
-		outlineGroup: 'terraforms-hypercastle-overview-back-outlines'
+		outlineGroup: 'terraforms-hypercastle-overview-back-outlines',
+		guideGroup: 'terraforms-hypercastle-overview-level-guides',
+		stripePattern: 'terraforms-hypercastle-overview-level-12-stripes'
 	},
 	classes: {
 		root: 'terraforms-hypercastle-overview',
@@ -117,15 +139,23 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 		status: 'terraforms-hypercastle-overview-status',
 		svg: 'terraforms-hypercastle-overview-svg',
 		layer: 'terraforms-hypercastle-overview-layer',
+		layerHovered: 'terraforms-hypercastle-overview-layer-hovered',
 		face: 'terraforms-hypercastle-overview-layer-face',
-		outlineSegment: 'terraforms-hypercastle-overview-outline-segment'
+		faceFaded: 'terraforms-hypercastle-overview-layer-face-faded',
+		outlineSegment: 'terraforms-hypercastle-overview-outline-segment',
+		guide: 'terraforms-hypercastle-overview-level-guide',
+		guideHovered: 'terraforms-hypercastle-overview-level-guide-hovered',
+		guideHitTarget: 'terraforms-hypercastle-overview-level-guide-hit-target',
+		guideLeader: 'terraforms-hypercastle-overview-level-guide-leader',
+		guideLabel: 'terraforms-hypercastle-overview-level-guide-label'
 	},
 	attributes: {
 		levelCount: 'data-level-count',
 		levelNumber: 'data-level-number',
 		levelDimension: 'data-level-dimension',
 		outlinePosition: 'data-outline-position',
-		outlineStyle: 'data-outline-style'
+		outlineStyle: 'data-outline-style',
+		guideCutoffX: 'data-guide-cutoff-x'
 	}
 } as const;
 
@@ -145,9 +175,20 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION = {
 	},
 	strokeDashArray: {
 		solid: [],
-		dashed: [4, 3]
+		dashed: [4, 3],
+		dotted: [1, 4]
 	},
-	strokeWidth: 1
+	strokeWidth: 1,
+	fadedLevelNumber: 12,
+	fadedLevelPatternFillOpacity: 0.5,
+	fadedLevelPatternSize: 8,
+	fadedLevelPatternStripeWidth: 4,
+	fadedLevelPatternRotation: 45,
+	levelLabelFontSize: 13,
+	levelLabelHitWidth: 68,
+	levelGuideHitHeight: 18,
+	levelLabelLineOpacity: 0.72,
+	levelLabelTextOpacity: 0.86
 } as const;
 
 // Browser-visible style values are centralized for Playwright assertions.
@@ -156,7 +197,11 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES = {
 	fillOpaque: '1',
 	pointerEventsAll: 'all',
 	pointerEventsNone: 'none',
-	strokeDashArraySolid: ''
+	strokeDashArraySolid: '',
+	strokeDashArrayDashed: '4 3',
+	strokeDashArrayDotted: '1 4',
+	strokeLinecapRound: 'round',
+	stripePatternFill: `url(#${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern})`
 } as const;
 
 // Render-key separators keep key shape assertions aligned with the builder.
@@ -175,9 +220,16 @@ const OVERVIEW_MAX_SCALE = 18;
 const OVERVIEW_DESKTOP_SIDE_ALLOWANCE = 560;
 const OVERVIEW_MOBILE_SIDE_ALLOWANCE = 32;
 const OVERVIEW_MIN_AVAILABLE_WIDTH = 320;
+const OVERVIEW_DESKTOP_LABEL_LANE_WIDTH = 150;
+const OVERVIEW_MOBILE_LABEL_LANE_WIDTH = 118;
+const OVERVIEW_DESKTOP_LABEL_LINE_LENGTH = 54;
+const OVERVIEW_MOBILE_LABEL_LINE_LENGTH = 38;
+const OVERVIEW_LABEL_CORNER_GAP = 8;
+const OVERVIEW_LABEL_TEXT_GAP = 8;
 const ISOMETRIC_X_FACTOR = Math.sqrt(3) / 2;
 const OVERVIEW_LAYER_KEY_PREFIX = 'level-';
 const OVERVIEW_OUTLINE_KEY_PREFIX = 'level';
+const OVERVIEW_GUIDE_KEY_PREFIX = 'level-guide-';
 const OVERVIEW_RENDER_KEY_PART_SEPARATOR =
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS.part;
 const OVERVIEW_RENDER_KEY_LAYER_SEPARATOR =
@@ -209,6 +261,10 @@ export function resolveTerraformsHypercastleOverviewLayerElementId(levelNumber: 
 
 export function formatTerraformsHypercastleOverviewLayerLabel(levelNumber: number): string {
 	return `Hypercastle level ${levelNumber}`;
+}
+
+export function formatTerraformsHypercastleOverviewLevelGuideLabel(levelNumber: number): string {
+	return `Level ${levelNumber}`;
 }
 
 // Build bottom-to-top slab geometry for the fixed 20-level Hypercastle.
@@ -249,11 +305,25 @@ export function resolveTerraformsHypercastleOverviewLayout(
 		OVERVIEW_MIN_SCALE,
 		OVERVIEW_MAX_SCALE
 	);
+	const baseWidth = Math.ceil(bounds.width * scale + OVERVIEW_CANVAS_MARGIN * 2);
+	const labelLaneWidth =
+		viewportWidth > 900 ? OVERVIEW_DESKTOP_LABEL_LANE_WIDTH : OVERVIEW_MOBILE_LABEL_LANE_WIDTH;
+	const labelLineLength =
+		viewportWidth > 900 ? OVERVIEW_DESKTOP_LABEL_LINE_LENGTH : OVERVIEW_MOBILE_LABEL_LINE_LENGTH;
+	const groupShiftX = -labelLaneWidth / 2;
+	const groupRightOffsetUnits = groupShiftX / (2 * ISOMETRIC_X_FACTOR * scale);
+	const groupLeftOffsetUnits = -groupRightOffsetUnits;
+	const structureRightX = baseWidth - OVERVIEW_CANVAS_MARGIN;
 	return {
-		width: Math.ceil(bounds.width * scale + OVERVIEW_CANVAS_MARGIN * 2),
+		width: baseWidth + labelLaneWidth,
 		height: Math.ceil(bounds.height * scale + OVERVIEW_CANVAS_MARGIN * 2),
 		scale,
-		groupTopOffsetUnits: bounds.centerY
+		groupRightOffsetUnits,
+		groupLeftOffsetUnits,
+		groupTopOffsetUnits: bounds.centerY,
+		levelGuideLineEndX: structureRightX + OVERVIEW_LABEL_CORNER_GAP + labelLineLength,
+		levelGuideCornerGap: OVERVIEW_LABEL_CORNER_GAP,
+		levelGuideLabelGap: OVERVIEW_LABEL_TEXT_GAP
 	};
 }
 
@@ -330,6 +400,42 @@ export function buildTerraformsHypercastleOverviewOutlineSegments(
 	});
 }
 
+export function buildTerraformsHypercastleOverviewLevelGuides(
+	layers: readonly TerraformsHypercastleOverviewLayer[],
+	layout: TerraformsHypercastleOverviewLayout
+): TerraformsHypercastleOverviewLevelGuide[] {
+	return layers.map((layer) => {
+		const corner = projectTerraformsHypercastleOverviewPointToScreen(
+			{
+				right: layer.halfSizeUnits,
+				left: -layer.halfSizeUnits,
+				top: layer.topFaceTopUnits
+			},
+			layout
+		);
+		const lineStart = {
+			x: corner.x + layout.levelGuideCornerGap,
+			y: corner.y
+		};
+		const lineEnd = {
+			x: layout.levelGuideLineEndX,
+			y: corner.y
+		};
+		return {
+			key: `${OVERVIEW_GUIDE_KEY_PREFIX}${layer.levelNumber}`,
+			levelNumber: layer.levelNumber,
+			label: formatTerraformsHypercastleOverviewLevelGuideLabel(layer.levelNumber),
+			corner,
+			lineStart,
+			lineEnd,
+			labelAnchor: {
+				x: lineEnd.x + layout.levelGuideLabelGap,
+				y: corner.y
+			}
+		};
+	});
+}
+
 export function projectTerraformsHypercastleOverviewPoint(
 	point: TerraformsHypercastleOverviewPoint
 ): TerraformsHypercastleOverviewProjectedPoint {
@@ -337,6 +443,41 @@ export function projectTerraformsHypercastleOverviewPoint(
 		x: (point.right - point.left) * ISOMETRIC_X_FACTOR,
 		y: (point.right + point.left) / 2 - point.top
 	};
+}
+
+export function projectTerraformsHypercastleOverviewPointToScreen(
+	point: TerraformsHypercastleOverviewPoint,
+	layout: TerraformsHypercastleOverviewLayout
+): TerraformsHypercastleOverviewScreenPoint {
+	const projected = projectTerraformsHypercastleOverviewPoint(point);
+	const groupOffset = projectTerraformsHypercastleOverviewPoint({
+		right: layout.groupRightOffsetUnits,
+		left: layout.groupLeftOffsetUnits,
+		top: layout.groupTopOffsetUnits
+	});
+	return {
+		x: layout.width / 2 + (projected.x + groupOffset.x) * layout.scale,
+		y: layout.height / 2 + (projected.y + groupOffset.y) * layout.scale
+	};
+}
+
+export function isTerraformsHypercastleOverviewFadedFace(
+	layer: TerraformsHypercastleOverviewLayer,
+	face: TerraformsHypercastleOverviewFaceKind
+): boolean {
+	return (
+		layer.levelNumber === TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelNumber &&
+		isTerraformsHypercastleOverviewVerticalFace(face)
+	);
+}
+
+export function isTerraformsHypercastleOverviewVerticalFace(
+	face: TerraformsHypercastleOverviewFaceKind
+): boolean {
+	return (
+		face === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front ||
+		face === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
+	);
 }
 
 function resolveLayerSizeUnits(level: TerraformsLevelSummary): number {
@@ -388,7 +529,7 @@ function resolveBottomBackOutlineSegments(
 	).map((outline) => ({
 		...outline,
 		key: outlineKey(outline, 0),
-		style: TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
+		style: TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
 	}));
 }
 
@@ -447,7 +588,7 @@ function splitOutlineByHiddenIntervals(
 				hiddenIntervals,
 				midpoint
 			)
-				? TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dashed
+				? TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
 				: TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Solid;
 			return {
 				...outline,
