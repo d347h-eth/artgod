@@ -100,9 +100,9 @@
 		configureLayerElement(layerGroup.getElement(), layer);
 		rootGroup.addChild(layerGroup);
 
+		renderLayerFace(layerGroup, layer, 'top', isometricModule.PlaneView.TOP);
 		renderLayerFace(layerGroup, layer, 'front', isometricModule.PlaneView.FRONT);
 		renderLayerFace(layerGroup, layer, 'side', isometricModule.PlaneView.SIDE);
-		renderLayerFace(layerGroup, layer, 'top', isometricModule.PlaneView.TOP);
 	}
 
 	function renderLayerFace(
@@ -172,8 +172,8 @@
 
 	function resolveLayerFaceStrokeDashArray(
 		faceKind: TerraformsHypercastleOverviewFaceKind
-	): number[] | undefined {
-		return isLayerVerticalFace(faceKind) ? undefined : OVERVIEW_LAYER_BACKWARD_STROKE_DASH_ARRAY;
+	): number[] {
+		return isLayerVerticalFace(faceKind) ? [] : OVERVIEW_LAYER_BACKWARD_STROKE_DASH_ARRAY;
 	}
 
 	function isLayerVerticalFace(faceKind: TerraformsHypercastleOverviewFaceKind): boolean {
