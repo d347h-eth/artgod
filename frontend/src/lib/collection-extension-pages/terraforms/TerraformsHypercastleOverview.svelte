@@ -14,9 +14,10 @@
 	const OVERVIEW_ARIA_LABEL = 'Hypercastle overview';
 	const OVERVIEW_RENDER_ERROR = 'isometric renderer unavailable';
 	const OVERVIEW_LAYER_FILL = 'var(--c-cyan)';
-	const OVERVIEW_LAYER_FILL_OPACITY = 0;
+	const OVERVIEW_LAYER_TOP_FILL_OPACITY = 0;
+	const OVERVIEW_LAYER_VERTICAL_FILL_OPACITY = 1;
 	const OVERVIEW_LAYER_STROKE = 'var(--c-blue)';
-	const OVERVIEW_LAYER_STROKE_DASH_ARRAY = [4, 3];
+	const OVERVIEW_LAYER_BACKWARD_STROKE_DASH_ARRAY = [4, 3];
 	const OVERVIEW_LAYER_STROKE_OPACITY = 1;
 	const OVERVIEW_LAYER_STROKE_WIDTH = 1;
 	const POINTER_TYPE_MOUSE = 'mouse';
@@ -124,9 +125,9 @@
 				`terraforms-hypercastle-overview-layer-face-${faceKind}`
 			].join(' '),
 			fillColor: OVERVIEW_LAYER_FILL,
-			fillOpacity: OVERVIEW_LAYER_FILL_OPACITY,
+			fillOpacity: resolveLayerFaceFillOpacity(faceKind),
 			strokeColor: OVERVIEW_LAYER_STROKE,
-			strokeDashArray: OVERVIEW_LAYER_STROKE_DASH_ARRAY,
+			strokeDashArray: resolveLayerFaceStrokeDashArray(faceKind),
 			strokeOpacity: OVERVIEW_LAYER_STROKE_OPACITY,
 			strokeWidth: OVERVIEW_LAYER_STROKE_WIDTH
 		});
@@ -161,6 +162,22 @@
 
 	function selectLayer(layer: TerraformsHypercastleOverviewLayer): void {
 		void layer;
+	}
+
+	function resolveLayerFaceFillOpacity(faceKind: TerraformsHypercastleOverviewFaceKind): number {
+		return isLayerVerticalFace(faceKind)
+			? OVERVIEW_LAYER_VERTICAL_FILL_OPACITY
+			: OVERVIEW_LAYER_TOP_FILL_OPACITY;
+	}
+
+	function resolveLayerFaceStrokeDashArray(
+		faceKind: TerraformsHypercastleOverviewFaceKind
+	): number[] | undefined {
+		return isLayerVerticalFace(faceKind) ? undefined : OVERVIEW_LAYER_BACKWARD_STROKE_DASH_ARRAY;
+	}
+
+	function isLayerVerticalFace(faceKind: TerraformsHypercastleOverviewFaceKind): boolean {
+		return faceKind === 'front' || faceKind === 'side';
 	}
 </script>
 
