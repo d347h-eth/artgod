@@ -17,6 +17,14 @@ id = "backend-observability"
 label = "Backend Observability"
 
 [[groups]]
+id = "public-deployment"
+label = "Public Deployment"
+
+[[groups]]
+id = "desktop-runtime"
+label = "Desktop Runtime"
+
+[[groups]]
 id = "queue"
 label = "Queue"
 
@@ -89,18 +97,6 @@ options = ["disabled", "memory"]
 help = "Set to memory to enable the lightweight in-memory backend read-query cache."
 
 [[settings]]
-key = "BACKEND_QUERY_CACHE_MAX_ENTRIES"
-group = "backend-cache"
-label = "backend query cache max entries"
-default = "500"
-
-[[settings]]
-key = "BACKEND_QUERY_CACHE_COLLECTION_DETAIL_DEFAULT_TTL_MS"
-group = "backend-cache"
-label = "backend query cache collection detail default ttl ms"
-default = "10000"
-
-[[settings]]
 key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES"
 group = "backend-cache"
 label = "backend query cache token preview max entries"
@@ -123,6 +119,18 @@ key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY"
 group = "backend-cache"
 label = "backend query cache token preview warmup concurrency"
 default = "3"
+
+[[settings]]
+key = "BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS"
+group = "backend-cache"
+label = "backend public collection cache refresh ms"
+default = "30000"
+
+[[settings]]
+key = "BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS"
+group = "backend-cache"
+label = "backend public collection preview warm refresh ms"
+default = "600000"
 
 [[settings]]
 key = "BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS"
@@ -163,6 +171,20 @@ label = "backend apm service namespace"
 default = "artgod.backend"
 
 [[settings]]
+key = "BACKEND_APM_OTLP_HTTP_URL"
+group = "backend-observability"
+label = "backend apm otlp http url"
+default = ""
+validation = "url"
+
+[[settings]]
+key = "BACKEND_APM_PYROSCOPE_URL"
+group = "backend-observability"
+label = "backend apm pyroscope url"
+default = ""
+validation = "url"
+
+[[settings]]
 key = "BACKEND_APM_SPAN_PROFILES_ENABLED"
 group = "backend-observability"
 label = "backend apm span profiles enabled"
@@ -185,9 +207,96 @@ input = "checkbox"
 
 [[settings]]
 key = "PUBLIC_BACKEND_ORIGIN"
-group = "backend"
+group = "public-deployment"
 label = "public backend origin"
 default = "http://127.0.0.1:42710"
+validation = "url"
+desktop_managed = false
+
+[[settings]]
+key = "INTERNAL_BACKEND_ORIGIN"
+group = "public-deployment"
+label = "internal backend origin"
+default = "http://backend:42710"
+validation = "url"
+desktop_managed = false
+
+[[settings]]
+key = "PUBLIC_APP_DEPLOYMENT_MODE"
+group = "public-deployment"
+label = "public app deployment mode"
+default = "standard"
+input = "select"
+options = ["standard", "public_single_collection"]
+desktop_managed = false
+
+[[settings]]
+key = "PUBLIC_APP_CHAIN_REF"
+group = "public-deployment"
+label = "public app chain ref"
+default = ""
+desktop_managed = false
+
+[[settings]]
+key = "PUBLIC_APP_COLLECTION_REF"
+group = "public-deployment"
+label = "public app collection ref"
+default = ""
+desktop_managed = false
+
+[[settings]]
+key = "USERLAND_UI_DIST_DIR"
+group = "desktop-runtime"
+label = "userland ui dist dir"
+default = "frontend/userland"
+
+[[settings]]
+key = "DESKTOP_RUNTIME_RESOURCES_DIR"
+group = "desktop-runtime"
+label = "desktop runtime resources dir"
+default = "runtime"
+
+[[settings]]
+key = "DESKTOP_NODE_BIN"
+group = "desktop-runtime"
+label = "desktop node bin"
+default = ""
+
+[[settings]]
+key = "DESKTOP_NATS_BINARY_PATH"
+group = "desktop-runtime"
+label = "desktop nats binary path"
+default = ""
+
+[[settings]]
+key = "DESKTOP_NODE_PNP_CJS"
+group = "desktop-runtime"
+label = "desktop node pnp cjs"
+default = ""
+
+[[settings]]
+key = "DESKTOP_NODE_PNP_LOADER"
+group = "desktop-runtime"
+label = "desktop node pnp loader"
+default = ""
+
+[[settings]]
+key = "DESKTOP_RESTART_BACKOFF_MS"
+group = "desktop-runtime"
+label = "desktop restart backoff ms"
+default = "1500"
+
+[[settings]]
+key = "DESKTOP_WALLET_STORE_DIR"
+group = "desktop-runtime"
+label = "desktop wallet store dir"
+default = "wallets"
+
+[[settings]]
+key = "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS"
+group = "desktop-runtime"
+label = "desktop bot unlock stabilization delay ms"
+default = "5000"
 
 [[settings]]
 key = "CHAIN_ID"
@@ -203,6 +312,23 @@ default = ""
 help = "Ethereum JSON-RPC endpoint used by the backend and indexer."
 required_for_launch = true
 validation = "url"
+view = "basic"
+
+[[settings]]
+key = "RPC_BACKFILL_URL"
+group = "chain-rpc"
+label = "rpc backfill url"
+default = ""
+help = "Optional JSON-RPC endpoint used for backfill sync jobs; realtime sync keeps using RPC_URL."
+validation = "url"
+
+[[settings]]
+key = "RPC_WS_URL"
+group = "chain-rpc"
+label = "rpc ws url"
+default = ""
+help = "Optional WebSocket RPC endpoint used to listen for new blocks faster and more cheaply, alongside periodic new-block polling."
+validation = "websocket_url"
 view = "basic"
 
 [[settings]]
@@ -295,12 +421,14 @@ key = "OBSERVABILITY_OTLP_HTTP_URL"
 group = "indexer-observability"
 label = "observability otlp http url"
 default = "http://127.0.0.1:42732/v1/traces"
+validation = "url"
 
 [[settings]]
 key = "OBSERVABILITY_PYROSCOPE_URL"
 group = "indexer-observability"
 label = "observability pyroscope url"
 default = "http://127.0.0.1:42733"
+validation = "url"
 
 [[settings]]
 key = "INDEXER_APM_ENABLED"
@@ -314,6 +442,20 @@ key = "INDEXER_APM_SERVICE_NAMESPACE"
 group = "indexer-observability"
 label = "indexer apm service namespace"
 default = "artgod.indexer"
+
+[[settings]]
+key = "INDEXER_APM_OTLP_HTTP_URL"
+group = "indexer-observability"
+label = "indexer apm otlp http url"
+default = ""
+validation = "url"
+
+[[settings]]
+key = "INDEXER_APM_PYROSCOPE_URL"
+group = "indexer-observability"
+label = "indexer apm pyroscope url"
+default = ""
+validation = "url"
 
 [[settings]]
 key = "INDEXER_APM_SPAN_PROFILES_ENABLED"

@@ -19,7 +19,22 @@ const RPC_URL_FIELD: AdminConfigField = {
 	view: 'basic'
 };
 
-function config(values: Record<string, string>): AdminConfigState {
+const RPC_WS_URL_FIELD: AdminConfigField = {
+	key: 'RPC_WS_URL',
+	label: 'rpc ws url',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: 'websocket_url',
+	view: 'basic'
+};
+
+function config(
+	values: Record<string, string>,
+	fields: AdminConfigField[] = [RPC_URL_FIELD]
+): AdminConfigState {
 	return {
 		configured: false,
 		envFilePath: '/tmp/.env',
@@ -33,7 +48,7 @@ function config(values: Record<string, string>): AdminConfigState {
 			{
 				id: 'chain-rpc',
 				label: 'chain rpc',
-				fields: [RPC_URL_FIELD]
+				fields
 			}
 		]
 	};
@@ -72,5 +87,38 @@ describe('admin config validation', () => {
 		const issues = resolveAdminLaunchConfigIssues(config({ RPC_URL: 'https:localhost:8545' }));
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
+	});
+
+	it('accepts supported websocket URL schemes for websocket-only fields', () => {
+		expect(
+			resolveAdminConfigValidationIssues(
+				config({ RPC_WS_URL: 'wss://rpc.example' }, [RPC_WS_URL_FIELD]),
+				{
+					RPC_WS_URL: 'wss://rpc.example'
+				}
+			)
+		).toEqual([]);
+		expect(
+			resolveAdminConfigValidationIssues(
+				config({ RPC_WS_URL: 'ws://127.0.0.1:8546' }, [RPC_WS_URL_FIELD]),
+				{
+					RPC_WS_URL: 'ws://127.0.0.1:8546'
+				}
+			)
+		).toEqual([]);
+	});
+
+	it('rejects non-websocket schemes for websocket-only fields', () => {
+		const issues = resolveAdminConfigValidationIssues(
+			config({ RPC_WS_URL: 'https://rpc.example' }, [RPC_WS_URL_FIELD]),
+			{
+				RPC_WS_URL: 'https://rpc.example'
+			}
+		);
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
+		expect(issues.map((issue) => issue.message)).toEqual([
+			'RPC_WS_URL must be a valid WebSocket URL.'
+		]);
 	});
 });

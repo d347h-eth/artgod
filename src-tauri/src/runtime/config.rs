@@ -80,6 +80,8 @@ impl DesktopRuntimeConfig {
             process_env
                 .get("DESKTOP_RUNTIME_RESOURCES_DIR")
                 .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
                 .unwrap_or("runtime"),
         )?;
         let node_bin = resolve_node_binary_path(
@@ -109,6 +111,8 @@ impl DesktopRuntimeConfig {
             process_env
                 .get("DESKTOP_NODE_PNP_CJS")
                 .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
                 .unwrap_or(".pnp.cjs"),
         );
         if !pnp_cjs_path.exists() {
@@ -122,6 +126,8 @@ impl DesktopRuntimeConfig {
             process_env
                 .get("DESKTOP_NODE_PNP_LOADER")
                 .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
                 .unwrap_or(".pnp.loader.mjs"),
         );
         if !pnp_loader_path.exists() {
@@ -226,6 +232,8 @@ fn build_wallet_config(
         process_env
             .get("DESKTOP_WALLET_STORE_DIR")
             .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
             .unwrap_or("wallets"),
     );
     fs::create_dir_all(&wallet_store_dir).map_err(|error| {
@@ -238,6 +246,8 @@ fn build_wallet_config(
         process_env
             .get("DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS")
             .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
             .unwrap_or("5000"),
     )?;
 

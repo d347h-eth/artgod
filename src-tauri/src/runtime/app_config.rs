@@ -14,12 +14,6 @@ use super::app_config_manifest::{
 
 const SETTINGS_VERSION: u8 = 1;
 
-const DESKTOP_RUNTIME_RESOURCES_DIR_DEFAULT: &str = "runtime";
-const DESKTOP_RESTART_BACKOFF_MS_DEFAULT: &str = "1500";
-const DESKTOP_WALLET_STORE_DIR_DEFAULT: &str = "wallets";
-const DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS_DEFAULT: &str = "5000";
-const USERLAND_UI_DIST_DIR_DEFAULT: &str = "frontend/userland";
-
 /// App-data paths used by desktop configuration, rendered env, and logs.
 pub struct DesktopConfigPaths {
     pub app_data_dir: PathBuf,
@@ -358,37 +352,12 @@ fn render_env_file(
     output.push_str("# Desktop supervisor\n");
     push_env_line(
         &mut output,
-        "DESKTOP_RUNTIME_RESOURCES_DIR",
-        DESKTOP_RUNTIME_RESOURCES_DIR_DEFAULT,
-    );
-    push_env_line(
-        &mut output,
         "DESKTOP_AUTO_START",
         if document.desktop.auto_launch_on_startup {
             "true"
         } else {
             "false"
         },
-    );
-    push_env_line(
-        &mut output,
-        "DESKTOP_RESTART_BACKOFF_MS",
-        DESKTOP_RESTART_BACKOFF_MS_DEFAULT,
-    );
-    push_env_line(
-        &mut output,
-        "DESKTOP_WALLET_STORE_DIR",
-        DESKTOP_WALLET_STORE_DIR_DEFAULT,
-    );
-    push_env_line(
-        &mut output,
-        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS",
-        DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS_DEFAULT,
-    );
-    push_env_line(
-        &mut output,
-        "USERLAND_UI_DIST_DIR",
-        USERLAND_UI_DIST_DIR_DEFAULT,
     );
 
     for group in &model.groups {
@@ -598,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_contains_every_manifest_key_once() {
+    fn schema_contains_every_admin_managed_manifest_key_once() {
         let model = load_app_config_manifest().expect("load settings manifest");
         let fields = build_schema_groups(&model)
             .into_iter()
@@ -637,6 +606,8 @@ mod tests {
         assert!(rendered.contains("DESKTOP_AUTO_START=true\n"));
         assert!(rendered.contains("USERLAND_UI_DIST_DIR=frontend/userland\n"));
         assert!(rendered.contains("ARTGOD_DB_PATH=sqlite/main/db\n"));
+        assert!(!rendered.contains("PUBLIC_BACKEND_ORIGIN="));
+        assert!(!rendered.contains("PUBLIC_APP_DEPLOYMENT_MODE="));
         assert!(rendered.contains("BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION="));
     }
 

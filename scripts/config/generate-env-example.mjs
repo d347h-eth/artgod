@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
 const manifestPath = path.join(rootDir, "config", "settings.manifest.toml");
 const envExamplePath = path.join(rootDir, ".env.example");
+const SUPPORTED_VALIDATION_RULES = ["url", "websocket_url"];
 
 function parseTomlValue(raw) {
     const value = raw.trim();
@@ -20,7 +21,7 @@ function parseTomlValue(raw) {
     if (/^\d+$/.test(value)) {
         return Number(value);
     }
-    if (value.startsWith("\"") || value.startsWith("[")) {
+    if (value.startsWith('"') || value.startsWith("[")) {
         return JSON.parse(value);
     }
     throw new Error(`Unsupported TOML value syntax: ${raw}`);
@@ -113,25 +114,42 @@ function validateManifest(manifest) {
         ) {
             errors.push(`${location}.required_for_launch: expected boolean`);
         }
+        if (
+            setting.desktop_managed !== undefined &&
+            typeof setting.desktop_managed !== "boolean"
+        ) {
+            errors.push(`${location}.desktop_managed: expected boolean`);
+        }
         if (setting.validation !== undefined) {
             const validation = requireString(
                 setting.validation,
                 `${location}.validation`,
                 errors,
             );
-            if (validation && !["url"].includes(validation)) {
+            if (
+                validation &&
+                !SUPPORTED_VALIDATION_RULES.includes(validation)
+            ) {
                 errors.push(
                     `${location}.validation: unsupported validation "${validation}"`,
                 );
             }
         }
         if (setting.input !== undefined) {
-            const input = requireString(setting.input, `${location}.input`, errors);
+            const input = requireString(
+                setting.input,
+                `${location}.input`,
+                errors,
+            );
             if (
                 input &&
-                !["text", "password", "checkbox", "textarea", "select"].includes(
-                    input,
-                )
+                ![
+                    "text",
+                    "password",
+                    "checkbox",
+                    "textarea",
+                    "select",
+                ].includes(input)
             ) {
                 errors.push(`${location}.input: unsupported input "${input}"`);
             }
@@ -142,12 +160,17 @@ function validateManifest(manifest) {
             } else {
                 for (const option of setting.options) {
                     if (typeof option !== "string") {
-                        errors.push(`${location}.options: expected string options`);
+                        errors.push(
+                            `${location}.options: expected string options`,
+                        );
                     }
                 }
             }
         }
-        if (setting.secret !== undefined && typeof setting.secret !== "boolean") {
+        if (
+            setting.secret !== undefined &&
+            typeof setting.secret !== "boolean"
+        ) {
             errors.push(`${location}.secret: expected boolean`);
         }
         if (key && keys.has(key)) {
@@ -168,7 +191,7 @@ function quoteEnvValue(value) {
     if (!/[\s#]/.test(value)) {
         return value;
     }
-    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 function formatHelp(help) {

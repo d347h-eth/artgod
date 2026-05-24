@@ -1,7 +1,8 @@
 import type { AdminConfigField, AdminConfigState } from '$lib/admin/configuration/ports';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
-	url: 'url'
+	url: 'url',
+	websocketUrl: 'websocket_url'
 } as const;
 
 export const ADMIN_CONFIG_VALIDATION_ISSUE_KINDS = {
@@ -21,7 +22,9 @@ export type AdminConfigValidationIssue = {
 };
 
 const SUPPORTED_URL_PROTOCOLS = new Set(['http:', 'https:', 'ws:', 'wss:']);
+const SUPPORTED_WEBSOCKET_URL_PROTOCOLS = new Set(['ws:', 'wss:']);
 const EXPLICIT_URL_SCHEME_PATTERN = /^(https?|wss?):\/\//;
+const EXPLICIT_WEBSOCKET_URL_SCHEME_PATTERN = /^wss?:\/\//;
 
 // Validates every manifest-backed setting against lightweight frontend rules.
 export function resolveAdminConfigValidationIssues(
@@ -88,6 +91,16 @@ export function validateAdminConfigField(
 			`${field.key} must be a valid URL.`
 		);
 	}
+	if (
+		field.validation === ADMIN_CONFIG_VALIDATION_RULES.websocketUrl &&
+		!isSupportedWebSocketUrl(trimmed)
+	) {
+		return buildValidationIssue(
+			field,
+			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.url,
+			`${field.key} must be a valid WebSocket URL.`
+		);
+	}
 	return null;
 }
 
@@ -116,6 +129,18 @@ function isSupportedUrl(value: string): boolean {
 	try {
 		const url = new URL(value);
 		return SUPPORTED_URL_PROTOCOLS.has(url.protocol) && url.hostname.trim().length > 0;
+	} catch {
+		return false;
+	}
+}
+
+function isSupportedWebSocketUrl(value: string): boolean {
+	if (!EXPLICIT_WEBSOCKET_URL_SCHEME_PATTERN.test(value)) {
+		return false;
+	}
+	try {
+		const url = new URL(value);
+		return SUPPORTED_WEBSOCKET_URL_PROTOCOLS.has(url.protocol) && url.hostname.trim().length > 0;
 	} catch {
 		return false;
 	}
