@@ -12,9 +12,11 @@
 		type TerraformsBiome,
 		type TerraformsLevelGroupSummary,
 		type TerraformsLevelSummary,
+		type TerraformsLevelZoneBucket,
 		type TerraformsZone
 	} from '@artgod/shared/extensions/terraforms';
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
+	import TerraformsHypercastleIsometricLevel from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleIsometricLevel.svelte';
 	import {
 		TERRAFORMS_HYPERCASTLE_ARIA_LABELS,
 		TERRAFORMS_HYPERCASTLE_CATALOG_KEYS,
@@ -38,8 +40,13 @@
 		type TerraformsHypercastleHrefUpdate,
 		type TerraformsHypercastleSortKey
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-catalog';
+	import {
+		buildTerraformsHypercastleIsometricRenderKey,
+		resolveTerraformsHypercastleSelectedBucket
+	} from '$lib/collection-extension-pages/terraforms/hypercastle-isometric-level';
 
 	let { collection, page }: CollectionExtensionPageProps = $props();
+	let selectedTopographyBucketIndex = $state<number | null>(null);
 
 	const levelCatalogRows = buildTerraformsLevelCatalogRows();
 	const zoneCatalogRows = buildTerraformsZoneCatalogRows();
@@ -63,6 +70,28 @@
 			explorerState.direction
 		)
 	);
+	const selectedTopographyBucket = $derived(
+		explorerState.selectedLevel
+			? resolveTerraformsHypercastleSelectedBucket(
+					explorerState.selectedLevel,
+					selectedTopographyBucketIndex
+				)
+			: null
+	);
+
+	$effect(() => {
+		if (!explorerState.selectedLevel) {
+			if (selectedTopographyBucketIndex !== null) selectedTopographyBucketIndex = null;
+			return;
+		}
+		const bucket = resolveTerraformsHypercastleSelectedBucket(
+			explorerState.selectedLevel,
+			selectedTopographyBucketIndex
+		);
+		if (bucket.topographyBucketIndex !== selectedTopographyBucketIndex) {
+			selectedTopographyBucketIndex = bucket.topographyBucketIndex;
+		}
+	});
 
 	function explorerHref(update: TerraformsHypercastleHrefUpdate): string {
 		return buildTerraformsHypercastleHref(
@@ -102,6 +131,14 @@
 
 	function clearFocusHref(): string {
 		return explorerHref({ groupId: null, levelNumber: null });
+	}
+
+	function selectTopographyBucket(bucket: TerraformsLevelZoneBucket): void {
+		selectedTopographyBucketIndex = bucket.topographyBucketIndex;
+	}
+
+	function zoneForBucket(bucket: TerraformsLevelZoneBucket): TerraformsZone {
+		return TERRAFORMS_ZONES[bucket.zoneIndex]!;
 	}
 
 	function levelStyle(level: TerraformsLevelSummary): string {
@@ -184,7 +221,7 @@
 <section class="terraforms-hypercastle-page" data-extension-key={page.extensionKey}>
 	<header class="hypercastle-header">
 		<div class="hypercastle-title">
-			<h1>Hypercastle</h1>
+			<h1>{TERRAFORMS_HYPERCASTLE_LABELS.Hypercastle}</h1>
 			<span>{collection.slug}</span>
 		</div>
 		<div class="hypercastle-stats" aria-label={TERRAFORMS_HYPERCASTLE_ARIA_LABELS.ContractTotals}>
@@ -261,6 +298,43 @@
 						<strong>{explorerState.selectedLevel.availableBiomeGroupWeights.length}</strong>
 						<span>{TERRAFORMS_HYPERCASTLE_LABELS.BiomeGroups}</span>
 					</div>
+				</div>
+				<div class="focus-visual-grid">
+					<TerraformsHypercastleIsometricLevel
+						level={explorerState.selectedLevel}
+						selectedBucketIndex={selectedTopographyBucket?.topographyBucketIndex ?? null}
+						renderKey={buildTerraformsHypercastleIsometricRenderKey(
+							explorerState.selectedLevel,
+							selectedTopographyBucket
+						)}
+						onBucketSelect={selectTopographyBucket}
+					/>
+					{#if selectedTopographyBucket}
+						<div class="topography-detail">
+							<h3>{TERRAFORMS_HYPERCASTLE_LABELS.Topography}</h3>
+							<div class="topography-stat-grid">
+								<div>
+									<strong>{selectedTopographyBucket.topographyBucketIndex}</strong>
+									<span>{TERRAFORMS_HYPERCASTLE_LABELS.SelectedBand}</span>
+								</div>
+								<div>
+									<strong>{selectedTopographyBucket.elevation}</strong>
+									<span>{TERRAFORMS_HYPERCASTLE_LABELS.Elevation}</span>
+								</div>
+								<div>
+									<strong>{formatThreshold(selectedTopographyBucket.thresholdGreaterThan)}</strong>
+									<span>{TERRAFORMS_HYPERCASTLE_LABELS.Threshold}</span>
+								</div>
+							</div>
+							<a
+								href={catalogHref(TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Zones)}
+								class="zone-chip"
+								style={zoneStyle(zoneForBucket(selectedTopographyBucket))}
+							>
+								<span>{selectedTopographyBucket.zoneName}</span>
+							</a>
+						</div>
+					{/if}
 				</div>
 				<div class="focus-columns">
 					<div class="focus-block">
@@ -406,7 +480,8 @@
 					<span class="level-group-levels">{formatLevels(group.levelNumbers)}</span>
 					<span class="level-group-zones">{group.zoneNames.join(', ')}</span>
 					<span class="level-group-meta">
-						{group.maxDimension}x{group.maxDimension} / {formatInteger(group.totalParcels)} parcels
+						{group.maxDimension}x{group.maxDimension} / {formatInteger(group.totalParcels)}
+						{TERRAFORMS_HYPERCASTLE_LABELS.Parcels}
 					</span>
 				</a>
 			{/each}
@@ -547,7 +622,8 @@
 
 	.hypercastle-title h1,
 	.section-heading h2,
-	.focus-block h3 {
+	.focus-block h3,
+	.topography-detail h3 {
 		margin: 0;
 		font-weight: 650;
 		line-height: 1.1;
@@ -563,7 +639,8 @@
 		color: var(--c-pink);
 	}
 
-	.focus-block h3 {
+	.focus-block h3,
+	.topography-detail h3 {
 		font-size: 0.75rem;
 		color: var(--c-pink);
 	}
@@ -689,10 +766,52 @@
 		gap: 12px;
 	}
 
+	.focus-visual-grid {
+		display: grid;
+		grid-template-columns: minmax(300px, 0.94fr) minmax(180px, 0.5fr);
+		gap: 12px;
+		align-items: start;
+	}
+
 	.focus-block {
 		display: grid;
 		gap: 8px;
 		min-width: 0;
+	}
+
+	.topography-detail {
+		display: grid;
+		gap: 8px;
+		min-width: 0;
+	}
+
+	.topography-detail .zone-chip {
+		width: fit-content;
+	}
+
+	.topography-stat-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	.topography-stat-grid div {
+		display: grid;
+		min-width: 78px;
+		gap: 2px;
+		border: 1px solid var(--c-blue);
+		border-radius: 6px;
+		padding: 8px 10px;
+	}
+
+	.topography-stat-grid strong {
+		font-size: 1rem;
+		font-weight: 650;
+	}
+
+	.topography-stat-grid span {
+		color: var(--c-sand);
+		font-size: 0.76rem;
 	}
 
 	.zone-chip-list,
@@ -830,6 +949,10 @@
 
 	@media (max-width: 820px) {
 		.hypercastle-workbench {
+			grid-template-columns: 1fr;
+		}
+
+		.focus-visual-grid {
 			grid-template-columns: 1fr;
 		}
 

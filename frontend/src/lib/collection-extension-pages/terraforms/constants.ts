@@ -45,6 +45,7 @@ export const TERRAFORMS_HYPERCASTLE_SORT_KEYS = {
 export const TERRAFORMS_HYPERCASTLE_LABELS = {
 	All: 'all',
 	Base: 'base',
+	Band: 'band',
 	Biome: 'biome',
 	BiomeGroups: 'biome groups',
 	BiomeWeights: 'biome weights',
@@ -55,6 +56,7 @@ export const TERRAFORMS_HYPERCASTLE_LABELS = {
 	Elevation: 'elev',
 	Grid: 'grid',
 	Group: 'group',
+	Hypercastle: 'Hypercastle',
 	Index: 'index',
 	Level: 'level',
 	LevelParcels: 'level parcels',
@@ -67,7 +69,9 @@ export const TERRAFORMS_HYPERCASTLE_LABELS = {
 	OverviewWidestLevels: 'L13 L14',
 	Palette: 'palette',
 	Parcels: 'parcels',
+	SelectedBand: 'selected band',
 	Threshold: 'threshold',
+	Topography: 'topography',
 	Weight: 'weight',
 	Widest: 'widest',
 	Zone: 'zone',
@@ -85,6 +89,7 @@ export const TERRAFORMS_HYPERCASTLE_ARIA_LABELS = {
 	CatalogTabs: 'Hypercastle catalog tabs',
 	ContractTotals: 'Hypercastle contract totals',
 	Focus: 'Hypercastle focus',
+	LevelIsometric: 'Hypercastle level isometric topography',
 	LevelGroups: 'Hypercastle level groups',
 	Levels: 'Hypercastle levels',
 	Structure: 'Hypercastle structure'
@@ -97,3 +102,13 @@ export const TERRAFORMS_HYPERCASTLE_ENTITY_PREFIXES = {
 	Level: 'L',
 	Zone: 'Z'
 } as const;
+
+// Local CSS class names applied to generated Terraforms isometric SVG nodes.
+export const TERRAFORMS_HYPERCASTLE_ISOMETRIC_CLASSES = {
+	Band: 'terraforms-hypercastle-isometric-band',
+	BandSelected: 'terraforms-hypercastle-isometric-band-selected',
+	Svg: 'terraforms-hypercastle-isometric-svg'
+} as const;
+
+// User-facing fallback text for the dynamically loaded isometric renderer.
+export const TERRAFORMS_HYPERCASTLE_ISOMETRIC_RENDER_ERROR = 'isometric renderer unavailable';

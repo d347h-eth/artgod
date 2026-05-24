@@ -14,6 +14,18 @@ import {
 	TERRAFORMS_HYPERCASTLE_SORT_DIRECTIONS,
 	TERRAFORMS_HYPERCASTLE_SORT_KEYS
 } from '$lib/collection-extension-pages/terraforms/constants';
+import {
+	buildTerraformsHypercastleIsometricBands,
+	resolveTerraformsHypercastleSelectedBucket
+} from '$lib/collection-extension-pages/terraforms/hypercastle-isometric-level';
+import {
+	COLLECTION_MEDIA_MODES,
+	COLLECTION_MEDIA_QUERY_PARAMS
+} from '@artgod/shared/extensions';
+import {
+	TERRAFORMS_HYPERCASTLE_LEVEL_GROUPS,
+	TERRAFORMS_HYPERCASTLE_LEVELS
+} from '@artgod/shared/extensions/terraforms';
 
 describe('Terraforms Hypercastle catalog helpers', () => {
 	it('resolves selected levels to their Zone-set group', () => {
@@ -32,17 +44,26 @@ describe('Terraforms Hypercastle catalog helpers', () => {
 	});
 
 	it('builds shareable focus hrefs without dropping unrelated query params', () => {
+		const pathname = '/ethereum/terraforms/extensions/terraforms/hypercastle';
+		const currentParams = new URLSearchParams();
+		currentParams.set(COLLECTION_MEDIA_QUERY_PARAMS.MediaMode, COLLECTION_MEDIA_MODES.Artifact);
+		currentParams.set(
+			TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Catalog,
+			TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels
+		);
+		const expectedParams = new URLSearchParams(currentParams);
+		expectedParams.set(TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Level, String(1));
+		expectedParams.set(
+			TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Group,
+			TERRAFORMS_HYPERCASTLE_LEVEL_GROUPS[0]!.groupId
+		);
 		const href = buildTerraformsHypercastleHref(
-			'/ethereum/terraforms/extensions/terraforms/hypercastle',
-			new URLSearchParams(
-				`media_mode=artifact&${TERRAFORMS_HYPERCASTLE_QUERY_PARAMS.Catalog}=${TERRAFORMS_HYPERCASTLE_CATALOG_KEYS.Levels}`
-			),
+			pathname,
+			currentParams,
 			{ levelNumber: 1 }
 		);
 
-		expect(href).toBe(
-			'/ethereum/terraforms/extensions/terraforms/hypercastle?media_mode=artifact&catalog=levels&level=1&group=levels-1-4'
-		);
+		expect(href).toBe(`${pathname}?${expectedParams.toString()}`);
 	});
 
 	it('builds level rows with parcel and available-biome totals', () => {
@@ -84,5 +105,29 @@ describe('Terraforms Hypercastle catalog helpers', () => {
 		expect(firstBiome.levelNumbers).toContain(13);
 		expect(firstBiome.maxWeightPercent).toBe(50);
 		expect(firstBiome.resourceCount).toBe(0);
+	});
+
+	it('builds aggregate isometric topography bands for focused levels', () => {
+		const level = TERRAFORMS_HYPERCASTLE_LEVELS[12]!;
+		const bands = buildTerraformsHypercastleIsometricBands(level);
+		const firstBand = bands[0]!;
+		const lastBand = bands.at(-1)!;
+		const bandZoneIndices = new Set(bands.map((band) => band.zone.index));
+		const bucketZoneIndices = new Set(
+			level.topographyZoneBuckets.map((bucket) => bucket.zoneIndex)
+		);
+
+		expect(bands).toHaveLength(9);
+		expect(firstBand.bucket.topographyBucketIndex).toBe(8);
+		expect(lastBand.bucket.topographyBucketIndex).toBe(0);
+		expect(firstBand.width).toBeGreaterThan(lastBand.width);
+		expect(bandZoneIndices).toEqual(bucketZoneIndices);
+	});
+
+	it('keeps focused isometric bucket selection inside the level topography domain', () => {
+		const level = TERRAFORMS_HYPERCASTLE_LEVELS[12]!;
+
+		expect(resolveTerraformsHypercastleSelectedBucket(level, 8).topographyBucketIndex).toBe(8);
+		expect(resolveTerraformsHypercastleSelectedBucket(level, 99).topographyBucketIndex).toBe(0);
 	});
 });
