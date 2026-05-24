@@ -246,7 +246,7 @@ cp .env.example .env
 cp .env.test.example .env.test
 ```
 
-`.env.example` is generated from `config/settings.manifest.toml`. Edit the manifest first, then run `yarn config:generate` and commit both files.
+`.env.example` and `shared/config/generated-settings-defaults.ts` are generated from `config/settings.manifest.toml`. Edit the manifest first, then run `yarn config:generate` and commit the manifest plus generated files together. See `docs/desktop/04-settings-manifest-process.md` for the full process.
 
 Required core env:
 
@@ -274,7 +274,7 @@ Useful optional env groups:
 - Indexer metrics (`INDEXER_METRICS_ENABLED`, `INDEXER_METRICS_HOST`, `INDEXER_METRICS_PORT_*`)
 - Indexer APM (`INDEXER_APM_ENABLED`, `INDEXER_APM_*`)
 
-See `config/settings.manifest.toml`, the generated `.env.example`, and `docs/indexer/01-config-and-env.md` for full definitions.
+See `config/settings.manifest.toml`, the generated `.env.example`, `shared/config/generated-settings-defaults.ts`, `docs/desktop/04-settings-manifest-process.md`, and `docs/indexer/01-config-and-env.md` for full definitions.
 
 `BACKEND_QUERY_CACHE_PROVIDER=memory` enables a lightweight in-memory cache for expensive backend read queries. The current cached paths are:
 
@@ -404,6 +404,7 @@ Use these as primary references for design and implementation details:
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
+- `docs/desktop/04-settings-manifest-process.md`
 - `docs/ports/01-port-catalog.md`
 - `docs/trading/01-bidding-runtime-and-jobs.md`
 - `docs/trading/02-bidding-automation-capabilities.md`

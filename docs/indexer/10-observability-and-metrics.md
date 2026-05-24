@@ -94,7 +94,7 @@ Observability containers run behind the `observability` compose profile in `dock
 
 ## Runtime Config
 
-Main env flags (in `.env.example` and loaded through typed config):
+Main env flags (declared in `config/settings.manifest.toml`, generated into `.env.example` and `shared/config/generated-settings-defaults.ts`, and loaded through typed config):
 
 - `OBSERVABILITY_OTLP_HTTP_URL`
 - `OBSERVABILITY_PYROSCOPE_URL`

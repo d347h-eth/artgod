@@ -107,7 +107,7 @@ Files:
 - `indexer/src/runtime/*.ts` (worker string in APM/Metrics setup)
 - `indexer/src/config/observability-env.ts` (`metrics.ports.*` map)
 - `config/settings.manifest.toml` (source for matching `INDEXER_METRICS_PORT_*` vars)
-- `.env.example` (generated from the settings manifest)
+- `.env.example` and `shared/config/generated-settings-defaults.ts` (generated from the settings manifest)
 - `observability/prometheus/prometheus.yml` (static scrape targets + runtime labels)
 
 What is explicit here:
@@ -227,7 +227,7 @@ rg -n "INDEXER_METRICS_PORT_|metrics\\.ports" indexer/src/config/observability-e
 rg -n "runtime:|946" observability/prometheus/prometheus.yml
 ```
 
-`yarn check:runtime-registry` is the canonical automated guard and is also run in CI (`.github/workflows/tauri-build-check.yml`).
+`yarn config:check` guards generated settings artifacts; `yarn check:runtime-registry` is the canonical automated guard for runtime topology and is also run in CI (`.github/workflows/tauri-build-check.yml`).
 
 ## Current Limitation
 

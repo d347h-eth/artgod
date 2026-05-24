@@ -334,8 +334,9 @@ Timestamp semantics:
 
 Operational note:
 
-- raw observation persistence can be disabled with `OFFCHAIN_PERSIST_RAW_OBSERVATIONS=false`
+- raw observation persistence is disabled by default with `OFFCHAIN_PERSIST_RAW_OBSERVATIONS=false`
 - when disabled, downstream normalization and canonical order updates still run; only the audit trail table stops growing
+- set `OFFCHAIN_PERSIST_RAW_OBSERVATIONS=true` when raw audit payload history is needed
 
 ### `opensea_orderbook_runs`
 
