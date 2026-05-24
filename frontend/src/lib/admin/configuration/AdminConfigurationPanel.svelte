@@ -7,6 +7,10 @@
 		AdminConfigSaveInput,
 		AdminConfigState
 	} from '$lib/admin/configuration/ports';
+	import {
+		resolveAdminConfigValidationIssues,
+		type AdminConfigValidationIssue
+	} from '$lib/admin/configuration/validation';
 
 	type AdminConfigView = 'basic' | 'advanced';
 
@@ -33,6 +37,8 @@
 
 	const editableGroups = $derived(resolveEditableGroups(config?.groups ?? [], configView));
 	const formDisabled = $derived(loading || busyAction !== null || config === null);
+	const validationIssues = $derived(resolveAdminConfigValidationIssues(config, values));
+	const saveDisabled = $derived(formDisabled || validationIssues.length > 0);
 
 	$effect(() => {
 		if (!config || config === appliedConfig) {
@@ -63,7 +69,7 @@
 	}
 
 	async function saveConfig(): Promise<void> {
-		if (formDisabled) {
+		if (saveDisabled) {
 			return;
 		}
 		await onSave({
@@ -78,6 +84,10 @@
 
 	function fieldChecked(field: AdminConfigField): boolean {
 		return ['1', 'true', 'yes', 'on'].includes(fieldValue(field).trim().toLowerCase());
+	}
+
+	function fieldValidationIssue(field: AdminConfigField): AdminConfigValidationIssue | null {
+		return validationIssues.find((issue) => issue.key === field.key) ?? null;
 	}
 
 	function resolveEditableGroups(groups: AdminConfigGroup[], view: AdminConfigView): AdminConfigGroup[] {
@@ -154,9 +164,17 @@
 						<section class="runtime-section admin-config-group">
 							<h3>{group.label}</h3>
 							{#each group.fields as field (field.key)}
-								<label class="admin-config-row" class:admin-config-textarea-row={field.inputKind === 'textarea'}>
+								{@const validationIssue = fieldValidationIssue(field)}
+								<label
+									class="admin-config-row"
+									class:admin-config-textarea-row={field.inputKind === 'textarea'}
+									class:admin-config-row-warning={validationIssue !== null}
+								>
 									<span class="admin-config-label-cell">
 										<span>{field.label}</span>
+										{#if validationIssue}
+											<InfoTooltip text={validationIssue.message} tone="warning" />
+										{/if}
 										<InfoTooltip text={field.help} />
 									</span>
 									{#if field.inputKind === 'checkbox'}
@@ -172,8 +190,10 @@
 									{:else if field.inputKind === 'select'}
 										<select
 											class="bootstrap-control-select admin-config-control"
+											class:admin-config-control-warning={validationIssue !== null}
 											value={fieldValue(field)}
 											disabled={formDisabled}
+											aria-invalid={validationIssue !== null}
 											onchange={(event) => {
 												setValue(field.key, (event.currentTarget as HTMLSelectElement).value);
 											}}
@@ -185,8 +205,10 @@
 									{:else if field.inputKind === 'textarea'}
 										<textarea
 											class="bootstrap-control-textarea admin-config-control admin-config-textarea"
+											class:admin-config-control-warning={validationIssue !== null}
 											value={fieldValue(field)}
 											disabled={formDisabled}
+											aria-invalid={validationIssue !== null}
 											oninput={(event) => {
 												setValue(field.key, (event.currentTarget as HTMLTextAreaElement).value);
 											}}
@@ -194,9 +216,11 @@
 									{:else}
 										<input
 											class="bootstrap-control admin-config-control"
+											class:admin-config-control-warning={validationIssue !== null}
 											type={field.inputKind === 'password' ? 'password' : 'text'}
 											value={fieldValue(field)}
 											disabled={formDisabled}
+											aria-invalid={validationIssue !== null}
 											oninput={(event) => {
 												setValue(field.key, (event.currentTarget as HTMLInputElement).value);
 											}}
@@ -228,7 +252,7 @@
 								</button>
 							</div>
 							<div class="admin-config-action-group">
-								<button type="submit" class="action-button-positive" disabled={formDisabled}>
+								<button type="submit" class="action-button-positive" disabled={saveDisabled}>
 									{busyAction === 'save' ? 'saving...' : 'save'}
 								</button>
 							</div>
@@ -301,6 +325,10 @@
 		min-width: 0;
 	}
 
+	.admin-config-row-warning .admin-config-label-cell {
+		color: var(--c-yellow);
+	}
+
 	.admin-config-checkbox-row {
 		grid-template-columns: minmax(9.5rem, 13.6rem) max-content;
 	}
@@ -311,6 +339,11 @@
 
 	.admin-config-control {
 		width: min(25.85rem, 100%);
+	}
+
+	.admin-config-control-warning,
+	.admin-config-control-warning:focus {
+		border-color: var(--c-yellow);
 	}
 
 	.admin-config-textarea {

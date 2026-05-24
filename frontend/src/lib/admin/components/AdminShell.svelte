@@ -10,6 +10,7 @@
 	import AdminRuntimePanel from '$lib/admin/runtime/AdminRuntimePanel.svelte';
 	import AdminBotsPanel from '$lib/admin/bots/AdminBotsPanel.svelte';
 	import AdminWalletsPanel from '$lib/admin/wallets/AdminWalletsPanel.svelte';
+	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import { adminRuntimeStore } from '$lib/admin/runtime/store';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import type { AdminConsoleTab } from '$lib/runtime/lifecycle-ui-policy';
@@ -183,14 +184,24 @@
 					{actionFlow.configure.label}
 				</button>
 				<span class="admin-flow-arrow" aria-hidden="true">⇨</span>
-				<button
-					type="button"
-					class="admin-flow-action"
-					onclick={() => void bootSystem()}
-					disabled={actionFlow.boot.disabled}
-				>
-					{configBusyAction === 'defaults' ? 'applying defaults...' : actionFlow.boot.label}
-				</button>
+				<span class="admin-flow-action-shell">
+					<button
+						type="button"
+						class="admin-flow-action"
+						class:admin-flow-action-has-warning={actionFlow.boot.disabledReason !== null}
+						onclick={() => void bootSystem()}
+						disabled={actionFlow.boot.disabled}
+					>
+						{configBusyAction === 'defaults' ? 'applying defaults...' : actionFlow.boot.label}
+					</button>
+					{#if actionFlow.boot.disabledReason}
+						<InfoTooltip
+							text={actionFlow.boot.disabledReason}
+							tone="warning"
+							className="admin-flow-warning-tooltip"
+						/>
+					{/if}
+				</span>
 				<span class="admin-flow-arrow" aria-hidden="true">⇨</span>
 				<button
 					type="button"
@@ -327,6 +338,12 @@
 		white-space: nowrap;
 	}
 
+	.admin-flow-action-shell {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+	}
+
 	.admin-flow-action {
 		border-color: var(--c-blue);
 		color: var(--c-ice);
@@ -334,6 +351,18 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		min-width: 9rem;
+	}
+
+	.admin-flow-action-has-warning {
+		padding-right: 2rem;
+	}
+
+	:global(.admin-flow-warning-tooltip.info-tooltip) {
+		position: absolute;
+		right: 0.55rem;
+		top: 50%;
+		transform: translateY(-50%);
+		z-index: 2;
 	}
 
 	.admin-flow-action:not(:disabled):hover,

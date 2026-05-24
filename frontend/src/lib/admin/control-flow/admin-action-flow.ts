@@ -1,4 +1,8 @@
 import type { AdminConfigState } from '$lib/admin/configuration/ports';
+import {
+	formatLaunchConfigIssueSummary,
+	resolveAdminLaunchConfigIssues
+} from '$lib/admin/configuration/validation';
 import type { LifecyclePhase } from '$lib/runtime/lifecycle/core/types';
 import type { RuntimeStatus } from '$lib/runtime/lifecycle/ports';
 
@@ -19,10 +23,6 @@ export const ADMIN_FLOW_STATES = {
 	ready: 'ready'
 } as const;
 
-export const ADMIN_ACTION_FLOW_CONFIG_KEYS = {
-	rpcUrl: 'RPC_URL'
-} as const;
-
 type AdminRuntimeState = (typeof ADMIN_RUNTIME_STATES)[keyof typeof ADMIN_RUNTIME_STATES];
 
 export type AdminFlowState = (typeof ADMIN_FLOW_STATES)[keyof typeof ADMIN_FLOW_STATES];
@@ -34,6 +34,8 @@ export type AdminFlowAction = {
 
 export type AdminBootAction = AdminFlowAction & {
 	usesDefaults: boolean;
+	disabledReason: string | null;
+	requiredConfigIssueKeys: string[];
 };
 
 export type AdminActionFlowInput = {
@@ -65,7 +67,6 @@ const ADMIN_LIFECYCLE_PHASES = {
 	ready: 'ready'
 } as const satisfies Record<string, LifecyclePhase>;
 
-const REQUIRED_BOOT_CONFIG_KEYS = [ADMIN_ACTION_FLOW_CONFIG_KEYS.rpcUrl] as const;
 const RUNTIME_TRANSIENT_STATES = new Set<AdminRuntimeState>([
 	ADMIN_RUNTIME_STATES.starting,
 	ADMIN_RUNTIME_STATES.restarting,
@@ -84,8 +85,8 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 	const userlandReady = input.lifecyclePhase === ADMIN_LIFECYCLE_PHASES.ready;
 	const configured = input.config?.configured === true;
 	const bootUsesDefaults = !configured;
-	const requiredConfigReady =
-		input.config !== null && hasRequiredBootConfigValues(input.config.values);
+	const requiredConfigIssues = resolveAdminLaunchConfigIssues(input.config);
+	const requiredConfigReady = input.config !== null && requiredConfigIssues.length === 0;
 
 	const state = resolveFlowState({
 		configLoaded: !input.configLoading && input.config !== null,
@@ -107,6 +108,8 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 				? ADMIN_ACTION_FLOW_LABELS.bootWithDefaults
 				: ADMIN_ACTION_FLOW_LABELS.boot,
 			usesDefaults: bootUsesDefaults,
+			disabledReason: formatLaunchConfigIssueSummary(requiredConfigIssues),
+			requiredConfigIssueKeys: requiredConfigIssues.map((issue) => issue.key),
 			disabled:
 				input.configLoading ||
 				input.config === null ||
@@ -169,8 +172,4 @@ function resolveFlowState(input: {
 		return ADMIN_FLOW_STATES.needsConfig;
 	}
 	return ADMIN_FLOW_STATES.readyToBoot;
-}
-
-function hasRequiredBootConfigValues(values: Record<string, string>): boolean {
-	return REQUIRED_BOOT_CONFIG_KEYS.every((key) => values[key]?.trim().length > 0);
 }

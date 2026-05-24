@@ -3,9 +3,11 @@
 
 	let {
 		text,
+		tone = 'info',
 		className = ''
 	}: {
 		text: string;
+		tone?: 'info' | 'warning';
 		className?: string;
 	} = $props();
 
@@ -13,7 +15,7 @@
 </script>
 
 {#if normalizedText.length > 0}
-	<span class={`info-tooltip ${className}`} aria-label={normalizedText}>
+	<span class={`info-tooltip info-tooltip-${tone} ${className}`} aria-label={normalizedText}>
 		<span class="info-tooltip-mark" aria-hidden="true">
 			<InfoIcon />
 		</span>
@@ -30,9 +32,16 @@
 		flex: 0 0 auto;
 		width: 1rem;
 		height: 1rem;
-		color: var(--c-cyan);
 		cursor: help;
 		outline: none;
+	}
+
+	.info-tooltip-info {
+		color: var(--c-cyan);
+	}
+
+	.info-tooltip-warning {
+		color: var(--c-yellow);
 	}
 
 	.info-tooltip-mark {
@@ -63,6 +72,10 @@
 		white-space: normal;
 		transform: translateY(-50%);
 		pointer-events: none;
+	}
+
+	.info-tooltip-warning .info-tooltip-popup {
+		border-color: var(--c-yellow);
 	}
 
 	.info-tooltip:hover {

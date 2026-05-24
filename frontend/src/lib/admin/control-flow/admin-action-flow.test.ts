@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	ADMIN_ACTION_FLOW_CONFIG_KEYS,
 	ADMIN_ACTION_FLOW_LABELS,
 	ADMIN_FLOW_STATES,
 	resolveAdminActionFlow
@@ -10,10 +9,12 @@ import type { AdminConfigState } from '$lib/admin/configuration/ports';
 import type { LifecyclePhase } from '$lib/runtime/lifecycle/core/types';
 import type { RuntimeStatus } from '$lib/runtime/lifecycle/ports';
 
+const REQUIRED_RPC_KEY = 'RPC_URL';
+
 function configState(
 	configured: boolean,
 	values: Record<string, string> = {
-		[ADMIN_ACTION_FLOW_CONFIG_KEYS.rpcUrl]: 'https://rpc.example'
+		[REQUIRED_RPC_KEY]: 'https://rpc.example'
 	}
 ): AdminConfigState {
 	return {
@@ -25,7 +26,25 @@ function configState(
 		autoLaunchOnStartup: false,
 		values,
 		defaults: {},
-		groups: []
+		groups: [
+			{
+				id: 'chain-rpc',
+				label: 'chain rpc',
+				fields: [
+					{
+						key: REQUIRED_RPC_KEY,
+						label: 'rpc url',
+						inputKind: 'text',
+						secret: false,
+						options: [],
+						help: '',
+						requiredForLaunch: true,
+						validation: 'url',
+						view: 'basic'
+					}
+				]
+			}
+		]
 	};
 }
 
@@ -83,25 +102,42 @@ describe('resolveAdminActionFlow', () => {
 	it('requires a non-empty RPC URL before default boot is available', () => {
 		const state = flow({
 			config: configState(false, {
-				[ADMIN_ACTION_FLOW_CONFIG_KEYS.rpcUrl]: ''
+				[REQUIRED_RPC_KEY]: ''
 			})
 		});
 
 		expect(state.state).toBe(ADMIN_FLOW_STATES.needsConfig);
 		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.bootWithDefaults);
 		expect(state.boot.disabled).toBe(true);
+		expect(state.boot.disabledReason).toBe('Required configuration is missing: RPC_URL');
+		expect(state.boot.requiredConfigIssueKeys).toEqual([REQUIRED_RPC_KEY]);
 	});
 
 	it('requires a non-empty RPC URL before saved boot is available', () => {
 		const state = flow({
 			config: configState(true, {
-				[ADMIN_ACTION_FLOW_CONFIG_KEYS.rpcUrl]: '   '
+				[REQUIRED_RPC_KEY]: '   '
 			})
 		});
 
 		expect(state.state).toBe(ADMIN_FLOW_STATES.needsRequiredConfig);
 		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.boot);
 		expect(state.boot.disabled).toBe(true);
+		expect(state.boot.disabledReason).toBe('Required configuration is missing: RPC_URL');
+	});
+
+	it('explains invalid required launch configuration', () => {
+		const state = flow({
+			config: configState(true, {
+				[REQUIRED_RPC_KEY]: 'not a url'
+			})
+		});
+
+		expect(state.state).toBe(ADMIN_FLOW_STATES.needsRequiredConfig);
+		expect(state.boot.disabled).toBe(true);
+		expect(state.boot.disabledReason).toBe(
+			'Required configuration is missing or invalid: RPC_URL'
+		);
 	});
 
 	it('disables boot during transient runtime states', () => {
