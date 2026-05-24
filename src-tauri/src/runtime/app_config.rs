@@ -79,7 +79,7 @@ struct AppSettingsDocument {
     created_at: String,
     updated_at: String,
     desktop: DesktopSettings,
-    values: HashMap<String, String>,
+    overrides: HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -138,7 +138,7 @@ fn build_app_config_state(
     let configured = settings.is_some();
     let mut values = defaults.clone();
     if let Some(document) = settings {
-        merge_known_values(&mut values, &document.values, &model.ordered_keys);
+        merge_known_values(&mut values, &document.overrides, &model.ordered_keys);
     }
 
     let auto_launch_on_startup = settings
@@ -158,7 +158,7 @@ fn build_app_config_state(
     }
 }
 
-/// Persists Admin-managed settings and renders the runtime `.env` from them.
+/// Persists Admin-managed overrides and renders the runtime `.env` from effective values.
 pub fn save_app_config(
     app: &AppHandle,
     input: SaveAppConfigInput,
@@ -166,8 +166,7 @@ pub fn save_app_config(
     let paths = ensure_desktop_config_paths(app)?;
     let previous = read_settings_document_if_exists(&paths)?;
     let model = load_app_config_manifest()?;
-    let mut values = model.defaults.clone();
-    merge_known_values(&mut values, &input.values, &model.ordered_keys);
+    let overrides = extract_value_overrides(&input.values, &model);
 
     let now = now_rfc3339();
     let document = AppSettingsDocument {
@@ -180,7 +179,7 @@ pub fn save_app_config(
         desktop: DesktopSettings {
             auto_launch_on_startup: input.auto_launch_on_startup,
         },
-        values,
+        overrides,
     };
 
     write_settings_document(&paths, &document)?;
@@ -188,13 +187,12 @@ pub fn save_app_config(
     load_app_config_state(app)
 }
 
-/// Persists the built-in desktop defaults and renders the runtime `.env`.
+/// Marks desktop config as default-backed and renders the runtime `.env`.
 pub fn use_default_app_config(app: &AppHandle) -> Result<AppConfigState, String> {
-    let state = load_app_config_state(app)?;
     save_app_config(
         app,
         SaveAppConfigInput {
-            values: state.defaults,
+            values: HashMap::new(),
             auto_launch_on_startup: false,
         },
     )
@@ -294,6 +292,22 @@ fn merge_known_values(
     }
 }
 
+fn extract_value_overrides(
+    input: &HashMap<String, String>,
+    model: &AppConfigManifestModel,
+) -> HashMap<String, String> {
+    let mut overrides = HashMap::<String, String>::new();
+    for key in &model.ordered_keys {
+        let Some(value) = input.get(key) else {
+            continue;
+        };
+        if model.defaults.get(key) != Some(value) {
+            overrides.insert(key.clone(), value.clone());
+        }
+    }
+    overrides
+}
+
 fn read_settings_document_if_exists(
     paths: &DesktopConfigPaths,
 ) -> Result<Option<AppSettingsDocument>, String> {
@@ -390,7 +404,7 @@ fn render_env_file(
         output.push('\n');
         for setting in fields {
             let value = document
-                .values
+                .overrides
                 .get(&setting.key)
                 .or_else(|| model.defaults.get(&setting.key))
                 .map(String::as_str)
@@ -603,7 +617,7 @@ mod tests {
             desktop: DesktopSettings {
                 auto_launch_on_startup: true,
             },
-            values: model.defaults.clone(),
+            overrides: HashMap::new(),
         };
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = DesktopConfigPaths {
@@ -652,7 +666,7 @@ mod tests {
             desktop: DesktopSettings {
                 auto_launch_on_startup: false,
             },
-            values: HashMap::from([("ARTGOD_DB_PATH".to_owned(), "custom.sqlite".to_owned())]),
+            overrides: HashMap::from([("ARTGOD_DB_PATH".to_owned(), "custom.sqlite".to_owned())]),
         };
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = DesktopConfigPaths {
@@ -667,5 +681,41 @@ mod tests {
 
         assert!(rendered.contains("ARTGOD_DB_PATH=custom.sqlite\n"));
         assert!(rendered.contains("BIDDING_COMMAND_POLL_MS=1000\n"));
+    }
+
+    #[test]
+    fn value_overrides_exclude_manifest_defaults() {
+        let model = load_app_config_manifest().expect("load settings manifest");
+        let input = HashMap::from([
+            ("ARTGOD_DB_PATH".to_owned(), "custom.sqlite".to_owned()),
+            ("BIDDING_COMMAND_POLL_MS".to_owned(), "1000".to_owned()),
+        ]);
+
+        let overrides = extract_value_overrides(&input, &model);
+
+        assert_eq!(overrides.len(), 1);
+        assert_eq!(
+            overrides.get("ARTGOD_DB_PATH"),
+            Some(&"custom.sqlite".to_owned())
+        );
+        assert!(!overrides.contains_key("BIDDING_COMMAND_POLL_MS"));
+    }
+
+    #[test]
+    fn settings_document_serializes_overrides_not_full_values() {
+        let document = AppSettingsDocument {
+            version: SETTINGS_VERSION,
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+            desktop: DesktopSettings {
+                auto_launch_on_startup: false,
+            },
+            overrides: HashMap::new(),
+        };
+
+        let serialized = serde_json::to_string(&document).expect("serialize settings document");
+
+        assert!(serialized.contains("\"overrides\""));
+        assert!(!serialized.contains("\"values\""));
     }
 }

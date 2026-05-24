@@ -101,7 +101,7 @@ Hosted deployment is currently documented as a public read-only instance that ca
 - `docs/deploy/01-web-hosted-read-only.md`
 
 Desktop runtime configuration is managed from the native Admin UI `config` section.
-The Rust app embeds `config/settings.manifest.toml` as the Admin config schema/default source, stores operator-edited settings in a versioned app-data JSON file, and renders the runtime `.env` only after the operator chooses defaults, saves configuration, or launches from saved configuration.
+The Rust app embeds `config/settings.manifest.toml` as the Admin config schema/default source, stores only operator overrides in a versioned app-data JSON file, and renders the runtime `.env` from effective manifest defaults plus overrides only after the operator chooses defaults, saves configuration, or launches from saved configuration.
 A stale `.env` without `settings.json` is treated as an inactive legacy file: Admin can show that it exists, but the supervisor will not boot from it.
 
 Rendered desktop runtime env file:

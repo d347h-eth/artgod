@@ -247,7 +247,7 @@ Rendered runtime env file:
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\network.artgod.desktop\config\.env`
 
-The settings manifest at `config/settings.manifest.toml` is the embedded Admin schema/default source. The settings file is the operator-edited value source. The rendered `.env` remains the startup contract for backend/indexer/trading child processes and is regenerated when Admin defaults are applied or configuration is saved. A stale `.env` without `settings.json` is not treated as configured and cannot drive supervisor auto-start.
+The settings manifest at `config/settings.manifest.toml` is the embedded Admin schema/default source. The settings file stores only operator overrides plus desktop metadata; it is not a full default snapshot. The rendered `.env` remains the startup contract for backend/indexer/trading child processes and is regenerated from effective manifest defaults plus overrides when Admin defaults are applied or configuration is saved. A stale `.env` without `settings.json` is not treated as configured and cannot drive supervisor auto-start.
 
 Desktop-specific required keys:
 
@@ -305,7 +305,8 @@ Desktop-first default path behavior:
 
 Important:
 
-- if `settings.json` is missing a current manifest key, `.env` rendering uses the manifest default for that key without rewriting the settings file during startup
+- if `settings.json` has no override for a current manifest key, `.env` rendering uses the manifest default for that key without rewriting the settings file during startup
+- resetting defaults clears stored overrides instead of writing all manifest defaults into `settings.json`
 - desktop runtime sets `ARTGOD_ENV_FILE` for child processes, so backend/indexer read this desktop config path explicitly
 - runtime artifact paths are resolved from bundled app resources, not from a workspace root path
 
