@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+    getSettingDefault,
+    getSettingDefaultBoolean,
+    getSettingDefaultNumber,
+} from "@artgod/shared/config/generated-settings-defaults";
 import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
 
@@ -18,17 +23,31 @@ describe("loadBackendConfig", () => {
         expect(config.queryCache).toEqual({
             provider: QUERY_CACHE_PROVIDERS.Disabled,
             publicCollection: {
-                detailRefreshMs: 30000,
-                previewWarmRefreshMs: 600000,
+                detailRefreshMs: getSettingDefaultNumber(
+                    "BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS",
+                ),
+                previewWarmRefreshMs: getSettingDefaultNumber(
+                    "BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS",
+                ),
             },
             publicBlockspace: {
-                refreshMs: 60000,
+                refreshMs: getSettingDefaultNumber(
+                    "BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS",
+                ),
             },
             tokenPreview: {
-                maxEntries: 250,
-                freshMs: 600000,
-                staleMs: 1200000,
-                warmupConcurrency: 3,
+                maxEntries: getSettingDefaultNumber(
+                    "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES",
+                ),
+                freshMs: getSettingDefaultNumber(
+                    "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS",
+                ),
+                staleMs: getSettingDefaultNumber(
+                    "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS",
+                ),
+                warmupConcurrency: getSettingDefaultNumber(
+                    "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY",
+                ),
             },
         });
     });
@@ -48,23 +67,29 @@ describe("loadBackendConfig", () => {
         const config = loadBackendConfig(createBaseEnv());
 
         expect(config.metrics).toEqual({
-            enabled: false,
-            host: "0.0.0.0",
-            port: 42740,
+            enabled: getSettingDefaultBoolean("BACKEND_METRICS_ENABLED"),
+            host: getSettingDefault("BACKEND_METRICS_HOST"),
+            port: getSettingDefaultNumber("BACKEND_METRICS_PORT"),
         });
         expect(config.apm).toEqual({
-            enabled: false,
-            serviceNamespace: "artgod.backend",
+            enabled: getSettingDefaultBoolean("BACKEND_APM_ENABLED"),
+            serviceNamespace: getSettingDefault(
+                "BACKEND_APM_SERVICE_NAMESPACE",
+            ),
             spanProfiles: {
-                enabled: true,
+                enabled: getSettingDefaultBoolean(
+                    "BACKEND_APM_SPAN_PROFILES_ENABLED",
+                ),
             },
             traces: {
-                enabled: true,
-                otlpHttpUrl: "http://127.0.0.1:42732/v1/traces",
+                enabled: getSettingDefaultBoolean("BACKEND_APM_TRACES_ENABLED"),
+                otlpHttpUrl: getSettingDefault("OBSERVABILITY_OTLP_HTTP_URL"),
             },
             profiles: {
-                enabled: true,
-                pyroscopeUrl: "http://127.0.0.1:42733",
+                enabled: getSettingDefaultBoolean(
+                    "BACKEND_APM_PROFILES_ENABLED",
+                ),
+                pyroscopeUrl: getSettingDefault("OBSERVABILITY_PYROSCOPE_URL"),
             },
         });
     });
@@ -116,9 +141,7 @@ describe("loadBackendConfig", () => {
         expect(config.apm.traces.otlpHttpUrl).toBe(
             "http://tempo:42732/v1/traces",
         );
-        expect(config.apm.profiles.pyroscopeUrl).toBe(
-            "http://pyroscope:42733",
-        );
+        expect(config.apm.profiles.pyroscopeUrl).toBe("http://pyroscope:42733");
     });
 
     it("defaults OpenSea integration to disabled when no API key is configured", () => {

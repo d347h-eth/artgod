@@ -2,12 +2,19 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { format, resolveConfig } from "prettier";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
 const manifestPath = path.join(rootDir, "config", "settings.manifest.toml");
 const envExamplePath = path.join(rootDir, ".env.example");
+const generatedDefaultsPath = path.join(
+    rootDir,
+    "shared",
+    "config",
+    "generated-settings-defaults.ts",
+);
 const SUPPORTED_VALIDATION_RULES = ["url", "websocket_url"];
 
 function parseTomlValue(raw) {
@@ -232,12 +239,72 @@ function generateEnvExample(manifest) {
     return lines.join("\n");
 }
 
+async function generateSettingsDefaultsModule(manifest) {
+    const defaults = Object.fromEntries(
+        manifest.settings.map((setting) => [setting.key, setting.default]),
+    );
+    const source = [
+        "// Generated from config/settings.manifest.toml.",
+        "// Do not edit directly; run `yarn config:generate`.",
+        "",
+        "// Manifest defaults consumed by runtime config modules and generation checks.",
+        `export const SETTINGS_DEFAULTS = ${JSON.stringify(defaults, null, 4)} as const;`,
+        "",
+        "// Settings keys known to the generated defaults module.",
+        "export type SettingsDefaultKey = keyof typeof SETTINGS_DEFAULTS;",
+        "// Exact generated defaults shape.",
+        "export type SettingsDefaults = typeof SETTINGS_DEFAULTS;",
+        "",
+        "// Returns the raw string default from the settings manifest.",
+        "export function getSettingDefault(key: SettingsDefaultKey): string {",
+        "    return SETTINGS_DEFAULTS[key];",
+        "}",
+        "",
+        "// Parses a numeric settings manifest default.",
+        "export function getSettingDefaultNumber(key: SettingsDefaultKey): number {",
+        "    const value = getSettingDefault(key);",
+        "    const parsed = Number(value);",
+        "    if (!Number.isFinite(parsed)) {",
+        "        throw new Error(`Invalid numeric settings manifest default ${key}: ${value}`);",
+        "    }",
+        "    return parsed;",
+        "}",
+        "",
+        "// Parses a boolean settings manifest default.",
+        "export function getSettingDefaultBoolean(key: SettingsDefaultKey): boolean {",
+        "    const value = getSettingDefault(key).trim().toLowerCase();",
+        '    if (value === "true") {',
+        "        return true;",
+        "    }",
+        '    if (value === "false") {',
+        "        return false;",
+        "    }",
+        "    throw new Error(`Invalid boolean settings manifest default ${key}: ${value}`);",
+        "}",
+        "",
+        "// Parses a comma-separated settings manifest default.",
+        "export function getSettingDefaultCsv(key: SettingsDefaultKey): string[] {",
+        "    return getSettingDefault(key)",
+        '        .split(",")',
+        "        .map((entry) => entry.trim())",
+        "        .filter((entry) => entry.length > 0);",
+        "}",
+        "",
+    ].join("\n");
+    const prettierOptions = (await resolveConfig(generatedDefaultsPath)) ?? {};
+    return format(source, {
+        ...prettierOptions,
+        parser: "typescript",
+    });
+}
+
 async function main() {
     const check = process.argv.includes("--check");
     const source = await readFile(manifestPath, "utf8");
     const manifest = parseManifest(source);
     validateManifest(manifest);
     const generated = generateEnvExample(manifest);
+    const generatedDefaults = await generateSettingsDefaultsModule(manifest);
 
     if (check) {
         const existing = await readFile(envExamplePath, "utf8");
@@ -247,12 +314,25 @@ async function main() {
             );
             process.exit(1);
         }
+        const existingDefaults = await readFile(generatedDefaultsPath, "utf8");
+        if (existingDefaults !== generatedDefaults) {
+            console.error(
+                "shared/config/generated-settings-defaults.ts is stale. Run `yarn config:generate` and commit the result.",
+            );
+            process.exit(1);
+        }
         console.log(".env.example is up to date.");
+        console.log(
+            "shared/config/generated-settings-defaults.ts is up to date.",
+        );
         return;
     }
 
     await writeFile(envExamplePath, generated, "utf8");
-    console.log("Generated .env.example from config/settings.manifest.toml.");
+    await writeFile(generatedDefaultsPath, generatedDefaults, "utf8");
+    console.log(
+        "Generated .env.example and shared/config/generated-settings-defaults.ts from config/settings.manifest.toml.",
+    );
 }
 
 main().catch((error) => {

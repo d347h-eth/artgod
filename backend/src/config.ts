@@ -7,6 +7,12 @@ import {
     type OpenSeaIntegrationStatus,
 } from "@artgod/shared/config/opensea-integration";
 import {
+    getSettingDefault,
+    getSettingDefaultBoolean,
+    getSettingDefaultCsv,
+    getSettingDefaultNumber,
+} from "@artgod/shared/config/generated-settings-defaults";
+import {
     parseBoolean,
     parsePositiveInteger,
     parseRequiredString,
@@ -19,29 +25,69 @@ import { normalizeOrigin } from "./http/common/origin-policy.js";
 
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
-const DEFAULT_BACKEND_HOST = "127.0.0.1";
-const DEFAULT_ALLOWED_HOSTS = ["127.0.0.1", "localhost", "::1"];
-const DEFAULT_ALLOWED_ORIGINS = [
-    "http://127.0.0.1:42710",
-    "http://localhost:42710",
-    "http://127.0.0.1:42701",
-    "http://localhost:42701",
-    "http://tauri.localhost",
-    "tauri://localhost",
-];
-const DEFAULT_BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS = 30 * 1000;
+const DEFAULT_BACKEND_HOST = getSettingDefault("BACKEND_HOST");
+const DEFAULT_BACKEND_PORT = getSettingDefaultNumber("BACKEND_PORT");
+const DEFAULT_CHAIN_ID = getSettingDefaultNumber("CHAIN_ID");
+const DEFAULT_ALLOWED_HOSTS = getSettingDefaultCsv("BACKEND_ALLOWED_HOSTS");
+const DEFAULT_ALLOWED_ORIGINS = getSettingDefaultCsv("BACKEND_ALLOWED_ORIGINS");
+const DEFAULT_BACKEND_CSRF_COOKIE_SECURE = getSettingDefaultBoolean(
+    "BACKEND_CSRF_COOKIE_SECURE",
+);
+const DEFAULT_BACKFILL_BATCH_SIZE = getSettingDefaultNumber(
+    "BACKFILL_BATCH_SIZE",
+);
+const DEFAULT_BACKEND_QUERY_CACHE_PROVIDER = getSettingDefault(
+    "BACKEND_QUERY_CACHE_PROVIDER",
+);
+const DEFAULT_BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS =
+    getSettingDefaultNumber("BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS");
 const DEFAULT_BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS =
-    10 * 60 * 1000;
-const DEFAULT_BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS = 60 * 1000;
-const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES = 250;
-const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS = 10 * 60 * 1000;
-const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS = 20 * 60 * 1000;
-const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY = 3;
-const DEFAULT_BACKEND_METRICS_HOST = "0.0.0.0";
-const DEFAULT_BACKEND_METRICS_PORT = 42740;
-const DEFAULT_BACKEND_APM_SERVICE_NAMESPACE = "artgod.backend";
-const DEFAULT_OBSERVABILITY_OTLP_HTTP_URL = "http://127.0.0.1:42732/v1/traces";
-const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = "http://127.0.0.1:42733";
+    getSettingDefaultNumber(
+        "BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS",
+    );
+const DEFAULT_BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS =
+    getSettingDefaultNumber("BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS");
+const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES =
+    getSettingDefaultNumber("BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES");
+const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS =
+    getSettingDefaultNumber("BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS");
+const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS =
+    getSettingDefaultNumber("BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS");
+const DEFAULT_BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY =
+    getSettingDefaultNumber(
+        "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY",
+    );
+const DEFAULT_BACKEND_METRICS_ENABLED = getSettingDefaultBoolean(
+    "BACKEND_METRICS_ENABLED",
+);
+const DEFAULT_BACKEND_METRICS_HOST = getSettingDefault("BACKEND_METRICS_HOST");
+const DEFAULT_BACKEND_METRICS_PORT = getSettingDefaultNumber(
+    "BACKEND_METRICS_PORT",
+);
+const DEFAULT_BACKEND_APM_ENABLED = getSettingDefaultBoolean(
+    "BACKEND_APM_ENABLED",
+);
+const DEFAULT_BACKEND_APM_SERVICE_NAMESPACE = getSettingDefault(
+    "BACKEND_APM_SERVICE_NAMESPACE",
+);
+const DEFAULT_BACKEND_APM_SPAN_PROFILES_ENABLED = getSettingDefaultBoolean(
+    "BACKEND_APM_SPAN_PROFILES_ENABLED",
+);
+const DEFAULT_BACKEND_APM_TRACES_ENABLED = getSettingDefaultBoolean(
+    "BACKEND_APM_TRACES_ENABLED",
+);
+const DEFAULT_BACKEND_APM_PROFILES_ENABLED = getSettingDefaultBoolean(
+    "BACKEND_APM_PROFILES_ENABLED",
+);
+const DEFAULT_OBSERVABILITY_OTLP_HTTP_URL = getSettingDefault(
+    "OBSERVABILITY_OTLP_HTTP_URL",
+);
+const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = getSettingDefault(
+    "OBSERVABILITY_PYROSCOPE_URL",
+);
+const DEFAULT_PUBLIC_APP_DEPLOYMENT_MODE = getSettingDefault(
+    "PUBLIC_APP_DEPLOYMENT_MODE",
+);
 
 export type BackendSecurityConfig = {
     allowedHosts: string[];
@@ -139,8 +185,16 @@ export function loadBackendConfig(
     env: Record<string, string | undefined> = process.env,
 ): BackendConfig {
     const host = parseHost(env.BACKEND_HOST);
-    const port = parsePositiveInteger(env.BACKEND_PORT, "BACKEND_PORT", 42710);
-    const defaultChainId = parsePositiveInteger(env.CHAIN_ID, "CHAIN_ID", 1);
+    const port = parsePositiveInteger(
+        env.BACKEND_PORT,
+        "BACKEND_PORT",
+        DEFAULT_BACKEND_PORT,
+    );
+    const defaultChainId = parsePositiveInteger(
+        env.CHAIN_ID,
+        "CHAIN_ID",
+        DEFAULT_CHAIN_ID,
+    );
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const rpcUrl = parseRequiredString(env.RPC_URL, "RPC_URL");
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
@@ -156,7 +210,7 @@ export function loadBackendConfig(
         csrfCookieSecure: parseBoolean(
             env.BACKEND_CSRF_COOKIE_SECURE,
             "BACKEND_CSRF_COOKIE_SECURE",
-            false,
+            DEFAULT_BACKEND_CSRF_COOKIE_SECURE,
         ),
     };
     const deployment = parseDeploymentConfig(env);
@@ -197,7 +251,7 @@ function parseBackendSyncConfig(
         backfillBatchSize: parsePositiveInteger(
             env.BACKFILL_BATCH_SIZE,
             "BACKFILL_BATCH_SIZE",
-            50,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         ),
     };
 }
@@ -209,7 +263,7 @@ function parseBackendMetricsConfig(
         enabled: parseBoolean(
             env.BACKEND_METRICS_ENABLED,
             "BACKEND_METRICS_ENABLED",
-            false,
+            DEFAULT_BACKEND_METRICS_ENABLED,
         ),
         host: env.BACKEND_METRICS_HOST?.trim() || DEFAULT_BACKEND_METRICS_HOST,
         port: parsePositiveInteger(
@@ -227,7 +281,7 @@ function parseBackendApmConfig(
         enabled: parseBoolean(
             env.BACKEND_APM_ENABLED,
             "BACKEND_APM_ENABLED",
-            false,
+            DEFAULT_BACKEND_APM_ENABLED,
         ),
         serviceNamespace:
             env.BACKEND_APM_SERVICE_NAMESPACE?.trim() ||
@@ -236,14 +290,14 @@ function parseBackendApmConfig(
             enabled: parseBoolean(
                 env.BACKEND_APM_SPAN_PROFILES_ENABLED,
                 "BACKEND_APM_SPAN_PROFILES_ENABLED",
-                true,
+                DEFAULT_BACKEND_APM_SPAN_PROFILES_ENABLED,
             ),
         },
         traces: {
             enabled: parseBoolean(
                 env.BACKEND_APM_TRACES_ENABLED,
                 "BACKEND_APM_TRACES_ENABLED",
-                true,
+                DEFAULT_BACKEND_APM_TRACES_ENABLED,
             ),
             otlpHttpUrl:
                 env.BACKEND_APM_OTLP_HTTP_URL?.trim() ||
@@ -254,7 +308,7 @@ function parseBackendApmConfig(
             enabled: parseBoolean(
                 env.BACKEND_APM_PROFILES_ENABLED,
                 "BACKEND_APM_PROFILES_ENABLED",
-                true,
+                DEFAULT_BACKEND_APM_PROFILES_ENABLED,
             ),
             pyroscopeUrl:
                 env.BACKEND_APM_PYROSCOPE_URL?.trim() ||
@@ -325,8 +379,10 @@ function parseQueryCacheConfig(
 function parseDeploymentConfig(
     env: Record<string, string | undefined>,
 ): BackendDeploymentConfig {
-    const rawMode = env.PUBLIC_APP_DEPLOYMENT_MODE?.trim() || "";
-    if (!rawMode || rawMode === "standard") {
+    const rawMode =
+        env.PUBLIC_APP_DEPLOYMENT_MODE?.trim() ||
+        DEFAULT_PUBLIC_APP_DEPLOYMENT_MODE;
+    if (rawMode === "standard") {
         return {
             mode: "standard",
             publicCollectionScope: null,
@@ -358,7 +414,7 @@ function parseQueryCacheProvider(
     value: string | undefined,
 ): QueryCacheProvider {
     const normalized =
-        value?.trim().toLowerCase() ?? QUERY_CACHE_PROVIDERS.Disabled;
+        value?.trim().toLowerCase() ?? DEFAULT_BACKEND_QUERY_CACHE_PROVIDER;
     if (normalized === QUERY_CACHE_PROVIDERS.Disabled) {
         return QUERY_CACHE_PROVIDERS.Disabled;
     }

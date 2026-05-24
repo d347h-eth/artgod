@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+    getSettingDefault,
+    getSettingDefaultBoolean,
+    getSettingDefaultNumber,
+} from "@artgod/shared/config/generated-settings-defaults";
 import { loadConfig } from "../src/config/index.js";
 
 const REQUIRED_ENV = {
@@ -24,10 +29,81 @@ describe("Indexer config", () => {
         );
     });
 
-    it("persists raw offchain observations by default", () => {
+    it("uses the manifest raw offchain observation default", () => {
         const config = loadConfig(REQUIRED_ENV);
 
-        expect(config.offchain.persistRawObservations).toBe(true);
+        expect(config.offchain.persistRawObservations).toBe(
+            getSettingDefaultBoolean("OFFCHAIN_PERSIST_RAW_OBSERVATIONS"),
+        );
+    });
+
+    it("uses manifest defaults for unprovided runtime tunables", () => {
+        const config = loadConfig(REQUIRED_ENV);
+
+        expect(config.chainId).toBe(getSettingDefaultNumber("CHAIN_ID"));
+        expect(config.rpc.retryPolicy).toEqual({
+            maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
+            baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
+            maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
+        });
+        expect(config.rpc.resilience).toEqual({
+            rateLimiter: {
+                requestsPerSecond: getSettingDefaultNumber(
+                    "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
+                ),
+                burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
+            },
+            circuitBreaker: {
+                failureThreshold: getSettingDefaultNumber(
+                    "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                ),
+                openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
+                halfOpenMaxRequests: getSettingDefaultNumber(
+                    "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+                ),
+            },
+        });
+        expect(config.queue).toEqual({
+            natsUrl: getSettingDefault("NATS_URL"),
+            streamPrefix: getSettingDefault("NATS_STREAM_PREFIX"),
+        });
+        expect(config.sync).toEqual({
+            reorgDepth: getSettingDefaultNumber("REORG_DEPTH"),
+            backfillBatchSize: getSettingDefaultNumber("BACKFILL_BATCH_SIZE"),
+            logChunkSize: getSettingDefaultNumber("LOG_CHUNK_SIZE"),
+        });
+        expect(config.cache).toEqual({
+            maxEntries: getSettingDefaultNumber("CACHE_MAX_ENTRIES"),
+            ttlMs: getSettingDefaultNumber("CACHE_TTL_MS"),
+        });
+        expect(config.bootstrap).toEqual({
+            snapshotBatchSize: getSettingDefaultNumber(
+                "BOOTSTRAP_SNAPSHOT_BATCH_SIZE",
+            ),
+            metadataBatchSize: getSettingDefaultNumber(
+                "BOOTSTRAP_METADATA_BATCH_SIZE",
+            ),
+            metadataConcurrency: getSettingDefaultNumber(
+                "BOOTSTRAP_METADATA_CONCURRENCY",
+            ),
+            metadataProcessPollMs: getSettingDefaultNumber(
+                "BOOTSTRAP_METADATA_PROCESS_POLL_MS",
+            ),
+            metadataRetryPolicy: {
+                maxAttempts: getSettingDefaultNumber(
+                    "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS",
+                ),
+                baseDelayMs: getSettingDefaultNumber(
+                    "BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS",
+                ),
+                maxDelayMs: getSettingDefaultNumber(
+                    "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS",
+                ),
+            },
+        });
+        expect(config.metadata.refreshRangeChunkSize).toBe(
+            getSettingDefaultNumber("METADATA_REFRESH_RANGE_CHUNK_SIZE"),
+        );
     });
 
     it("treats missing OpenSea API key as disabled in auto mode", () => {
@@ -53,13 +129,13 @@ describe("Indexer config", () => {
         );
     });
 
-    it("allows disabling raw offchain observation persistence", () => {
+    it("allows enabling raw offchain observation persistence", () => {
         const config = loadConfig({
             ...REQUIRED_ENV,
-            OFFCHAIN_PERSIST_RAW_OBSERVATIONS: "false",
+            OFFCHAIN_PERSIST_RAW_OBSERVATIONS: "true",
         });
 
-        expect(config.offchain.persistRawObservations).toBe(false);
+        expect(config.offchain.persistRawObservations).toBe(true);
     });
 
     it("parses canonical indexer observability config", () => {
@@ -96,5 +172,4 @@ describe("Indexer config", () => {
             },
         });
     });
-
 });
