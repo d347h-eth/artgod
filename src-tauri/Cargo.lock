@@ -717,6 +717,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "time",
+ "toml 0.8.23",
  "uuid 1.23.0",
  "zeroize",
 ]

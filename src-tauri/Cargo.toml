@@ -28,6 +28,7 @@ tauri-plugin-log = "2.7.1"
 tauri-plugin-shell = "2.3.5"
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting"] }
+toml = "0.8"
 uuid = { version = "1.18.1", features = ["serde", "v4"] }
 zeroize = { version = "1.8", features = ["alloc"] }
 

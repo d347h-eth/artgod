@@ -6,6 +6,8 @@ export type AdminConfigField = {
 	inputKind: AdminConfigInputKind;
 	secret: boolean;
 	options: string[];
+	help: string;
+	view?: 'basic' | 'advanced';
 };
 
 export type AdminConfigGroup = {

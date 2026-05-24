@@ -8,15 +8,17 @@ use tauri::{AppHandle, Manager};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
+use super::app_config_manifest::{
+    AppConfigManifestModel, AppConfigManifestSetting, load_app_config_manifest,
+};
+
 const SETTINGS_VERSION: u8 = 1;
-const ENV_EXAMPLE: &str = include_str!("../../../.env.example");
 
 const DESKTOP_RUNTIME_RESOURCES_DIR_DEFAULT: &str = "runtime";
 const DESKTOP_RESTART_BACKOFF_MS_DEFAULT: &str = "1500";
 const DESKTOP_WALLET_STORE_DIR_DEFAULT: &str = "wallets";
 const DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS_DEFAULT: &str = "5000";
 const USERLAND_UI_DIST_DIR_DEFAULT: &str = "frontend/userland";
-const ARTGOD_DESKTOP_DB_PATH_DEFAULT: &str = "sqlite/main/db";
 
 /// App-data paths used by desktop configuration, rendered env, and logs.
 pub struct DesktopConfigPaths {
@@ -65,6 +67,9 @@ pub struct AppConfigField {
     pub input_kind: String,
     pub secret: bool,
     pub options: Vec<String>,
+    pub help: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -81,11 +86,6 @@ struct AppSettingsDocument {
 #[serde(rename_all = "camelCase")]
 struct DesktopSettings {
     auto_launch_on_startup: bool,
-}
-
-struct EnvExampleModel {
-    ordered_keys: Vec<String>,
-    defaults: HashMap<String, String>,
 }
 
 /// Ensures app-data/config/log directories exist without creating runtime `.env`.
@@ -123,7 +123,7 @@ pub fn ensure_desktop_config_paths(app: &AppHandle) -> Result<DesktopConfigPaths
 /// Loads the Admin config state without implicitly materializing a runnable `.env`.
 pub fn load_app_config_state(app: &AppHandle) -> Result<AppConfigState, String> {
     let paths = ensure_desktop_config_paths(app)?;
-    let model = env_example_model();
+    let model = load_app_config_manifest()?;
     let settings = read_settings_document_if_exists(&paths)?;
     Ok(build_app_config_state(&paths, settings.as_ref(), &model))
 }
@@ -131,10 +131,9 @@ pub fn load_app_config_state(app: &AppHandle) -> Result<AppConfigState, String> 
 fn build_app_config_state(
     paths: &DesktopConfigPaths,
     settings: Option<&AppSettingsDocument>,
-    model: &EnvExampleModel,
+    model: &AppConfigManifestModel,
 ) -> AppConfigState {
-    let mut defaults = model.defaults.clone();
-    apply_desktop_default_overrides(&mut defaults);
+    let defaults = model.defaults.clone();
 
     let configured = settings.is_some();
     let mut values = defaults.clone();
@@ -155,7 +154,7 @@ fn build_app_config_state(
         auto_launch_on_startup,
         values,
         defaults,
-        groups: build_schema_groups(&model.ordered_keys),
+        groups: build_schema_groups(model),
     }
 }
 
@@ -166,9 +165,8 @@ pub fn save_app_config(
 ) -> Result<AppConfigState, String> {
     let paths = ensure_desktop_config_paths(app)?;
     let previous = read_settings_document_if_exists(&paths)?;
-    let model = env_example_model();
+    let model = load_app_config_manifest()?;
     let mut values = model.defaults.clone();
-    apply_desktop_default_overrides(&mut values);
     merge_known_values(&mut values, &input.values, &model.ordered_keys);
 
     let now = now_rfc3339();
@@ -186,7 +184,7 @@ pub fn save_app_config(
     };
 
     write_settings_document(&paths, &document)?;
-    render_env_file(&paths, &document, &model.ordered_keys)?;
+    render_env_file(&paths, &document, &model)?;
     load_app_config_state(app)
 }
 
@@ -208,7 +206,12 @@ pub fn load_or_materialize_process_env(
 ) -> Result<Option<HashMap<String, String>>, String> {
     let paths = ensure_desktop_config_paths(app)?;
     if let Some(document) = read_settings_document_if_exists(&paths)? {
-        render_env_file(&paths, &document, &env_example_model().ordered_keys)?;
+        let model = load_app_config_manifest()?;
+        let normalized = normalize_settings_document(&document, &model);
+        if normalized.values != document.values {
+            write_settings_document(&paths, &normalized)?;
+        }
+        render_env_file(&paths, &normalized, &model)?;
         return parse_env_file(&paths.env_file_path).map(Some);
     }
     Ok(None)
@@ -225,14 +228,7 @@ pub fn parse_env_file(path: &Path) -> Result<HashMap<String, String>, String> {
     Ok(parse_env_content(&content).defaults)
 }
 
-fn env_example_model() -> EnvExampleModel {
-    let mut model = parse_env_content(ENV_EXAMPLE);
-    apply_desktop_default_overrides(&mut model.defaults);
-    model
-}
-
-fn parse_env_content(content: &str) -> EnvExampleModel {
-    let mut ordered_keys = Vec::<String>::new();
+fn parse_env_content(content: &str) -> ParsedEnvFile {
     let mut defaults = HashMap::<String, String>::new();
 
     for line in content.lines() {
@@ -248,16 +244,14 @@ fn parse_env_content(content: &str) -> EnvExampleModel {
             continue;
         }
         let value = strip_env_value_comment(raw_value.trim());
-        if !defaults.contains_key(key) {
-            ordered_keys.push(key.to_owned());
-        }
         defaults.insert(key.to_owned(), unquote_env_value(value));
     }
 
-    EnvExampleModel {
-        ordered_keys,
-        defaults,
-    }
+    ParsedEnvFile { defaults }
+}
+
+struct ParsedEnvFile {
+    defaults: HashMap<String, String>,
 }
 
 fn strip_env_value_comment(raw: &str) -> &str {
@@ -292,13 +286,6 @@ fn unquote_env_value(raw: &str) -> String {
     raw.to_owned()
 }
 
-fn apply_desktop_default_overrides(values: &mut HashMap<String, String>) {
-    values.insert(
-        "ARTGOD_DB_PATH".to_owned(),
-        ARTGOD_DESKTOP_DB_PATH_DEFAULT.to_owned(),
-    );
-}
-
 fn merge_known_values(
     target: &mut HashMap<String, String>,
     input: &HashMap<String, String>,
@@ -308,6 +295,23 @@ fn merge_known_values(
         if let Some(value) = input.get(key) {
             target.insert(key.clone(), value.clone());
         }
+    }
+}
+
+fn normalize_settings_document(
+    document: &AppSettingsDocument,
+    model: &AppConfigManifestModel,
+) -> AppSettingsDocument {
+    let mut values = model.defaults.clone();
+    merge_known_values(&mut values, &document.values, &model.ordered_keys);
+    AppSettingsDocument {
+        version: document.version,
+        created_at: document.created_at.clone(),
+        updated_at: document.updated_at.clone(),
+        desktop: DesktopSettings {
+            auto_launch_on_startup: document.desktop.auto_launch_on_startup,
+        },
+        values,
     }
 }
 
@@ -351,7 +355,7 @@ fn write_settings_document(
 fn render_env_file(
     paths: &DesktopConfigPaths,
     document: &AppSettingsDocument,
-    ordered_keys: &[String],
+    model: &AppConfigManifestModel,
 ) -> Result<(), String> {
     let mut output = String::new();
     output.push_str("# ArtGod desktop runtime env\n");
@@ -392,18 +396,28 @@ fn render_env_file(
         USERLAND_UI_DIST_DIR_DEFAULT,
     );
 
-    let mut last_group = String::new();
-    for key in ordered_keys {
-        let group = group_for_key(key);
-        if group.id != last_group {
-            output.push('\n');
-            output.push_str("# ");
-            output.push_str(group.label);
-            output.push('\n');
-            last_group = group.id.to_owned();
+    for group in &model.groups {
+        let fields = model
+            .settings
+            .iter()
+            .filter(|setting| setting.group == group.id)
+            .collect::<Vec<_>>();
+        if fields.is_empty() {
+            continue;
         }
-        let value = document.values.get(key).map(String::as_str).unwrap_or("");
-        push_env_line(&mut output, key, value);
+        output.push('\n');
+        output.push_str("# ");
+        output.push_str(&group.label);
+        output.push('\n');
+        for setting in fields {
+            let value = document
+                .values
+                .get(&setting.key)
+                .or_else(|| model.defaults.get(&setting.key))
+                .map(String::as_str)
+                .unwrap_or("");
+            push_env_line(&mut output, &setting.key, value);
+        }
     }
 
     write_private_file_atomic(&paths.env_file_path, output.as_bytes())
@@ -427,28 +441,21 @@ fn quote_env_value(value: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-fn build_schema_groups(ordered_keys: &[String]) -> Vec<AppConfigGroup> {
-    let mut groups = Vec::<AppConfigGroup>::new();
-    for key in ordered_keys {
-        let group_info = group_for_key(key);
-        if !groups.iter().any(|group| group.id == group_info.id) {
-            groups.push(AppConfigGroup {
-                id: group_info.id.to_owned(),
-                label: group_info.label.to_owned(),
-                fields: Vec::new(),
-            });
-        }
-        let field = AppConfigField {
-            key: key.clone(),
-            label: key_label(key),
-            input_kind: input_kind_for_key(key).to_owned(),
-            secret: is_secret_key(key),
-            options: options_for_key(key),
-        };
-        if let Some(group) = groups.iter_mut().find(|group| group.id == group_info.id) {
-            group.fields.push(field);
-        }
-    }
+fn build_schema_groups(model: &AppConfigManifestModel) -> Vec<AppConfigGroup> {
+    let mut groups = model
+        .groups
+        .iter()
+        .map(|group| AppConfigGroup {
+            id: group.id.clone(),
+            label: group.label.clone(),
+            fields: model
+                .settings
+                .iter()
+                .filter(|setting| setting.group == group.id)
+                .map(build_schema_field)
+                .collect(),
+        })
+        .collect::<Vec<_>>();
     groups.insert(
         0,
         AppConfigGroup {
@@ -460,122 +467,16 @@ fn build_schema_groups(ordered_keys: &[String]) -> Vec<AppConfigGroup> {
     groups
 }
 
-struct GroupInfo {
-    id: &'static str,
-    label: &'static str,
-}
-
-fn group_for_key(key: &str) -> GroupInfo {
-    if key.starts_with("BACKEND_QUERY_CACHE_") {
-        return GroupInfo {
-            id: "backend-cache",
-            label: "Backend Cache",
-        };
+fn build_schema_field(setting: &AppConfigManifestSetting) -> AppConfigField {
+    AppConfigField {
+        key: setting.key.clone(),
+        label: setting.label.clone(),
+        input_kind: setting.input.clone(),
+        secret: setting.secret,
+        options: setting.options.clone(),
+        help: setting.help.clone(),
+        view: setting.view.clone(),
     }
-    if key.starts_with("BACKEND_METRICS_") || key.starts_with("BACKEND_APM_") {
-        return GroupInfo {
-            id: "backend-observability",
-            label: "Backend Observability",
-        };
-    }
-    if key.starts_with("BACKEND_") || key == "PUBLIC_BACKEND_ORIGIN" {
-        return GroupInfo {
-            id: "backend",
-            label: "Backend",
-        };
-    }
-    if key.starts_with("RPC_")
-        || key == "ARTGOD_DB_PATH"
-        || key == "CHAIN_ID"
-        || key == "WETH_ADDRESS"
-        || key == "SEAPORT_CONDUIT_CONTROLLER"
-    {
-        return GroupInfo {
-            id: "chain-rpc",
-            label: "Chain and RPC",
-        };
-    }
-    if key.starts_with("NATS_") {
-        return GroupInfo {
-            id: "queue",
-            label: "Queue",
-        };
-    }
-    if key.starts_with("OBSERVABILITY_")
-        || key.starts_with("INDEXER_METRICS_")
-        || key.starts_with("INDEXER_APM_")
-    {
-        return GroupInfo {
-            id: "observability",
-            label: "Indexer Observability",
-        };
-    }
-    if key.starts_with("OPENSEA_") && key.ends_with("_SECRET_KEY") {
-        return GroupInfo {
-            id: "trading-opensea",
-            label: "Trading OpenSea",
-        };
-    }
-    if key.starts_with("OPENSEA_") {
-        return GroupInfo {
-            id: "opensea",
-            label: "OpenSea",
-        };
-    }
-    if key.starts_with("BIDDING_") {
-        return GroupInfo {
-            id: "bidding",
-            label: "Bidding",
-        };
-    }
-    GroupInfo {
-        id: "indexer",
-        label: "Indexer",
-    }
-}
-
-fn key_label(key: &str) -> String {
-    key.to_ascii_lowercase().replace('_', " ")
-}
-
-fn input_kind_for_key(key: &str) -> &'static str {
-    if options_for_key(key).is_empty() {
-        if key.ends_with("_BY_COLLECTION") {
-            "textarea"
-        } else if is_boolean_key(key) {
-            "checkbox"
-        } else if is_secret_key(key) {
-            "password"
-        } else {
-            "text"
-        }
-    } else {
-        "select"
-    }
-}
-
-fn options_for_key(key: &str) -> Vec<String> {
-    match key {
-        "OPENSEA_INTEGRATION_MODE" => vec![
-            "auto".to_owned(),
-            "enabled".to_owned(),
-            "disabled".to_owned(),
-        ],
-        "BACKEND_QUERY_CACHE_PROVIDER" => vec!["disabled".to_owned(), "memory".to_owned()],
-        "BIDDING_TX_PENDING_NONCE_POLICY" => vec!["fail".to_owned(), "latest".to_owned()],
-        _ => Vec::new(),
-    }
-}
-
-fn is_boolean_key(key: &str) -> bool {
-    key.ends_with("_ENABLED")
-        || key.ends_with("_SECURE")
-        || key == "BIDDING_DRY_RUN"
-        || key == "OFFCHAIN_PERSIST_RAW_OBSERVATIONS"
-}
-
-fn is_secret_key(key: &str) -> bool {
-    key.contains("API_KEY") || key.contains("SECRET_KEY") || key.contains("PASSWORD")
 }
 
 fn now_rfc3339() -> String {
@@ -689,7 +590,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn env_example_parser_strips_inline_comments() {
+    fn env_file_parser_strips_inline_comments() {
         let model = parse_env_content("RPC_RATE_LIMIT_REQUESTS_PER_SECOND=50 # use 0\nA='x # y'\n");
 
         assert_eq!(
@@ -700,9 +601,9 @@ mod tests {
     }
 
     #[test]
-    fn schema_contains_every_env_example_key_once() {
-        let model = env_example_model();
-        let fields = build_schema_groups(&model.ordered_keys)
+    fn schema_contains_every_manifest_key_once() {
+        let model = load_app_config_manifest().expect("load settings manifest");
+        let fields = build_schema_groups(&model)
             .into_iter()
             .flat_map(|group| group.fields)
             .collect::<Vec<_>>();
@@ -714,8 +615,8 @@ mod tests {
     }
 
     #[test]
-    fn rendered_env_includes_desktop_keys_and_example_keys() {
-        let model = env_example_model();
+    fn rendered_env_includes_desktop_keys_and_manifest_keys() {
+        let model = load_app_config_manifest().expect("load settings manifest");
         let document = AppSettingsDocument {
             version: SETTINGS_VERSION,
             created_at: "2026-01-01T00:00:00Z".to_owned(),
@@ -733,7 +634,7 @@ mod tests {
             settings_file_path: temp.path().join("settings.json"),
         };
 
-        render_env_file(&paths, &document, &model.ordered_keys).expect("render env");
+        render_env_file(&paths, &document, &model).expect("render env");
         let rendered = fs::read_to_string(paths.env_file_path).expect("read env");
 
         assert!(rendered.contains("DESKTOP_AUTO_START=true\n"));
@@ -744,7 +645,7 @@ mod tests {
 
     #[test]
     fn app_state_does_not_treat_legacy_env_as_configured() {
-        let model = env_example_model();
+        let model = load_app_config_manifest().expect("load settings manifest");
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = DesktopConfigPaths {
             app_data_dir: temp.path().to_path_buf(),
@@ -760,5 +661,31 @@ mod tests {
         assert!(!state.auto_launch_on_startup);
         assert!(state.env_file_exists);
         assert!(!state.settings_file_exists);
+    }
+
+    #[test]
+    fn normalize_settings_document_adds_new_manifest_defaults() {
+        let model = load_app_config_manifest().expect("load settings manifest");
+        let document = AppSettingsDocument {
+            version: SETTINGS_VERSION,
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+            desktop: DesktopSettings {
+                auto_launch_on_startup: false,
+            },
+            values: HashMap::from([("ARTGOD_DB_PATH".to_owned(), "custom.sqlite".to_owned())]),
+        };
+
+        let normalized = normalize_settings_document(&document, &model);
+
+        assert_eq!(
+            normalized.values.get("ARTGOD_DB_PATH"),
+            Some(&"custom.sqlite".to_owned())
+        );
+        assert_eq!(
+            normalized.values.get("BIDDING_COMMAND_POLL_MS"),
+            Some(&"1000".to_owned())
+        );
+        assert_eq!(normalized.values.len(), model.ordered_keys.len());
     }
 }

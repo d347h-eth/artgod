@@ -1,4 +1,5 @@
 mod app_config;
+mod app_config_manifest;
 mod bot_runtime;
 mod config;
 mod supervisor;
