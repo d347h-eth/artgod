@@ -160,6 +160,15 @@ impl RuntimeManager {
             });
             return Ok(());
         }
+        if !app_config.auto_launch_on_startup {
+            self.update_status(&app, |status| {
+                status.state = "stopped".to_owned();
+                status.last_error = None;
+                status.running_processes.clear();
+                status.config_path = app_config.env_file_path;
+            });
+            return Ok(());
+        }
         let config = match DesktopRuntimeConfig::load_or_create(&app) {
             Ok(config) => config,
             Err(error) => {

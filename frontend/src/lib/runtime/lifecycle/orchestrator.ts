@@ -33,6 +33,7 @@ type LifecycleOrchestratorOptions = {
 
 type LifecycleOrchestrator = {
 	init(): Promise<void>;
+	autoStart(): Promise<RuntimeStatus | null>;
 	waitUntilReady(timeoutMs?: number): Promise<void>;
 	shouldWaitUntilReady(): boolean;
 	isReady(): boolean;
@@ -121,6 +122,22 @@ export function createLifecycleOrchestrator(
 		await ensureStatusListener();
 		const latestStatus = await options.runtimePort.status();
 		handleStatusChange(latestStatus);
+		options.onError(null);
+		initialized = true;
+	}
+
+	async function autoStart(): Promise<RuntimeStatus | null> {
+		if (!options.desktopShellExpected) {
+			return null;
+		}
+
+		await init();
+		if (!options.runtimePort.isBridgeAvailable()) {
+			const message = 'Desktop runtime bridge is unavailable.';
+			options.onError(message);
+			enterFatal(message, 'bridge.unavailable');
+			throw new Error(message);
+		}
 
 		reportEvent('info', 'runtime.auto_start.requested', 'Requesting runtime auto-start');
 		try {
@@ -132,11 +149,12 @@ export function createLifecycleOrchestrator(
 				reportEvent('info', 'runtime.auto_start.accepted', 'Runtime auto-start command accepted');
 			}
 			options.onError(null);
-			initialized = true;
+			return startedStatus;
 		} catch (error) {
 			const message = `Runtime auto-start failed: ${toErrorMessage(error)}`;
 			options.onError(message);
 			enterFatal(message, 'runtime.auto_start.failed');
+			throw new Error(message);
 		}
 	}
 
@@ -194,6 +212,10 @@ export function createLifecycleOrchestrator(
 
 		if (readyPromise) {
 			return readyPromise;
+		}
+
+		if (isStoppedWithoutError(statusSnapshot)) {
+			return;
 		}
 
 		const operationId = beginReadyOperation();
@@ -439,6 +461,7 @@ export function createLifecycleOrchestrator(
 
 	return {
 		init,
+		autoStart,
 		waitUntilReady,
 		shouldWaitUntilReady,
 		isReady,

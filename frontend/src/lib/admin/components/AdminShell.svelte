@@ -25,6 +25,7 @@
 	let configBusyAction = $state<string | null>(null);
 	let configError = $state<string | null>(null);
 	let configNotice = $state<string | null>(null);
+	let startupAutoStartRequested = false;
 
 	const tabs: Array<{ id: AdminShellTab; label: string }> = [
 		{ id: 'system', label: 'system' },
@@ -54,21 +55,6 @@
 		};
 	});
 
-	$effect(() => {
-		if (activeTab !== null) {
-			return;
-		}
-		const state = $runtimeState.status?.state;
-		if (
-			state === 'starting' ||
-			state === 'running' ||
-			state === 'restarting' ||
-			$runtimeState.lifecycle.phase === 'fatal'
-		) {
-			activeTab = 'system';
-		}
-	});
-
 	function resolveRuntimeTab(tab: AdminShellTab | null): AdminConsoleTab | null {
 		if (tab === 'system') {
 			return 'lifecycle';
@@ -88,7 +74,9 @@
 		configLoading = true;
 		configError = null;
 		try {
-			config = await configPort.getConfig();
+			const nextConfig = await configPort.getConfig();
+			config = nextConfig;
+			requestStartupAutoStart(nextConfig);
 		} catch (error) {
 			configError = toErrorMessage(error, 'Configuration could not be loaded.');
 		} finally {
@@ -120,6 +108,15 @@
 		}
 		activeTab = 'system';
 		await adminRuntimeStore.start();
+	}
+
+	function requestStartupAutoStart(nextConfig: AdminConfigState): void {
+		if (startupAutoStartRequested || !nextConfig.autoLaunchOnStartup) {
+			return;
+		}
+		startupAutoStartRequested = true;
+		activeTab = 'system';
+		void adminRuntimeStore.autoStart();
 	}
 
 	function openConfiguration(): void {
@@ -181,7 +178,7 @@
 					class="admin-flow-action"
 					class:admin-flow-action-selected={activeTab === 'config'}
 					onclick={openConfiguration}
-					disabled={activeTab === 'config'}
+					disabled={actionFlow.configure.disabled}
 				>
 					{actionFlow.configure.label}
 				</button>

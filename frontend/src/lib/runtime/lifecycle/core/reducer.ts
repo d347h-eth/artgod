@@ -242,7 +242,7 @@ function applyRuntimeStatus(
 			startedAtMs: next.startedAtMs,
 			stoppingLockActive: false
 		};
-		// Do not emit a warning for the initial snapshot before auto-start.
+		// Do not emit a warning for the initial stopped snapshot during desktop init.
 		// This is an expected baseline state during desktop boot.
 		if (statusChanged && previous !== null) {
 			next = appendRuntimeStateEvent(
