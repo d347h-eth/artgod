@@ -173,9 +173,13 @@
 									<span class="admin-config-label-cell">
 										<span>{field.label}</span>
 										{#if validationIssue}
-											<InfoTooltip text={validationIssue.message} tone="warning" />
+											<InfoTooltip
+												text={validationIssue.message}
+												tone="warning"
+												className="admin-config-label-tooltip"
+											/>
 										{/if}
-										<InfoTooltip text={field.help} />
+										<InfoTooltip text={field.help} className="admin-config-label-tooltip" />
 									</span>
 									{#if field.inputKind === 'checkbox'}
 										<input
@@ -327,6 +331,10 @@
 
 	.admin-config-row-warning .admin-config-label-cell {
 		color: var(--c-yellow);
+	}
+
+	:global(.admin-config-label-tooltip.info-tooltip) {
+		transform: translateY(-3px);
 	}
 
 	.admin-config-checkbox-row {
