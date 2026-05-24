@@ -208,7 +208,7 @@
 	}
 
 	:global(.terraforms-hypercastle-overview-layer-face) {
-		pointer-events: all;
+		pointer-events: visibleStroke;
 		vector-effect: non-scaling-stroke;
 		transition:
 			filter 120ms ease,
