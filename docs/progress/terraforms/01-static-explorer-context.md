@@ -532,7 +532,7 @@ Expected work:
 - size each square slab relative to the level's contract grid area
 - align all slabs around one shared vertical spine through the center of every level
 - stack slabs into a bicone-like isometric silhouette
-- keep gaps between slabs compact, roughly the same visual height as one slab layer
+- keep gaps between slabs readable without breaking the single-stack silhouette
 - keep every slab the same layer height
 - use one shared color for all slabs in this first overview pass
 - make each slab selectable by pointer/keyboard, but keep selection behavior as a no-op for now
@@ -553,7 +553,7 @@ Current implementation notes:
 
 - `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` renders the first overview using `@elchininet/isometric`.
 - `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-overview.ts` owns the slab geometry, centered-spine layout, and render key.
-- The overview renders 20 level groups and 60 faces, with every level centered on one spine and selection intentionally implemented as a no-op.
+- The overview renders 20 level groups and 60 faces, with every level centered on one spine, gaps at twice the slab height, and selection intentionally implemented as a no-op.
 - Focused helper tests cover level count, relative area sizing, gap/height ratio, face anchoring, centered layout, and render-key stability.
 - Browser verification covered desktop and mobile screenshots plus SVG pixel checks for nonblank rendering and centered layer alignment.
 
