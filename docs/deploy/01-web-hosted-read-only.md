@@ -58,8 +58,8 @@ If you want a different network name, set `PUBLIC_EDGE_NETWORK` in `.env.deploy`
 
 If you already have a Caddy container running from another compose project, connect that Caddy service to the same external network and route:
 
-- `/api/*` and `/health/*` -> `artgod-backend:3000`
-- everything else -> `artgod-frontend:4173`
+- `/api/*` and `/health/*` -> `artgod-backend:42710`
+- everything else -> `artgod-frontend:42700`
 
 Example Caddy site block:
 
@@ -68,9 +68,9 @@ terraforms.artgod.network {
   encode zstd gzip
 
   @backend path /api/* /health/*
-  reverse_proxy @backend artgod-backend:3000
+  reverse_proxy @backend artgod-backend:42710
 
-  reverse_proxy artgod-frontend:4173
+  reverse_proxy artgod-frontend:42700
 }
 ```
 
@@ -79,11 +79,11 @@ For an observability subdomain, route that site to Grafana inside the same Docke
 ```caddy
 observability.artgod.network {
   encode zstd gzip
-  reverse_proxy artgod-grafana:3000
+  reverse_proxy artgod-grafana:42735
 }
 ```
 
-Note that the SSR frontend itself should not call the backend through the public site origin during server-side rendering. In deploy mode it uses a separate internal origin (`INTERNAL_BACKEND_ORIGIN`, default `http://backend:3000`) so SSR requests go straight to the backend container instead of being treated as same-origin internal frontend requests.
+Note that the SSR frontend itself should not call the backend through the public site origin during server-side rendering. In deploy mode it uses a separate internal origin (`INTERNAL_BACKEND_ORIGIN`, default `http://backend:42710`) so SSR requests go straight to the backend container instead of being treated as same-origin internal frontend requests.
 
 ### Optional Bundled Caddy
 
@@ -94,8 +94,8 @@ The bundled Caddy service exposes:
 
 Its routing is:
 
-- `/api/*` and `/health/*` -> `backend:3000`
-- everything else -> `frontend-web:4173`
+- `/api/*` and `/health/*` -> `backend:42710`
+- everything else -> `frontend-web:42700`
 
 ArtGod `backend` and `frontend-web` are not published to host ports by default. They are reachable only on the Docker networks (`default` and the shared `public-edge` network), which avoids host-port conflicts with other stacks on the VPS.
 
@@ -122,7 +122,7 @@ cp .env.deploy.example .env.deploy
 
 - `PUBLIC_SITE_HOST`
 - `PUBLIC_BACKEND_ORIGIN`
-- `INTERNAL_BACKEND_ORIGIN=http://backend:3000`
+- `INTERNAL_BACKEND_ORIGIN=http://backend:42710`
 - `PUBLIC_EDGE_NETWORK=public-edge`
 - `PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection`
 - `PUBLIC_APP_CHAIN_REF=ethereum`
@@ -140,8 +140,8 @@ If enabling deploy observability, also set:
 - `BACKEND_METRICS_ENABLED=true`
 - `INDEXER_APM_ENABLED=true`
 - `BACKEND_APM_ENABLED=true`
-- `OBSERVABILITY_OTLP_HTTP_URL=http://tempo:4318/v1/traces`
-- `OBSERVABILITY_PYROSCOPE_URL=http://pyroscope:4040`
+- `OBSERVABILITY_OTLP_HTTP_URL=http://tempo:42732/v1/traces`
+- `OBSERVABILITY_PYROSCOPE_URL=http://pyroscope:42733`
 - `OBSERVABILITY_GRAFANA_ADMIN_PASSWORD` to a non-default value before routing Grafana from a public subdomain
 
 3. Build and start the stack:
@@ -185,9 +185,9 @@ The deploy compose defines an `observability` profile with:
 - Loki for log storage.
 - Alloy for Docker log discovery and forwarding to Loki.
 - Prometheus scraping backend and indexer worker `/metrics` endpoints over the compose network.
-- Tempo receiving OTLP HTTP traces at `http://tempo:4318/v1/traces`.
-- Pyroscope receiving profiles at `http://pyroscope:4040`.
-- Grafana exposed only inside `public-edge` as `artgod-grafana:3000`.
+- Tempo receiving OTLP HTTP traces at `http://tempo:42732/v1/traces`.
+- Pyroscope receiving profiles at `http://pyroscope:42733`.
+- Grafana exposed only inside `public-edge` as `artgod-grafana:42735`.
 
 Alloy reads Docker logs through a read-only `/var/run/docker.sock` mount and keeps only containers labeled with `com.artgod.observability.logs=true`. The app, NATS, and bundled Caddy services carry that label; observability service logs are intentionally not scraped by default.
 
@@ -202,10 +202,10 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - Project versioning is documented centrally in `README.md` under `Versioning`.
 - The deploy stack does not take a separate app-version env override; the frontend build reads the root workspace version directly.
 - `PUBLIC_BACKEND_ORIGIN` is the browser-facing backend origin baked into the SSR frontend build. If you change the public domain, rebuild the image.
-- `INTERNAL_BACKEND_ORIGIN` is the runtime-only backend origin used by the SSR frontend server process itself; in the default compose setup it should stay `http://backend:3000`.
+- `INTERNAL_BACKEND_ORIGIN` is the runtime-only backend origin used by the SSR frontend server process itself; in the default compose setup it should stay `http://backend:42710`.
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
-- When the deploy observability profile is enabled, the same shared network also exposes `artgod-grafana:3000` for a reverse proxy managed outside this compose file.
+- When the deploy observability profile is enabled, the same shared network also exposes `artgod-grafana:42735` for a reverse proxy managed outside this compose file.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
 - `BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS`, and `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.
 - `BACKEND_QUERY_CACHE_PROVIDER=memory` enables the backend in-memory query cache for the public VPS deployment.
@@ -213,9 +213,9 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS` controls how often those background collection refreshes also trigger preview warmup for the current 250 visible tokens.
 - `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS` controls how often the backend fully rebuilds the compact public blockspace cache for the configured single collection. The blockspace feature and cache internals are documented in `docs/indexer/16-blockspace-exploration.md`.
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` controls the preview-modal cache itself. That cache stores only default-media token previews, serves stale responses during the grace window, and refreshes them in the background when an individual preview entry goes stale.
-- `INDEXER_METRICS_ENABLED=true` starts per-worker Prometheus HTTP endpoints; `BACKEND_METRICS_ENABLED=true` starts the backend API Prometheus endpoint on `BACKEND_METRICS_PORT` (`9480` by default).
+- `INDEXER_METRICS_ENABLED=true` starts per-worker Prometheus HTTP endpoints; `BACKEND_METRICS_ENABLED=true` starts the backend API Prometheus endpoint on `BACKEND_METRICS_PORT` (`42740` by default).
 - `INDEXER_METRICS_HOST=0.0.0.0` and `BACKEND_METRICS_HOST=0.0.0.0` are required so Prometheus can scrape across the compose network.
-- `INDEXER_APM_ENABLED=true` starts indexer trace/profile exporters; `BACKEND_APM_ENABLED=true` starts backend API trace/profile exporters. In deploy mode `OBSERVABILITY_OTLP_HTTP_URL` and `OBSERVABILITY_PYROSCOPE_URL` must be the service-name URLs `http://tempo:4318/v1/traces` and `http://pyroscope:4040`, not localhost.
+- `INDEXER_APM_ENABLED=true` starts indexer trace/profile exporters; `BACKEND_APM_ENABLED=true` starts backend API trace/profile exporters. In deploy mode `OBSERVABILITY_OTLP_HTTP_URL` and `OBSERVABILITY_PYROSCOPE_URL` must be the service-name URLs `http://tempo:42732/v1/traces` and `http://pyroscope:42733`, not localhost.
 - The deploy image relies on the repo’s Yarn allowlist policy during `yarn install --immutable --inline-builds`: `enableScripts: false` stays in effect globally, while allowlisted packages such as `esbuild` are still built through `dependenciesMeta.built: true`. `better-sqlite3` is then built explicitly and narrowly by invoking its trusted package-local `install` script from inside the unplugged package directory, and the image hard-fails if the native SQLite binding is still missing from `.yarn/unplugged`.
 - The deploy image reuses the same backend/indexer runtime artifacts and Yarn PnP Node launch shape as the desktop supervisor.
 - SQLite is persisted in the named Docker volume mounted at `/data`.

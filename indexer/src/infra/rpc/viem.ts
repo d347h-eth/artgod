@@ -1,6 +1,7 @@
 import { createPublicClient, http } from "viem";
+import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
 import type { RetryPolicy } from "../../domain/retry.js";
-import { defaultRetryPolicy, getRetryDelayMs } from "../../domain/retry.js";
+import { getRetryDelayMs } from "../../domain/retry.js";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import type { CachePort } from "../../ports/cache.js";
 import type {
@@ -32,15 +33,27 @@ export type ViemRpcConfig = {
     };
 };
 
+const DEFAULT_RETRY_POLICY: RetryPolicy = {
+    maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
+    baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
+    maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
+};
+
 const DEFAULT_RATE_LIMITER: RpcRateLimiterConfig = {
-    requestsPerSecond: 20,
-    burst: 40,
+    requestsPerSecond: getSettingDefaultNumber(
+        "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
+    ),
+    burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
 };
 
 const DEFAULT_CIRCUIT_BREAKER: RpcCircuitBreakerConfig = {
-    failureThreshold: 5,
-    openMs: 30_000,
-    halfOpenMaxRequests: 2,
+    failureThreshold: getSettingDefaultNumber(
+        "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+    ),
+    openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
+    halfOpenMaxRequests: getSettingDefaultNumber(
+        "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+    ),
 };
 
 export class ViemRpcProvider implements RpcProviderPort {
@@ -57,7 +70,7 @@ export class ViemRpcProvider implements RpcProviderPort {
         });
         this.cache = config.cache;
         this.metrics = config.metrics;
-        this.retryPolicy = config.retryPolicy ?? defaultRetryPolicy;
+        this.retryPolicy = config.retryPolicy ?? DEFAULT_RETRY_POLICY;
         this.rateLimiter = new TokenBucketRateLimiter(
             config.resilience?.rateLimiter ?? DEFAULT_RATE_LIMITER,
         );

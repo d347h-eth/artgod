@@ -1,0 +1,923 @@
+version = 1
+
+[[groups]]
+id = "chain-rpc"
+label = "Chain and RPC"
+
+[[groups]]
+id = "backend"
+label = "Backend"
+
+[[groups]]
+id = "backend-cache"
+label = "Backend Cache"
+
+[[groups]]
+id = "backend-observability"
+label = "Backend Observability"
+
+[[groups]]
+id = "public-deployment"
+label = "Public Deployment"
+
+[[groups]]
+id = "desktop-runtime"
+label = "Desktop Runtime"
+
+[[groups]]
+id = "queue"
+label = "Queue"
+
+[[groups]]
+id = "indexer"
+label = "Indexer"
+
+[[groups]]
+id = "indexer-observability"
+label = "Indexer Observability"
+
+[[groups]]
+id = "opensea"
+label = "OpenSea"
+
+[[groups]]
+id = "trading-opensea"
+label = "Trading OpenSea"
+
+[[groups]]
+id = "bidding"
+label = "Bidding"
+
+[[settings]]
+key = "ARTGOD_DB_PATH"
+group = "chain-rpc"
+label = "artgod db path"
+default = "database/sqlite/main/db"
+desktop_default = "sqlite/main/db"
+help = "SQLite database path. Desktop resolves relative paths from the app-data directory."
+
+[[settings]]
+key = "BACKEND_HOST"
+group = "backend"
+label = "backend host"
+default = "127.0.0.1"
+
+[[settings]]
+key = "BACKEND_PORT"
+group = "backend"
+label = "backend port"
+default = "42710"
+
+[[settings]]
+key = "BACKEND_ALLOWED_HOSTS"
+group = "backend"
+label = "backend allowed hosts"
+default = "127.0.0.1,localhost,::1"
+
+[[settings]]
+key = "BACKEND_ALLOWED_ORIGINS"
+group = "backend"
+label = "backend allowed origins"
+default = "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701,http://tauri.localhost,tauri://localhost"
+
+[[settings]]
+key = "BACKEND_CSRF_COOKIE_SECURE"
+group = "backend"
+label = "backend csrf cookie secure"
+default = "false"
+input = "checkbox"
+
+[[settings]]
+key = "BACKEND_QUERY_CACHE_PROVIDER"
+group = "backend-cache"
+label = "backend query cache provider"
+default = "disabled"
+input = "select"
+options = ["disabled", "memory"]
+help = "Set to memory to enable the lightweight in-memory backend read-query cache."
+
+[[settings]]
+key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES"
+group = "backend-cache"
+label = "backend query cache token preview max entries"
+default = "250"
+
+[[settings]]
+key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS"
+group = "backend-cache"
+label = "backend query cache token preview fresh ms"
+default = "600000"
+
+[[settings]]
+key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS"
+group = "backend-cache"
+label = "backend query cache token preview stale ms"
+default = "1200000"
+
+[[settings]]
+key = "BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY"
+group = "backend-cache"
+label = "backend query cache token preview warmup concurrency"
+default = "3"
+
+[[settings]]
+key = "BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS"
+group = "backend-cache"
+label = "backend public collection cache refresh ms"
+default = "30000"
+
+[[settings]]
+key = "BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS"
+group = "backend-cache"
+label = "backend public collection preview warm refresh ms"
+default = "600000"
+
+[[settings]]
+key = "BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS"
+group = "backend"
+label = "backend public blockspace cache refresh ms"
+default = "60000"
+
+[[settings]]
+key = "BACKEND_METRICS_ENABLED"
+group = "backend-observability"
+label = "backend metrics enabled"
+default = "false"
+input = "checkbox"
+
+[[settings]]
+key = "BACKEND_METRICS_HOST"
+group = "backend-observability"
+label = "backend metrics host"
+default = "0.0.0.0"
+
+[[settings]]
+key = "BACKEND_METRICS_PORT"
+group = "backend-observability"
+label = "backend metrics port"
+default = "42740"
+
+[[settings]]
+key = "BACKEND_APM_ENABLED"
+group = "backend-observability"
+label = "backend apm enabled"
+default = "false"
+input = "checkbox"
+
+[[settings]]
+key = "BACKEND_APM_SERVICE_NAMESPACE"
+group = "backend-observability"
+label = "backend apm service namespace"
+default = "artgod.backend"
+
+[[settings]]
+key = "BACKEND_APM_OTLP_HTTP_URL"
+group = "backend-observability"
+label = "backend apm otlp http url"
+default = ""
+validation = "url"
+
+[[settings]]
+key = "BACKEND_APM_PYROSCOPE_URL"
+group = "backend-observability"
+label = "backend apm pyroscope url"
+default = ""
+validation = "url"
+
+[[settings]]
+key = "BACKEND_APM_SPAN_PROFILES_ENABLED"
+group = "backend-observability"
+label = "backend apm span profiles enabled"
+default = "true"
+input = "checkbox"
+
+[[settings]]
+key = "BACKEND_APM_TRACES_ENABLED"
+group = "backend-observability"
+label = "backend apm traces enabled"
+default = "true"
+input = "checkbox"
+
+[[settings]]
+key = "BACKEND_APM_PROFILES_ENABLED"
+group = "backend-observability"
+label = "backend apm profiles enabled"
+default = "true"
+input = "checkbox"
+
+[[settings]]
+key = "PUBLIC_BACKEND_ORIGIN"
+group = "public-deployment"
+label = "public backend origin"
+default = "http://127.0.0.1:42710"
+validation = "url"
+desktop_managed = false
+
+[[settings]]
+key = "INTERNAL_BACKEND_ORIGIN"
+group = "public-deployment"
+label = "internal backend origin"
+default = "http://backend:42710"
+validation = "url"
+desktop_managed = false
+
+[[settings]]
+key = "PUBLIC_APP_DEPLOYMENT_MODE"
+group = "public-deployment"
+label = "public app deployment mode"
+default = "standard"
+input = "select"
+options = ["standard", "public_single_collection"]
+desktop_managed = false
+
+[[settings]]
+key = "PUBLIC_APP_CHAIN_REF"
+group = "public-deployment"
+label = "public app chain ref"
+default = ""
+desktop_managed = false
+
+[[settings]]
+key = "PUBLIC_APP_COLLECTION_REF"
+group = "public-deployment"
+label = "public app collection ref"
+default = ""
+desktop_managed = false
+
+[[settings]]
+key = "USERLAND_UI_DIST_DIR"
+group = "desktop-runtime"
+label = "userland ui dist dir"
+default = "frontend/userland"
+
+[[settings]]
+key = "DESKTOP_RUNTIME_RESOURCES_DIR"
+group = "desktop-runtime"
+label = "desktop runtime resources dir"
+default = "runtime"
+
+[[settings]]
+key = "DESKTOP_NODE_BIN"
+group = "desktop-runtime"
+label = "desktop node bin"
+default = ""
+
+[[settings]]
+key = "DESKTOP_NATS_BINARY_PATH"
+group = "desktop-runtime"
+label = "desktop nats binary path"
+default = ""
+
+[[settings]]
+key = "DESKTOP_NODE_PNP_CJS"
+group = "desktop-runtime"
+label = "desktop node pnp cjs"
+default = ""
+
+[[settings]]
+key = "DESKTOP_NODE_PNP_LOADER"
+group = "desktop-runtime"
+label = "desktop node pnp loader"
+default = ""
+
+[[settings]]
+key = "DESKTOP_RESTART_BACKOFF_MS"
+group = "desktop-runtime"
+label = "desktop restart backoff ms"
+default = "1500"
+
+[[settings]]
+key = "DESKTOP_WALLET_STORE_DIR"
+group = "desktop-runtime"
+label = "desktop wallet store dir"
+default = "wallets"
+
+[[settings]]
+key = "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS"
+group = "desktop-runtime"
+label = "desktop bot unlock stabilization delay ms"
+default = "5000"
+
+[[settings]]
+key = "CHAIN_ID"
+group = "chain-rpc"
+label = "chain id"
+default = "1"
+
+[[settings]]
+key = "RPC_URL"
+group = "chain-rpc"
+label = "rpc url"
+default = ""
+help = "Ethereum JSON-RPC endpoint used by the backend and indexer."
+required_for_launch = true
+validation = "url"
+view = "basic"
+
+[[settings]]
+key = "RPC_BACKFILL_URL"
+group = "chain-rpc"
+label = "rpc backfill url"
+default = ""
+help = "Optional JSON-RPC endpoint used for backfill sync jobs; realtime sync keeps using RPC_URL."
+validation = "url"
+
+[[settings]]
+key = "RPC_WS_URL"
+group = "chain-rpc"
+label = "rpc ws url"
+default = ""
+help = "Optional WebSocket RPC endpoint used to listen for new blocks faster and more cheaply, alongside periodic new-block polling."
+validation = "websocket_url"
+view = "basic"
+
+[[settings]]
+key = "RPC_RETRY_MAX_ATTEMPTS"
+group = "chain-rpc"
+label = "rpc retry max attempts"
+default = "5"
+view = "basic"
+
+[[settings]]
+key = "RPC_RETRY_BASE_DELAY_MS"
+group = "chain-rpc"
+label = "rpc retry base delay ms"
+default = "100"
+view = "basic"
+
+[[settings]]
+key = "RPC_RETRY_MAX_DELAY_MS"
+group = "chain-rpc"
+label = "rpc retry max delay ms"
+default = "3000"
+view = "basic"
+
+[[settings]]
+key = "RPC_RATE_LIMIT_REQUESTS_PER_SECOND"
+group = "chain-rpc"
+label = "rpc rate limit requests per second"
+default = "50"
+help = "Use 0 to disable RPC request rate limiting."
+view = "basic"
+
+[[settings]]
+key = "RPC_RATE_LIMIT_BURST"
+group = "chain-rpc"
+label = "rpc rate limit burst"
+default = "50"
+view = "basic"
+
+[[settings]]
+key = "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD"
+group = "chain-rpc"
+label = "rpc circuit breaker failure threshold"
+default = "5"
+
+[[settings]]
+key = "RPC_CIRCUIT_BREAKER_OPEN_MS"
+group = "chain-rpc"
+label = "rpc circuit breaker open ms"
+default = "5000"
+
+[[settings]]
+key = "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS"
+group = "chain-rpc"
+label = "rpc circuit breaker half open max requests"
+default = "2"
+
+[[settings]]
+key = "CACHE_MAX_ENTRIES"
+group = "indexer"
+label = "cache max entries"
+default = "5000"
+
+[[settings]]
+key = "CACHE_TTL_MS"
+group = "indexer"
+label = "cache ttl ms"
+default = "30000"
+
+[[settings]]
+key = "OFFCHAIN_PERSIST_RAW_OBSERVATIONS"
+group = "indexer"
+label = "offchain persist raw observations"
+default = "false"
+input = "checkbox"
+
+[[settings]]
+key = "NATS_URL"
+group = "queue"
+label = "nats url"
+default = "nats://127.0.0.1:42720"
+
+[[settings]]
+key = "NATS_STREAM_PREFIX"
+group = "queue"
+label = "nats stream prefix"
+default = "artgod"
+
+[[settings]]
+key = "OBSERVABILITY_OTLP_HTTP_URL"
+group = "indexer-observability"
+label = "observability otlp http url"
+default = "http://127.0.0.1:42732/v1/traces"
+validation = "url"
+
+[[settings]]
+key = "OBSERVABILITY_PYROSCOPE_URL"
+group = "indexer-observability"
+label = "observability pyroscope url"
+default = "http://127.0.0.1:42733"
+validation = "url"
+
+[[settings]]
+key = "INDEXER_APM_ENABLED"
+group = "indexer-observability"
+label = "indexer apm enabled"
+default = "false"
+input = "checkbox"
+
+[[settings]]
+key = "INDEXER_APM_SERVICE_NAMESPACE"
+group = "indexer-observability"
+label = "indexer apm service namespace"
+default = "artgod.indexer"
+
+[[settings]]
+key = "INDEXER_APM_OTLP_HTTP_URL"
+group = "indexer-observability"
+label = "indexer apm otlp http url"
+default = ""
+validation = "url"
+
+[[settings]]
+key = "INDEXER_APM_PYROSCOPE_URL"
+group = "indexer-observability"
+label = "indexer apm pyroscope url"
+default = ""
+validation = "url"
+
+[[settings]]
+key = "INDEXER_APM_SPAN_PROFILES_ENABLED"
+group = "indexer-observability"
+label = "indexer apm span profiles enabled"
+default = "true"
+input = "checkbox"
+
+[[settings]]
+key = "INDEXER_APM_TRACES_ENABLED"
+group = "indexer-observability"
+label = "indexer apm traces enabled"
+default = "true"
+input = "checkbox"
+
+[[settings]]
+key = "INDEXER_APM_PROFILES_ENABLED"
+group = "indexer-observability"
+label = "indexer apm profiles enabled"
+default = "true"
+input = "checkbox"
+
+[[settings]]
+key = "INDEXER_METRICS_ENABLED"
+group = "indexer-observability"
+label = "indexer metrics enabled"
+default = "false"
+input = "checkbox"
+
+[[settings]]
+key = "INDEXER_METRICS_HOST"
+group = "indexer-observability"
+label = "indexer metrics host"
+default = "0.0.0.0"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_SCHEDULER_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port scheduler worker"
+default = "42741"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_SYNC_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port sync worker"
+default = "42742"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_REORG_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port reorg worker"
+default = "42743"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_DOMAIN_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port domain worker"
+default = "42744"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port offchain ingest worker"
+default = "42745"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port opensea stream worker"
+default = "42746"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port bootstrap worker"
+default = "42747"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port dead letter worker"
+default = "42748"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port opensea bootstrap worker"
+default = "42749"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port opensea reconcile worker"
+default = "42750"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port opensea reconcile scheduler worker"
+default = "42751"
+
+[[settings]]
+key = "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER"
+group = "indexer-observability"
+label = "indexer metrics port collection extension worker"
+default = "42752"
+
+[[settings]]
+key = "REORG_DEPTH"
+group = "indexer"
+label = "reorg depth"
+default = "32"
+
+[[settings]]
+key = "BACKFILL_BATCH_SIZE"
+group = "indexer"
+label = "backfill batch size"
+default = "50"
+view = "basic"
+
+[[settings]]
+key = "LOG_CHUNK_SIZE"
+group = "indexer"
+label = "log chunk size"
+default = "2000"
+
+[[settings]]
+key = "BOOTSTRAP_SNAPSHOT_BATCH_SIZE"
+group = "indexer"
+label = "bootstrap snapshot batch size"
+default = "200"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_METADATA_BATCH_SIZE"
+group = "indexer"
+label = "bootstrap metadata batch size"
+default = "200"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_METADATA_CONCURRENCY"
+group = "indexer"
+label = "bootstrap metadata concurrency"
+default = "8"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_METADATA_PROCESS_POLL_MS"
+group = "indexer"
+label = "bootstrap metadata process poll ms"
+default = "5000"
+
+[[settings]]
+key = "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS"
+group = "indexer"
+label = "bootstrap metadata retry max attempts"
+default = "3"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS"
+group = "indexer"
+label = "bootstrap metadata retry base delay ms"
+default = "100"
+view = "basic"
+
+[[settings]]
+key = "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS"
+group = "indexer"
+label = "bootstrap metadata retry max delay ms"
+default = "1000"
+view = "basic"
+
+[[settings]]
+key = "METADATA_REFRESH_RANGE_CHUNK_SIZE"
+group = "indexer"
+label = "metadata refresh range chunk size"
+default = "200"
+view = "basic"
+
+[[settings]]
+key = "WETH_ADDRESS"
+group = "chain-rpc"
+label = "weth address"
+default = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+
+[[settings]]
+key = "SEAPORT_CONDUIT_CONTROLLER"
+group = "chain-rpc"
+label = "seaport conduit controller"
+default = "0x00000000f9490004c11cef243f5400493c00ad63"
+
+[[settings]]
+key = "OPENSEA_INTEGRATION_MODE"
+group = "opensea"
+label = "opensea integration mode"
+default = "auto"
+view = "basic"
+input = "select"
+options = ["auto", "enabled", "disabled"]
+help = "auto enables OpenSea integration only when OPENSEA_API_KEY is present; if \"enabled\" selected, the app fails fast without it."
+
+[[settings]]
+key = "OPENSEA_API_KEY"
+group = "opensea"
+label = "opensea api key"
+default = ""
+view = "basic"
+input = "password"
+secret = true
+help = "The OpenSea API key that is used by the indexer to fetch asks and offers data from the orderbook."
+
+[[settings]]
+key = "OPENSEA_SNAPSHOT_PAGE_SIZE"
+group = "opensea"
+label = "opensea snapshot page size"
+default = "100"
+
+[[settings]]
+key = "OPENSEA_RECONCILE_INTERVAL_MS"
+group = "opensea"
+label = "opensea reconcile interval ms"
+default = "900000"
+
+[[settings]]
+key = "OPENSEA_STALE_START_THRESHOLD_MS"
+group = "opensea"
+label = "opensea stale start threshold ms"
+default = "1800000"
+
+[[settings]]
+key = "OPENSEA_STREAM_SUBSCRIPTION_POLL_MS"
+group = "opensea"
+label = "opensea stream subscription poll ms"
+default = "5000"
+
+[[settings]]
+key = "OPENSEA_HTTP_RETRY_MAX_ATTEMPTS"
+group = "opensea"
+label = "opensea http retry max attempts"
+default = "3"
+
+[[settings]]
+key = "OPENSEA_HTTP_RETRY_BASE_DELAY_MS"
+group = "opensea"
+label = "opensea http retry base delay ms"
+default = "500"
+
+[[settings]]
+key = "OPENSEA_HTTP_RETRY_MAX_DELAY_MS"
+group = "opensea"
+label = "opensea http retry max delay ms"
+default = "10000"
+
+[[settings]]
+key = "OPENSEA_HTTP_RETRY_JITTER_RATIO"
+group = "opensea"
+label = "opensea http retry jitter ratio"
+default = "0.2"
+
+[[settings]]
+key = "OPENSEA_RATE_LIMIT_GET_MAX"
+group = "opensea"
+label = "opensea rate limit get max"
+default = "4"
+
+[[settings]]
+key = "OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND"
+group = "opensea"
+label = "opensea rate limit get refill per second"
+default = "1"
+
+[[settings]]
+key = "OPENSEA_RATE_LIMIT_POST_MAX"
+group = "opensea"
+label = "opensea rate limit post max"
+default = "2"
+
+[[settings]]
+key = "OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND"
+group = "opensea"
+label = "opensea rate limit post refill per second"
+default = "0.5"
+
+[[settings]]
+key = "OPENSEA_STREAM_SECRET_KEY"
+group = "trading-opensea"
+label = "opensea stream secret key"
+default = ""
+view = "basic"
+input = "password"
+secret = true
+help = "Use to create a dedicated OpenSea lane for the inbound events (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
+
+[[settings]]
+key = "OPENSEA_BIDDING_SECRET_KEY"
+group = "trading-opensea"
+label = "opensea bidding secret key"
+default = ""
+view = "basic"
+input = "password"
+secret = true
+help = "Use to create a dedicated OpenSea lane for the outbound bidding requests (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
+
+[[settings]]
+key = "OPENSEA_SNAPSHOT_SECRET_KEY"
+group = "trading-opensea"
+label = "opensea snapshot secret key"
+default = ""
+view = "basic"
+input = "password"
+secret = true
+help = "Use to create a dedicated OpenSea lane for fetching offers data from the orderbook (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
+
+[[settings]]
+key = "BIDDING_ENABLED"
+group = "bidding"
+label = "bidding enabled"
+default = "true"
+input = "checkbox"
+
+[[settings]]
+key = "BIDDING_DRY_RUN"
+group = "bidding"
+label = "bidding dry run"
+default = "false"
+input = "checkbox"
+
+[[settings]]
+key = "BIDDING_WETH_ALLOWANCE_ETH"
+group = "bidding"
+label = "bidding weth allowance eth"
+default = "0"
+view = "basic"
+help = "Static startup WETH approval target for OpenSea bidding, in Ether units. Use 0 to skip startup approval."
+
+[[settings]]
+key = "BIDDING_TX_MIN_PRIORITY_FEE_GWEI"
+group = "bidding"
+label = "bidding tx min priority fee gwei"
+default = "0.1"
+help = "Bidding bot EIP-1559 fee policy. Gwei values are human-readable; the min tip is used when the node reports 0."
+
+[[settings]]
+key = "BIDDING_TX_FEE_HISTORY_BLOCKS"
+group = "bidding"
+label = "bidding tx fee history blocks"
+default = "20"
+
+[[settings]]
+key = "BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE"
+group = "bidding"
+label = "bidding tx fee history reward percentile"
+default = "70"
+
+[[settings]]
+key = "BIDDING_TX_BASE_FEE_MULTIPLIER"
+group = "bidding"
+label = "bidding tx base fee multiplier"
+default = "1.25"
+view = "basic"
+
+[[settings]]
+key = "BIDDING_TX_MAX_FEE_GWEI"
+group = "bidding"
+label = "bidding tx max fee gwei"
+default = "10"
+view = "basic"
+
+[[settings]]
+key = "BIDDING_TX_PENDING_NONCE_POLICY"
+group = "bidding"
+label = "bidding tx pending nonce policy"
+default = "fail"
+input = "select"
+options = ["fail"]
+
+[[settings]]
+key = "BIDDING_POLL_MS"
+group = "bidding"
+label = "bidding poll ms"
+default = "480000"
+view = "basic"
+
+[[settings]]
+key = "BIDDING_MAX_CONCURRENT_JOBS"
+group = "bidding"
+label = "bidding max concurrent jobs"
+default = "1"
+
+[[settings]]
+key = "BIDDING_BOOTSTRAP_CONCURRENCY"
+group = "bidding"
+label = "bidding bootstrap concurrency"
+default = "3"
+
+[[settings]]
+key = "BIDDING_OFFER_EXPIRATION_SECONDS"
+group = "bidding"
+label = "bidding offer expiration seconds"
+default = "13920"
+view = "basic"
+
+[[settings]]
+key = "BIDDING_COLLECTION_OFFERS_POLL_MS"
+group = "bidding"
+label = "bidding collection offers poll ms"
+default = "60000"
+
+[[settings]]
+key = "BIDDING_COLLECTION_OFFERS_TTL_MS"
+group = "bidding"
+label = "bidding collection offers ttl ms"
+default = "15000"
+
+[[settings]]
+key = "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS"
+group = "bidding"
+label = "bidding bid book projection throttle ms"
+default = "15000"
+
+[[settings]]
+key = "BIDDING_ORDER_LOOKUP_MAX_PAGES"
+group = "bidding"
+label = "bidding order lookup max pages"
+default = "5"
+
+[[settings]]
+key = "BIDDING_COMMAND_POLL_MS"
+group = "bidding"
+label = "bidding command poll ms"
+default = "1000"
+
+[[settings]]
+key = "BIDDING_COMMAND_BATCH_SIZE"
+group = "bidding"
+label = "bidding command batch size"
+default = "20"
+
+[[settings]]
+key = "BIDDING_COMMAND_MAX_ATTEMPTS"
+group = "bidding"
+label = "bidding command max attempts"
+default = "5"
+
+[[settings]]
+key = "BIDDING_COMMAND_CLAIM_TIMEOUT_MS"
+group = "bidding"
+label = "bidding command claim timeout ms"
+default = "300000"
+
+[[settings]]
+key = "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION"
+group = "bidding"
+label = "bidding criteria refresh traits by collection"
+default = "{\"terraforms\":[\"Zone\",\"Biome\",\"Level\"]}"
+input = "textarea"
+
+[[settings]]
+key = "BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION"
+group = "bidding"
+label = "bidding token criteria traits by collection"
+default = "{\"terraforms\":[\"Zone\",\"Biome\",\"Level\",\"Mode\"]}"
+input = "textarea"

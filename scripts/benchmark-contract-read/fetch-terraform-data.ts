@@ -5,7 +5,7 @@ import { encodeFunctionData, decodeFunctionResult } from "viem";
 // Contract addresses and configuration
 const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const TARGET_CONTRACT_ADDRESS = "0x4E1f41613c9084FdB9E34E11fAE9412427480e56"; // Terraforms
-const RPC_URL = "http://localhost:8545";
+const RPC_URL = "http://localhost:42721";
 
 // ==== CONFIGURATION PARAMETERS ====
 // Easy to modify for different test scenarios

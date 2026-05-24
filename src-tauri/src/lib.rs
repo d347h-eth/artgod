@@ -12,7 +12,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::desktop_log::append_desktop_log;
-use runtime::{DesktopRuntimeConfig, RuntimeEndpoints, RuntimeManager, RuntimeStatus};
+use runtime::{
+    AppConfigState, DesktopRuntimeConfig, RuntimeEndpoints, RuntimeManager, RuntimeStatus,
+    SaveAppConfigInput, ensure_desktop_config_paths, load_app_config_state, save_app_config,
+    use_default_app_config,
+};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -93,8 +97,17 @@ fn runtime_get_endpoints(state: State<'_, DesktopState>) -> Result<RuntimeEndpoi
 }
 
 #[tauri::command]
-fn runtime_get_config_path(state: State<'_, DesktopState>) -> Result<String, String> {
-    state.runtime.config_path()
+fn runtime_get_config_path(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<String, String> {
+    match state.runtime.config_path() {
+        Ok(path) => Ok(path),
+        Err(_) => Ok(ensure_desktop_config_paths(&app)?
+            .env_file_path
+            .to_string_lossy()
+            .into_owned()),
+    }
 }
 
 #[tauri::command]
@@ -103,9 +116,12 @@ fn runtime_get_logs_path(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn runtime_open_config_path(state: State<'_, DesktopState>) -> Result<(), String> {
-    let path = state.runtime.config_path()?;
-    open_path(Path::new(&path))
+fn runtime_open_config_path(app: AppHandle, state: State<'_, DesktopState>) -> Result<(), String> {
+    let path = match state.runtime.config_path() {
+        Ok(path) => Path::new(&path).to_path_buf(),
+        Err(_) => ensure_desktop_config_paths(&app)?.env_file_path,
+    };
+    open_path(&path)
 }
 
 #[tauri::command]
@@ -138,6 +154,21 @@ fn runtime_get_logs_tail(
 fn runtime_list_log_processes(app: AppHandle) -> Result<Vec<String>, String> {
     let logs_dir = resolve_logs_dir(&app)?;
     list_log_processes(&logs_dir)
+}
+
+#[tauri::command]
+fn app_config_get(app: AppHandle) -> Result<AppConfigState, String> {
+    load_app_config_state(&app)
+}
+
+#[tauri::command]
+fn app_config_save(app: AppHandle, input: SaveAppConfigInput) -> Result<AppConfigState, String> {
+    save_app_config(&app, input)
+}
+
+#[tauri::command]
+fn app_config_use_defaults(app: AppHandle) -> Result<AppConfigState, String> {
+    use_default_app_config(&app)
 }
 
 #[tauri::command]
@@ -391,6 +422,9 @@ pub fn run() {
             runtime_get_logs_tail,
             runtime_list_log_processes,
             runtime_preflight,
+            app_config_get,
+            app_config_save,
+            app_config_use_defaults,
             wallet_list,
             wallet_get_status,
             wallet_import,

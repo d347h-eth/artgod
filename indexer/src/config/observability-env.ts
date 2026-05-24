@@ -1,9 +1,67 @@
+import {
+    getSettingDefault,
+    getSettingDefaultBoolean,
+    getSettingDefaultNumber,
+} from "@artgod/shared/config/generated-settings-defaults";
 import { parseBoolean, parseNumber } from "@artgod/shared/utils/env";
 
-export const DEFAULT_INDEXER_APM_SERVICE_NAMESPACE = "artgod.indexer";
-export const DEFAULT_OBSERVABILITY_OTLP_HTTP_URL =
-    "http://127.0.0.1:4318/v1/traces";
-export const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = "http://127.0.0.1:4040";
+export const DEFAULT_INDEXER_APM_SERVICE_NAMESPACE = getSettingDefault(
+    "INDEXER_APM_SERVICE_NAMESPACE",
+);
+export const DEFAULT_OBSERVABILITY_OTLP_HTTP_URL = getSettingDefault(
+    "OBSERVABILITY_OTLP_HTTP_URL",
+);
+export const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = getSettingDefault(
+    "OBSERVABILITY_PYROSCOPE_URL",
+);
+const DEFAULT_INDEXER_APM_ENABLED = getSettingDefaultBoolean(
+    "INDEXER_APM_ENABLED",
+);
+const DEFAULT_INDEXER_APM_SPAN_PROFILES_ENABLED = getSettingDefaultBoolean(
+    "INDEXER_APM_SPAN_PROFILES_ENABLED",
+);
+const DEFAULT_INDEXER_APM_TRACES_ENABLED = getSettingDefaultBoolean(
+    "INDEXER_APM_TRACES_ENABLED",
+);
+const DEFAULT_INDEXER_APM_PROFILES_ENABLED = getSettingDefaultBoolean(
+    "INDEXER_APM_PROFILES_ENABLED",
+);
+const DEFAULT_INDEXER_METRICS_ENABLED = getSettingDefaultBoolean(
+    "INDEXER_METRICS_ENABLED",
+);
+const DEFAULT_INDEXER_METRICS_HOST = getSettingDefault("INDEXER_METRICS_HOST");
+const DEFAULT_INDEXER_METRICS_PORTS: IndexerMetricsPortsConfig = {
+    schedulerWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_SCHEDULER_WORKER",
+    ),
+    syncWorker: getSettingDefaultNumber("INDEXER_METRICS_PORT_SYNC_WORKER"),
+    reorgWorker: getSettingDefaultNumber("INDEXER_METRICS_PORT_REORG_WORKER"),
+    domainWorker: getSettingDefaultNumber("INDEXER_METRICS_PORT_DOMAIN_WORKER"),
+    offchainIngestWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER",
+    ),
+    openseaStreamWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER",
+    ),
+    openseaBootstrapWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
+    ),
+    openseaReconcileWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
+    ),
+    openseaReconcileSchedulerWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
+    ),
+    bootstrapWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER",
+    ),
+    collectionExtensionWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER",
+    ),
+    deadLetterWorker: getSettingDefaultNumber(
+        "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER",
+    ),
+};
 
 // Canonical APM config shared by all indexer runtimes.
 export type IndexerApmConfig = {
@@ -66,7 +124,7 @@ export function parseIndexerApmConfig(
         enabled: parseBoolean(
             env.INDEXER_APM_ENABLED,
             "INDEXER_APM_ENABLED",
-            false,
+            DEFAULT_INDEXER_APM_ENABLED,
         ),
         serviceNamespace: readOptionalString(
             env,
@@ -77,14 +135,14 @@ export function parseIndexerApmConfig(
             enabled: parseBoolean(
                 env.INDEXER_APM_SPAN_PROFILES_ENABLED,
                 "INDEXER_APM_SPAN_PROFILES_ENABLED",
-                true,
+                DEFAULT_INDEXER_APM_SPAN_PROFILES_ENABLED,
             ),
         },
         traces: {
             enabled: parseBoolean(
                 env.INDEXER_APM_TRACES_ENABLED,
                 "INDEXER_APM_TRACES_ENABLED",
-                true,
+                DEFAULT_INDEXER_APM_TRACES_ENABLED,
             ),
             otlpHttpUrl: readOptionalString(
                 env,
@@ -96,14 +154,11 @@ export function parseIndexerApmConfig(
             enabled: parseBoolean(
                 env.INDEXER_APM_PROFILES_ENABLED,
                 "INDEXER_APM_PROFILES_ENABLED",
-                true,
+                DEFAULT_INDEXER_APM_PROFILES_ENABLED,
             ),
             pyroscopeUrl: readOptionalString(
                 env,
-                [
-                    "INDEXER_APM_PYROSCOPE_URL",
-                    "OBSERVABILITY_PYROSCOPE_URL",
-                ],
+                ["INDEXER_APM_PYROSCOPE_URL", "OBSERVABILITY_PYROSCOPE_URL"],
                 DEFAULT_OBSERVABILITY_PYROSCOPE_URL,
             ),
         },
@@ -120,62 +175,62 @@ export function parseIndexerMetricsConfig(
             schedulerWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_SCHEDULER_WORKER,
                 "INDEXER_METRICS_PORT_SCHEDULER_WORKER",
-                9464,
+                DEFAULT_INDEXER_METRICS_PORTS.schedulerWorker,
             ),
             syncWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_SYNC_WORKER,
                 "INDEXER_METRICS_PORT_SYNC_WORKER",
-                9465,
+                DEFAULT_INDEXER_METRICS_PORTS.syncWorker,
             ),
             reorgWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_REORG_WORKER,
                 "INDEXER_METRICS_PORT_REORG_WORKER",
-                9466,
+                DEFAULT_INDEXER_METRICS_PORTS.reorgWorker,
             ),
             domainWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_DOMAIN_WORKER,
                 "INDEXER_METRICS_PORT_DOMAIN_WORKER",
-                9467,
+                DEFAULT_INDEXER_METRICS_PORTS.domainWorker,
             ),
             offchainIngestWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER,
                 "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER",
-                9468,
+                DEFAULT_INDEXER_METRICS_PORTS.offchainIngestWorker,
             ),
             openseaStreamWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER",
-                9469,
+                DEFAULT_INDEXER_METRICS_PORTS.openseaStreamWorker,
             ),
             openseaBootstrapWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-                9472,
+                DEFAULT_INDEXER_METRICS_PORTS.openseaBootstrapWorker,
             ),
             openseaReconcileWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-                9473,
+                DEFAULT_INDEXER_METRICS_PORTS.openseaReconcileWorker,
             ),
             openseaReconcileSchedulerWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-                9474,
+                DEFAULT_INDEXER_METRICS_PORTS.openseaReconcileSchedulerWorker,
             ),
             bootstrapWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_BOOTSTRAP_WORKER,
                 "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER",
-                9470,
+                DEFAULT_INDEXER_METRICS_PORTS.bootstrapWorker,
             ),
             collectionExtensionWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER,
                 "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER",
-                9475,
+                DEFAULT_INDEXER_METRICS_PORTS.collectionExtensionWorker,
             ),
             deadLetterWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_DEAD_LETTER_WORKER,
                 "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER",
-                9471,
+                DEFAULT_INDEXER_METRICS_PORTS.deadLetterWorker,
             ),
         },
     };
@@ -191,22 +246,22 @@ export function parseOpenSeaMetricsConfig(
             openseaStreamWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER",
-                9469,
+                DEFAULT_INDEXER_METRICS_PORTS.openseaStreamWorker,
             ),
             openseaBootstrapWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER",
-                9472,
+                DEFAULT_INDEXER_METRICS_PORTS.openseaBootstrapWorker,
             ),
             openseaReconcileWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER",
-                9473,
+                DEFAULT_INDEXER_METRICS_PORTS.openseaReconcileWorker,
             ),
             openseaReconcileSchedulerWorker: parseNumber(
                 env.INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER,
                 "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER",
-                9474,
+                DEFAULT_INDEXER_METRICS_PORTS.openseaReconcileSchedulerWorker,
             ),
         },
     };
@@ -232,8 +287,12 @@ function parseMetricsBaseConfig(
         enabled: parseBoolean(
             env.INDEXER_METRICS_ENABLED,
             "INDEXER_METRICS_ENABLED",
-            false,
+            DEFAULT_INDEXER_METRICS_ENABLED,
         ),
-        host: readOptionalString(env, ["INDEXER_METRICS_HOST"], "0.0.0.0"),
+        host: readOptionalString(
+            env,
+            ["INDEXER_METRICS_HOST"],
+            DEFAULT_INDEXER_METRICS_HOST,
+        ),
     };
 }

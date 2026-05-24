@@ -6,46 +6,46 @@ scrape_configs:
     - job_name: "artgod-backend"
       metrics_path: /metrics
       static_configs:
-          - targets: ["backend:9480"]
+          - targets: ["backend:42740"]
             labels:
                 runtime: "backend-api"
 
     - job_name: "artgod-indexer"
       metrics_path: /metrics
       static_configs:
-          - targets: ["indexer-scheduler-worker:9464"]
+          - targets: ["indexer-scheduler-worker:42741"]
             labels:
                 runtime: "scheduler-worker"
-          - targets: ["indexer-sync-worker:9465"]
+          - targets: ["indexer-sync-worker:42742"]
             labels:
                 runtime: "sync-worker"
-          - targets: ["indexer-reorg-worker:9466"]
+          - targets: ["indexer-reorg-worker:42743"]
             labels:
                 runtime: "reorg-worker"
-          - targets: ["indexer-domain-worker:9467"]
+          - targets: ["indexer-domain-worker:42744"]
             labels:
                 runtime: "domain-worker"
-          - targets: ["indexer-offchain-ingest-worker:9468"]
+          - targets: ["indexer-offchain-ingest-worker:42745"]
             labels:
                 runtime: "offchain-ingest-worker"
-          - targets: ["indexer-opensea-stream-worker:9469"]
+          - targets: ["indexer-opensea-stream-worker:42746"]
             labels:
                 runtime: "opensea-stream-worker"
-          - targets: ["indexer-bootstrap-worker:9470"]
+          - targets: ["indexer-bootstrap-worker:42747"]
             labels:
                 runtime: "bootstrap-worker"
-          - targets: ["indexer-dead-letter-worker:9471"]
+          - targets: ["indexer-dead-letter-worker:42748"]
             labels:
                 runtime: "dead-letter-worker"
-          - targets: ["indexer-opensea-bootstrap-worker:9472"]
+          - targets: ["indexer-opensea-bootstrap-worker:42749"]
             labels:
                 runtime: "opensea-bootstrap-worker"
-          - targets: ["indexer-opensea-reconcile-worker:9473"]
+          - targets: ["indexer-opensea-reconcile-worker:42750"]
             labels:
                 runtime: "opensea-reconcile-worker"
-          - targets: ["indexer-opensea-reconcile-scheduler-worker:9474"]
+          - targets: ["indexer-opensea-reconcile-scheduler-worker:42751"]
             labels:
                 runtime: "opensea-reconcile-scheduler-worker"
-          - targets: ["indexer-collection-extension-worker:9475"]
+          - targets: ["indexer-collection-extension-worker:42752"]
             labels:
                 runtime: "collection-extension-worker"

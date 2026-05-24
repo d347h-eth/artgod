@@ -15,8 +15,8 @@ Current setup is local-first and split by signal type:
 
 - Logs: local backend API, frontend SSR, and indexer runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
 - Metrics: backend API and indexer runtimes expose `/metrics` over HTTP; Prometheus scrapes them and Grafana reads Prometheus.
-- Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:4318`), and Grafana reads Tempo.
-- Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:4040`), and Grafana reads Pyroscope.
+- Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:42732`), and Grafana reads Tempo.
+- Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:42733`), and Grafana reads Pyroscope.
 
 Observability containers run behind the `observability` compose profile in `docker-compose.yml` for local dev and `docker-compose.deploy.yml` for the public deploy stack.
 
@@ -26,17 +26,17 @@ Observability containers run behind the `observability` compose profile in `dock
 
 `docker-compose.yml` defines:
 
-- `loki` (log store), bound to `127.0.0.1:3100`.
+- `loki` (log store), bound to `127.0.0.1:42730`.
 - `alloy` (log shipper/processor), reads `./tmp/logs` as read-only.
 - `prometheus` (metrics scraping), host network mode for host runtime scrape.
-- `tempo` (trace ingest/query), OTLP HTTP on `127.0.0.1:4318`, API on `127.0.0.1:3200`.
-- `pyroscope` (profiles), bound to `127.0.0.1:4040`.
-- `grafana` (UI), host network mode, bound to `127.0.0.1:42701`.
+- `tempo` (trace ingest/query), OTLP HTTP on `127.0.0.1:42732`, API on `127.0.0.1:42731`.
+- `pyroscope` (profiles), bound to `127.0.0.1:42733`.
+- `grafana` (UI), host network mode, bound to `127.0.0.1:42735`.
 
 `docker-compose.deploy.yml` defines the same signal stores behind its own `observability` profile, but uses deploy-specific wiring:
 
-- `grafana` joins the external `public-edge` network with alias `artgod-grafana` and listens on container port `3000`.
-- Prometheus scrapes `backend:9480` and indexer worker service names such as `indexer-sync-worker:9465` using `observability/prometheus/deploy-prometheus.yml`.
+- `grafana` joins the external `public-edge` network with alias `artgod-grafana` and listens on container port `42735`.
+- Prometheus scrapes `backend:42740` and indexer worker service names such as `indexer-sync-worker:42742` using `observability/prometheus/deploy-prometheus.yml`.
 - Grafana datasources use compose service names from `observability/grafana/provisioning-deploy/datasources`.
 - Alloy uses Docker discovery through a read-only Docker socket and keeps only containers labeled `com.artgod.observability.logs=true`.
 
@@ -54,19 +54,19 @@ Observability containers run behind the `observability` compose profile in `dock
 ### Metrics Pipeline
 
 - Prometheus config in `observability/prometheus/prometheus.yml` scrapes:
-    - `9480` backend-api
-    - `9464` scheduler-worker
-    - `9465` sync-worker
-    - `9466` reorg-worker
-    - `9467` domain-worker
-    - `9468` offchain-ingest-worker
-    - `9469` opensea-stream-worker
-    - `9470` bootstrap-worker
-    - `9471` dead-letter-worker
-    - `9472` opensea-bootstrap-worker
-    - `9473` opensea-reconcile-worker
-    - `9474` opensea-reconcile-scheduler-worker
-    - `9475` collection-extension-worker
+    - `42740` backend-api
+    - `42741` scheduler-worker
+    - `42742` sync-worker
+    - `42743` reorg-worker
+    - `42744` domain-worker
+    - `42745` offchain-ingest-worker
+    - `42746` opensea-stream-worker
+    - `42747` bootstrap-worker
+    - `42748` dead-letter-worker
+    - `42749` opensea-bootstrap-worker
+    - `42750` opensea-reconcile-worker
+    - `42751` opensea-reconcile-scheduler-worker
+    - `42752` collection-extension-worker
 - Runtime metrics bootstrap:
     - `shared/observability/metrics/runtime.ts` initializes generic runtime metrics only when enabled.
     - `backend/src/observability/metrics.ts` initializes backend-specific metrics with the `artgod_backend_` prefix.
@@ -94,7 +94,7 @@ Observability containers run behind the `observability` compose profile in `dock
 
 ## Runtime Config
 
-Main env flags (in `.env.example` and loaded through typed config):
+Main env flags (declared in `config/settings.manifest.toml`, generated into `.env.example` and `shared/config/generated-settings-defaults.ts`, and loaded through typed config):
 
 - `OBSERVABILITY_OTLP_HTTP_URL`
 - `OBSERVABILITY_PYROSCOPE_URL`
@@ -470,9 +470,9 @@ To reach full trace-profile correlation:
 - Check Loki ingestion for SSR/backend cache diagnostics:
     - `./scripts/check-observability-log-ingestion.sh`
 - Check metrics endpoint:
-    - `curl http://127.0.0.1:9480/metrics`
-    - `curl http://127.0.0.1:9465/metrics`
-    - `curl http://127.0.0.1:9475/metrics`
+    - `curl http://127.0.0.1:42740/metrics`
+    - `curl http://127.0.0.1:42742/metrics`
+    - `curl http://127.0.0.1:42752/metrics`
 - Check Grafana:
     - logs in Loki Explore
     - `up{job="artgod-backend"}` in Prometheus Explore

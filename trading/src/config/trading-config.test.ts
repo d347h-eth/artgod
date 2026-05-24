@@ -6,8 +6,8 @@ import { loadTradingConfig } from "./trading-config.js";
 const requiredBaseEnv = {
     ARTGOD_DB_PATH: "database/sqlite/main/db",
     CHAIN_ID: "1",
-    RPC_URL: "http://127.0.0.1:8545",
-    NATS_URL: "nats://127.0.0.1:4222",
+    RPC_URL: "http://127.0.0.1:42721",
+    NATS_URL: "nats://127.0.0.1:42720",
     NATS_STREAM_PREFIX: "artgod",
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
 } satisfies Record<string, string>;
@@ -28,8 +28,8 @@ describe("loadTradingConfig", () => {
         );
 
         assert.equal(config.chainId, 1);
-        assert.equal(config.rpc.primaryUrl, "http://127.0.0.1:8545");
-        assert.equal(config.queue.natsUrl, "nats://127.0.0.1:4222");
+        assert.equal(config.rpc.primaryUrl, "http://127.0.0.1:42721");
+        assert.equal(config.queue.natsUrl, "nats://127.0.0.1:42720");
         assert.equal(config.queue.streamPrefix, "artgod");
         assert.equal(
             config.tokens.wethAddress,

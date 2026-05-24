@@ -231,17 +231,27 @@ Produced sidecar artifacts:
 
 During Tauri build the sidecar is bundled through `bundle.externalBin` and invoked through Tauri's sidecar mechanism.
 
-## Desktop Runtime Config File
+## Desktop Runtime Config Store
 
-Desktop config is generated on first app launch in app-data:
+Desktop configuration is Admin-managed in app-data. The Rust app creates config/log directories during setup, but it does not create a runnable `.env` or start the supervisor until the operator chooses a launch path in Admin UI.
+
+Versioned Admin settings file:
+
+- Linux: `~/.local/share/network.artgod.desktop/config/settings.json`
+- macOS: `~/Library/Application Support/network.artgod.desktop/config/settings.json`
+- Windows: `%APPDATA%\network.artgod.desktop\config\settings.json`
+
+Rendered runtime env file:
 
 - Linux: `~/.local/share/network.artgod.desktop/config/.env`
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\network.artgod.desktop\config\.env`
 
+The settings manifest at `config/settings.manifest.toml` is the embedded Admin schema/default source. The settings file stores only operator overrides plus desktop metadata; it is not a full default snapshot. The rendered `.env` remains the startup contract for backend/indexer/trading child processes and is regenerated from effective manifest defaults plus overrides when Admin defaults are applied or configuration is saved. A stale `.env` without `settings.json` is not treated as configured and cannot drive supervisor auto-start. See `docs/desktop/04-settings-manifest-process.md` for the manifest generation and drift-control process.
+
 Desktop-specific required keys:
 
-- `DESKTOP_AUTO_START`
+- `DESKTOP_AUTO_START` (rendered from the Admin `autostart infra` checkbox)
 - `DESKTOP_RESTART_BACKOFF_MS`
 - `USERLAND_UI_DIST_DIR`
 
@@ -281,7 +291,7 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 - `ARTGOD_DB_PATH`
 - `USERLAND_UI_DIST_DIR`
 - `RPC_URL`
-- `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:4222`)
+- `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:42720`)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`
 - observability keys use the canonical desktop/runtime names: `OBSERVABILITY_OTLP_HTTP_URL`, `OBSERVABILITY_PYROSCOPE_URL`, `BACKEND_METRICS_*`, `BACKEND_APM_*`, `INDEXER_METRICS_*`, and `INDEXER_APM_*`
@@ -295,11 +305,12 @@ Desktop-first default path behavior:
 
 Important:
 
-- if this file was generated before new desktop runtime keys were introduced, regenerate or update it manually
+- if `settings.json` has no override for a current manifest key, `.env` rendering uses the manifest default for that key without rewriting the settings file during startup
+- resetting defaults clears stored overrides instead of writing all manifest defaults into `settings.json`
 - desktop runtime sets `ARTGOD_ENV_FILE` for child processes, so backend/indexer read this desktop config path explicitly
 - runtime artifact paths are resolved from bundled app resources, not from a workspace root path
 
-Startup-critical config remains env-file based. Do not move supervisor bootstrap config into the main SQLite database until Rust-owned startup and TS migrations have a shared ordering contract; the backend/indexer still own DB migrations. Dynamic user-managed provider choices can live in an Admin-owned config store later, but the first-launch `.env` must stay sufficient to start NATS, backend, indexer, and userland.
+Startup-critical config remains env-file based at the child-process boundary. Do not move supervisor bootstrap config into the main SQLite database until Rust-owned startup and TS migrations have a shared ordering contract; the backend/indexer still own DB migrations. The Admin settings JSON is Rust-owned app-data, and the rendered `.env` must stay sufficient to start NATS, backend, indexer, and userland.
 
 ## Supervisor Runtime Composition
 
@@ -313,7 +324,9 @@ Startup trigger:
 
 1. Rust app setup initializes commands and logs startup, but does **not** auto-start supervisor work in `setup()`.
 2. Frontend lifecycle orchestrator (`runtime/lifecycle/orchestrator.ts`) waits for Tauri bridge and invokes `runtime_auto_start`.
-3. `runtime_auto_start` calls `RuntimeManager::auto_start`, which loads/validates desktop config and starts supervisor thread.
+3. `runtime_auto_start` calls `RuntimeManager::auto_start`, which checks Admin configuration state.
+4. If no settings exist, or if `autostart infra` is disabled, runtime remains cleanly `stopped` and the Admin header action sequence guides `config` -> `start infra` -> `enter the userland`.
+5. If `autostart infra` is enabled, Rust renders/loads the desktop `.env`, validates runtime config, and starts the supervisor thread.
 
 Supervisor startup order:
 
@@ -339,8 +352,8 @@ If any step fails:
 
 Frontend readiness behavior:
 
-- admin runtime console is shown immediately on app mount (native WebView)
-- lifecycle tab remains active during boot until lifecycle becomes `ready`
+- admin shell is shown immediately on app mount (native WebView), with no tab active by default
+- system tab exposes the lifecycle stream while the header action sequence remains the primary launch path
 - lifecycle reaches `ready` only after lifecycle orchestrator backend readiness probe succeeds, not merely when runtime status becomes `running`
 - admin UI does not execute userland collection/token route loads
 - userland browser UI uses `backend-api.ts` directly against backend localhost origin (`/api/*`)
@@ -420,23 +433,27 @@ Desktop UI is split into:
 
 Admin UI mounts a dedicated shell in root layout (`frontend/src/routes/+layout.svelte`):
 
-- shell tabs: `lifecycle`, `wallets`, `bots`, `logs`, `status`
-- header action to open the userland browser UI
+- shell tabs: `system`, `control`, `wallets`, `bots`, `logs`
+- header action sequence: `config` -> `start infra` -> `enter the userland`
+- Admin configuration controls: edit manifest-backed runtime settings grouped by topic, render `.env`, and toggle `autostart infra`
 - live runtime state (`runtime-state-changed` event)
 - live log stream (`runtime-log` event)
 - controls: start / stop / restart / preflight
-- paths: config path and logs path with open actions
+- paths: settings/env/logs paths, with settings/env existence status and open actions
 - wallet metadata controls: import / export / remove
 - bot controls: list / assign wallet / start / stop
 
-Admin lifecycle UX is embedded in the `lifecycle` tab:
+Admin lifecycle UX is embedded in the `system` tab:
 
-- visible immediately on startup while lifecycle phase is not `ready`
+- available from the `system` tab while lifecycle phase is not `ready`
 - shows lifecycle events as single-line rows with bracket tokens (`[level] [code]`) for copy-friendly logs
 - remains in admin UI after startup as historical lifecycle stream
 
 Tauri commands used by desktop frontend runtime UI/state:
 
+- `app_config_get`
+- `app_config_save`
+- `app_config_use_defaults`
 - `runtime_auto_start` (boot lifecycle orchestrator startup handshake)
 - `runtime_start`
 - `runtime_stop`
@@ -532,7 +549,7 @@ Common issues and checks:
   : Run `yarn clean:build`.
 
 - Desktop config key errors on startup
-  : Check desktop app-data `.env` and required `DESKTOP_*` keys.
+  : Check Admin `config`, app-data `settings.json`, the rendered `.env`, and required `DESKTOP_*` keys.
 
 - Port already in use after abrupt stop
   : Current supervisor includes graceful stop + forced cleanup; if interrupted externally, verify no stale `nats-server`/runtime process remains before restart.

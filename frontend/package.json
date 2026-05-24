@@ -4,9 +4,9 @@
     "version": "0.0.1-pre-alpha.24",
     "type": "module",
     "scripts": {
-        "dev": "vite dev --host 127.0.0.1 --port 5173 --strictPort",
-        "dev:e2e:bidding": "vite dev --host 127.0.0.1 --port 5177 --strictPort",
-        "dev:e2e:bidding:public": "PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection PUBLIC_APP_CHAIN_REF=ethereum PUBLIC_APP_COLLECTION_REF=e2e-bidding vite dev --host 127.0.0.1 --port 5178 --strictPort",
+        "dev": "vite dev --host 127.0.0.1 --port 42701 --strictPort",
+        "dev:e2e:bidding": "vite dev --host 127.0.0.1 --port 42702 --strictPort",
+        "dev:e2e:bidding:public": "PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection PUBLIC_APP_CHAIN_REF=ethereum PUBLIC_APP_COLLECTION_REF=e2e-bidding vite dev --host 127.0.0.1 --port 42703 --strictPort",
         "build": "svelte-kit sync && vite build",
         "preview": "vite preview",
         "prepare": "svelte-kit sync || echo ''",

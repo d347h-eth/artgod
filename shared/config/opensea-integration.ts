@@ -1,3 +1,5 @@
+import { getSettingDefault } from "./generated-settings-defaults.js";
+
 export const OPENSEA_INTEGRATION_MODE_ENV = "OPENSEA_INTEGRATION_MODE";
 export const OPENSEA_API_KEY_ENV = "OPENSEA_API_KEY";
 
@@ -82,7 +84,8 @@ function parseOpenSeaIntegrationMode(
     value: string | undefined,
 ): OpenSeaIntegrationMode {
     const normalized =
-        value?.trim().toLowerCase() ?? OPENSEA_INTEGRATION_MODE.Auto;
+        value?.trim().toLowerCase() ??
+        getSettingDefault("OPENSEA_INTEGRATION_MODE");
     if (normalized.length === 0) {
         return OPENSEA_INTEGRATION_MODE.Auto;
     }

@@ -43,7 +43,7 @@ describe('backend api observability', () => {
 		);
 
 		expect(fetchMock).toHaveBeenCalledWith(
-			'http://127.0.0.1:3000/api/ethereum/terraforms?owner=0xabc',
+			'http://127.0.0.1:42710/api/ethereum/terraforms?owner=0xabc',
 			{
 				credentials: 'include',
 				headers: expect.any(Headers)
@@ -96,7 +96,7 @@ describe('backend api observability', () => {
 		const response = await getBlockspaceStateWithHeaders(globalThis.fetch, 'ethereum', params);
 
 		expect(fetchMock).toHaveBeenCalledWith(
-			'http://127.0.0.1:3000/api/ethereum/blockspace?collection=terraforms',
+			'http://127.0.0.1:42710/api/ethereum/blockspace?collection=terraforms',
 			{
 				credentials: 'include',
 				headers: expect.any(Headers)

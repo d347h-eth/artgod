@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
+import {
+    getSettingDefault,
+    getSettingDefaultBoolean,
+    getSettingDefaultNumber,
+} from "@artgod/shared/config/generated-settings-defaults";
 import { loadConfig } from "../src/config/index.js";
 
 const REQUIRED_ENV = {
     ARTGOD_DB_PATH: "database/sqlite/test/db",
-    RPC_URL: "http://127.0.0.1:8545",
+    RPC_URL: "http://127.0.0.1:42721",
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     SEAPORT_CONDUIT_CONTROLLER: "0x00000000f9490004c11cef243f5400493c00ad63",
 };
@@ -24,10 +29,81 @@ describe("Indexer config", () => {
         );
     });
 
-    it("persists raw offchain observations by default", () => {
+    it("uses the manifest raw offchain observation default", () => {
         const config = loadConfig(REQUIRED_ENV);
 
-        expect(config.offchain.persistRawObservations).toBe(true);
+        expect(config.offchain.persistRawObservations).toBe(
+            getSettingDefaultBoolean("OFFCHAIN_PERSIST_RAW_OBSERVATIONS"),
+        );
+    });
+
+    it("uses manifest defaults for unprovided runtime tunables", () => {
+        const config = loadConfig(REQUIRED_ENV);
+
+        expect(config.chainId).toBe(getSettingDefaultNumber("CHAIN_ID"));
+        expect(config.rpc.retryPolicy).toEqual({
+            maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
+            baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
+            maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
+        });
+        expect(config.rpc.resilience).toEqual({
+            rateLimiter: {
+                requestsPerSecond: getSettingDefaultNumber(
+                    "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
+                ),
+                burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
+            },
+            circuitBreaker: {
+                failureThreshold: getSettingDefaultNumber(
+                    "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                ),
+                openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
+                halfOpenMaxRequests: getSettingDefaultNumber(
+                    "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+                ),
+            },
+        });
+        expect(config.queue).toEqual({
+            natsUrl: getSettingDefault("NATS_URL"),
+            streamPrefix: getSettingDefault("NATS_STREAM_PREFIX"),
+        });
+        expect(config.sync).toEqual({
+            reorgDepth: getSettingDefaultNumber("REORG_DEPTH"),
+            backfillBatchSize: getSettingDefaultNumber("BACKFILL_BATCH_SIZE"),
+            logChunkSize: getSettingDefaultNumber("LOG_CHUNK_SIZE"),
+        });
+        expect(config.cache).toEqual({
+            maxEntries: getSettingDefaultNumber("CACHE_MAX_ENTRIES"),
+            ttlMs: getSettingDefaultNumber("CACHE_TTL_MS"),
+        });
+        expect(config.bootstrap).toEqual({
+            snapshotBatchSize: getSettingDefaultNumber(
+                "BOOTSTRAP_SNAPSHOT_BATCH_SIZE",
+            ),
+            metadataBatchSize: getSettingDefaultNumber(
+                "BOOTSTRAP_METADATA_BATCH_SIZE",
+            ),
+            metadataConcurrency: getSettingDefaultNumber(
+                "BOOTSTRAP_METADATA_CONCURRENCY",
+            ),
+            metadataProcessPollMs: getSettingDefaultNumber(
+                "BOOTSTRAP_METADATA_PROCESS_POLL_MS",
+            ),
+            metadataRetryPolicy: {
+                maxAttempts: getSettingDefaultNumber(
+                    "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS",
+                ),
+                baseDelayMs: getSettingDefaultNumber(
+                    "BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS",
+                ),
+                maxDelayMs: getSettingDefaultNumber(
+                    "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS",
+                ),
+            },
+        });
+        expect(config.metadata.refreshRangeChunkSize).toBe(
+            getSettingDefaultNumber("METADATA_REFRESH_RANGE_CHUNK_SIZE"),
+        );
     });
 
     it("treats missing OpenSea API key as disabled in auto mode", () => {
@@ -53,13 +129,13 @@ describe("Indexer config", () => {
         );
     });
 
-    it("allows disabling raw offchain observation persistence", () => {
+    it("allows enabling raw offchain observation persistence", () => {
         const config = loadConfig({
             ...REQUIRED_ENV,
-            OFFCHAIN_PERSIST_RAW_OBSERVATIONS: "false",
+            OFFCHAIN_PERSIST_RAW_OBSERVATIONS: "true",
         });
 
-        expect(config.offchain.persistRawObservations).toBe(false);
+        expect(config.offchain.persistRawObservations).toBe(true);
     });
 
     it("parses canonical indexer observability config", () => {
@@ -67,19 +143,19 @@ describe("Indexer config", () => {
             ...REQUIRED_ENV,
             INDEXER_METRICS_ENABLED: "true",
             INDEXER_METRICS_HOST: "127.0.0.1",
-            INDEXER_METRICS_PORT_SYNC_WORKER: "9565",
+            INDEXER_METRICS_PORT_SYNC_WORKER: "42790",
             INDEXER_APM_ENABLED: "true",
             INDEXER_APM_SERVICE_NAMESPACE: "artgod.indexer-custom",
             INDEXER_APM_SPAN_PROFILES_ENABLED: "false",
             INDEXER_APM_TRACES_ENABLED: "false",
-            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:4318/v1/traces",
+            OBSERVABILITY_OTLP_HTTP_URL: "http://tempo:42732/v1/traces",
             INDEXER_APM_PROFILES_ENABLED: "false",
-            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:4040",
+            OBSERVABILITY_PYROSCOPE_URL: "http://pyroscope:42733",
         });
 
         expect(config.metrics.enabled).toBe(true);
         expect(config.metrics.host).toBe("127.0.0.1");
-        expect(config.metrics.ports.syncWorker).toBe(9565);
+        expect(config.metrics.ports.syncWorker).toBe(42790);
         expect(config.apm).toMatchObject({
             enabled: true,
             serviceNamespace: "artgod.indexer-custom",
@@ -88,13 +164,12 @@ describe("Indexer config", () => {
             },
             traces: {
                 enabled: false,
-                otlpHttpUrl: "http://tempo:4318/v1/traces",
+                otlpHttpUrl: "http://tempo:42732/v1/traces",
             },
             profiles: {
                 enabled: false,
-                pyroscopeUrl: "http://pyroscope:4040",
+                pyroscopeUrl: "http://pyroscope:42733",
             },
         });
     });
-
 });

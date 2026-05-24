@@ -112,7 +112,7 @@ function createDesktopRuntimeStore() {
 	async function doInit(): Promise<void> {
 		try {
 			await lifecycle.init();
-			if (lifecycle.isDesktopShellExpected()) {
+			if (lifecycle.shouldWaitUntilReady()) {
 				void lifecycle.waitUntilReady().catch(() => {
 					// Fatal state is exposed in lifecycle events and overlay.
 				});
@@ -185,6 +185,7 @@ function createDesktopRuntimeStore() {
 	}
 
 	async function start() {
+		await init();
 		lifecycle.beginBoot(
 			'Starting local runtime processes...',
 			'runtime.start.requested',
@@ -194,10 +195,27 @@ function createDesktopRuntimeStore() {
 			await runtimePort.start();
 			await hydrate(consoleSessionActive);
 			lifecycle.reportEvent('info', 'runtime.start.sent', 'Runtime start command accepted');
+			void lifecycle.waitUntilReady().catch(() => {
+				// Fatal state is exposed in lifecycle events and overlay.
+			});
+		});
+	}
+
+	async function autoStart() {
+		await init();
+		await withBusyAction('autoStart', async () => {
+			await lifecycle.autoStart();
+			await hydrate(consoleSessionActive);
+			if (lifecycle.shouldWaitUntilReady()) {
+				void lifecycle.waitUntilReady().catch(() => {
+					// Fatal state is exposed in lifecycle events and overlay.
+				});
+			}
 		});
 	}
 
 	async function stop() {
+		await init();
 		lifecycle.setStopping('Stopping runtime processes...', 'runtime.stop.requested');
 		await withBusyAction('stop', async () => {
 			await runtimePort.stop();
@@ -207,6 +225,7 @@ function createDesktopRuntimeStore() {
 	}
 
 	async function restart() {
+		await init();
 		lifecycle.beginBoot(
 			'Restarting local runtime processes...',
 			'runtime.restart.requested',
@@ -216,6 +235,9 @@ function createDesktopRuntimeStore() {
 			await runtimePort.restart();
 			await hydrate(consoleSessionActive);
 			lifecycle.reportEvent('info', 'runtime.restart.sent', 'Runtime restart command accepted');
+			void lifecycle.waitUntilReady().catch(() => {
+				// Fatal state is exposed in lifecycle events and overlay.
+			});
 		});
 	}
 
@@ -373,6 +395,7 @@ function createDesktopRuntimeStore() {
 		closeConsole: endConsoleSession,
 		setLogProcess,
 		dispose,
+		autoStart,
 		start,
 		stop,
 		restart,

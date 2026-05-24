@@ -10,8 +10,8 @@ function makeStatus(state: string, overrides: Partial<RuntimeStatus> = {}): Runt
 		restartCount: 0,
 		lastError: null,
 		runningProcesses: [],
-		backendHttpBaseUrl: 'http://127.0.0.1:3000',
-		natsUrl: 'nats://127.0.0.1:4222',
+		backendHttpBaseUrl: 'http://127.0.0.1:42710',
+		natsUrl: 'nats://127.0.0.1:42720',
 		configPath: '/tmp/.env',
 		...overrides
 	};
@@ -208,6 +208,7 @@ describe('lifecycle orchestrator', () => {
 			backendProbePort
 		});
 
+		await orchestrator.autoStart();
 		await orchestrator.waitUntilReady();
 
 		expect(orchestrator.isReady()).toBe(true);
@@ -254,6 +255,7 @@ describe('lifecycle orchestrator', () => {
 
 		const { orchestrator } = createHarness({ runtimePort, backendProbePort });
 
+		await orchestrator.autoStart();
 		const first = orchestrator.waitUntilReady();
 		const second = orchestrator.waitUntilReady();
 		await flushMicrotasks();
@@ -262,6 +264,49 @@ describe('lifecycle orchestrator', () => {
 		resolveProbe();
 		await Promise.all([first, second]);
 		expect(orchestrator.isReady()).toBe(true);
+	});
+
+	it('does not auto-start during desktop initialization', async () => {
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('stopped');
+		runtimePort.autoStartStatus = makeStatus('stopped');
+
+		const { orchestrator, lifecycleStates } = createHarness({ runtimePort });
+
+		await orchestrator.init();
+
+		expect(runtimePort.autoStartCalls).toBe(0);
+		expect(orchestrator.shouldWaitUntilReady()).toBe(false);
+		expect(eventCodes(lifecycleStates)).not.toContain('runtime.auto_start.requested');
+		expect(eventCodes(lifecycleStates)).not.toContain('ready.poll.start');
+	});
+
+	it('does not require readiness polling when runtime is cleanly stopped', async () => {
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('stopped');
+
+		const { orchestrator, lifecycleStates } = createHarness({ runtimePort });
+
+		await orchestrator.waitUntilReady();
+
+		expect(runtimePort.autoStartCalls).toBe(0);
+		expect(orchestrator.shouldWaitUntilReady()).toBe(false);
+		expect(eventCodes(lifecycleStates)).not.toContain('ready.poll.start');
+	});
+
+	it('reports skipped when explicit auto-start returns a clean stopped state', async () => {
+		const runtimePort = new FakeRuntimePort();
+		runtimePort.statusValue = makeStatus('stopped');
+		runtimePort.autoStartStatus = makeStatus('stopped');
+
+		const { orchestrator, lifecycleStates } = createHarness({ runtimePort });
+
+		await orchestrator.autoStart();
+
+		expect(runtimePort.autoStartCalls).toBe(1);
+		expect(orchestrator.shouldWaitUntilReady()).toBe(false);
+		expect(eventCodes(lifecycleStates)).toContain('runtime.auto_start.skipped');
+		expect(eventCodes(lifecycleStates)).not.toContain('ready.poll.start');
 	});
 
 	it('retries boot once on fatal -> running transition without background probe loop', async () => {
@@ -287,7 +332,7 @@ describe('lifecycle orchestrator', () => {
 
 		const { orchestrator, lifecycleStates } = createHarness({ runtimePort, backendProbePort });
 
-		await expect(orchestrator.waitUntilReady()).rejects.toThrow('Runtime auto-start failed');
+		await expect(orchestrator.autoStart()).rejects.toThrow('Runtime auto-start failed');
 		expect(orchestrator.isReady()).toBe(false);
 		expect(lifecycleStates.at(-1)?.phase).toBe('fatal');
 		expect(probeCalls).toBe(0);
@@ -312,6 +357,7 @@ describe('lifecycle orchestrator', () => {
 			readyPollMs: 300
 		});
 
+		await orchestrator.autoStart();
 		await expect(orchestrator.waitUntilReady()).rejects.toThrow('did not reach running state');
 		expect(lifecycleStates.at(-1)?.phase).toBe('fatal');
 		expect(eventCodes(lifecycleStates)).toContain('ready.poll.timeout');
@@ -335,6 +381,7 @@ describe('lifecycle orchestrator', () => {
 			}
 		});
 
+		await orchestrator.autoStart();
 		const waitPromise = orchestrator.waitUntilReady();
 		await flushMicrotasks(10);
 		orchestrator.dispose();

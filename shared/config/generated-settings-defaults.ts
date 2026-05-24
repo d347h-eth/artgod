@@ -1,0 +1,184 @@
+// Generated from config/settings.manifest.toml.
+// Do not edit directly; run `yarn config:generate`.
+
+// Manifest defaults consumed by runtime config modules and generation checks.
+export const SETTINGS_DEFAULTS = {
+    ARTGOD_DB_PATH: "database/sqlite/main/db",
+    BACKEND_HOST: "127.0.0.1",
+    BACKEND_PORT: "42710",
+    BACKEND_ALLOWED_HOSTS: "127.0.0.1,localhost,::1",
+    BACKEND_ALLOWED_ORIGINS:
+        "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701,http://tauri.localhost,tauri://localhost",
+    BACKEND_CSRF_COOKIE_SECURE: "false",
+    BACKEND_QUERY_CACHE_PROVIDER: "disabled",
+    BACKEND_QUERY_CACHE_TOKEN_PREVIEW_MAX_ENTRIES: "250",
+    BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS: "600000",
+    BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS: "1200000",
+    BACKEND_QUERY_CACHE_TOKEN_PREVIEW_WARMUP_CONCURRENCY: "3",
+    BACKEND_PUBLIC_COLLECTION_CACHE_REFRESH_MS: "30000",
+    BACKEND_PUBLIC_COLLECTION_PREVIEW_WARM_REFRESH_MS: "600000",
+    BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS: "60000",
+    BACKEND_METRICS_ENABLED: "false",
+    BACKEND_METRICS_HOST: "0.0.0.0",
+    BACKEND_METRICS_PORT: "42740",
+    BACKEND_APM_ENABLED: "false",
+    BACKEND_APM_SERVICE_NAMESPACE: "artgod.backend",
+    BACKEND_APM_OTLP_HTTP_URL: "",
+    BACKEND_APM_PYROSCOPE_URL: "",
+    BACKEND_APM_SPAN_PROFILES_ENABLED: "true",
+    BACKEND_APM_TRACES_ENABLED: "true",
+    BACKEND_APM_PROFILES_ENABLED: "true",
+    PUBLIC_BACKEND_ORIGIN: "http://127.0.0.1:42710",
+    INTERNAL_BACKEND_ORIGIN: "http://backend:42710",
+    PUBLIC_APP_DEPLOYMENT_MODE: "standard",
+    PUBLIC_APP_CHAIN_REF: "",
+    PUBLIC_APP_COLLECTION_REF: "",
+    USERLAND_UI_DIST_DIR: "frontend/userland",
+    DESKTOP_RUNTIME_RESOURCES_DIR: "runtime",
+    DESKTOP_NODE_BIN: "",
+    DESKTOP_NATS_BINARY_PATH: "",
+    DESKTOP_NODE_PNP_CJS: "",
+    DESKTOP_NODE_PNP_LOADER: "",
+    DESKTOP_RESTART_BACKOFF_MS: "1500",
+    DESKTOP_WALLET_STORE_DIR: "wallets",
+    DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS: "5000",
+    CHAIN_ID: "1",
+    RPC_URL: "",
+    RPC_BACKFILL_URL: "",
+    RPC_WS_URL: "",
+    RPC_RETRY_MAX_ATTEMPTS: "5",
+    RPC_RETRY_BASE_DELAY_MS: "100",
+    RPC_RETRY_MAX_DELAY_MS: "3000",
+    RPC_RATE_LIMIT_REQUESTS_PER_SECOND: "50",
+    RPC_RATE_LIMIT_BURST: "50",
+    RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD: "5",
+    RPC_CIRCUIT_BREAKER_OPEN_MS: "5000",
+    RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS: "2",
+    CACHE_MAX_ENTRIES: "5000",
+    CACHE_TTL_MS: "30000",
+    OFFCHAIN_PERSIST_RAW_OBSERVATIONS: "false",
+    NATS_URL: "nats://127.0.0.1:42720",
+    NATS_STREAM_PREFIX: "artgod",
+    OBSERVABILITY_OTLP_HTTP_URL: "http://127.0.0.1:42732/v1/traces",
+    OBSERVABILITY_PYROSCOPE_URL: "http://127.0.0.1:42733",
+    INDEXER_APM_ENABLED: "false",
+    INDEXER_APM_SERVICE_NAMESPACE: "artgod.indexer",
+    INDEXER_APM_OTLP_HTTP_URL: "",
+    INDEXER_APM_PYROSCOPE_URL: "",
+    INDEXER_APM_SPAN_PROFILES_ENABLED: "true",
+    INDEXER_APM_TRACES_ENABLED: "true",
+    INDEXER_APM_PROFILES_ENABLED: "true",
+    INDEXER_METRICS_ENABLED: "false",
+    INDEXER_METRICS_HOST: "0.0.0.0",
+    INDEXER_METRICS_PORT_SCHEDULER_WORKER: "42741",
+    INDEXER_METRICS_PORT_SYNC_WORKER: "42742",
+    INDEXER_METRICS_PORT_REORG_WORKER: "42743",
+    INDEXER_METRICS_PORT_DOMAIN_WORKER: "42744",
+    INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER: "42745",
+    INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER: "42746",
+    INDEXER_METRICS_PORT_BOOTSTRAP_WORKER: "42747",
+    INDEXER_METRICS_PORT_DEAD_LETTER_WORKER: "42748",
+    INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER: "42749",
+    INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER: "42750",
+    INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER: "42751",
+    INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER: "42752",
+    REORG_DEPTH: "32",
+    BACKFILL_BATCH_SIZE: "50",
+    LOG_CHUNK_SIZE: "2000",
+    BOOTSTRAP_SNAPSHOT_BATCH_SIZE: "200",
+    BOOTSTRAP_METADATA_BATCH_SIZE: "200",
+    BOOTSTRAP_METADATA_CONCURRENCY: "8",
+    BOOTSTRAP_METADATA_PROCESS_POLL_MS: "5000",
+    BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS: "3",
+    BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS: "100",
+    BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS: "1000",
+    METADATA_REFRESH_RANGE_CHUNK_SIZE: "200",
+    WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    SEAPORT_CONDUIT_CONTROLLER: "0x00000000f9490004c11cef243f5400493c00ad63",
+    OPENSEA_INTEGRATION_MODE: "auto",
+    OPENSEA_API_KEY: "",
+    OPENSEA_SNAPSHOT_PAGE_SIZE: "100",
+    OPENSEA_RECONCILE_INTERVAL_MS: "900000",
+    OPENSEA_STALE_START_THRESHOLD_MS: "1800000",
+    OPENSEA_STREAM_SUBSCRIPTION_POLL_MS: "5000",
+    OPENSEA_HTTP_RETRY_MAX_ATTEMPTS: "3",
+    OPENSEA_HTTP_RETRY_BASE_DELAY_MS: "500",
+    OPENSEA_HTTP_RETRY_MAX_DELAY_MS: "10000",
+    OPENSEA_HTTP_RETRY_JITTER_RATIO: "0.2",
+    OPENSEA_RATE_LIMIT_GET_MAX: "4",
+    OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND: "1",
+    OPENSEA_RATE_LIMIT_POST_MAX: "2",
+    OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND: "0.5",
+    OPENSEA_STREAM_SECRET_KEY: "",
+    OPENSEA_BIDDING_SECRET_KEY: "",
+    OPENSEA_SNAPSHOT_SECRET_KEY: "",
+    BIDDING_ENABLED: "true",
+    BIDDING_DRY_RUN: "false",
+    BIDDING_WETH_ALLOWANCE_ETH: "0",
+    BIDDING_TX_MIN_PRIORITY_FEE_GWEI: "0.1",
+    BIDDING_TX_FEE_HISTORY_BLOCKS: "20",
+    BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE: "70",
+    BIDDING_TX_BASE_FEE_MULTIPLIER: "1.25",
+    BIDDING_TX_MAX_FEE_GWEI: "10",
+    BIDDING_TX_PENDING_NONCE_POLICY: "fail",
+    BIDDING_POLL_MS: "480000",
+    BIDDING_MAX_CONCURRENT_JOBS: "1",
+    BIDDING_BOOTSTRAP_CONCURRENCY: "3",
+    BIDDING_OFFER_EXPIRATION_SECONDS: "13920",
+    BIDDING_COLLECTION_OFFERS_POLL_MS: "60000",
+    BIDDING_COLLECTION_OFFERS_TTL_MS: "15000",
+    BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS: "15000",
+    BIDDING_ORDER_LOOKUP_MAX_PAGES: "5",
+    BIDDING_COMMAND_POLL_MS: "1000",
+    BIDDING_COMMAND_BATCH_SIZE: "20",
+    BIDDING_COMMAND_MAX_ATTEMPTS: "5",
+    BIDDING_COMMAND_CLAIM_TIMEOUT_MS: "300000",
+    BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION:
+        '{"terraforms":["Zone","Biome","Level"]}',
+    BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION:
+        '{"terraforms":["Zone","Biome","Level","Mode"]}',
+} as const;
+
+// Settings keys known to the generated defaults module.
+export type SettingsDefaultKey = keyof typeof SETTINGS_DEFAULTS;
+// Exact generated defaults shape.
+export type SettingsDefaults = typeof SETTINGS_DEFAULTS;
+
+// Returns the raw string default from the settings manifest.
+export function getSettingDefault(key: SettingsDefaultKey): string {
+    return SETTINGS_DEFAULTS[key];
+}
+
+// Parses a numeric settings manifest default.
+export function getSettingDefaultNumber(key: SettingsDefaultKey): number {
+    const value = getSettingDefault(key);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        throw new Error(
+            `Invalid numeric settings manifest default ${key}: ${value}`,
+        );
+    }
+    return parsed;
+}
+
+// Parses a boolean settings manifest default.
+export function getSettingDefaultBoolean(key: SettingsDefaultKey): boolean {
+    const value = getSettingDefault(key).trim().toLowerCase();
+    if (value === "true") {
+        return true;
+    }
+    if (value === "false") {
+        return false;
+    }
+    throw new Error(
+        `Invalid boolean settings manifest default ${key}: ${value}`,
+    );
+}
+
+// Parses a comma-separated settings manifest default.
+export function getSettingDefaultCsv(key: SettingsDefaultKey): string[] {
+    return getSettingDefault(key)
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+}

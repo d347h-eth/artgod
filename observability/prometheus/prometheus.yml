@@ -5,45 +5,45 @@ global:
 scrape_configs:
     - job_name: "artgod-backend"
       static_configs:
-          - targets: ["127.0.0.1:9480"]
+          - targets: ["127.0.0.1:42740"]
             labels:
                 runtime: "backend-api"
 
     - job_name: "artgod-indexer"
       static_configs:
-          - targets: ["127.0.0.1:9464"]
+          - targets: ["127.0.0.1:42741"]
             labels:
                 runtime: "scheduler-worker"
-          - targets: ["127.0.0.1:9465"]
+          - targets: ["127.0.0.1:42742"]
             labels:
                 runtime: "sync-worker"
-          - targets: ["127.0.0.1:9466"]
+          - targets: ["127.0.0.1:42743"]
             labels:
                 runtime: "reorg-worker"
-          - targets: ["127.0.0.1:9467"]
+          - targets: ["127.0.0.1:42744"]
             labels:
                 runtime: "domain-worker"
-          - targets: ["127.0.0.1:9468"]
+          - targets: ["127.0.0.1:42745"]
             labels:
                 runtime: "offchain-ingest-worker"
-          - targets: ["127.0.0.1:9469"]
+          - targets: ["127.0.0.1:42746"]
             labels:
                 runtime: "opensea-stream-worker"
-          - targets: ["127.0.0.1:9472"]
+          - targets: ["127.0.0.1:42749"]
             labels:
                 runtime: "opensea-bootstrap-worker"
-          - targets: ["127.0.0.1:9473"]
+          - targets: ["127.0.0.1:42750"]
             labels:
                 runtime: "opensea-reconcile-worker"
-          - targets: ["127.0.0.1:9474"]
+          - targets: ["127.0.0.1:42751"]
             labels:
                 runtime: "opensea-reconcile-scheduler-worker"
-          - targets: ["127.0.0.1:9470"]
+          - targets: ["127.0.0.1:42747"]
             labels:
                 runtime: "bootstrap-worker"
-          - targets: ["127.0.0.1:9475"]
+          - targets: ["127.0.0.1:42752"]
             labels:
                 runtime: "collection-extension-worker"
-          - targets: ["127.0.0.1:9471"]
+          - targets: ["127.0.0.1:42748"]
             labels:
                 runtime: "dead-letter-worker"

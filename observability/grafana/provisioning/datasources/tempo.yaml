@@ -5,7 +5,7 @@ datasources:
       uid: tempo
       type: tempo
       access: proxy
-      url: http://127.0.0.1:3200
+      url: http://127.0.0.1:42731
       isDefault: false
       editable: true
       jsonData:

@@ -5,6 +5,11 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import {
+    getSettingDefault,
+    getSettingDefaultBoolean,
+    getSettingDefaultNumber,
+} from "@artgod/shared/config/generated-settings-defaults";
+import {
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_BEACON_EVENT_GROUPS,
     TERRAFORMS_BEACON_EVENT_TYPES,
@@ -52,10 +57,10 @@ const WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const API_SECURITY_CONFIG: BackendSecurityConfig = {
     allowedHosts: ["127.0.0.1", "localhost", "::1", "artgod.network"],
     allowedOrigins: [
-        "http://127.0.0.1:3000",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
+        "http://127.0.0.1:42710",
+        "http://localhost:42710",
+        "http://127.0.0.1:42701",
+        "http://localhost:42701",
         "http://tauri.localhost",
         "tauri://localhost",
         "https://artgod.network",
@@ -271,71 +276,46 @@ beforeAll(async () => {
         );
     const biddingJobsRepositoryModule =
         await import("./infra/trading/sqlite-bidding-jobs-repository.js");
-    const biddingBidBookRepositoryModule = await import(
-        "./infra/trading/sqlite-bidding-bid-book-repository.js"
-    );
-    const biddingPriceTiersRepositoryModule = await import(
-        "./infra/trading/sqlite-bidding-price-tiers-repository.js"
-    );
-    const collectionSettingsRepositoryModule = await import(
-        "./infra/collections/sqlite-collection-settings-repository.js"
-    );
+    const biddingBidBookRepositoryModule =
+        await import("./infra/trading/sqlite-bidding-bid-book-repository.js");
+    const biddingPriceTiersRepositoryModule =
+        await import("./infra/trading/sqlite-bidding-price-tiers-repository.js");
+    const collectionSettingsRepositoryModule =
+        await import("./infra/collections/sqlite-collection-settings-repository.js");
     const listCollectionBiddingJobsUseCaseModule =
-        await import(
-            "./application/use-cases/trading/list-collection-bidding-jobs.js"
-        );
-    const listCollectionBiddingBidBookUseCaseModule = await import(
-        "./application/use-cases/trading/list-collection-bidding-bid-book.js"
-    );
-    const listCollectionBiddingPriceTiersUseCaseModule = await import(
-        "./application/use-cases/trading/list-collection-bidding-price-tiers.js"
-    );
+        await import("./application/use-cases/trading/list-collection-bidding-jobs.js");
+    const listCollectionBiddingBidBookUseCaseModule =
+        await import("./application/use-cases/trading/list-collection-bidding-bid-book.js");
+    const listCollectionBiddingPriceTiersUseCaseModule =
+        await import("./application/use-cases/trading/list-collection-bidding-price-tiers.js");
     const getTokenBiddingJobUseCaseModule =
         await import("./application/use-cases/trading/get-token-bidding-job.js");
-    const getTokenBiddingBidBookUseCaseModule = await import(
-        "./application/use-cases/trading/get-token-bidding-bid-book.js"
-    );
-    const biddingJobTargetLookupUseCaseModule = await import(
-        "./application/use-cases/trading/bidding-job-target-lookup.js"
-    );
+    const getTokenBiddingBidBookUseCaseModule =
+        await import("./application/use-cases/trading/get-token-bidding-bid-book.js");
+    const biddingJobTargetLookupUseCaseModule =
+        await import("./application/use-cases/trading/bidding-job-target-lookup.js");
     const upsertTokenBiddingJobUseCaseModule =
-        await import(
-            "./application/use-cases/trading/upsert-token-bidding-job.js"
-        );
+        await import("./application/use-cases/trading/upsert-token-bidding-job.js");
     const upsertTraitBiddingJobUseCaseModule =
-        await import(
-            "./application/use-cases/trading/upsert-trait-bidding-job.js"
-        );
+        await import("./application/use-cases/trading/upsert-trait-bidding-job.js");
     const upsertBatchTokenBiddingJobsUseCaseModule =
-        await import(
-            "./application/use-cases/trading/upsert-batch-token-bidding-jobs.js"
-        );
+        await import("./application/use-cases/trading/upsert-batch-token-bidding-jobs.js");
     const upsertCollectionBiddingJobUseCaseModule =
-        await import(
-            "./application/use-cases/trading/upsert-collection-bidding-job.js"
-        );
-    const upsertCollectionBiddingPriceTierUseCaseModule = await import(
-        "./application/use-cases/trading/upsert-collection-bidding-price-tier.js"
-    );
-    const updateCollectionBiddingSettingsUseCaseModule = await import(
-        "./application/use-cases/trading/update-collection-bidding-settings.js"
-    );
-    const previewBiddingPriceTierReapplyUseCaseModule = await import(
-        "./application/use-cases/trading/preview-bidding-price-tier-reapply.js"
-    );
-    const applyBiddingPriceTierReapplyUseCaseModule = await import(
-        "./application/use-cases/trading/apply-bidding-price-tier-reapply.js"
-    );
-    const archiveBiddingJobUseCaseModule = await import(
-        "./application/use-cases/trading/archive-bidding-job.js"
-    );
+        await import("./application/use-cases/trading/upsert-collection-bidding-job.js");
+    const upsertCollectionBiddingPriceTierUseCaseModule =
+        await import("./application/use-cases/trading/upsert-collection-bidding-price-tier.js");
+    const updateCollectionBiddingSettingsUseCaseModule =
+        await import("./application/use-cases/trading/update-collection-bidding-settings.js");
+    const previewBiddingPriceTierReapplyUseCaseModule =
+        await import("./application/use-cases/trading/preview-bidding-price-tier-reapply.js");
+    const applyBiddingPriceTierReapplyUseCaseModule =
+        await import("./application/use-cases/trading/apply-bidding-price-tier-reapply.js");
+    const archiveBiddingJobUseCaseModule =
+        await import("./application/use-cases/trading/archive-bidding-job.js");
     const archiveTokenBiddingJobUseCaseModule =
-        await import(
-            "./application/use-cases/trading/archive-token-bidding-job.js"
-    );
-    const archiveCollectionBiddingPriceTierUseCaseModule = await import(
-        "./application/use-cases/trading/archive-collection-bidding-price-tier.js"
-    );
+        await import("./application/use-cases/trading/archive-token-bidding-job.js");
+    const archiveCollectionBiddingPriceTierUseCaseModule =
+        await import("./application/use-cases/trading/archive-collection-bidding-price-tier.js");
     const biddingJobsRepository =
         new biddingJobsRepositoryModule.SqliteBiddingJobsRepository();
     const biddingBidBookRepository =
@@ -764,12 +744,12 @@ beforeAll(async () => {
     );
     cachedApp = backendAppModule.createBackendApp({
         host: "127.0.0.1",
-        port: 3000,
+        port: 42710,
         defaultChainId: 1,
         dbPath,
-        rpcUrl: "http://127.0.0.1:8545",
+        rpcUrl: "http://127.0.0.1:42721",
         wethAddress: WETH_ADDRESS,
-        natsUrl: "nats://127.0.0.1:4222",
+        natsUrl: "nats://127.0.0.1:42720",
         natsStreamPrefix: "artgod",
         userlandUiDistDir: null,
         security: API_SECURITY_CONFIG,
@@ -800,23 +780,29 @@ beforeAll(async () => {
             backfillBatchSize: 50,
         },
         metrics: {
-            enabled: false,
+            enabled: getSettingDefaultBoolean("BACKEND_METRICS_ENABLED"),
             host: "127.0.0.1",
-            port: 9480,
+            port: getSettingDefaultNumber("BACKEND_METRICS_PORT"),
         },
         apm: {
-            enabled: false,
-            serviceNamespace: "artgod.backend",
+            enabled: getSettingDefaultBoolean("BACKEND_APM_ENABLED"),
+            serviceNamespace: getSettingDefault(
+                "BACKEND_APM_SERVICE_NAMESPACE",
+            ),
             spanProfiles: {
-                enabled: true,
+                enabled: getSettingDefaultBoolean(
+                    "BACKEND_APM_SPAN_PROFILES_ENABLED",
+                ),
             },
             traces: {
-                enabled: true,
-                otlpHttpUrl: "http://127.0.0.1:4318/v1/traces",
+                enabled: getSettingDefaultBoolean("BACKEND_APM_TRACES_ENABLED"),
+                otlpHttpUrl: getSettingDefault("OBSERVABILITY_OTLP_HTTP_URL"),
             },
             profiles: {
-                enabled: true,
-                pyroscopeUrl: "http://127.0.0.1:4040",
+                enabled: getSettingDefaultBoolean(
+                    "BACKEND_APM_PROFILES_ENABLED",
+                ),
+                pyroscopeUrl: getSettingDefault("OBSERVABILITY_PYROSCOPE_URL"),
             },
         },
         integrations: {
@@ -910,18 +896,25 @@ describe("backend api routes", () => {
     });
 
     it("marks cached public blockspace responses with query cache headers", async () => {
-        const state = await resolveCached("GET", "/api/ethereum/blockspace", undefined, {
-            origin: "http://127.0.0.1:5173",
-        });
+        const state = await resolveCached(
+            "GET",
+            "/api/ethereum/blockspace",
+            undefined,
+            {
+                origin: "http://127.0.0.1:42701",
+            },
+        );
         expect(state.statusCode).toBe(200);
-        expect(
-            state.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
-        ).toBe("hit");
+        expect(state.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()]).toBe(
+            "hit",
+        );
         expect(
             state.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
         ).toBe("5000");
         expect(
-            Number(state.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()]),
+            Number(
+                state.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()],
+            ),
         ).toBeGreaterThanOrEqual(0);
         expect(state.headers["access-control-expose-headers"]).toBeUndefined();
 
@@ -930,14 +923,16 @@ describe("backend api routes", () => {
             "/api/ethereum/blockspace/range?from_block=0&to_block=0",
         );
         expect(range.statusCode).toBe(200);
-        expect(
-            range.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()],
-        ).toBe("hit");
+        expect(range.headers[QUERY_CACHE_DEBUG_HEADER_NAME.toLowerCase()]).toBe(
+            "hit",
+        );
         expect(
             range.headers[QUERY_CACHE_DEBUG_TTL_HEADER_NAME.toLowerCase()],
         ).toBe("5000");
         expect(
-            Number(range.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()]),
+            Number(
+                range.headers[QUERY_CACHE_DEBUG_AGE_HEADER_NAME.toLowerCase()],
+            ),
         ).toBeGreaterThanOrEqual(0);
     });
 
@@ -1487,7 +1482,8 @@ describe("backend api routes", () => {
             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         );
         const staleOwnOrder = staleHeartbeat.payload.bidBook.bids.find(
-            (bid: { orderId: string }) => bid.orderId === "bid-book-runtime-orders",
+            (bid: { orderId: string }) =>
+                bid.orderId === "bid-book-runtime-orders",
         );
         expect(staleOwnOrder?.maker).toMatchObject({
             label: "You",
@@ -1525,10 +1521,9 @@ describe("backend api routes", () => {
     it("enriches own bid rows with backend-owned position and job constraint signals", async () => {
         clearTradingJobFixtures();
         const collection = getCollectionFixtureByAddress(MILADY_ADDRESS);
-        db.prepare("DELETE FROM trading_bidding_bid_book_rows WHERE order_id IN (?, ?)").run(
-            "own-signal-bid",
-            "opponent-signal-bid",
-        );
+        db.prepare(
+            "DELETE FROM trading_bidding_bid_book_rows WHERE order_id IN (?, ?)",
+        ).run("own-signal-bid", "opponent-signal-bid");
 
         db.prepare(
             "INSERT INTO trading_jobs " +
@@ -1662,7 +1657,9 @@ describe("backend api routes", () => {
             floorEth: "0.1",
             ceilingEth: "0.2",
             deltaEth: "0.01",
-            pricingSource: { kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual },
+            pricingSource: {
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+            },
         });
 
         const updated = await resolve(
@@ -1683,7 +1680,9 @@ describe("backend api routes", () => {
             floorEth: "0.11",
             ceilingEth: "0.22",
             deltaEth: "0.02",
-            pricingSource: { kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual },
+            pricingSource: {
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+            },
         });
 
         const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
@@ -1707,7 +1706,9 @@ describe("backend api routes", () => {
             floorEth: "0.11",
             ceilingEth: "0.22",
             deltaEth: "0.02",
-            pricingSource: { kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual },
+            pricingSource: {
+                kind: TRADING_BIDDING_JOB_PRICING_SOURCE_KIND.Manual,
+            },
         });
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
@@ -3592,8 +3593,8 @@ describe("backend api routes", () => {
 
     it("updates collection trait filter presentation and applies range filtering to tokens and activities", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -3622,8 +3623,8 @@ describe("backend api routes", () => {
                 },
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
             },
@@ -3709,8 +3710,8 @@ describe("backend api routes", () => {
                 },
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
             },
@@ -3720,8 +3721,8 @@ describe("backend api routes", () => {
 
     it("updates trait summary templates and applies them to token cards and activity includes", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -3750,8 +3751,8 @@ describe("backend api routes", () => {
                 },
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
             },
@@ -3812,8 +3813,8 @@ describe("backend api routes", () => {
                 },
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
             },
@@ -3847,8 +3848,8 @@ describe("backend api routes", () => {
 
     it("creates and reads bootstrap run via secured endpoints", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         expect(csrf.statusCode).toBe(200);
         const token = csrf.payload.token as string;
@@ -3867,8 +3868,8 @@ describe("backend api routes", () => {
                 supportsEnumerable: true,
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -3882,8 +3883,8 @@ describe("backend api routes", () => {
             "/api/ethereum/terraforms/bootstrap",
             undefined,
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:3000",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42710",
             },
         );
         expect(status.statusCode).toBe(200);
@@ -3927,7 +3928,7 @@ describe("backend api routes", () => {
             "/api/chains/default",
             undefined,
             {
-                host: "127.0.0.1:3000",
+                host: "127.0.0.1:42710",
                 origin: "tauri://localhost",
             },
         );
@@ -3939,13 +3940,15 @@ describe("backend api routes", () => {
         expect(response.headers["access-control-allow-credentials"]).toBe(
             "true",
         );
-        expect(response.headers["access-control-expose-headers"]).toBeUndefined();
+        expect(
+            response.headers["access-control-expose-headers"],
+        ).toBeUndefined();
     });
 
     it("persists embedded extension key when bootstrap scope matches", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -3961,8 +3964,8 @@ describe("backend api routes", () => {
                 supportsEnumerable: true,
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -4138,8 +4141,8 @@ describe("backend api routes", () => {
         insertBootstrapMetadataTask(runId, "101", "failed_terminal");
 
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -4149,8 +4152,8 @@ describe("backend api routes", () => {
             `/api/ethereum/bootstrap-runs/${runId}/retry-failed`,
             {},
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -4171,8 +4174,8 @@ describe("backend api routes", () => {
 
     it("removes legacy collection-scoped bootstrap mutation endpoints", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:3000",
-            origin: "http://127.0.0.1:5173",
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
         });
         const token = csrf.payload.token as string;
         const cookie = csrf.headers["set-cookie"] as string;
@@ -4182,8 +4185,8 @@ describe("backend api routes", () => {
             "/api/ethereum/terraforms/bootstrap/retry-failed",
             {},
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -4202,8 +4205,8 @@ describe("backend api routes", () => {
                 supportsEnumerable: true,
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 cookie,
                 "x-artgod-csrf": token,
                 "content-type": "application/json",
@@ -4224,8 +4227,8 @@ describe("backend api routes", () => {
                 supportsEnumerable: true,
             },
             {
-                host: "127.0.0.1:3000",
-                origin: "http://127.0.0.1:5173",
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
                 "content-type": "application/json",
             },
         );
@@ -4368,8 +4371,8 @@ async function resolveWith(
 
 async function issueAdminCsrf(): Promise<Record<string, string>> {
     const csrf = await resolve("GET", "/api/security/csrf", undefined, {
-        host: "127.0.0.1:3000",
-        origin: "http://127.0.0.1:5173",
+        host: "127.0.0.1:42710",
+        origin: "http://127.0.0.1:42701",
     });
     if (csrf.statusCode !== 200) {
         throw new Error(
@@ -4378,8 +4381,8 @@ async function issueAdminCsrf(): Promise<Record<string, string>> {
     }
 
     return {
-        host: "127.0.0.1:3000",
-        origin: "http://127.0.0.1:5173",
+        host: "127.0.0.1:42710",
+        origin: "http://127.0.0.1:42701",
         cookie: csrf.headers["set-cookie"] as string,
         "x-artgod-csrf": csrf.payload.token as string,
     };

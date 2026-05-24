@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use time::OffsetDateTime;
 
+use super::app_config::load_app_config_state;
 use crate::runtime::bot_runtime::{
     BOT_RUNTIME_SPECS, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
     bot_runtime_spec,
@@ -149,6 +150,25 @@ impl RuntimeManager {
     }
 
     pub fn auto_start(&self, app: AppHandle) -> Result<(), String> {
+        let app_config = load_app_config_state(&app)?;
+        if !app_config.configured {
+            self.update_status(&app, |status| {
+                status.state = "stopped".to_owned();
+                status.last_error = None;
+                status.running_processes.clear();
+                status.config_path = app_config.env_file_path;
+            });
+            return Ok(());
+        }
+        if !app_config.auto_launch_on_startup {
+            self.update_status(&app, |status| {
+                status.state = "stopped".to_owned();
+                status.last_error = None;
+                status.running_processes.clear();
+                status.config_path = app_config.env_file_path;
+            });
+            return Ok(());
+        }
         let config = match DesktopRuntimeConfig::load_or_create(&app) {
             Ok(config) => config,
             Err(error) => {
@@ -2209,9 +2229,9 @@ mod tests {
             pnp_cjs_path: PathBuf::from("/runtime/.pnp.cjs"),
             pnp_loader_path: PathBuf::from("/runtime/.pnp.loader.mjs"),
             nats_host: "127.0.0.1".to_owned(),
-            nats_port: 4222,
-            nats_url: "nats://127.0.0.1:4222".to_owned(),
-            backend_port: 3000,
+            nats_port: 42720,
+            nats_url: "nats://127.0.0.1:42720".to_owned(),
+            backend_port: 42710,
             chain_id: 1,
             auto_start: true,
             restart_backoff_ms: 1000,

@@ -17,6 +17,7 @@ flowchart LR
     BOT[Trading Bot Runtimes]
     B[Userland Browser UI]
     DB[(SQLite)]
+    AS[(App Settings<br/>app-data)]
     WS[(Wallet Store<br/>app-data)]
 
     U --> TW
@@ -24,8 +25,10 @@ flowchart LR
     TW --> TR
     TW --> RT
 
+    AU --> AS
     AU --> RT
     TR --> RT
+    RT --> AS
     RT --> KS
     KS --> SP
     KS --> WS
@@ -49,6 +52,7 @@ flowchart LR
 
 - Admin UI is privileged through Tauri command bridge.
 - Userland browser UI is unprivileged and accesses backend over localhost HTTP.
+- Admin-managed application settings live in app-data JSON and render the runtime `.env` before child-process startup.
 - Runtime process orchestration happens only in Rust supervisor.
 - Raw secret entry/reveal happens only through the native secret-prompt sidecar, not in the WebView.
 - Wallet material is stored separately from SQLite under desktop app-data.

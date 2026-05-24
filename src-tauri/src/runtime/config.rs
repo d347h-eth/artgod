@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
+use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process_env};
+
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
     pub node_bin: PathBuf,
@@ -47,43 +49,39 @@ pub struct DesktopWalletConfig {
     pub bot_unlock_stabilization_delay_ms: u64,
 }
 
-struct DesktopLocalPaths {
-    app_data_dir: PathBuf,
-    logs_dir: PathBuf,
-    env_file_path: PathBuf,
-}
-
 impl DesktopWalletConfig {
     pub fn load_or_create(app: &AppHandle) -> Result<Self, String> {
-        let local_paths = ensure_desktop_local_paths(app)?;
-        let process_env = parse_env_file(&local_paths.env_file_path)?;
+        let local_paths = ensure_desktop_config_paths(app)?;
+        let process_env = load_or_materialize_process_env(app)?.unwrap_or_default();
         build_wallet_config(&local_paths.app_data_dir, &process_env)
     }
 }
 
 impl DesktopRuntimeConfig {
     pub fn load_process_env(app: &AppHandle) -> Result<HashMap<String, String>, String> {
-        let local_paths = ensure_desktop_local_paths(app)?;
-        parse_env_file(&local_paths.env_file_path)
+        Ok(load_or_materialize_process_env(app)?.unwrap_or_default())
     }
 
     pub fn load_capabilities(app: &AppHandle) -> Result<DesktopRuntimeCapabilities, String> {
-        let local_paths = ensure_desktop_local_paths(app)?;
-        let process_env = parse_env_file(&local_paths.env_file_path)?;
+        let process_env = Self::load_process_env(app)?;
         build_runtime_capabilities(&process_env)
     }
 
     pub fn load_or_create(app: &AppHandle) -> Result<Self, String> {
-        let local_paths = ensure_desktop_local_paths(app)?;
+        let local_paths = ensure_desktop_config_paths(app)?;
         let app_data_dir = local_paths.app_data_dir.clone();
         let env_file_path = local_paths.env_file_path.clone();
-        let process_env = parse_env_file(&env_file_path)?;
+        let Some(process_env) = load_or_materialize_process_env(app)? else {
+            return Err("Desktop configuration has not been saved yet.".to_owned());
+        };
 
         let runtime_dir = resolve_runtime_resources_dir(
             app,
             process_env
                 .get("DESKTOP_RUNTIME_RESOURCES_DIR")
                 .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
                 .unwrap_or("runtime"),
         )?;
         let node_bin = resolve_node_binary_path(
@@ -113,6 +111,8 @@ impl DesktopRuntimeConfig {
             process_env
                 .get("DESKTOP_NODE_PNP_CJS")
                 .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
                 .unwrap_or(".pnp.cjs"),
         );
         if !pnp_cjs_path.exists() {
@@ -126,6 +126,8 @@ impl DesktopRuntimeConfig {
             process_env
                 .get("DESKTOP_NODE_PNP_LOADER")
                 .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
                 .unwrap_or(".pnp.loader.mjs"),
         );
         if !pnp_loader_path.exists() {
@@ -221,47 +223,6 @@ impl DesktopRuntimeConfig {
     }
 }
 
-fn ensure_desktop_local_paths(app: &AppHandle) -> Result<DesktopLocalPaths, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
-    fs::create_dir_all(&app_data_dir).map_err(|error| {
-        format!(
-            "Failed to create app data dir {}: {error}",
-            app_data_dir.display()
-        )
-    })?;
-
-    let config_dir = app_data_dir.join("config");
-    let logs_dir = app_data_dir.join("logs");
-    fs::create_dir_all(&config_dir).map_err(|error| {
-        format!(
-            "Failed to create config dir {}: {error}",
-            config_dir.display()
-        )
-    })?;
-    fs::create_dir_all(&logs_dir)
-        .map_err(|error| format!("Failed to create logs dir {}: {error}", logs_dir.display()))?;
-
-    let env_file_path = config_dir.join(".env");
-    if !env_file_path.exists() {
-        let template = build_default_env_template();
-        fs::write(&env_file_path, template).map_err(|error| {
-            format!(
-                "Failed to create desktop env file {}: {error}",
-                env_file_path.display()
-            )
-        })?;
-    }
-
-    Ok(DesktopLocalPaths {
-        app_data_dir,
-        logs_dir,
-        env_file_path,
-    })
-}
-
 fn build_wallet_config(
     app_data_dir: &Path,
     process_env: &HashMap<String, String>,
@@ -271,6 +232,8 @@ fn build_wallet_config(
         process_env
             .get("DESKTOP_WALLET_STORE_DIR")
             .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
             .unwrap_or("wallets"),
     );
     fs::create_dir_all(&wallet_store_dir).map_err(|error| {
@@ -279,10 +242,14 @@ fn build_wallet_config(
             wallet_store_dir.display()
         )
     })?;
-    let bot_unlock_stabilization_delay_ms = parse_u64(get_required(
-        process_env,
-        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS",
-    )?)?;
+    let bot_unlock_stabilization_delay_ms = parse_u64(
+        process_env
+            .get("DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("5000"),
+    )?;
 
     Ok(DesktopWalletConfig {
         store_dir: wallet_store_dir.clone(),
@@ -367,51 +334,6 @@ fn parse_opensea_integration_mode(raw: Option<&String>) -> Result<String, String
             raw.map(String::as_str).unwrap_or("")
         )),
     }
-}
-
-fn parse_env_file(path: &Path) -> Result<HashMap<String, String>, String> {
-    let content = fs::read_to_string(path).map_err(|error| {
-        format!(
-            "Failed to read desktop env file {}: {error}",
-            path.display()
-        )
-    })?;
-    let mut values = HashMap::<String, String>::new();
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let Some((raw_key, raw_value)) = trimmed.split_once('=') else {
-            continue;
-        };
-        let key = raw_key.trim();
-        if key.is_empty() {
-            continue;
-        }
-        let mut value = raw_value.trim().to_owned();
-        if let Some((without_prefix, true)) = value
-            .strip_prefix('"')
-            .map(|value| (value, value.ends_with('"')))
-        {
-            value = without_prefix
-                .strip_suffix('"')
-                .unwrap_or(without_prefix)
-                .to_owned();
-        } else if let Some((without_prefix, true)) = value
-            .strip_prefix('\'')
-            .map(|value| (value, value.ends_with('\'')))
-        {
-            value = without_prefix
-                .strip_suffix('\'')
-                .unwrap_or(without_prefix)
-                .to_owned();
-        }
-        values.insert(key.to_owned(), value);
-    }
-
-    Ok(values)
 }
 
 fn get_required<'a>(values: &'a HashMap<String, String>, key: &str) -> Result<&'a str, String> {
@@ -582,144 +504,6 @@ fn resolve_nats_binary_path(runtime_dir: &Path, raw_override: Option<&str>) -> P
         .filter(|value| !value.is_empty())
         .unwrap_or(default_relative);
     resolve_from_base_dir(runtime_dir, raw)
-}
-
-fn build_default_env_template() -> String {
-    concat!(
-        "# ArtGod desktop runtime env\n",
-        "# Generated on first start. This file is the single config source for\n",
-        "# desktop-managed backend/indexer processes.\n\n",
-        "# Optional: override bundled Node binary path (absolute or relative to runtime resources dir)\n",
-        "# DESKTOP_NODE_BIN=node/node(.exe)\n",
-        "DESKTOP_RUNTIME_RESOURCES_DIR=runtime\n",
-        "DESKTOP_AUTO_START=true\n",
-        "DESKTOP_RESTART_BACKOFF_MS=1500\n\n",
-        "# Wallet store directory is resolved relative to app-data dir unless absolute\n",
-        "DESKTOP_WALLET_STORE_DIR=wallets\n",
-        "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS=5000\n\n",
-        "# Optional: override bundled NATS binary path (absolute or relative to runtime resources dir)\n",
-        "# DESKTOP_NATS_BINARY_PATH=nats/nats-server(.exe)\n",
-        "\n",
-        "# Backend\n",
-        "BACKEND_HOST=127.0.0.1\n",
-        "BACKEND_PORT=3000\n\n",
-        "# Observability signal stores\n",
-        "OBSERVABILITY_OTLP_HTTP_URL=http://127.0.0.1:4318/v1/traces\n",
-        "OBSERVABILITY_PYROSCOPE_URL=http://127.0.0.1:4040\n\n",
-        "# Backend observability\n",
-        "BACKEND_METRICS_ENABLED=false\n",
-        "BACKEND_METRICS_HOST=0.0.0.0\n",
-        "BACKEND_METRICS_PORT=9480\n",
-        "BACKEND_APM_ENABLED=false\n",
-        "BACKEND_APM_SERVICE_NAMESPACE=artgod.backend\n",
-        "BACKEND_APM_SPAN_PROFILES_ENABLED=true\n",
-        "BACKEND_APM_TRACES_ENABLED=true\n",
-        "BACKEND_APM_PROFILES_ENABLED=true\n\n",
-        "# Indexer core runtime\n",
-        "# ARTGOD_DB_PATH is resolved relative to app-data dir unless absolute\n",
-        "ARTGOD_DB_PATH=sqlite/main/db\n",
-        "# USERLAND_UI_DIST_DIR is resolved relative to desktop runtime resources dir unless absolute\n",
-        "USERLAND_UI_DIST_DIR=frontend/userland\n",
-        "CHAIN_ID=1\n",
-        "RPC_URL=http://127.0.0.1:8545\n",
-        "RPC_RETRY_MAX_ATTEMPTS=5\n",
-        "RPC_RETRY_BASE_DELAY_MS=100\n",
-        "RPC_RETRY_MAX_DELAY_MS=3000\n",
-        "RPC_RATE_LIMIT_REQUESTS_PER_SECOND=50\n",
-        "RPC_RATE_LIMIT_BURST=100\n",
-        "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5\n",
-        "RPC_CIRCUIT_BREAKER_OPEN_MS=5000\n",
-        "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS=2\n",
-        "CACHE_MAX_ENTRIES=5000\n",
-        "CACHE_TTL_MS=30000\n",
-        "NATS_URL=nats://127.0.0.1:4222\n",
-        "WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2\n",
-        "SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63\n",
-        "BACKEND_ALLOWED_HOSTS=127.0.0.1,localhost,::1\n",
-        "BACKEND_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173,http://tauri.localhost,tauri://localhost\n",
-        "BACKEND_CSRF_COOKIE_SECURE=false\n",
-        "PUBLIC_BACKEND_ORIGIN=http://127.0.0.1:3000\n",
-        "NATS_STREAM_PREFIX=artgod\n",
-        "OPENSEA_INTEGRATION_MODE=auto\n",
-        "OPENSEA_API_KEY=\n",
-        "OPENSEA_SNAPSHOT_PAGE_SIZE=100\n",
-        "OPENSEA_RECONCILE_INTERVAL_MS=900000\n",
-        "OPENSEA_STALE_START_THRESHOLD_MS=1800000\n",
-        "OPENSEA_STREAM_SUBSCRIPTION_POLL_MS=5000\n",
-        "OPENSEA_HTTP_RETRY_MAX_ATTEMPTS=3\n",
-        "OPENSEA_HTTP_RETRY_BASE_DELAY_MS=500\n",
-        "OPENSEA_HTTP_RETRY_MAX_DELAY_MS=10000\n",
-        "OPENSEA_HTTP_RETRY_JITTER_RATIO=0.2\n",
-        "OPENSEA_RATE_LIMIT_GET_MAX=4\n",
-        "OPENSEA_RATE_LIMIT_GET_REFILL_PER_SECOND=2\n",
-        "OPENSEA_RATE_LIMIT_POST_MAX=2\n",
-        "OPENSEA_RATE_LIMIT_POST_REFILL_PER_SECOND=1\n",
-        "\n",
-        "# Indexer observability\n",
-        "INDEXER_APM_ENABLED=false\n",
-        "INDEXER_APM_SERVICE_NAMESPACE=artgod.indexer\n",
-        "INDEXER_APM_SPAN_PROFILES_ENABLED=true\n",
-        "INDEXER_APM_TRACES_ENABLED=true\n",
-        "INDEXER_APM_PROFILES_ENABLED=true\n",
-        "INDEXER_METRICS_ENABLED=false\n",
-        "INDEXER_METRICS_HOST=0.0.0.0\n",
-        "INDEXER_METRICS_PORT_SCHEDULER_WORKER=9464\n",
-        "INDEXER_METRICS_PORT_SYNC_WORKER=9465\n",
-        "INDEXER_METRICS_PORT_REORG_WORKER=9466\n",
-        "INDEXER_METRICS_PORT_DOMAIN_WORKER=9467\n",
-        "INDEXER_METRICS_PORT_OFFCHAIN_INGEST_WORKER=9468\n",
-        "INDEXER_METRICS_PORT_OPENSEA_STREAM_WORKER=9469\n",
-        "INDEXER_METRICS_PORT_BOOTSTRAP_WORKER=9470\n",
-        "INDEXER_METRICS_PORT_DEAD_LETTER_WORKER=9471\n",
-        "INDEXER_METRICS_PORT_OPENSEA_BOOTSTRAP_WORKER=9472\n",
-        "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_WORKER=9473\n",
-        "INDEXER_METRICS_PORT_OPENSEA_RECONCILE_SCHEDULER_WORKER=9474\n",
-        "INDEXER_METRICS_PORT_COLLECTION_EXTENSION_WORKER=9475\n",
-        "\n",
-        "# Trading runtime\n",
-        "# Keep bot lanes separate from the indexer OPENSEA_API_KEY.\n",
-        "OPENSEA_STREAM_SECRET_KEY=\n",
-        "OPENSEA_BIDDING_SECRET_KEY=\n",
-        "OPENSEA_SNAPSHOT_SECRET_KEY=\n",
-        "\n",
-        "BIDDING_ENABLED=true\n",
-        "BIDDING_DRY_RUN=false\n",
-        "# Static startup WETH approval target for OpenSea bidding, in Ether units. Use 0 to skip startup approval.\n",
-        "BIDDING_WETH_ALLOWANCE_ETH=0\n",
-        "# Bidding bot EIP-1559 fee policy. Gwei values are human-readable; the min tip is used when the node reports 0.\n",
-        "BIDDING_TX_MIN_PRIORITY_FEE_GWEI=0.1\n",
-        "BIDDING_TX_FEE_HISTORY_BLOCKS=20\n",
-        "BIDDING_TX_FEE_HISTORY_REWARD_PERCENTILE=70\n",
-        "BIDDING_TX_BASE_FEE_MULTIPLIER=1.25\n",
-        "BIDDING_TX_MAX_FEE_GWEI=10\n",
-        "BIDDING_TX_PENDING_NONCE_POLICY=fail\n",
-        "BIDDING_POLL_MS=300000\n",
-        "BIDDING_MAX_CONCURRENT_JOBS=1\n",
-        "BIDDING_BOOTSTRAP_CONCURRENCY=3\n",
-        "BIDDING_OFFER_EXPIRATION_SECONDS=86400\n",
-        "BIDDING_COLLECTION_OFFERS_POLL_MS=60000\n",
-        "BIDDING_COLLECTION_OFFERS_TTL_MS=15000\n",
-        "BIDDING_BID_BOOK_PROJECTION_THROTTLE_MS=15000\n",
-        "BIDDING_ORDER_LOOKUP_MAX_PAGES=5\n",
-        "BIDDING_COMMAND_POLL_MS=1000\n",
-        "BIDDING_COMMAND_BATCH_SIZE=20\n",
-        "BIDDING_COMMAND_MAX_ATTEMPTS=5\n",
-        "BIDDING_COMMAND_CLAIM_TIMEOUT_MS=300000\n",
-        "BIDDING_CRITERIA_REFRESH_TRAITS_BY_COLLECTION={\"terraforms\":[\"Zone\",\"Biome\",\"Level\"]}\n",
-        "BIDDING_TOKEN_CRITERIA_TRAITS_BY_COLLECTION={\"terraforms\":[\"Zone\",\"Biome\",\"Level\",\"Mode\"]}\n",
-        "METADATA_REFRESH_RANGE_CHUNK_SIZE=200\n",
-        "BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200\n",
-        "BOOTSTRAP_METADATA_BATCH_SIZE=200\n",
-        "BOOTSTRAP_METADATA_CONCURRENCY=8\n",
-        "BOOTSTRAP_METADATA_PROCESS_POLL_MS=5000\n",
-        "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS=5\n",
-        "BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS=100\n",
-        "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS=3000\n",
-        "REORG_DEPTH=32\n",
-        "BACKFILL_BATCH_SIZE=50\n",
-        "LOG_CHUNK_SIZE=2000\n"
-    )
-    .to_string()
 }
 
 #[cfg(test)]

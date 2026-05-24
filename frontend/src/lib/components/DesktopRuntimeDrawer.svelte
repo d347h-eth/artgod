@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { adminRuntimeStore } from '$lib/admin/runtime/store';
+	import type { AdminConfigState } from '$lib/admin/configuration/ports';
 	import type { LifecycleEventLevel } from '$lib/admin/runtime/store';
 	import { parseBracketPrefixedLine, createTokenizedLogLine } from '$lib/runtime/log-line-format';
 	import {
@@ -15,11 +16,15 @@
 	let {
 		embedded = false,
 		forcedTab = null,
-		showHeader = !embedded
+		showHeader = !embedded,
+		appConfig = null,
+		appConfigLoading = false
 	}: {
 		embedded?: boolean;
 		forcedTab?: ConsoleTab | null;
 		showHeader?: boolean;
+		appConfig?: AdminConfigState | null;
+		appConfigLoading?: boolean;
 	} = $props();
 
 	const runtimeState = adminRuntimeStore.state;
@@ -51,7 +56,7 @@
 				if (timer) {
 					clearInterval(timer);
 				}
-				adminRuntimeStore.dispose();
+				adminRuntimeStore.closeConsole();
 			};
 		}
 
@@ -316,6 +321,26 @@
 		}
 		return 'runtime-pass';
 	}
+
+	function pathExistenceLabel(exists: boolean | null): string {
+		if (exists === true) {
+			return 'exists';
+		}
+		if (exists === false) {
+			return 'missing';
+		}
+		return appConfigLoading ? 'checking' : 'unknown';
+	}
+
+	function pathExistenceClass(exists: boolean | null): string {
+		if (exists === true) {
+			return 'runtime-pass';
+		}
+		if (exists === false) {
+			return 'runtime-warn';
+		}
+		return 'muted';
+	}
 </script>
 
 {#if open}
@@ -542,12 +567,22 @@
 					<h3>Paths</h3>
 					<div class="runtime-kv-grid">
 						<div>
-							<span class="runtime-k">config</span>
-							<span class="runtime-v mono">{$runtimeState.configPath ?? 'n/a'}</span>
+							<span class="runtime-k">settings</span>
+							<span class="runtime-v mono runtime-path-value">{appConfig?.settingsFilePath ?? 'n/a'}</span>
+							<span class={pathExistenceClass(appConfig?.settingsFileExists ?? null)}>
+								{pathExistenceLabel(appConfig?.settingsFileExists ?? null)}
+							</span>
+						</div>
+						<div>
+							<span class="runtime-k">env</span>
+							<span class="runtime-v mono runtime-path-value">{appConfig?.envFilePath ?? $runtimeState.configPath ?? 'n/a'}</span>
+							<span class={pathExistenceClass(appConfig?.envFileExists ?? null)}>
+								{pathExistenceLabel(appConfig?.envFileExists ?? null)}
+							</span>
 						</div>
 						<div>
 							<span class="runtime-k">logs</span>
-							<span class="runtime-v mono">{$runtimeState.logsPath ?? 'n/a'}</span>
+							<span class="runtime-v mono runtime-path-value">{$runtimeState.logsPath ?? 'n/a'}</span>
 						</div>
 					</div>
 					<div class="runtime-controls">
@@ -603,3 +638,9 @@
 		{/if}
 	</aside>
 {/if}
+
+<style>
+	.runtime-path-value {
+		overflow-wrap: anywhere;
+	}
+</style>

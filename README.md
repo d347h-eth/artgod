@@ -20,7 +20,7 @@ Current implementation snapshot:
 - Blockspace exploration is implemented with stacked isometric levels, stable bucket ranges, live coverage refresh, manual backfill selection, and public single-collection cache diagnostics.
 - Local observability stack is available (logs, metrics, traces, profiles).
 - Tauri desktop runtime supervisor composes local NATS + backend + indexer workers from production runtime artifacts.
-- Desktop admin UI now includes lifecycle, wallets, bots, logs, and status surfaces behind the native Tauri shell.
+- Desktop admin UI now includes a header config action plus system, control, wallets, bots, and logs surfaces behind the native Tauri shell.
 - Desktop wallet custody is implemented with Rust-owned Ethereum keystore storage, native secret prompts, and one-shot stdin secret handoff into wallet-bound trading runtimes.
 - Bidding runtime is operational with DB-backed job management, secure wallet unlock, direct OpenSea bidding/snapshot lanes, WETH allowance bootstrap, and live command reconciliation.
 - Bid-book UI is implemented for collection bidding and token detail pages, sourcing from the live/fresh bot snapshot projection when bidding is active and from canonical orders otherwise.
@@ -100,11 +100,21 @@ Hosted deployment is currently documented as a public read-only instance that ca
 
 - `docs/deploy/01-web-hosted-read-only.md`
 
-Desktop runtime env file is generated on first launch at:
+Desktop runtime configuration is managed from the native Admin UI `config` section.
+The Rust app embeds `config/settings.manifest.toml` as the Admin config schema/default source, stores only operator overrides in a versioned app-data JSON file, and renders the runtime `.env` from effective manifest defaults plus overrides only after the operator chooses defaults, saves configuration, or launches from saved configuration.
+A stale `.env` without `settings.json` is treated as an inactive legacy file: Admin can show that it exists, but the supervisor will not boot from it.
+
+Rendered desktop runtime env file:
 
 - Linux: `~/.local/share/network.artgod.desktop/config/.env`
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\\network.artgod.desktop\\config\\.env`
+
+Versioned Admin settings file:
+
+- Linux: `~/.local/share/network.artgod.desktop/config/settings.json`
+- macOS: `~/Library/Application Support/network.artgod.desktop/config/settings.json`
+- Windows: `%APPDATA%\\network.artgod.desktop\\config\\settings.json`
 
 Desktop-first path defaults:
 
@@ -156,7 +166,7 @@ Start optional observability stack (Grafana + Loki + Alloy + Prometheus + Tempo 
 docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana
 ```
 
-Open Grafana at `http://localhost:42701` (default `admin` / `admin`).
+Open Grafana at `http://localhost:42735` (default `admin` / `admin`).
 
 Use the local launchers to produce runtime log files under `tmp/logs/*.log`:
 
@@ -205,15 +215,15 @@ Desktop executable lifecycle:
 
 1. Rust app process initializes and exposes runtime commands (startup is deferred; no immediate supervisor auto-start in `setup`).
 2. System tray is initialized with native actions: `open ArtGod in browser`, `open admin UI`, `shutdown`.
-3. Admin UI runs in the native Tauri window and exposes the privileged desktop control plane (`lifecycle`, `wallets`, `bots`, `logs`, `status` + userland-open action).
+3. Admin UI runs in the native Tauri window and exposes the privileged desktop control plane (`config`, `system`, `control`, `wallets`, `bots`, `logs` + userland-open action).
 4. Userland UI runs in a regular browser tab and is served by the local backend origin.
-5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`.
-6. Supervisor starts local NATS from bundled `nats-server`, then backend, then enabled indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; OpenSea workers are skipped when OpenSea integration is disabled, and wallet-bound trading bots are staged too but start only on explicit operator action after unlock.
+5. Frontend boot lifecycle orchestrator initializes, waits for Tauri bridge readiness, then invokes `runtime_auto_start`; unconfigured installs and installs with `autostart infra` disabled stay stopped behind the Admin header action sequence.
+6. When startup is requested, the supervisor starts local NATS from bundled `nats-server`, then backend, then enabled indexer workers from bundled resources (`resources/runtime/backend/dist-desktop/*.mjs`, `resources/runtime/indexer/dist-desktop/*.mjs`) using bundled Node + Yarn PnP hooks; OpenSea workers are skipped when OpenSea integration is disabled, and wallet-bound trading bots are staged too but start only on explicit operator action after unlock.
 7. Boot lifecycle console stays visible until lifecycle backend readiness probe succeeds (not merely until process state is `running`).
 8. Any core composition process exit triggers fail-fast full stack restart; wallet-bound trading bots are supervised separately and stop only when they crash or when one of their declared critical dependencies becomes unhealthy.
 9. Closing the admin window hides it (runtime keeps running in tray). Graceful runtime shutdown is triggered explicitly via tray `shutdown` or app exit.
 
-If your desktop config file was generated before runtime-artifact keys were added, either update it manually or delete it to regenerate:
+If your desktop config file was generated before runtime-artifact keys were added, open Admin `config`, review settings, and save to render the current `.env` shape:
 
 - Linux: `~/.local/share/network.artgod.desktop/config/.env`
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
@@ -231,16 +241,19 @@ yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --met
 Create env files:
 
 ```sh
+yarn config:check
 cp .env.example .env
 cp .env.test.example .env.test
 ```
+
+`.env.example` and `shared/config/generated-settings-defaults.ts` are generated from `config/settings.manifest.toml`. Edit the manifest first, then run `yarn config:generate` and commit the manifest plus generated files together. See `docs/desktop/04-settings-manifest-process.md` for the full process.
 
 Required core env:
 
 ```sh
 ARTGOD_DB_PATH=database/sqlite/main/db
 BACKEND_HOST=127.0.0.1
-RPC_URL=http://127.0.0.1:8545
+RPC_URL=http://127.0.0.1:42721
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 ```
@@ -261,7 +274,7 @@ Useful optional env groups:
 - Indexer metrics (`INDEXER_METRICS_ENABLED`, `INDEXER_METRICS_HOST`, `INDEXER_METRICS_PORT_*`)
 - Indexer APM (`INDEXER_APM_ENABLED`, `INDEXER_APM_*`)
 
-See `.env.example` and `docs/indexer/01-config-and-env.md` for full definitions.
+See `config/settings.manifest.toml`, the generated `.env.example`, `shared/config/generated-settings-defaults.ts`, `docs/desktop/04-settings-manifest-process.md`, and `docs/indexer/01-config-and-env.md` for full definitions.
 
 `BACKEND_QUERY_CACHE_PROVIDER=memory` enables a lightweight in-memory cache for expensive backend read queries. The current cached paths are:
 
@@ -375,7 +388,7 @@ Signal paths:
 - Traces: backend/indexer OTLP -> Tempo -> Grafana
 - Profiles: Pyroscope -> Grafana
 
-The public deploy compose exposes the same stack behind its `observability` profile, with Grafana reachable inside the shared Docker edge network as `artgod-grafana:3000`.
+The public deploy compose exposes the same stack behind its `observability` profile, with Grafana reachable inside the shared Docker edge network as `artgod-grafana:42735`.
 
 Reference docs:
 
@@ -391,6 +404,8 @@ Use these as primary references for design and implementation details:
 - `docs/desktop/01-tauri-build-and-runtime.md`
 - `docs/desktop/02-runtime-registry-maintenance.md`
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
+- `docs/desktop/04-settings-manifest-process.md`
+- `docs/ports/01-port-catalog.md`
 - `docs/trading/01-bidding-runtime-and-jobs.md`
 - `docs/trading/02-bidding-automation-capabilities.md`
 - `docs/progress/trading/01-bidder-integration-plan.md`
