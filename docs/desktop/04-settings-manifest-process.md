@@ -29,6 +29,10 @@ settings.manifest.toml defaults + settings.json overrides
 
 Public web deployment still manages public-hosting-only values directly through deployment env files. Those settings remain in the manifest for `.env.example` and generated defaults, but should be marked `desktop_managed = false` when they do not belong in the desktop Admin UI or desktop-rendered `.env`.
 
+The root manifest `default` is the local developer `.env.example` baseline.
+Values that only make sense in another runtime context should stay blank at the root and be supplied by the context that owns them.
+For example, hosted Docker deploy provides `INTERNAL_BACKEND_ORIGIN=http://backend:42710` through `.env.deploy.example`, while desktop provides `USERLAND_UI_DIST_DIR=frontend/userland` through `desktop_default`.
+
 ## Manifest Fields
 
 Each setting entry must include:

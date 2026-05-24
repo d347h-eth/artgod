@@ -217,7 +217,7 @@ desktop_managed = false
 key = "INTERNAL_BACKEND_ORIGIN"
 group = "public-deployment"
 label = "internal backend origin"
-default = "http://backend:42710"
+default = ""
 validation = "url"
 desktop_managed = false
 
@@ -248,7 +248,8 @@ desktop_managed = false
 key = "USERLAND_UI_DIST_DIR"
 group = "desktop-runtime"
 label = "userland ui dist dir"
-default = "frontend/userland"
+default = ""
+desktop_default = "frontend/userland"
 
 [[settings]]
 key = "DESKTOP_RUNTIME_RESOURCES_DIR"

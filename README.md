@@ -248,6 +248,10 @@ cp .env.test.example .env.test
 
 `.env.example` and `shared/config/generated-settings-defaults.ts` are generated from `config/settings.manifest.toml`. Edit the manifest first, then run `yarn config:generate` and commit the manifest plus generated files together. See `docs/desktop/04-settings-manifest-process.md` for the full process.
 
+The generated `.env.example` is the local web/indexer development baseline.
+Keep deploy-only and desktop-only values such as `INTERNAL_BACKEND_ORIGIN` and `USERLAND_UI_DIST_DIR` blank there unless local dev is intentionally serving a built static userland bundle.
+Hosted Docker deploy values belong in `.env.deploy.example`; desktop runtime values come from manifest `desktop_default` fields and Admin-rendered app-data env.
+
 Required core env:
 
 ```sh
