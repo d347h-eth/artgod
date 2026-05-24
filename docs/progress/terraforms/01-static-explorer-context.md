@@ -491,65 +491,86 @@ Current implementation notes:
     - `/extensions/:extension_key/:page_ref`
 - Route load stays generic: it fetches collection context, checks the extension is enabled for that collection, and leaves page-specific behavior to the registered frontend extension page.
 
-### Milestone 3: Terraforms Catalog Page Registration
+### Milestone 3: Terraforms Page Wiring
 
-Goal: register the Terraforms static explorer as the first extension-owned page contribution.
+Goal: register the Terraforms Hypercastle page as the first extension-owned page contribution and prove the generic core/frontend wiring works end to end.
 
 Expected work:
 
 - register a Terraforms page descriptor through the bundled frontend extension installer
-- implement a Terraforms page controller that owns:
-    - focused level group
-    - focused level
-    - active catalog lens
-    - sort state for deep-dive data
-    - URL serialization for shareable focus state
-- implement compact catalog panels for:
-    - levels
-    - zones
-    - biomes
-- no token/parcel detail panel in the first implementation unless a level view cannot be understood without it
-- add the Mathcastles Remix font face in the Terraforms extension UI boundary
+- keep the registered page body intentionally empty
+- verify the standard collection route can resolve the installed Terraforms extension and delegate to the registered page
+- verify the public single-collection route can resolve the same page through the public route shape
+- keep route loading generic: collection context and extension availability checks belong in core, while Terraforms owns only its page registration
+- keep navigation generic: core tabs should consume extension-provided target descriptors without hard-coding Terraforms page ids
+- add or keep focused tests for navigation target resolution, route href generation, and extension-page availability filtering
+- do not add page-local controller state, URL focus state, catalog state, visual components, font wiring, or placeholder UI in this milestone
 
 Current implementation notes:
 
 - Terraforms registers the first page contribution as `terraforms:hypercastle`.
 - The Hypercastle tab is extension-owned and ordered between generic asset-event tabs and Terraforms extension-event tabs.
-- The Hypercastle page now has URL-backed focus state for Zone-set groups and individual levels.
-- The current page centers the primary viewport on a scaled 20-level Hypercastle stack. In overview, level clicks move into Zone-set group focus first; inside a focused group, level clicks move into a single-level focus.
-- The single-level focus uses aggregate isometric topography bands and visual Zone/Biome summaries instead of 1:1 parcel tiles.
-- The table-like catalog helpers still exist for future deep-dive panels, but the primary page no longer renders large Levels/Zones/Biomes tables.
-- The current page still needs browser screenshot/pixel/performance verification before treating the renderer choice as accepted.
+- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastlePage.svelte` should remain an empty extension page body at this milestone.
+- Any helpers or components that imply a rendered Hypercastle, level focus, Zone/Biome panels, catalog tables, or renderer spike belong in later milestones, not here.
 
-### Milestone 4: Visualization Spike
+Acceptance checks:
 
-Goal: verify the renderer choice before committing to a large structure visualization implementation.
+- the Hypercastle tab appears only when the collection has the enabled Terraforms extension and a matching frontend page registration
+- the standard extension route loads collection context and delegates to the registered page without Terraforms-specific route code
+- the public single-collection extension route loads the same page through `/extensions/:extension_key/:page_ref`
+- missing extension installs and unknown extension pages do not expose a usable page
+- no Hypercastle representation layer is rendered yet
 
-Expected work:
+### Milestone 4: Hypercastle Overview Render
 
-- create a static in-browser spike using the full 20-level Hypercastle overview and focused level representations
-- compare:
-    - current `@elchininet/isometric` SVG rectangle approach
-    - scaled area/shape representations without 1:1 parcel tiles
-    - canvas or hybrid level renderer
-    - aggregated overview plus focused detail renderer
-- measure first render time, interaction latency, memory, and mobile layout pressure
-- use Playwright screenshots and pixel checks once a candidate renderer exists
-
-The spike should happen before building polish around a renderer. The first accepted renderer should make the 20-level structure readable and responsive before attempting any tile-dense mode.
-
-### Milestone 5: Full Explorer UX
-
-Goal: replace table-first browsing with a structure-first Terraforms exploration page while preserving complete catalog access.
+Goal: make the first visible page content the full Hypercastle: a simplified 20-level isometric structure rendered with `@elchininet/isometric`.
 
 Expected work:
 
-- whole-structure overview for 20 levels
-- level-group focus/drilldown based primarily on Zone relationships
-- level focus/drilldown with complete level data
-- zone palette inspection with level/biome relationships
-- biome character inspection using Mathcastles Remix
-- sortable deep-dive panels for level, zone, and biome rows
+- render one isometric layer for each of the 20 contract levels
+- render every level as a simplified square slab, not as individual parcel tiles
+- size each square slab relative to the level's contract grid area
+- align all slabs around one shared vertical spine through the center of every level
+- stack slabs into a bicone-like isometric silhouette
+- keep gaps between slabs compact, roughly the same visual height as one slab layer
+- keep every slab the same layer height
+- use one shared color for all slabs in this first overview pass
+- make each slab selectable by pointer/keyboard, but keep selection behavior as a no-op for now
+- keep the overview independent from token records, minted rarity, market data, ownership data, Zone/Biome detail panels, and catalog tables
+- verify the overview in browser with screenshots and pixel checks before treating the first renderer as accepted
+
+Acceptance checks:
+
+- the page's first content signal is the 20-level Hypercastle overview inside the collection page shell
+- all 20 levels are visible and aligned to a shared center spine
+- relative level sizes match contract dimensions/areas closely enough to make the widest levels visually dominant
+- layer gaps are compact and consistent
+- no Zone, Biome, level-detail, catalog, market, ownership, token-detail, or rarity panels are rendered
+- selecting a level does not yet change URL state or render a detail view
+- desktop and mobile screenshots show a nonblank, coherent isometric structure with no shell overlap
+
+### Milestone 5: Level Drilldown Foundation
+
+Goal: turn the overview into the entry point for level exploration, then render one selected level with basic static structure detail.
+
+Expected work:
+
+- add minimal level labels or affordances only if they help users choose a level from the overview
+- make level selection URL-backed and shareable after the overview renderer is accepted
+- preserve the full 20-level overview as the user's way back to structure context
+- render the selected level in more detail than the overview, still without token-level tiles unless a later performance pass proves it is needed
+- expose the selected level's contract-derived dimensions, parcel capacity, Zone window, topography-to-Zone mapping, and biome group weights
+- show which Zones and Biome groups can exist on that level
+- wire Mathcastles Remix only when concrete Biome character inspection is introduced
+- keep market, floor, bid/ask, ownership overlays, minted/exact rarity, seed-derived hidden traits, and token/parcel detail out of this milestone
+
+Acceptance checks:
+
+- clicking or keyboard-selecting a level can focus that level through URL-backed state
+- the selected level view uses contract-derived static data only
+- the selected level view explains Zone and Biome availability without pretending to show exact minted rarity
+- users can return from selected-level focus to the full Hypercastle overview
+- the renderer remains responsive on desktop and mobile screenshots
 - no market, floor, bid/ask, or ownership overlays
 
 ## Suggested First Implementation Rule
