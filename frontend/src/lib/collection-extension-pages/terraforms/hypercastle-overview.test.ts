@@ -29,13 +29,13 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		expect(levelTwenty.sizeUnits).toBe(levelOne.sizeUnits);
 	});
 
-	it('keeps gaps at twice the slab height for the overview pass', () => {
+	it('keeps gaps at triple the slab height for the overview pass', () => {
 		const layers = buildTerraformsHypercastleOverviewLayers();
 		const first = layers[0]!;
 		const second = layers[1]!;
 		const gap = second.baseTopUnits - first.topFaceTopUnits;
 
-		expect(gap).toBeCloseTo(first.layerHeightUnits * 2, 8);
+		expect(gap).toBeCloseTo(first.layerHeightUnits * 3, 8);
 		expect(new Set(layers.map((layer) => layer.layerHeightUnits)).size).toBe(1);
 	});
 
