@@ -329,8 +329,7 @@
 		gap: 0.55rem;
 		width: fit-content;
 		max-width: 100%;
-		overflow-x: auto;
-		padding-bottom: 0.1rem;
+		overflow: visible;
 		justify-self: center;
 	}
 

@@ -12,56 +12,17 @@
 	} = $props();
 
 	const normalizedText = $derived(text.trim());
-
-	let popoverElement = $state<HTMLElement | null>(null);
-
-	function showTooltip(): void {
-		if (!popoverElement || normalizedText.length === 0 || isPopoverOpen(popoverElement)) {
-			return;
-		}
-		popoverElement.showPopover();
-	}
-
-	function hideTooltip(): void {
-		if (!popoverElement || !isPopoverOpen(popoverElement)) {
-			return;
-		}
-		popoverElement.hidePopover();
-	}
-
-	function handleKeydown(event: KeyboardEvent): void {
-		if (event.key === 'Escape') {
-			hideTooltip();
-		}
-	}
-
-	function isPopoverOpen(element: HTMLElement): boolean {
-		return element.matches(':popover-open');
-	}
 </script>
 
 {#if normalizedText.length > 0}
-	<button
-		type="button"
+	<span
 		class={`info-tooltip info-tooltip-${tone} ${className}`}
 		aria-label={normalizedText}
-		onmouseenter={showTooltip}
-		onmouseleave={hideTooltip}
-		onfocus={showTooltip}
-		onblur={hideTooltip}
-		onkeydown={handleKeydown}
 	>
 		<span class="info-tooltip-mark" aria-hidden="true">
 			<InfoIcon />
 		</span>
-	</button>
-	<span
-		bind:this={popoverElement}
-		class={`info-tooltip-popup info-tooltip-popup-${tone}`}
-		popover="manual"
-		role="tooltip"
-	>
-		{normalizedText}
+		<span class="info-tooltip-popup" role="tooltip">{normalizedText}</span>
 	</span>
 {/if}
 
@@ -99,9 +60,14 @@
 	}
 
 	.info-tooltip-popup {
+		position: absolute;
+		z-index: 60;
+		left: calc(100% + 0.45rem);
+		top: 50%;
+		display: none;
 		width: max-content;
 		min-width: 11rem;
-		max-width: min(18rem, calc(100vw - 1.5rem));
+		max-width: min(22rem, 60vw);
 		padding: 0.45rem 0.55rem;
 		border: 1px solid var(--c-blue);
 		background: var(--c-bg);
@@ -115,15 +81,15 @@
 		pointer-events: none;
 	}
 
-	.info-tooltip-popup-warning {
+	.info-tooltip-warning .info-tooltip-popup {
 		border-color: var(--c-yellow);
-	}
-
-	.info-tooltip-popup::backdrop {
-		display: none;
 	}
 
 	.info-tooltip:hover {
 		color: var(--c-yellow);
+	}
+
+	.info-tooltip:hover .info-tooltip-popup {
+		display: block;
 	}
 </style>
