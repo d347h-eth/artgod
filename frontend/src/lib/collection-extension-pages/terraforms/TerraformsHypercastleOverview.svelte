@@ -14,7 +14,10 @@
 	const OVERVIEW_ARIA_LABEL = 'Hypercastle overview';
 	const OVERVIEW_RENDER_ERROR = 'isometric renderer unavailable';
 	const OVERVIEW_LAYER_FILL = 'var(--c-cyan)';
+	const OVERVIEW_LAYER_FILL_OPACITY = 0;
 	const OVERVIEW_LAYER_STROKE = 'var(--c-blue)';
+	const OVERVIEW_LAYER_STROKE_DASH_ARRAY = [4, 3];
+	const OVERVIEW_LAYER_STROKE_OPACITY = 1;
 	const OVERVIEW_LAYER_STROKE_WIDTH = 1;
 	const POINTER_TYPE_MOUSE = 'mouse';
 	const KEYBOARD_SELECT_KEYS = new Set(['Enter', ' ']);
@@ -121,7 +124,10 @@
 				`terraforms-hypercastle-overview-layer-face-${faceKind}`
 			].join(' '),
 			fillColor: OVERVIEW_LAYER_FILL,
+			fillOpacity: OVERVIEW_LAYER_FILL_OPACITY,
 			strokeColor: OVERVIEW_LAYER_STROKE,
+			strokeDashArray: OVERVIEW_LAYER_STROKE_DASH_ARRAY,
+			strokeOpacity: OVERVIEW_LAYER_STROKE_OPACITY,
 			strokeWidth: OVERVIEW_LAYER_STROKE_WIDTH
 		});
 		face.getElement().setAttribute('aria-hidden', 'true');
@@ -202,6 +208,7 @@
 	}
 
 	:global(.terraforms-hypercastle-overview-layer-face) {
+		pointer-events: all;
 		vector-effect: non-scaling-stroke;
 		transition:
 			filter 120ms ease,
