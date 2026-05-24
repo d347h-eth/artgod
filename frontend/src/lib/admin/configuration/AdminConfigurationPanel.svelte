@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AdminSectionFrame from '$lib/admin/components/AdminSectionFrame.svelte';
+	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import type {
 		AdminConfigField,
 		AdminConfigGroup,
@@ -136,7 +137,7 @@
 					<section class="runtime-section admin-config-group">
 						<h3>Desktop</h3>
 						<label class="admin-config-row admin-config-checkbox-row">
-							<span>autostart infra</span>
+							<span class="admin-config-label-cell">autostart infra</span>
 							<input
 								type="checkbox"
 								class="bootstrap-checkbox"
@@ -154,7 +155,10 @@
 							<h3>{group.label}</h3>
 							{#each group.fields as field (field.key)}
 								<label class="admin-config-row" class:admin-config-textarea-row={field.inputKind === 'textarea'}>
-									<span>{field.label}</span>
+									<span class="admin-config-label-cell">
+										<span>{field.label}</span>
+										<InfoTooltip text={field.help} />
+									</span>
 									{#if field.inputKind === 'checkbox'}
 										<input
 											type="checkbox"
@@ -282,11 +286,19 @@
 		max-width: 100%;
 	}
 
-	.admin-config-row > span {
+	.admin-config-label-cell {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
 		font-size: 0.75rem;
 		text-transform: uppercase;
 		color: var(--c-sand);
 		line-height: 1.15;
+	}
+
+	.admin-config-label-cell > span:first-child {
+		min-width: 0;
 	}
 
 	.admin-config-checkbox-row {

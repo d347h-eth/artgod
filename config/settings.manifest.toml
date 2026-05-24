@@ -46,7 +46,6 @@ group = "chain-rpc"
 label = "artgod db path"
 default = "database/sqlite/main/db"
 desktop_default = "sqlite/main/db"
-view = "basic"
 help = "SQLite database path. Desktop resolves relative paths from the app-data directory."
 
 [[settings]]
@@ -208,18 +207,21 @@ key = "RPC_RETRY_MAX_ATTEMPTS"
 group = "chain-rpc"
 label = "rpc retry max attempts"
 default = "5"
+view = "basic"
 
 [[settings]]
 key = "RPC_RETRY_BASE_DELAY_MS"
 group = "chain-rpc"
 label = "rpc retry base delay ms"
 default = "100"
+view = "basic"
 
 [[settings]]
 key = "RPC_RETRY_MAX_DELAY_MS"
 group = "chain-rpc"
 label = "rpc retry max delay ms"
 default = "3000"
+view = "basic"
 
 [[settings]]
 key = "RPC_RATE_LIMIT_REQUESTS_PER_SECOND"
@@ -227,12 +229,14 @@ group = "chain-rpc"
 label = "rpc rate limit requests per second"
 default = "50"
 help = "Use 0 to disable RPC request rate limiting."
+view = "basic"
 
 [[settings]]
 key = "RPC_RATE_LIMIT_BURST"
 group = "chain-rpc"
 label = "rpc rate limit burst"
-default = "100"
+default = "50"
+view = "basic"
 
 [[settings]]
 key = "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD"
@@ -425,6 +429,7 @@ key = "BACKFILL_BATCH_SIZE"
 group = "indexer"
 label = "backfill batch size"
 default = "50"
+view = "basic"
 
 [[settings]]
 key = "LOG_CHUNK_SIZE"
@@ -437,18 +442,21 @@ key = "BOOTSTRAP_SNAPSHOT_BATCH_SIZE"
 group = "indexer"
 label = "bootstrap snapshot batch size"
 default = "200"
+view = "basic"
 
 [[settings]]
 key = "BOOTSTRAP_METADATA_BATCH_SIZE"
 group = "indexer"
 label = "bootstrap metadata batch size"
 default = "200"
+view = "basic"
 
 [[settings]]
 key = "BOOTSTRAP_METADATA_CONCURRENCY"
 group = "indexer"
 label = "bootstrap metadata concurrency"
 default = "8"
+view = "basic"
 
 [[settings]]
 key = "BOOTSTRAP_METADATA_PROCESS_POLL_MS"
@@ -460,25 +468,29 @@ default = "5000"
 key = "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS"
 group = "indexer"
 label = "bootstrap metadata retry max attempts"
-default = "5"
+default = "3"
+view = "basic"
 
 [[settings]]
 key = "BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS"
 group = "indexer"
 label = "bootstrap metadata retry base delay ms"
 default = "100"
+view = "basic"
 
 [[settings]]
 key = "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS"
 group = "indexer"
 label = "bootstrap metadata retry max delay ms"
-default = "3000"
+default = "1000"
+view = "basic"
 
 [[settings]]
 key = "METADATA_REFRESH_RANGE_CHUNK_SIZE"
 group = "indexer"
 label = "metadata refresh range chunk size"
 default = "200"
+view = "basic"
 
 [[settings]]
 key = "WETH_ADDRESS"
@@ -500,7 +512,7 @@ default = "auto"
 view = "basic"
 input = "select"
 options = ["auto", "enabled", "disabled"]
-help = "auto enables OpenSea only when OPENSEA_API_KEY is present; enabled fails fast without it."
+help = "auto enables OpenSea integration only when OPENSEA_API_KEY is present; if \"enabled\" selected, the app fails fast without it."
 
 [[settings]]
 key = "OPENSEA_API_KEY"
@@ -510,6 +522,7 @@ default = ""
 view = "basic"
 input = "password"
 secret = true
+help = "The OpenSea API key that is used by the indexer to fetch asks and offers data from the orderbook."
 
 [[settings]]
 key = "OPENSEA_SNAPSHOT_PAGE_SIZE"
@@ -591,7 +604,7 @@ default = ""
 view = "basic"
 input = "password"
 secret = true
-help = "Trading bot OpenSea lanes stay separate from the indexer OPENSEA_API_KEY."
+help = "Use to create a dedicated OpenSea lane for the inbound events (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
 
 [[settings]]
 key = "OPENSEA_BIDDING_SECRET_KEY"
@@ -601,7 +614,7 @@ default = ""
 view = "basic"
 input = "password"
 secret = true
-help = "Trading bot OpenSea lanes stay separate from the indexer OPENSEA_API_KEY."
+help = "Use to create a dedicated OpenSea lane for the outbound bidding requests (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
 
 [[settings]]
 key = "OPENSEA_SNAPSHOT_SECRET_KEY"
@@ -611,14 +624,13 @@ default = ""
 view = "basic"
 input = "password"
 secret = true
-help = "Trading bot OpenSea lanes stay separate from the indexer OPENSEA_API_KEY."
+help = "Use to create a dedicated OpenSea lane for fetching offers data from the orderbook (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
 
 [[settings]]
 key = "BIDDING_ENABLED"
 group = "bidding"
 label = "bidding enabled"
 default = "true"
-view = "basic"
 input = "checkbox"
 
 [[settings]]
@@ -626,7 +638,6 @@ key = "BIDDING_DRY_RUN"
 group = "bidding"
 label = "bidding dry run"
 default = "false"
-view = "basic"
 input = "checkbox"
 
 [[settings]]
@@ -661,6 +672,7 @@ key = "BIDDING_TX_BASE_FEE_MULTIPLIER"
 group = "bidding"
 label = "bidding tx base fee multiplier"
 default = "1.25"
+view = "basic"
 
 [[settings]]
 key = "BIDDING_TX_MAX_FEE_GWEI"
@@ -674,15 +686,15 @@ key = "BIDDING_TX_PENDING_NONCE_POLICY"
 group = "bidding"
 label = "bidding tx pending nonce policy"
 default = "fail"
-view = "basic"
 input = "select"
-options = ["fail", "latest"]
+options = ["fail"]
 
 [[settings]]
 key = "BIDDING_POLL_MS"
 group = "bidding"
 label = "bidding poll ms"
 default = "480000"
+view = "basic"
 
 [[settings]]
 key = "BIDDING_MAX_CONCURRENT_JOBS"
@@ -701,6 +713,7 @@ key = "BIDDING_OFFER_EXPIRATION_SECONDS"
 group = "bidding"
 label = "bidding offer expiration seconds"
 default = "13920"
+view = "basic"
 
 [[settings]]
 key = "BIDDING_COLLECTION_OFFERS_POLL_MS"
