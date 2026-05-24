@@ -46,6 +46,7 @@ group = "chain-rpc"
 label = "artgod db path"
 default = "database/sqlite/main/db"
 desktop_default = "sqlite/main/db"
+view = "basic"
 help = "SQLite database path. Desktop resolves relative paths from the app-data directory."
 
 [[settings]]
@@ -200,6 +201,7 @@ key = "RPC_URL"
 group = "chain-rpc"
 label = "rpc url"
 default = "http://127.0.0.1:8545"
+view = "basic"
 
 [[settings]]
 key = "RPC_RETRY_MAX_ATTEMPTS"
@@ -495,6 +497,7 @@ key = "OPENSEA_INTEGRATION_MODE"
 group = "opensea"
 label = "opensea integration mode"
 default = "auto"
+view = "basic"
 input = "select"
 options = ["auto", "enabled", "disabled"]
 help = "auto enables OpenSea only when OPENSEA_API_KEY is present; enabled fails fast without it."
@@ -504,6 +507,7 @@ key = "OPENSEA_API_KEY"
 group = "opensea"
 label = "opensea api key"
 default = ""
+view = "basic"
 input = "password"
 secret = true
 
@@ -584,6 +588,7 @@ key = "OPENSEA_STREAM_SECRET_KEY"
 group = "trading-opensea"
 label = "opensea stream secret key"
 default = ""
+view = "basic"
 input = "password"
 secret = true
 help = "Trading bot OpenSea lanes stay separate from the indexer OPENSEA_API_KEY."
@@ -593,6 +598,7 @@ key = "OPENSEA_BIDDING_SECRET_KEY"
 group = "trading-opensea"
 label = "opensea bidding secret key"
 default = ""
+view = "basic"
 input = "password"
 secret = true
 help = "Trading bot OpenSea lanes stay separate from the indexer OPENSEA_API_KEY."
@@ -602,6 +608,7 @@ key = "OPENSEA_SNAPSHOT_SECRET_KEY"
 group = "trading-opensea"
 label = "opensea snapshot secret key"
 default = ""
+view = "basic"
 input = "password"
 secret = true
 help = "Trading bot OpenSea lanes stay separate from the indexer OPENSEA_API_KEY."
@@ -611,6 +618,7 @@ key = "BIDDING_ENABLED"
 group = "bidding"
 label = "bidding enabled"
 default = "true"
+view = "basic"
 input = "checkbox"
 
 [[settings]]
@@ -618,6 +626,7 @@ key = "BIDDING_DRY_RUN"
 group = "bidding"
 label = "bidding dry run"
 default = "false"
+view = "basic"
 input = "checkbox"
 
 [[settings]]
@@ -625,6 +634,7 @@ key = "BIDDING_WETH_ALLOWANCE_ETH"
 group = "bidding"
 label = "bidding weth allowance eth"
 default = "0"
+view = "basic"
 help = "Static startup WETH approval target for OpenSea bidding, in Ether units. Use 0 to skip startup approval."
 
 [[settings]]
@@ -657,12 +667,14 @@ key = "BIDDING_TX_MAX_FEE_GWEI"
 group = "bidding"
 label = "bidding tx max fee gwei"
 default = "10"
+view = "basic"
 
 [[settings]]
 key = "BIDDING_TX_PENDING_NONCE_POLICY"
 group = "bidding"
 label = "bidding tx pending nonce policy"
 default = "fail"
+view = "basic"
 input = "select"
 options = ["fail", "latest"]
 

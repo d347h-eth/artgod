@@ -7,6 +7,8 @@
 		AdminConfigState
 	} from '$lib/admin/configuration/ports';
 
+	type AdminConfigView = 'basic' | 'advanced';
+
 	let {
 		config,
 		loading,
@@ -26,8 +28,9 @@
 	let appliedConfig = $state<AdminConfigState | null>(null);
 	let values = $state<Record<string, string>>({});
 	let autoLaunchOnStartup = $state(false);
+	let configView = $state<AdminConfigView>('basic');
 
-	const editableGroups = $derived((config?.groups ?? []).filter((group) => group.fields.length > 0));
+	const editableGroups = $derived(resolveEditableGroups(config?.groups ?? [], configView));
 	const formDisabled = $derived(loading || busyAction !== null || config === null);
 
 	$effect(() => {
@@ -75,6 +78,18 @@
 	function fieldChecked(field: AdminConfigField): boolean {
 		return ['1', 'true', 'yes', 'on'].includes(fieldValue(field).trim().toLowerCase());
 	}
+
+	function resolveEditableGroups(groups: AdminConfigGroup[], view: AdminConfigView): AdminConfigGroup[] {
+		return groups
+			.map((group) => ({
+				...group,
+				fields:
+					view === 'advanced'
+						? group.fields
+						: group.fields.filter((field) => field.view === 'basic')
+			}))
+			.filter((group) => group.fields.length > 0);
+	}
 </script>
 
 <AdminSectionFrame>
@@ -92,6 +107,32 @@
 						void saveConfig();
 					}}
 				>
+					<div class="admin-config-view-row">
+						<span class="panel-top-actions-label">view:</span>
+						<div class="secondary-tabs" aria-label="Config view">
+							<button
+								type="button"
+								class:secondary-tab-active={configView === 'basic'}
+								disabled={formDisabled || configView === 'basic'}
+								onclick={() => {
+									configView = 'basic';
+								}}
+							>
+								basic
+							</button>
+							<button
+								type="button"
+								class:secondary-tab-active={configView === 'advanced'}
+								disabled={formDisabled || configView === 'advanced'}
+								onclick={() => {
+									configView = 'advanced';
+								}}
+							>
+								advanced
+							</button>
+						</div>
+					</div>
+
 					<section class="runtime-section admin-config-group">
 						<h3>Desktop</h3>
 						<label class="admin-config-row admin-config-checkbox-row">
@@ -220,6 +261,16 @@
 	.admin-config-group {
 		align-content: start;
 		gap: 0.72rem;
+	}
+
+	.admin-config-view-row {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		gap: var(--control-button-gap);
+		flex-wrap: wrap;
+		width: min(40.15rem, 100%);
+		max-width: 100%;
 	}
 
 	.admin-config-row {
