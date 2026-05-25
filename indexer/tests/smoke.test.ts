@@ -4,6 +4,8 @@ import { db, setDbPath } from "@artgod/shared/database";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
 import { QUEUE_NAMES } from "../src/domain/queues.js";
 import {
+    BACKFILL_ORDER_MAINTENANCE_POLICY,
+    BACKFILL_SOURCE,
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
 } from "../src/domain/sync-jobs.js";
@@ -71,6 +73,9 @@ describe("indexer smoke", () => {
             payload: {
                 fromBlock: config.fromBlock,
                 toBlock: config.toBlock,
+                source: BACKFILL_SOURCE.ManualHistorical,
+                orderMaintenancePolicy:
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
             },
             attempt: 0,
             scheduledAt: Date.now(),

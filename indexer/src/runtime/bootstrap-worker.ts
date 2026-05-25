@@ -22,6 +22,8 @@ import { type JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import { getRetryDelayMs, type RetryPolicy } from "../domain/retry.js";
 import {
+    BACKFILL_ORDER_MAINTENANCE_POLICY,
+    BACKFILL_SOURCE,
     SYNC_JOB_KIND,
     type BackfillSyncPayload,
 } from "../domain/sync-jobs.js";
@@ -1254,7 +1256,13 @@ async function scheduleBackfillRange(
             jobId: `sync:bootstrap:${chainId}:${collectionId}:${start}-${end}`,
             kind: SYNC_JOB_KIND.BackfillRange,
             queue: QUEUE_NAMES.BackfillSync,
-            payload: { fromBlock: start, toBlock: end },
+            payload: {
+                fromBlock: start,
+                toBlock: end,
+                source: BACKFILL_SOURCE.BootstrapCatchup,
+                orderMaintenancePolicy:
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            },
             attempt: 0,
             scheduledAt: Date.now(),
             chainId,

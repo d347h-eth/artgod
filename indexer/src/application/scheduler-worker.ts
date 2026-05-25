@@ -5,7 +5,11 @@ import type {
     BackfillSyncPayload,
     RealtimeSyncPayload,
 } from "../domain/sync-jobs.js";
-import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
+import {
+    BACKFILL_ORDER_MAINTENANCE_POLICY,
+    BACKFILL_SOURCE,
+    SYNC_JOB_KIND,
+} from "../domain/sync-jobs.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import type { HeadSourcePort } from "../ports/head-source.js";
 import type { QueuePort } from "../ports/queue.js";
@@ -244,7 +248,13 @@ async function scheduleBackfillRange(
             jobId: `sync:backfill:${chainId}:${start}-${end}`,
             kind: SYNC_JOB_KIND.BackfillRange,
             queue: QUEUE_NAMES.BackfillSync,
-            payload: { fromBlock: start, toBlock: end },
+            payload: {
+                fromBlock: start,
+                toBlock: end,
+                source: BACKFILL_SOURCE.ManualHistorical,
+                orderMaintenancePolicy:
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
+            },
             attempt: 0,
             scheduledAt: Date.now(),
             chainId,

@@ -5,16 +5,21 @@ import {
     connect,
     type JetStreamManager,
 } from "nats";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import {
-    NOOP_APM,
-    type ApmPort,
-} from "@artgod/shared/observability/apm";
+    BACKFILL_ORDER_MAINTENANCE_POLICY,
+    BACKFILL_SOURCE,
+    type BackfillOrderMaintenancePolicy,
+    type BackfillSource,
+} from "@artgod/shared/types/sync-backfill";
 import type { SyncBackfillRangeCommand } from "../../application/use-cases/sync-backfill/schedule-sync-backfill.js";
 import { SYNC_BACKFILL_SPAN_ATTRIBUTE } from "../../application/use-cases/sync-backfill/sync-backfill-observability.js";
 
 type BackfillSyncPayload = {
     fromBlock: number;
     toBlock: number;
+    source: BackfillSource;
+    orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
 };
 
 type JobEnvelope<TPayload> = {
@@ -90,6 +95,9 @@ export class NatsSyncBackfillCommandQueue {
                             payload: {
                                 fromBlock: command.fromBlock,
                                 toBlock: command.toBlock,
+                                source: BACKFILL_SOURCE.ManualHistorical,
+                                orderMaintenancePolicy:
+                                    BACKFILL_ORDER_MAINTENANCE_POLICY.SkipGlobalMakerRevalidation,
                             },
                             attempt: 0,
                             scheduledAt: Date.now(),
@@ -104,10 +112,8 @@ export class NatsSyncBackfillCommandQueue {
             );
         } finally {
             await this.apm
-                .withSpan(
-                    "backend.sync_backfill.nats.drain",
-                    attributes,
-                    () => connection.drain(),
+                .withSpan("backend.sync_backfill.nats.drain", attributes, () =>
+                    connection.drain(),
                 )
                 .catch(() => undefined);
         }
