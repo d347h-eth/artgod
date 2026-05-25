@@ -37,6 +37,7 @@ export type TerraformsHypercastleOverviewLayout = {
 	levelGuideLineEndX: number;
 	levelGuideCornerGap: number;
 	levelGuideLabelGap: number;
+	allLevelsLabelRowGap: number;
 };
 
 // Face literals define the renderer contract shared by geometry, Svelte, and tests.
@@ -132,6 +133,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 		guidePrefix: 'terraforms-hypercastle-level-guide-',
 		outlineGroup: 'terraforms-hypercastle-overview-back-outlines',
 		guideGroup: 'terraforms-hypercastle-overview-level-guides',
+		allLevelsGuide: 'terraforms-hypercastle-overview-all-levels-guide',
 		stripePattern: 'terraforms-hypercastle-overview-level-12-stripes'
 	},
 	classes: {
@@ -150,7 +152,12 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 		guideSelected: 'terraforms-hypercastle-overview-level-guide-selected',
 		guideHitTarget: 'terraforms-hypercastle-overview-level-guide-hit-target',
 		guideLeader: 'terraforms-hypercastle-overview-level-guide-leader',
-		guideLabel: 'terraforms-hypercastle-overview-level-guide-label'
+		guideLabel: 'terraforms-hypercastle-overview-level-guide-label',
+		allLevelsGuide: 'terraforms-hypercastle-overview-all-levels-guide',
+		allLevelsGuideHovered: 'terraforms-hypercastle-overview-all-levels-guide-hovered',
+		allLevelsGuideSelected: 'terraforms-hypercastle-overview-all-levels-guide-selected',
+		allLevelsGuideHitTarget: 'terraforms-hypercastle-overview-all-levels-guide-hit-target',
+		allLevelsGuideLabel: 'terraforms-hypercastle-overview-all-levels-guide-label'
 	},
 	attributes: {
 		levelCount: 'data-level-count',
@@ -190,6 +197,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION = {
 	levelLabelFontSize: 13,
 	levelLabelHitWidth: 68,
 	levelGuideHitHeight: 18,
+	allLevelsLabelHitWidth: 86,
 	levelGuideLineHiddenOpacity: 0,
 	levelGuideLineStrokeWidth: 1,
 	levelLabelTextOpacity: 0.86
@@ -232,6 +240,8 @@ const OVERVIEW_DESKTOP_LABEL_LINE_LENGTH = 54;
 const OVERVIEW_MOBILE_LABEL_LINE_LENGTH = 38;
 const OVERVIEW_LABEL_CORNER_GAP = 8;
 const OVERVIEW_LABEL_TEXT_GAP = 8;
+const OVERVIEW_ALL_LEVELS_ROW_HEIGHT = 56;
+const OVERVIEW_ALL_LEVELS_LABEL_ROW_GAP = 44;
 const ISOMETRIC_X_FACTOR = Math.sqrt(3) / 2;
 const OVERVIEW_LAYER_KEY_PREFIX = 'level-';
 const OVERVIEW_OUTLINE_KEY_PREFIX = 'level';
@@ -328,14 +338,15 @@ export function resolveTerraformsHypercastleOverviewLayout(
 	const structureRightX = baseWidth - OVERVIEW_CANVAS_MARGIN;
 	return {
 		width: baseWidth + labelLaneWidth,
-		height: Math.ceil(bounds.height * scale + OVERVIEW_CANVAS_MARGIN * 2),
+		height: Math.ceil(bounds.height * scale + OVERVIEW_CANVAS_MARGIN * 2 + OVERVIEW_ALL_LEVELS_ROW_HEIGHT),
 		scale,
 		groupRightOffsetUnits,
 		groupLeftOffsetUnits,
 		groupTopOffsetUnits: bounds.centerY,
 		levelGuideLineEndX: structureRightX + OVERVIEW_LABEL_CORNER_GAP + labelLineLength,
 		levelGuideCornerGap: OVERVIEW_LABEL_CORNER_GAP,
-		levelGuideLabelGap: OVERVIEW_LABEL_TEXT_GAP
+		levelGuideLabelGap: OVERVIEW_LABEL_TEXT_GAP,
+		allLevelsLabelRowGap: OVERVIEW_ALL_LEVELS_LABEL_ROW_GAP
 	};
 }
 

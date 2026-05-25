@@ -567,7 +567,7 @@ Current implementation notes:
 
 Goal: turn the overview into the entry point for level exploration, then render one selected level with basic static structure detail.
 
-Status: in progress. The first accepted slice is Zone-only selected-level detail: selecting an overview slab or label keeps the full Hypercastle visible, marks that level selected, and shows the level's possible Zones in a right-side sortable table.
+Status: in progress. The first accepted slice is Zone-only detail: selecting the aggregate `All Levels` label shows the full Zone catalog, while selecting an overview slab or level label keeps the full Hypercastle visible, marks that level selected, and shows that level's possible Zones in a right-side sortable table.
 
 Expected work:
 
@@ -591,16 +591,20 @@ Acceptance checks:
 
 Current implementation notes:
 
-- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastlePage.svelte` now splits the Hypercastle page into a left overview column and a right selected-level detail column.
-- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` exposes `selectedLevelNumber` and `onLevelSelect`, and applies persistent selected styling plus `aria-pressed` to both slab groups and level guide labels.
-- `frontend/src/lib/collection-extension-pages/terraforms/level-zones.ts` builds selected-level Zone rows from static contract data only.
-- The Zone table currently shows `name`, a 10-swatch `palette`, `topography buckets`, and `bucket share`. The distribution columns are derived from the nine topography buckets mapped to each Zone on the selected level; they are not minted parcel rarity.
-- Zone table headers are sortable; default order is bucket share descending.
-- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks Level 12 in browser, verifies selected slab/label state, verifies Zone table rows and sorting, and attaches default, hover, and selected-level screenshots on desktop and mobile.
+- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastlePage.svelte` now splits the Hypercastle page into a left overview column and a right Zone detail column. The detail column stays empty until the user selects `All Levels` or a concrete level.
+- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` exposes selected-level and all-level selection callbacks, and applies persistent selected styling plus `aria-pressed` to slab groups, level guide labels, and the all-level label.
+- `frontend/src/lib/collection-extension-pages/terraforms/level-zones.ts` builds selected-level Zone rows and the all-level Zone catalog from static contract data only.
+- `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-selection.ts` owns extension-local selection labels and state helpers for `All Levels` and `Level X` headings.
+- The all-level Zone table shows `name` and the 10-swatch `palette` for all 75 Zones.
+- The selected-level Zone table shows `name`, the 10-swatch `palette`, and centered `topography buckets`.
+- `topography buckets` means the count of nine contract topography buckets that map to the Zone on that level. It is a static mapping aid, not a faithful rarity or parcel distribution column.
+- Zone table headers are sortable; default order is name ascending. Removed the earlier bucket-share column because it implied equal bucket probability that the contract noise thresholds do not guarantee.
+- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels` and Level 12 in browser, verifies selected state, verifies Zone table rows and sorting, and attaches default, all-level, hover, and selected-level screenshots on desktop and mobile.
 
 Remaining work:
 
-- Make selected level state URL-backed and shareable.
+- Make `All Levels` and selected-level state URL-backed and shareable.
+- Add a faithful static Zone distribution mode by replaying the contract placement, Perlin, and threshold logic against the deployed seed, then generate per-level counts for the table.
 - Add the rest of the selected-level static facts: dimensions, parcel capacity, Zone window, explicit topography-to-Zone mapping, and biome group weights.
 - Decide whether the selected-level panel should remain a compact side panel or introduce a deeper level-focused view before adding Biome detail.
 

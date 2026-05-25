@@ -24,16 +24,21 @@
 		type TerraformsHypercastleOverviewLayer,
 		type TerraformsHypercastleOverviewOutlineSegment
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
+	import { TERRAFORMS_HYPERCASTLE_SELECTION_LABELS } from '$lib/collection-extension-pages/terraforms/hypercastle-selection';
 
 	type IsometricModule = typeof import('@elchininet/isometric');
 	type TerraformsHypercastleOverviewProps = {
 		selectedLevelNumber?: number | null;
+		allLevelsSelected?: boolean;
 		onLevelSelect?: (levelNumber: number) => void;
+		onAllLevelsSelect?: () => void;
 	};
 
 	let {
 		selectedLevelNumber = null,
-		onLevelSelect = () => undefined
+		allLevelsSelected = false,
+		onLevelSelect = () => undefined,
+		onAllLevelsSelect = () => undefined
 	}: TerraformsHypercastleOverviewProps = $props();
 
 	const DOM_EVENTS = {
@@ -143,6 +148,7 @@
 
 	$effect(() => {
 		selectedLevelNumber;
+		allLevelsSelected;
 		syncSelectedLevelState();
 	});
 
@@ -182,7 +188,7 @@
 			renderLayer(group, layer);
 		}
 		renderLayerOutlines(group);
-		renderLevelGuides(svg, buildTerraformsHypercastleOverviewLevelGuides(layers, layout));
+		renderLevelGuides(svg, buildTerraformsHypercastleOverviewLevelGuides(layers, layout), layout);
 		syncSelectedLevelState();
 	}
 
@@ -308,7 +314,8 @@
 
 	function renderLevelGuides(
 		svg: SVGElement,
-		guides: readonly TerraformsHypercastleOverviewLevelGuide[]
+		guides: readonly TerraformsHypercastleOverviewLevelGuide[],
+		layout: ReturnType<typeof resolveTerraformsHypercastleOverviewLayout>
 	): void {
 		const guideGroup = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.group);
 		guideGroup.setAttribute(SVG_ATTRIBUTES.id, TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.guideGroup);
@@ -319,7 +326,63 @@
 		for (const guide of guides) {
 			guideGroup.appendChild(createLevelGuideElement(guide));
 		}
+		const topGuide = guides[guides.length - 1] ?? null;
+		if (topGuide) {
+			guideGroup.appendChild(createAllLevelsGuideElement(topGuide, layout));
+		}
 		svg.appendChild(guideGroup);
+	}
+
+	function createAllLevelsGuideElement(
+		topGuide: TerraformsHypercastleOverviewLevelGuide,
+		layout: ReturnType<typeof resolveTerraformsHypercastleOverviewLayout>
+	): SVGGElement {
+		const guideElement = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.group);
+		const labelAnchor = resolveAllLevelsLabelAnchor(topGuide, layout);
+		guideElement.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.allLevelsGuide);
+		guideElement.setAttribute(SVG_ATTRIBUTES.id, TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.allLevelsGuide);
+		guideElement.setAttribute(SVG_ATTRIBUTES.role, DOM_ATTRIBUTE_VALUES.button);
+		guideElement.setAttribute(SVG_ATTRIBUTES.tabindex, DOM_ATTRIBUTE_VALUES.zero);
+		guideElement.setAttribute(
+			SVG_ATTRIBUTES.ariaLabel,
+			TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels
+		);
+		guideElement.setAttribute(
+			SVG_ATTRIBUTES.title,
+			TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels
+		);
+		guideElement.setAttribute(SVG_ATTRIBUTES.ariaPressed, DOM_ATTRIBUTE_VALUES.false);
+		guideElement.appendChild(createAllLevelsGuideHitTargetElement(labelAnchor));
+		guideElement.appendChild(createAllLevelsGuideLabelElement(labelAnchor));
+		guideElement.addEventListener(DOM_EVENTS.pointerEnter, () => setAllLevelsHoverState(true));
+		guideElement.addEventListener(DOM_EVENTS.pointerLeave, () => setAllLevelsHoverState(false));
+		guideElement.addEventListener(DOM_EVENTS.focus, () => setAllLevelsHoverState(true));
+		guideElement.addEventListener(DOM_EVENTS.blur, () => setAllLevelsHoverState(false));
+		guideElement.addEventListener(DOM_EVENTS.pointerDown, (event) => {
+			if (event.pointerType === POINTER_TYPE_MOUSE) {
+				event.preventDefault();
+			}
+		});
+		guideElement.addEventListener(DOM_EVENTS.click, () => {
+			onAllLevelsSelect();
+		});
+		guideElement.addEventListener(DOM_EVENTS.keyDown, (event) => {
+			if (!(event instanceof KeyboardEvent)) return;
+			if (!KEYBOARD_SELECT_KEYS.has(event.key)) return;
+			event.preventDefault();
+			onAllLevelsSelect();
+		});
+		return guideElement;
+	}
+
+	function resolveAllLevelsLabelAnchor(
+		topGuide: TerraformsHypercastleOverviewLevelGuide,
+		layout: ReturnType<typeof resolveTerraformsHypercastleOverviewLayout>
+	): { x: number; y: number } {
+		return {
+			x: topGuide.labelAnchor.x,
+			y: topGuide.labelAnchor.y - layout.allLevelsLabelRowGap
+		};
 	}
 
 	function createLevelGuideElement(guide: TerraformsHypercastleOverviewLevelGuide): SVGGElement {
@@ -388,6 +451,24 @@
 		return target;
 	}
 
+	function createAllLevelsGuideHitTargetElement(labelAnchor: {
+		x: number;
+		y: number;
+	}): SVGRectElement {
+		const target = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.rect);
+		const height = TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelGuideHitHeight;
+		target.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.allLevelsGuideHitTarget);
+		target.setAttribute(SVG_ATTRIBUTES.x, String(labelAnchor.x));
+		target.setAttribute(SVG_ATTRIBUTES.y, String(labelAnchor.y - height / 2));
+		target.setAttribute(
+			SVG_ATTRIBUTES.width,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.allLevelsLabelHitWidth)
+		);
+		target.setAttribute(SVG_ATTRIBUTES.height, String(height));
+		target.setAttribute(SVG_ATTRIBUTES.fill, SVG_ATTRIBUTE_VALUES.transparent);
+		return target;
+	}
+
 	function createLevelGuideLeaderElement(guide: TerraformsHypercastleOverviewLevelGuide): SVGLineElement {
 		const leader = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.line);
 		leader.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLeader);
@@ -430,6 +511,25 @@
 		return label;
 	}
 
+	function createAllLevelsGuideLabelElement(labelAnchor: { x: number; y: number }): SVGTextElement {
+		const label = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.text);
+		label.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.allLevelsGuideLabel);
+		label.setAttribute(SVG_ATTRIBUTES.x, String(labelAnchor.x));
+		label.setAttribute(SVG_ATTRIBUTES.y, String(labelAnchor.y));
+		label.setAttribute(SVG_ATTRIBUTES.fill, TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color);
+		label.setAttribute(
+			SVG_ATTRIBUTES.fillOpacity,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelLabelTextOpacity)
+		);
+		label.setAttribute(
+			SVG_ATTRIBUTES.fontSize,
+			String(TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.levelLabelFontSize)
+		);
+		label.setAttribute(SVG_ATTRIBUTES.dominantBaseline, SVG_ATTRIBUTE_VALUES.middle);
+		label.textContent = TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels;
+		return label;
+	}
+
 	function setLevelHoverState(levelNumber: number, hovered: boolean): void {
 		resolveLevelGuideElement(levelNumber)?.classList.toggle(
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideHovered,
@@ -441,10 +541,21 @@
 		);
 	}
 
+	function setAllLevelsHoverState(hovered: boolean): void {
+		resolveAllLevelsGuideElement()?.classList.toggle(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.allLevelsGuideHovered,
+			hovered
+		);
+	}
+
 	function resolveLevelGuideElement(levelNumber: number): HTMLElement | null {
 		return document.getElementById(
 			resolveTerraformsHypercastleOverviewLevelGuideElementId(levelNumber)
 		);
+	}
+
+	function resolveAllLevelsGuideElement(): HTMLElement | null {
+		return document.getElementById(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.allLevelsGuide);
 	}
 
 	function resolveLayerElement(levelNumber: number): HTMLElement | null {
@@ -506,6 +617,7 @@
 			syncLevelSelectionState(resolveLayerElement(layer.levelNumber), selected);
 			syncLevelSelectionState(resolveLevelGuideElement(layer.levelNumber), selected);
 		}
+		syncAllLevelsSelectionState();
 	}
 
 	function syncLevelSelectionState(element: HTMLElement | null, selected: boolean): void {
@@ -523,6 +635,19 @@
 		element.setAttribute(
 			DOM_ATTRIBUTES.ariaPressed,
 			selected ? DOM_ATTRIBUTE_VALUES.true : DOM_ATTRIBUTE_VALUES.false
+		);
+	}
+
+	function syncAllLevelsSelectionState(): void {
+		const element = resolveAllLevelsGuideElement();
+		if (!element) return;
+		element.classList.toggle(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.allLevelsGuideSelected,
+			allLevelsSelected
+		);
+		element.setAttribute(
+			DOM_ATTRIBUTES.ariaPressed,
+			allLevelsSelected ? DOM_ATTRIBUTE_VALUES.true : DOM_ATTRIBUTE_VALUES.false
 		);
 	}
 
@@ -700,7 +825,16 @@
 		outline: none;
 	}
 
+	:global(.terraforms-hypercastle-overview-all-levels-guide) {
+		cursor: pointer;
+		outline: none;
+	}
+
 	:global(.terraforms-hypercastle-overview-level-guide-hit-target) {
+		pointer-events: all;
+	}
+
+	:global(.terraforms-hypercastle-overview-all-levels-guide-hit-target) {
 		pointer-events: all;
 	}
 
@@ -710,6 +844,15 @@
 	}
 
 	:global(.terraforms-hypercastle-overview-level-guide-label) {
+		font-family: var(--font-mono);
+		letter-spacing: 0;
+		pointer-events: none;
+		transition:
+			filter 120ms ease,
+			fill-opacity 120ms ease;
+	}
+
+	:global(.terraforms-hypercastle-overview-all-levels-guide-label) {
 		font-family: var(--font-mono);
 		letter-spacing: 0;
 		pointer-events: none;
@@ -750,6 +893,26 @@
 	:global(
 			.terraforms-hypercastle-overview-level-guide-selected
 				.terraforms-hypercastle-overview-level-guide-label
+	) {
+		filter: brightness(1.35);
+		fill-opacity: 1;
+	}
+
+	:global(
+			.terraforms-hypercastle-overview-all-levels-guide:hover
+				.terraforms-hypercastle-overview-all-levels-guide-label
+	),
+	:global(
+			.terraforms-hypercastle-overview-all-levels-guide:focus-visible
+				.terraforms-hypercastle-overview-all-levels-guide-label
+	),
+	:global(
+			.terraforms-hypercastle-overview-all-levels-guide-hovered
+				.terraforms-hypercastle-overview-all-levels-guide-label
+	),
+	:global(
+			.terraforms-hypercastle-overview-all-levels-guide-selected
+				.terraforms-hypercastle-overview-all-levels-guide-label
 	) {
 		filter: brightness(1.35);
 		fill-opacity: 1;

@@ -2,78 +2,129 @@
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
 	import TerraformsHypercastleOverview from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte';
 	import {
+		buildTerraformsAllLevelZoneRows,
 		buildTerraformsLevelZoneRows,
 		defaultTerraformsLevelZoneSortColumn,
 		defaultTerraformsLevelZoneSortDirection,
-		formatTerraformsLevelTitle,
 		formatTerraformsLevelZoneSortLabel,
 		formatTerraformsZoneBucketCount,
-		formatTerraformsZoneBucketShare,
 		formatTerraformsZonePaletteSwatchLabel,
 		resolveTerraformsHypercastleLevel,
 		resolveTerraformsLevelZoneAriaSort,
 		resolveTerraformsLevelZoneDefaultSortDirection,
 		sortTerraformsLevelZoneRows,
 		toggleTerraformsLevelZoneSortDirection,
-		TERRAFORMS_LEVEL_DETAIL_LABELS,
 		TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES,
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS,
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS,
 		TERRAFORMS_LEVEL_ZONE_TABLE_DOM,
 		TERRAFORMS_LEVEL_ZONE_TABLE_LABELS,
 		type TerraformsLevelZoneSortDirection,
 		type TerraformsLevelZoneTableColumn
 	} from '$lib/collection-extension-pages/terraforms/level-zones';
+	import {
+		formatTerraformsLevelTitle,
+		isTerraformsAllLevelsSelection,
+		resolveTerraformsSelectedLevelNumber,
+		TERRAFORMS_HYPERCASTLE_SELECTION_LABELS,
+		TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES,
+		type TerraformsHypercastleSelection
+	} from '$lib/collection-extension-pages/terraforms/hypercastle-selection';
 
 	let {}: CollectionExtensionPageProps = $props();
 
-	const zoneTableColumns = Object.values(
-		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS
-	) as TerraformsLevelZoneTableColumn[];
-
-	let selectedLevelNumber = $state<number | null>(null);
+	let selection = $state<TerraformsHypercastleSelection>(null);
 	let zoneSortColumn = $state<TerraformsLevelZoneTableColumn>(
 		defaultTerraformsLevelZoneSortColumn()
 	);
 	let zoneSortDirection = $state<TerraformsLevelZoneSortDirection>(
 		defaultTerraformsLevelZoneSortDirection()
 	);
+	let selectedLevelNumber = $derived(resolveTerraformsSelectedLevelNumber(selection));
+	let allLevelsSelected = $derived(isTerraformsAllLevelsSelection(selection));
 	let selectedLevel = $derived(resolveTerraformsHypercastleLevel(selectedLevelNumber));
+	let zoneTableColumns: readonly TerraformsLevelZoneTableColumn[] = $derived(
+		allLevelsSelected
+			? TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS.AllLevels
+			: selectedLevel
+				? TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS.SelectedLevel
+				: []
+	);
+	let showTopographyBuckets = $derived(
+		zoneTableColumns.includes(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets)
+	);
+	let activeZoneSortColumn = $derived(resolveActiveZoneSortColumn(zoneTableColumns, zoneSortColumn));
 	let zoneRows = $derived(
-		selectedLevel
+		allLevelsSelected
+			? sortTerraformsLevelZoneRows(
+					buildTerraformsAllLevelZoneRows(),
+					activeZoneSortColumn,
+					zoneSortDirection
+				)
+			: selectedLevel
 			? sortTerraformsLevelZoneRows(
 					buildTerraformsLevelZoneRows(selectedLevel),
-					zoneSortColumn,
+					activeZoneSortColumn,
 					zoneSortDirection
 				)
 			: []
 	);
+	let detailTitle = $derived(resolveDetailTitle(selection, selectedLevelNumber));
+	let showZoneTable = $derived(detailTitle !== null && zoneRows.length > 0);
 
 	function selectLevel(levelNumber: number): void {
-		selectedLevelNumber = levelNumber;
+		selection = levelNumber;
+	}
+
+	function selectAllLevels(): void {
+		selection = TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES.AllLevels;
 	}
 
 	function sortZonesBy(column: TerraformsLevelZoneTableColumn): void {
-		if (zoneSortColumn === column) {
+		if (activeZoneSortColumn === column) {
 			zoneSortDirection = toggleTerraformsLevelZoneSortDirection(zoneSortDirection);
+			zoneSortColumn = column;
 			return;
 		}
 		zoneSortColumn = column;
 		zoneSortDirection = resolveTerraformsLevelZoneDefaultSortDirection(column);
 	}
+
+	function resolveActiveZoneSortColumn(
+		columns: readonly TerraformsLevelZoneTableColumn[],
+		column: TerraformsLevelZoneTableColumn
+	): TerraformsLevelZoneTableColumn {
+		return columns.includes(column) ? column : defaultTerraformsLevelZoneSortColumn();
+	}
+
+	function resolveDetailTitle(
+		currentSelection: TerraformsHypercastleSelection,
+		levelNumber: number | null
+	): string | null {
+		if (isTerraformsAllLevelsSelection(currentSelection)) {
+			return TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels;
+		}
+		return levelNumber === null ? null : formatTerraformsLevelTitle(levelNumber);
+	}
 </script>
 
 <section class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.root}>
 	<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.overview}>
-		<TerraformsHypercastleOverview {selectedLevelNumber} onLevelSelect={selectLevel} />
+		<TerraformsHypercastleOverview
+			{selectedLevelNumber}
+			{allLevelsSelected}
+			onLevelSelect={selectLevel}
+			onAllLevelsSelect={selectAllLevels}
+		/>
 	</div>
 
 	<aside
 		class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailPanel}
 		data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.detailPanel}
 	>
-		{#if selectedLevel}
+		{#if showZoneTable && detailTitle}
 			<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
-				{formatTerraformsLevelTitle(selectedLevel.levelNumber)}
+				{detailTitle}
 			</h2>
 			<div class="table-wrap">
 				<table
@@ -86,7 +137,7 @@
 								<th
 									aria-sort={resolveTerraformsLevelZoneAriaSort(
 										column,
-										zoneSortColumn,
+										activeZoneSortColumn,
 										zoneSortDirection
 									)}
 								>
@@ -122,20 +173,15 @@
 										{/each}
 									</div>
 								</td>
-								<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
-									{formatTerraformsZoneBucketCount(row)}
-								</td>
-								<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
-									{formatTerraformsZoneBucketShare(row)}
-								</td>
+								{#if showTopographyBuckets}
+									<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
+										{formatTerraformsZoneBucketCount(row)}
+									</td>
+								{/if}
 							</tr>
 						{/each}
 					</tbody>
 				</table>
-			</div>
-		{:else}
-			<div class={`${TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailPlaceholder} muted`}>
-				{TERRAFORMS_LEVEL_DETAIL_LABELS.EmptySelection}
 			</div>
 		{/if}
 	</aside>
@@ -196,6 +242,16 @@
 		min-width: 11rem;
 	}
 
+	.terraforms-hypercastle-zone-table th:nth-child(3),
+	.terraforms-hypercastle-zone-table td:nth-child(3) {
+		text-align: center;
+	}
+
+	.terraforms-hypercastle-zone-table th:nth-child(3) .terraforms-hypercastle-zone-sort-button {
+		justify-content: center;
+		width: 100%;
+	}
+
 	.terraforms-hypercastle-zone-sort-button {
 		display: inline-flex;
 		align-items: center;
@@ -229,6 +285,7 @@
 	.terraforms-hypercastle-zone-numeric-cell {
 		font-family: var(--font-mono);
 		white-space: nowrap;
+		text-align: center;
 	}
 
 	@media (max-width: 980px) {

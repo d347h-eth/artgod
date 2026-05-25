@@ -1,6 +1,7 @@
 import {
 	TERRAFORMS_HYPERCASTLE_LEVELS,
 	TERRAFORMS_TOPOGRAPHY_BUCKET_COUNT,
+	TERRAFORMS_ZONES,
 	type TerraformsLevelSummary,
 	type TerraformsZone
 } from '@artgod/shared/extensions/terraforms';
@@ -11,16 +12,14 @@ export type TerraformsLevelZoneRow = {
 	zoneIndex: number;
 	name: string;
 	palette: readonly string[];
-	topographyBucketCount: number;
-	topographyBucketShare: number;
+	topographyBucketCount: number | null;
 };
 
 // Sort columns are the stable contract between the table, tests, and URL-ready state.
 export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS = {
 	Name: 'name',
 	Palette: 'palette',
-	TopographyBuckets: 'topography-buckets',
-	BucketShare: 'bucket-share'
+	TopographyBuckets: 'topography-buckets'
 } as const;
 
 export type TerraformsLevelZoneTableColumn = ValueOf<typeof TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS>;
@@ -39,9 +38,21 @@ export type TerraformsLevelZoneSortDirection = ValueOf<
 export const TERRAFORMS_LEVEL_ZONE_TABLE_LABELS: Record<TerraformsLevelZoneTableColumn, string> = {
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name]: 'name',
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette]: 'palette',
-	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets]: 'topography buckets',
-	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.BucketShare]: 'bucket share'
+	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets]: 'topography buckets'
 };
+
+// Column sets keep aggregate and selected-level tables from implying unavailable data.
+export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS = {
+	AllLevels: [
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette
+	],
+	SelectedLevel: [
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette,
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets
+	]
+} as const satisfies Record<string, readonly TerraformsLevelZoneTableColumn[]>;
 
 // DOM names are exported so browser probes can target extension-owned detail UI.
 export const TERRAFORMS_LEVEL_ZONE_TABLE_DOM = {
@@ -69,12 +80,6 @@ export const TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES = {
 	Button: 'button'
 } as const;
 
-// Compact panel labels owned by the Terraforms Hypercastle page.
-export const TERRAFORMS_LEVEL_DETAIL_LABELS = {
-	EmptySelection: 'select a level',
-	LevelPrefix: 'Level'
-} as const;
-
 // Accessible sort states mirror ARIA table header values.
 export const TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES = {
 	Ascending: 'ascending',
@@ -82,15 +87,14 @@ export const TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES = {
 	None: 'none'
 } as const;
 
-const TERRAFORMS_LEVEL_ZONE_DEFAULT_SORT_COLUMN = TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.BucketShare;
+const TERRAFORMS_LEVEL_ZONE_DEFAULT_SORT_COLUMN = TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name;
 const TERRAFORMS_LEVEL_ZONE_DEFAULT_SORT_DIRECTION =
-	TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending;
+	TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending;
 const TERRAFORMS_LEVEL_ZONE_ASCENDING_COLUMNS = new Set<TerraformsLevelZoneTableColumn>([
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette
 ]);
 const TERRAFORMS_LEVEL_ZONE_BUCKET_COUNT_SEPARATOR = ' / ';
-const TERRAFORMS_LEVEL_ZONE_PERCENT_SUFFIX = '%';
 const TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR = ' ';
 const TERRAFORMS_LEVEL_ZONE_SWATCH_LABEL_PREFIX = 'palette color';
 const TERRAFORMS_LEVEL_ZONE_SWATCH_LABEL_SEPARATOR = ': ';
@@ -98,11 +102,6 @@ const TERRAFORMS_LEVEL_ZONE_SORT_LABEL_PREFIX = 'sort by';
 const TERRAFORMS_LEVEL_ZONE_EMPTY_STRING = '';
 
 const numberCollator = new Intl.Collator(undefined, { numeric: true });
-const bucketShareFormatter = new Intl.NumberFormat(undefined, {
-	maximumFractionDigits: 1,
-	minimumFractionDigits: 0
-});
-
 // Finds the static contract summary for a selected Hypercastle level.
 export function resolveTerraformsHypercastleLevel(
 	levelNumber: number | null
@@ -111,11 +110,21 @@ export function resolveTerraformsHypercastleLevel(
 	return TERRAFORMS_HYPERCASTLE_LEVELS.find((level) => level.levelNumber === levelNumber) ?? null;
 }
 
-// Builds one row per Zone using topography buckets as the static distribution proxy.
+// Builds one row per Zone using topography buckets as a static mapping aid.
 export function buildTerraformsLevelZoneRows(
 	level: TerraformsLevelSummary
 ): TerraformsLevelZoneRow[] {
 	return level.zones.map((zone) => buildTerraformsLevelZoneRow(level, zone));
+}
+
+// Builds the all-level Zone catalog without level-specific distribution columns.
+export function buildTerraformsAllLevelZoneRows(): TerraformsLevelZoneRow[] {
+	return TERRAFORMS_ZONES.map((zone) => ({
+		zoneIndex: zone.index,
+		name: zone.name,
+		palette: zone.palette,
+		topographyBucketCount: null
+	}));
 }
 
 // Sorts level Zone rows by the active user-selected table column.
@@ -159,26 +168,12 @@ export function defaultTerraformsLevelZoneSortDirection(): TerraformsLevelZoneSo
 	return TERRAFORMS_LEVEL_ZONE_DEFAULT_SORT_DIRECTION;
 }
 
-// Formats the selected level heading.
-export function formatTerraformsLevelTitle(levelNumber: number): string {
-	return [TERRAFORMS_LEVEL_DETAIL_LABELS.LevelPrefix, String(levelNumber)].join(
-		TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR
-	);
-}
-
 // Formats a static bucket count against the full topography bucket set.
 export function formatTerraformsZoneBucketCount(row: TerraformsLevelZoneRow): string {
+	if (row.topographyBucketCount === null) return TERRAFORMS_LEVEL_ZONE_EMPTY_STRING;
 	return [String(row.topographyBucketCount), String(TERRAFORMS_TOPOGRAPHY_BUCKET_COUNT)].join(
 		TERRAFORMS_LEVEL_ZONE_BUCKET_COUNT_SEPARATOR
 	);
-}
-
-// Formats the static topography bucket share as a compact percentage.
-export function formatTerraformsZoneBucketShare(row: TerraformsLevelZoneRow): string {
-	return [
-		bucketShareFormatter.format(row.topographyBucketShare * 100),
-		TERRAFORMS_LEVEL_ZONE_PERCENT_SUFFIX
-	].join('');
 }
 
 // Builds an accessible label for individual palette swatches.
@@ -226,8 +221,7 @@ function buildTerraformsLevelZoneRow(
 		zoneIndex: zone.index,
 		name: zone.name,
 		palette: zone.palette,
-		topographyBucketCount,
-		topographyBucketShare: topographyBucketCount / TERRAFORMS_TOPOGRAPHY_BUCKET_COUNT
+		topographyBucketCount
 	};
 }
 
@@ -245,14 +239,19 @@ function compareTerraformsLevelZoneRows(
 				right.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING)
 			);
 		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets:
-			return compareNumbers(left.topographyBucketCount, right.topographyBucketCount);
-		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.BucketShare:
-			return compareNumbers(left.topographyBucketShare, right.topographyBucketShare);
+			return compareNullableNumbers(left.topographyBucketCount, right.topographyBucketCount);
 	}
 }
 
 function compareNumbers(left: number, right: number): number {
 	return left - right;
+}
+
+function compareNullableNumbers(left: number | null, right: number | null): number {
+	if (left === null && right === null) return 0;
+	if (left === null) return -1;
+	if (right === null) return 1;
+	return compareNumbers(left, right);
 }
 
 function compareStrings(left: string, right: string): number {

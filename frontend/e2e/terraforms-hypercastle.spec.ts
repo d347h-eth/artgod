@@ -18,20 +18,22 @@ import {
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-overview';
 import {
+	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
 	defaultTerraformsLevelZoneSortColumn,
 	defaultTerraformsLevelZoneSortDirection,
-	formatTerraformsLevelTitle,
 	formatTerraformsLevelZoneSortLabel,
 	formatTerraformsZoneBucketCount,
-	formatTerraformsZoneBucketShare,
 	sortTerraformsLevelZoneRows,
-	TERRAFORMS_LEVEL_DETAIL_LABELS,
 	TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS,
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS,
 	TERRAFORMS_LEVEL_ZONE_TABLE_DOM,
 	type TerraformsLevelZoneRow
 } from '../src/lib/collection-extension-pages/terraforms/level-zones';
+import {
+	formatTerraformsLevelTitle,
+	TERRAFORMS_HYPERCASTLE_SELECTION_LABELS
+} from '../src/lib/collection-extension-pages/terraforms/hypercastle-selection';
 import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
@@ -83,6 +85,8 @@ type HypercastleOverviewMetrics = {
 	levelGuideLeaderStrokeWidth: string[];
 	levelGuideCutoffXs: string[];
 	levelGuideLabels: string[];
+	allLevelsGuideCount: number;
+	allLevelsGuideLabel: string | null;
 	level12ReachableFrontPoint: ReachableLayerPoint | null;
 	level12ReachableSidePoint: ReachableLayerPoint | null;
 };
@@ -96,7 +100,6 @@ type HypercastleLevelDetailMetrics = {
 	rowCount: number;
 	rowNames: string[];
 	rowBucketCounts: string[];
-	rowBucketShares: string[];
 	paletteSwatchCount: number;
 };
 
@@ -169,6 +172,10 @@ const TEST_ARTIFACTS = {
 		name: 'terraforms-hypercastle-selected-level-page.png',
 		contentType: 'image/png'
 	},
+	allLevelsScreenshot: {
+		name: 'terraforms-hypercastle-all-levels-page.png',
+		contentType: 'image/png'
+	},
 	probe: {
 		name: 'terraforms-hypercastle-probe.json',
 		contentType: 'application/json'
@@ -219,6 +226,10 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 		guide: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guide),
 		guideLeader: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLeader),
 		guideLabel: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLabel),
+		allLevelsGuide: idSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.allLevelsGuide),
+		allLevelsGuideLabel: classSelector(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.allLevelsGuideLabel
+		),
 		levelDetail: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.detailPanel
@@ -370,6 +381,8 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(metrics.levelGuideLabels).toContain(
 			formatTerraformsHypercastleOverviewLevelGuideLabel(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		);
+		expect(metrics.allLevelsGuideCount).toBe(1);
+		expect(metrics.allLevelsGuideLabel).toBe(TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels);
 		expect(metrics.level12ReachableFrontPoint).not.toBeNull();
 		expect(metrics.level12ReachableSidePoint).not.toBeNull();
 		expect(browserErrors.consoleErrors).toEqual([]);
@@ -382,6 +395,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 			`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideHovered}\\b`
 		);
 		const fadedLevelGuide = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.fadedLevelGuide);
+		const allLevelsGuide = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.allLevelsGuide);
 		const fadedLevelLayer = page.locator(
 			idSelector(
 				resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
@@ -390,7 +404,16 @@ test.describe('Terraforms Hypercastle overview', () => {
 		const detailPanel = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.levelDetail);
 		const zoneTable = detailPanel.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.levelZoneTable);
 
-		await expect(detailPanel).toContainText(TERRAFORMS_LEVEL_DETAIL_LABELS.EmptySelection);
+		await expect(detailPanel).toBeEmpty();
+		await allLevelsGuide.click();
+		await expect(
+			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels
+			})
+		).toBeVisible();
+		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
+		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.allLevelsScreenshot);
+
 		await fadedLevelGuide.hover();
 		await expect(fadedLevelLayer).toHaveClass(hoveredClassPattern);
 		await expect(fadedLevelGuide).toHaveClass(guideHoveredClassPattern);
@@ -419,19 +442,23 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
 
-		const bucketShareSort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
-			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.BucketShare)
+		const topographyBucketSort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
+			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets)
 		});
-		await bucketShareSort.click();
+		await topographyBucketSort.click();
 		await assertZoneTableRows(
 			zoneTable,
 			sortTerraformsLevelZoneRows(
 				buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
-				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.BucketShare,
-				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets,
+				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
 			)
 		);
-		await bucketShareSort.click();
+		await zoneTable
+			.getByRole(ACCESSIBLE_ROLES.button, {
+				name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name)
+			})
+			.click();
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
 
 		const detailMetrics = await collectHypercastleLevelDetailMetrics(page);
@@ -451,9 +478,6 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(detailMetrics.rowNames).toEqual(defaultRows.map((row) => row.name));
 		expect(detailMetrics.rowBucketCounts).toEqual(
 			defaultRows.map((row) => formatTerraformsZoneBucketCount(row))
-		);
-		expect(detailMetrics.rowBucketShares).toEqual(
-			defaultRows.map((row) => formatTerraformsZoneBucketShare(row))
 		);
 		expect(detailMetrics.paletteSwatchCount).toBe(
 			defaultRows.reduce((sum, row) => sum + row.palette.length, 0)
@@ -555,6 +579,8 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 		const guides = Array.from(document.querySelectorAll(contract.selectors.guide));
 		const guideLeaders = Array.from(document.querySelectorAll(contract.selectors.guideLeader));
 		const guideLabels = Array.from(document.querySelectorAll(contract.selectors.guideLabel));
+		const allLevelsGuide = document.querySelector(contract.selectors.allLevelsGuide);
+		const allLevelsGuideLabel = document.querySelector(contract.selectors.allLevelsGuideLabel);
 		const stripePattern = document.querySelector(contract.selectors.stripePattern);
 		const stripePatternRect = stripePattern?.querySelector(contract.svgTags.rect) ?? null;
 		const verticalFaces = faces.filter(
@@ -669,6 +695,8 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 			levelGuideLabels: guideLabels.map(
 				(label) => label.textContent ?? contract.emptyAttributeValue
 			),
+			allLevelsGuideCount: allLevelsGuide ? 1 : 0,
+			allLevelsGuideLabel: allLevelsGuideLabel?.textContent ?? null,
 			level12ReachableFrontPoint: findReachableLayerPoint(
 				contract.selectors.reachableFrontFace,
 				contract.reachabilityLevelNumber
@@ -711,9 +739,6 @@ async function collectHypercastleLevelDetailMetrics(
 			rowBucketCounts: rowCells.map(
 				(cells) => cells[2]?.textContent?.trim() ?? contract.emptyAttributeValue
 			),
-			rowBucketShares: rowCells.map(
-				(cells) => cells[3]?.textContent?.trim() ?? contract.emptyAttributeValue
-			),
 			paletteSwatchCount: table?.querySelectorAll(contract.selectors.paletteSwatch).length ?? 0
 		};
 	}, HYPERCASTLE_PROBE_CONTRACT);
@@ -731,9 +756,20 @@ async function assertZoneTableRows(
 		await expect(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteSwatch)
 		).toHaveCount(row.palette.length);
-		await expect(cells.nth(2)).toHaveText(formatTerraformsZoneBucketCount(row));
-		await expect(cells.nth(3)).toHaveText(formatTerraformsZoneBucketShare(row));
+		if (row.topographyBucketCount === null) {
+			await expect(cells).toHaveCount(2);
+		} else {
+			await expect(cells.nth(2)).toHaveText(formatTerraformsZoneBucketCount(row));
+		}
 	}
+}
+
+function expectedAllLevelZoneRows(): TerraformsLevelZoneRow[] {
+	return sortTerraformsLevelZoneRows(
+		buildTerraformsAllLevelZoneRows(),
+		defaultTerraformsLevelZoneSortColumn(),
+		defaultTerraformsLevelZoneSortDirection()
+	);
 }
 
 function expectedDefaultLevelZoneRows(): TerraformsLevelZoneRow[] {
