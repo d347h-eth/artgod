@@ -555,7 +555,7 @@ Current implementation notes:
 
 - `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` renders the first overview using `@elchininet/isometric`.
 - `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-overview.ts` owns the slab geometry, centered-spine layout, and render key.
-- The overview renders 20 level groups and 60 faces, with filled blue vertical faces, transparent top faces, every level centered on one spine, gaps at triple the slab height, full vertical-face hit targets, and selection intentionally implemented as a no-op.
+- The overview renders 20 level groups and 60 faces, with filled blue vertical faces, transparent top faces, every level centered on one spine, gaps at triple the slab height, and full vertical-face hit targets. Milestone 5 now wires those hit targets to selected-level page state.
 - Hidden-line rendering is explicit: visible rear top outlines stay solid until intersected by higher slab silhouettes, hidden rear top outlines become dotted, and rear bottom outlines are always drawn as dotted blue segments.
 - Level 12 uses faded striped vertical faces and dotted vertical-face outlines to show that it is occluded by the larger Level 13 slab.
 - Right-side level guide labels render one dashed 1px leader from each slab's lower right corner to a shared cutoff only while the label or slab is hovered, with either hover target applying the same hover treatment to the corresponding slab and label.
@@ -566,6 +566,8 @@ Current implementation notes:
 ### Milestone 5: Level Drilldown Foundation
 
 Goal: turn the overview into the entry point for level exploration, then render one selected level with basic static structure detail.
+
+Status: in progress. The first accepted slice is Zone-only selected-level detail: selecting an overview slab or label keeps the full Hypercastle visible, marks that level selected, and shows the level's possible Zones in a right-side sortable table.
 
 Expected work:
 
@@ -586,6 +588,21 @@ Acceptance checks:
 - users can return from selected-level focus to the full Hypercastle overview
 - the renderer remains responsive on desktop and mobile screenshots
 - no market, floor, bid/ask, or ownership overlays
+
+Current implementation notes:
+
+- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastlePage.svelte` now splits the Hypercastle page into a left overview column and a right selected-level detail column.
+- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` exposes `selectedLevelNumber` and `onLevelSelect`, and applies persistent selected styling plus `aria-pressed` to both slab groups and level guide labels.
+- `frontend/src/lib/collection-extension-pages/terraforms/level-zones.ts` builds selected-level Zone rows from static contract data only.
+- The Zone table currently shows `name`, a 10-swatch `palette`, `topography buckets`, and `bucket share`. The distribution columns are derived from the nine topography buckets mapped to each Zone on the selected level; they are not minted parcel rarity.
+- Zone table headers are sortable; default order is bucket share descending.
+- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks Level 12 in browser, verifies selected slab/label state, verifies Zone table rows and sorting, and attaches default, hover, and selected-level screenshots on desktop and mobile.
+
+Remaining work:
+
+- Make selected level state URL-backed and shareable.
+- Add the rest of the selected-level static facts: dimensions, parcel capacity, Zone window, explicit topography-to-Zone mapping, and biome group weights.
+- Decide whether the selected-level panel should remain a compact side panel or introduce a deeper level-focused view before adding Biome detail.
 
 ## Suggested First Implementation Rule
 

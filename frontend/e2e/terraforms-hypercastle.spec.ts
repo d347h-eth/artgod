@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises';
-import { expect, test, type Page, type TestInfo } from 'playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
 import {
 	TERRAFORMS_EXTENSION_KEY,
 	TERRAFORMS_EXTENSION_PAGE_REFS,
@@ -17,6 +17,21 @@ import {
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-overview';
+import {
+	buildTerraformsLevelZoneRows,
+	defaultTerraformsLevelZoneSortColumn,
+	defaultTerraformsLevelZoneSortDirection,
+	formatTerraformsLevelTitle,
+	formatTerraformsLevelZoneSortLabel,
+	formatTerraformsZoneBucketCount,
+	formatTerraformsZoneBucketShare,
+	sortTerraformsLevelZoneRows,
+	TERRAFORMS_LEVEL_DETAIL_LABELS,
+	TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS,
+	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS,
+	TERRAFORMS_LEVEL_ZONE_TABLE_DOM,
+	type TerraformsLevelZoneRow
+} from '../src/lib/collection-extension-pages/terraforms/level-zones';
 import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
@@ -72,7 +87,22 @@ type HypercastleOverviewMetrics = {
 	level12ReachableSidePoint: ReachableLayerPoint | null;
 };
 
+type HypercastleLevelDetailMetrics = {
+	selectedLayerAriaPressed: string | null;
+	selectedGuideAriaPressed: string | null;
+	selectedLayerClass: string | null;
+	selectedGuideClass: string | null;
+	heading: string | null;
+	rowCount: number;
+	rowNames: string[];
+	rowBucketCounts: string[];
+	rowBucketShares: string[];
+	paletteSwatchCount: number;
+};
+
 const ACCESSIBLE_ROLES = {
+	button: 'button',
+	heading: 'heading',
 	link: 'link'
 } as const;
 const BROWSER_EVENTS = {
@@ -103,8 +133,18 @@ const SVG_ATTRIBUTE_NAMES = {
 	fillOpacity: 'fill-opacity',
 	x2: 'x2'
 } as const;
+const ARIA_ATTRIBUTE_NAMES = {
+	pressed: 'aria-pressed'
+} as const;
+const ARIA_ATTRIBUTE_VALUES = {
+	true: 'true'
+} as const;
 const CSS_PROPERTY_NAMES = {
 	pointerEvents: 'pointer-events'
+} as const;
+const TABLE_SELECTORS = {
+	bodyRows: 'tbody tr',
+	cells: 'td'
 } as const;
 const TAG_NAMES = {
 	svg: 'svg',
@@ -125,6 +165,10 @@ const TEST_ARTIFACTS = {
 		name: 'terraforms-hypercastle-hover-page.png',
 		contentType: 'image/png'
 	},
+	selectedScreenshot: {
+		name: 'terraforms-hypercastle-selected-level-page.png',
+		contentType: 'image/png'
+	},
 	probe: {
 		name: 'terraforms-hypercastle-probe.json',
 		contentType: 'application/json'
@@ -138,6 +182,9 @@ const HYPERCASTLE_EXPECTED_BOTTOM_BACK_OUTLINE_COUNT = HYPERCASTLE_EXPECTED_LEVE
 const HYPERCASTLE_MIN_OUTLINE_SEGMENT_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 4;
 const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER =
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelNumber;
+const HYPERCASTLE_DETAIL_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
+	(level) => level.levelNumber === HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
+)!;
 const HYPERCASTLE_PATH = `/e2e-harness/collection/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
 const HYPERCASTLE_PROBE_CONTRACT = {
 	browserValues: TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,
@@ -172,13 +219,23 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 		guide: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guide),
 		guideLeader: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLeader),
 		guideLabel: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideLabel),
+		levelDetail: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.detailPanel
+		),
+		levelZoneTable: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.zoneTable
+		),
+		paletteSwatch: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteSwatch
+		),
 		fadedLevelLayer: idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		),
 		fadedLevelGuide: idSelector(
-			resolveTerraformsHypercastleOverviewLevelGuideElementId(
-				HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
-			)
+			resolveTerraformsHypercastleOverviewLevelGuideElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		),
 		stripePattern: idSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern),
 		reachableFrontFace: `${idSelector(
@@ -196,6 +253,10 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			)
 		)}`
 	},
+	levelZoneTableDom: TERRAFORMS_LEVEL_ZONE_TABLE_DOM,
+	ariaAttributes: ARIA_ATTRIBUTE_NAMES,
+	ariaAttributeValues: ARIA_ATTRIBUTE_VALUES,
+	tableSelectors: TABLE_SELECTORS,
 	svgTags: TAG_NAMES,
 	svgAttributes: SVG_ATTRIBUTE_NAMES
 } as const;
@@ -235,7 +296,6 @@ test.describe('Terraforms Hypercastle overview', () => {
 
 		const metrics = await collectHypercastleOverviewMetrics(page);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.pageScreenshot);
-		await attachProbeResult(testInfo, { metrics, browserErrors });
 
 		expect(metrics.svg?.levelCount).toBe(String(HYPERCASTLE_EXPECTED_LEVEL_COUNT));
 		expect(metrics.layerCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
@@ -327,11 +387,12 @@ test.describe('Terraforms Hypercastle overview', () => {
 				resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 			)
 		);
+		const detailPanel = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.levelDetail);
+		const zoneTable = detailPanel.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.levelZoneTable);
 
+		await expect(detailPanel).toContainText(TERRAFORMS_LEVEL_DETAIL_LABELS.EmptySelection);
 		await fadedLevelGuide.hover();
-		await expect(
-			fadedLevelLayer
-		).toHaveClass(hoveredClassPattern);
+		await expect(fadedLevelLayer).toHaveClass(hoveredClassPattern);
 		await expect(fadedLevelGuide).toHaveClass(guideHoveredClassPattern);
 
 		await moveMouseToReachableLayerPoint(
@@ -341,6 +402,65 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		await expect(fadedLevelGuide).toHaveClass(guideHoveredClassPattern);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.hoverScreenshot);
+
+		await fadedLevelGuide.click();
+		await expect(fadedLevelLayer).toHaveClass(
+			new RegExp(`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerSelected}\\b`)
+		);
+		await expect(fadedLevelGuide).toHaveClass(
+			new RegExp(`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideSelected}\\b`)
+		);
+		await expect(
+			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: formatTerraformsLevelTitle(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+			})
+		).toBeVisible();
+		await expect(zoneTable).toBeVisible();
+		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
+		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
+
+		const bucketShareSort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
+			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.BucketShare)
+		});
+		await bucketShareSort.click();
+		await assertZoneTableRows(
+			zoneTable,
+			sortTerraformsLevelZoneRows(
+				buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.BucketShare,
+				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
+			)
+		);
+		await bucketShareSort.click();
+		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
+
+		const detailMetrics = await collectHypercastleLevelDetailMetrics(page);
+		const defaultRows = expectedDefaultLevelZoneRows();
+		expect(detailMetrics.selectedLayerAriaPressed).toBe(ARIA_ATTRIBUTE_VALUES.true);
+		expect(detailMetrics.selectedGuideAriaPressed).toBe(ARIA_ATTRIBUTE_VALUES.true);
+		expect(detailMetrics.selectedLayerClass).toContain(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerSelected
+		);
+		expect(detailMetrics.selectedGuideClass).toContain(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideSelected
+		);
+		expect(detailMetrics.heading).toBe(
+			formatTerraformsLevelTitle(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+		);
+		expect(detailMetrics.rowCount).toBe(defaultRows.length);
+		expect(detailMetrics.rowNames).toEqual(defaultRows.map((row) => row.name));
+		expect(detailMetrics.rowBucketCounts).toEqual(
+			defaultRows.map((row) => formatTerraformsZoneBucketCount(row))
+		);
+		expect(detailMetrics.rowBucketShares).toEqual(
+			defaultRows.map((row) => formatTerraformsZoneBucketShare(row))
+		);
+		expect(detailMetrics.paletteSwatchCount).toBe(
+			defaultRows.reduce((sum, row) => sum + row.palette.length, 0)
+		);
+		expect(browserErrors.consoleErrors).toEqual([]);
+		expect(browserErrors.pageErrors).toEqual([]);
+		await attachProbeResult(testInfo, { metrics, detailMetrics, browserErrors });
 	});
 });
 
@@ -375,6 +495,7 @@ async function attachProbeResult(
 	testInfo: TestInfo,
 	result: {
 		metrics: HypercastleOverviewMetrics;
+		detailMetrics: HypercastleLevelDetailMetrics;
 		browserErrors: { consoleErrors: string[]; pageErrors: string[] };
 	}
 ): Promise<void> {
@@ -508,7 +629,10 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 					outline.getAttribute(contract.dom.attributes.outlineStyle) ===
 						contract.outlineStyles.Dotted
 			).length,
-			level12VerticalFillColor: uniqueAttribute(levelTwelveVerticalFaces, contract.svgAttributes.fill),
+			level12VerticalFillColor: uniqueAttribute(
+				levelTwelveVerticalFaces,
+				contract.svgAttributes.fill
+			),
 			level12VerticalStrokeDashArray: uniqueAttribute(
 				levelTwelveVerticalFaces,
 				contract.svgAttributes.strokeDashArray
@@ -517,9 +641,8 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 				levelTwelveVerticalFaces,
 				contract.svgAttributes.strokeLinecap
 			),
-			stripePatternFillOpacity: stripePatternRect?.getAttribute(
-				contract.svgAttributes.fillOpacity
-			) ?? null,
+			stripePatternFillOpacity:
+				stripePatternRect?.getAttribute(contract.svgAttributes.fillOpacity) ?? null,
 			levelGuideCount: guides.length,
 			levelGuideLeaderCount: guideLeaders.length,
 			levelGuideLabelCount: guideLabels.length,
@@ -543,7 +666,9 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 					)
 				)
 			),
-			levelGuideLabels: guideLabels.map((label) => label.textContent ?? contract.emptyAttributeValue),
+			levelGuideLabels: guideLabels.map(
+				(label) => label.textContent ?? contract.emptyAttributeValue
+			),
 			level12ReachableFrontPoint: findReachableLayerPoint(
 				contract.selectors.reachableFrontFace,
 				contract.reachabilityLevelNumber
@@ -554,6 +679,69 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 			)
 		};
 	}, HYPERCASTLE_PROBE_CONTRACT);
+}
+
+async function collectHypercastleLevelDetailMetrics(
+	page: Page
+): Promise<HypercastleLevelDetailMetrics> {
+	return page.evaluate((contract) => {
+		const classSelector = (className: string): string => `.${className}`;
+		const selectedLayer = document.querySelector(contract.selectors.fadedLevelLayer);
+		const selectedGuide = document.querySelector(contract.selectors.fadedLevelGuide);
+		const panel = document.querySelector(contract.selectors.levelDetail);
+		const table = panel?.querySelector(contract.selectors.levelZoneTable);
+		const heading = panel?.querySelector(
+			classSelector(contract.levelZoneTableDom.classes.detailHeading)
+		);
+		const rows = Array.from(table?.querySelectorAll(contract.tableSelectors.bodyRows) ?? []);
+		const rowCells = rows.map((row) =>
+			Array.from(row.querySelectorAll(contract.tableSelectors.cells))
+		);
+
+		return {
+			selectedLayerAriaPressed:
+				selectedLayer?.getAttribute(contract.ariaAttributes.pressed) ?? null,
+			selectedGuideAriaPressed:
+				selectedGuide?.getAttribute(contract.ariaAttributes.pressed) ?? null,
+			selectedLayerClass: selectedLayer?.getAttribute(contract.svgAttributes.class) ?? null,
+			selectedGuideClass: selectedGuide?.getAttribute(contract.svgAttributes.class) ?? null,
+			heading: heading?.textContent ?? null,
+			rowCount: rows.length,
+			rowNames: rowCells.map((cells) => cells[0]?.textContent ?? contract.emptyAttributeValue),
+			rowBucketCounts: rowCells.map(
+				(cells) => cells[2]?.textContent?.trim() ?? contract.emptyAttributeValue
+			),
+			rowBucketShares: rowCells.map(
+				(cells) => cells[3]?.textContent?.trim() ?? contract.emptyAttributeValue
+			),
+			paletteSwatchCount: table?.querySelectorAll(contract.selectors.paletteSwatch).length ?? 0
+		};
+	}, HYPERCASTLE_PROBE_CONTRACT);
+}
+
+async function assertZoneTableRows(
+	zoneTable: Locator,
+	expectedRows: readonly TerraformsLevelZoneRow[]
+): Promise<void> {
+	const rows = zoneTable.locator(TABLE_SELECTORS.bodyRows);
+	await expect(rows).toHaveCount(expectedRows.length);
+	for (const [index, row] of expectedRows.entries()) {
+		const cells = rows.nth(index).locator(TABLE_SELECTORS.cells);
+		await expect(cells.nth(0)).toHaveText(row.name);
+		await expect(
+			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteSwatch)
+		).toHaveCount(row.palette.length);
+		await expect(cells.nth(2)).toHaveText(formatTerraformsZoneBucketCount(row));
+		await expect(cells.nth(3)).toHaveText(formatTerraformsZoneBucketShare(row));
+	}
+}
+
+function expectedDefaultLevelZoneRows(): TerraformsLevelZoneRow[] {
+	return sortTerraformsLevelZoneRows(
+		buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
+		defaultTerraformsLevelZoneSortColumn(),
+		defaultTerraformsLevelZoneSortDirection()
+	);
 }
 
 async function moveMouseToReachableLayerPoint(

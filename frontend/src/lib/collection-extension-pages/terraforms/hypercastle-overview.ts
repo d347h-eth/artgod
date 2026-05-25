@@ -141,11 +141,13 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 		svg: 'terraforms-hypercastle-overview-svg',
 		layer: 'terraforms-hypercastle-overview-layer',
 		layerHovered: 'terraforms-hypercastle-overview-layer-hovered',
+		layerSelected: 'terraforms-hypercastle-overview-layer-selected',
 		face: 'terraforms-hypercastle-overview-layer-face',
 		faceFaded: 'terraforms-hypercastle-overview-layer-face-faded',
 		outlineSegment: 'terraforms-hypercastle-overview-outline-segment',
 		guide: 'terraforms-hypercastle-overview-level-guide',
 		guideHovered: 'terraforms-hypercastle-overview-level-guide-hovered',
+		guideSelected: 'terraforms-hypercastle-overview-level-guide-selected',
 		guideHitTarget: 'terraforms-hypercastle-overview-level-guide-hit-target',
 		guideLeader: 'terraforms-hypercastle-overview-level-guide-leader',
 		guideLabel: 'terraforms-hypercastle-overview-level-guide-label'

@@ -26,6 +26,15 @@
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
 
 	type IsometricModule = typeof import('@elchininet/isometric');
+	type TerraformsHypercastleOverviewProps = {
+		selectedLevelNumber?: number | null;
+		onLevelSelect?: (levelNumber: number) => void;
+	};
+
+	let {
+		selectedLevelNumber = null,
+		onLevelSelect = () => undefined
+	}: TerraformsHypercastleOverviewProps = $props();
 
 	const DOM_EVENTS = {
 		resize: 'resize',
@@ -40,12 +49,14 @@
 	const DOM_ATTRIBUTES = {
 		ariaHidden: 'aria-hidden',
 		ariaLabel: 'aria-label',
+		ariaPressed: 'aria-pressed',
 		role: 'role',
 		tabindex: 'tabindex',
 		title: 'title'
 	} as const;
 	const DOM_ATTRIBUTE_VALUES = {
 		button: 'button',
+		false: 'false',
 		true: 'true',
 		zero: '0'
 	} as const;
@@ -81,7 +92,9 @@
 		dominantBaseline: 'dominant-baseline',
 		tabindex: 'tabindex',
 		role: 'role',
-		ariaLabel: 'aria-label'
+		title: 'title',
+		ariaLabel: 'aria-label',
+		ariaPressed: 'aria-pressed'
 	} as const;
 	const SVG_ATTRIBUTE_VALUES = {
 		userSpaceOnUse: 'userSpaceOnUse',
@@ -128,6 +141,11 @@
 		renderOverview();
 	});
 
+	$effect(() => {
+		selectedLevelNumber;
+		syncSelectedLevelState();
+	});
+
 	async function loadIsometricModule(): Promise<void> {
 		try {
 			isometricModule = await import('@elchininet/isometric');
@@ -165,6 +183,7 @@
 		}
 		renderLayerOutlines(group);
 		renderLevelGuides(svg, buildTerraformsHypercastleOverviewLevelGuides(layers, layout));
+		syncSelectedLevelState();
 	}
 
 	function renderLayer(
@@ -314,8 +333,11 @@
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelNumber,
 			String(guide.levelNumber)
 		);
+		guideElement.setAttribute(SVG_ATTRIBUTES.role, DOM_ATTRIBUTE_VALUES.button);
 		guideElement.setAttribute(SVG_ATTRIBUTES.tabindex, DOM_ATTRIBUTE_VALUES.zero);
 		guideElement.setAttribute(SVG_ATTRIBUTES.ariaLabel, guide.label);
+		guideElement.setAttribute(SVG_ATTRIBUTES.title, guide.label);
+		guideElement.setAttribute(SVG_ATTRIBUTES.ariaPressed, DOM_ATTRIBUTE_VALUES.false);
 		guideElement.appendChild(createLevelGuideHitTargetElement(guide));
 		guideElement.appendChild(createLevelGuideLeaderElement(guide));
 		guideElement.appendChild(createLevelGuideLabelElement(guide));
@@ -331,6 +353,20 @@
 		guideElement.addEventListener(DOM_EVENTS.blur, () =>
 			setLevelHoverState(guide.levelNumber, false)
 		);
+		guideElement.addEventListener(DOM_EVENTS.pointerDown, (event) => {
+			if (event.pointerType === POINTER_TYPE_MOUSE) {
+				event.preventDefault();
+			}
+		});
+		guideElement.addEventListener(DOM_EVENTS.click, () => {
+			selectLevelNumber(guide.levelNumber);
+		});
+		guideElement.addEventListener(DOM_EVENTS.keyDown, (event) => {
+			if (!(event instanceof KeyboardEvent)) return;
+			if (!KEYBOARD_SELECT_KEYS.has(event.key)) return;
+			event.preventDefault();
+			selectLevelNumber(guide.levelNumber);
+		});
 		return guideElement;
 	}
 
@@ -421,6 +457,7 @@
 		element.setAttribute(DOM_ATTRIBUTES.role, DOM_ATTRIBUTE_VALUES.button);
 		element.setAttribute(DOM_ATTRIBUTES.tabindex, DOM_ATTRIBUTE_VALUES.zero);
 		element.setAttribute(DOM_ATTRIBUTES.ariaLabel, label);
+		element.setAttribute(DOM_ATTRIBUTES.ariaPressed, DOM_ATTRIBUTE_VALUES.false);
 		element.setAttribute(DOM_ATTRIBUTES.title, label);
 		element.setAttribute(
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelNumber,
@@ -456,7 +493,37 @@
 	}
 
 	function selectLayer(layer: TerraformsHypercastleOverviewLayer): void {
-		void layer;
+		selectLevelNumber(layer.levelNumber);
+	}
+
+	function selectLevelNumber(levelNumber: number): void {
+		onLevelSelect(levelNumber);
+	}
+
+	function syncSelectedLevelState(): void {
+		for (const layer of layers) {
+			const selected = layer.levelNumber === selectedLevelNumber;
+			syncLevelSelectionState(resolveLayerElement(layer.levelNumber), selected);
+			syncLevelSelectionState(resolveLevelGuideElement(layer.levelNumber), selected);
+		}
+	}
+
+	function syncLevelSelectionState(element: HTMLElement | null, selected: boolean): void {
+		if (!element) return;
+		element.classList.toggle(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerSelected,
+			selected &&
+				element.classList.contains(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layer)
+		);
+		element.classList.toggle(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideSelected,
+			selected &&
+				element.classList.contains(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guide)
+		);
+		element.setAttribute(
+			DOM_ATTRIBUTES.ariaPressed,
+			selected ? DOM_ATTRIBUTE_VALUES.true : DOM_ATTRIBUTE_VALUES.false
+		);
 	}
 
 	function resolveLayerFaceFillColor(
@@ -576,7 +643,7 @@
 <style>
 	.terraforms-hypercastle-overview {
 		display: grid;
-		justify-items: center;
+		justify-items: start;
 		min-width: 0;
 		padding: 14px 0 4px;
 	}
@@ -659,6 +726,10 @@
 	:global(
 			.terraforms-hypercastle-overview-layer-hovered
 				.terraforms-hypercastle-overview-layer-face
+	),
+	:global(
+			.terraforms-hypercastle-overview-layer-selected
+				.terraforms-hypercastle-overview-layer-face
 	) {
 		filter: brightness(1.16);
 		stroke-width: 2;
@@ -675,6 +746,10 @@
 	:global(
 			.terraforms-hypercastle-overview-level-guide-hovered
 				.terraforms-hypercastle-overview-level-guide-label
+	),
+	:global(
+			.terraforms-hypercastle-overview-level-guide-selected
+				.terraforms-hypercastle-overview-level-guide-label
 	) {
 		filter: brightness(1.35);
 		fill-opacity: 1;
@@ -690,6 +765,10 @@
 	),
 	:global(
 			.terraforms-hypercastle-overview-level-guide-hovered
+				.terraforms-hypercastle-overview-level-guide-leader
+	),
+	:global(
+			.terraforms-hypercastle-overview-level-guide-selected
 				.terraforms-hypercastle-overview-level-guide-leader
 	) {
 		stroke-opacity: 1;
