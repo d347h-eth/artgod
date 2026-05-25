@@ -1,4 +1,4 @@
-terraforms.artgod.network {
+{$PUBLIC_SITE_HOST} {
 	encode zstd gzip
 
 	@backend path /api/* /health/*

@@ -246,11 +246,11 @@ cp .env.example .env
 cp .env.test.example .env.test
 ```
 
-`.env.example` and `shared/config/generated-settings-defaults.ts` are generated from `config/settings.manifest.toml`. Edit the manifest first, then run `yarn config:generate` and commit the manifest plus generated files together. See `docs/desktop/04-settings-manifest-process.md` for the full process.
+`.env.example`, `.env.deploy.example`, and `shared/config/generated-settings-defaults.ts` are generated from `config/settings.manifest.toml`. Edit the manifest first, then run `yarn config:generate` and commit the manifest plus generated files together. See `docs/desktop/04-settings-manifest-process.md` for the full process.
 
 The generated `.env.example` is the local web/indexer development baseline.
 Keep deploy-only and desktop-only values such as `INTERNAL_BACKEND_ORIGIN` and `USERLAND_UI_DIST_DIR` blank there unless local dev is intentionally serving a built static userland bundle.
-Hosted Docker deploy values belong in `.env.deploy.example`; desktop runtime values come from manifest `desktop_default` fields and Admin-rendered app-data env.
+Hosted Docker deploy values belong in generated `.env.deploy.example`; desktop runtime values come from manifest desktop defaults and Admin-rendered app-data env.
 
 Required core env:
 
@@ -278,7 +278,7 @@ Useful optional env groups:
 - Indexer metrics (`INDEXER_METRICS_ENABLED`, `INDEXER_METRICS_HOST`, `INDEXER_METRICS_PORT_*`)
 - Indexer APM (`INDEXER_APM_ENABLED`, `INDEXER_APM_*`)
 
-See `config/settings.manifest.toml`, the generated `.env.example`, `shared/config/generated-settings-defaults.ts`, `docs/desktop/04-settings-manifest-process.md`, and `docs/indexer/01-config-and-env.md` for full definitions.
+See `config/settings.manifest.toml`, the generated `.env.example`, generated `.env.deploy.example`, `shared/config/generated-settings-defaults.ts`, `docs/desktop/04-settings-manifest-process.md`, and `docs/indexer/01-config-and-env.md` for full definitions.
 
 `BACKEND_QUERY_CACHE_PROVIDER=memory` enables a lightweight in-memory cache for expensive backend read queries. The current cached paths are:
 

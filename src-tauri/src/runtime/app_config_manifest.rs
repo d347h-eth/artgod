@@ -5,6 +5,7 @@ use serde::Deserialize;
 const SETTINGS_MANIFEST_VERSION: u8 = 1;
 const SETTINGS_MANIFEST: &str = include_str!("../../../config/settings.manifest.toml");
 const SUPPORTED_VALIDATION_RULES: &[&str] = &["url", "websocket_url"];
+const SUPPORTED_TARGETS: &[&str] = &["local", "deploy", "desktop"];
 
 /// Validated Admin configuration schema embedded into the desktop binary.
 pub struct AppConfigManifestModel {
@@ -54,8 +55,11 @@ struct ManifestSettingDocument {
     key: String,
     group: String,
     label: String,
-    default: String,
+    default: Option<String>,
+    #[serde(default)]
+    defaults: ManifestSettingDefaultsDocument,
     desktop_default: Option<String>,
+    targets: Option<Vec<String>>,
     input: Option<String>,
     #[serde(default)]
     secret: bool,
@@ -69,6 +73,14 @@ struct ManifestSettingDocument {
     desktop_managed: bool,
     validation: Option<String>,
     view: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct ManifestSettingDefaultsDocument {
+    local: Option<String>,
+    deploy: Option<String>,
+    desktop: Option<String>,
 }
 
 /// Loads and validates the embedded settings manifest used by Admin config.
@@ -136,7 +148,7 @@ fn build_manifest_model(document: ManifestDocument) -> Result<AppConfigManifestM
             ));
         }
 
-        let input = setting.input.unwrap_or_else(|| "text".to_owned());
+        let input = setting.input.clone().unwrap_or_else(|| "text".to_owned());
         if !matches!(
             input.as_str(),
             "text" | "password" | "checkbox" | "textarea" | "select"
@@ -174,9 +186,27 @@ fn build_manifest_model(document: ManifestDocument) -> Result<AppConfigManifestM
                 setting.key, validation
             ));
         }
+        if let Some(targets) = setting.targets.as_ref() {
+            for target in targets {
+                if !SUPPORTED_TARGETS.contains(&target.as_str()) {
+                    errors.push(format!(
+                        "settings manifest setting {} uses unsupported target {}",
+                        setting.key, target
+                    ));
+                }
+            }
+        }
+        for target in setting_targets(&setting) {
+            if resolve_default_for_target(&setting, target).is_none() {
+                errors.push(format!(
+                    "settings manifest setting {} is missing default for target {}",
+                    setting.key, target
+                ));
+            }
+        }
 
-        if setting.desktop_managed {
-            let default_value = setting.desktop_default.unwrap_or(setting.default);
+        if setting.desktop_managed && has_target(&setting, "desktop") {
+            let default_value = resolve_default_for_target(&setting, "desktop").unwrap_or_default();
             desktop_group_ids.insert(setting.group.clone());
             ordered_keys.push(setting.key.clone());
             defaults.insert(setting.key.clone(), default_value);
@@ -215,6 +245,34 @@ fn build_manifest_model(document: ManifestDocument) -> Result<AppConfigManifestM
 
 fn default_true() -> bool {
     true
+}
+
+fn setting_targets(setting: &ManifestSettingDocument) -> Vec<&str> {
+    match setting.targets.as_ref() {
+        Some(targets) => targets.iter().map(String::as_str).collect(),
+        None => SUPPORTED_TARGETS.to_vec(),
+    }
+}
+
+fn has_target(setting: &ManifestSettingDocument, expected: &str) -> bool {
+    setting_targets(setting)
+        .into_iter()
+        .any(|target| target == expected)
+}
+
+fn resolve_default_for_target(setting: &ManifestSettingDocument, target: &str) -> Option<String> {
+    match target {
+        "local" => setting.defaults.local.clone(),
+        "deploy" => setting.defaults.deploy.clone(),
+        "desktop" => setting
+            .defaults
+            .desktop
+            .clone()
+            .or_else(|| setting.desktop_default.clone()),
+        _ => None,
+    }
+    .or_else(|| setting.default.clone())
+    .or_else(|| setting.defaults.local.clone())
 }
 
 #[cfg(test)]

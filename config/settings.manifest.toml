@@ -21,6 +21,10 @@ id = "public-deployment"
 label = "Public Deployment"
 
 [[groups]]
+id = "deploy"
+label = "Deploy"
+
+[[groups]]
 id = "desktop-runtime"
 label = "Desktop Runtime"
 
@@ -52,15 +56,14 @@ label = "Bidding"
 key = "ARTGOD_DB_PATH"
 group = "chain-rpc"
 label = "artgod db path"
-default = "database/sqlite/main/db"
-desktop_default = "sqlite/main/db"
+defaults = { local = "database/sqlite/main/db", deploy = "/data/sqlite/main/db", desktop = "sqlite/main/db" }
 help = "SQLite database path. Desktop resolves relative paths from the app-data directory."
 
 [[settings]]
 key = "BACKEND_HOST"
 group = "backend"
 label = "backend host"
-default = "127.0.0.1"
+defaults = { local = "127.0.0.1", deploy = "0.0.0.0", desktop = "127.0.0.1" }
 
 [[settings]]
 key = "BACKEND_PORT"
@@ -78,20 +81,20 @@ default = "127.0.0.1,localhost,::1"
 key = "BACKEND_ALLOWED_ORIGINS"
 group = "backend"
 label = "backend allowed origins"
-default = "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701,http://tauri.localhost,tauri://localhost"
+defaults = { local = "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701,http://tauri.localhost,tauri://localhost", deploy = "http://127.0.0.1:42710,http://localhost:42710", desktop = "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701,http://tauri.localhost,tauri://localhost" }
 
 [[settings]]
 key = "BACKEND_CSRF_COOKIE_SECURE"
 group = "backend"
 label = "backend csrf cookie secure"
-default = "false"
+defaults = { local = "false", deploy = "true", desktop = "false" }
 input = "checkbox"
 
 [[settings]]
 key = "BACKEND_QUERY_CACHE_PROVIDER"
 group = "backend-cache"
 label = "backend query cache provider"
-default = "disabled"
+defaults = { local = "disabled", deploy = "memory", desktop = "disabled" }
 input = "select"
 options = ["disabled", "memory"]
 help = "Set to memory to enable the lightweight in-memory backend read-query cache."
@@ -209,7 +212,8 @@ input = "checkbox"
 key = "PUBLIC_BACKEND_ORIGIN"
 group = "public-deployment"
 label = "public backend origin"
-default = "http://127.0.0.1:42710"
+defaults = { local = "http://127.0.0.1:42710", deploy = "https://terraforms.artgod.network" }
+targets = ["local", "deploy"]
 validation = "url"
 desktop_managed = false
 
@@ -217,7 +221,8 @@ desktop_managed = false
 key = "INTERNAL_BACKEND_ORIGIN"
 group = "public-deployment"
 label = "internal backend origin"
-default = ""
+defaults = { local = "", deploy = "http://backend:42710" }
+targets = ["local", "deploy"]
 validation = "url"
 desktop_managed = false
 
@@ -225,7 +230,8 @@ desktop_managed = false
 key = "PUBLIC_APP_DEPLOYMENT_MODE"
 group = "public-deployment"
 label = "public app deployment mode"
-default = "standard"
+defaults = { local = "standard", deploy = "public_single_collection" }
+targets = ["local", "deploy"]
 input = "select"
 options = ["standard", "public_single_collection"]
 desktop_managed = false
@@ -234,70 +240,111 @@ desktop_managed = false
 key = "PUBLIC_APP_CHAIN_REF"
 group = "public-deployment"
 label = "public app chain ref"
-default = ""
+defaults = { local = "", deploy = "ethereum" }
+targets = ["local", "deploy"]
 desktop_managed = false
 
 [[settings]]
 key = "PUBLIC_APP_COLLECTION_REF"
 group = "public-deployment"
 label = "public app collection ref"
-default = ""
+defaults = { local = "", deploy = "terraforms" }
+targets = ["local", "deploy"]
 desktop_managed = false
+
+[[settings]]
+key = "PUBLIC_SITE_HOST"
+group = "deploy"
+label = "public site host"
+defaults = { deploy = "terraforms.artgod.network" }
+targets = ["deploy"]
+help = "Public host used by the bundled deploy Caddy profile."
+
+[[settings]]
+key = "PUBLIC_EDGE_NETWORK"
+group = "deploy"
+label = "public edge network"
+defaults = { deploy = "public-edge" }
+targets = ["deploy"]
+help = "Docker network shared with the public edge reverse proxy."
+
+[[settings]]
+key = "OBSERVABILITY_GRAFANA_ADMIN_USER"
+group = "deploy"
+label = "observability grafana admin user"
+defaults = { deploy = "admin" }
+targets = ["deploy"]
+
+[[settings]]
+key = "OBSERVABILITY_GRAFANA_ADMIN_PASSWORD"
+group = "deploy"
+label = "observability grafana admin password"
+defaults = { deploy = "change-me-before-exposing" }
+targets = ["deploy"]
+secret = true
 
 [[settings]]
 key = "USERLAND_UI_DIST_DIR"
 group = "desktop-runtime"
 label = "userland ui dist dir"
-default = ""
-desktop_default = "frontend/userland"
+defaults = { local = "", desktop = "frontend/userland" }
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "DESKTOP_RUNTIME_RESOURCES_DIR"
 group = "desktop-runtime"
 label = "desktop runtime resources dir"
 default = "runtime"
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "DESKTOP_NODE_BIN"
 group = "desktop-runtime"
 label = "desktop node bin"
 default = ""
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "DESKTOP_NATS_BINARY_PATH"
 group = "desktop-runtime"
 label = "desktop nats binary path"
 default = ""
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "DESKTOP_NODE_PNP_CJS"
 group = "desktop-runtime"
 label = "desktop node pnp cjs"
 default = ""
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "DESKTOP_NODE_PNP_LOADER"
 group = "desktop-runtime"
 label = "desktop node pnp loader"
 default = ""
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "DESKTOP_RESTART_BACKOFF_MS"
 group = "desktop-runtime"
 label = "desktop restart backoff ms"
 default = "1500"
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "DESKTOP_WALLET_STORE_DIR"
 group = "desktop-runtime"
 label = "desktop wallet store dir"
 default = "wallets"
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "DESKTOP_BOT_UNLOCK_STABILIZATION_DELAY_MS"
 group = "desktop-runtime"
 label = "desktop bot unlock stabilization delay ms"
 default = "5000"
+targets = ["local", "desktop"]
 
 [[settings]]
 key = "CHAIN_ID"
@@ -309,7 +356,7 @@ default = "1"
 key = "RPC_URL"
 group = "chain-rpc"
 label = "rpc url"
-default = ""
+defaults = { local = "", deploy = "http://127.0.0.1:42721", desktop = "" }
 help = "Ethereum JSON-RPC endpoint used by the backend and indexer."
 required_for_launch = true
 validation = "url"
@@ -365,7 +412,7 @@ view = "basic"
 key = "RPC_RATE_LIMIT_BURST"
 group = "chain-rpc"
 label = "rpc rate limit burst"
-default = "50"
+defaults = { local = "50", deploy = "100", desktop = "50" }
 view = "basic"
 
 [[settings]]
@@ -409,7 +456,7 @@ input = "checkbox"
 key = "NATS_URL"
 group = "queue"
 label = "nats url"
-default = "nats://127.0.0.1:42720"
+defaults = { local = "nats://127.0.0.1:42720", deploy = "nats://nats:42720", desktop = "nats://127.0.0.1:42720" }
 
 [[settings]]
 key = "NATS_STREAM_PREFIX"
@@ -421,14 +468,14 @@ default = "artgod"
 key = "OBSERVABILITY_OTLP_HTTP_URL"
 group = "indexer-observability"
 label = "observability otlp http url"
-default = "http://127.0.0.1:42732/v1/traces"
+defaults = { local = "http://127.0.0.1:42732/v1/traces", deploy = "http://tempo:42732/v1/traces", desktop = "http://127.0.0.1:42732/v1/traces" }
 validation = "url"
 
 [[settings]]
 key = "OBSERVABILITY_PYROSCOPE_URL"
 group = "indexer-observability"
 label = "observability pyroscope url"
-default = "http://127.0.0.1:42733"
+defaults = { local = "http://127.0.0.1:42733", deploy = "http://pyroscope:42733", desktop = "http://127.0.0.1:42733" }
 validation = "url"
 
 [[settings]]
@@ -614,7 +661,7 @@ default = "5000"
 key = "BOOTSTRAP_METADATA_RETRY_MAX_ATTEMPTS"
 group = "indexer"
 label = "bootstrap metadata retry max attempts"
-default = "3"
+defaults = { local = "3", deploy = "5", desktop = "3" }
 view = "basic"
 
 [[settings]]
@@ -628,7 +675,7 @@ view = "basic"
 key = "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS"
 group = "indexer"
 label = "bootstrap metadata retry max delay ms"
-default = "1000"
+defaults = { local = "1000", deploy = "3000", desktop = "1000" }
 view = "basic"
 
 [[settings]]

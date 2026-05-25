@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "../..");
 const manifestPath = path.join(rootDir, "config", "settings.manifest.toml");
 const envExamplePath = path.join(rootDir, ".env.example");
+const envDeployExamplePath = path.join(rootDir, ".env.deploy.example");
 const generatedDefaultsPath = path.join(
     rootDir,
     "shared",
@@ -16,6 +17,8 @@ const generatedDefaultsPath = path.join(
     "generated-settings-defaults.ts",
 );
 const SUPPORTED_VALIDATION_RULES = ["url", "websocket_url"];
+const SUPPORTED_TARGETS = ["local", "deploy", "desktop"];
+const DEFAULT_TARGETS = SUPPORTED_TARGETS;
 
 function parseTomlValue(raw) {
     const value = raw.trim();
@@ -28,10 +31,70 @@ function parseTomlValue(raw) {
     if (/^\d+$/.test(value)) {
         return Number(value);
     }
+    if (value.startsWith("{")) {
+        return parseInlineTable(value);
+    }
     if (value.startsWith('"') || value.startsWith("[")) {
         return JSON.parse(value);
     }
     throw new Error(`Unsupported TOML value syntax: ${raw}`);
+}
+
+function parseInlineTable(raw) {
+    if (!raw.endsWith("}")) {
+        throw new Error(`Unsupported TOML inline table syntax: ${raw}`);
+    }
+    const content = raw.slice(1, -1).trim();
+    if (!content) {
+        return {};
+    }
+    const table = {};
+    for (const entry of splitInlineTableEntries(content)) {
+        const match = entry.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+        if (!match) {
+            throw new Error(`Unsupported TOML inline table entry: ${entry}`);
+        }
+        table[match[1]] = parseTomlValue(match[2]);
+    }
+    return table;
+}
+
+function splitInlineTableEntries(content) {
+    const entries = [];
+    let current = "";
+    let inString = false;
+    let escaped = false;
+    for (const char of content) {
+        if (inString) {
+            current += char;
+            if (escaped) {
+                escaped = false;
+            } else if (char === "\\") {
+                escaped = true;
+            } else if (char === '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (char === '"') {
+            inString = true;
+            current += char;
+            continue;
+        }
+        if (char === ",") {
+            entries.push(current.trim());
+            current = "";
+            continue;
+        }
+        current += char;
+    }
+    if (inString) {
+        throw new Error(`Unclosed string in TOML inline table: ${content}`);
+    }
+    if (current.trim()) {
+        entries.push(current.trim());
+    }
+    return entries;
 }
 
 function parseManifest(source) {
@@ -78,6 +141,22 @@ function requireString(value, location, errors) {
     return value;
 }
 
+function validateStringArray(value, location, errors) {
+    if (!Array.isArray(value)) {
+        errors.push(`${location}: expected array`);
+        return [];
+    }
+    const result = [];
+    for (const entry of value) {
+        if (typeof entry !== "string") {
+            errors.push(`${location}: expected string entries`);
+            continue;
+        }
+        result.push(entry);
+    }
+    return result;
+}
+
 function validateManifest(manifest) {
     const errors = [];
     if (manifest.version !== 1) {
@@ -101,7 +180,7 @@ function validateManifest(manifest) {
         const key = requireString(setting.key, `${location}.key`, errors);
         const group = requireString(setting.group, `${location}.group`, errors);
         requireString(setting.label, `${location}.label`, errors);
-        requireString(setting.default, `${location}.default`, errors);
+        validateSettingDefaults(setting, location, errors);
         if (setting.desktop_default !== undefined) {
             requireString(
                 setting.desktop_default,
@@ -114,6 +193,20 @@ function validateManifest(manifest) {
         }
         if (setting.view !== undefined) {
             requireString(setting.view, `${location}.view`, errors);
+        }
+        if (setting.targets !== undefined) {
+            const targets = validateStringArray(
+                setting.targets,
+                `${location}.targets`,
+                errors,
+            );
+            for (const target of targets) {
+                if (!SUPPORTED_TARGETS.includes(target)) {
+                    errors.push(
+                        `${location}.targets: unsupported target "${target}"`,
+                    );
+                }
+            }
         }
         if (
             setting.required_for_launch !== undefined &&
@@ -194,6 +287,59 @@ function validateManifest(manifest) {
     }
 }
 
+function validateSettingDefaults(setting, location, errors) {
+    if (setting.default !== undefined) {
+        requireString(setting.default, `${location}.default`, errors);
+    }
+    if (setting.defaults !== undefined) {
+        if (
+            !setting.defaults ||
+            typeof setting.defaults !== "object" ||
+            Array.isArray(setting.defaults)
+        ) {
+            errors.push(`${location}.defaults: expected inline table`);
+        } else {
+            for (const [target, value] of Object.entries(setting.defaults)) {
+                if (!SUPPORTED_TARGETS.includes(target)) {
+                    errors.push(
+                        `${location}.defaults: unsupported target "${target}"`,
+                    );
+                }
+                requireString(value, `${location}.defaults.${target}`, errors);
+            }
+        }
+    }
+
+    const targets = resolveTargets(setting);
+    for (const target of targets) {
+        const value = resolveDefaultForTarget(setting, target);
+        if (value === undefined) {
+            errors.push(`${location}: missing default for target "${target}"`);
+        }
+    }
+}
+
+function resolveTargets(setting) {
+    return Array.isArray(setting.targets) ? setting.targets : DEFAULT_TARGETS;
+}
+
+function hasTarget(setting, target) {
+    return resolveTargets(setting).includes(target);
+}
+
+function resolveDefaultForTarget(setting, target) {
+    if (setting.defaults?.[target] !== undefined) {
+        return setting.defaults[target];
+    }
+    if (target === "desktop" && setting.desktop_default !== undefined) {
+        return setting.desktop_default;
+    }
+    if (setting.default !== undefined) {
+        return setting.default;
+    }
+    return setting.defaults?.local;
+}
+
 function quoteEnvValue(value) {
     if (!/[\s#]/.test(value)) {
         return value;
@@ -211,7 +357,7 @@ function formatHelp(help) {
         .map((line) => `# ${line.trim()}`);
 }
 
-function generateEnvExample(manifest) {
+function generateEnvFile(manifest, target) {
     const groupLabels = new Map(
         manifest.groups.map((group) => [group.id, group.label]),
     );
@@ -222,7 +368,8 @@ function generateEnvExample(manifest) {
 
     for (const group of manifest.groups) {
         const settings = manifest.settings.filter(
-            (setting) => setting.group === group.id,
+            (setting) =>
+                setting.group === group.id && hasTarget(setting, target),
         );
         if (settings.length === 0) {
             continue;
@@ -231,7 +378,9 @@ function generateEnvExample(manifest) {
         lines.push("", `# ${groupLabels.get(group.id)}`);
         for (const setting of settings) {
             lines.push(...formatHelp(setting.help));
-            lines.push(`${setting.key}=${quoteEnvValue(setting.default)}`);
+            lines.push(
+                `${setting.key}=${quoteEnvValue(resolveDefaultForTarget(setting, target))}`,
+            );
         }
     }
 
@@ -241,7 +390,12 @@ function generateEnvExample(manifest) {
 
 async function generateSettingsDefaultsModule(manifest) {
     const defaults = Object.fromEntries(
-        manifest.settings.map((setting) => [setting.key, setting.default]),
+        manifest.settings
+            .filter((setting) => hasTarget(setting, "local"))
+            .map((setting) => [
+                setting.key,
+                resolveDefaultForTarget(setting, "local"),
+            ]),
     );
     const source = [
         "// Generated from config/settings.manifest.toml.",
@@ -303,7 +457,8 @@ async function main() {
     const source = await readFile(manifestPath, "utf8");
     const manifest = parseManifest(source);
     validateManifest(manifest);
-    const generated = generateEnvExample(manifest);
+    const generated = generateEnvFile(manifest, "local");
+    const generatedDeploy = generateEnvFile(manifest, "deploy");
     const generatedDefaults = await generateSettingsDefaultsModule(manifest);
 
     if (check) {
@@ -311,6 +466,13 @@ async function main() {
         if (existing !== generated) {
             console.error(
                 ".env.example is stale. Run `yarn config:generate` and commit the result.",
+            );
+            process.exit(1);
+        }
+        const existingDeploy = await readFile(envDeployExamplePath, "utf8");
+        if (existingDeploy !== generatedDeploy) {
+            console.error(
+                ".env.deploy.example is stale. Run `yarn config:generate` and commit the result.",
             );
             process.exit(1);
         }
@@ -322,6 +484,7 @@ async function main() {
             process.exit(1);
         }
         console.log(".env.example is up to date.");
+        console.log(".env.deploy.example is up to date.");
         console.log(
             "shared/config/generated-settings-defaults.ts is up to date.",
         );
@@ -329,9 +492,10 @@ async function main() {
     }
 
     await writeFile(envExamplePath, generated, "utf8");
+    await writeFile(envDeployExamplePath, generatedDeploy, "utf8");
     await writeFile(generatedDefaultsPath, generatedDefaults, "utf8");
     console.log(
-        "Generated .env.example and shared/config/generated-settings-defaults.ts from config/settings.manifest.toml.",
+        "Generated .env.example, .env.deploy.example, and shared/config/generated-settings-defaults.ts from config/settings.manifest.toml.",
     );
 }
 

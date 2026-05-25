@@ -7,6 +7,7 @@ ArtGod runtime settings are manifest-first. The canonical editable source for se
 Generated artifacts are committed so runtime packages and operators do not parse TOML at startup:
 
 - `.env.example`
+- `.env.deploy.example`
 - `shared/config/generated-settings-defaults.ts`
 
 Do not edit generated artifacts directly. Update the manifest, run generation, and commit the manifest plus generated outputs together.
@@ -30,8 +31,9 @@ settings.manifest.toml defaults + settings.json overrides
 Public web deployment still manages public-hosting-only values directly through deployment env files. Those settings remain in the manifest for `.env.example` and generated defaults, but should be marked `desktop_managed = false` when they do not belong in the desktop Admin UI or desktop-rendered `.env`.
 
 The root manifest `default` is the local developer `.env.example` baseline.
-Values that only make sense in another runtime context should stay blank at the root and be supplied by the context that owns them.
-For example, hosted Docker deploy provides `INTERNAL_BACKEND_ORIGIN=http://backend:42710` through `.env.deploy.example`, while desktop provides `USERLAND_UI_DIST_DIR=frontend/userland` through `desktop_default`.
+Use the nested `defaults` table when a setting needs context-specific values.
+Values that only make sense in another runtime context should stay blank locally and be supplied by the context that owns them.
+For example, hosted Docker deploy provides `INTERNAL_BACKEND_ORIGIN=http://backend:42710` through `defaults.deploy`, while desktop provides `USERLAND_UI_DIST_DIR=frontend/userland` through `defaults.desktop`.
 
 ## Manifest Fields
 
@@ -40,10 +42,12 @@ Each setting entry must include:
 - `key`: env var name.
 - `group`: one of the manifest group ids.
 - `label`: Admin UI label.
-- `default`: root runtime default used by `.env.example` and generated TS defaults.
+- `default`: local default used by `.env.example` and generated TS defaults, unless `defaults.local` is set instead.
 
 Optional fields:
 
+- `defaults`: inline table for context-specific defaults. Supported keys are `local`, `deploy`, and `desktop`.
+- `targets`: emitted contexts for the setting. Supported values are `local`, `deploy`, and `desktop`; absent settings target all three.
 - `desktop_default`: desktop-specific default used for Admin-rendered `.env`.
 - `help`: Admin info-tip text.
 - `view`: `basic` or `advanced`; absent settings default to advanced-only UI.
@@ -53,6 +57,8 @@ Optional fields:
 - `required_for_launch`: blocks `start infra` when the effective desktop value is empty or invalid.
 - `desktop_managed`: set `false` for settings that are known to the app but should not be shown or rendered by desktop Admin.
 - `secret`: marks sensitive settings in the Admin schema.
+
+For ordinary app settings, keep the short `default = "..."` form. Use `defaults = { local = "...", deploy = "...", desktop = "..." }` only when at least one context needs a different value. Use `targets = ["deploy"]` for deploy orchestration keys that should appear only in `.env.deploy.example`.
 
 Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`, `BACKEND_APM_PYROSCOPE_URL`, `INDEXER_APM_OTLP_HTTP_URL`, and `INDEXER_APM_PYROSCOPE_URL` intentionally keep blank defaults. Runtime config falls back to the root `OBSERVABILITY_*` settings, so defaults stay centralized while component-specific overrides remain available.
 
@@ -67,7 +73,7 @@ Backend/indexer-specific override URLs such as `BACKEND_APM_OTLP_HTTP_URL`, `BAC
 yarn config:generate
 ```
 
-5. Commit `config/settings.manifest.toml`, `.env.example`, `shared/config/generated-settings-defaults.ts`, and any runtime consumer changes together.
+5. Commit `config/settings.manifest.toml`, `.env.example`, `.env.deploy.example`, `shared/config/generated-settings-defaults.ts`, and any runtime consumer changes together.
 
 ## Required Checks
 
@@ -99,7 +105,7 @@ The full indexer smoke suite additionally requires `SMOKE_*` env values and is n
 ## Drift Rules
 
 - No hardcoded fallback default should be added to backend/indexer config if the value exists in the manifest.
-- `.env.example` and `shared/config/generated-settings-defaults.ts` must be generated, not hand-edited.
+- `.env.example`, `.env.deploy.example`, and `shared/config/generated-settings-defaults.ts` must be generated, not hand-edited.
 - `yarn config:check` is the guard for stale generated settings artifacts.
 - Update `docs/ports/01-port-catalog.md` when changing port defaults.
 - Update operator docs when changing launch-required settings, Admin-visible grouping, validation, or desktop-only behavior.
