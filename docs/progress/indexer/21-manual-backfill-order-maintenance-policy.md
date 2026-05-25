@@ -1,6 +1,6 @@
 # Manual Backfill Order-Maintenance Policy
 
-Status: proposed.
+Status: slices 1-3 implemented; slice 4 deferred.
 
 ## Context
 
@@ -25,17 +25,21 @@ The `events-sync-backfill` queue is overloaded today:
 - bootstrap catch-up jobs publish `sync:bootstrap:*`
 - realtime gap repair publishes `sync:gap:*`
 
-All of these use the same `BackfillSyncPayload` shape:
+All of these now use the same explicit `BackfillSyncPayload` shape:
 
 ```ts
 type BackfillSyncPayload = {
     fromBlock: number;
     toBlock: number;
+    source: BackfillSource;
+    orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
 };
 ```
 
-That payload does not explicitly say whether the backfill is historical fact
-enrichment or current-state repair.
+The payload says whether the backfill is historical fact enrichment or
+current-state repair. Existing queued messages may be discarded before this
+branch is run, so there is no legacy/default compatibility path for old
+two-field payloads.
 
 WETH balance and approval events are already guarded by the bidder index before
 queue fanout:
@@ -97,7 +101,7 @@ jobs are current-state repair jobs and should keep existing behavior.
 
 Instead, make order-maintenance intent explicit on the backfill job contract.
 
-Suggested contract:
+Implemented contract:
 
 ```ts
 const BACKFILL_SOURCE = {
@@ -119,10 +123,6 @@ type BackfillSyncPayload = {
     orderMaintenancePolicy: BackfillOrderMaintenancePolicy;
 };
 ```
-
-Default legacy behavior should be `CurrentState` when the fields are absent.
-That avoids silently changing behavior for old messages already in JetStream or
-for any producer not updated in the same slice.
 
 Producer mapping:
 
@@ -184,37 +184,40 @@ repair" as a separate mode, that mode can keep counter fanout and guard it with
 
 ### Slice 1: Contract And Producers
 
-- Add source and order-maintenance policy constants to
+- Done. Added source and order-maintenance policy constants in
+  `@artgod/shared/types/sync-backfill` and re-exported them from
   `indexer/src/domain/sync-jobs.ts`.
-- Extend `BackfillSyncPayload` with optional `source` and
+- Done. Extended `BackfillSyncPayload` with required `source` and
   `orderMaintenancePolicy` fields.
-- Update manual backend publishing in
+- Done. Updated manual backend publishing in
   `backend/src/infra/sync-backfill/nats-sync-backfill-command-queue.ts` to set
   `manual_historical` and `skip_global_maker_revalidation`.
-- Update reorg, bootstrap, and gap producers to set `current_state` explicitly.
-- Keep absent fields as `current_state` for compatibility with already queued
-  jobs.
+- Done. Updated reorg, bootstrap, and gap producers to set `current_state`
+  explicitly.
+- Intentionally not done. Old queued two-field payloads are not supported on
+  this branch because current local queues can be wiped before restart.
 
 ### Slice 2: Sync Worker Policy Gate
 
-- Resolve the policy once per backfill job in `sync-worker`.
-- Pass the policy into `processRange()` or the WETH/global fanout helpers.
-- Skip `appendWethMakerInfos()` for
+- Done. Resolve the policy once per backfill job in `sync-worker`.
+- Done. Pass the policy into `processRange()` and the order fanout helper.
+- Done. Skip `appendWethMakerInfos()` for
   `skip_global_maker_revalidation`.
-- Filter global maker triggers in `publishOrderUpdateJobs()` when the policy is
-  `skip_global_maker_revalidation`.
-- Keep current-state fanout unchanged for realtime, reorg recovery, gap repair,
-  and bootstrap catch-up.
+- Done. Filter global maker triggers in `publishOrderUpdateJobs()` when the
+  policy is `skip_global_maker_revalidation`.
+- Done. Keep current-state fanout unchanged for realtime, reorg recovery, gap
+  repair, and bootstrap catch-up.
 
 ### Slice 3: Tests
 
-- Add a focused sync-worker/publisher test showing manual historical backfill
+- Done. Add a focused sync-worker/publisher test showing manual historical backfill
   does not fetch WETH logs and does not publish global `orders.update-by-maker`
   jobs.
-- Add regression coverage that reorg/gap/bootstrap policies still publish global
+- Done. Add regression coverage that current-state policies still publish global
   maker updates.
-- Add a contract test that missing policy fields resolve to `current_state`.
-- Add a doc-oriented test or fixture for `order-counter` to prove it is skipped
+- Intentionally not done. Missing policy fields are not accepted because existing
+  local queued messages can be wiped.
+- Done. Add a doc-oriented test or fixture for `order-counter` to prove it is skipped
   only for manual historical policy, not by bidder-index membership.
 
 ### Slice 4: Operator Follow-Up

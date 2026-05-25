@@ -115,6 +115,27 @@ DLQ payload:
     - `sync.realtime.block`
     - `sync.backfill.range`
 
+`sync.backfill.range` payloads carry explicit origin and order-maintenance
+intent:
+
+```ts
+type BackfillSyncPayload = {
+    fromBlock: number;
+    toBlock: number;
+    source:
+        | "manual_historical"
+        | "reorg_recovery"
+        | "bootstrap_catchup"
+        | "gap_repair";
+    orderMaintenancePolicy: "current_state" | "skip_global_maker_revalidation";
+};
+```
+
+Manual historical backfills use `skip_global_maker_revalidation`, which
+preserves raw facts and activity projection while suppressing WETH/counter
+maker-wide order revalidation fanout. Reorg recovery, realtime gap repair,
+bootstrap catch-up, and realtime processing use `current_state`.
+
 - Reorg jobs (`indexer/src/domain/reorg-jobs.ts`):
     - `reorg.block-check`
 
