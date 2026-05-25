@@ -84,6 +84,16 @@ Subscribing:
 - Supports `ackWaitMs`.
 - A simple limiter controls concurrency in-process.
 
+## Queue Backlog Inspection
+
+Use the read-only inspector when a JetStream consumer is backed up and the goal is to understand stored message shape without advancing a durable cursor:
+
+```sh
+yarn workspace @artgod/indexer run inspect:queue -- --queue order-updates-by-maker --limit 10000
+```
+
+The inspector reads stored messages through JetStream direct lookup (`STREAM.MSG.GET` with `next_by_subj`). It does not create a consumer, ack, nack, or change any existing consumer state. The JSON output groups decoded job envelopes by kind, queue, scope, reason, collection, block number, maker, transaction hash, and includes first/last samples for payload layout review.
+
 ## Retry and Dead-Letter Handling
 
 Worker retry and DLQ behavior are handled in `indexer/src/application/worker-runner.ts`:
