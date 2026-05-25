@@ -23,3 +23,4 @@ Files:
 - `docs/progress/indexer/18-blockspace-isometric-view-plan.md`
 - `docs/progress/indexer/19-large-manual-backfill-durability-plan.md`
 - `docs/progress/indexer/20-domain-queue-backlog-analysis.md`
+- `docs/progress/indexer/21-manual-backfill-order-maintenance-policy.md`

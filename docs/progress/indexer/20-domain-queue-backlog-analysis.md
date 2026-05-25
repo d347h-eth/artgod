@@ -59,3 +59,7 @@ Current code paths that produce these reasons:
 - `nft-transfer`: collection-scoped NFT transfer `from` address emitted by `deriveTokenScopedMakerTriggersFromTransfers()`.
 
 Given the queue shape, likely next design work should focus on reducing or coalescing WETH/global maker revalidation fanout before increasing domain worker concurrency. Raising worker count alone would still perform many repeated maker-level order validations across the same long historical range.
+
+Follow-up policy plan:
+
+- `docs/progress/indexer/21-manual-backfill-order-maintenance-policy.md`
