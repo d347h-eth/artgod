@@ -25,6 +25,7 @@
 		buildTerraformsHypercastleSurfaceTextureCells,
 		resolveTerraformsHypercastleSurfaceForLevel,
 		resolveTerraformsHypercastleSurfaceTextureBackgroundColor,
+		resolveTerraformsHypercastleSurfaceTextureGridSize,
 		resolveTerraformsHypercastleSurfaceZone,
 		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL,
 		type TerraformsHypercastleLevelSurface,
@@ -310,8 +311,8 @@
 			right: geometry.right + cell.x * geometry.width,
 			left: geometry.left + cell.y * geometry.height,
 			top: geometry.top,
-			width: cell.size * geometry.width,
-			height: cell.size * geometry.height,
+			width: cell.width * geometry.width,
+			height: cell.height * geometry.height,
 			className: TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.textureCell,
 			fillColor: cell.color,
 			fillOpacity: TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL.cellOpacity,
@@ -668,6 +669,10 @@
 		element.setAttribute(
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelDimension,
 			String(layer.dimension)
+		);
+		element.setAttribute(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceTextureGridSize,
+			String(resolveTerraformsHypercastleSurfaceTextureGridSize(layer.dimension))
 		);
 		if (surface) {
 			element.setAttribute(

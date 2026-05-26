@@ -69,6 +69,7 @@ type HypercastleOverviewMetrics = {
 	sampleLevelSurfaceZoneIndex: string | null;
 	sampleLevelSurfaceSeed: string | null;
 	sampleLevelSurfaceBackgroundColor: string | null;
+	sampleLevelSurfaceTextureGridSize: string | null;
 	surfaceTextureCellCount: number;
 	sampleLevelSurfaceTextureCellCount: number;
 	sampleLevelSurfaceTextureCellFillColors: string[];
@@ -198,12 +199,14 @@ const HYPERCASTLE_TEXTURE_LEVEL_NUMBER = 14;
 const HYPERCASTLE_TEXTURE_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_TEXTURE_LEVEL_NUMBER
 )!;
-const HYPERCASTLE_EXPECTED_SURFACE_TEXTURE_CELL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.reduce(
+const HYPERCASTLE_MAX_SURFACE_TEXTURE_CELL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.reduce(
 	(sum, level) => sum + resolveTerraformsHypercastleSurfaceTextureGridSize(level.dimension) ** 2,
 	0
 );
-const HYPERCASTLE_TEXTURE_LEVEL_EXPECTED_SURFACE_TEXTURE_CELL_COUNT =
-	resolveTerraformsHypercastleSurfaceTextureGridSize(HYPERCASTLE_TEXTURE_LEVEL.dimension) ** 2;
+const HYPERCASTLE_TEXTURE_LEVEL_SURFACE_TEXTURE_GRID_SIZE =
+	resolveTerraformsHypercastleSurfaceTextureGridSize(HYPERCASTLE_TEXTURE_LEVEL.dimension);
+const HYPERCASTLE_TEXTURE_LEVEL_MAX_SURFACE_TEXTURE_CELL_COUNT =
+	HYPERCASTLE_TEXTURE_LEVEL_SURFACE_TEXTURE_GRID_SIZE ** 2;
 const HYPERCASTLE_PATH = `/e2e-harness/collection/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
 const HYPERCASTLE_PROBE_CONTRACT = {
 	browserValues: TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,
@@ -365,9 +368,16 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(metrics.sampleLevelSurfaceZoneIndex).not.toBeNull();
 		expect(metrics.sampleLevelSurfaceSeed).not.toBeNull();
 		expect(metrics.sampleLevelSurfaceBackgroundColor).not.toBeNull();
-		expect(metrics.surfaceTextureCellCount).toBe(HYPERCASTLE_EXPECTED_SURFACE_TEXTURE_CELL_COUNT);
-		expect(metrics.sampleLevelSurfaceTextureCellCount).toBe(
-			HYPERCASTLE_TEXTURE_LEVEL_EXPECTED_SURFACE_TEXTURE_CELL_COUNT
+		expect(metrics.sampleLevelSurfaceTextureGridSize).toBe(
+			String(HYPERCASTLE_TEXTURE_LEVEL_SURFACE_TEXTURE_GRID_SIZE)
+		);
+		expect(metrics.surfaceTextureCellCount).toBeGreaterThan(0);
+		expect(metrics.surfaceTextureCellCount).toBeLessThanOrEqual(
+			HYPERCASTLE_MAX_SURFACE_TEXTURE_CELL_COUNT
+		);
+		expect(metrics.sampleLevelSurfaceTextureCellCount).toBeGreaterThan(0);
+		expect(metrics.sampleLevelSurfaceTextureCellCount).toBeLessThanOrEqual(
+			HYPERCASTLE_TEXTURE_LEVEL_MAX_SURFACE_TEXTURE_CELL_COUNT
 		);
 		expect(metrics.sampleLevelSurfaceTextureCellFillColors.length).toBeGreaterThan(1);
 		expect(metrics.surfaceKey).toContain(String(HYPERCASTLE_TEXTURE_LEVEL_NUMBER));
@@ -576,9 +586,13 @@ test.describe('Terraforms Hypercastle overview', () => {
 			SVG_ATTRIBUTE_NAMES.fill,
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillColorTransparent
 		);
-		await expect(
-			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedSurfaceTextureCells)
-		).toHaveCount(HYPERCASTLE_TEXTURE_LEVEL_EXPECTED_SURFACE_TEXTURE_CELL_COUNT);
+		const textureCellCount = await page
+			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedSurfaceTextureCells)
+			.count();
+		expect(textureCellCount).toBeGreaterThan(0);
+		expect(textureCellCount).toBeLessThanOrEqual(
+			HYPERCASTLE_TEXTURE_LEVEL_MAX_SURFACE_TEXTURE_CELL_COUNT
+		);
 		const textureFillColors = await collectUniqueAttributeValues(
 			page,
 			HYPERCASTLE_PROBE_CONTRACT.selectors.texturedSurfaceTextureCells,
@@ -728,6 +742,8 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 				sampleLevelLayer?.getAttribute(contract.dom.attributes.surfaceSeed) ?? null,
 			sampleLevelSurfaceBackgroundColor:
 				sampleLevelLayer?.getAttribute(contract.dom.attributes.surfaceBackgroundColor) ?? null,
+			sampleLevelSurfaceTextureGridSize:
+				sampleLevelLayer?.getAttribute(contract.dom.attributes.surfaceTextureGridSize) ?? null,
 			surfaceTextureCellCount: surfaceTextureCells.length,
 			sampleLevelSurfaceTextureCellCount: levelFourteenTextureCells.length,
 			sampleLevelSurfaceTextureCellFillColors: uniqueAttribute(

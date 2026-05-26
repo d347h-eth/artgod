@@ -124,6 +124,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 		surfaceSeed: 'data-surface-seed',
 		surfaceZoneIndex: 'data-surface-zone-index',
 		surfaceBackgroundColor: 'data-surface-background-color',
+		surfaceTextureGridSize: 'data-surface-texture-grid-size',
 		surfaceTextureHeightmapIndex: 'data-surface-texture-heightmap-index',
 		guideCutoffX: 'data-guide-cutoff-x'
 	}

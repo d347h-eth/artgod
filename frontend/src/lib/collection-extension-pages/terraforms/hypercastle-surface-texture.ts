@@ -14,7 +14,16 @@ export type TerraformsHypercastleLevelSurface = {
 export type TerraformsHypercastleSurfaceTextureCell = {
 	x: number;
 	y: number;
-	size: number;
+	width: number;
+	height: number;
+	color: string;
+	heightmapIndex: number;
+	terrainValue: number;
+};
+
+type TerraformsHypercastleSurfaceTextureRun = {
+	startColumn: number;
+	width: number;
 	color: string;
 	heightmapIndex: number;
 	terrainValue: number;
@@ -45,7 +54,8 @@ export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL = {
 
 // Texture resolution is derived from contract level dimensions, then downsampled for SVG node cost.
 export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION = {
-	scaleFactor: 2,
+	scaleNumerator: 3,
+	scaleDenominator: 4,
 	minimumGridSize: 1
 } as const;
 
@@ -192,6 +202,7 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 	});
 	const cells: TerraformsHypercastleSurfaceTextureCell[] = [];
 	for (let row = 0; row < gridSize; row += 1) {
+		let run: TerraformsHypercastleSurfaceTextureRun | null = null;
 		for (let column = 0; column < gridSize; column += 1) {
 			const terrainValue = resolveTerraformsHypercastleSurfaceTerrainValue({
 				column,
@@ -200,14 +211,24 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 				seed: input.seed
 			});
 			const heightmapIndex = resolveTerraformsTopographyBucket(terrainValue);
-			cells.push({
-				x: column * cellSize,
-				y: row * cellSize,
-				size: cellSize + TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL.cellOverlap,
-				color: palette[heightmapIndex]!,
+			const color = palette[heightmapIndex]!;
+			if (run && run.color === color) {
+				run.width += 1;
+				continue;
+			}
+			if (run) {
+				cells.push(buildTerraformsHypercastleSurfaceTextureCell({ run, row, cellSize }));
+			}
+			run = {
+				startColumn: column,
+				width: 1,
+				color,
 				heightmapIndex,
 				terrainValue
-			});
+			};
+		}
+		if (run) {
+			cells.push(buildTerraformsHypercastleSurfaceTextureCell({ run, row, cellSize }));
 		}
 	}
 	return cells;
@@ -217,8 +238,29 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 export function resolveTerraformsHypercastleSurfaceTextureGridSize(levelDimension: number): number {
 	return Math.max(
 		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.minimumGridSize,
-		Math.ceil(levelDimension / TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.scaleFactor)
+		Math.ceil(
+			(levelDimension * TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.scaleNumerator) /
+				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.scaleDenominator
+		)
 	);
+}
+
+function buildTerraformsHypercastleSurfaceTextureCell(input: {
+	run: TerraformsHypercastleSurfaceTextureRun;
+	row: number;
+	cellSize: number;
+}): TerraformsHypercastleSurfaceTextureCell {
+	return {
+		x: input.run.startColumn * input.cellSize,
+		y: input.row * input.cellSize,
+		width:
+			input.run.width * input.cellSize +
+			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL.cellOverlap,
+		height: input.cellSize + TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL.cellOverlap,
+		color: input.run.color,
+		heightmapIndex: input.run.heightmapIndex,
+		terrainValue: input.run.terrainValue
+	};
 }
 
 // Reintroduces the canonical background fill into mono-palette overview surfaces.

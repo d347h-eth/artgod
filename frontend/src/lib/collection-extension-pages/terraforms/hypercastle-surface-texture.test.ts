@@ -82,10 +82,12 @@ describe('Terraforms Hypercastle surface texture', () => {
 		});
 
 		expect(gridSize).toBe(
-			level.dimension / TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.scaleFactor
+			(level.dimension * TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.scaleNumerator) /
+				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.scaleDenominator
 		);
-		expect(cells).toHaveLength(gridSize ** 2);
+		expect(cells.length).toBeLessThanOrEqual(gridSize ** 2);
 		expect(cells[0]).toMatchObject({ x: 0, y: 0 });
+		expect(cells.every((cell) => cell.width > 0 && cell.height > 0)).toBe(true);
 		expect(new Set(cells.map((cell) => cell.color)).size).toBeGreaterThan(6);
 		expect(cells.every((cell) => zone.palette.includes(cell.color))).toBe(true);
 		expect(new Set(cells.map((cell) => cell.heightmapIndex))).toContain(0);
@@ -95,7 +97,7 @@ describe('Terraforms Hypercastle surface texture', () => {
 		);
 	});
 
-	it('can sample a texture at a level-specific grid size', () => {
+	it('can sample a texture from a level-specific grid size', () => {
 		const zone = TERRAFORMS_ZONES[0]!;
 		const level = TERRAFORMS_HYPERCASTLE_LEVELS[13]!;
 		const gridSize = resolveTerraformsHypercastleSurfaceTextureGridSize(level.dimension);
@@ -105,7 +107,25 @@ describe('Terraforms Hypercastle surface texture', () => {
 			levelDimension: level.dimension
 		});
 
-		expect(cells).toHaveLength(gridSize ** 2);
+		expect(cells.length).toBeLessThanOrEqual(gridSize ** 2);
+	});
+
+	it('merges contiguous same-color texture samples into row runs', () => {
+		const level = TERRAFORMS_HYPERCASTLE_LEVELS[13]!;
+		const zone = TERRAFORMS_ZONES[0]!;
+		const mergedZone = {
+			...zone,
+			palette: zone.palette.map(() => zone.palette[0]!)
+		};
+		const gridSize = resolveTerraformsHypercastleSurfaceTextureGridSize(level.dimension);
+		const cells = buildTerraformsHypercastleSurfaceTextureCells({
+			zone: mergedZone,
+			seed: 0,
+			levelDimension: level.dimension
+		});
+
+		expect(cells).toHaveLength(gridSize);
+		expect(cells.every((cell) => cell.width > cell.height)).toBe(true);
 	});
 
 	it('mixes the background fill color into flat mono-palette surfaces', () => {
