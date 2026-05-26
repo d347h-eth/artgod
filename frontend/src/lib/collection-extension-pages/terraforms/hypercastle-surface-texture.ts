@@ -31,7 +31,6 @@ export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM = {
 		rerollButton: 'terraforms-hypercastle-surface-reroll'
 	},
 	classes: {
-		controls: 'terraforms-hypercastle-surface-controls',
 		rerollButton: 'terraforms-hypercastle-surface-reroll'
 	}
 } as const;

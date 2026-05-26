@@ -8,10 +8,11 @@
 		collection,
 		media,
 		basePath,
-		page
+		page,
+		actions
 	}: CollectionExtensionPageProps & {
 		Page: Component<CollectionExtensionPageProps>;
 	} = $props();
 </script>
 
-<Page {chain} {collection} {media} {basePath} {page} />
+<Page {chain} {collection} {media} {basePath} {page} {actions} />

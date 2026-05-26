@@ -269,6 +269,7 @@ If a range-configured trait contains non-numeric values:
 Collection shell now includes:
 
 - `customization` tab
+- extension-owned collection page tabs
 
 The customization page currently exposes:
 
@@ -315,6 +316,24 @@ The renderer is intentionally simple:
 - missing placeholders render as empty strings
 
 Rendering is backend-owned so token browser cards and activity includes consume the same resolved summary behavior.
+
+## Extension-Owned Collection Pages
+
+The frontend collection-extension page contract lets bundled extensions contribute collection-scoped pages without giving those extensions privileged top-level routes.
+
+Current frontend pieces:
+
+- `frontend/src/lib/collection-extension-pages/` owns the page registry, generic page outlet, action scope, and page load helper.
+- `frontend/src/lib/collection-extension-navigation.ts` supports activity-event targets and collection-extension page targets.
+- Page tabs resolve only when the collection's enabled extension descriptors include the target extension and a frontend page registration exists.
+- `frontend/src/lib/collection-navigation.ts` exposes `hrefs.extensionPage()`. It preserves `media_mode` only when the page target opts in; trait filters are not carried into static extension pages by default.
+- Generic routes exist for standard collection pages and public single-collection deployments:
+    - `/:chain_ref/:collection_ref/extensions/:extension_key/:page_ref`
+    - `/extensions/:extension_key/:page_ref`
+- Route load stays generic: it fetches collection context, checks the extension is enabled for that collection, and leaves page-specific behavior to the registered frontend extension page.
+- Extension page registrations may provide an optional top-action component. That component renders inside the shared `CollectionPageLayout` action panel, and invokes page-body behavior through the page-local action scope rather than mutating the shared shell or hard-coding extension behavior in generic components.
+
+The first bundled page contribution is Terraforms Hypercastle exploration.
 
 ## What Is Not Implemented Yet
 

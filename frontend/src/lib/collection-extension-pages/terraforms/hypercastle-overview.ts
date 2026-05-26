@@ -134,10 +134,12 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION = {
 	color: 'var(--c-blue)',
 	canvasBackground: 'transparent',
 	fillOpacity: {
-		top: 1
+		top: 1,
+		vertical: 1
 	},
 	strokeOpacity: {
-		top: 0
+		top: 0,
+		vertical: 1
 	},
 	strokeDashArray: {
 		solid: [],
@@ -169,8 +171,9 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS = {
 	layer: '|'
 } as const;
 
-const OVERVIEW_LAYER_HEIGHT_UNITS = 0.72;
-const OVERVIEW_LAYER_GAP_UNITS = OVERVIEW_LAYER_HEIGHT_UNITS * 3;
+const OVERVIEW_LAYER_HEIGHT_UNITS = 0.14;
+const OVERVIEW_LAYER_VERTICAL_STEP_UNITS = 2.88;
+const OVERVIEW_LAYER_GAP_UNITS = OVERVIEW_LAYER_VERTICAL_STEP_UNITS - OVERVIEW_LAYER_HEIGHT_UNITS;
 const OVERVIEW_MIN_LAYER_SIZE_UNITS = 1;
 const OVERVIEW_MAX_LAYER_SIZE_UNITS = 12;
 const OVERVIEW_CANVAS_MARGIN = 24;
@@ -341,6 +344,15 @@ export function resolveTerraformsHypercastleOverviewFaceGeometry(
 	}
 }
 
+export function isTerraformsHypercastleOverviewVerticalFace(
+	face: TerraformsHypercastleOverviewFaceKind
+): boolean {
+	return (
+		face === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front ||
+		face === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
+	);
+}
+
 export function buildTerraformsHypercastleOverviewLevelGuides(
 	layers: readonly TerraformsHypercastleOverviewLayer[],
 	layout: TerraformsHypercastleOverviewLayout
@@ -350,7 +362,7 @@ export function buildTerraformsHypercastleOverviewLevelGuides(
 			{
 				right: layer.halfSizeUnits,
 				left: -layer.halfSizeUnits,
-				top: layer.topFaceTopUnits
+				top: layer.baseTopUnits
 			},
 			layout
 		);
@@ -414,13 +426,16 @@ function resolveLayerProjectedPoints(
 	layer: TerraformsHypercastleOverviewLayer
 ): TerraformsHypercastleOverviewProjectedPoint[] {
 	const edges = [-layer.halfSizeUnits, layer.halfSizeUnits];
-	return edges.flatMap((right) =>
-		edges.flatMap((left) =>
-			projectTerraformsHypercastleOverviewPoint({
-				right,
-				left,
-				top: layer.topFaceTopUnits
-			})
+	const tops = [layer.baseTopUnits, layer.topFaceTopUnits];
+	return tops.flatMap((top) =>
+		edges.flatMap((right) =>
+			edges.flatMap((left) =>
+				projectTerraformsHypercastleOverviewPoint({
+					right,
+					left,
+					top
+				})
+			)
 		)
 	);
 }

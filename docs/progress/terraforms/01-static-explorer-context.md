@@ -525,7 +525,7 @@ Acceptance checks:
 
 Goal: make the first visible page content the full Hypercastle: a simplified 20-level isometric structure rendered with `@elchininet/isometric`.
 
-Status: complete. The accepted browser state is the 20-level overview with compact gaps, generated slab surfaces, hover-only level leaders, and reactive right-side level labels.
+Status: complete. The accepted browser state is the 20-level overview with compact gaps, generated top textures, very thin slab depth, hover-only level leaders, click-pinned level selection, and reactive right-side level labels.
 
 Expected work:
 
@@ -555,10 +555,10 @@ Current implementation notes:
 
 - `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` renders the first overview using `@elchininet/isometric`.
 - `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-overview.ts` owns the slab geometry, centered-spine layout, and render key.
-- The overview renders 20 level groups and one flat top surface per level, every level centered on one spine, and gaps at triple the former slab-height unit. Milestone 5 wires the flat surfaces and guide labels to selected-level page state and supplies generated surface colors.
-- Slab thickness, front-facing hit faces, visible slab edges, and backward-facing hidden-line outlines were removed once generated surface textures became the primary visual signal.
-- Right-side level guide labels render one dashed 1px leader from each visible surface's right corner to a shared cutoff only while the label or surface is hovered, with either hover target applying the same hover treatment to the corresponding surface and label.
-- Hovering or selecting a level raises that level's SVG group above the rest of the stack and keeps it pinned there until another level is hovered/selected; selecting `All Levels` restores canonical bottom-to-top render order.
+- The overview renders 20 level groups with a textured top face plus very thin front and side faces. Every level stays centered on one spine, and the vertical step preserves the accepted wide spacing while slab height stays only a few pixels at the current browser scale.
+- Hidden/back-facing outlines stay removed. The thin visible depth is provided by front and side faces filled and stroked with the current surface palette's background color.
+- Right-side level guide labels render one dashed 1px leader from each slab's bottom-right corner to a shared cutoff only while the label or slab is hovered, with either hover target applying the same hover treatment to the corresponding surface and label.
+- Hovering a level does not change SVG draw order. Clicking a slab or level label raises that level above the stack and pins it until another level is clicked; selecting `All Levels` restores canonical bottom-to-top render order.
 - Focused helper tests cover level count, relative area sizing, gap/height ratio, face anchoring, centered layout, and render-key stability.
 - `yarn test:terraforms:hypercastle` runs the fixture-backed Playwright page harness, records an in-browser SVG/interaction probe, and attaches default plus hover screenshots for visual iteration.
 - Browser verification covered desktop and mobile screenshots plus SVG pixel checks for nonblank rendering and centered layer alignment.
@@ -599,11 +599,11 @@ Current implementation notes:
 - The selected-level Zone table shows `name`, the 10-swatch `palette`, and centered `topography`.
 - `topography` now emits one table row per exact contract elevation bucket. Zones that appear at multiple elevations repeat with the same palette at each exact height, and selected-level tables default to topology-first ordering. Raw Perlin threshold ranges remain available as cell titles. This is deterministic without replaying minted placements, but it is still not a faithful parcel rarity column.
 - Zone table headers are sortable; default order is name ascending. Removed the earlier bucket-share column because it implied equal bucket probability that the contract noise thresholds do not guarantee.
-- Each level now receives a transient surface assignment on page load: a random Zone palette available on that level plus a generated 32 by 32 parcel-local Perlin heightmap stretched over the flat level surface. This surface texture is separate from the level topography values used for Zone attribution.
-- Mono palettes whose heightmap colors are identical across indexes 0 through 8 deterministically mix the canonical background fill color from index 9 into one heightmap index so flat surfaces can still reveal that Terraforms background color.
+- Each level now receives a transient surface assignment on page load: a random Zone palette available on that level plus a generated 32 by 32 parcel-local Perlin heightmap stretched over the slab top surface. This surface texture is separate from the level topography values used for Zone attribution.
+- Mono palettes whose heightmap colors are identical across indexes 0 through 8 deterministically mix the canonical background fill color from index 9 into one heightmap index so the overview can still reveal that Terraforms background color.
 - In a selected-level Zone table, clicking any palette swatch applies that Zone palette to the selected slab and generates a new random surface for that level.
-- `All Levels` exposes the only reroll button as a compact dice-icon control above the Hypercastle content; it rebuilds all transient level surfaces and active palettes using the same sequence as page load.
-- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels`, Level 12, and Level 14 in browser, verifies selected state, verifies Zone table rows, sorting, all-level rerolling, selected-level palette application, and attaches default, all-level, hover, selected-level, and surface-texture screenshots on desktop and mobile.
+- The page exposes a compact dice-icon reroll button through the shared collection page action panel. It is always visible on the Hypercastle page and rebuilds all transient level surfaces and active palettes using the same sequence as page load.
+- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels`, Level 12, and Level 14 in browser, verifies selected state, verifies Zone table rows, sorting, page-level rerolling, selected-level palette application, and attaches default, all-level, hover, selected-level, and surface-texture screenshots on desktop and mobile.
 
 Remaining work:
 

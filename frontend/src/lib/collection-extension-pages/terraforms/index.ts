@@ -5,6 +5,7 @@ import {
 import type { CollectionExtensionPageRegistrar } from '$lib/collection-extension-pages';
 import { TERRAFORMS_EXTENSION_PAGE_LABELS } from '$lib/collection-extension-pages/terraforms/constants';
 import TerraformsHypercastlePage from '$lib/collection-extension-pages/terraforms/TerraformsHypercastlePage.svelte';
+import TerraformsHypercastleTopActions from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleTopActions.svelte';
 
 export { TERRAFORMS_EXTENSION_PAGE_LABELS } from '$lib/collection-extension-pages/terraforms/constants';
 
@@ -16,6 +17,7 @@ export function registerTerraformsCollectionExtensionPages(
 		extensionKey: TERRAFORMS_EXTENSION_KEY,
 		pageRef: TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle,
 		label: TERRAFORMS_EXTENSION_PAGE_LABELS.Hypercastle,
-		Page: TerraformsHypercastlePage
+		Page: TerraformsHypercastlePage,
+		TopActions: TerraformsHypercastleTopActions
 	});
 }

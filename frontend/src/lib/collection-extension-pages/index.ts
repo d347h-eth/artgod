@@ -35,6 +35,7 @@ function extensionPageKey(page: CollectionExtensionPageRef): string {
 }
 
 export type {
+	CollectionExtensionPageActionScope,
 	CollectionExtensionPageProps,
 	CollectionExtensionPageRef,
 	CollectionExtensionPageRegistration,

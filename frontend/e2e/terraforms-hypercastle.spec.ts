@@ -121,6 +121,10 @@ const HYDRATION_DATASET_READY_VALUE = '1';
 const COLLECTION_NAV_CLASS_NAMES = {
 	activeTab: 'runtime-tab-active'
 } as const;
+const COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES = {
+	stack: 'panel-top-actions',
+	row: 'panel-top-actions-row'
+} as const;
 const SVG_ATTRIBUTE_NAMES = {
 	class: 'class',
 	fill: 'fill',
@@ -187,8 +191,8 @@ const TEST_ARTIFACTS = {
 } as const;
 const EMPTY_ATTRIBUTE_VALUE = '';
 const HYPERCASTLE_EXPECTED_LEVEL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.length;
-const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT;
-const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = 0;
+const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 3;
+const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 2;
 const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER = 12;
 const HYPERCASTLE_DETAIL_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
@@ -315,6 +319,18 @@ test.describe('Terraforms Hypercastle overview', () => {
 				hasText: TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle
 			})
 		).toBeVisible();
+		const surfaceRerollButton = page.locator(
+			[
+				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.stack),
+				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.row),
+				HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton
+			].join(' ')
+		);
+		await expect(surfaceRerollButton).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.title,
+			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces
+		);
+		await expect(surfaceRerollButton).toBeVisible();
 
 		const overview = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.overview);
 		await expect(overview.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)).toBeVisible();
@@ -373,6 +389,14 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(metrics.allLevelsGuideLabel).toBe(TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels);
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
+		const surfaceKeyBeforeInitialReroll = await page
+			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)
+			.getAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey);
+		await surfaceRerollButton.click();
+		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)).not.toHaveAttribute(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey,
+			surfaceKeyBeforeInitialReroll ?? EMPTY_ATTRIBUTE_VALUE
+		);
 
 		const hoveredClassPattern = new RegExp(
 			`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerHovered}\\b`
@@ -400,18 +424,11 @@ test.describe('Terraforms Hypercastle overview', () => {
 			})
 		).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
-		const allLevelsRerollButton = page.locator(
-			HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton
-		);
 		const surfaceKeyBeforeAllLevelsReroll = await page
 			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)
 			.getAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey);
-		await expect(allLevelsRerollButton).toHaveAttribute(
-			SVG_ATTRIBUTE_NAMES.title,
-			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces
-		);
-		await expect(allLevelsRerollButton).toBeVisible();
-		await allLevelsRerollButton.click();
+		await expect(surfaceRerollButton).toBeVisible();
+		await surfaceRerollButton.click();
 		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)).not.toHaveAttribute(
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey,
 			surfaceKeyBeforeAllLevelsReroll ?? EMPTY_ATTRIBUTE_VALUE
@@ -422,18 +439,11 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await reachableLevelGuide.hover();
 		await expect(reachableLevelLayer).toHaveClass(hoveredClassPattern);
 		await expect(reachableLevelGuide).toHaveClass(guideHoveredClassPattern);
-		await expectTopRenderedLayer(page, HYPERCASTLE_REACHABILITY_LEVEL_NUMBER);
-
-		await moveMouseToReachableLayerPoint(
-			page,
-			HYPERCASTLE_PROBE_CONTRACT.selectors.reachableTopFace,
-			HYPERCASTLE_PROBE_CONTRACT.reachabilityLevelNumber
-		);
-		await expect(reachableLevelGuide).toHaveClass(guideHoveredClassPattern);
-		await expectTopRenderedLayer(page, HYPERCASTLE_REACHABILITY_LEVEL_NUMBER);
+		await expectCanonicalLayerOrder(page);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.hoverScreenshot);
 
 		await reachableLevelGuide.click();
+		await expectTopRenderedLayer(page, HYPERCASTLE_REACHABILITY_LEVEL_NUMBER);
 		await expect(reachableLevelLayer).toHaveClass(
 			new RegExp(`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerSelected}\\b`)
 		);
@@ -447,9 +457,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toBeVisible();
 		await expect(zoneTable).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
-		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton)).toHaveCount(
-			0
-		);
+		await expect(surfaceRerollButton).toBeVisible();
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
 
 		const topographySort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
@@ -518,9 +526,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 				defaultTerraformsSelectedLevelZoneSortDirection()
 			)
 		);
-		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton)).toHaveCount(
-			0
-		);
+		await expect(surfaceRerollButton).toBeVisible();
 		const texturedLevelLayer = page.locator(
 			HYPERCASTLE_PROBE_CONTRACT.selectors.texturedLevelLayer
 		);
@@ -845,14 +851,6 @@ function expectedDefaultLevelZoneRows(): TerraformsLevelZoneRow[] {
 		defaultTerraformsSelectedLevelZoneSortColumn(),
 		defaultTerraformsSelectedLevelZoneSortDirection()
 	);
-}
-
-async function moveMouseToReachableLayerPoint(
-	page: Page,
-	selector: string,
-	_levelNumber: string
-): Promise<void> {
-	await page.locator(selector).hover();
 }
 
 function classSelector(className: string): string {

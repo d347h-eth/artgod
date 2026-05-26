@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
 	import TerraformsHypercastleOverview from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte';
-	import TerraformsSurfaceRerollIcon from '$lib/collection-extension-pages/terraforms/TerraformsSurfaceRerollIcon.svelte';
+	import { TERRAFORMS_HYPERCASTLE_PAGE_ACTIONS } from '$lib/collection-extension-pages/terraforms/hypercastle-actions';
 	import {
 		buildTerraformsAllLevelZoneRows,
 		buildTerraformsLevelZoneRows,
@@ -36,12 +36,10 @@
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-selection';
 	import {
 		buildTerraformsHypercastleLevelSurfaces,
-		replaceTerraformsHypercastleLevelSurface,
-		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
-		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS
+		replaceTerraformsHypercastleLevelSurface
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 
-	let {}: CollectionExtensionPageProps = $props();
+	let { actions }: CollectionExtensionPageProps = $props();
 
 	let selection = $state<TerraformsHypercastleSelection>(null);
 	let zoneSortColumn = $state<TerraformsLevelZoneTableColumn>(
@@ -54,7 +52,6 @@
 	let selectedLevelNumber = $derived(resolveTerraformsSelectedLevelNumber(selection));
 	let allLevelsSelected = $derived(isTerraformsAllLevelsSelection(selection));
 	let selectedLevel = $derived(resolveTerraformsHypercastleLevel(selectedLevelNumber));
-	let showSurfaceTextureControls = $derived(allLevelsSelected);
 	let zoneTableColumns: readonly TerraformsLevelZoneTableColumn[] = $derived(
 		allLevelsSelected
 			? TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS.AllLevels
@@ -83,6 +80,14 @@
 	);
 	let detailTitle = $derived(resolveDetailTitle(selection, selectedLevelNumber));
 	let showZoneTable = $derived(detailTitle !== null && zoneRows.length > 0);
+
+	$effect(() => {
+		// Expose surface rerolling to the shared collection-page top-action row.
+		return actions.registerAction(
+			TERRAFORMS_HYPERCASTLE_PAGE_ACTIONS.RerollSurfaces,
+			rerollAllLevelSurfaces
+		);
+	});
 
 	function selectLevel(levelNumber: number): void {
 		selection = levelNumber;
@@ -138,21 +143,6 @@
 </script>
 
 <section class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.root}>
-	{#if showSurfaceTextureControls}
-		<div class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.controls}>
-			<button
-				type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
-				class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.rerollButton}
-				data-testid={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton}
-				title={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces}
-				aria-label={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces}
-				onclick={rerollAllLevelSurfaces}
-			>
-				<TerraformsSurfaceRerollIcon />
-			</button>
-		</div>
-	{/if}
-
 	<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.overview}>
 		<TerraformsHypercastleOverview
 			{selectedLevelNumber}
@@ -258,13 +248,6 @@
 		max-width: 100%;
 	}
 
-	.terraforms-hypercastle-surface-controls {
-		grid-column: 1 / -1;
-		display: flex;
-		justify-content: flex-start;
-		margin: 0 0 0.55rem;
-	}
-
 	.terraforms-hypercastle-page-overview {
 		justify-self: start;
 		min-width: 0;
@@ -287,27 +270,6 @@
 	.terraforms-hypercastle-level-detail-placeholder {
 		padding: 0.5rem 0;
 		font-size: 0.82rem;
-	}
-
-	.terraforms-hypercastle-surface-reroll {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 26px;
-		height: 26px;
-		min-height: 0;
-		border: 1px solid color-mix(in srgb, var(--c-blue) 58%, transparent);
-		border-radius: 0;
-		padding: 0;
-		background: transparent;
-		color: var(--c-ice);
-		line-height: 1;
-	}
-
-	.terraforms-hypercastle-surface-reroll:hover,
-	.terraforms-hypercastle-surface-reroll:focus-visible {
-		border-color: var(--c-blue);
-		color: var(--c-blue);
 	}
 
 	.terraforms-hypercastle-zone-table {

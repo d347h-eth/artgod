@@ -5,6 +5,7 @@
 		buildTerraformsHypercastleOverviewLayers,
 		buildTerraformsHypercastleOverviewRenderKey,
 		formatTerraformsHypercastleOverviewLayerLabel,
+		isTerraformsHypercastleOverviewVerticalFace,
 		resolveTerraformsHypercastleOverviewFaceClassName,
 		resolveTerraformsHypercastleOverviewFaceGeometry,
 		resolveTerraformsHypercastleOverviewLayerElementId,
@@ -227,6 +228,18 @@
 		renderLayerFace(
 			layerGroup,
 			layer,
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front,
+			isometricModule.PlaneView.FRONT
+		);
+		renderLayerFace(
+			layerGroup,
+			layer,
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side,
+			isometricModule.PlaneView.SIDE
+		);
+		renderLayerFace(
+			layerGroup,
+			layer,
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top,
 			isometricModule.PlaneView.TOP
 		);
@@ -257,7 +270,7 @@
 			strokeColor: resolveLayerFaceStrokeColor(layer, faceKind),
 			strokeDashArray,
 			strokeLinecap: resolveStrokeLineCap(strokeDashArray),
-			strokeOpacity: resolveLayerFaceStrokeOpacity(),
+			strokeOpacity: resolveLayerFaceStrokeOpacity(faceKind),
 			strokeWidth: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeWidth
 		});
 		const faceElement = face.getElement();
@@ -495,7 +508,6 @@
 				syncLevelHoverClassState(hoveredLevelNumber, false);
 			}
 			hoveredLevelNumber = levelNumber;
-			pinLevel(levelNumber);
 			syncLevelHoverClassState(levelNumber, true);
 			return;
 		}
@@ -736,7 +748,7 @@
 		if (isSurfaceTextureTopFace(layer, faceKind)) {
 			return resolveTerraformsHypercastleSurfaceTexturePatternFill(layer.levelNumber);
 		}
-		return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
+		return resolveLayerSurfaceBackgroundColor(layer);
 	}
 
 	function resolveLayerFaceFillOpacity(
@@ -746,7 +758,7 @@
 		if (isSurfaceTextureTopFace(layer, faceKind)) {
 			return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.top;
 		}
-		return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.top;
+		return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.vertical;
 	}
 
 	function resolveLayerFaceStrokeColor(
@@ -755,15 +767,17 @@
 	): string {
 		return isSurfaceTextureTopFace(layer, faceKind)
 			? resolveLayerSurfaceBackgroundColor(layer)
-			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
+			: resolveLayerSurfaceBackgroundColor(layer);
 	}
 
 	function resolveLayerFaceStrokeDashArray(): number[] {
 		return [...TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeDashArray.solid];
 	}
 
-	function resolveLayerFaceStrokeOpacity(): number {
-		return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.top;
+	function resolveLayerFaceStrokeOpacity(faceKind: TerraformsHypercastleOverviewFaceKind): number {
+		return isTerraformsHypercastleOverviewVerticalFace(faceKind)
+			? TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.vertical
+			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.top;
 	}
 
 	function resolveStrokeLineCap(

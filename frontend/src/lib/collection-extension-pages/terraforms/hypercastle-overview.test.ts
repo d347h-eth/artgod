@@ -12,6 +12,8 @@ import {
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS
 } from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
 
+const ACCEPTED_OVERVIEW_VERTICAL_STEP_UNITS = 2.88;
+
 describe('Terraforms Hypercastle overview geometry', () => {
 	it('builds one centered slab per contract level', () => {
 		const layers = buildTerraformsHypercastleOverviewLayers();
@@ -34,13 +36,16 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		expect(levelTwenty.sizeUnits).toBe(levelOne.sizeUnits);
 	});
 
-	it('keeps gaps at triple the slab height for the accepted overview pass', () => {
+	it('keeps the accepted overview spacing while rendering very thin slabs', () => {
 		const layers = buildTerraformsHypercastleOverviewLayers();
 		const first = layers[0]!;
 		const second = layers[1]!;
 		const gap = second.baseTopUnits - first.topFaceTopUnits;
+		const verticalStep = second.topFaceTopUnits - first.topFaceTopUnits;
 
-		expect(gap).toBeCloseTo(first.layerHeightUnits * 3, 8);
+		expect(first.layerHeightUnits).toBeLessThan(0.2);
+		expect(gap).toBeGreaterThan(first.layerHeightUnits * 10);
+		expect(verticalStep).toBeCloseTo(ACCEPTED_OVERVIEW_VERTICAL_STEP_UNITS, 8);
 		expect(new Set(layers.map((layer) => layer.layerHeightUnits)).size).toBe(1);
 	});
 
@@ -99,15 +104,15 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		expect(new Set(guides.map((guide) => guide.lineEnd.x)).size).toBe(1);
 		expect(guides.every((guide) => guide.lineStart.x > guide.corner.x)).toBe(true);
 		expect(guides.every((guide) => guide.labelAnchor.x > guide.lineEnd.x)).toBe(true);
-		const levelOneTopCorner = projectTerraformsHypercastleOverviewPointToScreen(
+		const levelOneBottomCorner = projectTerraformsHypercastleOverviewPointToScreen(
 			{
 				right: layers[0]!.halfSizeUnits,
 				left: -layers[0]!.halfSizeUnits,
-				top: layers[0]!.topFaceTopUnits
+				top: layers[0]!.baseTopUnits
 			},
 			layout
 		);
-		expect(guides[0]!.corner).toEqual(levelOneTopCorner);
+		expect(guides[0]!.corner).toEqual(levelOneBottomCorner);
 		expect(guides[0]!.label).toBe(formatTerraformsHypercastleOverviewLevelGuideLabel(1));
 		expect(guides[19]!.label).toBe(formatTerraformsHypercastleOverviewLevelGuideLabel(20));
 	});

@@ -7,6 +7,7 @@
 		resolveCollectionExtensionPage,
 		type CollectionExtensionPageRef
 	} from '$lib/collection-extension-pages';
+	import { createCollectionExtensionPageActionScope } from '$lib/collection-extension-pages/actions';
 	import CollectionExtensionPageOutlet from '$lib/collection-extension-pages/CollectionExtensionPageOutlet.svelte';
 	import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
@@ -32,6 +33,7 @@
 	} = $props();
 
 	const resolvedPage = $derived(resolveCollectionExtensionPage(page));
+	const extensionPageActions = createCollectionExtensionPageActionScope();
 	const activeExtensionPage = $derived({
 		kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage,
 		extensionKey: page.extensionKey,
@@ -67,12 +69,29 @@
 	}
 </script>
 
+{#snippet extensionTopActions()}
+	{#if chain && collection && resolvedPage?.TopActions}
+		<div class="panel-top-actions-row">
+			<CollectionExtensionPageOutlet
+				Page={resolvedPage.TopActions}
+				{chain}
+				{collection}
+				{media}
+				{basePath}
+				{page}
+				actions={extensionPageActions}
+			/>
+		</div>
+	{/if}
+{/snippet}
+
 <CollectionPageLayout
 	navigation={collectionNavigation()}
 	activeSection="extension-page"
 	{activeExtensionPage}
 	collectionAvailable={chain !== null && collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+	topActions={resolvedPage?.TopActions ? extensionTopActions : undefined}
 >
 	{#snippet breadcrumbs()}
 		{#if collection}
@@ -96,6 +115,7 @@
 			{media}
 			{basePath}
 			{page}
+			actions={extensionPageActions}
 		/>
 	{:else if chain && collection}
 		<p class="muted">extension page not found</p>
