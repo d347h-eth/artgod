@@ -16,13 +16,19 @@ The runtime env defaults are sourced from `config/settings.manifest.toml` and ge
 
 ## Local Infra
 
-| Port    | Surface                      | Used By                                                                             | Source                                                                                        |
-| ------- | ---------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `42720` | NATS JetStream client port   | Desktop bundled NATS, dev compose NATS, deploy NATS, smoke-test NATS container port | `config/settings.manifest.toml`, `docker-compose*.yml`, `src-tauri/src/runtime/supervisor.rs` |
-| `42721` | Local RPC HTTP endpoint      | Default `RPC_URL`, smoke-test RPC URL, benchmark helper                             | `config/settings.manifest.toml`, `.env.test.example`                                          |
-| `42722` | Local RPC WebSocket endpoint | Example `RPC_WS_URL`                                                                | `.env.deploy.example`                                                                         |
-| `42723` | NATS monitoring endpoint     | Dev/deploy compose NATS monitoring listener                                         | `docker-compose*.yml`                                                                         |
-| `42724` | Smoke-test NATS host port    | Testcontainers host binding                                                         | `.env.test.example`                                                                           |
+| Port    | Surface                    | Used By                                                                             | Source                                                                                        |
+| ------- | -------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `42720` | NATS JetStream client port | Desktop bundled NATS, dev compose NATS, deploy NATS, smoke-test NATS container port | `config/settings.manifest.toml`, `docker-compose*.yml`, `src-tauri/src/runtime/supervisor.rs` |
+| `42721` | Local RPC HTTP endpoint    | Default `RPC_URL`, smoke-test RPC URL, benchmark helper                             | `config/settings.manifest.toml`, `.env.test.example`                                          |
+| `42723` | NATS monitoring endpoint   | Dev/deploy compose NATS monitoring listener                                         | `docker-compose*.yml`                                                                         |
+| `42724` | Smoke-test NATS host port  | Testcontainers host binding                                                         | `.env.test.example`                                                                           |
+
+## External Node RPC
+
+| Port   | Surface                | Used By                                    | Source                                        |
+| ------ | ---------------------- | ------------------------------------------ | --------------------------------------------- |
+| `8545` | Ethereum JSON-RPC HTTP | Deploy `RPC_URL=http://ethereum-rpc:8545`  | External node compose + `.env.deploy.example` |
+| `8546` | Ethereum JSON-RPC WS   | Deploy `RPC_WS_URL=ws://ethereum-rpc:8546` | External node compose + `.env.deploy.example` |
 
 ## Observability Services
 

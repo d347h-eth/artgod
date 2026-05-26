@@ -52,6 +52,21 @@ ArtGod joins that network with stable aliases:
 
 If you want a different network name, set `PUBLIC_EDGE_NETWORK` in `.env.deploy` and use the same name from the other compose project.
 
+## Shared Ethereum RPC Network
+
+If the Ethereum node runs in a separate Docker compose project on the same VPS, create a second shared external Docker network for RPC traffic:
+
+```sh
+docker network create ethereum-rpc
+```
+
+Attach the node container and ArtGod runtimes to that network. The node should expose a stable Docker DNS alias that matches the deploy RPC URLs:
+
+- `RPC_URL=http://ethereum-rpc:8545`
+- `RPC_WS_URL=ws://ethereum-rpc:8546`
+
+Keep this network separate from `public-edge`. The public edge network is for Cloudflare/Caddy-to-ArtGod web ingress; the RPC network is for private backend/indexer-to-node traffic.
+
 ## Public Routing
 
 ### Reusing an Existing VPS Caddy
@@ -124,6 +139,7 @@ cp .env.deploy.example .env.deploy
 - `PUBLIC_BACKEND_ORIGIN`
 - `INTERNAL_BACKEND_ORIGIN=http://backend:42710`
 - `PUBLIC_EDGE_NETWORK=public-edge`
+- `ETHEREUM_RPC_NETWORK=ethereum-rpc`
 - `PUBLIC_APP_DEPLOYMENT_MODE=public_single_collection`
 - `PUBLIC_APP_CHAIN_REF=ethereum`
 - `PUBLIC_APP_COLLECTION_REF=terraforms`
@@ -131,7 +147,8 @@ cp .env.deploy.example .env.deploy
 - `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS=60000`
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS=600000`
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS=1200000`
-- `RPC_URL`
+- `RPC_URL=http://ethereum-rpc:8545`
+- `RPC_WS_URL=ws://ethereum-rpc:8546` if using the node WebSocket endpoint
 - `OPENSEA_API_KEY`
 
 If enabling deploy observability, also set:
@@ -205,6 +222,8 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `INTERNAL_BACKEND_ORIGIN` is the runtime-only backend origin used by the SSR frontend server process itself; in the default compose setup it should stay `http://backend:42710`.
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
+- `ETHEREUM_RPC_NETWORK` is the shared external Docker network used by backend/indexer runtimes to reach a same-host Ethereum node without publishing RPC beyond the host.
+- In same-host reth deployments, use `RPC_URL=http://ethereum-rpc:8545` and `RPC_WS_URL=ws://ethereum-rpc:8546`; the reth container must join `ETHEREUM_RPC_NETWORK` with the `ethereum-rpc` alias.
 - When the deploy observability profile is enabled, the same shared network also exposes `artgod-grafana:42735` for a reverse proxy managed outside this compose file.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
 - `BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS`, and `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.

@@ -269,6 +269,14 @@ targets = ["deploy"]
 help = "Docker network shared with the public edge reverse proxy."
 
 [[settings]]
+key = "ETHEREUM_RPC_NETWORK"
+group = "deploy"
+label = "ethereum rpc network"
+defaults = { deploy = "ethereum-rpc" }
+targets = ["deploy"]
+help = "Docker network shared with the Ethereum node RPC service."
+
+[[settings]]
 key = "OBSERVABILITY_GRAFANA_ADMIN_USER"
 group = "deploy"
 label = "observability grafana admin user"
@@ -356,7 +364,7 @@ default = "1"
 key = "RPC_URL"
 group = "chain-rpc"
 label = "rpc url"
-defaults = { local = "", deploy = "http://127.0.0.1:42721", desktop = "" }
+defaults = { local = "", deploy = "http://ethereum-rpc:8545", desktop = "" }
 help = "Ethereum JSON-RPC endpoint used by the backend and indexer."
 required_for_launch = true
 validation = "url"
@@ -374,7 +382,7 @@ validation = "url"
 key = "RPC_WS_URL"
 group = "chain-rpc"
 label = "rpc ws url"
-default = ""
+defaults = { local = "", deploy = "ws://ethereum-rpc:8546", desktop = "" }
 help = "Optional WebSocket RPC endpoint used to listen for new blocks faster and more cheaply, alongside periodic new-block polling."
 validation = "websocket_url"
 view = "basic"
