@@ -5,7 +5,6 @@ import {
 	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
 	buildTerraformsZoneTokenHref,
-	formatTerraformsZoneLevelNumbers,
 	formatTerraformsZoneTopographyHeights,
 	formatTerraformsZoneTopographyRangeLabel,
 	resolveTerraformsHypercastleLevel,
@@ -60,7 +59,6 @@ describe('Terraforms level Zone table data', () => {
 		expect(sortedRows[1]!.palette).toEqual(level!.zones[1]!.palette);
 		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toContain('4: > 18000');
 		expect(formatTerraformsZoneTopographyRangeLabel(sortedRows[8]!)).toContain('-4: <= -26000');
-		expect(formatTerraformsZoneLevelNumbers(sortedRows[1]!)).toBe('12');
 	});
 
 	it('builds the all-level Zone catalog without level-specific buckets', () => {
@@ -70,7 +68,6 @@ describe('Terraforms level Zone table data', () => {
 		expect(rows[0]).toMatchObject({
 			zoneIndex: 0,
 			name: 'Alto',
-			levelNumbers: [17, 18, 19, 20],
 			topographyBucketCount: null,
 			topographyHeights: null,
 			topographyRangeLabel: null

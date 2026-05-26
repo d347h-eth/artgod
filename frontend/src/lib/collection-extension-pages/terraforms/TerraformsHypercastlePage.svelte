@@ -23,9 +23,6 @@
 		defaultTerraformsSelectedLevelZoneSortColumn,
 		defaultTerraformsSelectedLevelZoneSortDirection,
 		formatTerraformsLevelZoneSortLabel,
-		formatTerraformsZoneLevelLinkLabel,
-		formatTerraformsZoneLevelNumbers,
-		formatTerraformsZoneLevelSeparator,
 		formatTerraformsZonePaletteCopyLabel,
 		formatTerraformsZonePaletteCopyValue,
 		formatTerraformsZonePaletteSwatchLabel,
@@ -352,29 +349,6 @@
 												</button>
 											</div>
 										</td>
-									{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Levels}
-										<td title={formatTerraformsZoneLevelNumbers(row)}>
-											<span class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.levelList}>
-												{#each row.levelNumbers as levelNumber, levelIndex}
-													{#if levelIndex > 0}
-														<span>{formatTerraformsZoneLevelSeparator()}</span>
-													{/if}
-													{#if selectedLevelNumber === levelNumber}
-														<span>{levelNumber}</span>
-													{:else}
-														<button
-															type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
-															class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.levelButton}
-															title={formatTerraformsZoneLevelLinkLabel(levelNumber)}
-															aria-label={formatTerraformsZoneLevelLinkLabel(levelNumber)}
-															onclick={() => selectLevel(levelNumber)}
-														>
-															{levelNumber}
-														</button>
-													{/if}
-												{/each}
-											</span>
-										</td>
 									{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography}
 										<td
 											class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}
@@ -507,23 +481,16 @@
 		min-width: 7rem;
 	}
 
-	.terraforms-hypercastle-table-link,
-	.terraforms-hypercastle-zone-level-button {
-		border: 0;
-		padding: 0;
-		background: transparent;
-		color: var(--c-blue);
+	.terraforms-hypercastle-table-link {
+		color: var(--c-cyan);
 		font: inherit;
 		text-decoration: underline;
 		text-decoration-thickness: 1px;
 		text-underline-offset: 2px;
-		cursor: pointer;
 	}
 
 	.terraforms-hypercastle-table-link:hover,
-	.terraforms-hypercastle-table-link:focus-visible,
-	.terraforms-hypercastle-zone-level-button:hover,
-	.terraforms-hypercastle-zone-level-button:focus-visible {
+	.terraforms-hypercastle-table-link:focus-visible {
 		color: var(--c-yellow);
 	}
 
@@ -588,7 +555,7 @@
 		padding: 0;
 		border: 0;
 		background: transparent;
-		color: var(--c-blue);
+		color: var(--c-cyan);
 		cursor: pointer;
 	}
 
@@ -605,7 +572,6 @@
 		color: var(--c-pink);
 	}
 
-	.terraforms-hypercastle-zone-level-list,
 	.terraforms-hypercastle-zone-numeric-cell {
 		font-family: var(--font-mono);
 		white-space: nowrap;

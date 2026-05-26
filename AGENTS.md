@@ -59,6 +59,8 @@ For implementation details, use:
   Keep controls in compact left-aligned groups unless the user explicitly asks for right-edge placement.
 - For frontend controls, reuse existing visual/control families when the interaction already exists elsewhere in the app.
   Do not introduce near-duplicate button/tab styles or alternate active-state behavior without explicit user approval.
+- For frontend styling and interaction behavior, follow `docs/ui/01-interaction-guidelines.md` before adding feature-local CSS.
+  Treat the existing color semantics as a critical rule: normal links are cyan, hover/focus is yellow, and selected/active states are orange.
 - Do not add redundant UI explanatory text, helper copy, or placeholder descriptions unless the user explicitly asks for it.
   Prefer compact labels and controls over instructional prose.
 

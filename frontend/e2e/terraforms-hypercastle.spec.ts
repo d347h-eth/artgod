@@ -29,8 +29,6 @@ import {
 	defaultTerraformsSelectedLevelZoneSortColumn,
 	defaultTerraformsSelectedLevelZoneSortDirection,
 	formatTerraformsLevelZoneSortLabel,
-	formatTerraformsZoneLevelLinkLabel,
-	formatTerraformsZoneLevelNumbers,
 	formatTerraformsZonePaletteCopyLabel,
 	formatTerraformsZonePaletteCopyValue,
 	formatTerraformsZoneTopographyHeights,
@@ -109,7 +107,6 @@ type HypercastleLevelDetailMetrics = {
 	heading: string | null;
 	rowCount: number;
 	rowNames: string[];
-	rowLevelValues: string[];
 	rowTopographyValues: string[];
 	paletteSwatchCount: number;
 	paletteCopyButtonCount: number;
@@ -474,21 +471,6 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
 		await assertBiomeTableRows(biomeTable);
-		const firstAllLevelZoneRow = expectedAllLevelZoneRows()[0]!;
-		await zoneTable
-			.locator(TABLE_SELECTORS.bodyRows)
-			.first()
-			.getByRole(ACCESSIBLE_ROLES.button, {
-				name: formatTerraformsZoneLevelLinkLabel(firstAllLevelZoneRow.levelNumbers[0]!)
-			})
-			.click();
-		await expect(
-			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
-				name: formatTerraformsLevelTitle(firstAllLevelZoneRow.levelNumbers[0]!)
-			})
-		).toBeVisible();
-		await allLevelsGuide.click();
-		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
 		const surfaceKeyBeforeAllLevelsReroll = await page
 			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)
 			.getAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey);
@@ -579,9 +561,6 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		expect(detailMetrics.rowCount).toBe(defaultRows.length);
 		expect(detailMetrics.rowNames).toEqual(defaultRows.map((row) => row.name));
-		expect(detailMetrics.rowLevelValues).toEqual(
-			defaultRows.map((row) => formatTerraformsZoneLevelNumbers(row))
-		);
 		expect(detailMetrics.rowTopographyValues).toEqual(
 			defaultRows.map((row) => formatTerraformsZoneTopographyHeights(row))
 		);
@@ -901,11 +880,8 @@ async function collectHypercastleLevelDetailMetrics(
 			heading: heading?.textContent ?? null,
 			rowCount: rows.length,
 			rowNames: rowCells.map((cells) => cells[0]?.textContent ?? contract.emptyAttributeValue),
-			rowLevelValues: rowCells.map(
-				(cells) => cells[2]?.textContent?.trim() ?? contract.emptyAttributeValue
-			),
 			rowTopographyValues: rowCells.map(
-				(cells) => cells[3]?.textContent?.trim() ?? contract.emptyAttributeValue
+				(cells) => cells[2]?.textContent?.trim() ?? contract.emptyAttributeValue
 			),
 			paletteSwatchCount: table?.querySelectorAll(contract.selectors.paletteSwatch).length ?? 0,
 			paletteCopyButtonCount:
@@ -937,13 +913,12 @@ async function assertZoneTableRows(
 		await expect(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteCopyButton)
 		).toHaveCount(1);
-		await expect(cells.nth(2)).toHaveText(formatTerraformsZoneLevelNumbers(row));
 		if (row.topographyBucketCount === null) {
-			await expect(cells).toHaveCount(3);
+			await expect(cells).toHaveCount(2);
 		} else {
-			await expect(cells).toHaveCount(4);
-			await expect(cells.nth(3)).toHaveText(formatTerraformsZoneTopographyHeights(row));
-			await expect(cells.nth(3)).toHaveAttribute(
+			await expect(cells).toHaveCount(3);
+			await expect(cells.nth(2)).toHaveText(formatTerraformsZoneTopographyHeights(row));
+			await expect(cells.nth(2)).toHaveAttribute(
 				SVG_ATTRIBUTE_NAMES.title,
 				formatTerraformsZoneTopographyRangeLabel(row)
 			);

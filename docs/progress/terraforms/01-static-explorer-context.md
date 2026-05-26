@@ -597,10 +597,9 @@ Current implementation notes:
 - `frontend/src/lib/collection-extension-pages/terraforms/biomes.ts` builds the all-level Biome catalog from static contract data only.
 - `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-selection.ts` owns extension-local selection labels and state helpers for `All Levels` and `Level X` headings.
 - Zone `name` cells are token-browser links with static trait filters for the Zone. They intentionally target the pure token browser, not the ask book.
-- Zone tables include a `levels` column derived from static level Zone windows. Each listed level number selects that level in the overview; the currently selected level remains plain text.
 - Zone `palette` cells show the 10-swatch palette and a copy button that copies the palette hex values joined by `, `.
-- The all-level Zone table shows `name`, the 10-swatch `palette`, and `levels` for all 75 Zones.
-- The selected-level Zone table shows `name`, the 10-swatch `palette`, `levels`, and centered `topography`.
+- The all-level Zone table shows `name` and the 10-swatch `palette` for all 75 Zones.
+- The selected-level Zone table shows `name`, the 10-swatch `palette`, and centered `topography`.
 - The `All Levels` detail also renders a complete Biome table with token-browser links by Biome number and the 9 visible Mathcastles Remix glyphs for each character set. The 10th/fill character is intentionally omitted in the isolated Biome catalog view.
 - `topography` now emits one table row per exact contract elevation bucket. Zones that appear at multiple elevations repeat with the same palette at each exact height, and selected-level tables default to topology-first ordering. Raw Perlin threshold ranges remain available as cell titles. This is deterministic without replaying minted placements, but it is still not a faithful parcel rarity column.
 - Zone table headers are sortable; default order is name ascending. Removed the earlier bucket-share column because it implied equal bucket probability that the contract noise thresholds do not guarantee.
@@ -608,7 +607,7 @@ Current implementation notes:
 - Mono palettes whose heightmap colors are identical across indexes 0 through 8 deterministically mix the canonical background fill color from index 9 into one heightmap index so the overview can still reveal that Terraforms background color.
 - In a selected-level Zone table, clicking any palette swatch applies that Zone palette to the selected slab and generates a new random surface for that level.
 - The page exposes a compact dice-icon reroll button through the shared collection page action panel. It is always visible on the Hypercastle page and rebuilds all transient level surfaces and active palettes using the same sequence as page load.
-- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels`, Level 12, and Level 14 in browser, verifies selected state, verifies Zone table rows, Zone trait links, linked level selection, palette copying, Biome table rows, sorting, page-level rerolling, selected-level palette application, and attaches default, all-level, hover, selected-level, and surface-texture screenshots on desktop and mobile.
+- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels`, Level 12, and Level 14 in browser, verifies selected state, verifies Zone table rows, Zone trait links, palette copying, Biome table rows, sorting, page-level rerolling, selected-level palette application, and attaches default, all-level, hover, selected-level, and surface-texture screenshots on desktop and mobile.
 
 Remaining work:
 
