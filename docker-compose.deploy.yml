@@ -21,6 +21,9 @@ x-artgod-service: &artgod-service
         - .env.deploy
     environment:
         ARTGOD_WORKSPACE_ROOT: /app
+    networks:
+        default:
+        ethereum-rpc:
     volumes:
         - artgod-data:/data
 
@@ -85,6 +88,7 @@ services:
             public-edge:
                 aliases:
                     - artgod-backend
+            ethereum-rpc:
         command:
             ["./scripts/deploy/run-node-runtime.sh", "backend/dist-desktop/server.mjs"]
         environment:
@@ -310,4 +314,7 @@ volumes:
 networks:
     public-edge:
         name: ${PUBLIC_EDGE_NETWORK:-public-edge}
+        external: true
+    ethereum-rpc:
+        name: ${ETHEREUM_RPC_NETWORK:-ethereum-rpc}
         external: true
