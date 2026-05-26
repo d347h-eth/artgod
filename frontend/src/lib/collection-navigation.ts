@@ -11,6 +11,7 @@ import {
 import type {
 	ApiActivityExtensionEventFeed,
 	ApiActivityExtensionEventRef,
+	ApiCollectionExtensionSummary,
 	ApiTokenAttribute,
 	ApiTraitRangeFilter
 } from '$lib/api-types';
@@ -24,6 +25,7 @@ import {
 } from '$lib/bidding-query';
 import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 import { buildCollectionCustomizationHref } from '$lib/customization-query';
+import type { CollectionExtensionNavigationPageTarget } from '$lib/collection-extension-navigation';
 import { appendMediaModeParam } from '$lib/media-mode';
 import { joinPath, normalizeBasePath, withQuery } from '$lib/route-paths';
 import {
@@ -37,6 +39,7 @@ export type CollectionNavigationState = {
 	basePath: string;
 	mediaMode?: string | null;
 	activityEventFeeds?: ApiActivityExtensionEventFeed[];
+	collectionExtensions?: ApiCollectionExtensionSummary[];
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	token?: {
@@ -69,6 +72,7 @@ export type CollectionNavigation = {
 	showBiddingJobs: boolean;
 	showBlockspace: boolean;
 	activityEventFeeds: ApiActivityExtensionEventFeed[];
+	collectionExtensions: ApiCollectionExtensionSummary[];
 	queries: {
 		tokens: URLSearchParams;
 		activities: URLSearchParams;
@@ -85,6 +89,7 @@ export type CollectionNavigation = {
 		tokenStatus: (tokenStatus: CollectionTokenStatus) => string;
 		activityKind: (kind: ActivityFeedFilterKind) => string;
 		activityExtensionEvent: (event: ApiActivityExtensionEventRef) => string;
+		extensionPage: (target: CollectionExtensionNavigationPageTarget) => string;
 		biddingView: (view: CollectionBiddingViewMode) => string | null;
 	};
 };
@@ -98,6 +103,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	const activityKind = state.activity?.kind ?? COLLECTION_ACTIVITY_FILTER_KINDS[0];
 	const activityExtensionEvent = state.activity?.extensionEvent ?? null;
 	const activityEventFeeds = state.activityEventFeeds ?? [];
+	const collectionExtensions = state.collectionExtensions ?? [];
 	const defaultBiddingVisibility = state.bidding?.enabled ?? true;
 	const showBiddingOffers = state.bidding?.showOffers ?? defaultBiddingVisibility;
 	const showBiddingJobs = state.bidding?.showJobs ?? defaultBiddingVisibility;
@@ -147,6 +153,19 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		query.set(ACTIVITY_EXTENSION_EVENT_QUERY_PARAM, formatActivityExtensionEventRef(event));
 		return withQuery(joinPath(normalizedBasePath, 'activity'), query);
 	};
+	const extensionPageHref = (target: CollectionExtensionNavigationPageTarget): string => {
+		const query = new URLSearchParams();
+		if (target.preserveMediaMode) {
+			appendMediaModeParam(query, mediaMode);
+		}
+		return withQuery(
+			joinPath(
+				normalizedBasePath,
+				`extensions/${encodeURIComponent(target.extensionKey)}/${encodeURIComponent(target.pageRef)}`
+			),
+			query
+		);
+	};
 	const biddingViewHref = (view: CollectionBiddingViewMode): string | null => {
 		if (view === COLLECTION_BIDDING_VIEW_MODE.BidBook && !showBiddingOffers) return null;
 		if (view === COLLECTION_BIDDING_VIEW_MODE.Jobs && !showBiddingJobs) return null;
@@ -168,6 +187,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		showBiddingJobs,
 		showBlockspace,
 		activityEventFeeds,
+		collectionExtensions,
 		queries: {
 			tokens: tokenQuery,
 			activities: activityQuery,
@@ -189,6 +209,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			tokenStatus: tokenStatusHref,
 			activityKind: activityKindHref,
 			activityExtensionEvent: activityExtensionEventHref,
+			extensionPage: extensionPageHref,
 			biddingView: biddingViewHref
 		}
 	};

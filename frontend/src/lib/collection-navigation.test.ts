@@ -4,6 +4,7 @@ import {
 	resolveCollectionSectionShortcutHref
 } from '$lib/collection-navigation';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+import { COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND } from '$lib/collection-extension-navigation';
 
 describe('buildCollectionNavigation', () => {
 	it('builds collection section hrefs from explicit navigation state', () => {
@@ -41,6 +42,21 @@ describe('buildCollectionNavigation', () => {
 		expect(navigation.hrefs.activityKind('listings')).toBe(
 			'/ethereum/milady/activity?limit=25&kind=listings&media_mode=artifact&traits=Mode%3ATerrain'
 		);
+		expect(
+			navigation.hrefs.extensionPage({
+				kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage,
+				extensionKey: 'terraforms',
+				pageRef: 'hypercastle'
+			})
+		).toBe('/ethereum/milady/extensions/terraforms/hypercastle');
+		expect(
+			navigation.hrefs.extensionPage({
+				kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage,
+				extensionKey: 'terraforms',
+				pageRef: 'hypercastle',
+				preserveMediaMode: true
+			})
+		).toBe('/ethereum/milady/extensions/terraforms/hypercastle?media_mode=artifact');
 		expect(navigation.hrefs.holders).toBe('/ethereum/milady/holders?media_mode=artifact');
 		expect(navigation.hrefs.blockspace).toBe('/ethereum/blockspace?collection=milady');
 	});

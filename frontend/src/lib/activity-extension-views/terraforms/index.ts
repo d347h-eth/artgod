@@ -1,6 +1,7 @@
 import {
 	TERRAFORMS_EXTENSION_EVENT_KEYS,
-	TERRAFORMS_EXTENSION_KEY
+	TERRAFORMS_EXTENSION_KEY,
+	TERRAFORMS_EXTENSION_PAGE_REFS
 } from '@artgod/shared/extensions/terraforms';
 import {
 	ACTIVITY_TABLE_COLUMN_IDS,
@@ -17,8 +18,12 @@ import {
 	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS,
 	TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_LABELS,
 	TERRAFORMS_BEACON_COLUMN_IDS,
-	TERRAFORMS_BEACON_COLUMN_LABELS
+	TERRAFORMS_BEACON_COLUMN_LABELS,
+	TERRAFORMS_EXTENSION_PAGE_NAVIGATION_GROUP_IDS,
+	TERRAFORMS_EXTENSION_PAGE_NAVIGATION_GROUP_LABELS,
+	TERRAFORMS_EXTENSION_PAGE_NAVIGATION_TAB_IDS
 } from '$lib/activity-extension-views/terraforms/constants';
+import { TERRAFORMS_EXTENSION_PAGE_LABELS } from '$lib/collection-extension-pages/terraforms/constants';
 import TerraformsBeaconActionCell from '$lib/activity-extension-views/terraforms/TerraformsBeaconActionCell.svelte';
 import TerraformsBeaconContentCell from '$lib/activity-extension-views/terraforms/TerraformsBeaconContentCell.svelte';
 import TerraformsBeaconFilters from '$lib/activity-extension-views/terraforms/TerraformsBeaconFilters.svelte';
@@ -96,8 +101,25 @@ export function registerTerraformsCollectionNavigation(
 	registrar: CollectionExtensionNavigationRegistrar
 ): void {
 	registrar.registerCollectionNavigationGroup({
+		id: TERRAFORMS_EXTENSION_PAGE_NAVIGATION_GROUP_IDS.CollectionPages,
+		label: TERRAFORMS_EXTENSION_PAGE_NAVIGATION_GROUP_LABELS.CollectionPages,
+		order: 100,
+		tabs: [
+			{
+				id: TERRAFORMS_EXTENSION_PAGE_NAVIGATION_TAB_IDS.Hypercastle,
+				label: TERRAFORMS_EXTENSION_PAGE_LABELS.Hypercastle,
+				target: {
+					kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage,
+					extensionKey: TERRAFORMS_EXTENSION_KEY,
+					pageRef: TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle
+				}
+			}
+		]
+	});
+	registrar.registerCollectionNavigationGroup({
 		id: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_IDS.CollectionEvents,
 		label: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_GROUP_LABELS.CollectionEvents,
+		order: 200,
 		tabs: [
 			{
 				id: TERRAFORMS_ACTIVITY_EVENT_NAVIGATION_TAB_IDS.Dreams,

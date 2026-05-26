@@ -5,6 +5,8 @@ import {
 } from "./index.js";
 import { normalizeAddressRef } from "../utils/ref-resolver.js";
 
+export * from "./terraforms-structure.js";
+
 export const TERRAFORMS_EXTENSION_KEY = "terraforms";
 
 export const TERRAFORMS_EXTENSION_ARTIFACT_REFS = {
@@ -19,6 +21,11 @@ export const TERRAFORMS_EXTENSION_EVENT_MEDIA_REFS = {
 export const TERRAFORMS_EXTENSION_EVENT_KEYS = {
     Terraformed: "terraformed",
     Beacon: "beacon",
+} as const;
+
+// Terraforms collection page refs exposed through the frontend extension page port.
+export const TERRAFORMS_EXTENSION_PAGE_REFS = {
+    Hypercastle: "hypercastle",
 } as const;
 
 // Terraforms beacon rows use one feed with token-owner and Mathcastles admin groups.

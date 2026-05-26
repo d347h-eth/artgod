@@ -7,8 +7,10 @@
 		type CollectionBiddingViewMode
 	} from '$lib/bidding-query';
 	import {
+		collectionExtensionNavigationTabPage,
 		collectionExtensionNavigationTabActivityEvent,
 		resolveCollectionExtensionNavigationGroups,
+		type CollectionExtensionNavigationPageTarget,
 		type CollectionExtensionNavigationTab
 	} from '$lib/collection-extension-navigation';
 	import type { CollectionNavigation } from '$lib/collection-navigation';
@@ -20,14 +22,24 @@
 		activeTokenStatus = null,
 		activeActivityKind = null,
 		activeActivityExtensionEvent = null,
+		activeExtensionPage = null,
 		activeBiddingView = null,
 		showCustomization = true
 	}: {
 		navigation: CollectionNavigation;
-		active: 'tokens' | 'activities' | 'holders' | 'customization' | 'bidding' | 'blockspace' | null;
+		active:
+			| 'tokens'
+			| 'activities'
+			| 'holders'
+			| 'customization'
+			| 'bidding'
+			| 'blockspace'
+			| 'extension-page'
+			| null;
 		activeTokenStatus?: CollectionTokenStatus | null;
 		activeActivityKind?: ActivityFeedFilterKind | null;
 		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
+		activeExtensionPage?: CollectionExtensionNavigationPageTarget | null;
 		activeBiddingView?: CollectionBiddingViewMode | null;
 		showCustomization?: boolean;
 	} = $props();
@@ -56,19 +68,24 @@
 
 	let extensionNavigationGroups = $derived(
 		resolveCollectionExtensionNavigationGroups({
-			activityEventFeeds: navigation.activityEventFeeds
+			activityEventFeeds: navigation.activityEventFeeds,
+			collectionExtensions: navigation.collectionExtensions
 		})
 	);
 
 	function extensionNavigationTabHref(tab: CollectionExtensionNavigationTab): string {
 		const event = collectionExtensionNavigationTabActivityEvent(tab);
-		return event ? activityExtensionEventHref(event) : '#';
+		if (event) return activityExtensionEventHref(event);
+		const page = collectionExtensionNavigationTabPage(tab);
+		return page ? navigation.hrefs.extensionPage(page) : '#';
 	}
 
 	function extensionNavigationTabIsSelected(tab: CollectionExtensionNavigationTab): boolean {
 		const event = collectionExtensionNavigationTabActivityEvent(tab);
-		if (!event) return false;
-		return activityExtensionEventIsSelected(event);
+		if (event) return activityExtensionEventIsSelected(event);
+		const page = collectionExtensionNavigationTabPage(tab);
+		if (!page) return false;
+		return extensionPageIsSelected(page);
 	}
 
 	function activityExtensionEventIsSelected(event: ApiActivityExtensionEventRef): boolean {
@@ -76,6 +93,14 @@
 			active === 'activities' &&
 			activeActivityExtensionEvent?.extensionKey === event.extensionKey &&
 			activeActivityExtensionEvent?.eventKey === event.eventKey
+		);
+	}
+
+	function extensionPageIsSelected(page: CollectionExtensionNavigationPageTarget): boolean {
+		return (
+			active === 'extension-page' &&
+			activeExtensionPage?.extensionKey === page.extensionKey &&
+			activeExtensionPage?.pageRef === page.pageRef
 		);
 	}
 </script>

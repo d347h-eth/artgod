@@ -3,6 +3,8 @@ import {
 	registerTerraformsActivityExtensionViews,
 	registerTerraformsCollectionNavigation
 } from '$lib/activity-extension-views/terraforms';
+import { collectionExtensionPageRegistrar } from '$lib/collection-extension-pages';
+import { registerTerraformsCollectionExtensionPages } from '$lib/collection-extension-pages/terraforms';
 import { collectionExtensionNavigationRegistrar } from '$lib/collection-extension-navigation';
 import { registerTerraformsTokenDetailExtensionSections } from '$lib/token-detail-extension-sections/terraforms';
 import { tokenDetailExtensionSectionRegistrar } from '$lib/token-detail-extension-sections';
@@ -15,6 +17,7 @@ export function installBuiltInCollectionExtensions(): void {
 	builtInCollectionExtensionsInstalled = true;
 
 	registerTerraformsActivityExtensionViews(activityExtensionEventViewRegistrar);
+	registerTerraformsCollectionExtensionPages(collectionExtensionPageRegistrar);
 	registerTerraformsCollectionNavigation(collectionExtensionNavigationRegistrar);
 	registerTerraformsTokenDetailExtensionSections(tokenDetailExtensionSectionRegistrar);
 }
