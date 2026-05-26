@@ -9,7 +9,8 @@ import {
 import {
 	buildTerraformsBiomeRows,
 	buildTerraformsBiomeTokenHref,
-	TERRAFORMS_BIOME_TABLE_DOM
+	TERRAFORMS_BIOME_TABLE_DOM,
+	TERRAFORMS_BIOME_TABLE_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/biomes';
 import {
 	formatTerraformsHypercastleOverviewLevelGuideLabel,
@@ -35,6 +36,7 @@ import {
 	formatTerraformsZoneTopographyRangeLabel,
 	sortTerraformsLevelZoneRows,
 	TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES,
+	TERRAFORMS_LEVEL_ZONE_SECTION_LABELS,
 	TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS,
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS,
 	TERRAFORMS_LEVEL_ZONE_TABLE_DOM,
@@ -473,10 +475,15 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await expectHypercastleRouteSelection(page, TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES.AllLevels);
 		await expect(
 			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
-				name: TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels
+				name: TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones
 			})
 		).toBeVisible();
 		await expect(biomePanel).toBeVisible();
+		await expect(
+			biomePanel.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: TERRAFORMS_BIOME_TABLE_LABELS.Heading
+			})
+		).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
 		await assertBiomeTableRows(biomeTable);
 		const surfaceKeyBeforeAllLevelsReroll = await page

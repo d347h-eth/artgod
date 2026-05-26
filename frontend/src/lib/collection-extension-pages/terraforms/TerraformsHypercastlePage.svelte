@@ -121,6 +121,7 @@
 	let showZoneTable = $derived(detailTitle !== null && zoneRows.length > 0);
 	let biomeRows = $derived(allLevelsSelected ? buildTerraformsBiomeRows() : []);
 	let showBiomeTable = $derived(allLevelsSelected && biomeRows.length > 0);
+	let showDetailTitle = $derived(detailTitle !== null && !allLevelsSelected);
 
 	afterNavigate(() => {
 		syncSelectionFromCurrentLocation();
@@ -350,9 +351,11 @@
 		data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.detailPanel}
 	>
 		{#if showZoneTable && detailTitle}
-			<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
-				{detailTitle}
-			</h2>
+			{#if showDetailTitle}
+				<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
+					{detailTitle}
+				</h2>
+			{/if}
 			{#if allLevelsSelected}
 				<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
 					{TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones}
@@ -469,9 +472,9 @@
 			class={TERRAFORMS_BIOME_TABLE_DOM.classes.panel}
 			data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.panel}
 		>
-			<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
+			<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
 				{TERRAFORMS_BIOME_TABLE_LABELS.Heading}
-			</h2>
+			</h3>
 			<div class="table-wrap">
 				<table
 					class={`${TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.table} ${TERRAFORMS_BIOME_TABLE_DOM.classes.table}`}
@@ -570,6 +573,11 @@
 	}
 
 	.terraforms-hypercastle-level-detail-heading + .terraforms-hypercastle-level-detail-subheading {
+		margin-top: 0;
+	}
+
+	.terraforms-hypercastle-level-detail > .terraforms-hypercastle-level-detail-subheading:first-child,
+	.terraforms-hypercastle-biome-detail > .terraforms-hypercastle-level-detail-subheading:first-child {
 		margin-top: 0;
 	}
 
