@@ -134,7 +134,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 export const TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION = {
 	ariaLabel: 'Hypercastle overview',
 	renderError: 'isometric renderer unavailable',
-	color: 'var(--c-blue)',
+	color: 'var(--c-cyan)',
 	canvasBackground: 'transparent',
 	fillOpacity: {
 		top: 0,

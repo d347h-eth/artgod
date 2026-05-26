@@ -60,7 +60,8 @@ For implementation details, use:
 - For frontend controls, reuse existing visual/control families when the interaction already exists elsewhere in the app.
   Do not introduce near-duplicate button/tab styles or alternate active-state behavior without explicit user approval.
 - For frontend styling and interaction behavior, follow `docs/ui/01-interaction-guidelines.md` before adding feature-local CSS.
-  Treat the existing color semantics as a critical rule: normal links are cyan, hover/focus is yellow, and selected/active states are orange.
+  Treat `frontend/src/app.css` as the UI color source of truth: `--c-bg`, `--c-cyan`, `--c-blue`, `--c-pink`, `--c-sand`, `--c-ice`, `--c-yellow`, and `--c-orange` are the only UI chrome colors.
+  Do not add raw hex/rgb/hsl/named color literals, one-off color variables, or feature-local palettes for UI chrome. Normal links are cyan, hover/focus is yellow, and selected/active states are orange.
 - Do not add redundant UI explanatory text, helper copy, or placeholder descriptions unless the user explicitly asks for it.
   Prefer compact labels and controls over instructional prose.
 

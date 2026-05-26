@@ -1032,11 +1032,17 @@
 	:global(
 			.terraforms-hypercastle-overview-level-guide-hovered
 				.terraforms-hypercastle-overview-level-guide-label
-	),
+	) {
+		fill: var(--c-yellow);
+		filter: brightness(1.35);
+		fill-opacity: 1;
+	}
+
 	:global(
 			.terraforms-hypercastle-overview-level-guide-selected
 				.terraforms-hypercastle-overview-level-guide-label
 	) {
+		fill: var(--c-orange);
 		filter: brightness(1.35);
 		fill-opacity: 1;
 	}
@@ -1052,11 +1058,17 @@
 	:global(
 			.terraforms-hypercastle-overview-all-levels-guide-hovered
 				.terraforms-hypercastle-overview-all-levels-guide-label
-	),
+	) {
+		fill: var(--c-yellow);
+		filter: brightness(1.35);
+		fill-opacity: 1;
+	}
+
 	:global(
 			.terraforms-hypercastle-overview-all-levels-guide-selected
 				.terraforms-hypercastle-overview-all-levels-guide-label
 	) {
+		fill: var(--c-orange);
 		filter: brightness(1.35);
 		fill-opacity: 1;
 	}
@@ -1072,11 +1084,16 @@
 	:global(
 			.terraforms-hypercastle-overview-level-guide-hovered
 				.terraforms-hypercastle-overview-level-guide-leader
-	),
+	) {
+		stroke: var(--c-yellow);
+		stroke-opacity: 1;
+	}
+
 	:global(
 			.terraforms-hypercastle-overview-level-guide-selected
 				.terraforms-hypercastle-overview-level-guide-leader
 	) {
+		stroke: var(--c-orange);
 		stroke-opacity: 1;
 	}
 </style>
