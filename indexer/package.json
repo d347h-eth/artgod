@@ -16,6 +16,7 @@
         "dev:opensea-reconcile-scheduler-worker": "tsx src/runtime/opensea-reconcile-scheduler-worker.ts",
         "dev:bootstrap-worker": "tsx src/runtime/bootstrap-worker.ts",
         "dev:collection-extension-worker": "tsx src/runtime/collection-extension-worker.ts",
+        "dev:backfill-trigger": "tsx scripts/trigger-backfill.ts",
         "dev:bootstrap-trigger": "tsx scripts/trigger-bootstrap.ts",
         "dev:collection-extension-trigger-range": "tsx scripts/trigger-collection-extension-artifacts-range.ts",
         "inspect:queue": "tsx scripts/inspect-jetstream-backlog.ts",

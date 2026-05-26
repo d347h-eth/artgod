@@ -236,6 +236,12 @@ yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --met
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode best_effort
 ```
 
+Trigger manual historical backfill from CLI:
+
+```sh
+yarn workspace @artgod/indexer run dev:backfill-trigger --from-block <n> --to-block <n> [--collection-id <id>] [--batch-size <n>]
+```
+
 ## Configuration
 
 Create env files:
