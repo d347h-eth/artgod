@@ -134,12 +134,10 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION = {
 	color: 'var(--c-blue)',
 	canvasBackground: 'transparent',
 	fillOpacity: {
-		top: 0,
-		vertical: 1
+		top: 1
 	},
 	strokeOpacity: {
-		top: 0,
-		visible: 1
+		top: 0
 	},
 	strokeDashArray: {
 		solid: [],
@@ -160,10 +158,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES = {
 	fillTransparent: '0',
 	fillOpaque: '1',
 	pointerEventsAll: 'all',
-	pointerEventsNone: 'none',
-	strokeDashArraySolid: '',
 	strokeDashArrayDashed: '4 3',
-	strokeLinecapButt: 'butt',
 	strokeOpacityHidden: '0',
 	strokeWidthSingle: '1'
 } as const;
@@ -355,7 +350,7 @@ export function buildTerraformsHypercastleOverviewLevelGuides(
 			{
 				right: layer.halfSizeUnits,
 				left: -layer.halfSizeUnits,
-				top: layer.baseTopUnits
+				top: layer.topFaceTopUnits
 			},
 			layout
 		);
@@ -407,15 +402,6 @@ export function projectTerraformsHypercastleOverviewPointToScreen(
 	};
 }
 
-export function isTerraformsHypercastleOverviewVerticalFace(
-	face: TerraformsHypercastleOverviewFaceKind
-): boolean {
-	return (
-		face === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front ||
-		face === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
-	);
-}
-
 function resolveLayerSizeUnits(level: TerraformsLevelSummary): number {
 	return clamp(
 		(level.dimension / TERRAFORMS_HYPERCASTLE_MAX_LEVEL_DIMENSION) * OVERVIEW_MAX_LAYER_SIZE_UNITS,
@@ -428,16 +414,13 @@ function resolveLayerProjectedPoints(
 	layer: TerraformsHypercastleOverviewLayer
 ): TerraformsHypercastleOverviewProjectedPoint[] {
 	const edges = [-layer.halfSizeUnits, layer.halfSizeUnits];
-	const topValues = [layer.baseTopUnits, layer.topFaceTopUnits];
 	return edges.flatMap((right) =>
 		edges.flatMap((left) =>
-			topValues.map((top) =>
-				projectTerraformsHypercastleOverviewPoint({
-					right,
-					left,
-					top
-				})
-			)
+			projectTerraformsHypercastleOverviewPoint({
+				right,
+				left,
+				top: layer.topFaceTopUnits
+			})
 		)
 	);
 }

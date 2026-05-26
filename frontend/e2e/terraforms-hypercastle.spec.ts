@@ -12,14 +12,15 @@ import {
 	resolveTerraformsHypercastleOverviewLevelGuideElementId,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM,
-	TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS,
-	TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION
+	TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-overview';
 import {
 	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
 	defaultTerraformsLevelZoneSortColumn,
 	defaultTerraformsLevelZoneSortDirection,
+	defaultTerraformsSelectedLevelZoneSortColumn,
+	defaultTerraformsSelectedLevelZoneSortDirection,
 	formatTerraformsLevelZoneSortLabel,
 	formatTerraformsZoneTopographyHeights,
 	formatTerraformsZoneTopographyRangeLabel,
@@ -63,27 +64,18 @@ type HypercastleOverviewMetrics = {
 	faceCount: number;
 	verticalFaceCount: number;
 	topFaceCount: number;
-	verticalFillColor: string[];
-	verticalStrokeColor: string[];
-	verticalFillOpacity: string[];
+	layerOrder: string[];
 	topFillOpacity: string[];
 	topStrokeOpacity: string[];
 	sampleLevelTopFillColor: string[];
-	sampleLevelVerticalFillColor: string[];
-	sampleLevelVerticalStrokeColor: string[];
 	sampleLevelSurfaceZoneIndex: string | null;
 	sampleLevelSurfaceSeed: string | null;
 	sampleLevelSurfaceBackgroundColor: string | null;
 	surfacePatternCount: number;
 	surfacePatternCellCount: number;
 	surfaceKey: string | null;
-	verticalStrokeDashArray: string[];
-	verticalPointerEvents: string[];
 	topPointerEvents: string[];
-	level12VerticalFillColor: string[];
 	level12SurfaceBackgroundColor: string | null;
-	level12VerticalStrokeDashArray: string[];
-	level12VerticalStrokeLinecap: string[];
 	levelGuideCount: number;
 	levelGuideLeaderCount: number;
 	levelGuideLabelCount: number;
@@ -94,8 +86,7 @@ type HypercastleOverviewMetrics = {
 	levelGuideLabels: string[];
 	allLevelsGuideCount: number;
 	allLevelsGuideLabel: string | null;
-	level12ReachableFrontPoint: ReachableLayerPoint | null;
-	level12ReachableSidePoint: ReachableLayerPoint | null;
+	level12ReachableTopPoint: ReachableLayerPoint | null;
 };
 
 type HypercastleLevelDetailMetrics = {
@@ -196,8 +187,8 @@ const TEST_ARTIFACTS = {
 } as const;
 const EMPTY_ATTRIBUTE_VALUE = '';
 const HYPERCASTLE_EXPECTED_LEVEL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.length;
-const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 3;
-const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 2;
+const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT;
+const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = 0;
 const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER = 12;
 const HYPERCASTLE_DETAIL_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
@@ -279,31 +270,11 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
 			)
 		)}`,
-		texturedVerticalFace: `${idSelector(
-			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
-		)} ${classSelector(
-			resolveTerraformsHypercastleOverviewFaceClassName(
-				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front
-			)
-		)}, ${idSelector(
-			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
-		)} ${classSelector(
-			resolveTerraformsHypercastleOverviewFaceClassName(
-				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
-			)
-		)}`,
-		reachableFrontFace: `${idSelector(
+		reachableTopFace: `${idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		)} ${classSelector(
 			resolveTerraformsHypercastleOverviewFaceClassName(
-				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front
-			)
-		)}`,
-		reachableSideFace: `${idSelector(
-			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
-		)} ${classSelector(
-			resolveTerraformsHypercastleOverviewFaceClassName(
-				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
 			)
 		)}`
 	},
@@ -356,15 +327,9 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(metrics.faceCount).toBe(HYPERCASTLE_EXPECTED_FACE_COUNT);
 		expect(metrics.verticalFaceCount).toBe(HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT);
 		expect(metrics.topFaceCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
-		expect(metrics.verticalFillColor).not.toContain(
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color
+		expect(metrics.layerOrder).toEqual(
+			TERRAFORMS_HYPERCASTLE_LEVELS.map((level) => String(level.levelNumber))
 		);
-		expect(metrics.verticalStrokeColor).not.toContain(
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color
-		);
-		expect(metrics.verticalFillOpacity).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillOpaque
-		]);
 		expect(metrics.topFillOpacity).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillOpaque
 		]);
@@ -377,12 +342,6 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(metrics.sampleLevelSurfaceZoneIndex).not.toBeNull();
 		expect(metrics.sampleLevelSurfaceSeed).not.toBeNull();
 		expect(metrics.sampleLevelSurfaceBackgroundColor).not.toBeNull();
-		expect(metrics.sampleLevelVerticalFillColor).toEqual([
-			metrics.sampleLevelSurfaceBackgroundColor
-		]);
-		expect(metrics.sampleLevelVerticalStrokeColor).toEqual([
-			metrics.sampleLevelSurfaceBackgroundColor
-		]);
 		expect(metrics.surfacePatternCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
 		expect(metrics.surfacePatternCellCount).toBe(
 			HYPERCASTLE_EXPECTED_LEVEL_COUNT *
@@ -390,23 +349,10 @@ test.describe('Terraforms Hypercastle overview', () => {
 				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE
 		);
 		expect(metrics.surfaceKey).toContain(String(HYPERCASTLE_TEXTURE_LEVEL_NUMBER));
-		expect(metrics.verticalStrokeDashArray).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArraySolid
-		]);
-		expect(metrics.verticalPointerEvents).toEqual([
+		expect(metrics.topPointerEvents).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.pointerEventsAll
 		]);
-		expect(metrics.topPointerEvents).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.pointerEventsNone
-		]);
 		expect(metrics.level12SurfaceBackgroundColor).not.toBeNull();
-		expect(metrics.level12VerticalFillColor).toEqual([metrics.level12SurfaceBackgroundColor]);
-		expect(metrics.level12VerticalStrokeDashArray).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArraySolid
-		]);
-		expect(metrics.level12VerticalStrokeLinecap).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeLinecapButt
-		]);
 		expect(metrics.levelGuideCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
 		expect(metrics.levelGuideLeaderCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
 		expect(metrics.levelGuideLabelCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
@@ -425,8 +371,6 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		expect(metrics.allLevelsGuideCount).toBe(1);
 		expect(metrics.allLevelsGuideLabel).toBe(TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels);
-		expect(metrics.level12ReachableFrontPoint).not.toBeNull();
-		expect(metrics.level12ReachableSidePoint).not.toBeNull();
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
 
@@ -456,13 +400,14 @@ test.describe('Terraforms Hypercastle overview', () => {
 			})
 		).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
-		const allLevelsRerollButton = detailPanel.locator(
+		const allLevelsRerollButton = page.locator(
 			HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton
 		);
 		const surfaceKeyBeforeAllLevelsReroll = await page
 			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)
 			.getAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey);
-		await expect(allLevelsRerollButton).toHaveText(
+		await expect(allLevelsRerollButton).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.title,
 			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces
 		);
 		await expect(allLevelsRerollButton).toBeVisible();
@@ -471,18 +416,21 @@ test.describe('Terraforms Hypercastle overview', () => {
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey,
 			surfaceKeyBeforeAllLevelsReroll ?? EMPTY_ATTRIBUTE_VALUE
 		);
+		await expectCanonicalLayerOrder(page);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.allLevelsScreenshot);
 
 		await reachableLevelGuide.hover();
 		await expect(reachableLevelLayer).toHaveClass(hoveredClassPattern);
 		await expect(reachableLevelGuide).toHaveClass(guideHoveredClassPattern);
+		await expectTopRenderedLayer(page, HYPERCASTLE_REACHABILITY_LEVEL_NUMBER);
 
 		await moveMouseToReachableLayerPoint(
 			page,
-			HYPERCASTLE_PROBE_CONTRACT.selectors.reachableFrontFace,
+			HYPERCASTLE_PROBE_CONTRACT.selectors.reachableTopFace,
 			HYPERCASTLE_PROBE_CONTRACT.reachabilityLevelNumber
 		);
 		await expect(reachableLevelGuide).toHaveClass(guideHoveredClassPattern);
+		await expectTopRenderedLayer(page, HYPERCASTLE_REACHABILITY_LEVEL_NUMBER);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.hoverScreenshot);
 
 		await reachableLevelGuide.click();
@@ -499,9 +447,9 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toBeVisible();
 		await expect(zoneTable).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
-		await expect(
-			detailPanel.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton)
-		).toHaveCount(0);
+		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton)).toHaveCount(
+			0
+		);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
 
 		const topographySort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
@@ -513,7 +461,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 			sortTerraformsLevelZoneRows(
 				buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
 				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography,
-				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
+				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
 			)
 		);
 		await zoneTable
@@ -521,6 +469,15 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name)
 			})
 			.click();
+		await assertZoneTableRows(
+			zoneTable,
+			sortTerraformsLevelZoneRows(
+				buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
+				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
+			)
+		);
+		await reachableLevelGuide.click();
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
 
 		const detailMetrics = await collectHypercastleLevelDetailMetrics(page);
@@ -547,22 +504,23 @@ test.describe('Terraforms Hypercastle overview', () => {
 
 		const texturedLevelGuide = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedLevelGuide);
 		await texturedLevelGuide.click();
-		await assertZoneTableRows(
-			zoneTable,
-			sortTerraformsLevelZoneRows(
-				buildTerraformsLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
-				defaultTerraformsLevelZoneSortColumn(),
-				defaultTerraformsLevelZoneSortDirection()
-			)
-		);
+		await expectTopRenderedLayer(page, HYPERCASTLE_TEXTURE_LEVEL_NUMBER);
 		await expect(
 			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
 				name: formatTerraformsLevelTitle(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
 			})
 		).toBeVisible();
-		await expect(
-			detailPanel.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton)
-		).toHaveCount(0);
+		await assertZoneTableRows(
+			zoneTable,
+			sortTerraformsLevelZoneRows(
+				buildTerraformsLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
+				defaultTerraformsSelectedLevelZoneSortColumn(),
+				defaultTerraformsSelectedLevelZoneSortDirection()
+			)
+		);
+		await expect(page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton)).toHaveCount(
+			0
+		);
 		const texturedLevelLayer = page.locator(
 			HYPERCASTLE_PROBE_CONTRACT.selectors.texturedLevelLayer
 		);
@@ -574,8 +532,8 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		const textureLevelRows = sortTerraformsLevelZoneRows(
 			buildTerraformsLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
-			defaultTerraformsLevelZoneSortColumn(),
-			defaultTerraformsLevelZoneSortDirection()
+			defaultTerraformsSelectedLevelZoneSortColumn(),
+			defaultTerraformsSelectedLevelZoneSortDirection()
 		);
 		const targetRowIndex = Math.max(
 			textureLevelRows.findIndex((row) => String(row.zoneIndex) !== currentZoneIndex),
@@ -605,15 +563,6 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toHaveAttribute(
 			SVG_ATTRIBUTE_NAMES.fill,
 			resolveTerraformsHypercastleSurfaceTexturePatternFill(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
-		);
-		await expect(
-			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedVerticalFace).first()
-		).toHaveAttribute(SVG_ATTRIBUTE_NAMES.fill, targetRow.palette[targetRow.palette.length - 1]!);
-		await expect(
-			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedVerticalFace).first()
-		).toHaveAttribute(
-			SVG_ATTRIBUTE_NAMES.stroke,
-			targetRow.palette[targetRow.palette.length - 1]!
 		);
 		await expect(
 			page.locator(
@@ -730,18 +679,8 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 		const topFaces = faces.filter((face) => face.classList.contains(contract.faceClasses.top));
 		const levelTwelveLayer = document.querySelector(contract.selectors.reachableLevelLayer);
 		const sampleLevelLayer = document.querySelector(contract.selectors.texturedLevelLayer);
-		const levelTwelveVerticalFaces = levelTwelveLayer
-			? Array.from(levelTwelveLayer.querySelectorAll(contract.selectors.face)).filter(
-					(face) =>
-						face.classList.contains(contract.faceClasses.front) ||
-						face.classList.contains(contract.faceClasses.side)
-				)
-			: [];
 		const levelFourteenTopFaces = Array.from(
 			document.querySelectorAll(contract.selectors.texturedTopFace)
-		);
-		const levelFourteenVerticalFaces = Array.from(
-			document.querySelectorAll(contract.selectors.texturedVerticalFace)
 		);
 
 		return {
@@ -756,20 +695,13 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 			faceCount: faces.length,
 			verticalFaceCount: verticalFaces.length,
 			topFaceCount: topFaces.length,
-			verticalFillColor: uniqueAttribute(verticalFaces, contract.svgAttributes.fill),
-			verticalStrokeColor: uniqueAttribute(verticalFaces, contract.svgAttributes.stroke),
-			verticalFillOpacity: uniqueAttribute(verticalFaces, contract.svgAttributes.fillOpacity),
+			layerOrder: layers.map(
+				(layer) =>
+					layer.getAttribute(contract.dom.attributes.levelNumber) ?? contract.emptyAttributeValue
+			),
 			topFillOpacity: uniqueAttribute(topFaces, contract.svgAttributes.fillOpacity),
 			topStrokeOpacity: uniqueAttribute(topFaces, contract.svgAttributes.strokeOpacity),
 			sampleLevelTopFillColor: uniqueAttribute(levelFourteenTopFaces, contract.svgAttributes.fill),
-			sampleLevelVerticalFillColor: uniqueAttribute(
-				levelFourteenVerticalFaces,
-				contract.svgAttributes.fill
-			),
-			sampleLevelVerticalStrokeColor: uniqueAttribute(
-				levelFourteenVerticalFaces,
-				contract.svgAttributes.stroke
-			),
 			sampleLevelSurfaceZoneIndex:
 				sampleLevelLayer?.getAttribute(contract.dom.attributes.surfaceZoneIndex) ?? null,
 			sampleLevelSurfaceSeed:
@@ -782,26 +714,9 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 				0
 			),
 			surfaceKey: svg?.getAttribute(contract.dom.attributes.surfaceKey) ?? null,
-			verticalStrokeDashArray: uniqueAttribute(
-				verticalFaces,
-				contract.svgAttributes.strokeDashArray
-			),
-			verticalPointerEvents: uniqueStyle(verticalFaces, contract.cssProperties.pointerEvents),
 			topPointerEvents: uniqueStyle(topFaces, contract.cssProperties.pointerEvents),
-			level12VerticalFillColor: uniqueAttribute(
-				levelTwelveVerticalFaces,
-				contract.svgAttributes.fill
-			),
 			level12SurfaceBackgroundColor:
 				levelTwelveLayer?.getAttribute(contract.dom.attributes.surfaceBackgroundColor) ?? null,
-			level12VerticalStrokeDashArray: uniqueAttribute(
-				levelTwelveVerticalFaces,
-				contract.svgAttributes.strokeDashArray
-			),
-			level12VerticalStrokeLinecap: uniqueAttribute(
-				levelTwelveVerticalFaces,
-				contract.svgAttributes.strokeLinecap
-			),
 			levelGuideCount: guides.length,
 			levelGuideLeaderCount: guideLeaders.length,
 			levelGuideLabelCount: guideLabels.length,
@@ -830,12 +745,8 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 			),
 			allLevelsGuideCount: allLevelsGuide ? 1 : 0,
 			allLevelsGuideLabel: allLevelsGuideLabel?.textContent ?? null,
-			level12ReachableFrontPoint: findReachableLayerPoint(
-				contract.selectors.reachableFrontFace,
-				contract.reachabilityLevelNumber
-			),
-			level12ReachableSidePoint: findReachableLayerPoint(
-				contract.selectors.reachableSideFace,
+			level12ReachableTopPoint: findReachableLayerPoint(
+				contract.selectors.reachableTopFace,
 				contract.reachabilityLevelNumber
 			)
 		};
@@ -901,6 +812,25 @@ async function assertZoneTableRows(
 	}
 }
 
+async function expectCanonicalLayerOrder(page: Page): Promise<void> {
+	const order = await collectLayerOrder(page);
+	expect(order).toEqual(TERRAFORMS_HYPERCASTLE_LEVELS.map((level) => String(level.levelNumber)));
+}
+
+async function expectTopRenderedLayer(page: Page, levelNumber: number): Promise<void> {
+	const order = await collectLayerOrder(page);
+	expect(order.at(-1)).toBe(String(levelNumber));
+}
+
+async function collectLayerOrder(page: Page): Promise<string[]> {
+	return page.evaluate((contract) => {
+		return Array.from(document.querySelectorAll(contract.selectors.layer)).map(
+			(layer) =>
+				layer.getAttribute(contract.dom.attributes.levelNumber) ?? contract.emptyAttributeValue
+		);
+	}, HYPERCASTLE_PROBE_CONTRACT);
+}
+
 function expectedAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 	return sortTerraformsLevelZoneRows(
 		buildTerraformsAllLevelZoneRows(),
@@ -912,45 +842,17 @@ function expectedAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 function expectedDefaultLevelZoneRows(): TerraformsLevelZoneRow[] {
 	return sortTerraformsLevelZoneRows(
 		buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
-		defaultTerraformsLevelZoneSortColumn(),
-		defaultTerraformsLevelZoneSortDirection()
+		defaultTerraformsSelectedLevelZoneSortColumn(),
+		defaultTerraformsSelectedLevelZoneSortDirection()
 	);
 }
 
 async function moveMouseToReachableLayerPoint(
 	page: Page,
 	selector: string,
-	levelNumber: string
+	_levelNumber: string
 ): Promise<void> {
-	const point = await page.evaluate(
-		({ contract, selector, levelNumber }) => {
-			const face = document.querySelector(selector);
-			if (!(face instanceof SVGGraphicsElement)) return null;
-			face.scrollIntoView({
-				block: contract.scrollIntoViewPosition,
-				inline: contract.scrollIntoViewPosition
-			});
-			const box = face.getBoundingClientRect();
-			const columns = 9;
-			const rows = 5;
-			for (let row = 1; row < rows; row += 1) {
-				for (let column = 1; column < columns; column += 1) {
-					const x = box.left + (box.width * column) / columns;
-					const y = box.top + (box.height * row) / rows;
-					const target = document.elementFromPoint(x, y);
-					const layer = target?.closest?.(contract.selectors.layer);
-					if (layer?.getAttribute(contract.dom.attributes.levelNumber) === levelNumber) {
-						return { x, y };
-					}
-				}
-			}
-			return null;
-		},
-		{ contract: HYPERCASTLE_PROBE_CONTRACT, selector, levelNumber }
-	);
-
-	expect(point).not.toBeNull();
-	await page.mouse.move(point!.x, point!.y);
+	await page.locator(selector).hover();
 }
 
 function classSelector(className: string): string {

@@ -21,16 +21,42 @@ describe('Terraforms level Zone table data', () => {
 
 		expect(level).toBeDefined();
 		const rows = buildTerraformsLevelZoneRows(level!);
+		const sortedRows = sortTerraformsLevelZoneRows(
+			rows,
+			TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography,
+			TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
+		);
 
-		expect(rows.map((row) => row.name)).toEqual(['Palace', 'Muxtai X1']);
-		expect(rows.map((row) => row.topographyBucketCount)).toEqual([5, 4]);
-		expect(rows.map((row) => formatTerraformsZoneTopographyHeights(row))).toEqual([
-			'4, 2, 0, -2, -4',
-			'3, 1, -1, -3'
+		expect(rows).toHaveLength(9);
+		expect(sortedRows.map((row) => row.name)).toEqual([
+			'Palace',
+			'Muxtai X1',
+			'Palace',
+			'Muxtai X1',
+			'Palace',
+			'Muxtai X1',
+			'Palace',
+			'Muxtai X1',
+			'Palace'
 		]);
-		expect(rows.map((row) => row.palette)).toEqual(level!.zones.map((zone) => zone.palette));
+		expect(sortedRows.map((row) => row.topographyBucketCount)).toEqual([
+			1, 1, 1, 1, 1, 1, 1, 1, 1
+		]);
+		expect(sortedRows.map((row) => formatTerraformsZoneTopographyHeights(row))).toEqual([
+			'4',
+			'3',
+			'2',
+			'1',
+			'0',
+			'-1',
+			'-2',
+			'-3',
+			'-4'
+		]);
+		expect(sortedRows[0]!.palette).toEqual(level!.zones[0]!.palette);
+		expect(sortedRows[1]!.palette).toEqual(level!.zones[1]!.palette);
 		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toContain('4: > 18000');
-		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toContain('-4: <= -26000');
+		expect(formatTerraformsZoneTopographyRangeLabel(sortedRows[8]!)).toContain('-4: <= -26000');
 	});
 
 	it('builds the all-level Zone catalog without level-specific buckets', () => {
@@ -57,7 +83,17 @@ describe('Terraforms level Zone table data', () => {
 				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
 			).map((row) => row.name)
-		).toEqual(['Muxtai X1', 'Palace']);
+		).toEqual([
+			'Palace',
+			'Muxtai X1',
+			'Palace',
+			'Muxtai X1',
+			'Palace',
+			'Muxtai X1',
+			'Palace',
+			'Muxtai X1',
+			'Palace'
+		]);
 
 		expect(
 			sortTerraformsLevelZoneRows(
@@ -65,7 +101,17 @@ describe('Terraforms level Zone table data', () => {
 				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
 			).map((row) => row.name)
-		).toEqual(['Muxtai X1', 'Palace']);
+		).toEqual([
+			'Muxtai X1',
+			'Muxtai X1',
+			'Muxtai X1',
+			'Muxtai X1',
+			'Palace',
+			'Palace',
+			'Palace',
+			'Palace',
+			'Palace'
+		]);
 	});
 
 	it('keeps table labels and aria-sort values centralized', () => {

@@ -10,9 +10,12 @@ import {
 	replaceTerraformsHypercastleLevelSurface,
 	resolveTerraformsHypercastleSurfaceForLevel,
 	resolveTerraformsHypercastleSurfaceTextureBackgroundColor,
+	resolveTerraformsHypercastleSurfaceTexturePalette,
 	resolveTerraformsHypercastleSurfaceTexturePatternId,
 	resolveTerraformsHypercastleSurfaceTexturePatternFill,
 	resolveTerraformsHypercastleSurfaceZone,
+	TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX,
+	TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE
 } from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
@@ -85,5 +88,32 @@ describe('Terraforms Hypercastle surface texture', () => {
 		expect(cells.map((cell) => cell.color).join()).not.toBe(
 			rerolledCells.map((cell) => cell.color).join()
 		);
+	});
+
+	it('mixes the background fill color into flat mono-palette surfaces', () => {
+		const monoZone = TERRAFORMS_ZONES.find(
+			(zone) =>
+				new Set(zone.palette.slice(0, TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT))
+					.size === 1 &&
+				zone.palette[0] !==
+					zone.palette[TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX]
+		);
+
+		expect(monoZone).toBeDefined();
+		const texturePalette = resolveTerraformsHypercastleSurfaceTexturePalette({
+			zone: monoZone!,
+			seed: 42
+		});
+		const cells = buildTerraformsHypercastleSurfaceTextureCells({ zone: monoZone!, seed: 42 });
+		const heightColors = texturePalette.slice(
+			0,
+			TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT
+		);
+		const backgroundColor =
+			monoZone!.palette[TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX];
+
+		expect(heightColors).toContain(backgroundColor);
+		expect(new Set(heightColors).size).toBe(2);
+		expect(new Set(cells.map((cell) => cell.color))).toContain(backgroundColor);
 	});
 });

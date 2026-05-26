@@ -5,7 +5,6 @@
 		buildTerraformsHypercastleOverviewLayers,
 		buildTerraformsHypercastleOverviewRenderKey,
 		formatTerraformsHypercastleOverviewLayerLabel,
-		isTerraformsHypercastleOverviewVerticalFace,
 		resolveTerraformsHypercastleOverviewFaceClassName,
 		resolveTerraformsHypercastleOverviewFaceGeometry,
 		resolveTerraformsHypercastleOverviewLayerElementId,
@@ -52,6 +51,7 @@
 		resize: 'resize',
 		pointerEnter: 'pointerenter',
 		pointerLeave: 'pointerleave',
+		pointerMove: 'pointermove',
 		focus: 'focus',
 		blur: 'blur',
 		pointerDown: 'pointerdown',
@@ -126,7 +126,10 @@
 	let isometricModule = $state<IsometricModule | null>(null);
 	let viewportWidth = $state(0);
 	let renderError = $state<string | null>(null);
+	let pinnedLevelNumber = $state<number | null>(null);
+	let hoveredLevelNumber: number | null = null;
 	let removeResizeListener: (() => void) | null = null;
+	let removePointerHoverListener: (() => void) | null = null;
 
 	onMount(() => {
 		const updateViewportWidth = () => {
@@ -135,11 +138,18 @@
 		updateViewportWidth();
 		window.addEventListener(DOM_EVENTS.resize, updateViewportWidth);
 		removeResizeListener = () => window.removeEventListener(DOM_EVENTS.resize, updateViewportWidth);
+		window.addEventListener(DOM_EVENTS.pointerMove, syncPointerHoverState);
+		window.addEventListener(DOM_EVENTS.pointerLeave, clearActiveLevelHoverState);
+		removePointerHoverListener = () => {
+			window.removeEventListener(DOM_EVENTS.pointerMove, syncPointerHoverState);
+			window.removeEventListener(DOM_EVENTS.pointerLeave, clearActiveLevelHoverState);
+		};
 		void loadIsometricModule();
 	});
 
 	onDestroy(() => {
 		removeResizeListener?.();
+		removePointerHoverListener?.();
 		container?.replaceChildren();
 	});
 
@@ -154,7 +164,9 @@
 	$effect(() => {
 		selectedLevelNumber;
 		allLevelsSelected;
+		pinnedLevelNumber;
 		syncSelectedLevelState();
+		syncPinnedLevelOrder();
 	});
 
 	async function loadIsometricModule(): Promise<void> {
@@ -198,6 +210,7 @@
 		}
 		renderLevelGuides(svg, buildTerraformsHypercastleOverviewLevelGuides(layers, layout), layout);
 		syncSelectedLevelState();
+		syncPinnedLevelOrder();
 	}
 
 	function renderLayer(
@@ -216,18 +229,6 @@
 			layer,
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top,
 			isometricModule.PlaneView.TOP
-		);
-		renderLayerFace(
-			layerGroup,
-			layer,
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front,
-			isometricModule.PlaneView.FRONT
-		);
-		renderLayerFace(
-			layerGroup,
-			layer,
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side,
-			isometricModule.PlaneView.SIDE
 		);
 	}
 
@@ -256,12 +257,17 @@
 			strokeColor: resolveLayerFaceStrokeColor(layer, faceKind),
 			strokeDashArray,
 			strokeLinecap: resolveStrokeLineCap(strokeDashArray),
-			strokeOpacity: resolveLayerFaceStrokeOpacity(faceKind),
+			strokeOpacity: resolveLayerFaceStrokeOpacity(),
 			strokeWidth: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeWidth
 		});
-		face
-			.getElement()
-			.setAttribute(DOM_ATTRIBUTES.ariaHidden, DOM_ATTRIBUTE_VALUES.true);
+		const faceElement = face.getElement();
+		faceElement.setAttribute(DOM_ATTRIBUTES.ariaHidden, DOM_ATTRIBUTE_VALUES.true);
+		faceElement.addEventListener(DOM_EVENTS.pointerEnter, () =>
+			setLevelHoverState(layer.levelNumber, true)
+		);
+		faceElement.addEventListener(DOM_EVENTS.pointerLeave, (event) =>
+			clearLevelHoverStateIfOutside(layer.levelNumber, event)
+		);
 		layerGroup.addChild(face);
 	}
 
@@ -317,13 +323,13 @@
 			}
 		});
 		guideElement.addEventListener(DOM_EVENTS.click, () => {
-			onAllLevelsSelect();
+			selectAllLevels();
 		});
 		guideElement.addEventListener(DOM_EVENTS.keyDown, (event) => {
 			if (!(event instanceof KeyboardEvent)) return;
 			if (!KEYBOARD_SELECT_KEYS.has(event.key)) return;
 			event.preventDefault();
-			onAllLevelsSelect();
+			selectAllLevels();
 		});
 		return guideElement;
 	}
@@ -360,14 +366,14 @@
 		guideElement.addEventListener(DOM_EVENTS.pointerEnter, () =>
 			setLevelHoverState(guide.levelNumber, true)
 		);
-		guideElement.addEventListener(DOM_EVENTS.pointerLeave, () =>
-			setLevelHoverState(guide.levelNumber, false)
+		guideElement.addEventListener(DOM_EVENTS.pointerLeave, (event) =>
+			clearLevelHoverStateIfOutside(guide.levelNumber, event)
 		);
 		guideElement.addEventListener(DOM_EVENTS.focus, () =>
 			setLevelHoverState(guide.levelNumber, true)
 		);
-		guideElement.addEventListener(DOM_EVENTS.blur, () =>
-			setLevelHoverState(guide.levelNumber, false)
+		guideElement.addEventListener(DOM_EVENTS.blur, (event) =>
+			clearLevelHoverStateIfOutside(guide.levelNumber, event)
 		);
 		guideElement.addEventListener(DOM_EVENTS.pointerDown, (event) => {
 			if (event.pointerType === POINTER_TYPE_MOUSE) {
@@ -484,6 +490,22 @@
 	}
 
 	function setLevelHoverState(levelNumber: number, hovered: boolean): void {
+		if (hovered) {
+			if (hoveredLevelNumber !== null && hoveredLevelNumber !== levelNumber) {
+				syncLevelHoverClassState(hoveredLevelNumber, false);
+			}
+			hoveredLevelNumber = levelNumber;
+			pinLevel(levelNumber);
+			syncLevelHoverClassState(levelNumber, true);
+			return;
+		}
+		if (hoveredLevelNumber === levelNumber) {
+			hoveredLevelNumber = null;
+		}
+		syncLevelHoverClassState(levelNumber, false);
+	}
+
+	function syncLevelHoverClassState(levelNumber: number, hovered: boolean): void {
 		resolveLevelGuideElement(levelNumber)?.classList.toggle(
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guideHovered,
 			hovered
@@ -491,6 +513,64 @@
 		resolveLayerElement(levelNumber)?.classList.toggle(
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerHovered,
 			hovered
+		);
+	}
+
+	function syncPointerHoverState(event: PointerEvent): void {
+		const target = document.elementFromPoint(event.clientX, event.clientY);
+		if (!(target instanceof Element)) {
+			clearActiveLevelHoverState();
+			return;
+		}
+		const levelTarget =
+			target.closest(levelHoverTargetSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layer)) ??
+			target.closest(levelHoverTargetSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.guide));
+		const rawLevelNumber = levelTarget?.getAttribute(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelNumber
+		);
+		const levelNumber = rawLevelNumber ? Number(rawLevelNumber) : null;
+		if (levelNumber === null || !Number.isFinite(levelNumber)) {
+			clearActiveLevelHoverState();
+			return;
+		}
+		setLevelHoverState(levelNumber, true);
+	}
+
+	function clearActiveLevelHoverState(): void {
+		if (hoveredLevelNumber === null) return;
+		setLevelHoverState(hoveredLevelNumber, false);
+	}
+
+	function levelHoverTargetSelector(className: string): string {
+		return `.${className}`;
+	}
+
+	function clearLevelHoverStateIfOutside(
+		levelNumber: number,
+		event: PointerEvent | FocusEvent
+	): void {
+		const relatedTarget = event.relatedTarget;
+		if (relatedTarget instanceof Node && isWithinLevelHoverTarget(levelNumber, relatedTarget)) {
+			return;
+		}
+		if (event instanceof PointerEvent) {
+			const { clientX, clientY } = event;
+			requestAnimationFrame(() => {
+				const currentTarget = document.elementFromPoint(clientX, clientY);
+				if (currentTarget instanceof Node && isWithinLevelHoverTarget(levelNumber, currentTarget)) {
+					return;
+				}
+				setLevelHoverState(levelNumber, false);
+			});
+			return;
+		}
+		setLevelHoverState(levelNumber, false);
+	}
+
+	function isWithinLevelHoverTarget(levelNumber: number, target: Node): boolean {
+		return (
+			Boolean(resolveLevelGuideElement(levelNumber)?.contains(target)) ||
+			Boolean(resolveLayerElement(levelNumber)?.contains(target))
 		);
 	}
 
@@ -550,11 +630,13 @@
 		element.addEventListener(DOM_EVENTS.pointerEnter, () =>
 			setLevelHoverState(layer.levelNumber, true)
 		);
-		element.addEventListener(DOM_EVENTS.pointerLeave, () =>
-			setLevelHoverState(layer.levelNumber, false)
+		element.addEventListener(DOM_EVENTS.pointerLeave, (event) =>
+			clearLevelHoverStateIfOutside(layer.levelNumber, event)
 		);
 		element.addEventListener(DOM_EVENTS.focus, () => setLevelHoverState(layer.levelNumber, true));
-		element.addEventListener(DOM_EVENTS.blur, () => setLevelHoverState(layer.levelNumber, false));
+		element.addEventListener(DOM_EVENTS.blur, (event) =>
+			clearLevelHoverStateIfOutside(layer.levelNumber, event)
+		);
 		element.addEventListener(DOM_EVENTS.pointerDown, (event) => {
 			if (event.pointerType === POINTER_TYPE_MOUSE) {
 				event.preventDefault();
@@ -576,7 +658,14 @@
 	}
 
 	function selectLevelNumber(levelNumber: number): void {
+		pinLevel(levelNumber);
 		onLevelSelect(levelNumber);
+	}
+
+	function selectAllLevels(): void {
+		pinnedLevelNumber = null;
+		restoreCanonicalLayerOrder();
+		onAllLevelsSelect();
 	}
 
 	function syncSelectedLevelState(): void {
@@ -619,15 +708,33 @@
 		);
 	}
 
+	function pinLevel(levelNumber: number): void {
+		pinnedLevelNumber = levelNumber;
+		syncPinnedLevelOrder();
+	}
+
+	function syncPinnedLevelOrder(): void {
+		if (pinnedLevelNumber === null) {
+			restoreCanonicalLayerOrder();
+			return;
+		}
+		const element = resolveLayerElement(pinnedLevelNumber);
+		element?.parentNode?.appendChild(element);
+	}
+
+	function restoreCanonicalLayerOrder(): void {
+		for (const layer of layers) {
+			const element = resolveLayerElement(layer.levelNumber);
+			element?.parentNode?.appendChild(element);
+		}
+	}
+
 	function resolveLayerFaceFillColor(
 		layer: TerraformsHypercastleOverviewLayer,
 		faceKind: TerraformsHypercastleOverviewFaceKind
 	): string {
 		if (isSurfaceTextureTopFace(layer, faceKind)) {
 			return resolveTerraformsHypercastleSurfaceTexturePatternFill(layer.levelNumber);
-		}
-		if (isSurfaceTextureVerticalFace(layer, faceKind)) {
-			return resolveLayerSurfaceBackgroundColor(layer);
 		}
 		return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
 	}
@@ -637,18 +744,16 @@
 		faceKind: TerraformsHypercastleOverviewFaceKind
 	): number {
 		if (isSurfaceTextureTopFace(layer, faceKind)) {
-			return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.vertical;
+			return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.top;
 		}
-		return isTerraformsHypercastleOverviewVerticalFace(faceKind)
-			? TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.vertical
-			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.top;
+		return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.top;
 	}
 
 	function resolveLayerFaceStrokeColor(
 		layer: TerraformsHypercastleOverviewLayer,
 		faceKind: TerraformsHypercastleOverviewFaceKind
 	): string {
-		return isSurfaceTextureFace(layer, faceKind)
+		return isSurfaceTextureTopFace(layer, faceKind)
 			? resolveLayerSurfaceBackgroundColor(layer)
 			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
 	}
@@ -657,10 +762,8 @@
 		return [...TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeDashArray.solid];
 	}
 
-	function resolveLayerFaceStrokeOpacity(faceKind: TerraformsHypercastleOverviewFaceKind): number {
-		return isTerraformsHypercastleOverviewVerticalFace(faceKind)
-			? TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.visible
-			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.top;
+	function resolveLayerFaceStrokeOpacity(): number {
+		return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.top;
 	}
 
 	function resolveStrokeLineCap(
@@ -680,25 +783,6 @@
 		return (
 			resolveLayerSurface(layer) !== null &&
 			faceKind === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
-		);
-	}
-
-	function isSurfaceTextureVerticalFace(
-		layer: TerraformsHypercastleOverviewLayer,
-		faceKind: TerraformsHypercastleOverviewFaceKind
-	): boolean {
-		return (
-			resolveLayerSurface(layer) !== null &&
-			isTerraformsHypercastleOverviewVerticalFace(faceKind)
-		);
-	}
-
-	function isSurfaceTextureFace(
-		layer: TerraformsHypercastleOverviewLayer,
-		faceKind: TerraformsHypercastleOverviewFaceKind
-	): boolean {
-		return (
-			isSurfaceTextureTopFace(layer, faceKind) || isSurfaceTextureVerticalFace(layer, faceKind)
 		);
 	}
 
@@ -813,7 +897,7 @@
 	}
 
 	:global(.terraforms-hypercastle-overview-layer-face) {
-		pointer-events: visibleStroke;
+		pointer-events: all;
 		vector-effect: non-scaling-stroke;
 		transition:
 			filter 120ms ease,
@@ -821,13 +905,8 @@
 			stroke-width 120ms ease;
 	}
 
-	:global(.terraforms-hypercastle-overview-layer-face-front),
-	:global(.terraforms-hypercastle-overview-layer-face-side) {
-		pointer-events: all;
-	}
-
 	:global(.terraforms-hypercastle-overview-layer-face-top) {
-		pointer-events: none;
+		pointer-events: all;
 	}
 
 	:global(.terraforms-hypercastle-overview-level-guide) {

@@ -83,6 +83,10 @@ const TERRAFORMS_HYPERCASTLE_SURFACE_GRADIENT_NORMALIZER = Math.SQRT1_2;
 const TERRAFORMS_HYPERCASTLE_SURFACE_MINIMUM_NOISE = -1;
 const TERRAFORMS_HYPERCASTLE_SURFACE_MAXIMUM_NOISE = 1;
 const TERRAFORMS_HYPERCASTLE_SURFACE_RANDOM_SEED_LIMIT = 1_000_000;
+export const TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT = 9;
+export const TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX = 9;
+const TERRAFORMS_HYPERCASTLE_SURFACE_MONO_PALETTE_HASH_X = 0;
+const TERRAFORMS_HYPERCASTLE_SURFACE_MONO_PALETTE_HASH_Y = 0;
 const TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_PREFIX = 'url(#';
 const TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_SUFFIX = ')';
 const TERRAFORMS_HYPERCASTLE_SURFACE_RENDER_KEY_FIELD_SEPARATOR = ':';
@@ -163,7 +167,7 @@ export function resolveTerraformsHypercastleSurfaceTextureBackgroundColor(
 	surface: TerraformsHypercastleLevelSurface
 ): string {
 	const palette = resolveTerraformsHypercastleSurfaceZone(surface).palette;
-	return palette[palette.length - 1]!;
+	return palette[TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX]!;
 }
 
 // Builds the SVG fill value for the generated texture pattern.
@@ -201,6 +205,10 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 	seed: number;
 }): TerraformsHypercastleSurfaceTextureCell[] {
 	const cellSize = 1 / TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE;
+	const palette = resolveTerraformsHypercastleSurfaceTexturePalette({
+		zone: input.zone,
+		seed: input.seed
+	});
 	const cells: TerraformsHypercastleSurfaceTextureCell[] = [];
 	for (let row = 0; row < TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE; row += 1) {
 		for (let column = 0; column < TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE; column += 1) {
@@ -214,13 +222,27 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 				x: column * cellSize,
 				y: row * cellSize,
 				size: cellSize + TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.cellOverlap,
-				color: input.zone.palette[heightmapIndex]!,
+				color: palette[heightmapIndex]!,
 				heightmapIndex,
 				terrainValue
 			});
 		}
 	}
 	return cells;
+}
+
+// Reintroduces the canonical background fill into flat mono-palette surfaces.
+export function resolveTerraformsHypercastleSurfaceTexturePalette(input: {
+	zone: TerraformsZone;
+	seed: number;
+}): readonly string[] {
+	const palette = [...input.zone.palette];
+	if (!isTerraformsHypercastleMonoSurfacePalette(palette)) {
+		return palette;
+	}
+	palette[resolveTerraformsHypercastleMonoBackgroundHeightIndex(input.seed)] =
+		palette[TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX]!;
+	return palette;
 }
 
 function buildTerraformsHypercastleRandomLevelSurface(input: {
@@ -248,6 +270,22 @@ function resolveTerraformsHypercastleRandomSurfaceSeed(
 	return Math.min(
 		Math.floor(random() * TERRAFORMS_HYPERCASTLE_SURFACE_RANDOM_SEED_LIMIT),
 		TERRAFORMS_HYPERCASTLE_SURFACE_RANDOM_SEED_LIMIT - 1
+	);
+}
+
+function isTerraformsHypercastleMonoSurfacePalette(palette: readonly string[]): boolean {
+	return (
+		new Set(palette.slice(0, TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT)).size === 1
+	);
+}
+
+function resolveTerraformsHypercastleMonoBackgroundHeightIndex(seed: number): number {
+	return (
+		hashGridPoint(
+			TERRAFORMS_HYPERCASTLE_SURFACE_MONO_PALETTE_HASH_X,
+			TERRAFORMS_HYPERCASTLE_SURFACE_MONO_PALETTE_HASH_Y,
+			seed
+		) % TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT
 	);
 }
 

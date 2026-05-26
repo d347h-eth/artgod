@@ -99,15 +99,15 @@ describe('Terraforms Hypercastle overview geometry', () => {
 		expect(new Set(guides.map((guide) => guide.lineEnd.x)).size).toBe(1);
 		expect(guides.every((guide) => guide.lineStart.x > guide.corner.x)).toBe(true);
 		expect(guides.every((guide) => guide.labelAnchor.x > guide.lineEnd.x)).toBe(true);
-		const levelOneBottomCorner = projectTerraformsHypercastleOverviewPointToScreen(
+		const levelOneTopCorner = projectTerraformsHypercastleOverviewPointToScreen(
 			{
 				right: layers[0]!.halfSizeUnits,
 				left: -layers[0]!.halfSizeUnits,
-				top: layers[0]!.baseTopUnits
+				top: layers[0]!.topFaceTopUnits
 			},
 			layout
 		);
-		expect(guides[0]!.corner).toEqual(levelOneBottomCorner);
+		expect(guides[0]!.corner).toEqual(levelOneTopCorner);
 		expect(guides[0]!.label).toBe(formatTerraformsHypercastleOverviewLevelGuideLabel(1));
 		expect(guides[19]!.label).toBe(formatTerraformsHypercastleOverviewLevelGuideLabel(20));
 	});

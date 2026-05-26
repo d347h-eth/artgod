@@ -1,11 +1,14 @@
 <script lang="ts">
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
 	import TerraformsHypercastleOverview from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte';
+	import TerraformsSurfaceRerollIcon from '$lib/collection-extension-pages/terraforms/TerraformsSurfaceRerollIcon.svelte';
 	import {
 		buildTerraformsAllLevelZoneRows,
 		buildTerraformsLevelZoneRows,
 		defaultTerraformsLevelZoneSortColumn,
 		defaultTerraformsLevelZoneSortDirection,
+		defaultTerraformsSelectedLevelZoneSortColumn,
+		defaultTerraformsSelectedLevelZoneSortDirection,
 		formatTerraformsLevelZoneSortLabel,
 		formatTerraformsZonePaletteSwatchLabel,
 		formatTerraformsZoneTopographyHeights,
@@ -83,10 +86,14 @@
 
 	function selectLevel(levelNumber: number): void {
 		selection = levelNumber;
+		zoneSortColumn = defaultTerraformsSelectedLevelZoneSortColumn();
+		zoneSortDirection = defaultTerraformsSelectedLevelZoneSortDirection();
 	}
 
 	function selectAllLevels(): void {
 		selection = TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES.AllLevels;
+		zoneSortColumn = defaultTerraformsLevelZoneSortColumn();
+		zoneSortDirection = defaultTerraformsLevelZoneSortDirection();
 	}
 
 	function rerollAllLevelSurfaces(): void {
@@ -131,6 +138,21 @@
 </script>
 
 <section class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.root}>
+	{#if showSurfaceTextureControls}
+		<div class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.controls}>
+			<button
+				type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
+				class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.rerollButton}
+				data-testid={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton}
+				title={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces}
+				aria-label={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces}
+				onclick={rerollAllLevelSurfaces}
+			>
+				<TerraformsSurfaceRerollIcon />
+			</button>
+		</div>
+	{/if}
+
 	<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.overview}>
 		<TerraformsHypercastleOverview
 			{selectedLevelNumber}
@@ -146,18 +168,6 @@
 		data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.detailPanel}
 	>
 		{#if showZoneTable && detailTitle}
-			{#if showSurfaceTextureControls}
-				<div class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.controls}>
-					<button
-						type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
-						class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.rerollButton}
-						data-testid={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton}
-						onclick={rerollAllLevelSurfaces}
-					>
-						{TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces}
-					</button>
-				</div>
-			{/if}
 			<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
 				{detailTitle}
 			</h2>
@@ -189,7 +199,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each zoneRows as row (row.zoneIndex)}
+						{#each zoneRows as row (row.key)}
 							<tr>
 								<td>{row.name}</td>
 								<td>
@@ -248,6 +258,13 @@
 		max-width: 100%;
 	}
 
+	.terraforms-hypercastle-surface-controls {
+		grid-column: 1 / -1;
+		display: flex;
+		justify-content: flex-start;
+		margin: 0 0 0.55rem;
+	}
+
 	.terraforms-hypercastle-page-overview {
 		justify-self: start;
 		min-width: 0;
@@ -272,23 +289,19 @@
 		font-size: 0.82rem;
 	}
 
-	.terraforms-hypercastle-surface-controls {
-		display: flex;
-		justify-content: flex-start;
-		margin-bottom: 0.6rem;
-	}
-
 	.terraforms-hypercastle-surface-reroll {
-		width: fit-content;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
 		min-height: 0;
 		border: 1px solid color-mix(in srgb, var(--c-blue) 58%, transparent);
-		padding: 0.22rem 0.45rem;
+		border-radius: 0;
+		padding: 0;
 		background: transparent;
 		color: var(--c-ice);
-		font: inherit;
-		font-size: 0.72rem;
-		letter-spacing: 0;
-		text-transform: uppercase;
+		line-height: 1;
 	}
 
 	.terraforms-hypercastle-surface-reroll:hover,
