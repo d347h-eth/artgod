@@ -7,8 +7,9 @@
 		defaultTerraformsLevelZoneSortColumn,
 		defaultTerraformsLevelZoneSortDirection,
 		formatTerraformsLevelZoneSortLabel,
-		formatTerraformsZoneBucketCount,
 		formatTerraformsZonePaletteSwatchLabel,
+		formatTerraformsZoneTopographyHeights,
+		formatTerraformsZoneTopographyRangeLabel,
 		resolveTerraformsHypercastleLevel,
 		resolveTerraformsLevelZoneAriaSort,
 		resolveTerraformsLevelZoneDefaultSortDirection,
@@ -30,6 +31,11 @@
 		TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES,
 		type TerraformsHypercastleSelection
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-selection';
+	import {
+		isTerraformsHypercastleSurfaceTextureLevel,
+		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
+		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS
+	} from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 
 	let {}: CollectionExtensionPageProps = $props();
 
@@ -40,9 +46,13 @@
 	let zoneSortDirection = $state<TerraformsLevelZoneSortDirection>(
 		defaultTerraformsLevelZoneSortDirection()
 	);
+	let surfaceSeed = $state(0);
 	let selectedLevelNumber = $derived(resolveTerraformsSelectedLevelNumber(selection));
 	let allLevelsSelected = $derived(isTerraformsAllLevelsSelection(selection));
 	let selectedLevel = $derived(resolveTerraformsHypercastleLevel(selectedLevelNumber));
+	let showSurfaceTextureControls = $derived(
+		selectedLevelNumber === null ? false : isTerraformsHypercastleSurfaceTextureLevel(selectedLevelNumber)
+	);
 	let zoneTableColumns: readonly TerraformsLevelZoneTableColumn[] = $derived(
 		allLevelsSelected
 			? TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS.AllLevels
@@ -50,8 +60,8 @@
 				? TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS.SelectedLevel
 				: []
 	);
-	let showTopographyBuckets = $derived(
-		zoneTableColumns.includes(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets)
+	let showTopography = $derived(
+		zoneTableColumns.includes(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography)
 	);
 	let activeZoneSortColumn = $derived(resolveActiveZoneSortColumn(zoneTableColumns, zoneSortColumn));
 	let zoneRows = $derived(
@@ -78,6 +88,10 @@
 
 	function selectAllLevels(): void {
 		selection = TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES.AllLevels;
+	}
+
+	function rerollSurfaceTexture(): void {
+		surfaceSeed += 1;
 	}
 
 	function sortZonesBy(column: TerraformsLevelZoneTableColumn): void {
@@ -113,6 +127,7 @@
 		<TerraformsHypercastleOverview
 			{selectedLevelNumber}
 			{allLevelsSelected}
+			{surfaceSeed}
 			onLevelSelect={selectLevel}
 			onAllLevelsSelect={selectAllLevels}
 		/>
@@ -123,6 +138,18 @@
 		data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.detailPanel}
 	>
 		{#if showZoneTable && detailTitle}
+			{#if showSurfaceTextureControls}
+				<div class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.controls}>
+					<button
+						type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
+						class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.rerollButton}
+						data-testid={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton}
+						onclick={rerollSurfaceTexture}
+					>
+						{TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurface}
+					</button>
+				</div>
+			{/if}
 			<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
 				{detailTitle}
 			</h2>
@@ -173,9 +200,12 @@
 										{/each}
 									</div>
 								</td>
-								{#if showTopographyBuckets}
-									<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
-										{formatTerraformsZoneBucketCount(row)}
+								{#if showTopography}
+									<td
+										class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}
+										title={formatTerraformsZoneTopographyRangeLabel(row)}
+									>
+										{formatTerraformsZoneTopographyHeights(row)}
 									</td>
 								{/if}
 							</tr>
@@ -219,6 +249,31 @@
 	.terraforms-hypercastle-level-detail-placeholder {
 		padding: 0.5rem 0;
 		font-size: 0.82rem;
+	}
+
+	.terraforms-hypercastle-surface-controls {
+		display: flex;
+		justify-content: flex-start;
+		margin-bottom: 0.6rem;
+	}
+
+	.terraforms-hypercastle-surface-reroll {
+		width: fit-content;
+		min-height: 0;
+		border: 1px solid color-mix(in srgb, var(--c-blue) 58%, transparent);
+		padding: 0.22rem 0.45rem;
+		background: transparent;
+		color: var(--c-ice);
+		font: inherit;
+		font-size: 0.72rem;
+		letter-spacing: 0;
+		text-transform: uppercase;
+	}
+
+	.terraforms-hypercastle-surface-reroll:hover,
+	.terraforms-hypercastle-surface-reroll:focus-visible {
+		border-color: var(--c-blue);
+		color: var(--c-blue);
 	}
 
 	.terraforms-hypercastle-zone-table {

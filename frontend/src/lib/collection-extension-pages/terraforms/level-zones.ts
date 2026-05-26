@@ -1,6 +1,6 @@
 import {
 	TERRAFORMS_HYPERCASTLE_LEVELS,
-	TERRAFORMS_TOPOGRAPHY_BUCKET_COUNT,
+	TERRAFORMS_TOPOGRAPHY_THRESHOLDS,
 	TERRAFORMS_ZONES,
 	type TerraformsLevelSummary,
 	type TerraformsZone
@@ -13,13 +13,15 @@ export type TerraformsLevelZoneRow = {
 	name: string;
 	palette: readonly string[];
 	topographyBucketCount: number | null;
+	topographyHeights: readonly number[] | null;
+	topographyRangeLabel: string | null;
 };
 
 // Sort columns are the stable contract between the table, tests, and URL-ready state.
 export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS = {
 	Name: 'name',
 	Palette: 'palette',
-	TopographyBuckets: 'topography-buckets'
+	Topography: 'topography'
 } as const;
 
 export type TerraformsLevelZoneTableColumn = ValueOf<typeof TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS>;
@@ -38,7 +40,7 @@ export type TerraformsLevelZoneSortDirection = ValueOf<
 export const TERRAFORMS_LEVEL_ZONE_TABLE_LABELS: Record<TerraformsLevelZoneTableColumn, string> = {
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name]: 'name',
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette]: 'palette',
-	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets]: 'topography buckets'
+	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography]: 'topography'
 };
 
 // Column sets keep aggregate and selected-level tables from implying unavailable data.
@@ -50,7 +52,7 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS = {
 	SelectedLevel: [
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette,
-		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography
 	]
 } as const satisfies Record<string, readonly TerraformsLevelZoneTableColumn[]>;
 
@@ -94,12 +96,16 @@ const TERRAFORMS_LEVEL_ZONE_ASCENDING_COLUMNS = new Set<TerraformsLevelZoneTable
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette
 ]);
-const TERRAFORMS_LEVEL_ZONE_BUCKET_COUNT_SEPARATOR = ' / ';
+const TERRAFORMS_LEVEL_ZONE_HEIGHT_SEPARATOR = ', ';
 const TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR = ' ';
 const TERRAFORMS_LEVEL_ZONE_SWATCH_LABEL_PREFIX = 'palette color';
 const TERRAFORMS_LEVEL_ZONE_SWATCH_LABEL_SEPARATOR = ': ';
 const TERRAFORMS_LEVEL_ZONE_SORT_LABEL_PREFIX = 'sort by';
 const TERRAFORMS_LEVEL_ZONE_EMPTY_STRING = '';
+const TERRAFORMS_LEVEL_ZONE_RANGE_SEPARATOR = '; ';
+const TERRAFORMS_LEVEL_ZONE_RANGE_VALUE_SEPARATOR = ': ';
+const TERRAFORMS_LEVEL_ZONE_RANGE_GREATER_THAN_PREFIX = '> ';
+const TERRAFORMS_LEVEL_ZONE_RANGE_UPPER_PREFIX = '<= ';
 
 const numberCollator = new Intl.Collator(undefined, { numeric: true });
 // Finds the static contract summary for a selected Hypercastle level.
@@ -123,7 +129,9 @@ export function buildTerraformsAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 		zoneIndex: zone.index,
 		name: zone.name,
 		palette: zone.palette,
-		topographyBucketCount: null
+		topographyBucketCount: null,
+		topographyHeights: null,
+		topographyRangeLabel: null
 	}));
 }
 
@@ -168,12 +176,17 @@ export function defaultTerraformsLevelZoneSortDirection(): TerraformsLevelZoneSo
 	return TERRAFORMS_LEVEL_ZONE_DEFAULT_SORT_DIRECTION;
 }
 
-// Formats a static bucket count against the full topography bucket set.
-export function formatTerraformsZoneBucketCount(row: TerraformsLevelZoneRow): string {
-	if (row.topographyBucketCount === null) return TERRAFORMS_LEVEL_ZONE_EMPTY_STRING;
-	return [String(row.topographyBucketCount), String(TERRAFORMS_TOPOGRAPHY_BUCKET_COUNT)].join(
-		TERRAFORMS_LEVEL_ZONE_BUCKET_COUNT_SEPARATOR
+// Formats exact contract elevation values assigned to the Zone on the selected level.
+export function formatTerraformsZoneTopographyHeights(row: TerraformsLevelZoneRow): string {
+	return (
+		row.topographyHeights?.join(TERRAFORMS_LEVEL_ZONE_HEIGHT_SEPARATOR) ??
+		TERRAFORMS_LEVEL_ZONE_EMPTY_STRING
 	);
+}
+
+// Formats raw Perlin threshold ranges for the Zone's topography buckets.
+export function formatTerraformsZoneTopographyRangeLabel(row: TerraformsLevelZoneRow): string {
+	return row.topographyRangeLabel ?? TERRAFORMS_LEVEL_ZONE_EMPTY_STRING;
 }
 
 // Builds an accessible label for individual palette swatches.
@@ -214,14 +227,18 @@ function buildTerraformsLevelZoneRow(
 	level: TerraformsLevelSummary,
 	zone: TerraformsZone
 ): TerraformsLevelZoneRow {
-	const topographyBucketCount = level.topographyZoneBuckets.filter(
+	const zoneBuckets = level.topographyZoneBuckets.filter(
 		(bucket) => bucket.zoneIndex === zone.index
-	).length;
+	);
 	return {
 		zoneIndex: zone.index,
 		name: zone.name,
 		palette: zone.palette,
-		topographyBucketCount
+		topographyBucketCount: zoneBuckets.length,
+		topographyHeights: zoneBuckets.map((bucket) => bucket.elevation),
+		topographyRangeLabel: zoneBuckets.map(formatTerraformsTopographyBucketRange).join(
+			TERRAFORMS_LEVEL_ZONE_RANGE_SEPARATOR
+		)
 	};
 }
 
@@ -238,7 +255,7 @@ function compareTerraformsLevelZoneRows(
 				left.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING),
 				right.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING)
 			);
-		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets:
+		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography:
 			return compareNullableNumbers(left.topographyBucketCount, right.topographyBucketCount);
 	}
 }
@@ -256,4 +273,31 @@ function compareNullableNumbers(left: number | null, right: number | null): numb
 
 function compareStrings(left: string, right: string): number {
 	return numberCollator.compare(left, right);
+}
+
+function formatTerraformsTopographyBucketRange(input: {
+	topographyBucketIndex: number;
+	elevation: number;
+}): string {
+	const lowerBound = TERRAFORMS_TOPOGRAPHY_THRESHOLDS[input.topographyBucketIndex] ?? null;
+	const upperBound = TERRAFORMS_TOPOGRAPHY_THRESHOLDS[input.topographyBucketIndex - 1] ?? null;
+	return [String(input.elevation), formatTerraformsTopographyRawRange(lowerBound, upperBound)].join(
+		TERRAFORMS_LEVEL_ZONE_RANGE_VALUE_SEPARATOR
+	);
+}
+
+function formatTerraformsTopographyRawRange(
+	lowerBoundExclusive: number | null,
+	upperBoundInclusive: number | null
+): string {
+	return [
+		lowerBoundExclusive === null
+			? null
+			: `${TERRAFORMS_LEVEL_ZONE_RANGE_GREATER_THAN_PREFIX}${lowerBoundExclusive}`,
+		upperBoundInclusive === null
+			? null
+			: `${TERRAFORMS_LEVEL_ZONE_RANGE_UPPER_PREFIX}${upperBoundInclusive}`
+	]
+		.filter((part): part is string => part !== null)
+		.join(TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR);
 }

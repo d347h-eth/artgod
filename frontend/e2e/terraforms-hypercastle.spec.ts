@@ -23,7 +23,8 @@ import {
 	defaultTerraformsLevelZoneSortColumn,
 	defaultTerraformsLevelZoneSortDirection,
 	formatTerraformsLevelZoneSortLabel,
-	formatTerraformsZoneBucketCount,
+	formatTerraformsZoneTopographyHeights,
+	formatTerraformsZoneTopographyRangeLabel,
 	sortTerraformsLevelZoneRows,
 	TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS,
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS,
@@ -34,6 +35,13 @@ import {
 	formatTerraformsLevelTitle,
 	TERRAFORMS_HYPERCASTLE_SELECTION_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-selection';
+import {
+	resolveTerraformsHypercastleSurfaceTextureBackgroundColor,
+	resolveTerraformsHypercastleSurfaceTexturePatternFill,
+	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
+	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT,
+	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS
+} from '../src/lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
@@ -62,6 +70,11 @@ type HypercastleOverviewMetrics = {
 	verticalFillOpacity: string[];
 	topFillOpacity: string[];
 	topStrokeOpacity: string[];
+	level14TopFillColor: string[];
+	level14VerticalFillColor: string[];
+	level14VerticalStrokeColor: string[];
+	surfacePatternCellCount: number;
+	surfaceSeed: string | null;
 	verticalStrokeDashArray: string[];
 	verticalPointerEvents: string[];
 	topPointerEvents: string[];
@@ -99,7 +112,7 @@ type HypercastleLevelDetailMetrics = {
 	heading: string | null;
 	rowCount: number;
 	rowNames: string[];
-	rowBucketCounts: string[];
+	rowTopographyValues: string[];
 	paletteSwatchCount: number;
 };
 
@@ -132,6 +145,7 @@ const SVG_ATTRIBUTE_NAMES = {
 	strokeLinecap: 'stroke-linecap',
 	strokeOpacity: 'stroke-opacity',
 	strokeWidth: 'stroke-width',
+	title: 'title',
 	width: 'width',
 	fillOpacity: 'fill-opacity',
 	x2: 'x2'
@@ -176,6 +190,10 @@ const TEST_ARTIFACTS = {
 		name: 'terraforms-hypercastle-all-levels-page.png',
 		contentType: 'image/png'
 	},
+	surfaceScreenshot: {
+		name: 'terraforms-hypercastle-surface-page.png',
+		contentType: 'image/png'
+	},
 	probe: {
 		name: 'terraforms-hypercastle-probe.json',
 		contentType: 'application/json'
@@ -191,6 +209,9 @@ const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER =
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelNumber;
 const HYPERCASTLE_DETAIL_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
+)!;
+const HYPERCASTLE_TEXTURE_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
+	(level) => level.levelNumber === TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber
 )!;
 const HYPERCASTLE_PATH = `/e2e-harness/collection/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
 const HYPERCASTLE_PROBE_CONTRACT = {
@@ -249,6 +270,47 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			resolveTerraformsHypercastleOverviewLevelGuideElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		),
 		stripePattern: idSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern),
+		surfacePattern: idSelector(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.ids.pattern),
+		surfaceRerollButton: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton
+		),
+		texturedLevelLayer: idSelector(
+			resolveTerraformsHypercastleOverviewLayerElementId(
+				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber
+			)
+		),
+		texturedLevelGuide: idSelector(
+			resolveTerraformsHypercastleOverviewLevelGuideElementId(
+				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber
+			)
+		),
+		texturedTopFace: `${idSelector(
+			resolveTerraformsHypercastleOverviewLayerElementId(
+				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber
+			)
+		)} ${classSelector(
+			resolveTerraformsHypercastleOverviewFaceClassName(
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
+			)
+		)}`,
+		texturedVerticalFace: `${idSelector(
+			resolveTerraformsHypercastleOverviewLayerElementId(
+				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber
+			)
+		)} ${classSelector(
+			resolveTerraformsHypercastleOverviewFaceClassName(
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front
+			)
+		)}, ${idSelector(
+			resolveTerraformsHypercastleOverviewLayerElementId(
+				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber
+			)
+		)} ${classSelector(
+			resolveTerraformsHypercastleOverviewFaceClassName(
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
+			)
+		)}`,
 		reachableFrontFace: `${idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		)} ${classSelector(
@@ -313,22 +375,44 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(metrics.faceCount).toBe(HYPERCASTLE_EXPECTED_FACE_COUNT);
 		expect(metrics.verticalFaceCount).toBe(HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT);
 		expect(metrics.topFaceCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
-		expect(metrics.verticalFillColor).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color,
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.stripePatternFill
-		]);
-		expect(metrics.verticalStrokeColor).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color
-		]);
+		expect(metrics.verticalFillColor).toEqual(
+			expect.arrayContaining([
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color,
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.stripePatternFill,
+				resolveTerraformsHypercastleSurfaceTextureBackgroundColor()
+			])
+		);
+		expect(metrics.verticalStrokeColor).toEqual(
+			expect.arrayContaining([
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color,
+				resolveTerraformsHypercastleSurfaceTextureBackgroundColor()
+			])
+		);
 		expect(metrics.verticalFillOpacity).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillOpaque
 		]);
-		expect(metrics.topFillOpacity).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillTransparent
-		]);
+		expect(metrics.topFillOpacity).toEqual(
+			expect.arrayContaining([
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillTransparent,
+				TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillOpaque
+			])
+		);
 		expect(metrics.topStrokeOpacity).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillTransparent
 		]);
+		expect(metrics.level14TopFillColor).toEqual([
+			resolveTerraformsHypercastleSurfaceTexturePatternFill()
+		]);
+		expect(metrics.level14VerticalFillColor).toEqual([
+			resolveTerraformsHypercastleSurfaceTextureBackgroundColor()
+		]);
+		expect(metrics.level14VerticalStrokeColor).toEqual([
+			resolveTerraformsHypercastleSurfaceTextureBackgroundColor()
+		]);
+		expect(metrics.surfacePatternCellCount).toBe(
+			HYPERCASTLE_TEXTURE_LEVEL.dimension * HYPERCASTLE_TEXTURE_LEVEL.dimension
+		);
+		expect(metrics.surfaceSeed).toBe(String(0));
 		expect(metrics.verticalStrokeDashArray).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArraySolid,
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.strokeDashArrayDotted
@@ -442,15 +526,15 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
 
-		const topographyBucketSort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
-			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets)
+		const topographySort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
+			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography)
 		});
-		await topographyBucketSort.click();
+		await topographySort.click();
 		await assertZoneTableRows(
 			zoneTable,
 			sortTerraformsLevelZoneRows(
 				buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
-				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets,
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
 			)
 		);
@@ -476,12 +560,43 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		expect(detailMetrics.rowCount).toBe(defaultRows.length);
 		expect(detailMetrics.rowNames).toEqual(defaultRows.map((row) => row.name));
-		expect(detailMetrics.rowBucketCounts).toEqual(
-			defaultRows.map((row) => formatTerraformsZoneBucketCount(row))
+		expect(detailMetrics.rowTopographyValues).toEqual(
+			defaultRows.map((row) => formatTerraformsZoneTopographyHeights(row))
 		);
 		expect(detailMetrics.paletteSwatchCount).toBe(
 			defaultRows.reduce((sum, row) => sum + row.palette.length, 0)
 		);
+
+		const texturedLevelGuide = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedLevelGuide);
+		await texturedLevelGuide.click();
+		await assertZoneTableRows(
+			zoneTable,
+			sortTerraformsLevelZoneRows(
+				buildTerraformsLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
+				defaultTerraformsLevelZoneSortColumn(),
+				defaultTerraformsLevelZoneSortDirection()
+			)
+		);
+		await expect(
+			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: formatTerraformsLevelTitle(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber)
+			})
+		).toBeVisible();
+		const rerollButton = detailPanel.locator(
+			HYPERCASTLE_PROBE_CONTRACT.selectors.surfaceRerollButton
+		);
+		await expect(rerollButton).toHaveText(
+			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurface
+		);
+		await expect(rerollButton).toBeVisible();
+		await rerollButton.click();
+		await expect(
+			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)
+		).toHaveAttribute(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceSeed,
+			String(1)
+		);
+		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.surfaceScreenshot);
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
 		await attachProbeResult(testInfo, { metrics, detailMetrics, browserErrors });
@@ -582,6 +697,7 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 		const allLevelsGuide = document.querySelector(contract.selectors.allLevelsGuide);
 		const allLevelsGuideLabel = document.querySelector(contract.selectors.allLevelsGuideLabel);
 		const stripePattern = document.querySelector(contract.selectors.stripePattern);
+		const surfacePattern = document.querySelector(contract.selectors.surfacePattern);
 		const stripePatternRect = stripePattern?.querySelector(contract.svgTags.rect) ?? null;
 		const verticalFaces = faces.filter(
 			(face) =>
@@ -597,6 +713,12 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 						face.classList.contains(contract.faceClasses.side)
 				)
 			: [];
+		const levelFourteenTopFaces = Array.from(
+			document.querySelectorAll(contract.selectors.texturedTopFace)
+		);
+		const levelFourteenVerticalFaces = Array.from(
+			document.querySelectorAll(contract.selectors.texturedVerticalFace)
+		);
 
 		return {
 			svg: svg
@@ -615,6 +737,18 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 			verticalFillOpacity: uniqueAttribute(verticalFaces, contract.svgAttributes.fillOpacity),
 			topFillOpacity: uniqueAttribute(topFaces, contract.svgAttributes.fillOpacity),
 			topStrokeOpacity: uniqueAttribute(topFaces, contract.svgAttributes.strokeOpacity),
+			level14TopFillColor: uniqueAttribute(levelFourteenTopFaces, contract.svgAttributes.fill),
+			level14VerticalFillColor: uniqueAttribute(
+				levelFourteenVerticalFaces,
+				contract.svgAttributes.fill
+			),
+			level14VerticalStrokeColor: uniqueAttribute(
+				levelFourteenVerticalFaces,
+				contract.svgAttributes.stroke
+			),
+			surfacePatternCellCount:
+				surfacePattern?.querySelectorAll(contract.svgTags.rect).length ?? 0,
+			surfaceSeed: svg?.getAttribute(contract.dom.attributes.surfaceSeed) ?? null,
 			verticalStrokeDashArray: uniqueAttribute(
 				verticalFaces,
 				contract.svgAttributes.strokeDashArray
@@ -736,7 +870,7 @@ async function collectHypercastleLevelDetailMetrics(
 			heading: heading?.textContent ?? null,
 			rowCount: rows.length,
 			rowNames: rowCells.map((cells) => cells[0]?.textContent ?? contract.emptyAttributeValue),
-			rowBucketCounts: rowCells.map(
+			rowTopographyValues: rowCells.map(
 				(cells) => cells[2]?.textContent?.trim() ?? contract.emptyAttributeValue
 			),
 			paletteSwatchCount: table?.querySelectorAll(contract.selectors.paletteSwatch).length ?? 0
@@ -759,7 +893,11 @@ async function assertZoneTableRows(
 		if (row.topographyBucketCount === null) {
 			await expect(cells).toHaveCount(2);
 		} else {
-			await expect(cells.nth(2)).toHaveText(formatTerraformsZoneBucketCount(row));
+			await expect(cells.nth(2)).toHaveText(formatTerraformsZoneTopographyHeights(row));
+			await expect(cells.nth(2)).toHaveAttribute(
+				SVG_ATTRIBUTE_NAMES.title,
+				formatTerraformsZoneTopographyRangeLabel(row)
+			);
 		}
 	}
 }

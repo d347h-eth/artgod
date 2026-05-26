@@ -163,6 +163,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 		levelCount: 'data-level-count',
 		levelNumber: 'data-level-number',
 		levelDimension: 'data-level-dimension',
+		surfaceSeed: 'data-surface-seed',
 		outlinePosition: 'data-outline-position',
 		outlineStyle: 'data-outline-style',
 		guideCutoffX: 'data-guide-cutoff-x'

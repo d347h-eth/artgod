@@ -596,16 +596,19 @@ Current implementation notes:
 - `frontend/src/lib/collection-extension-pages/terraforms/level-zones.ts` builds selected-level Zone rows and the all-level Zone catalog from static contract data only.
 - `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-selection.ts` owns extension-local selection labels and state helpers for `All Levels` and `Level X` headings.
 - The all-level Zone table shows `name` and the 10-swatch `palette` for all 75 Zones.
-- The selected-level Zone table shows `name`, the 10-swatch `palette`, and centered `topography buckets`.
-- `topography buckets` means the count of nine contract topography buckets that map to the Zone on that level. It is a static mapping aid, not a faithful rarity or parcel distribution column.
+- The selected-level Zone table shows `name`, the 10-swatch `palette`, and centered `topography`.
+- `topography` lists the exact contract elevation values assigned to the Zone on that level, with raw Perlin threshold ranges available as cell titles. This is deterministic without replaying minted placements, but it is still not a faithful parcel rarity column.
 - Zone table headers are sortable; default order is name ascending. Removed the earlier bucket-share column because it implied equal bucket probability that the contract noise thresholds do not guarantee.
-- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels` and Level 12 in browser, verifies selected state, verifies Zone table rows and sorting, and attaches default, all-level, hover, and selected-level screenshots on desktop and mobile.
+- Level 14 now carries the first static surface-color experiment: one object-bounding SVG pattern covers the whole top face, generated as a 48 by 48 low-resolution Perlin texture using the Holo palette. The front-facing faces use Holo's final palette color as the canonical background fill.
+- Selecting Level 14 exposes a compact reroll button above the level heading. The reroll changes only the temporary texture seed, not contract data.
+- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels`, Level 12, and Level 14 in browser, verifies selected state, verifies Zone table rows, sorting, texture seed rerolling, and attaches default, all-level, hover, selected-level, and surface-texture screenshots on desktop and mobile.
 
 Remaining work:
 
 - Make `All Levels` and selected-level state URL-backed and shareable.
 - Add a faithful static Zone distribution mode by replaying the contract placement, Perlin, and threshold logic against the deployed seed, then generate per-level counts for the table.
 - Add the rest of the selected-level static facts: dimensions, parcel capacity, Zone window, explicit topography-to-Zone mapping, and biome group weights.
+- Decide whether the Level 14 Holo texture should become the general rendering strategy for all levels, and whether texture seed/active palette should be URL-backed or treated as transient view state.
 - Decide whether the selected-level panel should remain a compact side panel or introduce a deeper level-focused view before adding Biome detail.
 
 ## Suggested First Implementation Rule

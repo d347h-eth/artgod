@@ -25,11 +25,20 @@
 		type TerraformsHypercastleOverviewOutlineSegment
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
 	import { TERRAFORMS_HYPERCASTLE_SELECTION_LABELS } from '$lib/collection-extension-pages/terraforms/hypercastle-selection';
+	import {
+		buildTerraformsHypercastleSurfaceTextureCells,
+		isTerraformsHypercastleSurfaceTextureLevel,
+		resolveTerraformsHypercastleSurfaceTextureBackgroundColor,
+		resolveTerraformsHypercastleSurfaceTexturePatternFill,
+		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
+		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN
+	} from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 
 	type IsometricModule = typeof import('@elchininet/isometric');
 	type TerraformsHypercastleOverviewProps = {
 		selectedLevelNumber?: number | null;
 		allLevelsSelected?: boolean;
+		surfaceSeed?: number;
 		onLevelSelect?: (levelNumber: number) => void;
 		onAllLevelsSelect?: () => void;
 	};
@@ -37,6 +46,7 @@
 	let {
 		selectedLevelNumber = null,
 		allLevelsSelected = false,
+		surfaceSeed = 0,
 		onLevelSelect = () => undefined,
 		onAllLevelsSelect = () => undefined
 	}: TerraformsHypercastleOverviewProps = $props();
@@ -77,6 +87,7 @@
 	const SVG_ATTRIBUTES = {
 		id: 'id',
 		patternUnits: 'patternUnits',
+		patternContentUnits: 'patternContentUnits',
 		patternTransform: 'patternTransform',
 		width: 'width',
 		height: 'height',
@@ -95,6 +106,7 @@
 		y1: 'y1',
 		y2: 'y2',
 		dominantBaseline: 'dominant-baseline',
+		shapeRendering: 'shape-rendering',
 		tabindex: 'tabindex',
 		role: 'role',
 		title: 'title',
@@ -103,8 +115,10 @@
 	} as const;
 	const SVG_ATTRIBUTE_VALUES = {
 		userSpaceOnUse: 'userSpaceOnUse',
+		objectBoundingBox: 'objectBoundingBox',
 		middle: 'middle',
-		transparent: 'transparent'
+		transparent: 'transparent',
+		crispEdges: 'crispEdges'
 	} as const;
 	const SVG_TRANSFORMS = {
 		rotate: 'rotate'
@@ -143,6 +157,7 @@
 		if (!container || !isometricModule) return;
 		viewportWidth;
 		renderKey;
+		surfaceSeed;
 		renderOverview();
 	});
 
@@ -176,7 +191,11 @@
 		const svg = canvas.getElement();
 		svg.classList.add(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.svg);
 		svg.setAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.levelCount, String(layers.length));
-		installFadedFacePattern(svg);
+		svg.setAttribute(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceSeed,
+			String(surfaceSeed)
+		);
+		installOverviewPatterns(svg);
 
 		const group = new isometricModule.IsometricGroup({
 			right: layout.groupRightOffsetUnits,
@@ -246,8 +265,8 @@
 				...(fadedFace ? [TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.faceFaded] : [])
 			].join(' '),
 			fillColor: resolveLayerFaceFillColor(layer, faceKind),
-			fillOpacity: resolveLayerFaceFillOpacity(faceKind),
-			strokeColor: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color,
+			fillOpacity: resolveLayerFaceFillOpacity(layer, faceKind),
+			strokeColor: resolveLayerFaceStrokeColor(layer, faceKind),
 			strokeDashArray,
 			strokeLinecap: resolveStrokeLineCap(strokeDashArray),
 			strokeOpacity: resolveLayerFaceStrokeOpacity(faceKind),
@@ -655,15 +674,37 @@
 		layer: TerraformsHypercastleOverviewLayer,
 		faceKind: TerraformsHypercastleOverviewFaceKind
 	): string {
-		return isTerraformsHypercastleOverviewFadedFace(layer, faceKind)
-			? `${CSS_URL_PREFIX}${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern}${CSS_URL_SUFFIX}`
-			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
+		if (isSurfaceTextureTopFace(layer, faceKind)) {
+			return resolveTerraformsHypercastleSurfaceTexturePatternFill();
+		}
+		if (isSurfaceTextureVerticalFace(layer, faceKind)) {
+			return resolveTerraformsHypercastleSurfaceTextureBackgroundColor();
+		}
+		if (isTerraformsHypercastleOverviewFadedFace(layer, faceKind)) {
+			return `${CSS_URL_PREFIX}${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern}${CSS_URL_SUFFIX}`;
+		}
+		return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
 	}
 
-	function resolveLayerFaceFillOpacity(faceKind: TerraformsHypercastleOverviewFaceKind): number {
+	function resolveLayerFaceFillOpacity(
+		layer: TerraformsHypercastleOverviewLayer,
+		faceKind: TerraformsHypercastleOverviewFaceKind
+	): number {
+		if (isSurfaceTextureTopFace(layer, faceKind)) {
+			return TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.vertical;
+		}
 		return isTerraformsHypercastleOverviewVerticalFace(faceKind)
 			? TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.vertical
 			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fillOpacity.top;
+	}
+
+	function resolveLayerFaceStrokeColor(
+		layer: TerraformsHypercastleOverviewLayer,
+		faceKind: TerraformsHypercastleOverviewFaceKind
+	): string {
+		return isSurfaceTextureVerticalFace(layer, faceKind)
+			? resolveTerraformsHypercastleSurfaceTextureBackgroundColor()
+			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
 	}
 
 	function resolveLayerFaceStrokeDashArray(
@@ -712,8 +753,34 @@
 		return isometricModule!.LineCap.butt;
 	}
 
-	function installFadedFacePattern(svg: SVGElement): void {
+	function isSurfaceTextureTopFace(
+		layer: TerraformsHypercastleOverviewLayer,
+		faceKind: TerraformsHypercastleOverviewFaceKind
+	): boolean {
+		return (
+			isTerraformsHypercastleSurfaceTextureLevel(layer.levelNumber) &&
+			faceKind === TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
+		);
+	}
+
+	function isSurfaceTextureVerticalFace(
+		layer: TerraformsHypercastleOverviewLayer,
+		faceKind: TerraformsHypercastleOverviewFaceKind
+	): boolean {
+		return (
+			isTerraformsHypercastleSurfaceTextureLevel(layer.levelNumber) &&
+			isTerraformsHypercastleOverviewVerticalFace(faceKind)
+		);
+	}
+
+	function installOverviewPatterns(svg: SVGElement): void {
 		const defs = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.defs);
+		appendFadedFacePattern(defs);
+		appendSurfaceTexturePattern(defs);
+		svg.insertBefore(defs, svg.firstChild);
+	}
+
+	function appendFadedFacePattern(defs: SVGDefsElement): void {
 		const pattern = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.pattern);
 		const stripe = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.rect);
 		pattern.setAttribute(SVG_ATTRIBUTES.id, TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.ids.stripePattern);
@@ -745,7 +812,39 @@
 		);
 		pattern.appendChild(stripe);
 		defs.appendChild(pattern);
-		svg.insertBefore(defs, svg.firstChild);
+	}
+
+	function appendSurfaceTexturePattern(defs: SVGDefsElement): void {
+		const pattern = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.pattern);
+		pattern.setAttribute(SVG_ATTRIBUTES.id, TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.ids.pattern);
+		pattern.setAttribute(SVG_ATTRIBUTES.patternUnits, SVG_ATTRIBUTE_VALUES.objectBoundingBox);
+		pattern.setAttribute(
+			SVG_ATTRIBUTES.patternContentUnits,
+			SVG_ATTRIBUTE_VALUES.objectBoundingBox
+		);
+		pattern.setAttribute(
+			SVG_ATTRIBUTES.width,
+			String(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.width)
+		);
+		pattern.setAttribute(
+			SVG_ATTRIBUTES.height,
+			String(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.height)
+		);
+		for (const cell of buildTerraformsHypercastleSurfaceTextureCells({ seed: surfaceSeed })) {
+			const rect = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.rect);
+			rect.setAttribute(SVG_ATTRIBUTES.x, String(cell.x));
+			rect.setAttribute(SVG_ATTRIBUTES.y, String(cell.y));
+			rect.setAttribute(SVG_ATTRIBUTES.width, String(cell.size));
+			rect.setAttribute(SVG_ATTRIBUTES.height, String(cell.size));
+			rect.setAttribute(SVG_ATTRIBUTES.fill, cell.color);
+			rect.setAttribute(
+				SVG_ATTRIBUTES.fillOpacity,
+				String(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.cellOpacity)
+			);
+			rect.setAttribute(SVG_ATTRIBUTES.shapeRendering, SVG_ATTRIBUTE_VALUES.crispEdges);
+			pattern.appendChild(rect);
+		}
+		defs.appendChild(pattern);
 	}
 </script>
 

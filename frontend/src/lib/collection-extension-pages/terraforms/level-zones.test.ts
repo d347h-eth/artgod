@@ -3,7 +3,8 @@ import { TERRAFORMS_HYPERCASTLE_LEVELS, TERRAFORMS_ZONES } from '@artgod/shared/
 import {
 	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
-	formatTerraformsZoneBucketCount,
+	formatTerraformsZoneTopographyHeights,
+	formatTerraformsZoneTopographyRangeLabel,
 	resolveTerraformsHypercastleLevel,
 	resolveTerraformsLevelZoneAriaSort,
 	resolveTerraformsLevelZoneDefaultSortDirection,
@@ -23,8 +24,13 @@ describe('Terraforms level Zone table data', () => {
 
 		expect(rows.map((row) => row.name)).toEqual(['Palace', 'Muxtai X1']);
 		expect(rows.map((row) => row.topographyBucketCount)).toEqual([5, 4]);
+		expect(rows.map((row) => formatTerraformsZoneTopographyHeights(row))).toEqual([
+			'4, 2, 0, -2, -4',
+			'3, 1, -1, -3'
+		]);
 		expect(rows.map((row) => row.palette)).toEqual(level!.zones.map((zone) => zone.palette));
-		expect(formatTerraformsZoneBucketCount(rows[0]!)).toBe('5 / 9');
+		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toContain('4: > 18000');
+		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toContain('-4: <= -26000');
 	});
 
 	it('builds the all-level Zone catalog without level-specific buckets', () => {
@@ -34,9 +40,12 @@ describe('Terraforms level Zone table data', () => {
 		expect(rows[0]).toMatchObject({
 			zoneIndex: 0,
 			name: 'Alto',
-			topographyBucketCount: null
+			topographyBucketCount: null,
+			topographyHeights: null,
+			topographyRangeLabel: null
 		});
-		expect(formatTerraformsZoneBucketCount(rows[0]!)).toBe('');
+		expect(formatTerraformsZoneTopographyHeights(rows[0]!)).toBe('');
+		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toBe('');
 	});
 
 	it('sorts selected-level Zone rows by dynamic table columns', () => {
@@ -45,7 +54,7 @@ describe('Terraforms level Zone table data', () => {
 		expect(
 			sortTerraformsLevelZoneRows(
 				rows,
-				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.TopographyBuckets,
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
 			).map((row) => row.name)
 		).toEqual(['Muxtai X1', 'Palace']);
