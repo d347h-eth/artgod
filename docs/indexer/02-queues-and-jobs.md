@@ -82,6 +82,7 @@ Subscribing:
 - Durable consumer with explicit ack.
 - Supports `maxInFlight` (maxAckPending).
 - Supports `ackWaitMs`.
+- Reconciles existing durable consumer `maxAckPending` / `ackWaitMs` on worker startup so runtime config changes take effect after relaunch.
 - A simple limiter controls concurrency in-process.
 
 ## Queue Backlog Inspection

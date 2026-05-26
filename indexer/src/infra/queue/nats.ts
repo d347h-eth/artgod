@@ -3,8 +3,11 @@ import {
     consumerOpts,
     createInbox,
     JSONCodec,
+    nanos,
     RetentionPolicy,
     StorageType,
+    type ConsumerInfo,
+    type ConsumerUpdateConfig,
     type JetStreamClient,
     type JetStreamManager,
     type NatsConnection,
@@ -22,6 +25,16 @@ export type NatsQueueConfig = {
     streamPrefix: string;
 };
 
+type DesiredConsumerConfig = {
+    maxAckPending?: number;
+    ackWaitMs?: number;
+};
+
+type ConsumerConfigSnapshot = Pick<
+    ConsumerInfo["config"],
+    "max_ack_pending" | "ack_wait"
+>;
+
 // Resolve the durable jobs stream name shared by queue publishers and tooling.
 export function resolveNatsJobStreamName(streamPrefix: string): string {
     return `${streamPrefix}-jobs`;
@@ -38,6 +51,27 @@ export function resolveNatsJobSubject(
 // Resolve the wildcard subject used by the shared jobs stream.
 export function resolveNatsJobsSubjectFilter(streamPrefix: string): string {
     return `${streamPrefix}.jobs.>`;
+}
+
+// Computes mutable durable consumer settings that drifted from runtime config.
+export function resolveNatsConsumerConfigUpdate(
+    existing: ConsumerConfigSnapshot,
+    desired: DesiredConsumerConfig,
+): Partial<ConsumerUpdateConfig> {
+    const update: Partial<ConsumerUpdateConfig> = {};
+    if (
+        desired.maxAckPending !== undefined &&
+        existing.max_ack_pending !== desired.maxAckPending
+    ) {
+        update.max_ack_pending = desired.maxAckPending;
+    }
+    if (desired.ackWaitMs !== undefined) {
+        const ackWaitNanos = nanos(desired.ackWaitMs);
+        if (existing.ack_wait !== ackWaitNanos) {
+            update.ack_wait = ackWaitNanos;
+        }
+    }
+    return update;
 }
 
 export class NatsJetStreamQueue implements QueuePort {
@@ -81,6 +115,7 @@ export class NatsJetStreamQueue implements QueuePort {
     ): Promise<() => Promise<void>> {
         await this.ensureStream();
         const subject = this.subjectForQueue(queue);
+        await this.reconcileConsumerConfig(subject, options);
         const codec = JSONCodec<JobEnvelope<TPayload>>();
         const opts = consumerOpts();
 
@@ -185,6 +220,60 @@ export class NatsJetStreamQueue implements QueuePort {
     private subjectForQueue(queue: QueueName): string {
         return resolveNatsJobSubject(this.config.streamPrefix, queue);
     }
+
+    private async reconcileConsumerConfig(
+        subject: string,
+        options: SubscribeOptions,
+    ): Promise<void> {
+        let info: ConsumerInfo;
+        try {
+            info = await this.jsm.consumers.info(
+                this.streamName,
+                options.consumerName,
+            );
+        } catch (error) {
+            if (isConsumerNotFound(error)) return;
+            throw error;
+        }
+
+        assertConsumerSubjectMatches(info, subject, options.consumerName);
+        const update = resolveNatsConsumerConfigUpdate(info.config, {
+            maxAckPending: options.maxInFlight,
+            ackWaitMs: options.ackWaitMs,
+        });
+        if (Object.keys(update).length === 0) return;
+
+        await this.jsm.consumers.update(
+            this.streamName,
+            options.consumerName,
+            update,
+        );
+    }
+}
+
+function assertConsumerSubjectMatches(
+    info: ConsumerInfo,
+    subject: string,
+    consumerName: string,
+): void {
+    const filterSubject = info.config.filter_subject;
+    if (filterSubject && filterSubject !== subject) {
+        throw new Error(
+            `Durable consumer ${consumerName} filters ${filterSubject}, expected ${subject}`,
+        );
+    }
+
+    const filterSubjects = info.config.filter_subjects;
+    if (filterSubjects && !filterSubjects.includes(subject)) {
+        throw new Error(
+            `Durable consumer ${consumerName} does not filter ${subject}`,
+        );
+    }
+}
+
+function isConsumerNotFound(error: unknown): boolean {
+    const code = (error as { code?: string | number } | undefined)?.code;
+    return code === "404" || code === 404;
 }
 
 function createLimiter(limit: number) {

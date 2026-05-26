@@ -70,6 +70,7 @@ describe("Indexer config", () => {
         expect(config.sync).toEqual({
             reorgDepth: getSettingDefaultNumber("REORG_DEPTH"),
             backfillBatchSize: getSettingDefaultNumber("BACKFILL_BATCH_SIZE"),
+            backfillWorkerCount: getSettingDefaultNumber("BACKFILL_WORKER_COUNT"),
             logChunkSize: getSettingDefaultNumber("LOG_CHUNK_SIZE"),
         });
         expect(config.cache).toEqual({
@@ -104,6 +105,32 @@ describe("Indexer config", () => {
         expect(config.metadata.refreshRangeChunkSize).toBe(
             getSettingDefaultNumber("METADATA_REFRESH_RANGE_CHUNK_SIZE"),
         );
+    });
+
+    it("uses the manifest backfill worker count default", () => {
+        const config = loadConfig(REQUIRED_ENV);
+
+        expect(config.sync.backfillWorkerCount).toBe(
+            getSettingDefaultNumber("BACKFILL_WORKER_COUNT"),
+        );
+    });
+
+    it("parses configured backfill worker count", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            BACKFILL_WORKER_COUNT: "4",
+        });
+
+        expect(config.sync.backfillWorkerCount).toBe(4);
+    });
+
+    it("rejects non-positive backfill worker counts", () => {
+        expect(() =>
+            loadConfig({
+                ...REQUIRED_ENV,
+                BACKFILL_WORKER_COUNT: "0",
+            }),
+        ).toThrow("Invalid BACKFILL_WORKER_COUNT");
     });
 
     it("treats missing OpenSea API key as disabled in auto mode", () => {

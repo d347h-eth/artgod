@@ -31,7 +31,7 @@ The sync worker:
 
 1. Loads config and runs migrations.
 2. Connects to NATS and the RPC provider.
-3. Consumes realtime and backfill queues (one worker each).
+3. Consumes realtime and backfill queues (one consumer each; backfill can run multiple safe in-flight jobs).
 4. For each job:
     - Fetches logs for the target block/range.
     - Resolves enabled collection-extension watch specs for the targeted collections.
@@ -39,7 +39,13 @@ The sync worker:
     - Persists results via SQLite storage.
     - Publishes domain sync jobs (orders, metadata, activities), collection-scoped metadata refresh jobs, and order update jobs.
 
-The worker uses `maxInFlight = 1` to keep block processing strictly ordered within each queue.
+Realtime sync uses `maxInFlight = 1` to keep block processing strictly ordered.
+Backfill sync uses configurable `BACKFILL_WORKER_COUNT` in-flight jobs.
+The backfill worker classifies each job by collection anchor before execution:
+
+- ranges fully at or before the affected collection anchors run as parallel facts-only work
+- ranges that may touch current-state projection are serialized inside the worker
+- jobs without settled anchors are not treated as parallel-safe
 
 Backfill jobs use `RPC_BACKFILL_URL` when configured; realtime jobs always use `RPC_URL`.
 Realtime sync targets live collections and anchored bootstrapping collections so collection-scoped blockspace coverage keeps moving while bootstrap work is still in progress.

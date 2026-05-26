@@ -625,6 +625,13 @@ default = "50"
 view = "basic"
 
 [[settings]]
+key = "BACKFILL_WORKER_COUNT"
+group = "indexer"
+label = "backfill worker count"
+default = "1"
+view = "basic"
+
+[[settings]]
 key = "LOG_CHUNK_SIZE"
 group = "indexer"
 label = "log chunk size"
