@@ -14,9 +14,16 @@ Primary files:
 Sync jobs are defined in `indexer/src/domain/sync-jobs.ts`:
 
 - `sync.realtime.block` with payload `{ blockNumber }`
-- `sync.backfill.range` with payload `{ fromBlock, toBlock }`
+- `sync.backfill.range` with payload
+  `{ fromBlock, toBlock, source, orderMaintenancePolicy }`
 
-These jobs are published by the scheduler-worker (realtime) and by reorg recovery (backfill).
+Backfill `source` identifies whether the range is `manual_historical`,
+`reorg_recovery`, `bootstrap_catchup`, or `gap_repair`.
+`orderMaintenancePolicy` is `current_state` for repair/catch-up work and
+`skip_global_maker_revalidation` for manual historical enrichment.
+
+These jobs are published by the scheduler-worker (realtime), backend manual
+blockspace backfill, reorg recovery, bootstrap catch-up, and realtime gap repair.
 
 ## Sync Worker Flow
 
@@ -83,7 +90,7 @@ Each transaction is also paired with its receipt logs. The receipt logs are not 
 
 Seaport fills are decoded from receipt `OrderFulfilled` logs (no traces) and emitted as collection-scoped `fillEvents` when the protocol fill contains a tracked NFT and maps to a tracked NFT transfer in the same transaction. Matched buy/sell mirror logs for one NFT transfer are canonicalized to one fill; multi-hop bundles can emit multiple fills. Blur fills are decoded from supported calldata methods. See `docs/indexer/15-fill-decoding.md` for the full fill-decoding policy and edge cases. Seaport cancels (`OrderCancelled`) and order validations (`OrderValidated`) are decoded from Seaport logs and emitted into `global.cancelEvents` / collection-scoped `orderInfos` (criteria-based orders are skipped for now). Counter increments emit global maker triggers (`order-counter`).
 
-WETH transfer/approval logs are decoded into global maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the bidder index is ready and non-empty (quiet default). When the index is empty or not yet loaded, WETH logs are skipped and no maker triggers are emitted.
+WETH transfer/approval logs are decoded into global maker triggers (`erc20-balance`, `approval-change`) to re-validate bids. These triggers are **ephemeral** and only emitted when the order-maintenance policy allows current-state maker revalidation and the bidder index is ready and non-empty (quiet default). When the policy is `skip_global_maker_revalidation`, or when the index is empty/not yet loaded, WETH logs are skipped and no maker triggers are emitted.
 
 Maker triggers are re-validation hints, not unconditional cancels. NFT transfers and fill-derived item movements emit token-scoped maker triggers, while WETH transfer/approval triggers and Seaport counter bumps stay global.
 
@@ -119,7 +126,7 @@ The `Terraformed` log also emits an extension event fact. The Terraforms extensi
 
 ## Gap Check
 
-After persisting a realtime block, the sync worker checks whether the previous block exists in SQLite. If it is missing, the worker enqueues a single-block backfill job to close the gap.
+After persisting a realtime block, the sync worker checks whether the previous block exists in SQLite. If it is missing, the worker enqueues a single-block `gap_repair` backfill job with `current_state` order maintenance to close the gap.
 
 ## Persisting Sync Results
 
@@ -180,6 +187,10 @@ Order maintenance then continues through dedicated update queues:
 
 - token-scoped updates include `collectionId + tokenId`
 - global updates carry maker-wide invalidation reasons only
+
+Manual historical backfills keep token-scoped order maintenance but suppress
+global `orders.update-by-maker` jobs for WETH balance, approval, and Seaport
+counter triggers. Current-state repair backfills keep the global fanout.
 
 The collection bootstrap worker also uses the sync pipeline for short-range bootstrap backfill. These bootstrap-published backfill jobs are collection-scoped so completion checks only track the intended collection.
 

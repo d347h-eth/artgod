@@ -11,6 +11,11 @@ import {
     decodeWethMakerInfos,
     WETH_EVENT_FILTERS,
 } from "../application/ft/weth.js";
+import { shouldFetchWethMakerLogs } from "../application/backfill-order-maintenance.js";
+import {
+    canAnyCollectionProjectCurrentStateAt,
+    publishOrderUpdateJobs,
+} from "../application/order-update-fanout.js";
 import type { JobEnvelope } from "../domain/jobs.js";
 import { QUEUE_NAMES } from "../domain/queues.js";
 import {
@@ -22,8 +27,13 @@ import {
     type MetadataRefreshRangePayload,
 } from "../domain/domain-jobs.js";
 import type { OnChainData } from "../domain/onchain.js";
-import { SYNC_JOB_KIND } from "../domain/sync-jobs.js";
+import {
+    BACKFILL_ORDER_MAINTENANCE_POLICY,
+    BACKFILL_SOURCE,
+    SYNC_JOB_KIND,
+} from "../domain/sync-jobs.js";
 import type {
+    BackfillOrderMaintenancePolicy,
     BackfillSyncPayload,
     RealtimeSyncPayload,
 } from "../domain/sync-jobs.js";
@@ -35,12 +45,6 @@ import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
-import {
-    MAKER_TRIGGER_SCOPE,
-    ORDER_JOB_KIND,
-    type OrderUpdateByIdPayload,
-    type OrderUpdateByMakerPayload,
-} from "../domain/order-jobs.js";
 import { SqliteBidderIndex } from "../infra/bidder-index/sqlite.js";
 import type { Hex } from "../ports/rpc.js";
 import { SqliteCollectionRegistry } from "../infra/collections/sqlite.js";
@@ -175,6 +179,7 @@ async function main() {
                     range,
                     bidderIndex,
                     config.tokens.wethAddress,
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
                 );
                 await scheduleGapBackfill(
                     queue,
@@ -190,6 +195,7 @@ async function main() {
                     job,
                     "realtime",
                     data,
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
                 );
                 logger.info("Sync block processed", {
                     component: "IndexerSyncWorker",
@@ -240,6 +246,8 @@ async function main() {
                     fromBlock: job.payload.fromBlock,
                     toBlock: job.payload.toBlock,
                 };
+                const orderMaintenancePolicy =
+                    job.payload.orderMaintenancePolicy;
                 const { data, blocks } = await processRange(
                     backfillRpc,
                     storage,
@@ -250,6 +258,7 @@ async function main() {
                     range,
                     bidderIndex,
                     config.tokens.wethAddress,
+                    orderMaintenancePolicy,
                 );
                 await publishDomainJobs(
                     queue,
@@ -259,12 +268,15 @@ async function main() {
                     job,
                     "backfill",
                     data,
+                    orderMaintenancePolicy,
                 );
                 logger.info("Backfill range processed", {
                     component: "IndexerSyncWorker",
                     action: "backfillRange",
                     fromBlock: job.payload.fromBlock,
                     toBlock: job.payload.toBlock,
+                    source: job.payload.source,
+                    orderMaintenancePolicy,
                     collectionIds: collections.map(
                         (collection) => collection.id,
                     ),
@@ -323,6 +335,7 @@ async function processRange(
     range: SyncRange,
     bidderIndex: BidderIndex,
     wethAddress: string,
+    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
 ): Promise<{
     data: Awaited<ReturnType<typeof syncRange>>;
     blocks: RpcBlock[];
@@ -349,6 +362,7 @@ async function processRange(
         bidderIndex,
         data,
         collections,
+        orderMaintenancePolicy,
     );
     return { data, blocks };
 }
@@ -373,6 +387,7 @@ async function publishDomainJobs<TPayload>(
     job: JobEnvelope<TPayload>,
     mode: DomainSyncMode,
     data: OnChainData,
+    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
 ): Promise<void> {
     // Build the current-state sync payload for this range.
     const currentStatePayload: DomainSyncPayload = {
@@ -437,7 +452,13 @@ async function publishDomainJobs<TPayload>(
     await queue.publish(QUEUE_NAMES.MetadataDomain, metadataJob);
 
     // Only post-anchor events may drive current-state side effects.
-    await publishOrderUpdateJobs(queue, chainId, collections, currentStateData);
+    await publishOrderUpdateJobs(
+        queue,
+        chainId,
+        collections,
+        currentStateData,
+        orderMaintenancePolicy,
+    );
     await publishMetadataRefreshJobs(
         queue,
         chainId,
@@ -463,109 +484,18 @@ async function scheduleGapBackfill(
             jobId: `sync:gap:${chainId}:${previous}`,
             kind: SYNC_JOB_KIND.BackfillRange,
             queue: QUEUE_NAMES.BackfillSync,
-            payload: { fromBlock: previous, toBlock: previous },
+            payload: {
+                fromBlock: previous,
+                toBlock: previous,
+                source: BACKFILL_SOURCE.GapRepair,
+                orderMaintenancePolicy:
+                    BACKFILL_ORDER_MAINTENANCE_POLICY.CurrentState,
+            },
             attempt: 0,
             scheduledAt: Date.now(),
             chainId,
         };
         await queue.publish(QUEUE_NAMES.BackfillSync, job);
-    }
-}
-
-// Order update jobs are triggered by fills/cancels/on-chain orders or maker state changes.
-async function publishOrderUpdateJobs(
-    queue: QueuePort,
-    chainId: number,
-    collections: CollectionRecord[],
-    data: OnChainData,
-): Promise<void> {
-    for (const makerTrigger of data.collectionScoped.makerTriggers) {
-        const maker = makerTrigger.maker.toLowerCase();
-        const job: JobEnvelope<OrderUpdateByMakerPayload> = {
-            jobId: `orders:update:maker:${chainId}:${maker}:${makerTrigger.collectionId}:${makerTrigger.tokenId}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
-            kind: ORDER_JOB_KIND.UpdateByMaker,
-            queue: QUEUE_NAMES.OrdersUpdateByMaker,
-            payload: {
-                chainId,
-                scope: MAKER_TRIGGER_SCOPE.Token,
-                maker: makerTrigger.maker,
-                collectionId: makerTrigger.collectionId,
-                contract: makerTrigger.contract,
-                tokenId: makerTrigger.tokenId,
-                reason: makerTrigger.reason,
-                blockNumber: makerTrigger.blockNumber,
-                blockHash: makerTrigger.blockHash,
-                txHash: makerTrigger.txHash,
-                logIndex: makerTrigger.logIndex,
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-            collectionId: makerTrigger.collectionId,
-        };
-        await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, job);
-    }
-
-    for (const makerTrigger of data.global.makerTriggers) {
-        if (!canAnyCollectionProjectCurrentStateAt(collections, makerTrigger.blockNumber)) {
-            continue;
-        }
-        const maker = makerTrigger.maker.toLowerCase();
-        const job: JobEnvelope<OrderUpdateByMakerPayload> = {
-            jobId: `orders:update:maker:${chainId}:${maker}:global:${makerTrigger.reason}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
-            kind: ORDER_JOB_KIND.UpdateByMaker,
-            queue: QUEUE_NAMES.OrdersUpdateByMaker,
-            payload: {
-                chainId,
-                scope: MAKER_TRIGGER_SCOPE.Global,
-                maker: makerTrigger.maker,
-                reason: makerTrigger.reason,
-                blockNumber: makerTrigger.blockNumber,
-                blockHash: makerTrigger.blockHash,
-                txHash: makerTrigger.txHash,
-                logIndex: makerTrigger.logIndex,
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-        };
-        await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, job);
-    }
-
-    for (const fill of data.collectionScoped.fillEvents) {
-        if (!fill.orderId) continue;
-        await publishOrderUpdateById(
-            queue,
-            chainId,
-            fill.orderId,
-            "fill",
-            fill,
-        );
-    }
-
-    for (const cancel of data.global.cancelEvents) {
-        if (!cancel.orderId) continue;
-        if (!canAnyCollectionProjectCurrentStateAt(collections, cancel.blockNumber)) {
-            continue;
-        }
-        await publishOrderUpdateById(
-            queue,
-            chainId,
-            cancel.orderId,
-            "cancel",
-            cancel,
-        );
-    }
-
-    for (const order of data.collectionScoped.orderInfos) {
-        if (!order.orderId) continue;
-        await publishOrderUpdateById(
-            queue,
-            chainId,
-            order.orderId,
-            "order",
-            order,
-        );
     }
 }
 
@@ -705,11 +635,22 @@ async function appendWethMakerInfos(
     bidderIndex: BidderIndex,
     data: OnChainData,
     collections: CollectionRecord[],
+    orderMaintenancePolicy: BackfillOrderMaintenancePolicy,
 ): Promise<void> {
-    // WETH triggers only matter when some collection can project current state.
-    if (!bidderIndex.isActive()) return;
-    if (range.fromBlock > range.toBlock) return;
-    if (!hasAnyCurrentStateProjection(collections, range)) return;
+    // WETH triggers only matter for current-state maker revalidation.
+    if (
+        !shouldFetchWethMakerLogs({
+            orderMaintenancePolicy,
+            range,
+            bidderIndexActive: bidderIndex.isActive(),
+            hasCurrentStateProjection: hasAnyCurrentStateProjection(
+                collections,
+                range,
+            ),
+        })
+    ) {
+        return;
+    }
 
     const logs = await rpc.getLogs({
         fromBlock: range.fromBlock,
@@ -732,16 +673,6 @@ function hasAnyCurrentStateProjection(
                 range.fromBlock,
                 range.toBlock,
             ) !== null,
-    );
-}
-
-function canAnyCollectionProjectCurrentStateAt(
-    collections: CollectionRecord[],
-    blockNumber: number,
-): boolean {
-    // Coarse gate for global triggers.
-    return collections.some((collection) =>
-        collection.canProjectCurrentStateAt(blockNumber),
     );
 }
 
@@ -781,10 +712,11 @@ function filterCurrentStateOnChainData(
                 collectionsById,
                 data.collectionScoped.metadataRefreshEvents,
             ),
-            metadataRefreshRangeEvents: filterCurrentStateCollectionScopedEvents(
-                collectionsById,
-                data.collectionScoped.metadataRefreshRangeEvents,
-            ),
+            metadataRefreshRangeEvents:
+                filterCurrentStateCollectionScopedEvents(
+                    collectionsById,
+                    data.collectionScoped.metadataRefreshRangeEvents,
+                ),
             collectionExtensionEvents: filterCurrentStateCollectionScopedEvents(
                 collectionsById,
                 data.collectionScoped.collectionExtensionEvents,
@@ -814,46 +746,11 @@ function filterCurrentStateOnChainData(
 
 function filterCurrentStateCollectionScopedEvents<
     TEvent extends { collectionId: number; blockNumber: number },
->(
-    collectionsById: Map<number, CollectionRecord>,
-    events: TEvent[],
-): TEvent[] {
+>(collectionsById: Map<number, CollectionRecord>, events: TEvent[]): TEvent[] {
     // Keep only post-anchor collection-scoped events.
     return events.filter((event) =>
         collectionsById
             .get(event.collectionId)
             ?.canProjectCurrentStateAt(event.blockNumber),
     );
-}
-
-async function publishOrderUpdateById(
-    queue: QueuePort,
-    chainId: number,
-    orderId: string,
-    reason: string,
-    attribution: {
-        blockNumber: number;
-        blockHash: string;
-        txHash: string;
-        logIndex: number;
-    },
-): Promise<void> {
-    const job: JobEnvelope<OrderUpdateByIdPayload> = {
-        jobId: `orders:update:id:${chainId}:${orderId}:${attribution.blockNumber}:${attribution.logIndex}`,
-        kind: ORDER_JOB_KIND.UpdateById,
-        queue: QUEUE_NAMES.OrdersUpdateById,
-        payload: {
-            chainId,
-            orderId,
-            reason,
-            blockNumber: attribution.blockNumber,
-            blockHash: attribution.blockHash,
-            txHash: attribution.txHash,
-            logIndex: attribution.logIndex,
-        },
-        attempt: 0,
-        scheduledAt: Date.now(),
-        chainId,
-    };
-    await queue.publish(QUEUE_NAMES.OrdersUpdateById, job);
 }

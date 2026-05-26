@@ -446,6 +446,9 @@ yarn workspace @artgod/frontend run dev
 # Start only the indexer workspace dev entrypoint.
 yarn workspace @artgod/indexer run dev
 
+# Inspect a JetStream queue backlog without consuming or acknowledging messages.
+yarn workspace @artgod/indexer run inspect:queue -- --queue order-updates-by-maker --limit 10000
+
 # Validate runtime registry consistency across build maps, supervisor mappings, dev launchers, and observability mappings.
 yarn check:runtime-registry
 

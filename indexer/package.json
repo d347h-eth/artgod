@@ -18,6 +18,7 @@
         "dev:collection-extension-worker": "tsx src/runtime/collection-extension-worker.ts",
         "dev:bootstrap-trigger": "tsx scripts/trigger-bootstrap.ts",
         "dev:collection-extension-trigger-range": "tsx scripts/trigger-collection-extension-artifacts-range.ts",
+        "inspect:queue": "tsx scripts/inspect-jetstream-backlog.ts",
         "dev:dead-letter-worker": "tsx src/runtime/dead-letter-worker.ts",
         "test": "vitest run",
         "test:watch": "vitest"

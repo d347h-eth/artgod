@@ -22,9 +22,26 @@ export type NatsQueueConfig = {
     streamPrefix: string;
 };
 
+// Resolve the durable jobs stream name shared by queue publishers and tooling.
+export function resolveNatsJobStreamName(streamPrefix: string): string {
+    return `${streamPrefix}-jobs`;
+}
+
+// Resolve the subject used for one logical queue inside the shared jobs stream.
+export function resolveNatsJobSubject(
+    streamPrefix: string,
+    queue: QueueName,
+): string {
+    return `${streamPrefix}.jobs.${queue}`;
+}
+
+// Resolve the wildcard subject used by the shared jobs stream.
+export function resolveNatsJobsSubjectFilter(streamPrefix: string): string {
+    return `${streamPrefix}.jobs.>`;
+}
+
 export class NatsJetStreamQueue implements QueuePort {
     private readonly streamName: string;
-    private readonly subjectPrefix: string;
     private streamReady?: Promise<void>;
 
     private constructor(
@@ -33,8 +50,7 @@ export class NatsJetStreamQueue implements QueuePort {
         private readonly jsm: JetStreamManager,
         private readonly config: NatsQueueConfig,
     ) {
-        this.streamName = `${config.streamPrefix}-jobs`;
-        this.subjectPrefix = `${config.streamPrefix}.jobs`;
+        this.streamName = resolveNatsJobStreamName(config.streamPrefix);
     }
 
     static async connect(config: NatsQueueConfig): Promise<NatsJetStreamQueue> {
@@ -159,7 +175,7 @@ export class NatsJetStreamQueue implements QueuePort {
 
         await this.jsm.streams.add({
             name: this.streamName,
-            subjects: [`${this.subjectPrefix}.>`],
+            subjects: [resolveNatsJobsSubjectFilter(this.config.streamPrefix)],
             retention: RetentionPolicy.Workqueue,
             storage: StorageType.File,
             max_age: 7 * 24 * 60 * 60 * 1_000_000_000,
@@ -167,7 +183,7 @@ export class NatsJetStreamQueue implements QueuePort {
     }
 
     private subjectForQueue(queue: QueueName): string {
-        return `${this.subjectPrefix}.${queue}`;
+        return resolveNatsJobSubject(this.config.streamPrefix, queue);
     }
 }
 
