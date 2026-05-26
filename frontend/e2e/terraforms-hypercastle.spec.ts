@@ -9,6 +9,7 @@ import {
 import {
 	buildTerraformsBiomeRows,
 	buildTerraformsBiomeTokenHref,
+	TERRAFORMS_BIOME_FONT_FAMILY_NAME,
 	TERRAFORMS_BIOME_TABLE_DOM,
 	TERRAFORMS_BIOME_TABLE_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/biomes';
@@ -979,8 +980,9 @@ async function assertBiomeTableRows(biomeTable: Locator): Promise<void> {
 	const rows = biomeTable.locator(TABLE_SELECTORS.bodyRows);
 	await expect(rows).toHaveCount(expectedRows.length);
 	await expect(biomeTable.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)).toHaveCount(
-		expectedRows.reduce((sum, row) => sum + row.characters.length, 0)
+		expectedRows.reduce((sum, row) => sum + row.displayCharacters.length, 0)
 	);
+	await assertBiomeCharacterFontLoaded(biomeTable);
 	for (const index of [0, expectedRows.length - 1]) {
 		const row = expectedRows[index]!;
 		const cells = rows.nth(index).locator(TABLE_SELECTORS.cells);
@@ -995,8 +997,42 @@ async function assertBiomeTableRows(biomeTable: Locator): Promise<void> {
 		);
 		await expect(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
-		).toHaveCount(row.characters.length);
+		).toHaveCount(row.displayCharacters.length);
 	}
+	await assertBiomeDisplayCharacters(rows, expectedRows, 22);
+	await assertBiomeDisplayCharacters(rows, expectedRows, 23);
+}
+
+async function assertBiomeDisplayCharacters(
+	rows: Locator,
+	expectedRows: ReturnType<typeof buildTerraformsBiomeRows>,
+	biomeIndex: number
+): Promise<void> {
+	const row = expectedRows[biomeIndex]!;
+	const characterCells = rows
+		.nth(biomeIndex)
+		.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter);
+
+	expect(await characterCells.allTextContents()).toEqual(row.displayCharacters);
+	expect(row.displayCharacters).not.toContain('?');
+}
+
+async function assertBiomeCharacterFontLoaded(biomeTable: Locator): Promise<void> {
+	const firstCharacter = biomeTable
+		.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
+		.first();
+	const fontProbe = await firstCharacter.evaluate(async (element) => {
+		await document.fonts.ready;
+		const computedStyle = window.getComputedStyle(element);
+
+		return {
+			fontFamily: computedStyle.fontFamily,
+			mathcastlesLoaded: document.fonts.check(computedStyle.font, element.textContent ?? '')
+		};
+	});
+
+	expect(fontProbe.fontFamily).toContain(TERRAFORMS_BIOME_FONT_FAMILY_NAME);
+	expect(fontProbe.mathcastlesLoaded).toBe(true);
 }
 
 async function expectCanonicalLayerOrder(page: Page): Promise<void> {

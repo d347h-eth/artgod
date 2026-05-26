@@ -501,7 +501,7 @@
 								</td>
 								<td>
 									<div class={TERRAFORMS_BIOME_TABLE_DOM.classes.characterSet}>
-										{#each row.characters as character, characterIndex}
+										{#each row.displayCharacters as character, characterIndex}
 											<span
 												class={TERRAFORMS_BIOME_TABLE_DOM.classes.character}
 												data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.character}
