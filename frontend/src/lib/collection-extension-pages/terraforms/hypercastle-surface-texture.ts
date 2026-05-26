@@ -24,9 +24,6 @@ type TerraformsHypercastleSurfaceRandom = () => number;
 
 // DOM hooks for generated level textures and their reroll control.
 export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM = {
-	ids: {
-		patternPrefix: 'terraforms-hypercastle-level-surface-'
-	},
 	testIds: {
 		rerollButton: 'terraforms-hypercastle-surface-reroll'
 	},
@@ -40,16 +37,11 @@ export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS = {
 	RerollSurfaces: 'reroll surfaces'
 } as const;
 
-// SVG pattern values make one generated texture cover the whole isometric face once.
-export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN = {
-	width: 1,
-	height: 1,
+// Cell values let the renderer draw a generated texture as true isometric tiles.
+export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL = {
 	cellOpacity: 1,
 	cellOverlap: 0.00002
 } as const;
-
-// Terraforms parcels render a 32 by 32 local heightmap, independent of level size.
-export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE = 32;
 
 const TERRAFORMS_HYPERCASTLE_SURFACE_NOISE = {
 	octaves: 2,
@@ -86,8 +78,6 @@ export const TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT = 9;
 export const TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX = 9;
 const TERRAFORMS_HYPERCASTLE_SURFACE_MONO_PALETTE_HASH_X = 0;
 const TERRAFORMS_HYPERCASTLE_SURFACE_MONO_PALETTE_HASH_Y = 0;
-const TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_PREFIX = 'url(#';
-const TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_SUFFIX = ')';
 const TERRAFORMS_HYPERCASTLE_SURFACE_RENDER_KEY_FIELD_SEPARATOR = ':';
 const TERRAFORMS_HYPERCASTLE_SURFACE_RENDER_KEY_LAYER_SEPARATOR = '|';
 const TERRAFORMS_HYPERCASTLE_SURFACE_ERRORS = {
@@ -169,22 +159,6 @@ export function resolveTerraformsHypercastleSurfaceTextureBackgroundColor(
 	return palette[TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX]!;
 }
 
-// Builds the SVG fill value for the generated texture pattern.
-export function resolveTerraformsHypercastleSurfaceTexturePatternId(levelNumber: number): string {
-	return `${TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.ids.patternPrefix}${levelNumber}`;
-}
-
-// Builds the SVG fill value for the generated texture pattern.
-export function resolveTerraformsHypercastleSurfaceTexturePatternFill(
-	levelNumber: number
-): string {
-	return [
-		TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_PREFIX,
-		resolveTerraformsHypercastleSurfaceTexturePatternId(levelNumber),
-		TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_SUFFIX
-	].join('');
-}
-
 // Serializes transient level surfaces into one stable render attribute.
 export function buildTerraformsHypercastleSurfaceTextureRenderKey(
 	surfaces: readonly TerraformsHypercastleLevelSurface[]
@@ -198,29 +172,31 @@ export function buildTerraformsHypercastleSurfaceTextureRenderKey(
 		.join(TERRAFORMS_HYPERCASTLE_SURFACE_RENDER_KEY_LAYER_SEPARATOR);
 }
 
-// Generates a parcel-local Perlin heightmap and stretches it over the slab top face.
+// Generates a Perlin heightmap at the caller's requested slab grid resolution.
 export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 	zone: TerraformsZone;
 	seed: number;
+	gridSize: number;
 }): TerraformsHypercastleSurfaceTextureCell[] {
-	const cellSize = 1 / TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE;
+	const cellSize = 1 / input.gridSize;
 	const palette = resolveTerraformsHypercastleSurfaceTexturePalette({
 		zone: input.zone,
 		seed: input.seed
 	});
 	const cells: TerraformsHypercastleSurfaceTextureCell[] = [];
-	for (let row = 0; row < TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE; row += 1) {
-		for (let column = 0; column < TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE; column += 1) {
+	for (let row = 0; row < input.gridSize; row += 1) {
+		for (let column = 0; column < input.gridSize; column += 1) {
 			const terrainValue = resolveTerraformsHypercastleSurfaceTerrainValue({
 				column,
 				row,
+				gridSize: input.gridSize,
 				seed: input.seed
 			});
 			const heightmapIndex = resolveTerraformsTopographyBucket(terrainValue);
 			cells.push({
 				x: column * cellSize,
 				y: row * cellSize,
-				size: cellSize + TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.cellOverlap,
+				size: cellSize + TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL.cellOverlap,
 				color: palette[heightmapIndex]!,
 				heightmapIndex,
 				terrainValue
@@ -230,7 +206,7 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 	return cells;
 }
 
-// Reintroduces the canonical background fill into flat mono-palette surfaces.
+// Reintroduces the canonical background fill into mono-palette overview surfaces.
 export function resolveTerraformsHypercastleSurfaceTexturePalette(input: {
 	zone: TerraformsZone;
 	seed: number;
@@ -291,17 +267,18 @@ function resolveTerraformsHypercastleMonoBackgroundHeightIndex(seed: number): nu
 function resolveTerraformsHypercastleSurfaceTerrainValue(input: {
 	column: number;
 	row: number;
+	gridSize: number;
 	seed: number;
 }): number {
 	const normalizedNoise = clampNoise(
 		sampleFractalPerlinNoise({
 			x:
 				((input.column + TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.cellCenterOffset) /
-					TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE) *
+					input.gridSize) *
 				TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.baseFrequency,
 			y:
 				((input.row + TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.cellCenterOffset) /
-					TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE) *
+					input.gridSize) *
 				TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.baseFrequency,
 			seed: input.seed
 		}) * TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.contrast

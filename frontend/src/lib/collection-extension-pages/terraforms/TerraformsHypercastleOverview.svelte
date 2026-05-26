@@ -15,6 +15,7 @@
 		TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS,
 		TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION,
 		type TerraformsHypercastleOverviewFaceKind,
+		type TerraformsHypercastleOverviewFaceGeometry,
 		type TerraformsHypercastleOverviewLevelGuide,
 		type TerraformsHypercastleOverviewLayer
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
@@ -24,11 +25,10 @@
 		buildTerraformsHypercastleSurfaceTextureCells,
 		resolveTerraformsHypercastleSurfaceForLevel,
 		resolveTerraformsHypercastleSurfaceTextureBackgroundColor,
-		resolveTerraformsHypercastleSurfaceTexturePatternId,
-		resolveTerraformsHypercastleSurfaceTexturePatternFill,
 		resolveTerraformsHypercastleSurfaceZone,
-		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN,
-		type TerraformsHypercastleLevelSurface
+		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL,
+		type TerraformsHypercastleLevelSurface,
+		type TerraformsHypercastleSurfaceTextureCell
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 
 	type IsometricModule = typeof import('@elchininet/isometric');
@@ -75,8 +75,6 @@
 	} as const;
 	const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 	const SVG_TAGS = {
-		defs: 'defs',
-		pattern: 'pattern',
 		rect: 'rect',
 		group: 'g',
 		line: 'line',
@@ -84,8 +82,6 @@
 	} as const;
 	const SVG_ATTRIBUTES = {
 		id: 'id',
-		patternUnits: 'patternUnits',
-		patternContentUnits: 'patternContentUnits',
 		width: 'width',
 		height: 'height',
 		fill: 'fill',
@@ -111,7 +107,6 @@
 		ariaPressed: 'aria-pressed'
 	} as const;
 	const SVG_ATTRIBUTE_VALUES = {
-		objectBoundingBox: 'objectBoundingBox',
 		middle: 'middle',
 		transparent: 'transparent',
 		crispEdges: 'crispEdges'
@@ -198,7 +193,6 @@
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey,
 			surfaceRenderKey
 		);
-		installOverviewPatterns(svg);
 
 		const group = new isometricModule.IsometricGroup({
 			right: layout.groupRightOffsetUnits,
@@ -237,6 +231,7 @@
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side,
 			isometricModule.PlaneView.SIDE
 		);
+		renderLayerSurfaceTexture(layerGroup, layer);
 		renderLayerFace(
 			layerGroup,
 			layer,
@@ -282,6 +277,56 @@
 			clearLevelHoverStateIfOutside(layer.levelNumber, event)
 		);
 		layerGroup.addChild(face);
+	}
+
+	function renderLayerSurfaceTexture(
+		layerGroup: InstanceType<IsometricModule['IsometricGroup']>,
+		layer: TerraformsHypercastleOverviewLayer
+	): void {
+		const surface = resolveLayerSurface(layer);
+		if (!surface) return;
+		const geometry = resolveTerraformsHypercastleOverviewFaceGeometry(
+			layer,
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
+		);
+		const zone = resolveTerraformsHypercastleSurfaceZone(surface);
+		for (const cell of buildTerraformsHypercastleSurfaceTextureCells({
+			zone,
+			seed: surface.seed,
+			gridSize: layer.dimension
+		})) {
+			renderLayerSurfaceTextureCell(layerGroup, geometry, cell);
+		}
+	}
+
+	function renderLayerSurfaceTextureCell(
+		layerGroup: InstanceType<IsometricModule['IsometricGroup']>,
+		geometry: TerraformsHypercastleOverviewFaceGeometry,
+		cell: TerraformsHypercastleSurfaceTextureCell
+	): void {
+		if (!isometricModule) return;
+		const textureCell = new isometricModule.IsometricRectangle({
+			planeView: isometricModule.PlaneView.TOP,
+			right: geometry.right + cell.x * geometry.width,
+			left: geometry.left + cell.y * geometry.height,
+			top: geometry.top,
+			width: cell.size * geometry.width,
+			height: cell.size * geometry.height,
+			className: TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.textureCell,
+			fillColor: cell.color,
+			fillOpacity: TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL.cellOpacity,
+			strokeColor: cell.color,
+			strokeOpacity: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.strokeOpacity.textureCell,
+			strokeWidth: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.textureCellStrokeWidth
+		});
+		const textureCellElement = textureCell.getElement();
+		textureCellElement.setAttribute(DOM_ATTRIBUTES.ariaHidden, DOM_ATTRIBUTE_VALUES.true);
+		textureCellElement.setAttribute(SVG_ATTRIBUTES.shapeRendering, SVG_ATTRIBUTE_VALUES.crispEdges);
+		textureCellElement.setAttribute(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceTextureHeightmapIndex,
+			String(cell.heightmapIndex)
+		);
+		layerGroup.addChild(textureCell);
 	}
 
 	function renderLevelGuides(
@@ -746,7 +791,7 @@
 		faceKind: TerraformsHypercastleOverviewFaceKind
 	): string {
 		if (isSurfaceTextureTopFace(layer, faceKind)) {
-			return resolveTerraformsHypercastleSurfaceTexturePatternFill(layer.levelNumber);
+			return SVG_ATTRIBUTE_VALUES.transparent;
 		}
 		return resolveLayerSurfaceBackgroundColor(layer);
 	}
@@ -813,53 +858,6 @@
 			: TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.color;
 	}
 
-	function installOverviewPatterns(svg: SVGElement): void {
-		const defs = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.defs);
-		appendSurfaceTexturePatterns(defs);
-		svg.insertBefore(defs, svg.firstChild);
-	}
-
-	function appendSurfaceTexturePatterns(defs: SVGDefsElement): void {
-		for (const surface of levelSurfaces) {
-			const zone = resolveTerraformsHypercastleSurfaceZone(surface);
-			const pattern = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.pattern);
-			pattern.setAttribute(
-				SVG_ATTRIBUTES.id,
-				resolveTerraformsHypercastleSurfaceTexturePatternId(surface.levelNumber)
-			);
-			pattern.setAttribute(SVG_ATTRIBUTES.patternUnits, SVG_ATTRIBUTE_VALUES.objectBoundingBox);
-			pattern.setAttribute(
-				SVG_ATTRIBUTES.patternContentUnits,
-				SVG_ATTRIBUTE_VALUES.objectBoundingBox
-			);
-			pattern.setAttribute(
-				SVG_ATTRIBUTES.width,
-				String(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.width)
-			);
-			pattern.setAttribute(
-				SVG_ATTRIBUTES.height,
-				String(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.height)
-			);
-			for (const cell of buildTerraformsHypercastleSurfaceTextureCells({
-				zone,
-				seed: surface.seed
-			})) {
-				const rect = document.createElementNS(SVG_NAMESPACE, SVG_TAGS.rect);
-				rect.setAttribute(SVG_ATTRIBUTES.x, String(cell.x));
-				rect.setAttribute(SVG_ATTRIBUTES.y, String(cell.y));
-				rect.setAttribute(SVG_ATTRIBUTES.width, String(cell.size));
-				rect.setAttribute(SVG_ATTRIBUTES.height, String(cell.size));
-				rect.setAttribute(SVG_ATTRIBUTES.fill, cell.color);
-				rect.setAttribute(
-					SVG_ATTRIBUTES.fillOpacity,
-					String(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.cellOpacity)
-				);
-				rect.setAttribute(SVG_ATTRIBUTES.shapeRendering, SVG_ATTRIBUTE_VALUES.crispEdges);
-				pattern.appendChild(rect);
-			}
-			defs.appendChild(pattern);
-		}
-	}
 </script>
 
 <section
@@ -923,6 +921,12 @@
 		pointer-events: all;
 	}
 
+	:global(.terraforms-hypercastle-overview-layer-texture-cell) {
+		pointer-events: none;
+		vector-effect: non-scaling-stroke;
+		transition: filter 120ms ease;
+	}
+
 	:global(.terraforms-hypercastle-overview-level-guide) {
 		cursor: pointer;
 		outline: none;
@@ -976,8 +980,39 @@
 	:global(
 			.terraforms-hypercastle-overview-layer-selected
 				.terraforms-hypercastle-overview-layer-face
+	),
+	:global(
+			.terraforms-hypercastle-overview-layer:hover
+				.terraforms-hypercastle-overview-layer-texture-cell
+	),
+	:global(
+			.terraforms-hypercastle-overview-layer:focus-visible
+				.terraforms-hypercastle-overview-layer-texture-cell
+	),
+	:global(
+			.terraforms-hypercastle-overview-layer-hovered
+				.terraforms-hypercastle-overview-layer-texture-cell
+	),
+	:global(
+			.terraforms-hypercastle-overview-layer-selected
+				.terraforms-hypercastle-overview-layer-texture-cell
 	) {
 		filter: brightness(1.16);
+	}
+
+	:global(.terraforms-hypercastle-overview-layer:hover .terraforms-hypercastle-overview-layer-face),
+	:global(
+			.terraforms-hypercastle-overview-layer:focus-visible
+				.terraforms-hypercastle-overview-layer-face
+	),
+	:global(
+			.terraforms-hypercastle-overview-layer-hovered
+				.terraforms-hypercastle-overview-layer-face
+	),
+	:global(
+			.terraforms-hypercastle-overview-layer-selected
+				.terraforms-hypercastle-overview-layer-face
+	) {
 		stroke-width: 2;
 	}
 

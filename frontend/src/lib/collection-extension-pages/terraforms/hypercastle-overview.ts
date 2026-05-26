@@ -103,6 +103,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 		layerHovered: 'terraforms-hypercastle-overview-layer-hovered',
 		layerSelected: 'terraforms-hypercastle-overview-layer-selected',
 		face: 'terraforms-hypercastle-overview-layer-face',
+		textureCell: 'terraforms-hypercastle-overview-layer-texture-cell',
 		guide: 'terraforms-hypercastle-overview-level-guide',
 		guideHovered: 'terraforms-hypercastle-overview-level-guide-hovered',
 		guideSelected: 'terraforms-hypercastle-overview-level-guide-selected',
@@ -123,6 +124,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM = {
 		surfaceSeed: 'data-surface-seed',
 		surfaceZoneIndex: 'data-surface-zone-index',
 		surfaceBackgroundColor: 'data-surface-background-color',
+		surfaceTextureHeightmapIndex: 'data-surface-texture-heightmap-index',
 		guideCutoffX: 'data-guide-cutoff-x'
 	}
 } as const;
@@ -134,18 +136,20 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION = {
 	color: 'var(--c-blue)',
 	canvasBackground: 'transparent',
 	fillOpacity: {
-		top: 1,
+		top: 0,
 		vertical: 1
 	},
 	strokeOpacity: {
 		top: 0,
-		vertical: 1
+		vertical: 1,
+		textureCell: 0
 	},
 	strokeDashArray: {
 		solid: [],
 		dashed: [4, 3]
 	},
 	strokeWidth: 1,
+	textureCellStrokeWidth: 0,
 	levelLabelFontSize: 13,
 	levelLabelHitWidth: 68,
 	levelGuideHitHeight: 18,
@@ -159,6 +163,7 @@ export const TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION = {
 export const TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES = {
 	fillTransparent: '0',
 	fillOpaque: '1',
+	fillColorTransparent: 'transparent',
 	pointerEventsAll: 'all',
 	strokeDashArrayDashed: '4 3',
 	strokeOpacityHidden: '0',

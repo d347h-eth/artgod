@@ -11,13 +11,9 @@ import {
 	resolveTerraformsHypercastleSurfaceForLevel,
 	resolveTerraformsHypercastleSurfaceTextureBackgroundColor,
 	resolveTerraformsHypercastleSurfaceTexturePalette,
-	resolveTerraformsHypercastleSurfaceTexturePatternId,
-	resolveTerraformsHypercastleSurfaceTexturePatternFill,
 	resolveTerraformsHypercastleSurfaceZone,
 	TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX,
-	TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT,
-	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
-	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE
+	TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT
 } from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 
 describe('Terraforms Hypercastle surface texture', () => {
@@ -36,12 +32,6 @@ describe('Terraforms Hypercastle surface texture', () => {
 		const firstZone = resolveTerraformsHypercastleSurfaceZone(firstSurface);
 		expect(resolveTerraformsHypercastleSurfaceTextureBackgroundColor(firstSurface)).toBe(
 			firstZone.palette[firstZone.palette.length - 1]
-		);
-		expect(resolveTerraformsHypercastleSurfaceTexturePatternId(firstSurface.levelNumber)).toBe(
-			`${TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.ids.patternPrefix}${firstSurface.levelNumber}`
-		);
-		expect(resolveTerraformsHypercastleSurfaceTexturePatternFill(firstSurface.levelNumber)).toBe(
-			`url(#${resolveTerraformsHypercastleSurfaceTexturePatternId(firstSurface.levelNumber)})`
 		);
 		expect(buildTerraformsHypercastleSurfaceTextureRenderKey(surfaces)).toContain(
 			String(firstSurface.levelNumber)
@@ -72,14 +62,23 @@ describe('Terraforms Hypercastle surface texture', () => {
 		expect(resolveTerraformsHypercastleSurfaceZone(nextSurface!).index).toBe(targetZone.index);
 	});
 
-	it('generates one deterministic texture cell per parcel-local heightmap unit', () => {
+	it('generates one deterministic texture cell per level parcel', () => {
 		const zone = TERRAFORMS_ZONES.reduce((selected, candidate) =>
 			new Set(candidate.palette).size > new Set(selected.palette).size ? candidate : selected
 		);
-		const cells = buildTerraformsHypercastleSurfaceTextureCells({ zone, seed: 0 });
-		const rerolledCells = buildTerraformsHypercastleSurfaceTextureCells({ zone, seed: 1 });
+		const level = TERRAFORMS_HYPERCASTLE_LEVELS[13]!;
+		const cells = buildTerraformsHypercastleSurfaceTextureCells({
+			zone,
+			seed: 0,
+			gridSize: level.dimension
+		});
+		const rerolledCells = buildTerraformsHypercastleSurfaceTextureCells({
+			zone,
+			seed: 1,
+			gridSize: level.dimension
+		});
 
-		expect(cells).toHaveLength(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE ** 2);
+		expect(cells).toHaveLength(level.parcelCount);
 		expect(cells[0]).toMatchObject({ x: 0, y: 0 });
 		expect(new Set(cells.map((cell) => cell.color)).size).toBeGreaterThan(6);
 		expect(cells.every((cell) => zone.palette.includes(cell.color))).toBe(true);
@@ -88,6 +87,18 @@ describe('Terraforms Hypercastle surface texture', () => {
 		expect(cells.map((cell) => cell.color).join()).not.toBe(
 			rerolledCells.map((cell) => cell.color).join()
 		);
+	});
+
+	it('can sample a texture at a level-specific grid size', () => {
+		const zone = TERRAFORMS_ZONES[0]!;
+		const level = TERRAFORMS_HYPERCASTLE_LEVELS[13]!;
+		const cells = buildTerraformsHypercastleSurfaceTextureCells({
+			zone,
+			seed: 0,
+			gridSize: level.dimension
+		});
+
+		expect(cells).toHaveLength(level.parcelCount);
 	});
 
 	it('mixes the background fill color into flat mono-palette surfaces', () => {
@@ -104,7 +115,12 @@ describe('Terraforms Hypercastle surface texture', () => {
 			zone: monoZone!,
 			seed: 42
 		});
-		const cells = buildTerraformsHypercastleSurfaceTextureCells({ zone: monoZone!, seed: 42 });
+		const level = TERRAFORMS_HYPERCASTLE_LEVELS[13]!;
+		const cells = buildTerraformsHypercastleSurfaceTextureCells({
+			zone: monoZone!,
+			seed: 42,
+			gridSize: level.dimension
+		});
 		const heightColors = texturePalette.slice(
 			0,
 			TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT

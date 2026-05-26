@@ -35,10 +35,7 @@ import {
 	TERRAFORMS_HYPERCASTLE_SELECTION_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-selection';
 import {
-	resolveTerraformsHypercastleSurfaceTexturePatternId,
-	resolveTerraformsHypercastleSurfaceTexturePatternFill,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
-	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 import {
@@ -71,8 +68,9 @@ type HypercastleOverviewMetrics = {
 	sampleLevelSurfaceZoneIndex: string | null;
 	sampleLevelSurfaceSeed: string | null;
 	sampleLevelSurfaceBackgroundColor: string | null;
-	surfacePatternCount: number;
-	surfacePatternCellCount: number;
+	surfaceTextureCellCount: number;
+	sampleLevelSurfaceTextureCellCount: number;
+	sampleLevelSurfaceTextureCellFillColors: string[];
 	surfaceKey: string | null;
 	topPointerEvents: string[];
 	level12SurfaceBackgroundColor: string | null;
@@ -153,9 +151,7 @@ const TABLE_SELECTORS = {
 	cells: 'td'
 } as const;
 const TAG_NAMES = {
-	svg: 'svg',
-	pattern: 'pattern',
-	rect: 'rect'
+	svg: 'svg'
 } as const;
 const DATA_ATTRIBUTE_NAMES = {
 	testId: 'testid'
@@ -201,6 +197,12 @@ const HYPERCASTLE_TEXTURE_LEVEL_NUMBER = 14;
 const HYPERCASTLE_TEXTURE_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_TEXTURE_LEVEL_NUMBER
 )!;
+const HYPERCASTLE_EXPECTED_SURFACE_TEXTURE_CELL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.reduce(
+	(sum, level) => sum + level.parcelCount,
+	0
+);
+const HYPERCASTLE_TEXTURE_LEVEL_EXPECTED_SURFACE_TEXTURE_CELL_COUNT =
+	HYPERCASTLE_TEXTURE_LEVEL.parcelCount;
 const HYPERCASTLE_PATH = `/e2e-harness/collection/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
 const HYPERCASTLE_PROBE_CONTRACT = {
 	browserValues: TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,
@@ -254,9 +256,9 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 		reachableLevelGuide: idSelector(
 			resolveTerraformsHypercastleOverviewLevelGuideElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		),
-		surfacePatterns: `${TAG_NAMES.pattern}${prefixedIdSelector(
-			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.ids.patternPrefix
-		)}`,
+		surfaceTextureCell: classSelector(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.textureCell
+		),
 		surfaceRerollButton: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton
@@ -274,6 +276,11 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
 			)
 		)}`,
+		texturedSurfaceTextureCells: `${idSelector(
+			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
+		)} ${classSelector(
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.textureCell
+		)}`,
 		reachableTopFace: `${idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		)} ${classSelector(
@@ -286,7 +293,6 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 	ariaAttributes: ARIA_ATTRIBUTE_NAMES,
 	ariaAttributeValues: ARIA_ATTRIBUTE_VALUES,
 	tableSelectors: TABLE_SELECTORS,
-	svgTags: TAG_NAMES,
 	svgAttributes: SVG_ATTRIBUTE_NAMES
 } as const;
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
@@ -347,23 +353,22 @@ test.describe('Terraforms Hypercastle overview', () => {
 			TERRAFORMS_HYPERCASTLE_LEVELS.map((level) => String(level.levelNumber))
 		);
 		expect(metrics.topFillOpacity).toEqual([
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillOpaque
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillTransparent
 		]);
 		expect(metrics.topStrokeOpacity).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillTransparent
 		]);
 		expect(metrics.sampleLevelTopFillColor).toEqual([
-			resolveTerraformsHypercastleSurfaceTexturePatternFill(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillColorTransparent
 		]);
 		expect(metrics.sampleLevelSurfaceZoneIndex).not.toBeNull();
 		expect(metrics.sampleLevelSurfaceSeed).not.toBeNull();
 		expect(metrics.sampleLevelSurfaceBackgroundColor).not.toBeNull();
-		expect(metrics.surfacePatternCount).toBe(HYPERCASTLE_EXPECTED_LEVEL_COUNT);
-		expect(metrics.surfacePatternCellCount).toBe(
-			HYPERCASTLE_EXPECTED_LEVEL_COUNT *
-				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE *
-				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE
+		expect(metrics.surfaceTextureCellCount).toBe(HYPERCASTLE_EXPECTED_SURFACE_TEXTURE_CELL_COUNT);
+		expect(metrics.sampleLevelSurfaceTextureCellCount).toBe(
+			HYPERCASTLE_TEXTURE_LEVEL_EXPECTED_SURFACE_TEXTURE_CELL_COUNT
 		);
+		expect(metrics.sampleLevelSurfaceTextureCellFillColors.length).toBeGreaterThan(1);
 		expect(metrics.surfaceKey).toContain(String(HYPERCASTLE_TEXTURE_LEVEL_NUMBER));
 		expect(metrics.topPointerEvents).toEqual([
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.pointerEventsAll
@@ -568,15 +573,18 @@ test.describe('Terraforms Hypercastle overview', () => {
 			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedTopFace)
 		).toHaveAttribute(
 			SVG_ATTRIBUTE_NAMES.fill,
-			resolveTerraformsHypercastleSurfaceTexturePatternFill(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
+			TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES.fillColorTransparent
 		);
 		await expect(
-			page.locator(
-				idSelector(
-					resolveTerraformsHypercastleSurfaceTexturePatternId(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
-				)
-			)
-		).toBeAttached();
+			page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedSurfaceTextureCells)
+		).toHaveCount(HYPERCASTLE_TEXTURE_LEVEL_EXPECTED_SURFACE_TEXTURE_CELL_COUNT);
+		const textureFillColors = await collectUniqueAttributeValues(
+			page,
+			HYPERCASTLE_PROBE_CONTRACT.selectors.texturedSurfaceTextureCells,
+			SVG_ATTRIBUTE_NAMES.fill
+		);
+		expect(textureFillColors.length).toBeGreaterThan(0);
+		expect(textureFillColors.every((color) => targetRow.palette.includes(color))).toBe(true);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.surfaceScreenshot);
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
@@ -676,7 +684,9 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 		const guideLabels = Array.from(document.querySelectorAll(contract.selectors.guideLabel));
 		const allLevelsGuide = document.querySelector(contract.selectors.allLevelsGuide);
 		const allLevelsGuideLabel = document.querySelector(contract.selectors.allLevelsGuideLabel);
-		const surfacePatterns = Array.from(document.querySelectorAll(contract.selectors.surfacePatterns));
+		const surfaceTextureCells = Array.from(
+			document.querySelectorAll(contract.selectors.surfaceTextureCell)
+		);
 		const verticalFaces = faces.filter(
 			(face) =>
 				face.classList.contains(contract.faceClasses.front) ||
@@ -687,6 +697,9 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 		const sampleLevelLayer = document.querySelector(contract.selectors.texturedLevelLayer);
 		const levelFourteenTopFaces = Array.from(
 			document.querySelectorAll(contract.selectors.texturedTopFace)
+		);
+		const levelFourteenTextureCells = Array.from(
+			document.querySelectorAll(contract.selectors.texturedSurfaceTextureCells)
 		);
 
 		return {
@@ -714,10 +727,11 @@ async function collectHypercastleOverviewMetrics(page: Page): Promise<Hypercastl
 				sampleLevelLayer?.getAttribute(contract.dom.attributes.surfaceSeed) ?? null,
 			sampleLevelSurfaceBackgroundColor:
 				sampleLevelLayer?.getAttribute(contract.dom.attributes.surfaceBackgroundColor) ?? null,
-			surfacePatternCount: surfacePatterns.length,
-			surfacePatternCellCount: surfacePatterns.reduce(
-				(sum, pattern) => sum + pattern.querySelectorAll(contract.svgTags.rect).length,
-				0
+			surfaceTextureCellCount: surfaceTextureCells.length,
+			sampleLevelSurfaceTextureCellCount: levelFourteenTextureCells.length,
+			sampleLevelSurfaceTextureCellFillColors: uniqueAttribute(
+				levelFourteenTextureCells,
+				contract.svgAttributes.fill
 			),
 			surfaceKey: svg?.getAttribute(contract.dom.attributes.surfaceKey) ?? null,
 			topPointerEvents: uniqueStyle(topFaces, contract.cssProperties.pointerEvents),
@@ -837,6 +851,24 @@ async function collectLayerOrder(page: Page): Promise<string[]> {
 	}, HYPERCASTLE_PROBE_CONTRACT);
 }
 
+async function collectUniqueAttributeValues(
+	page: Page,
+	selector: string,
+	attributeName: string
+): Promise<string[]> {
+	return page.evaluate(
+		({ selector, attributeName, emptyAttributeValue }) =>
+			Array.from(
+				new Set(
+					Array.from(document.querySelectorAll(selector)).map(
+						(element) => element.getAttribute(attributeName) ?? emptyAttributeValue
+					)
+				)
+			),
+		{ selector, attributeName, emptyAttributeValue: EMPTY_ATTRIBUTE_VALUE }
+	);
+}
+
 function expectedAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 	return sortTerraformsLevelZoneRows(
 		buildTerraformsAllLevelZoneRows(),
@@ -863,8 +895,4 @@ function dataAttributeSelector(attributeName: string, value: string): string {
 
 function idSelector(id: string): string {
 	return `#${id}`;
-}
-
-function prefixedIdSelector(prefix: string): string {
-	return `[id^="${prefix}"]`;
 }
