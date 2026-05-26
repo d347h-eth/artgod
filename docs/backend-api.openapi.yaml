@@ -416,6 +416,68 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
+    /api/{chain_ref}/{collection_ref}/traits/catalog:
+        get:
+            tags: [Collections]
+            summary: Get exact minted counts for requested collection trait keys
+            operationId: getCollectionTraitCatalog
+            parameters:
+                - $ref: "#/components/parameters/ChainRef"
+                - $ref: "#/components/parameters/CollectionRef"
+                - name: keys
+                  in: query
+                  required: false
+                  description: Comma-delimited or repeated trait keys to count
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+                - name: key
+                  in: query
+                  required: false
+                  description: Comma-delimited or repeated trait keys to count
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+                - name: scope_traits
+                  in: query
+                  required: false
+                  description: Optional repeated `key:value` trait scope used before counting requested keys
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+                - name: scope_trait
+                  in: query
+                  required: false
+                  description: Optional repeated `key:value` trait scope used before counting requested keys
+                  schema:
+                      type: array
+                      items:
+                          type: string
+                  style: form
+                  explode: true
+            responses:
+                "200":
+                    description: Trait-value counts for requested keys within the optional scope
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/GetCollectionTraitCatalogResponse"
+                "400":
+                    $ref: "#/components/responses/BadRequest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+                "500":
+                    $ref: "#/components/responses/InternalError"
+
     /api/{chain_ref}/{collection_ref}/customization:
         get:
             tags: [Collections]
@@ -2179,6 +2241,32 @@ components:
                     items:
                         $ref: "#/components/schemas/TraitFacetValue"
 
+        TraitCatalogFacet:
+            type: object
+            required: [key, values]
+            additionalProperties: false
+            properties:
+                key:
+                    type: string
+                values:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TraitFacetValue"
+
+        TraitCatalog:
+            type: object
+            required: [scope, facets]
+            additionalProperties: false
+            properties:
+                scope:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TraitFilter"
+                facets:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/TraitCatalogFacet"
+
         TradingJobStatus:
             type: string
             enum: [enabled, paused, archived]
@@ -3513,6 +3601,18 @@ components:
                                 $ref: "#/components/schemas/TraitFacet"
                 tokens:
                     $ref: "#/components/schemas/TokenCursorPage"
+
+        GetCollectionTraitCatalogResponse:
+            type: object
+            required: [chain, collection, traitCatalog]
+            additionalProperties: false
+            properties:
+                chain:
+                    $ref: "#/components/schemas/ChainRecord"
+                collection:
+                    $ref: "#/components/schemas/CollectionListItem"
+                traitCatalog:
+                    $ref: "#/components/schemas/TraitCatalog"
 
         GetCollectionCustomizationResponse:
             type: object

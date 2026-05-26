@@ -55,6 +55,8 @@ export const ARTGOD_SPAN_ATTRIBUTE = {
     CollectionRangeOnlyKeysCount:
         "artgod.collection.range_only_keys_count",
     CollectionExcludeKeysCount: "artgod.collection.exclude_keys_count",
+    CollectionTraitCatalogKeysCount:
+        "artgod.collection.trait_catalog_keys_count",
     CollectionCountKind: "artgod.collection.count_kind",
     CollectionIncludeListings: "artgod.collection.include_listings",
     CollectionCandidateTokenIdsCount:

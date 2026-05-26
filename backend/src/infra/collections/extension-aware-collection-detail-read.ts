@@ -16,6 +16,7 @@ import type {
     TokenCursorPage,
     TokenDetail,
     TokenMediaPreview,
+    TraitCatalogFacet,
     TraitFacet,
     TraitFilter,
     TraitRangeFilter,
@@ -68,6 +69,12 @@ type CollectionDetailReadPort = {
             rangeOnlyKeys?: string[];
         },
     ): TraitFacet[];
+    listCollectionTraitCatalog(params: {
+        chainId: number;
+        collectionId: number;
+        keys: string[];
+        scopeTraitFilters?: TraitFilter[];
+    }): TraitCatalogFacet[];
     listCollectionHolders(params: {
         chainId: number;
         collectionId: number;
@@ -202,6 +209,15 @@ export class ExtensionAwareCollectionDetailRead {
                 rangeOnlyKeys: options?.rangeOnlyKeys,
             },
         );
+    }
+
+    listCollectionTraitCatalog(params: {
+        chainId: number;
+        collectionId: number;
+        keys: string[];
+        scopeTraitFilters?: TraitFilter[];
+    }): TraitCatalogFacet[] {
+        return this.baseReadPort.listCollectionTraitCatalog(params);
     }
 
     listCollectionHolders(params: {
@@ -425,8 +441,7 @@ export class ExtensionAwareCollectionDetailRead {
     ): CollectionListItem {
         const attributes = {
             [ARTGOD_SPAN_ATTRIBUTE.ChainId]: collection.chainId,
-            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]:
-                collection.collectionId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: collection.collectionId,
         };
         const install = this.apm.withSyncSpan(
             "backend.extension.install_lookup",

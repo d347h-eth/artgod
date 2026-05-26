@@ -315,6 +315,13 @@ The collection detail use case and SQLite read model add child spans around the 
 - `backend.collection.db.trait_range_facets`
 - `backend.extension.artifacts_batch`
 
+The trait catalog read contract adds child spans around exact minted trait counts for requested keys and optional trait scopes:
+
+- `backend.collection_trait_catalog.chain`
+- `backend.collection_trait_catalog.collection`
+- `backend.collection_trait_catalog.facets`
+- `backend.collection.db.trait_catalog`
+
 Effective range facets, whether selected from extension defaults or user
 customization, skip the high-cardinality value list and return only numeric range
 bounds for UI range filtering.

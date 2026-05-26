@@ -76,8 +76,7 @@ describe("SqliteCollectionsReadModel observability", () => {
                     attributes: expect.objectContaining({
                         [ARTGOD_SPAN_ATTRIBUTE.CollectionTokenStatus]:
                             TOKEN_BROWSER_STATUS.Listed,
-                        [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]:
-                            false,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionCursorPresent]: false,
                     }),
                 }),
             ]),
@@ -194,8 +193,7 @@ describe("SqliteCollectionsReadModel observability", () => {
             expect.objectContaining({
                 name: "backend.collection.db.tokens_page",
                 attributes: expect.objectContaining({
-                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
-                        2,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]: 2,
                 }),
             }),
         );
@@ -225,8 +223,7 @@ describe("SqliteCollectionsReadModel observability", () => {
             expect.objectContaining({
                 name: "backend.collection.db.tokens_page",
                 attributes: expect.objectContaining({
-                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
-                        2,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]: 2,
                 }),
             }),
         );
@@ -256,8 +253,7 @@ describe("SqliteCollectionsReadModel observability", () => {
             expect.objectContaining({
                 name: "backend.collection.db.tokens_page",
                 attributes: expect.objectContaining({
-                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
-                        2,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]: 2,
                 }),
             }),
         );
@@ -290,8 +286,7 @@ describe("SqliteCollectionsReadModel observability", () => {
             expect.objectContaining({
                 name: "backend.collection.db.tokens_page",
                 attributes: expect.objectContaining({
-                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
-                        2,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]: 2,
                 }),
             }),
         );
@@ -339,8 +334,7 @@ describe("SqliteCollectionsReadModel observability", () => {
             expect.objectContaining({
                 name: "backend.collection.db.tokens_page",
                 attributes: expect.objectContaining({
-                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
-                        1,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]: 1,
                 }),
             }),
         );
@@ -448,8 +442,7 @@ describe("SqliteCollectionsReadModel observability", () => {
             expect.objectContaining({
                 name: "backend.collection.db.trait_facets",
                 attributes: expect.objectContaining({
-                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]:
-                        2,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]: 2,
                 }),
             }),
         );
@@ -486,12 +479,9 @@ describe("SqliteCollectionsReadModel observability", () => {
                     attributes: {
                         [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
                         [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 1,
-                        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
-                            false,
-                        [ARTGOD_SPAN_ATTRIBUTE.CollectionExcludeKeysCount]:
-                            1,
-                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
-                            1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]: false,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionExcludeKeysCount]: 1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]: 1,
                     },
                 },
                 {
@@ -499,13 +489,102 @@ describe("SqliteCollectionsReadModel observability", () => {
                     attributes: {
                         [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
                         [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 1,
-                        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]:
-                            false,
-                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]:
-                            1,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionOwnerPresent]: false,
+                        [ARTGOD_SPAN_ATTRIBUTE.CollectionRangeOnlyKeysCount]: 1,
                     },
                 },
             ]),
+        );
+    });
+
+    it("returns collection-wide trait catalog counts for requested keys", () => {
+        insertTraitStat("Zone", "Holo", 2);
+        insertTraitStat("Zone", "Dynacrypts", 1);
+        insertTraitStat("Biome", "22", 3);
+        insertTraitStat("Mode", "Terrain", 3);
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const facets = readModel.listCollectionTraitCatalog({
+            chainId: 1,
+            collectionId: 1,
+            keys: ["Zone", "Biome", "Missing"],
+        });
+
+        expect(facets).toEqual([
+            {
+                key: "Biome",
+                values: [{ value: "22", tokenCount: 3 }],
+            },
+            {
+                key: "Missing",
+                values: [],
+            },
+            {
+                key: "Zone",
+                values: [
+                    { value: "Dynacrypts", tokenCount: 1 },
+                    { value: "Holo", tokenCount: 2 },
+                ],
+            },
+        ]);
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.collection.db.trait_catalog",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitCatalogKeysCount]: 3,
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]: 0,
+                }),
+            }),
+        );
+    });
+
+    it("returns scoped trait catalog counts through exact trait candidates", () => {
+        insertToken("1", "100");
+        insertToken("2", "200");
+        insertToken("3", "300");
+        insertTokenTrait("1", "Level", "14");
+        insertTokenTrait("1", "Zone", "Holo");
+        insertTokenTrait("1", "Biome", "22");
+        insertTokenTrait("2", "Level", "14");
+        insertTokenTrait("2", "Zone", "Dynacrypts");
+        insertTokenTrait("2", "Biome", "22");
+        insertTokenTrait("3", "Level", "13");
+        insertTokenTrait("3", "Zone", "Holo");
+        insertTokenTrait("3", "Biome", "23");
+        const apm = new CapturingApm();
+        const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS], apm);
+
+        const facets = readModel.listCollectionTraitCatalog({
+            chainId: 1,
+            collectionId: 1,
+            keys: ["Zone", "Biome"],
+            scopeTraitFilters: [{ key: "Level", value: "14" }],
+        });
+
+        expect(facets).toEqual([
+            {
+                key: "Biome",
+                values: [{ value: "22", tokenCount: 2 }],
+            },
+            {
+                key: "Zone",
+                values: [
+                    { value: "Dynacrypts", tokenCount: 1 },
+                    { value: "Holo", tokenCount: 1 },
+                ],
+            },
+        ]);
+        expect(apm.spans.map((span) => span.name)).toContain(
+            ARTGOD_SPAN_NAME.CollectionTraitFilterTokenCandidates,
+        );
+        expect(apm.spans).toContainEqual(
+            expect.objectContaining({
+                name: "backend.collection.db.trait_catalog",
+                attributes: expect.objectContaining({
+                    [ARTGOD_SPAN_ATTRIBUTE.CollectionCandidateTokenIdsCount]: 2,
+                }),
+            }),
         );
     });
 });

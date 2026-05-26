@@ -295,6 +295,19 @@ export type ApiTraitFacet = {
 	}>;
 };
 
+export type ApiTraitCatalogFacet = {
+	key: string;
+	values: Array<{
+		value: string;
+		tokenCount: number;
+	}>;
+};
+
+export type ApiTraitCatalog = {
+	scope: ApiTokenAttribute[];
+	facets: ApiTraitCatalogFacet[];
+};
+
 export type ApiTraitFilterPresentationConfig = {
 	rangeKeys: string[];
 };
@@ -336,6 +349,12 @@ export type CollectionDetailApiResponse = {
 		facets: ApiTraitFacet[];
 	};
 	tokens: ApiTokensPage;
+};
+
+export type CollectionTraitCatalogApiResponse = {
+	chain: ApiChain;
+	collection: ApiCollection;
+	traitCatalog: ApiTraitCatalog;
 };
 
 export type CollectionHoldersApiResponse = {

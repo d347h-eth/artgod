@@ -63,6 +63,11 @@ import type {
     GetCollectionHoldersRoute,
 } from "./http/handlers/collections/get-collection-holders.js";
 import type {
+    GetCollectionTraitCatalogHttpAdapter,
+    GetCollectionTraitCatalogRoute,
+} from "./http/handlers/collections/get-collection-trait-catalog.js";
+import { getCollectionTraitCatalogSpanAttributes } from "./http/handlers/collections/get-collection-trait-catalog.js";
+import type {
     GetTokenDetailHttpAdapter,
     GetTokenDetailRoute,
 } from "./http/handlers/collections/get-token-detail.js";
@@ -110,9 +115,7 @@ import type {
     ListCollectionBiddingBidBookHttpAdapter,
     ListCollectionBiddingBidBookRoute,
 } from "./http/handlers/trading/list-collection-bidding-bid-book.js";
-import {
-    getCollectionBiddingBidBookSpanAttributes,
-} from "./http/handlers/trading/list-collection-bidding-bid-book.js";
+import { getCollectionBiddingBidBookSpanAttributes } from "./http/handlers/trading/list-collection-bidding-bid-book.js";
 import type {
     ListCollectionBiddingPriceTiersHttpAdapter,
     ListCollectionBiddingPriceTiersRoute,
@@ -235,6 +238,7 @@ export function registerApiRoutes(
     getActivityEventPreviewAdapter: GetActivityEventPreviewHttpAdapter,
     getTokenActivityAdapter: GetTokenActivityHttpAdapter,
     getCollectionCustomizationAdapter: GetCollectionCustomizationHttpAdapter,
+    getCollectionTraitCatalogAdapter: GetCollectionTraitCatalogHttpAdapter,
     getCollectionDetailAdapter: GetCollectionDetailHttpAdapter,
     getCollectionHoldersAdapter: GetCollectionHoldersHttpAdapter,
     getTokenDetailAdapter: GetTokenDetailHttpAdapter,
@@ -341,6 +345,16 @@ export function registerApiRoutes(
         {
             preHandler: publicCollectionScopeGuard,
             spanAttributes: getActivityEventPreviewSpanAttributes,
+        },
+    );
+    registerObservedGet<GetCollectionTraitCatalogRoute>(
+        app,
+        options,
+        "/api/:chain_ref/:collection_ref/traits/catalog",
+        getCollectionTraitCatalogAdapter.handle,
+        {
+            preHandler: publicCollectionScopeGuard,
+            spanAttributes: getCollectionTraitCatalogSpanAttributes,
         },
     );
     registerObservedGet<GetCollectionDetailRoute>(

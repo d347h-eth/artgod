@@ -3,6 +3,7 @@ import { PAGINATION_QUERY_PARAMS } from "../config/pagination.js";
 import { COLLECTION_MEDIA_QUERY_PARAMS } from "../extensions/index.js";
 import {
     COLLECTION_DETAIL_QUERY_PARAMS,
+    TRAIT_CATALOG_QUERY_PARAMS,
     TRAIT_FILTER_QUERY_PARAMS,
 } from "../types/browse.js";
 import {
@@ -64,6 +65,7 @@ const HTTP_OBSERVABILITY_ALLOWED_QUERY_PARAM_NAMES = new Set<string>([
     ...Object.values(COLLECTION_MEDIA_QUERY_PARAMS),
     ...Object.values(HTTP_OBSERVABILITY_GENERIC_QUERY_PARAMS),
     ...Object.values(PAGINATION_QUERY_PARAMS),
+    ...Object.values(TRAIT_CATALOG_QUERY_PARAMS),
     ...Object.values(TRAIT_FILTER_QUERY_PARAMS),
 ]);
 
