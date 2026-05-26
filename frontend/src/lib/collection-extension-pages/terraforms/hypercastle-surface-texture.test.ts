@@ -10,10 +10,12 @@ import {
 	replaceTerraformsHypercastleLevelSurface,
 	resolveTerraformsHypercastleSurfaceForLevel,
 	resolveTerraformsHypercastleSurfaceTextureBackgroundColor,
+	resolveTerraformsHypercastleSurfaceTextureGridSize,
 	resolveTerraformsHypercastleSurfaceTexturePalette,
 	resolveTerraformsHypercastleSurfaceZone,
 	TERRAFORMS_HYPERCASTLE_SURFACE_BACKGROUND_COLOR_INDEX,
-	TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT
+	TERRAFORMS_HYPERCASTLE_SURFACE_HEIGHT_COLOR_COUNT,
+	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION
 } from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 
 describe('Terraforms Hypercastle surface texture', () => {
@@ -62,23 +64,27 @@ describe('Terraforms Hypercastle surface texture', () => {
 		expect(resolveTerraformsHypercastleSurfaceZone(nextSurface!).index).toBe(targetZone.index);
 	});
 
-	it('generates one deterministic texture cell per level parcel', () => {
+	it('generates one deterministic texture cell per downsampled level area', () => {
 		const zone = TERRAFORMS_ZONES.reduce((selected, candidate) =>
 			new Set(candidate.palette).size > new Set(selected.palette).size ? candidate : selected
 		);
 		const level = TERRAFORMS_HYPERCASTLE_LEVELS[13]!;
+		const gridSize = resolveTerraformsHypercastleSurfaceTextureGridSize(level.dimension);
 		const cells = buildTerraformsHypercastleSurfaceTextureCells({
 			zone,
 			seed: 0,
-			gridSize: level.dimension
+			levelDimension: level.dimension
 		});
 		const rerolledCells = buildTerraformsHypercastleSurfaceTextureCells({
 			zone,
 			seed: 1,
-			gridSize: level.dimension
+			levelDimension: level.dimension
 		});
 
-		expect(cells).toHaveLength(level.parcelCount);
+		expect(gridSize).toBe(
+			level.dimension / TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.scaleFactor
+		);
+		expect(cells).toHaveLength(gridSize ** 2);
 		expect(cells[0]).toMatchObject({ x: 0, y: 0 });
 		expect(new Set(cells.map((cell) => cell.color)).size).toBeGreaterThan(6);
 		expect(cells.every((cell) => zone.palette.includes(cell.color))).toBe(true);
@@ -92,13 +98,14 @@ describe('Terraforms Hypercastle surface texture', () => {
 	it('can sample a texture at a level-specific grid size', () => {
 		const zone = TERRAFORMS_ZONES[0]!;
 		const level = TERRAFORMS_HYPERCASTLE_LEVELS[13]!;
+		const gridSize = resolveTerraformsHypercastleSurfaceTextureGridSize(level.dimension);
 		const cells = buildTerraformsHypercastleSurfaceTextureCells({
 			zone,
 			seed: 0,
-			gridSize: level.dimension
+			levelDimension: level.dimension
 		});
 
-		expect(cells).toHaveLength(level.parcelCount);
+		expect(cells).toHaveLength(gridSize ** 2);
 	});
 
 	it('mixes the background fill color into flat mono-palette surfaces', () => {
@@ -119,7 +126,7 @@ describe('Terraforms Hypercastle surface texture', () => {
 		const cells = buildTerraformsHypercastleSurfaceTextureCells({
 			zone: monoZone!,
 			seed: 42,
-			gridSize: level.dimension
+			levelDimension: level.dimension
 		});
 		const heightColors = texturePalette.slice(
 			0,

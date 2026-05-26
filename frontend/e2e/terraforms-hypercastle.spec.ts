@@ -35,6 +35,7 @@ import {
 	TERRAFORMS_HYPERCASTLE_SELECTION_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-selection';
 import {
+	resolveTerraformsHypercastleSurfaceTextureGridSize,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
@@ -198,11 +199,11 @@ const HYPERCASTLE_TEXTURE_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_TEXTURE_LEVEL_NUMBER
 )!;
 const HYPERCASTLE_EXPECTED_SURFACE_TEXTURE_CELL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.reduce(
-	(sum, level) => sum + level.parcelCount,
+	(sum, level) => sum + resolveTerraformsHypercastleSurfaceTextureGridSize(level.dimension) ** 2,
 	0
 );
 const HYPERCASTLE_TEXTURE_LEVEL_EXPECTED_SURFACE_TEXTURE_CELL_COUNT =
-	HYPERCASTLE_TEXTURE_LEVEL.parcelCount;
+	resolveTerraformsHypercastleSurfaceTextureGridSize(HYPERCASTLE_TEXTURE_LEVEL.dimension) ** 2;
 const HYPERCASTLE_PATH = `/e2e-harness/collection/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
 const HYPERCASTLE_PROBE_CONTRACT = {
 	browserValues: TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,

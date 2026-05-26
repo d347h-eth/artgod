@@ -293,7 +293,7 @@
 		for (const cell of buildTerraformsHypercastleSurfaceTextureCells({
 			zone,
 			seed: surface.seed,
-			gridSize: layer.dimension
+			levelDimension: layer.dimension
 		})) {
 			renderLayerSurfaceTextureCell(layerGroup, geometry, cell);
 		}

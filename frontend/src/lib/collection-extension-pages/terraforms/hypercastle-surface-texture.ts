@@ -43,6 +43,12 @@ export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_CELL = {
 	cellOverlap: 0.00002
 } as const;
 
+// Texture resolution is derived from contract level dimensions, then downsampled for SVG node cost.
+export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION = {
+	scaleFactor: 2,
+	minimumGridSize: 1
+} as const;
+
 const TERRAFORMS_HYPERCASTLE_SURFACE_NOISE = {
 	octaves: 2,
 	baseFrequency: 2.45,
@@ -176,20 +182,21 @@ export function buildTerraformsHypercastleSurfaceTextureRenderKey(
 export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 	zone: TerraformsZone;
 	seed: number;
-	gridSize: number;
+	levelDimension: number;
 }): TerraformsHypercastleSurfaceTextureCell[] {
-	const cellSize = 1 / input.gridSize;
+	const gridSize = resolveTerraformsHypercastleSurfaceTextureGridSize(input.levelDimension);
+	const cellSize = 1 / gridSize;
 	const palette = resolveTerraformsHypercastleSurfaceTexturePalette({
 		zone: input.zone,
 		seed: input.seed
 	});
 	const cells: TerraformsHypercastleSurfaceTextureCell[] = [];
-	for (let row = 0; row < input.gridSize; row += 1) {
-		for (let column = 0; column < input.gridSize; column += 1) {
+	for (let row = 0; row < gridSize; row += 1) {
+		for (let column = 0; column < gridSize; column += 1) {
 			const terrainValue = resolveTerraformsHypercastleSurfaceTerrainValue({
 				column,
 				row,
-				gridSize: input.gridSize,
+				gridSize,
 				seed: input.seed
 			});
 			const heightmapIndex = resolveTerraformsTopographyBucket(terrainValue);
@@ -204,6 +211,14 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 		}
 	}
 	return cells;
+}
+
+// Derives the rendered texture sample grid from the contract level dimension.
+export function resolveTerraformsHypercastleSurfaceTextureGridSize(levelDimension: number): number {
+	return Math.max(
+		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.minimumGridSize,
+		Math.ceil(levelDimension / TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_RESOLUTION.scaleFactor)
+	);
 }
 
 // Reintroduces the canonical background fill into mono-palette overview surfaces.
