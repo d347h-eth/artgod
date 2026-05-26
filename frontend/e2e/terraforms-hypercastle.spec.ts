@@ -40,6 +40,7 @@ import {
 	resolveTerraformsHypercastleSurfaceTexturePatternFill,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT,
+	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 import {
@@ -410,7 +411,8 @@ test.describe('Terraforms Hypercastle overview', () => {
 			resolveTerraformsHypercastleSurfaceTextureBackgroundColor()
 		]);
 		expect(metrics.surfacePatternCellCount).toBe(
-			HYPERCASTLE_TEXTURE_LEVEL.dimension * HYPERCASTLE_TEXTURE_LEVEL.dimension
+			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE *
+				TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE
 		);
 		expect(metrics.surfaceSeed).toBe(String(0));
 		expect(metrics.verticalStrokeDashArray).toEqual([

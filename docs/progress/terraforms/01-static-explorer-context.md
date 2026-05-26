@@ -599,7 +599,8 @@ Current implementation notes:
 - The selected-level Zone table shows `name`, the 10-swatch `palette`, and centered `topography`.
 - `topography` lists the exact contract elevation values assigned to the Zone on that level, with raw Perlin threshold ranges available as cell titles. This is deterministic without replaying minted placements, but it is still not a faithful parcel rarity column.
 - Zone table headers are sortable; default order is name ascending. Removed the earlier bucket-share column because it implied equal bucket probability that the contract noise thresholds do not guarantee.
-- Level 14 now carries the first static surface-color experiment: one object-bounding SVG pattern covers the whole top face, generated as a 48 by 48 low-resolution Perlin texture using the Holo palette. The front-facing faces use Holo's final palette color as the canonical background fill.
+- Level 14 now carries the first static surface-color experiment: one object-bounding SVG pattern covers the whole top face, generated as a 32 by 32 parcel-local Perlin heightmap using the Holo palette. This surface texture is separate from the level topography values used for Zone attribution.
+- The front-facing Level 14 faces use Holo's final palette color as the canonical background fill.
 - Selecting Level 14 exposes a compact reroll button above the level heading. The reroll changes only the temporary texture seed, not contract data.
 - `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels`, Level 12, and Level 14 in browser, verifies selected state, verifies Zone table rows, sorting, texture seed rerolling, and attaches default, all-level, hover, selected-level, and surface-texture screenshots on desktop and mobile.
 

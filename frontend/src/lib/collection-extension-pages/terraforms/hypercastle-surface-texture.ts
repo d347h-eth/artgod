@@ -11,7 +11,7 @@ export type TerraformsHypercastleSurfaceTextureCell = {
 	y: number;
 	size: number;
 	color: string;
-	topographyBucketIndex: number;
+	heightmapIndex: number;
 	terrainValue: number;
 };
 
@@ -48,13 +48,16 @@ export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN = {
 	cellOverlap: 0.00002
 } as const;
 
+// Terraforms parcels render a 32 by 32 local heightmap, independent of level size.
+export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE = 32;
+
 const TERRAFORMS_HYPERCASTLE_SURFACE_NOISE = {
-	octaves: 4,
-	baseFrequency: 3.2,
+	octaves: 2,
+	baseFrequency: 2.45,
 	lacunarity: 2,
-	persistence: 0.52,
-	terrainValueScale: 36000,
-	contrast: 1.35,
+	persistence: 0.45,
+	terrainValueScale: 135000,
+	contrast: 1.2,
 	cellCenterOffset: 0.5,
 	hashX: 374761393,
 	hashY: 668265263,
@@ -113,31 +116,28 @@ export function resolveTerraformsHypercastleSurfaceTexturePatternFill(): string 
 	].join('');
 }
 
-// Generates one low-resolution Perlin texture cell per contract grid unit.
+// Generates a parcel-local Perlin heightmap and stretches it over the slab top face.
 export function buildTerraformsHypercastleSurfaceTextureCells(input: {
-	level?: TerraformsLevelSummary;
 	zone?: TerraformsZone;
 	seed: number;
 }): TerraformsHypercastleSurfaceTextureCell[] {
-	const level = input.level ?? resolveTerraformsHypercastleSurfaceTextureLevel();
 	const zone = input.zone ?? resolveTerraformsHypercastleSurfaceTextureZone();
-	const cellSize = 1 / level.dimension;
+	const cellSize = 1 / TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE;
 	const cells: TerraformsHypercastleSurfaceTextureCell[] = [];
-	for (let row = 0; row < level.dimension; row += 1) {
-		for (let column = 0; column < level.dimension; column += 1) {
+	for (let row = 0; row < TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE; row += 1) {
+		for (let column = 0; column < TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE; column += 1) {
 			const terrainValue = resolveTerraformsHypercastleSurfaceTerrainValue({
 				column,
 				row,
-				dimension: level.dimension,
 				seed: input.seed
 			});
-			const topographyBucketIndex = resolveTerraformsTopographyBucket(terrainValue);
+			const heightmapIndex = resolveTerraformsTopographyBucket(terrainValue);
 			cells.push({
 				x: column * cellSize,
 				y: row * cellSize,
 				size: cellSize + TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.cellOverlap,
-				color: zone.palette[topographyBucketIndex]!,
-				topographyBucketIndex,
+				color: zone.palette[heightmapIndex]!,
+				heightmapIndex,
 				terrainValue
 			});
 		}
@@ -148,18 +148,17 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 function resolveTerraformsHypercastleSurfaceTerrainValue(input: {
 	column: number;
 	row: number;
-	dimension: number;
 	seed: number;
 }): number {
 	const normalizedNoise = clampNoise(
 		sampleFractalPerlinNoise({
 			x:
 				((input.column + TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.cellCenterOffset) /
-					input.dimension) *
+					TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE) *
 				TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.baseFrequency,
 			y:
 				((input.row + TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.cellCenterOffset) /
-					input.dimension) *
+					TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE) *
 				TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.baseFrequency,
 			seed: input.seed
 		}) * TERRAFORMS_HYPERCASTLE_SURFACE_NOISE.contrast

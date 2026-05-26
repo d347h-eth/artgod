@@ -7,7 +7,8 @@ import {
 	resolveTerraformsHypercastleSurfaceTexturePatternFill,
 	resolveTerraformsHypercastleSurfaceTextureZone,
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
-	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT
+	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT,
+	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE
 } from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 
 describe('Terraforms Hypercastle surface texture', () => {
@@ -26,16 +27,17 @@ describe('Terraforms Hypercastle surface texture', () => {
 		);
 	});
 
-	it('generates one deterministic texture cell per Level 14 grid unit', () => {
-		const level = resolveTerraformsHypercastleSurfaceTextureLevel();
+	it('generates one deterministic texture cell per parcel-local heightmap unit', () => {
 		const zone = resolveTerraformsHypercastleSurfaceTextureZone();
 		const cells = buildTerraformsHypercastleSurfaceTextureCells({ seed: 0 });
 		const rerolledCells = buildTerraformsHypercastleSurfaceTextureCells({ seed: 1 });
 
-		expect(cells).toHaveLength(level.dimension ** 2);
+		expect(cells).toHaveLength(TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE ** 2);
 		expect(cells[0]).toMatchObject({ x: 0, y: 0 });
-		expect(new Set(cells.map((cell) => cell.color)).size).toBeGreaterThan(1);
+		expect(new Set(cells.map((cell) => cell.color)).size).toBeGreaterThan(6);
 		expect(cells.every((cell) => zone.palette.includes(cell.color))).toBe(true);
+		expect(new Set(cells.map((cell) => cell.heightmapIndex))).toContain(0);
+		expect(new Set(cells.map((cell) => cell.heightmapIndex))).toContain(8);
 		expect(cells.map((cell) => cell.color).join()).not.toBe(
 			rerolledCells.map((cell) => cell.color).join()
 		);
