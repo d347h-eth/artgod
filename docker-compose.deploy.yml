@@ -58,6 +58,10 @@ services:
         volumes:
             - nats-data:/data
 
+    natsbox:
+        image: natsio/nats-box:latest
+        command: ["sleep", "infinity"]
+
     frontend-web:
         <<: *artgod-service
         depends_on:
@@ -90,7 +94,10 @@ services:
                     - artgod-backend
             ethereum-rpc:
         command:
-            ["./scripts/deploy/run-node-runtime.sh", "backend/dist-desktop/server.mjs"]
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "backend/dist-desktop/server.mjs",
+            ]
         environment:
             ARTGOD_WORKSPACE_ROOT: /app
             BACKEND_HOST: 0.0.0.0
@@ -100,35 +107,50 @@ services:
         depends_on:
             - nats
         command:
-            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/scheduler-worker.mjs"]
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/scheduler-worker.mjs",
+            ]
 
     indexer-sync-worker:
         <<: *artgod-service
         depends_on:
             - nats
         command:
-            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/sync-worker.mjs"]
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/sync-worker.mjs",
+            ]
 
     indexer-reorg-worker:
         <<: *artgod-service
         depends_on:
             - nats
         command:
-            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/reorg-worker.mjs"]
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/reorg-worker.mjs",
+            ]
 
     indexer-domain-worker:
         <<: *artgod-service
         depends_on:
             - nats
         command:
-            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/domain-worker.mjs"]
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/domain-worker.mjs",
+            ]
 
     indexer-bootstrap-worker:
         <<: *artgod-service
         depends_on:
             - nats
         command:
-            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/bootstrap-worker.mjs"]
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/bootstrap-worker.mjs",
+            ]
 
     indexer-collection-extension-worker:
         <<: *artgod-service
@@ -195,7 +217,10 @@ services:
         depends_on:
             - nats
         command:
-            ["./scripts/deploy/run-node-runtime.sh", "indexer/dist-desktop/dead-letter-worker.mjs"]
+            [
+                "./scripts/deploy/run-node-runtime.sh",
+                "indexer/dist-desktop/dead-letter-worker.mjs",
+            ]
 
     loki:
         image: grafana/loki:3.0.0
