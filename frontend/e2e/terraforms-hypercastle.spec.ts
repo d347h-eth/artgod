@@ -1,10 +1,16 @@
 import { writeFile } from 'node:fs/promises';
 import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
+import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
 	TERRAFORMS_EXTENSION_KEY,
 	TERRAFORMS_EXTENSION_PAGE_REFS,
 	TERRAFORMS_HYPERCASTLE_LEVELS
 } from '@artgod/shared/extensions/terraforms';
+import {
+	buildTerraformsBiomeRows,
+	buildTerraformsBiomeTokenHref,
+	TERRAFORMS_BIOME_TABLE_DOM
+} from '../src/lib/collection-extension-pages/terraforms/biomes';
 import {
 	formatTerraformsHypercastleOverviewLevelGuideLabel,
 	resolveTerraformsHypercastleOverviewFaceClassName,
@@ -17,14 +23,20 @@ import {
 import {
 	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
+	buildTerraformsZoneTokenHref,
 	defaultTerraformsLevelZoneSortColumn,
 	defaultTerraformsLevelZoneSortDirection,
 	defaultTerraformsSelectedLevelZoneSortColumn,
 	defaultTerraformsSelectedLevelZoneSortDirection,
 	formatTerraformsLevelZoneSortLabel,
+	formatTerraformsZoneLevelLinkLabel,
+	formatTerraformsZoneLevelNumbers,
+	formatTerraformsZonePaletteCopyLabel,
+	formatTerraformsZonePaletteCopyValue,
 	formatTerraformsZoneTopographyHeights,
 	formatTerraformsZoneTopographyRangeLabel,
 	sortTerraformsLevelZoneRows,
+	TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES,
 	TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS,
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS,
 	TERRAFORMS_LEVEL_ZONE_TABLE_DOM,
@@ -97,8 +109,10 @@ type HypercastleLevelDetailMetrics = {
 	heading: string | null;
 	rowCount: number;
 	rowNames: string[];
+	rowLevelValues: string[];
 	rowTopographyValues: string[];
 	paletteSwatchCount: number;
+	paletteCopyButtonCount: number;
 };
 
 const ACCESSIBLE_ROLES = {
@@ -118,6 +132,7 @@ const DOCUMENT_READY_STATES = {
 } as const;
 const HYDRATION_DATASET_KEY = 'artgodHydrated';
 const HYDRATION_DATASET_READY_VALUE = '1';
+const CLIPBOARD_PROBE_WINDOW_KEY = '__artgodTerraformsHypercastleClipboardText';
 const COLLECTION_NAV_CLASS_NAMES = {
 	activeTab: 'runtime-tab-active'
 } as const;
@@ -128,6 +143,7 @@ const COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES = {
 const SVG_ATTRIBUTE_NAMES = {
 	class: 'class',
 	fill: 'fill',
+	href: 'href',
 	height: 'height',
 	stroke: 'stroke',
 	strokeDashArray: 'stroke-dasharray',
@@ -153,6 +169,7 @@ const TABLE_SELECTORS = {
 	cells: 'td'
 } as const;
 const TAG_NAMES = {
+	anchor: 'a',
 	svg: 'svg'
 } as const;
 const DATA_ATTRIBUTE_NAMES = {
@@ -188,6 +205,8 @@ const TEST_ARTIFACTS = {
 	}
 } as const;
 const EMPTY_ATTRIBUTE_VALUE = '';
+const HYPERCASTLE_E2E_COLLECTION_BASE_PATH = '/e2e-harness/collection';
+const HYPERCASTLE_E2E_MEDIA_MODE = COLLECTION_MEDIA_MODES.Snapshot;
 const HYPERCASTLE_EXPECTED_LEVEL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.length;
 const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 3;
 const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 2;
@@ -207,7 +226,7 @@ const HYPERCASTLE_TEXTURE_LEVEL_SURFACE_TEXTURE_GRID_SIZE =
 	resolveTerraformsHypercastleSurfaceTextureGridSize(HYPERCASTLE_TEXTURE_LEVEL.dimension);
 const HYPERCASTLE_TEXTURE_LEVEL_MAX_SURFACE_TEXTURE_CELL_COUNT =
 	HYPERCASTLE_TEXTURE_LEVEL_SURFACE_TEXTURE_GRID_SIZE ** 2;
-const HYPERCASTLE_PATH = `/e2e-harness/collection/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
+const HYPERCASTLE_PATH = `${HYPERCASTLE_E2E_COLLECTION_BASE_PATH}/extensions/${TERRAFORMS_EXTENSION_KEY}/${TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle}`;
 const HYPERCASTLE_PROBE_CONTRACT = {
 	browserValues: TERRAFORMS_HYPERCASTLE_OVERVIEW_BROWSER_VALUES,
 	cssProperties: CSS_PROPERTY_NAMES,
@@ -250,9 +269,21 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.zoneTable
 		),
+		biomeTable: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_BIOME_TABLE_DOM.testIds.table
+		),
+		biomeCharacter: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_BIOME_TABLE_DOM.testIds.character
+		),
 		paletteSwatch: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteSwatch
+		),
+		paletteCopyButton: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteCopyButton
 		),
 		reachableLevelLayer: idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
@@ -312,6 +343,7 @@ test.afterEach(async ({}, testInfo) => {
 test.describe('Terraforms Hypercastle overview', () => {
 	test('renders the page shell and selectable overview slabs', async ({ page }, testInfo) => {
 		const browserErrors = captureBrowserErrors(page);
+		await installClipboardProbe(page);
 
 		await page.goto(HYPERCASTLE_PATH, { waitUntil: DOCUMENT_READY_STATES.domContentLoaded });
 		await page.waitForFunction(
@@ -431,6 +463,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		const detailPanel = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.levelDetail);
 		const zoneTable = detailPanel.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.levelZoneTable);
+		const biomeTable = detailPanel.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeTable);
 
 		await expect(detailPanel).toBeEmpty();
 		await allLevelsGuide.click();
@@ -439,6 +472,22 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels
 			})
 		).toBeVisible();
+		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
+		await assertBiomeTableRows(biomeTable);
+		const firstAllLevelZoneRow = expectedAllLevelZoneRows()[0]!;
+		await zoneTable
+			.locator(TABLE_SELECTORS.bodyRows)
+			.first()
+			.getByRole(ACCESSIBLE_ROLES.button, {
+				name: formatTerraformsZoneLevelLinkLabel(firstAllLevelZoneRow.levelNumbers[0]!)
+			})
+			.click();
+		await expect(
+			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: formatTerraformsLevelTitle(firstAllLevelZoneRow.levelNumbers[0]!)
+			})
+		).toBeVisible();
+		await allLevelsGuide.click();
 		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
 		const surfaceKeyBeforeAllLevelsReroll = await page
 			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)
@@ -473,6 +522,17 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toBeVisible();
 		await expect(zoneTable).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
+		const firstDefaultRow = expectedDefaultLevelZoneRows()[0]!;
+		const firstCopyButton = zoneTable
+			.locator(TABLE_SELECTORS.bodyRows)
+			.first()
+			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteCopyButton);
+		await firstCopyButton.click();
+		await expect(firstCopyButton).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.title,
+			formatTerraformsZonePaletteCopyLabel(TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES.Copied)
+		);
+		expect(await readClipboardProbe(page)).toBe(formatTerraformsZonePaletteCopyValue(firstDefaultRow));
 		await expect(surfaceRerollButton).toBeVisible();
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
 
@@ -519,12 +579,16 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		expect(detailMetrics.rowCount).toBe(defaultRows.length);
 		expect(detailMetrics.rowNames).toEqual(defaultRows.map((row) => row.name));
+		expect(detailMetrics.rowLevelValues).toEqual(
+			defaultRows.map((row) => formatTerraformsZoneLevelNumbers(row))
+		);
 		expect(detailMetrics.rowTopographyValues).toEqual(
 			defaultRows.map((row) => formatTerraformsZoneTopographyHeights(row))
 		);
 		expect(detailMetrics.paletteSwatchCount).toBe(
 			defaultRows.reduce((sum, row) => sum + row.palette.length, 0)
 		);
+		expect(detailMetrics.paletteCopyButtonCount).toBe(defaultRows.length);
 
 		const texturedLevelGuide = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedLevelGuide);
 		await texturedLevelGuide.click();
@@ -648,6 +712,26 @@ async function attachProbeResult(
 		path: probePath,
 		contentType: TEST_ARTIFACTS.probe.contentType
 	});
+}
+
+async function installClipboardProbe(page: Page): Promise<void> {
+	await page.addInitScript((clipboardKey) => {
+		Object.defineProperty(navigator, 'clipboard', {
+			configurable: true,
+			value: {
+				writeText: async (value: string): Promise<void> => {
+					(window as unknown as Record<string, string>)[clipboardKey] = value;
+				}
+			}
+		});
+	}, CLIPBOARD_PROBE_WINDOW_KEY);
+}
+
+async function readClipboardProbe(page: Page): Promise<string | undefined> {
+	return page.evaluate(
+		(clipboardKey) => (window as unknown as Record<string, string | undefined>)[clipboardKey],
+		CLIPBOARD_PROBE_WINDOW_KEY
+	);
 }
 
 async function collectHypercastleOverviewMetrics(page: Page): Promise<HypercastleOverviewMetrics> {
@@ -817,10 +901,15 @@ async function collectHypercastleLevelDetailMetrics(
 			heading: heading?.textContent ?? null,
 			rowCount: rows.length,
 			rowNames: rowCells.map((cells) => cells[0]?.textContent ?? contract.emptyAttributeValue),
-			rowTopographyValues: rowCells.map(
+			rowLevelValues: rowCells.map(
 				(cells) => cells[2]?.textContent?.trim() ?? contract.emptyAttributeValue
 			),
-			paletteSwatchCount: table?.querySelectorAll(contract.selectors.paletteSwatch).length ?? 0
+			rowTopographyValues: rowCells.map(
+				(cells) => cells[3]?.textContent?.trim() ?? contract.emptyAttributeValue
+			),
+			paletteSwatchCount: table?.querySelectorAll(contract.selectors.paletteSwatch).length ?? 0,
+			paletteCopyButtonCount:
+				table?.querySelectorAll(contract.selectors.paletteCopyButton).length ?? 0
 		};
 	}, HYPERCASTLE_PROBE_CONTRACT);
 }
@@ -834,18 +923,56 @@ async function assertZoneTableRows(
 	for (const [index, row] of expectedRows.entries()) {
 		const cells = rows.nth(index).locator(TABLE_SELECTORS.cells);
 		await expect(cells.nth(0)).toHaveText(row.name);
+		await expect(cells.nth(0).locator(TAG_NAMES.anchor)).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.href,
+			buildTerraformsZoneTokenHref({
+				basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
+				mediaMode: HYPERCASTLE_E2E_MEDIA_MODE,
+				zoneName: row.name
+			})
+		);
 		await expect(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteSwatch)
 		).toHaveCount(row.palette.length);
+		await expect(
+			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteCopyButton)
+		).toHaveCount(1);
+		await expect(cells.nth(2)).toHaveText(formatTerraformsZoneLevelNumbers(row));
 		if (row.topographyBucketCount === null) {
-			await expect(cells).toHaveCount(2);
+			await expect(cells).toHaveCount(3);
 		} else {
-			await expect(cells.nth(2)).toHaveText(formatTerraformsZoneTopographyHeights(row));
-			await expect(cells.nth(2)).toHaveAttribute(
+			await expect(cells).toHaveCount(4);
+			await expect(cells.nth(3)).toHaveText(formatTerraformsZoneTopographyHeights(row));
+			await expect(cells.nth(3)).toHaveAttribute(
 				SVG_ATTRIBUTE_NAMES.title,
 				formatTerraformsZoneTopographyRangeLabel(row)
 			);
 		}
+	}
+}
+
+async function assertBiomeTableRows(biomeTable: Locator): Promise<void> {
+	const expectedRows = buildTerraformsBiomeRows();
+	const rows = biomeTable.locator(TABLE_SELECTORS.bodyRows);
+	await expect(rows).toHaveCount(expectedRows.length);
+	await expect(biomeTable.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)).toHaveCount(
+		expectedRows.reduce((sum, row) => sum + row.characters.length, 0)
+	);
+	for (const index of [0, expectedRows.length - 1]) {
+		const row = expectedRows[index]!;
+		const cells = rows.nth(index).locator(TABLE_SELECTORS.cells);
+		await expect(cells.nth(0)).toHaveText(String(row.biomeIndex));
+		await expect(cells.nth(0).locator(TAG_NAMES.anchor)).toHaveAttribute(
+			SVG_ATTRIBUTE_NAMES.href,
+			buildTerraformsBiomeTokenHref({
+				basePath: HYPERCASTLE_E2E_COLLECTION_BASE_PATH,
+				mediaMode: HYPERCASTLE_E2E_MEDIA_MODE,
+				biomeIndex: row.biomeIndex
+			})
+		);
+		await expect(cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)).toHaveCount(
+			row.characters.length
+		);
 	}
 }
 

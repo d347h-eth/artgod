@@ -567,7 +567,7 @@ Current implementation notes:
 
 Goal: turn the overview into the entry point for level exploration, then render one selected level with basic static structure detail.
 
-Status: in progress. The first accepted slice is Zone-only detail: selecting the aggregate `All Levels` label shows the full Zone catalog, while selecting an overview slab or level label keeps the full Hypercastle visible, marks that level selected, and shows that level's possible Zones in a right-side sortable table.
+Status: in progress. The current accepted slice keeps the full Hypercastle visible while adding static trait drilldown tables: selecting `All Levels` shows the full Zone catalog and full Biome catalog, while selecting an overview slab or level label marks that level selected and shows that level's possible Zones in a right-side sortable table.
 
 Expected work:
 
@@ -577,7 +577,7 @@ Expected work:
 - render the selected level in more detail than the overview, still without token-level tiles unless a later performance pass proves it is needed
 - expose the selected level's contract-derived dimensions, parcel capacity, Zone window, topography-to-Zone mapping, and biome group weights
 - show which Zones and Biome groups can exist on that level
-- wire Mathcastles Remix only when concrete Biome character inspection is introduced
+- wire Mathcastles Remix for concrete Biome character inspection
 - keep market, floor, bid/ask, ownership overlays, minted/exact rarity, seed-derived hidden traits, and token/parcel detail out of this milestone
 
 Acceptance checks:
@@ -591,27 +591,33 @@ Acceptance checks:
 
 Current implementation notes:
 
-- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastlePage.svelte` now splits the Hypercastle page into a left overview column and a right Zone detail column. The detail column stays empty until the user selects `All Levels` or a concrete level.
+- `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastlePage.svelte` now splits the Hypercastle page into a left overview column and a right static-detail column. The detail column stays empty until the user selects `All Levels` or a concrete level.
 - `frontend/src/lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte` exposes selected-level and all-level selection callbacks, and applies persistent selected styling plus `aria-pressed` to slab groups, level guide labels, and the all-level label.
 - `frontend/src/lib/collection-extension-pages/terraforms/level-zones.ts` builds selected-level Zone rows and the all-level Zone catalog from static contract data only.
+- `frontend/src/lib/collection-extension-pages/terraforms/biomes.ts` builds the all-level Biome catalog from static contract data only.
 - `frontend/src/lib/collection-extension-pages/terraforms/hypercastle-selection.ts` owns extension-local selection labels and state helpers for `All Levels` and `Level X` headings.
-- The all-level Zone table shows `name` and the 10-swatch `palette` for all 75 Zones.
-- The selected-level Zone table shows `name`, the 10-swatch `palette`, and centered `topography`.
+- Zone `name` cells are token-browser links with static trait filters for the Zone. They intentionally target the pure token browser, not the ask book.
+- Zone tables include a `levels` column derived from static level Zone windows. Each listed level number selects that level in the overview; the currently selected level remains plain text.
+- Zone `palette` cells show the 10-swatch palette and a copy button that copies the palette hex values joined by `, `.
+- The all-level Zone table shows `name`, the 10-swatch `palette`, and `levels` for all 75 Zones.
+- The selected-level Zone table shows `name`, the 10-swatch `palette`, `levels`, and centered `topography`.
+- The `All Levels` detail also renders a complete Biome table with token-browser links by Biome number and the 9 visible Mathcastles Remix glyphs for each character set. The 10th/fill character is intentionally omitted in the isolated Biome catalog view.
 - `topography` now emits one table row per exact contract elevation bucket. Zones that appear at multiple elevations repeat with the same palette at each exact height, and selected-level tables default to topology-first ordering. Raw Perlin threshold ranges remain available as cell titles. This is deterministic without replaying minted placements, but it is still not a faithful parcel rarity column.
 - Zone table headers are sortable; default order is name ascending. Removed the earlier bucket-share column because it implied equal bucket probability that the contract noise thresholds do not guarantee.
 - Each level now receives a transient surface assignment on page load: a random Zone palette available on that level plus a generated Perlin heightmap sampled from that level's exact contract dimensions, then rendered at a three-quarter texture scale. The renderer draws same-color row runs as merged `PlaneView.TOP` isometric rectangles instead of an SVG pattern, so texture density stays close to the contract parcel area while reducing SVG node count. This surface texture is separate from the level topography values used for Zone attribution.
 - Mono palettes whose heightmap colors are identical across indexes 0 through 8 deterministically mix the canonical background fill color from index 9 into one heightmap index so the overview can still reveal that Terraforms background color.
 - In a selected-level Zone table, clicking any palette swatch applies that Zone palette to the selected slab and generates a new random surface for that level.
 - The page exposes a compact dice-icon reroll button through the shared collection page action panel. It is always visible on the Hypercastle page and rebuilds all transient level surfaces and active palettes using the same sequence as page load.
-- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels`, Level 12, and Level 14 in browser, verifies selected state, verifies Zone table rows, sorting, page-level rerolling, selected-level palette application, and attaches default, all-level, hover, selected-level, and surface-texture screenshots on desktop and mobile.
+- `frontend/e2e/terraforms-hypercastle.spec.ts` now clicks `All Levels`, Level 12, and Level 14 in browser, verifies selected state, verifies Zone table rows, Zone trait links, linked level selection, palette copying, Biome table rows, sorting, page-level rerolling, selected-level palette application, and attaches default, all-level, hover, selected-level, and surface-texture screenshots on desktop and mobile.
 
 Remaining work:
 
 - Make `All Levels` and selected-level state URL-backed and shareable.
 - Add a faithful static Zone distribution mode by replaying the contract placement, Perlin, and threshold logic against the deployed seed, then generate per-level counts for the table.
 - Add the rest of the selected-level static facts: dimensions, parcel capacity, Zone window, explicit topography-to-Zone mapping, and biome group weights.
+- Decide how selected-level Biome group availability should be presented without implying exact minted Biome rarity.
 - Decide whether texture seed/active palette should stay transient view state or become URL-backed once selected-level state is also URL-backed.
-- Decide whether the selected-level panel should remain a compact side panel or introduce a deeper level-focused view before adding Biome detail.
+- Decide whether the selected-level panel should remain a compact side panel or introduce a deeper level-focused view before adding richer Biome detail.
 
 ## Suggested First Implementation Rule
 
