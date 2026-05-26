@@ -32,7 +32,8 @@
 		type TerraformsHypercastleSelection
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-selection';
 	import {
-		isTerraformsHypercastleSurfaceTextureLevel,
+		buildTerraformsHypercastleLevelSurfaces,
+		replaceTerraformsHypercastleLevelSurface,
 		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM,
 		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
@@ -46,13 +47,11 @@
 	let zoneSortDirection = $state<TerraformsLevelZoneSortDirection>(
 		defaultTerraformsLevelZoneSortDirection()
 	);
-	let surfaceSeed = $state(0);
+	let levelSurfaces = $state(buildTerraformsHypercastleLevelSurfaces());
 	let selectedLevelNumber = $derived(resolveTerraformsSelectedLevelNumber(selection));
 	let allLevelsSelected = $derived(isTerraformsAllLevelsSelection(selection));
 	let selectedLevel = $derived(resolveTerraformsHypercastleLevel(selectedLevelNumber));
-	let showSurfaceTextureControls = $derived(
-		selectedLevelNumber === null ? false : isTerraformsHypercastleSurfaceTextureLevel(selectedLevelNumber)
-	);
+	let showSurfaceTextureControls = $derived(allLevelsSelected);
 	let zoneTableColumns: readonly TerraformsLevelZoneTableColumn[] = $derived(
 		allLevelsSelected
 			? TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS.AllLevels
@@ -90,8 +89,17 @@
 		selection = TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES.AllLevels;
 	}
 
-	function rerollSurfaceTexture(): void {
-		surfaceSeed += 1;
+	function rerollAllLevelSurfaces(): void {
+		levelSurfaces = buildTerraformsHypercastleLevelSurfaces();
+	}
+
+	function applyZoneSurface(zoneIndex: number): void {
+		if (selectedLevelNumber === null) return;
+		levelSurfaces = replaceTerraformsHypercastleLevelSurface({
+			surfaces: levelSurfaces,
+			levelNumber: selectedLevelNumber,
+			zoneIndex
+		});
 	}
 
 	function sortZonesBy(column: TerraformsLevelZoneTableColumn): void {
@@ -127,7 +135,7 @@
 		<TerraformsHypercastleOverview
 			{selectedLevelNumber}
 			{allLevelsSelected}
-			{surfaceSeed}
+			{levelSurfaces}
 			onLevelSelect={selectLevel}
 			onAllLevelsSelect={selectAllLevels}
 		/>
@@ -144,9 +152,9 @@
 						type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
 						class={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.classes.rerollButton}
 						data-testid={TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton}
-						onclick={rerollSurfaceTexture}
+						onclick={rerollAllLevelSurfaces}
 					>
-						{TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurface}
+						{TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS.RerollSurfaces}
 					</button>
 				</div>
 			{/if}
@@ -187,16 +195,29 @@
 								<td>
 									<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.palette}>
 										{#each row.palette as color, colorIndex}
-											<span
-												class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.paletteSwatch}
-												data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteSwatch}
-												style:background-color={color}
-												title={formatTerraformsZonePaletteSwatchLabel({
-													zoneName: row.name,
-													color,
-													position: colorIndex + 1
-												})}
-											></span>
+											{@const swatchLabel = formatTerraformsZonePaletteSwatchLabel({
+												zoneName: row.name,
+												color,
+												position: colorIndex + 1
+											})}
+											{#if selectedLevelNumber !== null}
+												<button
+													type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
+													class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.paletteSwatch}
+													data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteSwatch}
+													style:background-color={color}
+													title={swatchLabel}
+													aria-label={swatchLabel}
+													onclick={() => applyZoneSurface(row.zoneIndex)}
+												></button>
+											{:else}
+												<span
+													class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.paletteSwatch}
+													data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteSwatch}
+													style:background-color={color}
+													title={swatchLabel}
+												></span>
+											{/if}
 										{/each}
 									</div>
 								</td>
@@ -327,7 +348,6 @@
 		grid-template-columns: repeat(10, 16px);
 		grid-auto-rows: 16px;
 		width: fit-content;
-		border: 1px solid color-mix(in srgb, var(--c-blue) 42%, transparent);
 		background: var(--c-bg);
 	}
 
@@ -335,6 +355,23 @@
 		display: block;
 		width: 16px;
 		height: 16px;
+		min-height: 0;
+		border: 0;
+		border-radius: 0;
+		padding: 0;
+		appearance: none;
+	}
+
+	button.terraforms-hypercastle-zone-palette-swatch {
+		cursor: pointer;
+	}
+
+	button.terraforms-hypercastle-zone-palette-swatch:hover,
+	button.terraforms-hypercastle-zone-palette-swatch:focus-visible {
+		position: relative;
+		z-index: 1;
+		outline: 1px solid var(--c-ice);
+		outline-offset: -1px;
 	}
 
 	.terraforms-hypercastle-zone-numeric-cell {

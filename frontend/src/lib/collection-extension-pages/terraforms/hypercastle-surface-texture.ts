@@ -2,9 +2,14 @@ import {
 	resolveTerraformsTopographyBucket,
 	TERRAFORMS_HYPERCASTLE_LEVELS,
 	TERRAFORMS_ZONES,
-	type TerraformsLevelSummary,
 	type TerraformsZone
 } from '@artgod/shared/extensions/terraforms';
+
+export type TerraformsHypercastleLevelSurface = {
+	readonly levelNumber: number;
+	readonly zoneIndex: number;
+	readonly seed: number;
+};
 
 export type TerraformsHypercastleSurfaceTextureCell = {
 	x: number;
@@ -15,16 +20,12 @@ export type TerraformsHypercastleSurfaceTextureCell = {
 	terrainValue: number;
 };
 
-// Temporary single-level texture experiment: Level 14 rendered with the Holo palette.
-export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT = {
-	levelNumber: 14,
-	zoneIndex: 17
-} as const;
+type TerraformsHypercastleSurfaceRandom = () => number;
 
-// DOM hooks for the experimental texture and its reroll control.
+// DOM hooks for generated level textures and their reroll control.
 export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM = {
 	ids: {
-		pattern: 'terraforms-hypercastle-level-14-holo-surface'
+		patternPrefix: 'terraforms-hypercastle-level-surface-'
 	},
 	testIds: {
 		rerollButton: 'terraforms-hypercastle-surface-reroll'
@@ -35,9 +36,9 @@ export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM = {
 	}
 } as const;
 
-// Compact control labels owned by the Terraforms Hypercastle texture experiment.
+// Compact control labels owned by the Terraforms Hypercastle texture controls.
 export const TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS = {
-	RerollSurface: 'reroll surface'
+	RerollSurfaces: 'reroll surfaces'
 } as const;
 
 // SVG pattern values make one generated texture cover the whole isometric face once.
@@ -81,47 +82,124 @@ const TERRAFORMS_HYPERCASTLE_SURFACE_GRADIENTS = [
 const TERRAFORMS_HYPERCASTLE_SURFACE_GRADIENT_NORMALIZER = Math.SQRT1_2;
 const TERRAFORMS_HYPERCASTLE_SURFACE_MINIMUM_NOISE = -1;
 const TERRAFORMS_HYPERCASTLE_SURFACE_MAXIMUM_NOISE = 1;
+const TERRAFORMS_HYPERCASTLE_SURFACE_RANDOM_SEED_LIMIT = 1_000_000;
 const TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_PREFIX = 'url(#';
 const TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_SUFFIX = ')';
+const TERRAFORMS_HYPERCASTLE_SURFACE_RENDER_KEY_FIELD_SEPARATOR = ':';
+const TERRAFORMS_HYPERCASTLE_SURFACE_RENDER_KEY_LAYER_SEPARATOR = '|';
+const TERRAFORMS_HYPERCASTLE_SURFACE_ERRORS = {
+	unknownLevel: 'unknown Terraforms Hypercastle surface level',
+	unknownZone: 'unknown Terraforms Hypercastle surface Zone',
+	unavailableZone: 'Terraforms Hypercastle surface Zone is unavailable on the level'
+} as const;
 
-// Identifies the temporary texture target level.
-export function isTerraformsHypercastleSurfaceTextureLevel(levelNumber: number): boolean {
-	return levelNumber === TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber;
+// Creates one transient surface texture choice for every Hypercastle level.
+export function buildTerraformsHypercastleLevelSurfaces(input: {
+	random?: TerraformsHypercastleSurfaceRandom;
+} = {}): TerraformsHypercastleLevelSurface[] {
+	const random = input.random ?? Math.random;
+	return TERRAFORMS_HYPERCASTLE_LEVELS.map((level) =>
+		buildTerraformsHypercastleRandomLevelSurface({
+			levelNumber: level.levelNumber,
+			zoneIndexes: level.zones.map((zone) => zone.index),
+			random
+		})
+	);
 }
 
-// Resolves the contract level used by the temporary texture experiment.
-export function resolveTerraformsHypercastleSurfaceTextureLevel(): TerraformsLevelSummary {
-	return TERRAFORMS_HYPERCASTLE_LEVELS[
-		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.levelNumber - 1
-	]!;
+// Replaces one level's surface after the user picks a Zone palette from the table.
+export function replaceTerraformsHypercastleLevelSurface(input: {
+	surfaces: readonly TerraformsHypercastleLevelSurface[];
+	levelNumber: number;
+	zoneIndex: number;
+	random?: TerraformsHypercastleSurfaceRandom;
+}): TerraformsHypercastleLevelSurface[] {
+	const level = TERRAFORMS_HYPERCASTLE_LEVELS.find(
+		(candidate) => candidate.levelNumber === input.levelNumber
+	);
+	if (!level) {
+		throw new Error(TERRAFORMS_HYPERCASTLE_SURFACE_ERRORS.unknownLevel);
+	}
+	if (!level.zones.some((zone) => zone.index === input.zoneIndex)) {
+		throw new Error(TERRAFORMS_HYPERCASTLE_SURFACE_ERRORS.unavailableZone);
+	}
+
+	const random = input.random ?? Math.random;
+	const replacement: TerraformsHypercastleLevelSurface = {
+		levelNumber: input.levelNumber,
+		zoneIndex: input.zoneIndex,
+		seed: resolveTerraformsHypercastleRandomSurfaceSeed(random)
+	};
+	let found = false;
+	const surfaces = input.surfaces.map((surface) => {
+		if (surface.levelNumber !== input.levelNumber) return surface;
+		found = true;
+		return replacement;
+	});
+	return found ? surfaces : [...surfaces, replacement];
 }
 
-// Resolves the Holo Zone used by the temporary texture experiment.
-export function resolveTerraformsHypercastleSurfaceTextureZone(): TerraformsZone {
-	return TERRAFORMS_ZONES[TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_EXPERIMENT.zoneIndex]!;
+// Resolves the transient surface state currently assigned to a level.
+export function resolveTerraformsHypercastleSurfaceForLevel(
+	surfaces: readonly TerraformsHypercastleLevelSurface[],
+	levelNumber: number
+): TerraformsHypercastleLevelSurface | null {
+	return surfaces.find((surface) => surface.levelNumber === levelNumber) ?? null;
+}
+
+// Resolves the Zone whose palette paints a generated level surface.
+export function resolveTerraformsHypercastleSurfaceZone(
+	surface: TerraformsHypercastleLevelSurface
+): TerraformsZone {
+	const zone = TERRAFORMS_ZONES.find((candidate) => candidate.index === surface.zoneIndex);
+	if (!zone) {
+		throw new Error(TERRAFORMS_HYPERCASTLE_SURFACE_ERRORS.unknownZone);
+	}
+	return zone;
 }
 
 // The final palette color is the canonical Terraforms background fill.
-export function resolveTerraformsHypercastleSurfaceTextureBackgroundColor(): string {
-	const palette = resolveTerraformsHypercastleSurfaceTextureZone().palette;
+export function resolveTerraformsHypercastleSurfaceTextureBackgroundColor(
+	surface: TerraformsHypercastleLevelSurface
+): string {
+	const palette = resolveTerraformsHypercastleSurfaceZone(surface).palette;
 	return palette[palette.length - 1]!;
 }
 
 // Builds the SVG fill value for the generated texture pattern.
-export function resolveTerraformsHypercastleSurfaceTexturePatternFill(): string {
+export function resolveTerraformsHypercastleSurfaceTexturePatternId(levelNumber: number): string {
+	return `${TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.ids.patternPrefix}${levelNumber}`;
+}
+
+// Builds the SVG fill value for the generated texture pattern.
+export function resolveTerraformsHypercastleSurfaceTexturePatternFill(
+	levelNumber: number
+): string {
 	return [
 		TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_PREFIX,
-		TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.ids.pattern,
+		resolveTerraformsHypercastleSurfaceTexturePatternId(levelNumber),
 		TERRAFORMS_HYPERCASTLE_SURFACE_PATTERN_FILL_SUFFIX
 	].join('');
 }
 
+// Serializes transient level surfaces into one stable render attribute.
+export function buildTerraformsHypercastleSurfaceTextureRenderKey(
+	surfaces: readonly TerraformsHypercastleLevelSurface[]
+): string {
+	return surfaces
+		.map((surface) =>
+			[surface.levelNumber, surface.zoneIndex, surface.seed].join(
+				TERRAFORMS_HYPERCASTLE_SURFACE_RENDER_KEY_FIELD_SEPARATOR
+			)
+		)
+		.join(TERRAFORMS_HYPERCASTLE_SURFACE_RENDER_KEY_LAYER_SEPARATOR);
+}
+
 // Generates a parcel-local Perlin heightmap and stretches it over the slab top face.
 export function buildTerraformsHypercastleSurfaceTextureCells(input: {
-	zone?: TerraformsZone;
+	zone: TerraformsZone;
 	seed: number;
 }): TerraformsHypercastleSurfaceTextureCell[] {
-	const zone = input.zone ?? resolveTerraformsHypercastleSurfaceTextureZone();
 	const cellSize = 1 / TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE;
 	const cells: TerraformsHypercastleSurfaceTextureCell[] = [];
 	for (let row = 0; row < TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_GRID_SIZE; row += 1) {
@@ -136,13 +214,41 @@ export function buildTerraformsHypercastleSurfaceTextureCells(input: {
 				x: column * cellSize,
 				y: row * cellSize,
 				size: cellSize + TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_PATTERN.cellOverlap,
-				color: zone.palette[heightmapIndex]!,
+				color: input.zone.palette[heightmapIndex]!,
 				heightmapIndex,
 				terrainValue
 			});
 		}
 	}
 	return cells;
+}
+
+function buildTerraformsHypercastleRandomLevelSurface(input: {
+	levelNumber: number;
+	zoneIndexes: readonly number[];
+	random: TerraformsHypercastleSurfaceRandom;
+}): TerraformsHypercastleLevelSurface {
+	return {
+		levelNumber: input.levelNumber,
+		zoneIndex: input.zoneIndexes[resolveTerraformsHypercastleRandomIndex(input.zoneIndexes, input.random)]!,
+		seed: resolveTerraformsHypercastleRandomSurfaceSeed(input.random)
+	};
+}
+
+function resolveTerraformsHypercastleRandomIndex(
+	values: readonly unknown[],
+	random: TerraformsHypercastleSurfaceRandom
+): number {
+	return Math.min(Math.floor(random() * values.length), values.length - 1);
+}
+
+function resolveTerraformsHypercastleRandomSurfaceSeed(
+	random: TerraformsHypercastleSurfaceRandom
+): number {
+	return Math.min(
+		Math.floor(random() * TERRAFORMS_HYPERCASTLE_SURFACE_RANDOM_SEED_LIMIT),
+		TERRAFORMS_HYPERCASTLE_SURFACE_RANDOM_SEED_LIMIT - 1
+	);
 }
 
 function resolveTerraformsHypercastleSurfaceTerrainValue(input: {

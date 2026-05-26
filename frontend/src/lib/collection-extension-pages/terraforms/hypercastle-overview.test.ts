@@ -1,19 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildTerraformsHypercastleOverviewLevelGuides,
-	buildTerraformsHypercastleOverviewOutlineSegments,
 	buildTerraformsHypercastleOverviewLayers,
 	buildTerraformsHypercastleOverviewRenderKey,
 	formatTerraformsHypercastleOverviewLevelGuideLabel,
-	isTerraformsHypercastleOverviewFadedFace,
 	projectTerraformsHypercastleOverviewPointToScreen,
 	resolveTerraformsHypercastleOverviewBounds,
 	resolveTerraformsHypercastleOverviewFaceGeometry,
 	resolveTerraformsHypercastleOverviewLayout,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS,
-	TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_POSITIONS,
-	TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES,
-	TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION,
 	TERRAFORMS_HYPERCASTLE_OVERVIEW_RENDER_KEY_SEPARATORS
 } from '$lib/collection-extension-pages/terraforms/hypercastle-overview';
 
@@ -79,82 +74,6 @@ describe('Terraforms Hypercastle overview geometry', () => {
 			right: -layer.halfSizeUnits,
 			left: -layer.halfSizeUnits
 		});
-	});
-
-	it('marks rear slab outlines as solid until an upper slab hides them', () => {
-		const layers = buildTerraformsHypercastleOverviewLayers();
-		const segments = buildTerraformsHypercastleOverviewOutlineSegments(layers);
-		const topBackSegments = segments.filter(
-			(segment) => segment.position === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_POSITIONS.TopBack
-		);
-		const topLayerSegments = topBackSegments.filter((segment) => segment.levelNumber === 20);
-		const levelTwelveSegments = topBackSegments.filter((segment) => segment.levelNumber === 12);
-
-		expect(
-			topBackSegments.some(
-				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Solid
-			)
-		).toBe(true);
-		expect(
-			topBackSegments.some(
-				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
-			)
-		).toBe(true);
-		expect(topLayerSegments).toHaveLength(2);
-		expect(
-			topLayerSegments.every(
-				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Solid
-			)
-		).toBe(true);
-		expect(
-			levelTwelveSegments.some(
-				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
-			)
-		).toBe(true);
-		expect(new Set(segments.map((segment) => segment.key)).size).toBe(segments.length);
-	});
-
-	it('adds dotted lower rear outlines for every slab', () => {
-		const segments = buildTerraformsHypercastleOverviewOutlineSegments(
-			buildTerraformsHypercastleOverviewLayers()
-		);
-		const bottomBackSegments = segments.filter(
-			(segment) => segment.position === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_POSITIONS.BottomBack
-		);
-
-		expect(bottomBackSegments).toHaveLength(40);
-		expect(
-			bottomBackSegments.every(
-				(segment) => segment.style === TERRAFORMS_HYPERCASTLE_OVERVIEW_OUTLINE_STYLES.Dotted
-			)
-		).toBe(true);
-		expect(new Set(bottomBackSegments.map((segment) => segment.levelNumber)).size).toBe(20);
-	});
-
-	it('marks level 12 vertical faces as faded because level 13 overhangs them', () => {
-		const layer = buildTerraformsHypercastleOverviewLayers().find(
-			(candidate) =>
-				candidate.levelNumber === TERRAFORMS_HYPERCASTLE_OVERVIEW_PRESENTATION.fadedLevelNumber
-		)!;
-
-		expect(
-			isTerraformsHypercastleOverviewFadedFace(
-				layer,
-				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Front
-			)
-		).toBe(true);
-		expect(
-			isTerraformsHypercastleOverviewFadedFace(
-				layer,
-				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Side
-			)
-		).toBe(true);
-		expect(
-			isTerraformsHypercastleOverviewFadedFace(
-				layer,
-				TERRAFORMS_HYPERCASTLE_OVERVIEW_FACE_KINDS.Top
-			)
-		).toBe(false);
 	});
 
 	it('resolves a centered responsive layout with a right-side label lane', () => {
