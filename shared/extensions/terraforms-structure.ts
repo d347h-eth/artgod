@@ -13,6 +13,12 @@ export const TERRAFORMS_TOPOGRAPHY_BUCKET_COUNT = 9;
 // Terraforms metadata should label question-mark density as Resource in ArtGod UI.
 export const TERRAFORMS_RESOURCE_ATTRIBUTE_KEY = "Resource";
 
+// Terraforms metadata stores the Zone name under this trait key.
+export const TERRAFORMS_ZONE_ATTRIBUTE_KEY = "Zone";
+
+// Terraforms metadata stores the Biome number under this trait key.
+export const TERRAFORMS_BIOME_ATTRIBUTE_KEY = "Biome";
+
 // Level square dimensions from TerraformsDataStorage.levelDimensions.
 export const TERRAFORMS_LEVEL_DIMENSIONS = [
     4, 8, 8, 16, 16, 24, 24, 24, 16, 32, 32, 16, 48, 48, 24, 24, 16, 8, 8, 4,

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { TERRAFORMS_HYPERCASTLE_LEVELS, TERRAFORMS_ZONES } from '@artgod/shared/extensions/terraforms';
 import {
 	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
+	buildTerraformsZoneTokenHref,
+	formatTerraformsZoneLevelNumbers,
 	formatTerraformsZoneTopographyHeights,
 	formatTerraformsZoneTopographyRangeLabel,
 	resolveTerraformsHypercastleLevel,
@@ -57,6 +60,7 @@ describe('Terraforms level Zone table data', () => {
 		expect(sortedRows[1]!.palette).toEqual(level!.zones[1]!.palette);
 		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toContain('4: > 18000');
 		expect(formatTerraformsZoneTopographyRangeLabel(sortedRows[8]!)).toContain('-4: <= -26000');
+		expect(formatTerraformsZoneLevelNumbers(sortedRows[1]!)).toBe('12');
 	});
 
 	it('builds the all-level Zone catalog without level-specific buckets', () => {
@@ -66,6 +70,7 @@ describe('Terraforms level Zone table data', () => {
 		expect(rows[0]).toMatchObject({
 			zoneIndex: 0,
 			name: 'Alto',
+			levelNumbers: [17, 18, 19, 20],
 			topographyBucketCount: null,
 			topographyHeights: null,
 			topographyRangeLabel: null
@@ -134,5 +139,16 @@ describe('Terraforms level Zone table data', () => {
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
 			)
 		).toBe(TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES.None);
+	});
+
+	it('builds Zone token-filter hrefs for the pure token browser', () => {
+		expect(
+			buildTerraformsZoneTokenHref({
+				basePath: '/ethereum/terraforms',
+				zoneName: 'Alto'
+			})
+		).toBe(
+			`/ethereum/terraforms?limit=${DEFAULT_PAGE_LIMIT}&mode=grid&token_status=all&traits=Zone%3AAlto`
+		);
 	});
 });

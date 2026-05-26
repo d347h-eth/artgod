@@ -5,6 +5,7 @@ import {
     resolveTerraformsTopographyBucket,
     resolveTerraformsZoneIndexForTopographyBucket,
     TERRAFORMS_BIOMES,
+    TERRAFORMS_BIOME_ATTRIBUTE_KEY,
     TERRAFORMS_BIOME_GROUPS,
     TERRAFORMS_BIOME_GROUP_WEIGHTS_BY_LEVEL,
     TERRAFORMS_HYPERCASTLE_LEVELS,
@@ -14,6 +15,7 @@ import {
     TERRAFORMS_RESOURCE_ATTRIBUTE_KEY,
     TERRAFORMS_TOPOGRAPHY_BUCKETS,
     TERRAFORMS_ZONES,
+    TERRAFORMS_ZONE_ATTRIBUTE_KEY,
 } from "./terraforms-structure.js";
 
 describe("Terraforms Hypercastle static structure", () => {
@@ -159,8 +161,10 @@ describe("Terraforms Hypercastle static structure", () => {
         ]);
     });
 
-    it("uses Resource as the ArtGod-facing name for question-mark density", () => {
+    it("centralizes Terraforms ArtGod-facing metadata trait keys", () => {
         assert.equal(TERRAFORMS_RESOURCE_ATTRIBUTE_KEY, "Resource");
+        assert.equal(TERRAFORMS_ZONE_ATTRIBUTE_KEY, "Zone");
+        assert.equal(TERRAFORMS_BIOME_ATTRIBUTE_KEY, "Biome");
     });
 });
 

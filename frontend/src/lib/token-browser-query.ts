@@ -16,6 +16,12 @@ import {
 } from '$lib/trait-filters';
 
 export const TOKEN_STATUS_QUERY_PARAM = COLLECTION_DETAIL_QUERY_PARAMS.TokenStatus;
+export const TOKEN_BROWSER_DISPLAY_MODES = {
+	Grid: 'grid',
+	Table: 'table'
+} as const;
+export type TokenBrowserDisplayMode =
+	(typeof TOKEN_BROWSER_DISPLAY_MODES)[keyof typeof TOKEN_BROWSER_DISPLAY_MODES];
 export const COLLECTION_TOKEN_STATUS_FILTERS = [
 	TOKEN_BROWSER_STATUS.Listed,
 	TOKEN_BROWSER_STATUS.All
@@ -52,7 +58,7 @@ export function normalizeTokenBrowserParams(
 
 export function buildTokenBrowserQuery(params: {
 	limit: number;
-	displayMode: 'grid' | 'table';
+	displayMode: TokenBrowserDisplayMode;
 	tokenStatus: TokenBrowserStatus;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
@@ -75,7 +81,7 @@ export function buildTokenBrowserQuery(params: {
 export function buildTokenBrowserHref(params: {
 	basePath: string;
 	limit: number;
-	displayMode: 'grid' | 'table';
+	displayMode: TokenBrowserDisplayMode;
 	tokenStatus: TokenBrowserStatus;
 	selectedTraits: ApiTokenAttribute[];
 	selectedTraitRanges: ApiTraitRangeFilter[];
@@ -91,16 +97,16 @@ export function buildOwnerTokensHref(params: {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	mediaMode?: string | null;
 	limit?: number;
-	displayMode?: 'grid' | 'table';
+	displayMode?: TokenBrowserDisplayMode;
 	cursor?: string | null;
 }): string {
 	const limit = params.limit ?? DEFAULT_PAGE_LIMIT;
-	const displayMode = params.displayMode ?? 'grid';
+	const displayMode = params.displayMode ?? TOKEN_BROWSER_DISPLAY_MODES.Grid;
 	const cursor = params.cursor ?? null;
 
 	if (
 		limit === DEFAULT_PAGE_LIMIT &&
-		displayMode === 'grid' &&
+		displayMode === TOKEN_BROWSER_DISPLAY_MODES.Grid &&
 		!cursor?.trim() &&
 		params.selectedTraits.length === 0 &&
 		params.selectedTraitRanges.length === 0 &&
@@ -145,9 +151,11 @@ export function buildTokenDetailHref(params: {
 	);
 }
 
-export function parseDisplayMode(raw: string | null): 'grid' | 'table' {
-	if (raw?.trim().toLowerCase() === 'table') return 'table';
-	return 'grid';
+export function parseDisplayMode(raw: string | null): TokenBrowserDisplayMode {
+	if (raw?.trim().toLowerCase() === TOKEN_BROWSER_DISPLAY_MODES.Table) {
+		return TOKEN_BROWSER_DISPLAY_MODES.Table;
+	}
+	return TOKEN_BROWSER_DISPLAY_MODES.Grid;
 }
 
 export function parseCollectionTokenStatus(raw: string | null): CollectionTokenStatus {
