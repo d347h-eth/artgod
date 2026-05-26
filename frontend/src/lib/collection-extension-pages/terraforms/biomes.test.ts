@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { TERRAFORMS_BIOMES } from '@artgod/shared/extensions/terraforms';
 import {
+	applyTerraformsBiomeTokenCounts,
 	buildTerraformsBiomeRows,
 	buildTerraformsBiomeTokenHref,
+	formatTerraformsBiomeMintedTokenCount,
 	resolveTerraformsBiomeDisplayCharacters
 } from '$lib/collection-extension-pages/terraforms/biomes';
 
@@ -61,6 +63,19 @@ describe('Terraforms Biome table data', () => {
 		expect(resolveTerraformsBiomeDisplayCharacters(mountainBiome)).toEqual(
 			TERRAFORMS_MOUNTAIN_BIOME_DISPLAY_CHARACTERS
 		);
+	});
+
+	it('applies minted token counts to Biome rows for display', () => {
+		const rows = applyTerraformsBiomeTokenCounts(
+			buildTerraformsBiomeRows().slice(22, 24),
+			{
+				22: 8,
+				23: 13
+			},
+			true
+		);
+
+		expect(rows.map((row) => formatTerraformsBiomeMintedTokenCount(row))).toEqual(['8', '13']);
 	});
 
 	it('builds Biome token-filter hrefs for the pure token browser', () => {

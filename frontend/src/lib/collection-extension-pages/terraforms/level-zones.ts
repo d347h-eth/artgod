@@ -7,6 +7,7 @@ import {
 	type TerraformsZone
 } from '@artgod/shared/extensions/terraforms';
 import { buildTerraformsHypercastleTraitTokenHref } from '$lib/collection-extension-pages/terraforms/hypercastle-token-links';
+import type { TerraformsTraitCountIndex } from '$lib/collection-extension-pages/terraforms/trait-catalog-counts';
 
 type ValueOf<T> = T[keyof T];
 
@@ -15,6 +16,7 @@ export type TerraformsLevelZoneRow = {
 	zoneIndex: number;
 	name: string;
 	palette: readonly string[];
+	mintedTokenCount: number | null;
 	topographyBucketCount: number | null;
 	topographyHeights: readonly number[] | null;
 	topographyRangeLabel: string | null;
@@ -24,6 +26,7 @@ export type TerraformsLevelZoneRow = {
 export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS = {
 	Name: 'name',
 	Palette: 'palette',
+	Minted: 'minted',
 	Topography: 'topography'
 } as const;
 
@@ -57,6 +60,7 @@ export const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_FEEDBACK_DELAY_MS = 1400;
 export const TERRAFORMS_LEVEL_ZONE_TABLE_LABELS: Record<TerraformsLevelZoneTableColumn, string> = {
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name]: 'name',
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette]: 'palette',
+	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted]: 'minted',
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography]: 'topography'
 };
 
@@ -69,11 +73,13 @@ export const TERRAFORMS_LEVEL_ZONE_SECTION_LABELS = {
 export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS = {
 	AllLevels: [
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
-		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette,
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted
 	],
 	SelectedLevel: [
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette,
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted,
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography
 	]
 } as const satisfies Record<string, readonly TerraformsLevelZoneTableColumn[]>;
@@ -138,6 +144,9 @@ const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_FAILED_LABEL = 'palette copy failed';
 const TERRAFORMS_LEVEL_ZONE_TOKEN_FILTER_LABEL_PREFIX = 'filter tokens by Zone';
 const TERRAFORMS_LEVEL_ZONE_SORT_LABEL_PREFIX = 'sort by';
 const TERRAFORMS_LEVEL_ZONE_EMPTY_STRING = '';
+const TERRAFORMS_LEVEL_ZONE_COUNT_FORMAT = new Intl.NumberFormat(undefined, {
+	maximumFractionDigits: 0
+});
 const TERRAFORMS_LEVEL_ZONE_RANGE_VALUE_SEPARATOR = ': ';
 const TERRAFORMS_LEVEL_ZONE_RANGE_GREATER_THAN_PREFIX = '> ';
 const TERRAFORMS_LEVEL_ZONE_RANGE_UPPER_PREFIX = '<= ';
@@ -163,16 +172,28 @@ export function buildTerraformsLevelZoneRows(
 // Builds the all-level Zone catalog without level-specific distribution columns.
 export function buildTerraformsAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 	return TERRAFORMS_ZONES.map((zone) => ({
-		key: [
-			TERRAFORMS_LEVEL_ZONE_ALL_LEVEL_ROW_KEY_PREFIX,
-			zone.index
-		].join(TERRAFORMS_LEVEL_ZONE_ROW_KEY_SEPARATOR),
+		key: [TERRAFORMS_LEVEL_ZONE_ALL_LEVEL_ROW_KEY_PREFIX, zone.index].join(
+			TERRAFORMS_LEVEL_ZONE_ROW_KEY_SEPARATOR
+		),
 		zoneIndex: zone.index,
 		name: zone.name,
 		palette: zone.palette,
+		mintedTokenCount: null,
 		topographyBucketCount: null,
 		topographyHeights: null,
 		topographyRangeLabel: null
+	}));
+}
+
+// Applies minted trait counts after the backend catalog response arrives.
+export function applyTerraformsLevelZoneTokenCounts(
+	rows: readonly TerraformsLevelZoneRow[],
+	counts: TerraformsTraitCountIndex,
+	countsLoaded: boolean
+): TerraformsLevelZoneRow[] {
+	return rows.map((row) => ({
+		...row,
+		mintedTokenCount: countsLoaded ? (counts[row.name] ?? 0) : null
 	}));
 }
 
@@ -256,6 +277,13 @@ export function formatTerraformsZoneTopographyRangeLabel(row: TerraformsLevelZon
 	return row.topographyRangeLabel ?? TERRAFORMS_LEVEL_ZONE_EMPTY_STRING;
 }
 
+// Formats exact minted token counts once the trait catalog has loaded.
+export function formatTerraformsZoneMintedTokenCount(row: TerraformsLevelZoneRow): string {
+	return row.mintedTokenCount === null
+		? TERRAFORMS_LEVEL_ZONE_EMPTY_STRING
+		: TERRAFORMS_LEVEL_ZONE_COUNT_FORMAT.format(row.mintedTokenCount);
+}
+
 // Formats all palette colors for clipboard copying.
 export function formatTerraformsZonePaletteCopyValue(row: TerraformsLevelZoneRow): string {
 	return row.palette.join(TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_SEPARATOR);
@@ -263,10 +291,9 @@ export function formatTerraformsZonePaletteCopyValue(row: TerraformsLevelZoneRow
 
 // Builds the accessible label for Zone token-filter links.
 export function formatTerraformsZoneTokenFilterLabel(zoneName: string): string {
-	return [
-		TERRAFORMS_LEVEL_ZONE_TOKEN_FILTER_LABEL_PREFIX,
-		zoneName
-	].join(TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR);
+	return [TERRAFORMS_LEVEL_ZONE_TOKEN_FILTER_LABEL_PREFIX, zoneName].join(
+		TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR
+	);
 }
 
 // Builds the accessible label for palette-copy state.
@@ -328,6 +355,7 @@ function buildTerraformsLevelZoneRowsForZone(
 		zoneIndex: zone.index,
 		name: zone.name,
 		palette: zone.palette,
+		mintedTokenCount: null,
 		topographyBucketCount: 1,
 		topographyHeights: [bucket.elevation],
 		topographyRangeLabel: formatTerraformsTopographyBucketRange(bucket)
@@ -347,6 +375,8 @@ function compareTerraformsLevelZoneRows(
 				left.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING),
 				right.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING)
 			);
+		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted:
+			return compareNullableNumbers(left.mintedTokenCount, right.mintedTokenCount);
 		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography:
 			return compareNullableNumbers(
 				resolveTerraformsLevelZoneRowPrimaryTopography(left),

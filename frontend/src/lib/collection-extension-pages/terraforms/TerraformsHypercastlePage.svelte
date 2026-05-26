@@ -8,15 +8,18 @@
 	import CheckIcon from '$lib/components/CheckIcon.svelte';
 	import CopyIcon from '$lib/components/CopyIcon.svelte';
 	import {
+		applyTerraformsBiomeTokenCounts,
 		buildTerraformsBiomeRows,
 		buildTerraformsBiomeTokenHref,
 		formatTerraformsBiomeCharacterLabel,
+		formatTerraformsBiomeMintedTokenCount,
 		formatTerraformsBiomeTokenLabel,
 		TERRAFORMS_BIOME_TABLE_DOM,
 		TERRAFORMS_BIOME_TABLE_LABELS
 	} from '$lib/collection-extension-pages/terraforms/biomes';
 	import { TERRAFORMS_HYPERCASTLE_PAGE_ACTIONS } from '$lib/collection-extension-pages/terraforms/hypercastle-actions';
 	import {
+		applyTerraformsLevelZoneTokenCounts,
 		buildTerraformsAllLevelZoneRows,
 		buildTerraformsLevelZoneRows,
 		buildTerraformsZoneTokenHref,
@@ -25,6 +28,7 @@
 		defaultTerraformsSelectedLevelZoneSortColumn,
 		defaultTerraformsSelectedLevelZoneSortDirection,
 		formatTerraformsLevelZoneSortLabel,
+		formatTerraformsZoneMintedTokenCount,
 		formatTerraformsZonePaletteCopyLabel,
 		formatTerraformsZonePaletteCopyValue,
 		formatTerraformsZonePaletteSwatchLabel,
@@ -65,13 +69,19 @@
 		buildTerraformsHypercastleLevelSurfaces,
 		replaceTerraformsHypercastleLevelSurface
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
+	import {
+		buildTerraformsTraitCatalogRequestKey,
+		fetchTerraformsHypercastleTraitCounts,
+		TERRAFORMS_HYPERCASTLE_EMPTY_TRAIT_COUNTS,
+		type TerraformsHypercastleTraitCounts
+	} from '$lib/collection-extension-pages/terraforms/trait-catalog-counts';
 
 	const TERRAFORMS_HYPERCASTLE_BROWSER_EVENTS = {
 		PageShow: 'pageshow',
 		PopState: 'popstate'
 	} as const;
 
-	let { actions, basePath, media }: CollectionExtensionPageProps = $props();
+	let { actions, basePath, chain, collection, media }: CollectionExtensionPageProps = $props();
 
 	let selection = $state<TerraformsHypercastleSelection>(null);
 	let zoneSortColumn = $state<TerraformsLevelZoneTableColumn>(
@@ -83,6 +93,11 @@
 	let levelSurfaces = $state(buildTerraformsHypercastleLevelSurfaces());
 	let paletteCopyStates = $state<Record<string, TerraformsLevelZonePaletteCopyState>>({});
 	let paletteCopyFeedbackTimer: number | null = null;
+	let traitCounts = $state<TerraformsHypercastleTraitCounts>(
+		TERRAFORMS_HYPERCASTLE_EMPTY_TRAIT_COUNTS
+	);
+	let traitCountsLoaded = $state(false);
+	let traitCountsRequestKey: string | null = $state(null);
 	let appliedRouteSelectionKey: string | null = $state(null);
 	let pendingLocalSelectionKey: string | null = $state(null);
 	let routeSelection = $derived(
@@ -105,13 +120,21 @@
 	let zoneRows = $derived(
 		allLevelsSelected
 			? sortTerraformsLevelZoneRows(
-					buildTerraformsAllLevelZoneRows(),
+					applyTerraformsLevelZoneTokenCounts(
+						buildTerraformsAllLevelZoneRows(),
+						traitCounts.zoneTokenCounts,
+						traitCountsLoaded
+					),
 					activeZoneSortColumn,
 					zoneSortDirection
 				)
 			: selectedLevel
 			? sortTerraformsLevelZoneRows(
-					buildTerraformsLevelZoneRows(selectedLevel),
+					applyTerraformsLevelZoneTokenCounts(
+						buildTerraformsLevelZoneRows(selectedLevel),
+						traitCounts.zoneTokenCounts,
+						traitCountsLoaded
+					),
 					activeZoneSortColumn,
 					zoneSortDirection
 				)
@@ -119,7 +142,15 @@
 	);
 	let detailTitle = $derived(resolveDetailTitle(selection, selectedLevelNumber));
 	let showZoneTable = $derived(detailTitle !== null && zoneRows.length > 0);
-	let biomeRows = $derived(allLevelsSelected ? buildTerraformsBiomeRows() : []);
+	let biomeRows = $derived(
+		allLevelsSelected
+			? applyTerraformsBiomeTokenCounts(
+					buildTerraformsBiomeRows(),
+					traitCounts.biomeTokenCounts,
+					traitCountsLoaded
+				)
+			: []
+	);
 	let showBiomeTable = $derived(allLevelsSelected && biomeRows.length > 0);
 	let showDetailTitle = $derived(detailTitle !== null && !allLevelsSelected);
 
@@ -161,6 +192,21 @@
 			TERRAFORMS_HYPERCASTLE_PAGE_ACTIONS.RerollSurfaces,
 			rerollAllLevelSurfaces
 		);
+	});
+
+	$effect(() => {
+		// Keep minted counts aligned with the selected Hypercastle scope.
+		if (!browser) return;
+		const nextRequestKey = buildTerraformsTraitCatalogRequestKey({
+			chainRef: chain.slug,
+			collectionRef: collection.slug,
+			levelNumber: selectedLevelNumber
+		});
+		if (nextRequestKey === traitCountsRequestKey) return;
+		traitCountsRequestKey = nextRequestKey;
+		traitCounts = TERRAFORMS_HYPERCASTLE_EMPTY_TRAIT_COUNTS;
+		traitCountsLoaded = false;
+		void loadTraitCounts(nextRequestKey, selectedLevelNumber);
 	});
 
 	$effect(() => {
@@ -230,6 +276,24 @@
 
 	function rerollAllLevelSurfaces(): void {
 		levelSurfaces = buildTerraformsHypercastleLevelSurfaces();
+	}
+
+	async function loadTraitCounts(requestKey: string, levelNumber: number | null): Promise<void> {
+		try {
+			const nextTraitCounts = await fetchTerraformsHypercastleTraitCounts({
+				fetch,
+				chainRef: chain.slug,
+				collectionRef: collection.slug,
+				levelNumber
+			});
+			if (traitCountsRequestKey !== requestKey) return;
+			traitCounts = nextTraitCounts;
+			traitCountsLoaded = true;
+		} catch {
+			if (traitCountsRequestKey !== requestKey) return;
+			traitCounts = TERRAFORMS_HYPERCASTLE_EMPTY_TRAIT_COUNTS;
+			traitCountsLoaded = false;
+		}
 	}
 
 	function applyZoneSurface(zoneIndex: number): void {
@@ -457,6 +521,10 @@
 										>
 											{formatTerraformsZoneTopographyHeights(row)}
 										</td>
+									{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted}
+										<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
+											{formatTerraformsZoneMintedTokenCount(row)}
+										</td>
 									{/if}
 								{/each}
 							</tr>
@@ -483,6 +551,7 @@
 					<thead>
 						<tr>
 							<th>{TERRAFORMS_BIOME_TABLE_LABELS.Number}</th>
+							<th>{TERRAFORMS_BIOME_TABLE_LABELS.Minted}</th>
 							<th>{TERRAFORMS_BIOME_TABLE_LABELS.CharacterSet}</th>
 						</tr>
 					</thead>
@@ -498,6 +567,9 @@
 									>
 										{row.biomeIndex}
 									</a>
+								</td>
+								<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
+									{formatTerraformsBiomeMintedTokenCount(row)}
 								</td>
 								<td>
 									<div class={TERRAFORMS_BIOME_TABLE_DOM.classes.characterSet}>

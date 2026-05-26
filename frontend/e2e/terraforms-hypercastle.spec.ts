@@ -2,10 +2,13 @@ import { writeFile } from 'node:fs/promises';
 import { expect, test, type Locator, type Page, type TestInfo } from 'playwright/test';
 import { COLLECTION_MEDIA_MODES } from '@artgod/shared/extensions';
 import {
+	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
 	TERRAFORMS_EXTENSION_KEY,
 	TERRAFORMS_EXTENSION_PAGE_REFS,
-	TERRAFORMS_HYPERCASTLE_LEVELS
+	TERRAFORMS_HYPERCASTLE_LEVELS,
+	TERRAFORMS_ZONE_ATTRIBUTE_KEY
 } from '@artgod/shared/extensions/terraforms';
+import { TRAIT_CATALOG_QUERY_PARAMS } from '@artgod/shared/types';
 import {
 	buildTerraformsBiomeRows,
 	buildTerraformsBiomeTokenHref,
@@ -214,6 +217,9 @@ const HYPERCASTLE_E2E_MEDIA_MODE = COLLECTION_MEDIA_MODES.Snapshot;
 const HYPERCASTLE_EXPECTED_LEVEL_COUNT = TERRAFORMS_HYPERCASTLE_LEVELS.length;
 const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 3;
 const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 2;
+const HYPERCASTLE_E2E_TRAIT_CATALOG_ROUTE_PATTERN = '**/api/*/*/traits/catalog*';
+const HYPERCASTLE_E2E_TRAIT_SCOPE_SEPARATOR = ':';
+const HYPERCASTLE_E2E_MINTED_COUNT_TEXT = '0';
 const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER = 12;
 const HYPERCASTLE_DETAIL_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
@@ -336,8 +342,9 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 } as const;
 const diagnosticsByTest: PageDiagnosticsRegistry = new Map();
 
-test.beforeEach(({ page }, testInfo) => {
+test.beforeEach(async ({ page }, testInfo) => {
 	captureDiagnosticsForTest(diagnosticsByTest, page, testInfo);
+	await installTraitCatalogApiProbe(page);
 });
 
 test.afterEach(async ({}, testInfo) => {
@@ -930,7 +937,7 @@ async function collectHypercastleLevelDetailMetrics(
 			rowCount: rows.length,
 			rowNames: rowCells.map((cells) => cells[0]?.textContent ?? contract.emptyAttributeValue),
 			rowTopographyValues: rowCells.map(
-				(cells) => cells[2]?.textContent?.trim() ?? contract.emptyAttributeValue
+				(cells) => cells[3]?.textContent?.trim() ?? contract.emptyAttributeValue
 			),
 			paletteSwatchCount: table?.querySelectorAll(contract.selectors.paletteSwatch).length ?? 0,
 			paletteCopyButtonCount:
@@ -963,11 +970,13 @@ async function assertZoneTableRows(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteCopyButton)
 		).toHaveCount(1);
 		if (row.topographyBucketCount === null) {
-			await expect(cells).toHaveCount(2);
-		} else {
 			await expect(cells).toHaveCount(3);
-			await expect(cells.nth(2)).toHaveText(formatTerraformsZoneTopographyHeights(row));
-			await expect(cells.nth(2)).toHaveAttribute(
+			await expect(cells.nth(2)).toHaveText(HYPERCASTLE_E2E_MINTED_COUNT_TEXT);
+		} else {
+			await expect(cells).toHaveCount(4);
+			await expect(cells.nth(2)).toHaveText(HYPERCASTLE_E2E_MINTED_COUNT_TEXT);
+			await expect(cells.nth(3)).toHaveText(formatTerraformsZoneTopographyHeights(row));
+			await expect(cells.nth(3)).toHaveAttribute(
 				SVG_ATTRIBUTE_NAMES.title,
 				formatTerraformsZoneTopographyRangeLabel(row)
 			);
@@ -996,11 +1005,45 @@ async function assertBiomeTableRows(biomeTable: Locator): Promise<void> {
 			})
 		);
 		await expect(
-			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
+			cells.nth(2).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
 		).toHaveCount(row.displayCharacters.length);
 	}
 	await assertBiomeDisplayCharacters(rows, expectedRows, 22);
 	await assertBiomeDisplayCharacters(rows, expectedRows, 23);
+}
+
+async function installTraitCatalogApiProbe(page: Page): Promise<void> {
+	await page.route(HYPERCASTLE_E2E_TRAIT_CATALOG_ROUTE_PATTERN, async (route) => {
+		const requestUrl = new URL(route.request().url());
+		const scopeValues = [
+			...requestUrl.searchParams.getAll(TRAIT_CATALOG_QUERY_PARAMS.ScopeTraits),
+			...requestUrl.searchParams.getAll(TRAIT_CATALOG_QUERY_PARAMS.ScopeTrait)
+		];
+
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				chain: {},
+				collection: {},
+				traitCatalog: {
+					scope: scopeValues.map(formatTraitCatalogScopeValue),
+					facets: [
+						{ key: TERRAFORMS_BIOME_ATTRIBUTE_KEY, values: [] },
+						{ key: TERRAFORMS_ZONE_ATTRIBUTE_KEY, values: [] }
+					]
+				}
+			})
+		});
+	});
+}
+
+function formatTraitCatalogScopeValue(value: string): { key: string; value: string } {
+	const [key, ...rest] = value.split(HYPERCASTLE_E2E_TRAIT_SCOPE_SEPARATOR);
+	return {
+		key: key ?? EMPTY_ATTRIBUTE_VALUE,
+		value: rest.join(HYPERCASTLE_E2E_TRAIT_SCOPE_SEPARATOR)
+	};
 }
 
 async function assertBiomeDisplayCharacters(

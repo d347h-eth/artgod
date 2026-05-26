@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
-import { TERRAFORMS_HYPERCASTLE_LEVELS, TERRAFORMS_ZONES } from '@artgod/shared/extensions/terraforms';
 import {
+	TERRAFORMS_HYPERCASTLE_LEVELS,
+	TERRAFORMS_ZONES
+} from '@artgod/shared/extensions/terraforms';
+import {
+	applyTerraformsLevelZoneTokenCounts,
 	buildTerraformsAllLevelZoneRows,
 	buildTerraformsLevelZoneRows,
 	buildTerraformsZoneTokenHref,
+	formatTerraformsZoneMintedTokenCount,
 	formatTerraformsZoneTopographyHeights,
 	formatTerraformsZoneTopographyRangeLabel,
 	resolveTerraformsHypercastleLevel,
@@ -41,9 +46,7 @@ describe('Terraforms level Zone table data', () => {
 			'Muxtai X1',
 			'Palace'
 		]);
-		expect(sortedRows.map((row) => row.topographyBucketCount)).toEqual([
-			1, 1, 1, 1, 1, 1, 1, 1, 1
-		]);
+		expect(sortedRows.map((row) => row.topographyBucketCount)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1]);
 		expect(sortedRows.map((row) => formatTerraformsZoneTopographyHeights(row))).toEqual([
 			'4',
 			'3',
@@ -114,6 +117,26 @@ describe('Terraforms level Zone table data', () => {
 			'Palace',
 			'Palace'
 		]);
+	});
+
+	it('applies minted token counts to Zone rows for display and sorting', () => {
+		const rows = applyTerraformsLevelZoneTokenCounts(
+			buildTerraformsAllLevelZoneRows().filter((row) => row.name === 'Alto' || row.name === 'Holo'),
+			{
+				Alto: 3,
+				Holo: 12
+			},
+			true
+		);
+
+		expect(rows.map((row) => formatTerraformsZoneMintedTokenCount(row))).toEqual(['3', '12']);
+		expect(
+			sortTerraformsLevelZoneRows(
+				rows,
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted,
+				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
+			).map((row) => row.name)
+		).toEqual(['Holo', 'Alto']);
 	});
 
 	it('keeps table labels and aria-sort values centralized', () => {

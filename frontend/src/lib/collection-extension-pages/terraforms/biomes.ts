@@ -4,18 +4,21 @@ import {
 	type TerraformsBiome
 } from '@artgod/shared/extensions/terraforms';
 import { buildTerraformsHypercastleTraitTokenHref } from '$lib/collection-extension-pages/terraforms/hypercastle-token-links';
+import type { TerraformsTraitCountIndex } from '$lib/collection-extension-pages/terraforms/trait-catalog-counts';
 
 export type TerraformsBiomeRow = {
 	key: string;
 	biomeIndex: number;
 	characters: readonly string[];
 	displayCharacters: readonly string[];
+	mintedTokenCount: number | null;
 };
 
 // Labels used by the all-level Biome table.
 export const TERRAFORMS_BIOME_TABLE_LABELS = {
 	Heading: 'biomes',
 	Number: 'number',
+	Minted: 'minted',
 	CharacterSet: 'character set'
 } as const;
 
@@ -41,6 +44,10 @@ const TERRAFORMS_BIOME_TOKEN_LABEL_PREFIX = 'filter tokens by Biome';
 const TERRAFORMS_BIOME_TOKEN_LABEL_SEPARATOR = ' ';
 const TERRAFORMS_BIOME_CHARACTER_LABEL_PREFIX = 'Biome character';
 const TERRAFORMS_BIOME_CHARACTER_LABEL_SEPARATOR = ' ';
+const TERRAFORMS_BIOME_EMPTY_STRING = '';
+const TERRAFORMS_BIOME_COUNT_FORMAT = new Intl.NumberFormat(undefined, {
+	maximumFractionDigits: 0
+});
 
 // Font family registered globally for rendered Terraforms Biome glyphs.
 export const TERRAFORMS_BIOME_FONT_FAMILY_NAME = 'Mathcastles Remix';
@@ -101,7 +108,20 @@ export function buildTerraformsBiomeRows(
 		key: [TERRAFORMS_BIOME_ROW_KEY_PREFIX, biome.index].join(TERRAFORMS_BIOME_ROW_KEY_SEPARATOR),
 		biomeIndex: biome.index,
 		characters: biome.characters,
-		displayCharacters: resolveTerraformsBiomeDisplayCharacters(biome)
+		displayCharacters: resolveTerraformsBiomeDisplayCharacters(biome),
+		mintedTokenCount: null
+	}));
+}
+
+// Applies minted trait counts after the backend catalog response arrives.
+export function applyTerraformsBiomeTokenCounts(
+	rows: readonly TerraformsBiomeRow[],
+	counts: TerraformsTraitCountIndex,
+	countsLoaded: boolean
+): TerraformsBiomeRow[] {
+	return rows.map((row) => ({
+		...row,
+		mintedTokenCount: countsLoaded ? (counts[String(row.biomeIndex)] ?? 0) : null
 	}));
 }
 
@@ -134,6 +154,13 @@ export function formatTerraformsBiomeTokenLabel(biomeIndex: number): string {
 	return [TERRAFORMS_BIOME_TOKEN_LABEL_PREFIX, String(biomeIndex)].join(
 		TERRAFORMS_BIOME_TOKEN_LABEL_SEPARATOR
 	);
+}
+
+// Formats exact minted token counts once the trait catalog has loaded.
+export function formatTerraformsBiomeMintedTokenCount(row: TerraformsBiomeRow): string {
+	return row.mintedTokenCount === null
+		? TERRAFORMS_BIOME_EMPTY_STRING
+		: TERRAFORMS_BIOME_COUNT_FORMAT.format(row.mintedTokenCount);
 }
 
 // Builds the accessible label for one Biome character swatch.
