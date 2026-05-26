@@ -21,10 +21,12 @@ export const TERRAFORMS_BIOME_TABLE_LABELS = {
 // DOM names are exported so browser probes can target extension-owned Biome UI.
 export const TERRAFORMS_BIOME_TABLE_DOM = {
 	testIds: {
+		panel: 'terraforms-hypercastle-biome-detail',
 		table: 'terraforms-hypercastle-biome-table',
 		character: 'terraforms-hypercastle-biome-character'
 	},
 	classes: {
+		panel: 'terraforms-hypercastle-biome-detail',
 		table: 'terraforms-hypercastle-biome-table',
 		numberCell: 'terraforms-hypercastle-biome-number-cell',
 		characterSet: 'terraforms-hypercastle-biome-character-set',

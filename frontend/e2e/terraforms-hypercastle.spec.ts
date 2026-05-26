@@ -41,8 +41,12 @@ import {
 	type TerraformsLevelZoneRow
 } from '../src/lib/collection-extension-pages/terraforms/level-zones';
 import {
+	formatTerraformsHypercastleSelectionQueryValue,
 	formatTerraformsLevelTitle,
-	TERRAFORMS_HYPERCASTLE_SELECTION_LABELS
+	TERRAFORMS_HYPERCASTLE_SELECTION_LABELS,
+	TERRAFORMS_HYPERCASTLE_SELECTION_QUERY_PARAMS,
+	TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES,
+	type TerraformsHypercastleSelection
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-selection';
 import {
 	resolveTerraformsHypercastleSurfaceTextureGridSize,
@@ -270,6 +274,10 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_BIOME_TABLE_DOM.testIds.table
 		),
+		biomePanel: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_BIOME_TABLE_DOM.testIds.panel
+		),
 		biomeCharacter: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_BIOME_TABLE_DOM.testIds.character
@@ -288,9 +296,7 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 		reachableLevelGuide: idSelector(
 			resolveTerraformsHypercastleOverviewLevelGuideElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		),
-		surfaceTextureCell: classSelector(
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.textureCell
-		),
+		surfaceTextureCell: classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.textureCell),
 		surfaceRerollButton: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_DOM.testIds.rerollButton
@@ -310,9 +316,7 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 		)}`,
 		texturedSurfaceTextureCells: `${idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_TEXTURE_LEVEL_NUMBER)
-		)} ${classSelector(
-			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.textureCell
-		)}`,
+		)} ${classSelector(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.textureCell)}`,
 		reachableTopFace: `${idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		)} ${classSelector(
@@ -460,15 +464,19 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		const detailPanel = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.levelDetail);
 		const zoneTable = detailPanel.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.levelZoneTable);
-		const biomeTable = detailPanel.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeTable);
+		const biomePanel = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomePanel);
+		const biomeTable = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeTable);
 
 		await expect(detailPanel).toBeEmpty();
+		await expect(biomePanel).toHaveCount(0);
 		await allLevelsGuide.click();
+		await expectHypercastleRouteSelection(page, TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES.AllLevels);
 		await expect(
 			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
 				name: TERRAFORMS_HYPERCASTLE_SELECTION_LABELS.AllLevels
 			})
 		).toBeVisible();
+		await expect(biomePanel).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
 		await assertBiomeTableRows(biomeTable);
 		const surfaceKeyBeforeAllLevelsReroll = await page
@@ -490,6 +498,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.hoverScreenshot);
 
 		await reachableLevelGuide.click();
+		await expectHypercastleRouteSelection(page, HYPERCASTLE_REACHABILITY_LEVEL_NUMBER);
 		await expectTopRenderedLayer(page, HYPERCASTLE_REACHABILITY_LEVEL_NUMBER);
 		await expect(reachableLevelLayer).toHaveClass(
 			new RegExp(`\\b${TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.classes.layerSelected}\\b`)
@@ -503,7 +512,24 @@ test.describe('Terraforms Hypercastle overview', () => {
 			})
 		).toBeVisible();
 		await expect(zoneTable).toBeVisible();
+		await expect(biomePanel).toHaveCount(0);
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
+		const selectedLevelHrefBeforeTokenNavigation = page.url();
+		await zoneTable
+			.locator(TABLE_SELECTORS.bodyRows)
+			.first()
+			.locator(TAG_NAMES.anchor)
+			.first()
+			.click();
+		await page.waitForURL((url) => url.pathname === HYPERCASTLE_E2E_COLLECTION_BASE_PATH);
+		await page.goBack({ waitUntil: DOCUMENT_READY_STATES.domContentLoaded });
+		await expect(page).toHaveURL(selectedLevelHrefBeforeTokenNavigation);
+		await expectHypercastleRouteSelection(page, HYPERCASTLE_REACHABILITY_LEVEL_NUMBER);
+		await expect(
+			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: formatTerraformsLevelTitle(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
+			})
+		).toBeVisible();
 		const firstDefaultRow = expectedDefaultLevelZoneRows()[0]!;
 		const firstCopyButton = zoneTable
 			.locator(TABLE_SELECTORS.bodyRows)
@@ -514,7 +540,9 @@ test.describe('Terraforms Hypercastle overview', () => {
 			SVG_ATTRIBUTE_NAMES.title,
 			formatTerraformsZonePaletteCopyLabel(TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES.Copied)
 		);
-		expect(await readClipboardProbe(page)).toBe(formatTerraformsZonePaletteCopyValue(firstDefaultRow));
+		expect(await readClipboardProbe(page)).toBe(
+			formatTerraformsZonePaletteCopyValue(firstDefaultRow)
+		);
 		await expect(surfaceRerollButton).toBeVisible();
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
 
@@ -569,7 +597,9 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		expect(detailMetrics.paletteCopyButtonCount).toBe(defaultRows.length);
 
-		const texturedLevelGuide = page.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.texturedLevelGuide);
+		const texturedLevelGuide = page.locator(
+			HYPERCASTLE_PROBE_CONTRACT.selectors.texturedLevelGuide
+		);
 		await texturedLevelGuide.click();
 		await expectTopRenderedLayer(page, HYPERCASTLE_TEXTURE_LEVEL_NUMBER);
 		await expect(
@@ -711,6 +741,17 @@ async function readClipboardProbe(page: Page): Promise<string | undefined> {
 		(clipboardKey) => (window as unknown as Record<string, string | undefined>)[clipboardKey],
 		CLIPBOARD_PROBE_WINDOW_KEY
 	);
+}
+
+async function expectHypercastleRouteSelection(
+	page: Page,
+	selection: TerraformsHypercastleSelection
+): Promise<void> {
+	await expect
+		.poll(() =>
+			new URL(page.url()).searchParams.get(TERRAFORMS_HYPERCASTLE_SELECTION_QUERY_PARAMS.Level)
+		)
+		.toBe(formatTerraformsHypercastleSelectionQueryValue(selection));
 }
 
 async function collectHypercastleOverviewMetrics(page: Page): Promise<HypercastleOverviewMetrics> {
@@ -945,9 +986,9 @@ async function assertBiomeTableRows(biomeTable: Locator): Promise<void> {
 				biomeIndex: row.biomeIndex
 			})
 		);
-		await expect(cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)).toHaveCount(
-			row.characters.length
-		);
+		await expect(
+			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
+		).toHaveCount(row.characters.length);
 	}
 }
 

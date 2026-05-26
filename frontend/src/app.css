@@ -19,6 +19,7 @@
 	--c-ice: #f8fefe;
 	--c-yellow: #f6e518;
 	--c-orange: #ec7e15;
+	--font-mathcastles-remix: 'Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
 	/* Shared compact gap for adjacent top-action buttons and button-like controls. */
 	--control-button-gap: 0.35rem;
 }
@@ -581,7 +582,7 @@ a:hover {
 }
 
 .blockspace-isometric-marker {
-	font-family: 'Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
+	font-family: var(--font-mathcastles-remix);
 	pointer-events: none;
 }
 

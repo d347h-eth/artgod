@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { onDestroy } from 'svelte';
+	import { afterNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { onDestroy, onMount } from 'svelte';
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
 	import TerraformsHypercastleOverview from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte';
 	import CheckIcon from '$lib/components/CheckIcon.svelte';
@@ -48,10 +50,14 @@
 		type TerraformsLevelZoneTableColumn
 	} from '$lib/collection-extension-pages/terraforms/level-zones';
 	import {
+		buildTerraformsHypercastleSelectionHref,
+		formatTerraformsHypercastleSelectionRouteKey,
 		formatTerraformsLevelTitle,
 		isTerraformsAllLevelsSelection,
+		parseTerraformsHypercastleRouteSelection,
 		resolveTerraformsSelectedLevelNumber,
 		TERRAFORMS_HYPERCASTLE_SELECTION_LABELS,
+		TERRAFORMS_HYPERCASTLE_SELECTION_QUERY_PARAMS,
 		TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES,
 		type TerraformsHypercastleSelection
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-selection';
@@ -59,6 +65,11 @@
 		buildTerraformsHypercastleLevelSurfaces,
 		replaceTerraformsHypercastleLevelSurface
 	} from '$lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
+
+	const TERRAFORMS_HYPERCASTLE_BROWSER_EVENTS = {
+		PageShow: 'pageshow',
+		PopState: 'popstate'
+	} as const;
 
 	let { actions, basePath, media }: CollectionExtensionPageProps = $props();
 
@@ -72,6 +83,14 @@
 	let levelSurfaces = $state(buildTerraformsHypercastleLevelSurfaces());
 	let paletteCopyStates = $state<Record<string, TerraformsLevelZonePaletteCopyState>>({});
 	let paletteCopyFeedbackTimer: number | null = null;
+	let appliedRouteSelectionKey: string | null = $state(null);
+	let pendingLocalSelectionKey: string | null = $state(null);
+	let routeSelection = $derived(
+		parseTerraformsHypercastleRouteSelection(
+			page.url.searchParams.get(TERRAFORMS_HYPERCASTLE_SELECTION_QUERY_PARAMS.Level)
+		)
+	);
+	let routeSelectionKey = $derived(formatTerraformsHypercastleSelectionRouteKey(routeSelection));
 	let selectedLevelNumber = $derived(resolveTerraformsSelectedLevelNumber(selection));
 	let allLevelsSelected = $derived(isTerraformsAllLevelsSelection(selection));
 	let selectedLevel = $derived(resolveTerraformsHypercastleLevel(selectedLevelNumber));
@@ -103,6 +122,32 @@
 	let biomeRows = $derived(allLevelsSelected ? buildTerraformsBiomeRows() : []);
 	let showBiomeTable = $derived(allLevelsSelected && biomeRows.length > 0);
 
+	afterNavigate(() => {
+		syncSelectionFromCurrentLocation();
+	});
+
+	onMount(() => {
+		syncSelectionFromCurrentLocation();
+		window.addEventListener(
+			TERRAFORMS_HYPERCASTLE_BROWSER_EVENTS.PopState,
+			syncSelectionFromCurrentLocation
+		);
+		window.addEventListener(
+			TERRAFORMS_HYPERCASTLE_BROWSER_EVENTS.PageShow,
+			syncSelectionFromCurrentLocation
+		);
+		return () => {
+			window.removeEventListener(
+				TERRAFORMS_HYPERCASTLE_BROWSER_EVENTS.PopState,
+				syncSelectionFromCurrentLocation
+			);
+			window.removeEventListener(
+				TERRAFORMS_HYPERCASTLE_BROWSER_EVENTS.PageShow,
+				syncSelectionFromCurrentLocation
+			);
+		};
+	});
+
 	onDestroy(() => {
 		if (paletteCopyFeedbackTimer !== null) {
 			window.clearTimeout(paletteCopyFeedbackTimer);
@@ -117,16 +162,69 @@
 		);
 	});
 
+	$effect(() => {
+		// Keep browser back/forward and direct URLs aligned with the selected Hypercastle scope.
+		if (pendingLocalSelectionKey !== null) {
+			if (routeSelectionKey === pendingLocalSelectionKey) {
+				appliedRouteSelectionKey = routeSelectionKey;
+				pendingLocalSelectionKey = null;
+			}
+			return;
+		}
+		const currentSelectionKey = formatTerraformsHypercastleSelectionRouteKey(selection);
+		if (routeSelectionKey === appliedRouteSelectionKey && routeSelectionKey === currentSelectionKey) {
+			return;
+		}
+		appliedRouteSelectionKey = routeSelectionKey;
+		if (routeSelectionKey === currentSelectionKey) return;
+		applySelectionState(routeSelection);
+	});
+
 	function selectLevel(levelNumber: number): void {
-		selection = levelNumber;
-		zoneSortColumn = defaultTerraformsSelectedLevelZoneSortColumn();
-		zoneSortDirection = defaultTerraformsSelectedLevelZoneSortDirection();
+		applySelectionState(levelNumber);
+		navigateToSelection(levelNumber);
 	}
 
 	function selectAllLevels(): void {
-		selection = TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES.AllLevels;
+		const nextSelection = TERRAFORMS_HYPERCASTLE_SELECTION_SCOPES.AllLevels;
+		applySelectionState(nextSelection);
+		navigateToSelection(nextSelection);
+	}
+
+	function applySelectionState(nextSelection: TerraformsHypercastleSelection): void {
+		selection = nextSelection;
+		if (typeof nextSelection === 'number') {
+			zoneSortColumn = defaultTerraformsSelectedLevelZoneSortColumn();
+			zoneSortDirection = defaultTerraformsSelectedLevelZoneSortDirection();
+			return;
+		}
 		zoneSortColumn = defaultTerraformsLevelZoneSortColumn();
 		zoneSortDirection = defaultTerraformsLevelZoneSortDirection();
+	}
+
+	function navigateToSelection(nextSelection: TerraformsHypercastleSelection): void {
+		if (!browser) return;
+		const href = buildTerraformsHypercastleSelectionHref(page.url, nextSelection);
+		if (href === buildTerraformsHypercastleSelectionHref(page.url, routeSelection)) return;
+		pendingLocalSelectionKey = formatTerraformsHypercastleSelectionRouteKey(nextSelection);
+		void goto(href, {
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	function syncSelectionFromCurrentLocation(): void {
+		const nextSelection = parseTerraformsHypercastleRouteSelection(
+			new URL(window.location.href).searchParams.get(
+				TERRAFORMS_HYPERCASTLE_SELECTION_QUERY_PARAMS.Level
+			)
+		);
+		const nextSelectionKey = formatTerraformsHypercastleSelectionRouteKey(nextSelection);
+		const currentSelectionKey = formatTerraformsHypercastleSelectionRouteKey(selection);
+		appliedRouteSelectionKey = nextSelectionKey;
+		pendingLocalSelectionKey = null;
+		if (nextSelectionKey === currentSelectionKey) return;
+		applySelectionState(nextSelection);
 	}
 
 	function rerollAllLevelSurfaces(): void {
@@ -364,10 +462,16 @@
 				</table>
 			</div>
 		{/if}
-		{#if showBiomeTable}
-			<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
+	</aside>
+
+	{#if showBiomeTable}
+		<aside
+			class={TERRAFORMS_BIOME_TABLE_DOM.classes.panel}
+			data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.panel}
+		>
+			<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
 				{TERRAFORMS_BIOME_TABLE_LABELS.Heading}
-			</h3>
+			</h2>
 			<div class="table-wrap">
 				<table
 					class={`${TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.table} ${TERRAFORMS_BIOME_TABLE_DOM.classes.table}`}
@@ -414,14 +518,17 @@
 					</tbody>
 				</table>
 			</div>
-		{/if}
-	</aside>
+		</aside>
+	{/if}
 </section>
 
 <style>
 	.terraforms-hypercastle-page {
 		display: grid;
-		grid-template-columns: minmax(420px, max-content) minmax(360px, 560px);
+		grid-template-columns: minmax(420px, max-content) minmax(360px, max-content) minmax(
+				260px,
+				max-content
+			);
 		align-items: start;
 		justify-content: start;
 		column-gap: 2rem;
@@ -435,6 +542,12 @@
 
 	.terraforms-hypercastle-level-detail {
 		width: min(100%, 560px);
+		min-width: 0;
+		padding-top: 14px;
+	}
+
+	.terraforms-hypercastle-biome-detail {
+		width: min(100%, 340px);
 		min-width: 0;
 		padding-top: 14px;
 	}
@@ -586,6 +699,10 @@
 		min-width: 4rem;
 	}
 
+	.terraforms-hypercastle-biome-table {
+		min-width: 17rem;
+	}
+
 	.terraforms-hypercastle-biome-number-cell {
 		font-family: var(--font-mono);
 	}
@@ -605,7 +722,7 @@
 		width: 20px;
 		height: 20px;
 		color: var(--c-ice);
-		font-family: 'Mathcastles Remix', 'Courier New', 'Monaco', 'Menlo', monospace;
+		font-family: var(--font-mathcastles-remix);
 		font-size: 18px;
 		line-height: 1;
 	}
@@ -621,7 +738,16 @@
 			padding-top: 0;
 		}
 
+		.terraforms-hypercastle-biome-detail {
+			width: 100%;
+			padding-top: 0;
+		}
+
 		.terraforms-hypercastle-zone-table {
+			min-width: 100%;
+		}
+
+		.terraforms-hypercastle-biome-table {
 			min-width: 100%;
 		}
 
