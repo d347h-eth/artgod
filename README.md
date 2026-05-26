@@ -232,11 +232,12 @@ If your desktop config file was generated before runtime-artifact keys were adde
 - macOS: `~/Library/Application Support/network.artgod.desktop/config/.env`
 - Windows: `%APPDATA%\\network.artgod.desktop\\config\\.env`
 
-Trigger collection bootstrap (`metadata-mode` defaults to `strict`):
+Trigger collection bootstrap (`metadata-mode` defaults to `best_effort`):
 
 ```sh
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode strict
 yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --metadata-mode best_effort
+yarn workspace @artgod/indexer run dev:bootstrap-trigger --address <0x...> --slug <slug> --opensea-slug <opensea-slug> --metadata-mode strict
 ```
 
 Trigger manual historical backfill from CLI:
