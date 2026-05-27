@@ -277,6 +277,22 @@ targets = ["deploy"]
 help = "Docker network shared with the Ethereum node RPC service."
 
 [[settings]]
+key = "OBSERVABILITY_GRAFANA_HOST_BIND_IP"
+group = "deploy"
+label = "observability grafana host bind ip"
+defaults = { deploy = "10.77.0.1" }
+targets = ["deploy"]
+help = "Host interface used to expose deploy Grafana privately."
+
+[[settings]]
+key = "OBSERVABILITY_GRAFANA_HOST_BIND_PORT"
+group = "deploy"
+label = "observability grafana host bind port"
+defaults = { deploy = "42735" }
+targets = ["deploy"]
+help = "Host port used to expose deploy Grafana privately."
+
+[[settings]]
 key = "OBSERVABILITY_GRAFANA_ADMIN_USER"
 group = "deploy"
 label = "observability grafana admin user"
