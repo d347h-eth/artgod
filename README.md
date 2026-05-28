@@ -402,7 +402,7 @@ Signal paths:
 - Traces: backend/indexer OTLP -> Tempo -> Grafana
 - Profiles: Pyroscope -> Grafana
 
-The public deploy compose exposes the same stack behind its `observability` profile, with Grafana reachable inside the shared Docker edge network as `artgod-grafana:42735`.
+The public deploy compose exposes the same stack behind its `observability` profile, with Grafana published only on the configured private host bind such as `http://10.77.0.1:42735`.
 
 Reference docs:
 

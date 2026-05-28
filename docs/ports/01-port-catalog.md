@@ -33,15 +33,15 @@ The runtime env defaults are sourced from `config/settings.manifest.toml` and ge
 
 ## Observability Services
 
-| Port    | Surface                | Used By                                                      | Source                                                                   |
-| ------- | ---------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| `42730` | Loki HTTP API          | Local/deploy Loki, Alloy push URL, Grafana datasource        | `observability/loki/loki-config.yaml`                                    |
-| `42731` | Tempo query/API HTTP   | Local/deploy Tempo, Grafana datasource                       | `observability/tempo/tempo-config.yaml`                                  |
-| `42732` | Tempo OTLP HTTP ingest | Backend/indexer APM exporters                                | `config/settings.manifest.toml`, `observability/tempo/tempo-config.yaml` |
-| `42733` | Pyroscope HTTP API     | Backend/indexer profile exporters, Grafana datasource        | `config/settings.manifest.toml`, `docker-compose*.yml`                   |
-| `42734` | Prometheus HTTP UI/API | Local/deploy Prometheus, Grafana datasource                  | `docker-compose*.yml`                                                    |
-| `42735` | Grafana HTTP UI        | Local host-network Grafana and deploy `artgod-grafana` alias | `docker-compose*.yml`                                                    |
-| `42736` | Alloy HTTP endpoint    | Local/deploy Alloy listener                                  | `docker-compose*.yml`                                                    |
+| Port    | Surface                | Used By                                                 | Source                                                                   |
+| ------- | ---------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `42730` | Loki HTTP API          | Local/deploy Loki, Alloy push URL, Grafana datasource   | `observability/loki/loki-config.yaml`                                    |
+| `42731` | Tempo query/API HTTP   | Local/deploy Tempo, Grafana datasource                  | `observability/tempo/tempo-config.yaml`                                  |
+| `42732` | Tempo OTLP HTTP ingest | Backend/indexer APM exporters                           | `config/settings.manifest.toml`, `observability/tempo/tempo-config.yaml` |
+| `42733` | Pyroscope HTTP API     | Backend/indexer profile exporters, Grafana datasource   | `config/settings.manifest.toml`, `docker-compose*.yml`                   |
+| `42734` | Prometheus HTTP UI/API | Local/deploy Prometheus, Grafana datasource             | `docker-compose*.yml`                                                    |
+| `42735` | Grafana HTTP UI        | Local host-network Grafana and private deploy host bind | `docker-compose*.yml`                                                    |
+| `42736` | Alloy HTTP endpoint    | Local/deploy Alloy listener                             | `docker-compose*.yml`                                                    |
 
 ## Metrics Endpoints
 

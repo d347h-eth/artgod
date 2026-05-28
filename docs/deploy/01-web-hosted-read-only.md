@@ -48,7 +48,6 @@ ArtGod joins that network with stable aliases:
 
 - `artgod-backend`
 - `artgod-frontend`
-- `artgod-grafana` when the `observability` profile is enabled
 
 If you want a different network name, set `PUBLIC_EDGE_NETWORK` in `.env.deploy` and use the same name from the other compose project.
 
@@ -86,15 +85,6 @@ terraforms.artgod.network {
   reverse_proxy @backend artgod-backend:42710
 
   reverse_proxy artgod-frontend:42700
-}
-```
-
-For an observability subdomain, route that site to Grafana inside the same Docker edge network:
-
-```caddy
-observability.artgod.network {
-  encode zstd gzip
-  reverse_proxy artgod-grafana:42735
 }
 ```
 
@@ -159,7 +149,9 @@ If enabling deploy observability, also set:
 - `BACKEND_APM_ENABLED=true`
 - `OBSERVABILITY_OTLP_HTTP_URL=http://tempo:42732/v1/traces`
 - `OBSERVABILITY_PYROSCOPE_URL=http://pyroscope:42733`
-- `OBSERVABILITY_GRAFANA_ADMIN_PASSWORD` to a non-default value before routing Grafana from a public subdomain
+- `OBSERVABILITY_GRAFANA_HOST_BIND_IP=10.77.0.1` or the private WireGuard/listen IP for the VPS
+- `OBSERVABILITY_GRAFANA_HOST_BIND_PORT=42735`
+- `OBSERVABILITY_GRAFANA_ADMIN_PASSWORD` to a non-default value
 
 3. Build and start the stack:
 
@@ -204,7 +196,7 @@ The deploy compose defines an `observability` profile with:
 - Prometheus scraping backend and indexer worker `/metrics` endpoints over the compose network.
 - Tempo receiving OTLP HTTP traces at `http://tempo:42732/v1/traces`.
 - Pyroscope receiving profiles at `http://pyroscope:42733`.
-- Grafana exposed only inside `public-edge` as `artgod-grafana:42735`.
+- Grafana published only on the configured host interface as `OBSERVABILITY_GRAFANA_HOST_BIND_IP:OBSERVABILITY_GRAFANA_HOST_BIND_PORT`, default `10.77.0.1:42735`.
 
 Alloy reads Docker logs through a read-only `/var/run/docker.sock` mount and keeps only containers labeled with `com.artgod.observability.logs=true`. The app, NATS, and bundled Caddy services carry that label; observability service logs are intentionally not scraped by default.
 
@@ -224,7 +216,7 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
 - `ETHEREUM_RPC_NETWORK` is the shared external Docker network used by backend/indexer runtimes to reach a same-host Ethereum node without publishing RPC beyond the host.
 - In same-host reth deployments, use `RPC_URL=http://ethereum-rpc:8545` and `RPC_WS_URL=ws://ethereum-rpc:8546`; the reth container must join `ETHEREUM_RPC_NETWORK` with the `ethereum-rpc` alias.
-- When the deploy observability profile is enabled, the same shared network also exposes `artgod-grafana:42735` for a reverse proxy managed outside this compose file.
+- `OBSERVABILITY_GRAFANA_HOST_BIND_IP` and `OBSERVABILITY_GRAFANA_HOST_BIND_PORT` publish deploy Grafana privately on the host, for example `http://10.77.0.1:42735` over WireGuard. Grafana is not joined to `public-edge` by default.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
 - `BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS`, and `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.
 - `BACKEND_QUERY_CACHE_PROVIDER=memory` enables the backend in-memory query cache for the public VPS deployment.
