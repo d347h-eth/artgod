@@ -1,6 +1,6 @@
 [package]
 name = "artgod-desktop"
-version = "0.0.1-pre-alpha.29"
+version = "0.0.1-pre-alpha.30"
 license = "AGPL-3.0-only"
 repository = "https://github.com/d347h-eth/artgod"
 edition = "2024"
