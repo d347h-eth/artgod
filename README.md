@@ -425,6 +425,7 @@ Use these as primary references for design and implementation details:
 - `docs/progress/trading/01-bidder-integration-plan.md`
 - `docs/progress/trading/02-db-backed-trading-jobs-plan.md`
 - `docs/progress/desktop/01-wallet-keystore-implementation-plan.md`
+- `docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`
 - `docs/deploy/01-web-hosted-read-only.md`
 - `docs/diagrams/architecture.md`
 - `docs/progress/indexer/15-unified-backlog.md`

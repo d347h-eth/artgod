@@ -21,6 +21,10 @@ For desktop wallet custody, native secret prompts, and bot unlock policy, see:
 
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
 
+For deferred local runtime identity and browser trust-store work, see:
+
+- `docs/progress/desktop/02-local-runtime-identity-and-browser-trust.md`
+
 ## Scope and Goals
 
 The desktop build/runtime pipeline is designed to:
