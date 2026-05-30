@@ -58,7 +58,9 @@ const STARTUP_RETRY_DELAY_MS = 250;
 const FRONTEND_SSR_LOG_COMPONENT = 'FrontendSSR';
 const FRONTEND_SSR_BACKEND_API_RESPONSE_ACTION = 'backend_api_response';
 const FRONTEND_SSR_BACKEND_API_FAILURE_ACTION = 'backend_api_failure';
+const CSRF_REJECTION_MESSAGES = new Set(['Invalid CSRF token', 'Missing CSRF header']);
 let csrfTokenCache: string | null = null;
+let csrfTokenInflight: Promise<void> | null = null;
 
 export type BackendJsonResponse<T> = {
 	payload: T;
@@ -779,44 +781,66 @@ async function requestJsonWithBody<T>(
 	method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
 	body: unknown
 ): Promise<T> {
+	await ensureCsrfToken(fetchFn);
 	const backendOrigin = await resolveBackendOrigin();
 	const url = `${backendOrigin}${path}`;
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
-	const requestLog = createSsrBackendRequestLogContext(method, url);
-	let response: Response;
-	try {
-		response = await requestFetch(
-			url,
-			buildBackendRequestInit(
-				{
-					method,
-					credentials: 'include',
-					headers: {
-						'content-type': 'application/json',
-						'x-artgod-csrf': csrfTokenCache ?? ''
+
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		const requestLog = createSsrBackendRequestLogContext(method, url);
+		let response: Response;
+		try {
+			response = await requestFetch(
+				url,
+				buildBackendRequestInit(
+					{
+						method,
+						credentials: 'include',
+						headers: {
+							'content-type': 'application/json',
+							'x-artgod-csrf': csrfTokenCache ?? ''
+						},
+						body: JSON.stringify(body)
 					},
-					body: JSON.stringify(body)
-				},
-				requestLog
-			)
-		);
-	} catch (cause) {
-		logSsrBackendApiFailure(requestLog, cause);
-		throw cause;
-	}
-	const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-	logSsrBackendApiResponse(requestLog, response);
-	if (!response.ok) {
+					requestLog
+				)
+			);
+		} catch (cause) {
+			logSsrBackendApiFailure(requestLog, cause);
+			throw cause;
+		}
+		const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+		logSsrBackendApiResponse(requestLog, response);
+		if (response.ok) {
+			return payload as T;
+		}
+		if (attempt === 0 && isCsrfRejection(response.status, payload?.message)) {
+			clearCsrfTokenCache();
+			// Refresh once after the backend hook rejects a stale tab-local token.
+			await ensureCsrfToken(fetchFn);
+			continue;
+		}
 		throw new BackendApiError(
 			payload?.message ?? `Backend request failed with ${response.status}`,
 			response.status
 		);
 	}
-	return payload as T;
+	throw new BackendApiError('Backend request failed', 500);
 }
 
 async function ensureCsrfToken(fetchFn: typeof fetch): Promise<void> {
 	if (csrfTokenCache) return;
+	if (csrfTokenInflight) {
+		await csrfTokenInflight;
+		return;
+	}
+	csrfTokenInflight = fetchCsrfToken(fetchFn).finally(() => {
+		csrfTokenInflight = null;
+	});
+	await csrfTokenInflight;
+}
+
+async function fetchCsrfToken(fetchFn: typeof fetch): Promise<void> {
 	const backendOrigin = await resolveBackendOrigin();
 	const requestFetch = selectRequestFetch(fetchFn, backendOrigin);
 	const url = `${backendOrigin}/api/security/csrf`;
@@ -843,6 +867,15 @@ async function ensureCsrfToken(fetchFn: typeof fetch): Promise<void> {
 		throw new BackendApiError('Unable to initialize CSRF token', response.status);
 	}
 	csrfTokenCache = payload.token;
+}
+
+function clearCsrfTokenCache(): void {
+	csrfTokenCache = null;
+	csrfTokenInflight = null;
+}
+
+function isCsrfRejection(status: number, message: string | undefined): boolean {
+	return status === 403 && typeof message === 'string' && CSRF_REJECTION_MESSAGES.has(message);
 }
 
 function isRetryableStartupError(error: BackendApiError): boolean {
