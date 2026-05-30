@@ -3892,6 +3892,47 @@ describe("backend api routes", () => {
         expect(status.payload.latestRun.runId).toBe(create.payload.runId);
     });
 
+    it("keeps an existing CSRF token stable across browser tabs", async () => {
+        const firstCsrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
+        });
+        expect(firstCsrf.statusCode).toBe(200);
+        const firstToken = firstCsrf.payload.token as string;
+        const firstCookie = firstCsrf.headers["set-cookie"] as string;
+
+        const secondCsrf = await resolve("GET", "/api/security/csrf", undefined, {
+            host: "127.0.0.1:42710",
+            origin: "http://127.0.0.1:42701",
+            cookie: firstCookie,
+        });
+        expect(secondCsrf.statusCode).toBe(200);
+        expect(secondCsrf.payload.token).toBe(firstToken);
+        expect(secondCsrf.headers["set-cookie"]).toContain(
+            `artgod_csrf=${firstToken}`,
+        );
+
+        const create = await resolve(
+            "POST",
+            "/api/ethereum/collections/bootstrap",
+            {
+                slug: "csrf-multi-tab-bootstrap",
+                address: "0x7777777777777777777777777777777777777777",
+                standard: "erc721",
+                metadataMode: "best_effort",
+                supportsEnumerable: true,
+            },
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie: secondCsrf.headers["set-cookie"] as string,
+                "x-artgod-csrf": firstToken,
+                "content-type": "application/json",
+            },
+        );
+        expect(create.statusCode).toBe(200);
+    });
+
     it("accepts configured public origin and host for secured endpoints", async () => {
         const csrf = await resolve("GET", "/api/security/csrf", undefined, {
             host: "artgod.network",

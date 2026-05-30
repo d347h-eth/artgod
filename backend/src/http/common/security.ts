@@ -14,6 +14,7 @@ import {
 
 const CSRF_COOKIE_NAME = "artgod_csrf";
 const CSRF_HEADER_NAME = "x-artgod-csrf";
+const CSRF_TOKEN_PATTERN = /^[0-9a-f]{32}$/;
 
 export function registerApiSecurityHooks(
     app: FastifyInstance,
@@ -59,10 +60,16 @@ export function registerApiSecurityHooks(
 
 export function createIssueCsrfTokenHandler(config: BackendSecurityConfig) {
     return async function issueCsrfToken(
-        _request: FastifyRequest,
+        request: FastifyRequest,
         reply: FastifyReply,
     ): Promise<{ token: string }> {
-        const token = randomUUID().replace(/-/g, "");
+        const existingToken = parseCookieToken(
+            request.headers.cookie,
+            CSRF_COOKIE_NAME,
+        );
+        const token = isValidCsrfToken(existingToken)
+            ? existingToken
+            : createCsrfToken();
         const secureCookieSuffix = config.csrfCookieSecure ? "; Secure" : "";
         reply.header(
             "Set-Cookie",
@@ -84,6 +91,14 @@ function isMutatingApiRequest(request: FastifyRequest): boolean {
     }
     const path = request.raw.url ?? "";
     return path.startsWith("/api/");
+}
+
+function createCsrfToken(): string {
+    return randomUUID().replace(/-/g, "");
+}
+
+function isValidCsrfToken(token: string | null): token is string {
+    return token !== null && CSRF_TOKEN_PATTERN.test(token);
 }
 
 function parseCookieToken(
