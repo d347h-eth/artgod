@@ -81,9 +81,7 @@ type RegisteredBidStream = {
     listener: StreamListener;
 };
 
-const log = createBiddingComponentLogger(
-    BIDDING_LOG_COMPONENT.BiddingRuntime,
-);
+const log = createBiddingComponentLogger(BIDDING_LOG_COMPONENT.BiddingRuntime);
 const openSeaSdkLog = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.OpenSeaSdk,
 );
@@ -206,22 +204,32 @@ export async function startBiddingRuntime(
         total: allowanceApprovalTotal,
         detail: `status=${allowanceResult.status}, desired=${formatWeth(allowanceResult.desiredAllowanceWei)}, current=${formatOptionalWeth(allowanceResult.currentAllowanceWei)}`,
     });
-    log.info("allowanceBootstrapComplete", "Allowance approval bootstrap complete", {
-        status: allowanceResult.status,
-        desiredAllowanceWei: allowanceResult.desiredAllowanceWei.toString(),
-        desiredAllowanceWeth: formatWeth(allowanceResult.desiredAllowanceWei),
-        currentAllowanceWei:
-            allowanceResult.currentAllowanceWei?.toString() ?? null,
-        currentAllowanceWeth: formatOptionalWeth(
-            allowanceResult.currentAllowanceWei,
-        ),
-    });
+    log.info(
+        "allowanceBootstrapComplete",
+        "Allowance approval bootstrap complete",
+        {
+            status: allowanceResult.status,
+            desiredAllowanceWei: allowanceResult.desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(
+                allowanceResult.desiredAllowanceWei,
+            ),
+            currentAllowanceWei:
+                allowanceResult.currentAllowanceWei?.toString() ?? null,
+            currentAllowanceWeth: formatOptionalWeth(
+                allowanceResult.currentAllowanceWei,
+            ),
+        },
+    );
 
     // Create the write-capable OpenSea SDK lane for live offer discovery, placement, and cancellation.
+    const sdkRpcUrl = params.config.rpc.endpoints[0]?.url;
+    if (!sdkRpcUrl) {
+        throw new Error("Bidding runtime requires at least one RPC endpoint");
+    }
     const biddingSdk = createBiddingSdkClient(
         publicClient as unknown as PublicClient,
         walletClient as WalletClient,
-        params.config.rpc.primaryUrl,
+        sdkRpcUrl,
         params.biddingConfig.openSea.biddingSecretKey,
     );
     const bidBookProjection = new BiddingBidBookProjectionScheduler(
@@ -338,10 +346,14 @@ export async function startBiddingRuntime(
             collectionSlug,
             registerBidStream(streamClient, collectionSlug, bidPipeline),
         );
-        log.info("bidStreamSubscribed", "Subscribed direct OpenSea bid stream", {
-            collectionSlug,
-            streamCollectionCount: bidStreams.size,
-        });
+        log.info(
+            "bidStreamSubscribed",
+            "Subscribed direct OpenSea bid stream",
+            {
+                collectionSlug,
+                streamCollectionCount: bidStreams.size,
+            },
+        );
         return true;
     };
     const disposeBidStream = (collectionSlug: string): boolean => {

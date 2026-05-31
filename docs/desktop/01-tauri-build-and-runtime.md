@@ -294,7 +294,7 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 
 - `ARTGOD_DB_PATH`
 - `USERLAND_UI_DIST_DIR`
-- `RPC_URL` (single HTTP JSON-RPC URL or weighted endpoint pool)
+- `RPC_URL` (JSON array of weighted HTTP JSON-RPC endpoints)
 - `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:42720`)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`

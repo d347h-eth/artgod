@@ -87,7 +87,6 @@ export type TradingConfig = {
     dbPath: string;
     chainId: number;
     rpc: {
-        primaryUrl: string;
         endpoints: RpcEndpointConfig[];
     };
     queue: {
@@ -119,7 +118,6 @@ export function loadTradingConfig(
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", 1);
     const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
-    const rpcUrl = rpcEndpoints[0]?.url ?? "";
     const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
     const natsStreamPrefix = parseRequiredString(
         env.NATS_STREAM_PREFIX,
@@ -217,7 +215,6 @@ export function loadTradingConfig(
         dbPath,
         chainId,
         rpc: {
-            primaryUrl: rpcUrl,
             endpoints: rpcEndpoints,
         },
         queue: {

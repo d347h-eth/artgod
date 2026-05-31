@@ -39,7 +39,7 @@ describe("indexer smoke", () => {
             ARTGOD_DB_PATH: dbPath,
             NATS_URL: nats.url,
             NATS_STREAM_PREFIX: streamPrefix,
-            RPC_URL: config.rpcUrl,
+            RPC_URL: config.rpcEndpoints,
             WETH_ADDRESS: runtimeEnv.WETH_ADDRESS,
             CHAIN_ID: String(config.chainId),
             REORG_DEPTH: "3",

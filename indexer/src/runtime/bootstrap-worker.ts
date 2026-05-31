@@ -216,7 +216,7 @@ async function main() {
         logger.info("Collection bootstrap worker ready", {
             component: "CollectionBootstrapWorker",
             action: "main",
-            rpcUrl: summarizeRpcUrl(config.rpc.primaryUrl),
+            rpcEndpoint: summarizeRpcUrl(config.rpc.endpoints[0]?.url ?? ""),
             rpcRateLimitRps:
                 config.rpc.resilience.rateLimiter.requestsPerSecond,
             rpcRateLimitBurst: config.rpc.resilience.rateLimiter.burst,

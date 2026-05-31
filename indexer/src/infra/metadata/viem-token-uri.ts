@@ -1,6 +1,5 @@
 import { createPublicClient, http } from "viem";
 import {
-    DEFAULT_RPC_ENDPOINT_WEIGHT,
     WeightedRpcEndpointSelector,
     type RpcEndpointConfig,
 } from "@artgod/shared/config/rpc-endpoints";
@@ -29,8 +28,7 @@ const ERC1155_METADATA_ABI = [
 ] as const;
 
 export type TokenUriResolverConfig = {
-    url?: string;
-    endpoints?: RpcEndpointConfig[];
+    endpoints: RpcEndpointConfig[];
     metrics?: Metrics;
 };
 
@@ -141,16 +139,8 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
 function resolveTokenUriRpcEndpoints(
     config: TokenUriResolverConfig,
 ): RpcEndpointConfig[] {
-    if (config.endpoints?.length) {
+    if (config.endpoints.length > 0) {
         return config.endpoints;
-    }
-    if (config.url?.trim()) {
-        return [
-            {
-                url: config.url.trim(),
-                weight: DEFAULT_RPC_ENDPOINT_WEIGHT,
-            },
-        ];
     }
     throw new Error("At least one metadata RPC endpoint URL is required");
 }

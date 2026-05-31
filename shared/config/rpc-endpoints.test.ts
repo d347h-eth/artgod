@@ -6,12 +6,6 @@ import {
 } from "./rpc-endpoints.js";
 
 describe("RPC endpoint config", () => {
-    it("parses legacy single URL config as weight one", () => {
-        expect(parseRpcEndpointConfigList("http://127.0.0.1:42721")).toEqual([
-            { url: "http://127.0.0.1:42721", weight: 1 },
-        ]);
-    });
-
     it("parses weighted JSON endpoint lists", () => {
         expect(
             parseRpcEndpointConfigList(
@@ -23,27 +17,66 @@ describe("RPC endpoint config", () => {
         ]);
     });
 
-    it("parses compact operator endpoint lists", () => {
+    it("defaults omitted endpoint weights to one", () => {
         expect(
-            parseRpcEndpointConfigList(
-                "https://rpc-a.example|2;https://rpc-b.example|1",
-            ),
-        ).toEqual([
-            { url: "https://rpc-a.example", weight: 2 },
-            { url: "https://rpc-b.example", weight: 1 },
-        ]);
+            parseRpcEndpointConfigList('[{"url":"https://rpc-a.example"}]'),
+        ).toEqual([{ url: "https://rpc-a.example", weight: 1 }]);
+    });
+
+    it("rejects plain URL endpoint values", () => {
+        expect(() =>
+            parseRpcEndpointConfigList("http://127.0.0.1:42721"),
+        ).toThrow("endpoint list must be a JSON array");
+    });
+
+    it("rejects non-object endpoint entries", () => {
+        expect(() =>
+            parseRpcEndpointConfigList('["https://rpc-a.example"]'),
+        ).toThrow("endpoint 1 must be an object");
     });
 
     it("rejects websocket URLs for HTTP JSON-RPC endpoint pools", () => {
-        expect(() => parseRpcEndpointConfigList("wss://rpc.example")).toThrow(
-            "URL is invalid",
-        );
+        expect(() =>
+            parseRpcEndpointConfigList('[{"url":"wss://rpc.example"}]'),
+        ).toThrow("URL is invalid");
     });
 
     it("rejects URLs without an explicit scheme separator", () => {
         expect(() =>
-            parseRpcEndpointConfigList("https:localhost:8545"),
+            parseRpcEndpointConfigList(
+                '[{"url":"https:localhost:8545","weight":1}]',
+            ),
         ).toThrow("URL is invalid");
+    });
+
+    it("rejects null endpoint weights", () => {
+        expect(() =>
+            parseRpcEndpointConfigList(
+                '[{"url":"https://rpc-a.example","weight":null}]',
+            ),
+        ).toThrow("weight must be a positive integer");
+    });
+
+    it("rejects JSON objects that are not endpoint arrays", () => {
+        expect(() =>
+            parseRpcEndpointConfigList(
+                '{"url":"https://rpc-a.example","weight":1}',
+            ),
+        ).toThrow("endpoint list must be a JSON array");
+    });
+
+    it("rejects compact endpoint list values", () => {
+        expect(() =>
+            parseRpcEndpointConfigList(
+                "https://rpc-a.example|2;https://rpc-b.example|1",
+            ),
+        ).toThrow("endpoint list must be a JSON array");
+    });
+
+    it("rejects empty endpoint arrays", () => {
+        expect(() => parseRpcEndpointConfigList("[]")).toThrow(
+            "endpoint list cannot be empty",
+        );
     });
 
     it("serializes normalized endpoint lists", () => {

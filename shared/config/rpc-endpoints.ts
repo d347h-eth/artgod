@@ -32,7 +32,7 @@ const MIN_EFFECTIVE_WEIGHT = 0.01;
 
 export const DEFAULT_RPC_ENDPOINT_WEIGHT = 1;
 
-// Parses the runtime RPC endpoint value while preserving legacy single-url env files.
+// Parses the runtime RPC endpoint list from the structured env value.
 export function parseRpcEndpointConfigList(
     value: string | undefined,
     key = "RPC_URL",
@@ -42,15 +42,10 @@ export function parseRpcEndpointConfigList(
         throw new Error(`Missing ${key}`);
     }
 
-    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-        return parseJsonRpcEndpoints(trimmed, key);
+    if (!trimmed.startsWith("[")) {
+        throw new Error(`Invalid ${key}: endpoint list must be a JSON array`);
     }
-
-    return trimmed
-        .split(/[;\n]+/)
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0)
-        .map((entry, index) => parseEndpointSpec(entry, key, index));
+    return parseJsonRpcEndpoints(trimmed, key);
 }
 
 // Serializes validated endpoints for Admin-managed settings and env rendering.
@@ -158,7 +153,10 @@ function parseJsonRpcEndpoints(raw: string, key: string): RpcEndpointConfig[] {
         );
     }
 
-    const entries = Array.isArray(parsed) ? parsed : [parsed];
+    if (!Array.isArray(parsed)) {
+        throw new Error(`Invalid ${key}: endpoint list must be a JSON array`);
+    }
+    const entries = parsed;
     if (entries.length === 0) {
         throw new Error(`Invalid ${key}: endpoint list cannot be empty`);
     }
@@ -173,13 +171,6 @@ function parseJsonRpcEndpoint(
     key: string,
     index: number,
 ): RpcEndpointConfig {
-    if (typeof entry === "string") {
-        return normalizeRpcEndpointConfig(
-            { url: entry, weight: DEFAULT_RPC_ENDPOINT_WEIGHT },
-            key,
-            index,
-        );
-    }
     if (entry && typeof entry === "object") {
         const record = entry as Record<string, unknown>;
         return normalizeRpcEndpointConfig(
@@ -191,36 +182,7 @@ function parseJsonRpcEndpoint(
             index,
         );
     }
-    throw new Error(
-        `Invalid ${key}: endpoint ${index + 1} must be an object or URL string`,
-    );
-}
-
-function parseEndpointSpec(
-    spec: string,
-    key: string,
-    index: number,
-): RpcEndpointConfig {
-    const separatorIndex = spec.lastIndexOf("|");
-    if (separatorIndex === -1) {
-        return normalizeRpcEndpointConfig(
-            { url: spec, weight: DEFAULT_RPC_ENDPOINT_WEIGHT },
-            key,
-            index,
-        );
-    }
-    return normalizeRpcEndpointConfig(
-        {
-            url: spec.slice(0, separatorIndex),
-            weight: parseEndpointWeight(
-                spec.slice(separatorIndex + 1),
-                key,
-                index,
-            ),
-        },
-        key,
-        index,
-    );
+    throw new Error(`Invalid ${key}: endpoint ${index + 1} must be an object`);
 }
 
 function normalizeRpcEndpointConfig(
@@ -265,7 +227,7 @@ function parseEndpointWeight(
     index: number,
 ): number {
     const raw =
-        value === undefined || value === null || value === ""
+        value === undefined || value === ""
             ? DEFAULT_RPC_ENDPOINT_WEIGHT
             : value;
     const weight = typeof raw === "number" ? raw : Number(String(raw).trim());

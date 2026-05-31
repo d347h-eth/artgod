@@ -748,10 +748,8 @@ beforeAll(async () => {
         defaultChainId: 1,
         dbPath,
         rpc: {
-            primaryUrl: "http://127.0.0.1:42721",
-            endpoints: [{ url: "http://127.0.0.1:42721", weight: 1 }],
+            endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
         },
-        rpcUrl: "http://127.0.0.1:42721",
         wethAddress: WETH_ADDRESS,
         natsUrl: "nats://127.0.0.1:42720",
         natsStreamPrefix: "artgod",

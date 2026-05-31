@@ -160,10 +160,8 @@ export type BackendConfig = {
     defaultChainId: number;
     dbPath: string;
     rpc: {
-        primaryUrl: string;
         endpoints: RpcEndpointConfig[];
     };
-    rpcUrl: string;
     wethAddress: string;
     natsUrl: string;
     natsStreamPrefix: string;
@@ -205,7 +203,6 @@ export function loadBackendConfig(
     );
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
-    const rpcUrl = rpcEndpoints[0]?.url ?? "";
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
     const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
     const natsStreamPrefix = parseRequiredString(
@@ -239,10 +236,8 @@ export function loadBackendConfig(
         defaultChainId,
         dbPath,
         rpc: {
-            primaryUrl: rpcUrl,
             endpoints: rpcEndpoints,
         },
-        rpcUrl,
         wethAddress,
         natsUrl,
         natsStreamPrefix,

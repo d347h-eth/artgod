@@ -88,10 +88,6 @@ describe('admin config validation', () => {
 	});
 
 	it('accepts supported RPC endpoint config values', () => {
-		expect(resolveAdminLaunchConfigIssues(config({ RPC_URL: 'https://rpc.example' }))).toEqual([]);
-		expect(resolveAdminLaunchConfigIssues(config({ RPC_URL: 'http://127.0.0.1:8545' }))).toEqual(
-			[]
-		);
 		expect(
 			resolveAdminLaunchConfigIssues(
 				config({
@@ -102,14 +98,27 @@ describe('admin config validation', () => {
 		).toEqual([]);
 	});
 
+	it('rejects plain URL RPC endpoint values', () => {
+		const issues = resolveAdminLaunchConfigIssues(config({ RPC_URL: 'https://rpc.example' }));
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
+		expect(issues.map((issue) => issue.message)).toEqual([
+			'Invalid RPC_URL: endpoint list must be a JSON array'
+		]);
+	});
+
 	it('rejects websocket RPC endpoints for the HTTP JSON-RPC pool', () => {
-		const issues = resolveAdminLaunchConfigIssues(config({ RPC_URL: 'wss://rpc.example' }));
+		const issues = resolveAdminLaunchConfigIssues(
+			config({ RPC_URL: '[{"url":"wss://rpc.example","weight":1}]' })
+		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 	});
 
 	it('rejects URLs without an explicit scheme separator', () => {
-		const issues = resolveAdminLaunchConfigIssues(config({ RPC_URL: 'https:localhost:8545' }));
+		const issues = resolveAdminLaunchConfigIssues(
+			config({ RPC_URL: '[{"url":"https:localhost:8545","weight":1}]' })
+		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 	});

@@ -2,7 +2,6 @@ import { createPublicClient, http } from "viem";
 import { getEnsAddress } from "viem/actions";
 import { normalize } from "viem/ens";
 import {
-    DEFAULT_RPC_ENDPOINT_WEIGHT,
     WeightedRpcEndpointSelector,
     type RpcEndpointConfig,
 } from "@artgod/shared/config/rpc-endpoints";
@@ -36,11 +35,11 @@ export class ViemBackendRpcClient {
     private readonly blockTimestampCache = new Map<number, number>();
 
     constructor(
-        rpc: string | readonly RpcEndpointConfig[],
+        endpoints: readonly RpcEndpointConfig[],
         private readonly apm: ApmPort = NOOP_APM,
     ) {
         this.endpointSelector = new WeightedRpcEndpointSelector(
-            resolveBackendRpcEndpoints(rpc).map((endpoint, index) => ({
+            endpoints.map((endpoint, index) => ({
                 ...endpoint,
                 id: `backend-rpc-${index + 1}`,
                 value: createPublicClient({
@@ -227,18 +226,4 @@ export class ViemBackendRpcClient {
             },
         );
     }
-}
-
-function resolveBackendRpcEndpoints(
-    rpc: string | readonly RpcEndpointConfig[],
-): RpcEndpointConfig[] {
-    if (typeof rpc !== "string") {
-        return [...rpc];
-    }
-    return [
-        {
-            url: rpc,
-            weight: DEFAULT_RPC_ENDPOINT_WEIGHT,
-        },
-    ];
 }

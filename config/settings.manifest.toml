@@ -389,8 +389,8 @@ default = "1"
 key = "RPC_URL"
 group = "chain-rpc"
 label = "rpc endpoints"
-defaults = { local = "", deploy = "http://ethereum-rpc:8545", desktop = "" }
-help = "Ethereum HTTP JSON-RPC endpoint pool used by backend, indexer, and trading runtimes. Each endpoint has a positive weight."
+defaults = { local = "", deploy = "[{\"url\":\"http://ethereum-rpc:8545\",\"weight\":1}]", desktop = "" }
+help = "JSON array of Ethereum HTTP JSON-RPC endpoints used by backend, indexer, and trading runtimes. Each endpoint has a positive weight."
 input = "rpc_endpoint_list"
 required_for_launch = true
 validation = "rpc_endpoint_list"
@@ -401,7 +401,7 @@ key = "RPC_BACKFILL_URL"
 group = "chain-rpc"
 label = "rpc backfill endpoints"
 default = ""
-help = "Optional weighted HTTP JSON-RPC endpoint pool used for backfill sync jobs; realtime sync keeps using RPC_URL."
+help = "Optional JSON array of HTTP JSON-RPC endpoints used for backfill sync jobs; realtime sync keeps using RPC_URL."
 input = "rpc_endpoint_list"
 validation = "rpc_endpoint_list"
 

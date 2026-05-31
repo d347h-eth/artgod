@@ -11,10 +11,8 @@ describe("loadBackendConfig", () => {
     it("normalizes canonical address config to lowercase", () => {
         const config = loadBackendConfig(createBaseEnv());
 
-        expect(config.rpcUrl).toBe("http://127.0.0.1:42721");
         expect(config.rpc).toEqual({
-            primaryUrl: "http://127.0.0.1:42721",
-            endpoints: [{ url: "http://127.0.0.1:42721", weight: 1 }],
+            endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
         });
         expect(config.wethAddress).toBe(
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
@@ -29,7 +27,6 @@ describe("loadBackendConfig", () => {
         });
 
         expect(config.rpc).toEqual({
-            primaryUrl: "https://rpc-a.example",
             endpoints: [
                 { url: "https://rpc-a.example", weight: 2 },
                 { url: "https://rpc-b.example", weight: 1 },
@@ -284,7 +281,7 @@ function createBaseEnv(): Record<string, string> {
         BACKEND_PORT: "42710",
         CHAIN_ID: "1",
         ARTGOD_DB_PATH: "database/sqlite/main/db",
-        RPC_URL: "http://127.0.0.1:42721",
+        RPC_URL: '[{"url":"https://rpc-a.example","weight":1}]',
         WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
         NATS_URL: "nats://127.0.0.1:42720",
         NATS_STREAM_PREFIX: "artgod",

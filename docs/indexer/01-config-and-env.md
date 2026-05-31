@@ -29,10 +29,10 @@ The indexer reads these variables from the root `.env`:
 - `CHAIN_ID` (default: 1)
 - `RPC_URL` (required)
     - HTTP JSON-RPC endpoint pool used by backend, indexer, and trading runtimes.
-    - A legacy single URL still means one endpoint with weight `1`.
-    - Multiple endpoints can be supplied as JSON, for example `[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]`, or as compact `url|weight;url|weight` entries.
+    - Supply a JSON array of endpoint objects, for example `[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]`.
+    - `weight` is optional and defaults to `1`.
 - `RPC_BACKFILL_URL` (optional)
-    - Optional weighted HTTP JSON-RPC endpoint pool used by backfill sync jobs.
+    - Optional JSON array of weighted HTTP JSON-RPC endpoints used by backfill sync jobs.
 - `RPC_WS_URL` (optional)
 - `WETH_ADDRESS` (required)
 - `NATS_URL` (default: `nats://127.0.0.1:42720`)
@@ -90,7 +90,7 @@ Example (from `.env.example`):
 ```
 ARTGOD_DB_PATH=database/sqlite/main/db
 CHAIN_ID=1
-RPC_URL=http://127.0.0.1:42721
+RPC_URL=[{"url":"http://127.0.0.1:42721","weight":1}]
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 NATS_URL=nats://127.0.0.1:42720
 NATS_STREAM_PREFIX=artgod
@@ -143,7 +143,7 @@ ARTGOD_DB_PATH=database/sqlite/test/db
 OPENSEA_INTEGRATION_MODE=auto
 OPENSEA_API_KEY=test-opensea-api-key
 SMOKE_NATS_PORT=42724
-SMOKE_RPC_URL=http://127.0.0.1:42721
+SMOKE_RPC_URL=[{"url":"http://127.0.0.1:42721","weight":1}]
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 SMOKE_TARGET_COLLECTIONS='[{"id":"terraforms","address":"0x4E1f41613c9084FdB9E34E11fAE9412427480e56","deploymentBlock":13823015}]'

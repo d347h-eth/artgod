@@ -8,7 +8,7 @@ import { loadConfig } from "../src/config/index.js";
 
 const REQUIRED_ENV = {
     ARTGOD_DB_PATH: "database/sqlite/test/db",
-    RPC_URL: "http://127.0.0.1:42721",
+    RPC_URL: '[{"url":"http://127.0.0.1:42721","weight":1}]',
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     SEAPORT_CONDUIT_CONTROLLER: "0x00000000f9490004c11cef243f5400493c00ad63",
 };
@@ -43,15 +43,13 @@ describe("Indexer config", () => {
             RPC_URL:
                 '[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]',
             RPC_BACKFILL_URL:
-                "https://backfill-a.example|3;https://backfill-b.example|1",
+                '[{"url":"https://backfill-a.example","weight":3},{"url":"https://backfill-b.example","weight":1}]',
         });
 
-        expect(config.rpc.primaryUrl).toBe("https://rpc-a.example");
         expect(config.rpc.endpoints).toEqual([
             { url: "https://rpc-a.example", weight: 2 },
             { url: "https://rpc-b.example", weight: 1 },
         ]);
-        expect(config.rpc.backfillUrl).toBe("https://backfill-a.example");
         expect(config.rpc.backfillEndpoints).toEqual([
             { url: "https://backfill-a.example", weight: 3 },
             { url: "https://backfill-b.example", weight: 1 },

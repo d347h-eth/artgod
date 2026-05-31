@@ -1,7 +1,6 @@
 import { createPublicClient, http } from "viem";
 import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
 import {
-    DEFAULT_RPC_ENDPOINT_WEIGHT,
     WeightedRpcEndpointSelector,
     type RpcEndpointConfig,
     type WeightedRpcEndpointSelection,
@@ -28,8 +27,7 @@ import {
 } from "./resilience.js";
 
 export type ViemRpcConfig = {
-    url?: string;
-    endpoints?: RpcEndpointConfig[];
+    endpoints: RpcEndpointConfig[];
     logChunkSize: number;
     cache?: CachePort;
     metrics?: Metrics;
@@ -321,16 +319,8 @@ export class ViemRpcProvider implements RpcProviderPort {
 }
 
 function resolveRpcEndpoints(config: ViemRpcConfig): RpcEndpointConfig[] {
-    if (config.endpoints?.length) {
+    if (config.endpoints.length > 0) {
         return config.endpoints;
-    }
-    if (config.url?.trim()) {
-        return [
-            {
-                url: config.url.trim(),
-                weight: DEFAULT_RPC_ENDPOINT_WEIGHT,
-            },
-        ];
     }
     throw new Error("At least one RPC endpoint URL is required");
 }

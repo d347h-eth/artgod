@@ -14,7 +14,7 @@ const REQUIRED_RPC_KEY = 'RPC_URL';
 function configState(
 	configured: boolean,
 	values: Record<string, string> = {
-		[REQUIRED_RPC_KEY]: 'https://rpc.example'
+		[REQUIRED_RPC_KEY]: '[{"url":"https://rpc.example","weight":1}]'
 	}
 ): AdminConfigState {
 	return {

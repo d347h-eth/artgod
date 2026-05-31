@@ -82,7 +82,10 @@
 		const entries = next
 			.map((draft) => ({
 				url: draft.url.trim(),
-				weight: Number(draft.weight)
+				weight:
+					draft.weight.trim().length === 0
+						? DEFAULT_RPC_ENDPOINT_WEIGHT
+						: Number(draft.weight)
 			}))
 			.filter((entry) => entry.url.length > 0);
 		return entries.length === 0 ? '' : JSON.stringify(entries);

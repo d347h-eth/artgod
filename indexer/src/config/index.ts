@@ -97,9 +97,7 @@ export type IndexerConfig = {
     dbPath: string;
     chainId: number;
     rpc: {
-        primaryUrl: string;
         endpoints: RpcEndpointConfig[];
-        backfillUrl?: string;
         backfillEndpoints?: RpcEndpointConfig[];
         wsUrl?: string;
         retryPolicy: {
@@ -189,9 +187,7 @@ export function loadConfig(
         dbPath,
         chainId,
         rpc: {
-            primaryUrl: rpcEndpoints[0]?.url ?? "",
             endpoints: rpcEndpoints,
-            backfillUrl: backfillEndpoints?.[0]?.url,
             backfillEndpoints,
             wsUrl: env.RPC_WS_URL,
             retryPolicy: {
