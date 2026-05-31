@@ -1998,7 +1998,7 @@ th {
 
 .bid-book-demand-table .bid-book-demand-group-header {
 	flex-wrap: nowrap;
-	justify-content: center;
+	justify-content: flex-start;
 	align-items: center;
 	gap: 0.35rem 0.8rem;
 	white-space: nowrap;
@@ -2017,10 +2017,10 @@ th {
 
 .bid-book-demand-table .bid-book-demand-group-title {
 	flex: 0 0 auto;
-	font-size: 1.5625rem;
+	font-size: 1.125rem;
 	line-height: 1;
 	position: relative;
-	text-align: center;
+	text-align: left;
 	z-index: 1;
 }
 
@@ -2037,7 +2037,7 @@ th {
 
 .bid-book-demand-table .bid-book-demand-trait-list {
 	flex-wrap: nowrap;
-	justify-content: center;
+	justify-content: flex-start;
 }
 
 .bid-book-demand-table .runtime-kv-grid.bid-book-demand-group-meta {
