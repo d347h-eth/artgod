@@ -2018,7 +2018,7 @@ th {
 .bid-book-demand-table .bid-book-demand-group-title {
 	grid-column: 1;
 	justify-self: start;
-	font-size: 1.125rem;
+	font-size: 1rem;
 	line-height: 1;
 	position: relative;
 	text-align: left;
@@ -2036,16 +2036,17 @@ th {
 .bid-book-demand-group-preview {
 	grid-column: 3;
 	justify-self: end;
+	width: 10rem;
 }
 
 .bid-book-demand-table .bid-book-place-bid-icon-button {
 	align-self: center;
-	flex: 0 0 18px;
-	height: 18px;
-	min-height: 18px;
-	min-width: 18px;
+	flex: 0 0 16px;
+	height: 16px;
+	min-height: 16px;
+	min-width: 16px;
 	position: relative;
-	width: 18px;
+	width: 16px;
 	z-index: 2;
 }
 
@@ -2066,6 +2067,10 @@ th {
 
 .bid-book-demand-group-meta-row .bid-book-demand-group-meta {
 	justify-content: center;
+}
+
+.bid-book-demand-group-row + tr:not(.bid-book-demand-group-meta-row) td {
+	padding-top: 0.125rem;
 }
 
 .bid-book-demand-trait-list {
