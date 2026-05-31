@@ -271,6 +271,7 @@ Rules:
 - if this behavior is needed globally, use a shared pointer-focus helper
 - active/selected navigation controls must be visually selected but inert, with no pointer cursor and no hover affordance
 - stateful toggles such as `filter`, `tiers`, and `traits` remain clickable while active and should keep the normal hover/focus color behavior
+- reset or clear-state controls must use `.facet-panel-action-button.facet-reset-button`; they are pink by default and must not use orange, which is reserved for selected or active toggle and enum states
 
 ## Trait Panel Behavior
 

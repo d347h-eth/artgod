@@ -256,6 +256,10 @@ export function parseTraits(searchParams: URLSearchParams): TraitFilter[] {
         ...searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Traits),
         ...searchParams.getAll(TRAIT_FILTER_QUERY_PARAMS.Trait),
     ];
+    return parseTraitFiltersFromValues(values);
+}
+
+export function parseTraitFiltersFromValues(values: string[]): TraitFilter[] {
     if (values.length === 0) return [];
 
     const parsed: TraitFilter[] = [];
@@ -297,14 +301,18 @@ export function parseTraitRanges(
 
             const delimiter = trimmed.indexOf(":");
             if (delimiter <= 0 || delimiter === trimmed.length - 1) {
-                throw new ReadModelBadRequestError("Invalid trait range filter");
+                throw new ReadModelBadRequestError(
+                    "Invalid trait range filter",
+                );
             }
 
             const key = trimmed.slice(0, delimiter).trim();
             const bounds = trimmed.slice(delimiter + 1).trim();
             const rangeDelimiter = bounds.indexOf("..");
             if (rangeDelimiter < 0) {
-                throw new ReadModelBadRequestError("Invalid trait range filter");
+                throw new ReadModelBadRequestError(
+                    "Invalid trait range filter",
+                );
             }
 
             const rawFrom = bounds.slice(0, rangeDelimiter).trim();
@@ -312,20 +320,28 @@ export function parseTraitRanges(
             const fromValue = rawFrom ? parseUnsignedInteger(rawFrom) : null;
             const toValue = rawTo ? parseUnsignedInteger(rawTo) : null;
             if (fromValue === null && toValue === null) {
-                throw new ReadModelBadRequestError("Invalid trait range filter");
+                throw new ReadModelBadRequestError(
+                    "Invalid trait range filter",
+                );
             }
             if (
                 fromValue !== null &&
                 toValue !== null &&
                 BigInt(fromValue) > BigInt(toValue)
             ) {
-                throw new ReadModelBadRequestError("Invalid trait range filter");
+                throw new ReadModelBadRequestError(
+                    "Invalid trait range filter",
+                );
             }
             if (!key) {
-                throw new ReadModelBadRequestError("Invalid trait range filter");
+                throw new ReadModelBadRequestError(
+                    "Invalid trait range filter",
+                );
             }
             if (seen.has(key)) {
-                throw new ReadModelBadRequestError("Duplicate trait range filter");
+                throw new ReadModelBadRequestError(
+                    "Duplicate trait range filter",
+                );
             }
             seen.add(key);
             parsed.push({

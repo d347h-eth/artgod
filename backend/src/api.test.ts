@@ -104,6 +104,8 @@ beforeAll(async () => {
         await import("./application/use-cases/collections/list-collections.js");
     const collectionDetailUseCaseModule =
         await import("./application/use-cases/collections/get-collection-detail.js");
+    const collectionTraitCatalogUseCaseModule =
+        await import("./application/use-cases/collections/get-collection-trait-catalog.js");
     const collectionActivityUseCaseModule =
         await import("./application/use-cases/activities/get-collection-activity.js");
     const activityEventPreviewUseCaseModule =
@@ -189,6 +191,12 @@ beforeAll(async () => {
             chainsReadModel,
             collectionsReadModel,
             customizationReadModel,
+        );
+    const getCollectionTraitCatalogUseCase =
+        new collectionTraitCatalogUseCaseModule.GetCollectionTraitCatalogUseCase(
+            1,
+            chainsReadModel,
+            collectionsReadModel,
         );
     const getCollectionActivityUseCase =
         new collectionActivityUseCaseModule.GetCollectionActivityUseCase(
@@ -661,6 +669,7 @@ beforeAll(async () => {
         getActivityEventPreviewUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
+        getCollectionTraitCatalogUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
@@ -708,6 +717,7 @@ beforeAll(async () => {
         getActivityEventPreviewUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
+        getCollectionTraitCatalogUseCase,
         getCollectionDetailUseCase,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,
@@ -2641,6 +2651,68 @@ describe("backend api routes", () => {
         expect(empty.statusCode).toBe(200);
         expect(empty.payload.activities.items).toHaveLength(0);
         expect(empty.payload.activities.totalItems).toBe(0);
+    });
+
+    it("returns collection-wide trait catalog counts for requested keys", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady/traits/catalog?keys=Hat,Mood",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.traitCatalog).toEqual({
+            scope: [],
+            facets: [
+                {
+                    key: "Hat",
+                    values: [
+                        { value: "Cap", tokenCount: 1 },
+                        { value: "Beanie", tokenCount: 2 },
+                    ],
+                },
+                {
+                    key: "Mood",
+                    values: [
+                        { value: "Angry", tokenCount: 1 },
+                        { value: "Calm", tokenCount: 2 },
+                    ],
+                },
+            ],
+        });
+    });
+
+    it("returns scoped trait catalog counts for requested keys", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady/traits/catalog?keys=Hat,Mood&scope_traits=Hat:Beanie",
+        );
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload.traitCatalog).toEqual({
+            scope: [{ key: "Hat", value: "Beanie" }],
+            facets: [
+                {
+                    key: "Hat",
+                    values: [{ value: "Beanie", tokenCount: 2 }],
+                },
+                {
+                    key: "Mood",
+                    values: [
+                        { value: "Angry", tokenCount: 1 },
+                        { value: "Calm", tokenCount: 1 },
+                    ],
+                },
+            ],
+        });
+    });
+
+    it("rejects trait catalog requests without requested keys", async () => {
+        const result = await resolve(
+            "GET",
+            "/api/ethereum/milady/traits/catalog",
+        );
+
+        expect(result.statusCode).toBe(400);
     });
 
     it("returns token activity filtered to a single token", async () => {

@@ -333,7 +333,7 @@ The `Parcels`, `Empty Slots`, and concrete `Biome Count` columns below are usefu
 
 Level zone windows from the Solidity arrays:
 
-| Level | Zones |
+| Level | Zones                                                                                |
 | --- | --- |
 | 1 | Kairo |
 | 2 | Kairo |
@@ -575,10 +575,10 @@ Expected work:
 - make level selection URL-backed and shareable after the overview renderer is accepted
 - preserve the full 20-level overview as the user's way back to structure context
 - render the selected level in more detail than the overview, still without token-level tiles unless a later performance pass proves it is needed
-- expose the selected level's contract-derived dimensions, parcel capacity, Zone window, topography-to-Zone mapping, and biome group weights
+- expose the selected level's contract-derived dimensions, parcel capacity, Zone window, topography-to-Zone mapping, biome group weights, and exact minted Zone/Biome counts through a dedicated read contract
 - show which Zones and Biome groups can exist on that level
 - wire Mathcastles Remix for concrete Biome character inspection
-- keep market, floor, bid/ask, ownership overlays, minted/exact rarity, seed-derived hidden traits, and token/parcel detail out of this milestone
+- keep market, floor, bid/ask, ownership overlays, seed-derived hidden traits, and token/parcel detail out of this milestone
 
 Acceptance checks:
 
@@ -603,6 +603,7 @@ Current implementation notes:
 - The `All Levels` detail also renders a separate right-side Biome table with token-browser links by Biome number and the 9 visible glyphs for each character set. The glyph cells use the embedded Mathcastles Remix font exposed by `frontend/src/app.css`; the 10th/fill character is intentionally omitted in the isolated Biome catalog view.
 - `topography` now emits one table row per exact contract elevation bucket. Zones that appear at multiple elevations repeat with the same palette at each exact height, and selected-level tables default to topology-first ordering. Raw Perlin threshold ranges remain available as cell titles. This is deterministic without replaying minted placements, but it is still not a faithful parcel rarity column.
 - Zone table headers are sortable; default order is name ascending. Removed the earlier bucket-share column because it implied equal bucket probability that the contract noise thresholds do not guarantee.
+- A generic collection trait catalog endpoint now reads exact minted counts for requested trait keys, optionally scoped by other exact trait filters. The Hypercastle page uses it for Zone and Biome counts so the existing token-browser facet contract remains unchanged.
 - Each level now receives a transient surface assignment on page load: a random Zone palette available on that level plus a generated Perlin heightmap sampled from that level's exact contract dimensions, then rendered at a three-quarter texture scale. The renderer draws same-color row runs as merged `PlaneView.TOP` isometric rectangles instead of an SVG pattern, so texture density stays close to the contract parcel area while reducing SVG node count. This surface texture is separate from the level topography values used for Zone attribution.
 - Mono palettes whose heightmap colors are identical across indexes 0 through 8 deterministically mix the canonical background fill color from index 9 into one heightmap index so the overview can still reveal that Terraforms background color.
 - In a selected-level Zone table, clicking any palette swatch applies that Zone palette to the selected slab and generates a new random surface for that level.
@@ -611,7 +612,7 @@ Current implementation notes:
 
 Remaining work:
 
-- Add a faithful static Zone distribution mode by replaying the contract placement, Perlin, and threshold logic against the deployed seed, then generate per-level counts for the table.
+- Decide whether a replayed static Zone distribution mode is still needed now that exact minted Zone and Biome counts can be read from normalized metadata.
 - Add the rest of the selected-level static facts: dimensions, parcel capacity, Zone window, explicit topography-to-Zone mapping, and biome group weights.
 - Decide how selected-level Biome group availability should be presented without implying exact minted Biome rarity.
 - Decide whether texture seed/active palette should stay transient view state or become URL-backed once selected-level state is also URL-backed.
@@ -641,4 +642,4 @@ Market, ownership, token-detail drilldown, minted/exact rarity, and seed-based h
 - Should Terraforms contract arrays be generated from Solidity into TypeScript, manually mirrored with tests, or exposed through a small build-time extraction tool?
 - What exact level groups emerge from shared Zone-set relationships once grouped intentionally instead of only by visual stack position?
 - How much of the original table behavior should remain as a deep-dive panel versus a separate sortable grid inside the new visualization page?
-- Later minted/exact rarity mode: should it be served by backend read models over normalized metadata, or can existing `collection_trait_stats` plus targeted joins cover the UI?
+- Later rarity mode beyond Zone/Biome counts: decide which token-derived facts belong in the Hypercastle explorer versus the normal token browser.

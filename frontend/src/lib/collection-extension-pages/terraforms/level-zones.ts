@@ -1,12 +1,24 @@
 import {
 	TERRAFORMS_HYPERCASTLE_LEVELS,
-	TERRAFORMS_TOPOGRAPHY_THRESHOLDS,
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY,
 	TERRAFORMS_ZONES,
-	type TerraformsLevelSummary,
-	type TerraformsZone
+	type TerraformsLevelSummary
 } from '@artgod/shared/extensions/terraforms';
 import { buildTerraformsHypercastleTraitTokenHref } from '$lib/collection-extension-pages/terraforms/hypercastle-token-links';
+import type { TerraformsTraitCountIndex } from '$lib/collection-extension-pages/terraforms/trait-catalog-counts';
+import {
+	compareTerraformsTraitTableNullableNumbers,
+	compareTerraformsTraitTableStrings,
+	formatTerraformsTraitTableSortLabel,
+	resolveTerraformsTraitTableAriaSort,
+	resolveTerraformsTraitTableDefaultSortDirection,
+	sortTerraformsTraitTableRows,
+	TERRAFORMS_TRAIT_TABLE_ARIA_SORT_VALUES,
+	TERRAFORMS_TRAIT_TABLE_BUTTON_TYPES,
+	TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS,
+	toggleTerraformsTraitTableSortDirection,
+	type TerraformsTraitTableSortDirection
+} from '$lib/collection-extension-pages/terraforms/trait-table';
 
 type ValueOf<T> = T[keyof T];
 
@@ -15,29 +27,21 @@ export type TerraformsLevelZoneRow = {
 	zoneIndex: number;
 	name: string;
 	palette: readonly string[];
-	topographyBucketCount: number | null;
-	topographyHeights: readonly number[] | null;
-	topographyRangeLabel: string | null;
+	mintedTokenCount: number | null;
 };
 
 // Sort columns are the stable contract between the table, tests, and URL-ready state.
 export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS = {
 	Name: 'name',
 	Palette: 'palette',
-	Topography: 'topography'
+	Minted: 'minted'
 } as const;
 
 export type TerraformsLevelZoneTableColumn = ValueOf<typeof TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS>;
 
-// Sort direction literals are kept local to the Terraforms level-zone panel.
-export const TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS = {
-	Ascending: 'asc',
-	Descending: 'desc'
-} as const;
+export const TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS = TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS;
 
-export type TerraformsLevelZoneSortDirection = ValueOf<
-	typeof TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS
->;
+export type TerraformsLevelZoneSortDirection = TerraformsTraitTableSortDirection;
 
 // Palette copy state values are shared by the table component and labels.
 export const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES = {
@@ -57,7 +61,7 @@ export const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_FEEDBACK_DELAY_MS = 1400;
 export const TERRAFORMS_LEVEL_ZONE_TABLE_LABELS: Record<TerraformsLevelZoneTableColumn, string> = {
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name]: 'name',
 	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette]: 'palette',
-	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography]: 'topography'
+	[TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted]: 'minted'
 };
 
 // Section labels distinguish all-level detail tables.
@@ -69,12 +73,13 @@ export const TERRAFORMS_LEVEL_ZONE_SECTION_LABELS = {
 export const TERRAFORMS_LEVEL_ZONE_TABLE_COLUMN_SETS = {
 	AllLevels: [
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
-		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette,
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted
 	],
 	SelectedLevel: [
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette,
-		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography
+		TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted
 	]
 } as const satisfies Record<string, readonly TerraformsLevelZoneTableColumn[]>;
 
@@ -83,7 +88,6 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_DOM = {
 	testIds: {
 		detailPanel: 'terraforms-hypercastle-level-detail',
 		zoneTable: 'terraforms-hypercastle-level-zone-table',
-		paletteSwatch: 'terraforms-hypercastle-zone-palette-swatch',
 		paletteCopyButton: 'terraforms-hypercastle-zone-palette-copy'
 	},
 	classes: {
@@ -94,11 +98,8 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_DOM = {
 		detailHeading: 'terraforms-hypercastle-level-detail-heading',
 		detailSubheading: 'terraforms-hypercastle-level-detail-subheading',
 		table: 'terraforms-hypercastle-zone-table',
-		sortButton: 'terraforms-hypercastle-zone-sort-button',
 		tableLink: 'terraforms-hypercastle-table-link',
 		paletteCell: 'terraforms-hypercastle-zone-palette-cell',
-		palette: 'terraforms-hypercastle-zone-palette',
-		paletteSwatch: 'terraforms-hypercastle-zone-palette-swatch',
 		paletteCopyButton: 'terraforms-hypercastle-zone-palette-copy-button',
 		paletteCopyButtonCopied: 'terraforms-hypercastle-zone-palette-copy-button-copied',
 		paletteCopyButtonFailed: 'terraforms-hypercastle-zone-palette-copy-button-failed',
@@ -106,28 +107,19 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_DOM = {
 	}
 } as const;
 
-// Button type values used by the Terraforms level-zone table controls.
-export const TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES = {
-	Button: 'button'
-} as const;
+export const TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES = TERRAFORMS_TRAIT_TABLE_BUTTON_TYPES;
 
-// Accessible sort states mirror ARIA table header values.
-export const TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES = {
-	Ascending: 'ascending',
-	Descending: 'descending',
-	None: 'none'
-} as const;
+export const TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES = TERRAFORMS_TRAIT_TABLE_ARIA_SORT_VALUES;
 
 const TERRAFORMS_LEVEL_ZONE_DEFAULT_SORT_COLUMN = TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name;
 const TERRAFORMS_LEVEL_ZONE_DEFAULT_SORT_DIRECTION =
 	TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending;
 const TERRAFORMS_LEVEL_ZONE_SELECTED_LEVEL_DEFAULT_SORT_COLUMN =
-	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography;
+	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name;
 const TERRAFORMS_LEVEL_ZONE_ASCENDING_COLUMNS = new Set<TerraformsLevelZoneTableColumn>([
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 	TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette
 ]);
-const TERRAFORMS_LEVEL_ZONE_HEIGHT_SEPARATOR = ', ';
 const TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR = ' ';
 const TERRAFORMS_LEVEL_ZONE_SWATCH_LABEL_PREFIX = 'palette color';
 const TERRAFORMS_LEVEL_ZONE_SWATCH_LABEL_SEPARATOR = ': ';
@@ -136,15 +128,13 @@ const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_LABEL = 'copy palette';
 const TERRAFORMS_LEVEL_ZONE_PALETTE_COPIED_LABEL = 'copied palette';
 const TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_FAILED_LABEL = 'palette copy failed';
 const TERRAFORMS_LEVEL_ZONE_TOKEN_FILTER_LABEL_PREFIX = 'filter tokens by Zone';
-const TERRAFORMS_LEVEL_ZONE_SORT_LABEL_PREFIX = 'sort by';
 const TERRAFORMS_LEVEL_ZONE_EMPTY_STRING = '';
-const TERRAFORMS_LEVEL_ZONE_RANGE_VALUE_SEPARATOR = ': ';
-const TERRAFORMS_LEVEL_ZONE_RANGE_GREATER_THAN_PREFIX = '> ';
-const TERRAFORMS_LEVEL_ZONE_RANGE_UPPER_PREFIX = '<= ';
+const TERRAFORMS_LEVEL_ZONE_COUNT_FORMAT = new Intl.NumberFormat(undefined, {
+	maximumFractionDigits: 0
+});
 const TERRAFORMS_LEVEL_ZONE_ROW_KEY_SEPARATOR = ':';
 const TERRAFORMS_LEVEL_ZONE_ALL_LEVEL_ROW_KEY_PREFIX = 'zone';
-
-const numberCollator = new Intl.Collator(undefined, { numeric: true });
+const TERRAFORMS_LEVEL_ZONE_LEVEL_ROW_KEY_PREFIX = 'level-zone';
 // Finds the static contract summary for a selected Hypercastle level.
 export function resolveTerraformsHypercastleLevel(
 	levelNumber: number | null
@@ -153,27 +143,51 @@ export function resolveTerraformsHypercastleLevel(
 	return TERRAFORMS_HYPERCASTLE_LEVELS.find((level) => level.levelNumber === levelNumber) ?? null;
 }
 
-// Builds one row per exact topography bucket so repeated Zone windows stay visible.
+// Builds the selected-level Zone catalog with the same shape used by the all-level table.
 export function buildTerraformsLevelZoneRows(
 	level: TerraformsLevelSummary
 ): TerraformsLevelZoneRow[] {
-	return level.zones.flatMap((zone) => buildTerraformsLevelZoneRowsForZone(level, zone));
-}
-
-// Builds the all-level Zone catalog without level-specific distribution columns.
-export function buildTerraformsAllLevelZoneRows(): TerraformsLevelZoneRow[] {
-	return TERRAFORMS_ZONES.map((zone) => ({
-		key: [
-			TERRAFORMS_LEVEL_ZONE_ALL_LEVEL_ROW_KEY_PREFIX,
-			zone.index
-		].join(TERRAFORMS_LEVEL_ZONE_ROW_KEY_SEPARATOR),
+	return level.zones.map((zone) => ({
+		key: [TERRAFORMS_LEVEL_ZONE_LEVEL_ROW_KEY_PREFIX, level.levelNumber, zone.index].join(
+			TERRAFORMS_LEVEL_ZONE_ROW_KEY_SEPARATOR
+		),
 		zoneIndex: zone.index,
 		name: zone.name,
 		palette: zone.palette,
-		topographyBucketCount: null,
-		topographyHeights: null,
-		topographyRangeLabel: null
+		mintedTokenCount: null
 	}));
+}
+
+// Builds the all-level Zone catalog.
+export function buildTerraformsAllLevelZoneRows(): TerraformsLevelZoneRow[] {
+	return TERRAFORMS_ZONES.map((zone) => ({
+		key: [TERRAFORMS_LEVEL_ZONE_ALL_LEVEL_ROW_KEY_PREFIX, zone.index].join(
+			TERRAFORMS_LEVEL_ZONE_ROW_KEY_SEPARATOR
+		),
+		zoneIndex: zone.index,
+		name: zone.name,
+		palette: zone.palette,
+		mintedTokenCount: null
+	}));
+}
+
+// Applies minted trait counts after the backend catalog response arrives.
+export function applyTerraformsLevelZoneTokenCounts(
+	rows: readonly TerraformsLevelZoneRow[],
+	counts: TerraformsTraitCountIndex,
+	countsLoaded: boolean,
+	options: { mintedOnly?: boolean } = {}
+): TerraformsLevelZoneRow[] {
+	const countedRows = rows.map((row) => ({
+		...row,
+		mintedTokenCount: countsLoaded ? (counts[row.name] ?? 0) : null
+	}));
+	if (!options.mintedOnly) {
+		return countedRows;
+	}
+	return countsLoaded
+		? countedRows.filter((row) => row.mintedTokenCount !== null && row.mintedTokenCount > 0)
+		: [];
 }
 
 // Builds a token-browser href filtered to one Zone name.
@@ -196,29 +210,24 @@ export function sortTerraformsLevelZoneRows(
 	column: TerraformsLevelZoneTableColumn,
 	direction: TerraformsLevelZoneSortDirection
 ): TerraformsLevelZoneRow[] {
-	return [...rows].sort((left, right) => {
-		const directionMultiplier =
-			direction === TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending ? 1 : -1;
-		return compareTerraformsLevelZoneRows(left, right, column) * directionMultiplier;
-	});
+	return sortTerraformsTraitTableRows(rows, column, direction, compareTerraformsLevelZoneRows);
 }
 
 // Chooses the default direction when a new sortable column becomes active.
 export function resolveTerraformsLevelZoneDefaultSortDirection(
 	column: TerraformsLevelZoneTableColumn
 ): TerraformsLevelZoneSortDirection {
-	return TERRAFORMS_LEVEL_ZONE_ASCENDING_COLUMNS.has(column)
-		? TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
-		: TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending;
+	return resolveTerraformsTraitTableDefaultSortDirection(
+		column,
+		TERRAFORMS_LEVEL_ZONE_ASCENDING_COLUMNS
+	);
 }
 
 // Flips an active sort direction after the user repeats a header click.
 export function toggleTerraformsLevelZoneSortDirection(
 	direction: TerraformsLevelZoneSortDirection
 ): TerraformsLevelZoneSortDirection {
-	return direction === TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
-		? TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
-		: TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending;
+	return toggleTerraformsTraitTableSortDirection(direction);
 }
 
 // Exposes the initial table state without duplicating literals in the component.
@@ -243,17 +252,11 @@ export function defaultTerraformsSelectedLevelZoneSortDirection(): TerraformsLev
 	);
 }
 
-// Formats exact contract elevation values assigned to the Zone on the selected level.
-export function formatTerraformsZoneTopographyHeights(row: TerraformsLevelZoneRow): string {
-	return (
-		row.topographyHeights?.join(TERRAFORMS_LEVEL_ZONE_HEIGHT_SEPARATOR) ??
-		TERRAFORMS_LEVEL_ZONE_EMPTY_STRING
-	);
-}
-
-// Formats raw Perlin threshold ranges for the Zone's topography buckets.
-export function formatTerraformsZoneTopographyRangeLabel(row: TerraformsLevelZoneRow): string {
-	return row.topographyRangeLabel ?? TERRAFORMS_LEVEL_ZONE_EMPTY_STRING;
+// Formats exact minted token counts once the trait catalog has loaded.
+export function formatTerraformsZoneMintedTokenCount(row: TerraformsLevelZoneRow): string {
+	return row.mintedTokenCount === null
+		? TERRAFORMS_LEVEL_ZONE_EMPTY_STRING
+		: TERRAFORMS_LEVEL_ZONE_COUNT_FORMAT.format(row.mintedTokenCount);
 }
 
 // Formats all palette colors for clipboard copying.
@@ -263,10 +266,9 @@ export function formatTerraformsZonePaletteCopyValue(row: TerraformsLevelZoneRow
 
 // Builds the accessible label for Zone token-filter links.
 export function formatTerraformsZoneTokenFilterLabel(zoneName: string): string {
-	return [
-		TERRAFORMS_LEVEL_ZONE_TOKEN_FILTER_LABEL_PREFIX,
-		zoneName
-	].join(TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR);
+	return [TERRAFORMS_LEVEL_ZONE_TOKEN_FILTER_LABEL_PREFIX, zoneName].join(
+		TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR
+	);
 }
 
 // Builds the accessible label for palette-copy state.
@@ -297,11 +299,23 @@ export function formatTerraformsZonePaletteSwatchLabel(input: {
 	);
 }
 
+// Builds all labels needed by the reusable Zone palette band component.
+export function buildTerraformsZonePaletteSwatchLabels(input: {
+	zoneName: string;
+	palette: readonly string[];
+}): readonly string[] {
+	return input.palette.map((color, index) =>
+		formatTerraformsZonePaletteSwatchLabel({
+			zoneName: input.zoneName,
+			color,
+			position: index + 1
+		})
+	);
+}
+
 // Builds the accessible label for sortable level-zone table headers.
 export function formatTerraformsLevelZoneSortLabel(column: TerraformsLevelZoneTableColumn): string {
-	return [TERRAFORMS_LEVEL_ZONE_SORT_LABEL_PREFIX, TERRAFORMS_LEVEL_ZONE_TABLE_LABELS[column]].join(
-		TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR
-	);
+	return formatTerraformsTraitTableSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_LABELS[column]);
 }
 
 // Resolves aria-sort for the active dynamic table header.
@@ -310,28 +324,7 @@ export function resolveTerraformsLevelZoneAriaSort(
 	activeColumn: TerraformsLevelZoneTableColumn,
 	direction: TerraformsLevelZoneSortDirection
 ): ValueOf<typeof TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES> {
-	if (column !== activeColumn) return TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES.None;
-	return direction === TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
-		? TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES.Ascending
-		: TERRAFORMS_LEVEL_ZONE_ARIA_SORT_VALUES.Descending;
-}
-
-function buildTerraformsLevelZoneRowsForZone(
-	level: TerraformsLevelSummary,
-	zone: TerraformsZone
-): TerraformsLevelZoneRow[] {
-	const zoneBuckets = level.topographyZoneBuckets.filter(
-		(bucket) => bucket.zoneIndex === zone.index
-	);
-	return zoneBuckets.map((bucket) => ({
-		key: [zone.index, bucket.elevation].join(TERRAFORMS_LEVEL_ZONE_ROW_KEY_SEPARATOR),
-		zoneIndex: zone.index,
-		name: zone.name,
-		palette: zone.palette,
-		topographyBucketCount: 1,
-		topographyHeights: [bucket.elevation],
-		topographyRangeLabel: formatTerraformsTopographyBucketRange(bucket)
-	}));
+	return resolveTerraformsTraitTableAriaSort(column, activeColumn, direction);
 }
 
 function compareTerraformsLevelZoneRows(
@@ -341,64 +334,16 @@ function compareTerraformsLevelZoneRows(
 ): number {
 	switch (column) {
 		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name:
-			return compareStrings(left.name, right.name);
+			return compareTerraformsTraitTableStrings(left.name, right.name);
 		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette:
-			return compareStrings(
+			return compareTerraformsTraitTableStrings(
 				left.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING),
 				right.palette.join(TERRAFORMS_LEVEL_ZONE_EMPTY_STRING)
 			);
-		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography:
-			return compareNullableNumbers(
-				resolveTerraformsLevelZoneRowPrimaryTopography(left),
-				resolveTerraformsLevelZoneRowPrimaryTopography(right)
+		case TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted:
+			return compareTerraformsTraitTableNullableNumbers(
+				left.mintedTokenCount,
+				right.mintedTokenCount
 			);
 	}
-}
-
-function compareNumbers(left: number, right: number): number {
-	return left - right;
-}
-
-function compareNullableNumbers(left: number | null, right: number | null): number {
-	if (left === null && right === null) return 0;
-	if (left === null) return -1;
-	if (right === null) return 1;
-	return compareNumbers(left, right);
-}
-
-function compareStrings(left: string, right: string): number {
-	return numberCollator.compare(left, right);
-}
-
-function resolveTerraformsLevelZoneRowPrimaryTopography(
-	row: TerraformsLevelZoneRow
-): number | null {
-	return row.topographyHeights?.[0] ?? null;
-}
-
-function formatTerraformsTopographyBucketRange(input: {
-	topographyBucketIndex: number;
-	elevation: number;
-}): string {
-	const lowerBound = TERRAFORMS_TOPOGRAPHY_THRESHOLDS[input.topographyBucketIndex] ?? null;
-	const upperBound = TERRAFORMS_TOPOGRAPHY_THRESHOLDS[input.topographyBucketIndex - 1] ?? null;
-	return [String(input.elevation), formatTerraformsTopographyRawRange(lowerBound, upperBound)].join(
-		TERRAFORMS_LEVEL_ZONE_RANGE_VALUE_SEPARATOR
-	);
-}
-
-function formatTerraformsTopographyRawRange(
-	lowerBoundExclusive: number | null,
-	upperBoundInclusive: number | null
-): string {
-	return [
-		lowerBoundExclusive === null
-			? null
-			: `${TERRAFORMS_LEVEL_ZONE_RANGE_GREATER_THAN_PREFIX}${lowerBoundExclusive}`,
-		upperBoundInclusive === null
-			? null
-			: `${TERRAFORMS_LEVEL_ZONE_RANGE_UPPER_PREFIX}${upperBoundInclusive}`
-	]
-		.filter((part): part is string => part !== null)
-		.join(TERRAFORMS_LEVEL_ZONE_LEVEL_TITLE_SEPARATOR);
 }

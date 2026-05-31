@@ -19,6 +19,9 @@ export const TERRAFORMS_ZONE_ATTRIBUTE_KEY = "Zone";
 // Terraforms metadata stores the Biome number under this trait key.
 export const TERRAFORMS_BIOME_ATTRIBUTE_KEY = "Biome";
 
+// Terraforms metadata stores the Hypercastle level number under this trait key.
+export const TERRAFORMS_LEVEL_ATTRIBUTE_KEY = "Level";
+
 // Level square dimensions from TerraformsDataStorage.levelDimensions.
 export const TERRAFORMS_LEVEL_DIMENSIONS = [
     4, 8, 8, 16, 16, 24, 24, 24, 16, 32, 32, 16, 48, 48, 24, 24, 16, 8, 8, 4,

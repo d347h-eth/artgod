@@ -94,6 +94,14 @@ export const TRAIT_FILTER_QUERY_PARAMS = {
     TraitRanges: "trait_ranges",
 } as const;
 
+// Names trait-catalog query parameters shared by backend and frontend adapters.
+export const TRAIT_CATALOG_QUERY_PARAMS = {
+    Key: "key",
+    Keys: "keys",
+    ScopeTrait: "scope_trait",
+    ScopeTraits: "scope_traits",
+} as const;
+
 export type TraitFilter = {
     key: string;
     value: string;
@@ -162,6 +170,16 @@ export type TraitFacet = {
     minValue: string | null;
     maxValue: string | null;
     values: TraitFacetValue[];
+};
+
+export type TraitCatalogFacet = {
+    key: string;
+    values: TraitFacetValue[];
+};
+
+export type TraitCatalog = {
+    scope: TraitFilter[];
+    facets: TraitCatalogFacet[];
 };
 
 export type CollectionHolder = {

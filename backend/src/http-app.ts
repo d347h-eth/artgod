@@ -12,6 +12,7 @@ import type { GetTokenActivityUseCase } from "./application/use-cases/activities
 import type { GetCollectionCustomizationUseCase } from "./application/use-cases/collections/get-collection-customization.js";
 import type { GetCollectionDetailPort } from "./application/use-cases/collections/get-collection-detail.js";
 import type { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
+import type { GetCollectionTraitCatalogPort } from "./application/use-cases/collections/get-collection-trait-catalog.js";
 import type { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import type { GetTokenPreviewPort } from "./application/use-cases/collections/get-token-preview.js";
 import type { GetTokenUriUseCase } from "./application/use-cases/collections/get-token-uri.js";
@@ -59,6 +60,7 @@ import { GetTokenActivityHttpAdapter } from "./http/handlers/activities/get-toke
 import { GetCollectionCustomizationHttpAdapter } from "./http/handlers/collections/get-collection-customization.js";
 import { GetCollectionDetailHttpAdapter } from "./http/handlers/collections/get-collection-detail.js";
 import { GetCollectionHoldersHttpAdapter } from "./http/handlers/collections/get-collection-holders.js";
+import { GetCollectionTraitCatalogHttpAdapter } from "./http/handlers/collections/get-collection-trait-catalog.js";
 import { GetTokenDetailHttpAdapter } from "./http/handlers/collections/get-token-detail.js";
 import { GetTokenPreviewHttpAdapter } from "./http/handlers/collections/get-token-preview.js";
 import { GetTokenUriHttpAdapter } from "./http/handlers/collections/get-token-uri.js";
@@ -138,6 +140,7 @@ export function createApiApp(
     getActivityEventPreviewUseCase: GetActivityEventPreviewUseCase,
     getTokenActivityUseCase: GetTokenActivityUseCase,
     getCollectionCustomizationUseCase: GetCollectionCustomizationUseCase,
+    getCollectionTraitCatalogUseCase: GetCollectionTraitCatalogPort,
     getCollectionDetailUseCase: GetCollectionDetailPort,
     getCollectionHoldersUseCase: GetCollectionHoldersUseCase,
     getTokenDetailUseCase: GetTokenDetailUseCase,
@@ -222,9 +225,8 @@ export function createApiApp(
               publicCollectionRef,
           )
         : null;
-    const scheduleBlockspaceBackfillAdapter = new ScheduleBlockspaceBackfillHttpAdapter(
-        scheduleSyncBackfillUseCase,
-    );
+    const scheduleBlockspaceBackfillAdapter =
+        new ScheduleBlockspaceBackfillHttpAdapter(scheduleSyncBackfillUseCase);
     const resolveOwnerRefAdapter = new ResolveOwnerRefHttpAdapter(
         resolveOwnerRefUseCase,
     );
@@ -239,6 +241,10 @@ export function createApiApp(
     const getCollectionCustomizationAdapter =
         new GetCollectionCustomizationHttpAdapter(
             getCollectionCustomizationUseCase,
+        );
+    const getCollectionTraitCatalogAdapter =
+        new GetCollectionTraitCatalogHttpAdapter(
+            getCollectionTraitCatalogUseCase,
         );
     const getCollectionDetailAdapter = new GetCollectionDetailHttpAdapter(
         getCollectionDetailUseCase,
@@ -273,15 +279,13 @@ export function createApiApp(
     const getTokenBiddingJobAdapter = new GetTokenBiddingJobHttpAdapter(
         getTokenBiddingJobUseCase,
     );
-    const getTokenBiddingBidBookAdapter =
-        new GetTokenBiddingBidBookHttpAdapter(
-            getTokenBiddingBidBookUseCase,
-            deploymentConfig.mode !== "public_single_collection",
-        );
-    const lookupBiddingJobTargetAdapter =
-        new LookupBiddingJobTargetHttpAdapter(
-            biddingJobTargetLookupUseCase,
-        );
+    const getTokenBiddingBidBookAdapter = new GetTokenBiddingBidBookHttpAdapter(
+        getTokenBiddingBidBookUseCase,
+        deploymentConfig.mode !== "public_single_collection",
+    );
+    const lookupBiddingJobTargetAdapter = new LookupBiddingJobTargetHttpAdapter(
+        biddingJobTargetLookupUseCase,
+    );
     const upsertTokenBiddingJobAdapter = new UpsertTokenBiddingJobHttpAdapter(
         upsertTokenBiddingJobUseCase,
     );
@@ -312,12 +316,12 @@ export function createApiApp(
         new ApplyBiddingPriceTierReapplyHttpAdapter(
             applyBiddingPriceTierReapplyUseCase,
         );
-    const archiveTokenBiddingJobAdapter =
-        new ArchiveTokenBiddingJobHttpAdapter(
-            archiveTokenBiddingJobUseCase,
-        );
-    const archiveBiddingJobAdapter =
-        new ArchiveBiddingJobHttpAdapter(archiveBiddingJobUseCase);
+    const archiveTokenBiddingJobAdapter = new ArchiveTokenBiddingJobHttpAdapter(
+        archiveTokenBiddingJobUseCase,
+    );
+    const archiveBiddingJobAdapter = new ArchiveBiddingJobHttpAdapter(
+        archiveBiddingJobUseCase,
+    );
     const archiveCollectionBiddingPriceTierAdapter =
         new ArchiveCollectionBiddingPriceTierHttpAdapter(
             archiveCollectionBiddingPriceTierUseCase,
@@ -352,6 +356,7 @@ export function createApiApp(
         getActivityEventPreviewAdapter,
         getTokenActivityAdapter,
         getCollectionCustomizationAdapter,
+        getCollectionTraitCatalogAdapter,
         getCollectionDetailAdapter,
         getCollectionHoldersAdapter,
         getTokenDetailAdapter,

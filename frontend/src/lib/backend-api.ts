@@ -19,6 +19,7 @@ import type {
 	CollectionCustomizationApiResponse,
 	CollectionDetailApiResponse,
 	CollectionHoldersApiResponse,
+	CollectionTraitCatalogApiResponse,
 	CollectionsApiResponse,
 	DefaultChainResponse,
 	OwnerRefResolutionApiResponse,
@@ -170,6 +171,20 @@ export async function getCollectionDetailWithHeaders(
 	return requestJsonResponse<CollectionDetailApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}${suffix}`
+	);
+}
+
+export async function getCollectionTraitCatalog(
+	fetchFn: typeof fetch,
+	chainRef: string,
+	collectionRef: string,
+	params: URLSearchParams
+): Promise<CollectionTraitCatalogApiResponse> {
+	const query = params.toString();
+	const suffix = query ? `?${query}` : '';
+	return requestJson<CollectionTraitCatalogApiResponse>(
+		fetchFn,
+		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/traits/catalog${suffix}`
 	);
 }
 

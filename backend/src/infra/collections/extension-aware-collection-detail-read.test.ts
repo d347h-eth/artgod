@@ -6,6 +6,7 @@ import type {
     CollectionListItem,
     TokenCard,
     TokenBrowserStatus,
+    TraitCatalogFacet,
     TraitFacet,
 } from "@artgod/shared/types";
 import { ExtensionAwareCollectionDetailRead } from "./extension-aware-collection-detail-read.js";
@@ -158,8 +159,7 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
             attributes: expect.objectContaining({
                 [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
-                [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
-                    TERRAFORMS_EXTENSION_KEY,
+                [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]: TERRAFORMS_EXTENSION_KEY,
                 [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: 2,
             }),
         });
@@ -218,8 +218,7 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
             attributes: expect.objectContaining({
                 [ARTGOD_SPAN_ATTRIBUTE.ChainId]: 1,
                 [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: 7,
-                [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]:
-                    TERRAFORMS_EXTENSION_KEY,
+                [ARTGOD_SPAN_ATTRIBUTE.ExtensionKey]: TERRAFORMS_EXTENSION_KEY,
                 [ARTGOD_SPAN_ATTRIBUTE.TokensCount]: 2,
             }),
         });
@@ -248,6 +247,38 @@ describe("ExtensionAwareCollectionDetailRead observability", () => {
         });
 
         expect(receivedRangeOnlyKeys).toEqual(["Power"]);
+    });
+
+    it("passes trait catalog requests to the base read model", () => {
+        let receivedKeys: string[] | undefined;
+        let receivedScope: unknown;
+        const readModel = new ExtensionAwareCollectionDetailRead(
+            {
+                ...createBaseReadPort(),
+                listCollectionTraitCatalog(params: {
+                    chainId: number;
+                    collectionId: number;
+                    keys: string[];
+                    scopeTraitFilters?: Array<{ key: string; value: string }>;
+                }): TraitCatalogFacet[] {
+                    receivedKeys = params.keys;
+                    receivedScope = params.scopeTraitFilters;
+                    return [{ key: "Zone", values: [] }];
+                },
+            },
+            createExtensionRecords(),
+        );
+
+        const facets = readModel.listCollectionTraitCatalog({
+            chainId: 1,
+            collectionId: 7,
+            keys: ["Zone"],
+            scopeTraitFilters: [{ key: "Level", value: "14" }],
+        });
+
+        expect(facets).toEqual([{ key: "Zone", values: [] }]);
+        expect(receivedKeys).toEqual(["Zone"]);
+        expect(receivedScope).toEqual([{ key: "Level", value: "14" }]);
     });
 });
 
@@ -310,6 +341,9 @@ function createBaseReadPort() {
         },
         listCollectionTraitFacets() {
             throw new Error("Unexpected listCollectionTraitFacets call");
+        },
+        listCollectionTraitCatalog() {
+            throw new Error("Unexpected listCollectionTraitCatalog call");
         },
         listCollectionHolders() {
             throw new Error("Unexpected listCollectionHolders call");

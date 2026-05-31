@@ -35,6 +35,7 @@ import {
     type GetCollectionDetailPort,
 } from "./application/use-cases/collections/get-collection-detail.js";
 import { GetCollectionHoldersUseCase } from "./application/use-cases/collections/get-collection-holders.js";
+import { GetCollectionTraitCatalogUseCase } from "./application/use-cases/collections/get-collection-trait-catalog.js";
 import { GetTokenDetailUseCase } from "./application/use-cases/collections/get-token-detail.js";
 import {
     GetTokenPreviewUseCase,
@@ -305,6 +306,13 @@ export function createBackendApp(
         extensionAwareCollectionCustomization,
         backendObservability.apm,
     );
+    const getCollectionTraitCatalogUseCase =
+        new GetCollectionTraitCatalogUseCase(
+            config.defaultChainId,
+            chainsReadModel,
+            extensionAwareCollectionsReadModel,
+            backendObservability.apm,
+        );
     const getTokenPreviewUseCase = new GetTokenPreviewUseCase(
         config.defaultChainId,
         chainsReadModel,
@@ -529,6 +537,7 @@ export function createBackendApp(
         getActivityEventPreviewUseCase,
         getTokenActivityUseCase,
         getCollectionCustomizationUseCase,
+        getCollectionTraitCatalogUseCase,
         collectionDetail.port,
         getCollectionHoldersUseCase,
         getTokenDetailUseCase,

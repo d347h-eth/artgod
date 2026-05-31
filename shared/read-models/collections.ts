@@ -24,6 +24,7 @@ import type {
     TokenCursorPage,
     TokenCursor,
     TokenAttribute,
+    TraitCatalogFacet,
     TraitFacet,
     TraitFilter,
     TraitRangeFilter,
@@ -236,6 +237,13 @@ export type ListCollectionTokensParams = {
 export type ListCollectionTraitFacetsOptions = {
     excludeKeys?: string[];
     rangeOnlyKeys?: string[];
+};
+
+export type ListCollectionTraitCatalogParams = {
+    chainId: number;
+    collectionId: number;
+    keys: string[];
+    scopeTraitFilters?: TraitFilter[];
 };
 
 export type GetCollectionTokenDetailParams = {
@@ -1205,6 +1213,59 @@ export class SqliteCollectionsReadModel {
         return facets;
     }
 
+    // Lists exact minted value counts for requested trait keys within an optional trait scope.
+    listCollectionTraitCatalog(
+        params: ListCollectionTraitCatalogParams,
+    ): TraitCatalogFacet[] {
+        const keys = normalizeTraitKeyList(params.keys);
+        if (keys.length === 0) {
+            throw new ReadModelBadRequestError(
+                "Trait catalog keys are required",
+            );
+        }
+        const scopeTraitFilters = normalizeTraitFilters(
+            params.scopeTraitFilters ?? [],
+        );
+        const traitFilterGroups = groupTraitFilters(scopeTraitFilters);
+        const spanAttributes = {
+            [ARTGOD_SPAN_ATTRIBUTE.ChainId]: params.chainId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionId]: params.collectionId,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitCatalogKeysCount]:
+                keys.length,
+            [ARTGOD_SPAN_ATTRIBUTE.CollectionTraitFiltersCount]:
+                traitFilterGroups.length,
+        };
+        const tokenCandidates = resolveCollectionExactTraitTokenCandidates({
+            apm: this.apm,
+            spanAttributes,
+            chainId: params.chainId,
+            collectionId: params.collectionId,
+            traitFilterGroups,
+        });
+        if (tokenCandidates.isEmpty) {
+            return buildTraitCatalogFacets(keys, []);
+        }
+
+        const rows = this.apm.withSyncSpan(
+            "backend.collection.db.trait_catalog",
+            withCandidateSpanAttributes(spanAttributes, tokenCandidates),
+            () =>
+                tokenCandidates.tokenIds === null
+                    ? this.selectTraitCatalogRowsWithOptions(
+                          params.chainId,
+                          params.collectionId,
+                          keys,
+                      )
+                    : this.selectScopedTraitCatalogRowsWithOptions(
+                          params.chainId,
+                          params.collectionId,
+                          tokenCandidates.tokenIds,
+                          keys,
+                      ),
+        );
+        return buildTraitCatalogFacets(keys, rows);
+    }
+
     private selectTraitFacetRowsWithOptions(
         chainId: number,
         collectionId: number,
@@ -1233,6 +1294,66 @@ export class SqliteCollectionsReadModel {
                     "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
             )
             .all(chainId, collectionId, ...excludeKeys) as TraitFacetRow[];
+    }
+
+    private selectTraitCatalogRowsWithOptions(
+        chainId: number,
+        collectionId: number,
+        keys: string[],
+    ): TraitFacetRow[] {
+        const keyPlaceholders = keys.map(() => "?").join(", ");
+        return db.raw
+            .prepare(
+                "SELECT attribute_keys.key as key, attributes.value as value, collection_trait_stats.token_count as token_count " +
+                    "FROM collection_trait_stats " +
+                    "JOIN attributes ON attributes.id = collection_trait_stats.attribute_id " +
+                    "AND attributes.chain_id = collection_trait_stats.chain_id " +
+                    "AND attributes.collection_id = collection_trait_stats.collection_id " +
+                    "JOIN attribute_keys ON attribute_keys.id = collection_trait_stats.attribute_key_id " +
+                    "AND attribute_keys.chain_id = collection_trait_stats.chain_id " +
+                    "AND attribute_keys.collection_id = collection_trait_stats.collection_id " +
+                    "WHERE collection_trait_stats.chain_id = ? AND collection_trait_stats.collection_id = ? " +
+                    `AND attribute_keys.key IN (${keyPlaceholders}) ` +
+                    "ORDER BY attribute_keys.key ASC, collection_trait_stats.token_count ASC, attributes.value ASC",
+            )
+            .all(chainId, collectionId, ...keys) as TraitFacetRow[];
+    }
+
+    private selectScopedTraitCatalogRowsWithOptions(
+        chainId: number,
+        collectionId: number,
+        tokenIds: string[],
+        keys: string[],
+    ): TraitFacetRow[] {
+        const { whereClauses, values: tokenCandidateValues } =
+            buildTokenCandidateWhereClauses({
+                tokenIds,
+                tokenColumnSql: "ta.token_id",
+            });
+        const keyPlaceholders = keys.map(() => "?").join(", ");
+        return db.raw
+            .prepare(
+                "SELECT ak.key AS key, a.value AS value, COUNT(DISTINCT ta.token_id) AS token_count " +
+                    "FROM token_attributes ta " +
+                    "JOIN attributes a ON a.id = ta.attribute_id " +
+                    "AND a.chain_id = ta.chain_id " +
+                    "AND a.collection_id = ta.collection_id " +
+                    "JOIN attribute_keys ak ON ak.id = a.attribute_key_id " +
+                    "AND ak.chain_id = a.chain_id " +
+                    "AND ak.collection_id = a.collection_id " +
+                    "WHERE ta.chain_id = ? " +
+                    "AND ta.collection_id = ? " +
+                    `${whereClauses.map((clause) => `AND ${clause} `).join("")}` +
+                    `AND ak.key IN (${keyPlaceholders}) ` +
+                    "GROUP BY ak.key, a.value " +
+                    "ORDER BY ak.key ASC, token_count ASC, a.value ASC",
+            )
+            .all(
+                chainId,
+                collectionId,
+                ...tokenCandidateValues,
+                ...keys,
+            ) as TraitFacetRow[];
     }
 
     private selectOwnerScopedTraitFacetRowsWithOptions(
@@ -2434,6 +2555,26 @@ function buildTokenQueryParts(params: {
         baseWhereClauses,
         baseWhereValues,
     };
+}
+
+function buildTraitCatalogFacets(
+    keys: string[],
+    rows: TraitFacetRow[],
+): TraitCatalogFacet[] {
+    const facets: TraitCatalogFacet[] = keys.map((key) => ({
+        key,
+        values: [],
+    }));
+    const byKey = new Map<string, TraitCatalogFacet>(
+        facets.map((facet) => [facet.key, facet]),
+    );
+    for (const row of rows) {
+        byKey.get(row.key)?.values.push({
+            value: row.value,
+            tokenCount: row.token_count,
+        });
+    }
+    return facets;
 }
 
 export function applyTraitFilterPresentationToFacets(params: {

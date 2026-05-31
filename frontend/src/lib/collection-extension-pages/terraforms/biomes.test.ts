@@ -2,10 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
 import { TERRAFORMS_BIOMES } from '@artgod/shared/extensions/terraforms';
 import {
+	applyTerraformsBiomeTokenCounts,
 	buildTerraformsBiomeRows,
 	buildTerraformsBiomeTokenHref,
-	resolveTerraformsBiomeDisplayCharacters
+	formatTerraformsBiomeMintedTokenCount,
+	resolveTerraformsBiomeAriaSort,
+	resolveTerraformsBiomeDefaultSortDirection,
+	resolveTerraformsBiomeDisplayCharacters,
+	resolveTerraformsBiomePreviewBackgroundColor,
+	resolveTerraformsBiomePreviewCharacterColor,
+	sortTerraformsBiomeRows,
+	TERRAFORMS_BIOME_TABLE_COLUMNS
 } from '$lib/collection-extension-pages/terraforms/biomes';
+import {
+	TERRAFORMS_TRAIT_TABLE_ARIA_SORT_VALUES,
+	TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS
+} from '$lib/collection-extension-pages/terraforms/trait-table';
 
 const TERRAFORMS_MOUNTAIN_BIOME_INDEX = 22;
 const TERRAFORMS_RAIN_CLOUD_BIOME_INDEX = 23;
@@ -30,6 +42,18 @@ const TERRAFORMS_RAIN_CLOUD_BIOME_DISPLAY_CHARACTERS = [
 	'🏔',
 	'🏔',
 	'🏔'
+] as const;
+const TERRAFORMS_ZERO_ONE_BIOME_INDEX = 54;
+const TERRAFORMS_ZERO_ONE_BIOME_DISPLAY_CHARACTERS = [
+	'🕱',
+	'🕱',
+	'0',
+	'0',
+	'1',
+	'1',
+	'0',
+	'0',
+	'🖳'
 ] as const;
 
 describe('Terraforms Biome table data', () => {
@@ -61,6 +85,92 @@ describe('Terraforms Biome table data', () => {
 		expect(resolveTerraformsBiomeDisplayCharacters(mountainBiome)).toEqual(
 			TERRAFORMS_MOUNTAIN_BIOME_DISPLAY_CHARACTERS
 		);
+	});
+
+	it('keeps numeric Biome characters as font-rendered digits', () => {
+		const rows = buildTerraformsBiomeRows();
+		const zeroOneBiome = TERRAFORMS_BIOMES[TERRAFORMS_ZERO_ONE_BIOME_INDEX]!;
+		const zeroOneRow = rows[TERRAFORMS_ZERO_ONE_BIOME_INDEX]!;
+
+		expect(zeroOneBiome.characters).toEqual(['?', '?', '0', '0', '1', '1', '0', '0', '?']);
+		expect(zeroOneRow.characters).toEqual(zeroOneBiome.characters);
+		expect(zeroOneRow.displayCharacters).toEqual(TERRAFORMS_ZERO_ONE_BIOME_DISPLAY_CHARACTERS);
+		expect(resolveTerraformsBiomeDisplayCharacters(zeroOneBiome)).toEqual(
+			TERRAFORMS_ZERO_ONE_BIOME_DISPLAY_CHARACTERS
+		);
+	});
+
+	it('applies minted token counts to Biome rows for display', () => {
+		const rows = applyTerraformsBiomeTokenCounts(
+			buildTerraformsBiomeRows().slice(22, 24),
+			{
+				22: 8,
+				23: 13
+			},
+			true
+		);
+
+		expect(rows.map((row) => formatTerraformsBiomeMintedTokenCount(row))).toEqual(['8', '13']);
+	});
+
+	it('sorts and filters Biome rows with the shared trait table contract', () => {
+		const rows = applyTerraformsBiomeTokenCounts(
+			buildTerraformsBiomeRows().slice(22, 25),
+			{
+				22: 0,
+				23: 13,
+				24: 8
+			},
+			true,
+			{ mintedOnly: true }
+		);
+
+		expect(rows.map((row) => row.biomeIndex)).toEqual([23, 24]);
+		expect(
+			sortTerraformsBiomeRows(
+				rows,
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
+				TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Descending
+			).map((row) => row.biomeIndex)
+		).toEqual([23, 24]);
+		expect(
+			sortTerraformsBiomeRows(
+				rows,
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Number,
+				TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Descending
+			).map((row) => row.biomeIndex)
+		).toEqual([24, 23]);
+		expect(resolveTerraformsBiomeDefaultSortDirection(TERRAFORMS_BIOME_TABLE_COLUMNS.Number)).toBe(
+			TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Ascending
+		);
+		expect(
+			resolveTerraformsBiomeAriaSort(
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
+				TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Descending
+			)
+		).toBe(TERRAFORMS_TRAIT_TABLE_ARIA_SORT_VALUES.Descending);
+	});
+
+	it('maps Zone palettes to Biome character preview colors', () => {
+		const palette = [
+			'#000001',
+			'#000002',
+			'#000003',
+			'#000004',
+			'#000005',
+			'#000006',
+			'#000007',
+			'#000008',
+			'#000009',
+			'#000010'
+		];
+
+		expect(resolveTerraformsBiomePreviewCharacterColor(palette, 0)).toBe('#000001');
+		expect(resolveTerraformsBiomePreviewCharacterColor(palette, 8)).toBe('#000009');
+		expect(resolveTerraformsBiomePreviewBackgroundColor(palette)).toBe('#000010');
+		expect(resolveTerraformsBiomePreviewCharacterColor(null, 0)).toBeNull();
+		expect(resolveTerraformsBiomePreviewBackgroundColor(null)).toBeNull();
 	});
 
 	it('builds Biome token-filter hrefs for the pure token browser', () => {

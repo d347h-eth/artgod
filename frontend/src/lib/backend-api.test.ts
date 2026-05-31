@@ -4,9 +4,14 @@ import {
 	QUERY_CACHE_DEBUG_STATUSES,
 	QUERY_CACHE_DEBUG_TTL_HEADER_NAME
 } from '@artgod/shared/observability/http';
+import { TRAIT_CATALOG_QUERY_PARAMS } from '@artgod/shared/types';
 import { logger } from '@artgod/shared/utils/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getBlockspaceStateWithHeaders, getCollectionDetailWithHeaders } from './backend-api';
+import {
+	getBlockspaceStateWithHeaders,
+	getCollectionDetailWithHeaders,
+	getCollectionTraitCatalog
+} from './backend-api';
 
 describe('backend api observability', () => {
 	afterEach(() => {
@@ -53,7 +58,9 @@ describe('backend api observability', () => {
 		expect(new Headers(requestInit.headers).get(ARTGOD_SSR_BACKEND_REQUEST_ID_HEADER_NAME)).toEqual(
 			expect.any(String)
 		);
-		expect(response.headers.get(QUERY_CACHE_DEBUG_HEADER_NAME)).toBe(QUERY_CACHE_DEBUG_STATUSES.Hit);
+		expect(response.headers.get(QUERY_CACHE_DEBUG_HEADER_NAME)).toBe(
+			QUERY_CACHE_DEBUG_STATUSES.Hit
+		);
 		expect(response.headers.get(QUERY_CACHE_DEBUG_TTL_HEADER_NAME)).toBe('60000');
 		expect(loggerInfo).toHaveBeenCalledWith(
 			'Frontend SSR backend API response',
@@ -102,7 +109,38 @@ describe('backend api observability', () => {
 				headers: expect.any(Headers)
 			}
 		);
-		expect(response.headers.get(QUERY_CACHE_DEBUG_HEADER_NAME)).toBe(QUERY_CACHE_DEBUG_STATUSES.Miss);
+		expect(response.headers.get(QUERY_CACHE_DEBUG_HEADER_NAME)).toBe(
+			QUERY_CACHE_DEBUG_STATUSES.Miss
+		);
 		expect(response.headers.get(QUERY_CACHE_DEBUG_TTL_HEADER_NAME)).toBe('60000');
+	});
+
+	it('requests scoped collection trait catalog counts', async () => {
+		vi.spyOn(logger, 'info').mockImplementation(() => {});
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					chain: {},
+					collection: {},
+					traitCatalog: {
+						scope: [],
+						facets: []
+					}
+				})
+			)
+		);
+		const params = new URLSearchParams();
+		params.set(TRAIT_CATALOG_QUERY_PARAMS.Keys, 'Zone,Biome');
+		params.set(TRAIT_CATALOG_QUERY_PARAMS.ScopeTraits, 'Level:14');
+
+		await getCollectionTraitCatalog(globalThis.fetch, 'ethereum', 'terraforms', params);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'http://127.0.0.1:42710/api/ethereum/terraforms/traits/catalog?keys=Zone%2CBiome&scope_traits=Level%3A14',
+			{
+				credentials: 'include',
+				headers: expect.any(Headers)
+			}
+		);
 	});
 });
