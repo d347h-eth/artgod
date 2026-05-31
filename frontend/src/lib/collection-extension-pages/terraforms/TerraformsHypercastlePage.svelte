@@ -330,6 +330,10 @@
 		applyZoneSurface(row.zoneIndex);
 	}
 
+	function resetBiomePreviewColors(): void {
+		biomePreviewPalette = null;
+	}
+
 	async function copyZonePalette(row: TerraformsLevelZoneRow): Promise<void> {
 		if (!browser) return;
 		try {
@@ -502,12 +506,21 @@
 				<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
 					{detailTitle}
 				</h2>
+				<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailControls}>
+					<button
+						type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
+						class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.resetBiomeColorsButton}
+						data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.biomeColorResetButton}
+						disabled={biomePreviewPalette === null}
+						onclick={resetBiomePreviewColors}
+					>
+						{TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.ResetBiomeColors}
+					</button>
+				</div>
 			{/if}
-			{#if allLevelsSelected}
-				<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
-					{TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones}
-				</h3>
-			{/if}
+			<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
+				{TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones}
+			</h3>
 			<TerraformsTraitTable
 				columns={zoneTableColumns}
 				labels={TERRAFORMS_LEVEL_ZONE_TABLE_LABELS}
@@ -515,7 +528,6 @@
 				sortDirection={zoneSortDirection}
 				className={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.table}
 				testId={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.zoneTable}
-				sortButtonClassName={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.sortButton}
 				formatSortLabel={formatZoneTableSortLabel}
 				resolveAriaSort={resolveZoneTableAriaSort}
 				onSort={sortZonesByTableColumn}
@@ -608,7 +620,6 @@
 				sortDirection={biomeSortDirection}
 				className={`${TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.table} ${TERRAFORMS_BIOME_TABLE_DOM.classes.table}`}
 				testId={TERRAFORMS_BIOME_TABLE_DOM.testIds.table}
-				sortButtonClassName={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.sortButton}
 				formatSortLabel={formatBiomeTableSortLabel}
 				resolveAriaSort={resolveBiomeTableAriaSort}
 				onSort={sortBiomesByTableColumn}
@@ -696,11 +707,18 @@
 	}
 
 	.terraforms-hypercastle-level-detail-heading {
-		margin: 0 0 0.75rem;
+		margin: 0 0 0.4rem;
 		font-size: 1rem;
 		font-weight: 600;
 		color: var(--c-ice);
 		letter-spacing: 0;
+	}
+
+	.terraforms-hypercastle-level-detail-controls {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--control-button-gap);
+		margin: 0 0 0.75rem;
 	}
 
 	.terraforms-hypercastle-level-detail-subheading {
@@ -713,6 +731,10 @@
 	}
 
 	.terraforms-hypercastle-level-detail-heading + .terraforms-hypercastle-level-detail-subheading {
+		margin-top: 0;
+	}
+
+	.terraforms-hypercastle-level-detail-controls + .terraforms-hypercastle-level-detail-subheading {
 		margin-top: 0;
 	}
 
@@ -753,21 +775,6 @@
 	.terraforms-hypercastle-table-link:hover,
 	.terraforms-hypercastle-table-link:focus-visible {
 		color: var(--c-yellow);
-	}
-
-	.terraforms-hypercastle-zone-sort-button {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		width: fit-content;
-		min-height: 0;
-		border: 0;
-		padding: 0;
-		background: transparent;
-		color: inherit;
-		font: inherit;
-		text-transform: inherit;
-		letter-spacing: inherit;
 	}
 
 	.terraforms-hypercastle-zone-palette-cell {

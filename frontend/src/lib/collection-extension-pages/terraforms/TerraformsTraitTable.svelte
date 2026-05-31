@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import {
+		TERRAFORMS_TRAIT_TABLE_ARIA_SORT_VALUES,
 		TERRAFORMS_TRAIT_TABLE_BUTTON_TYPES,
 		TERRAFORMS_TRAIT_TABLE_DOM,
 		type TerraformsTraitTableAriaSortValue,
@@ -14,7 +15,6 @@
 		sortDirection: TerraformsTraitTableSortDirection;
 		className: string;
 		testId: string;
-		sortButtonClassName: string;
 		formatSortLabel: (column: string) => string;
 		resolveAriaSort: (
 			column: string,
@@ -32,12 +32,19 @@
 		sortDirection,
 		className,
 		testId,
-		sortButtonClassName,
 		formatSortLabel,
 		resolveAriaSort,
 		onSort,
 		children
 	}: TerraformsTraitTableProps = $props();
+
+	function sortHeaderClassName(ariaSort: TerraformsTraitTableAriaSortValue): string {
+		const classNames: string[] = [TERRAFORMS_TRAIT_TABLE_DOM.classes.sortHeader];
+		if (ariaSort !== TERRAFORMS_TRAIT_TABLE_ARIA_SORT_VALUES.None) {
+			classNames.push(TERRAFORMS_TRAIT_TABLE_DOM.classes.sortHeaderActive);
+		}
+		return classNames.join(' ');
+	}
 </script>
 
 <div class={TERRAFORMS_TRAIT_TABLE_DOM.classes.wrapper}>
@@ -45,10 +52,11 @@
 		<thead>
 			<tr>
 				{#each columns as column}
-					<th aria-sort={resolveAriaSort(column, activeColumn, sortDirection)}>
+					{@const ariaSort = resolveAriaSort(column, activeColumn, sortDirection)}
+					<th class={sortHeaderClassName(ariaSort)} aria-sort={ariaSort}>
 						<button
 							type={TERRAFORMS_TRAIT_TABLE_BUTTON_TYPES.Button}
-							class={sortButtonClassName}
+							class={TERRAFORMS_TRAIT_TABLE_DOM.classes.sortButton}
 							aria-label={formatSortLabel(column)}
 							onclick={() => onSort(column)}
 						>
@@ -63,3 +71,19 @@
 		</tbody>
 	</table>
 </div>
+
+<style>
+	:global(.terraforms-trait-table-sort-header .activities-time-mode-button) {
+		color: inherit;
+	}
+
+	:global(.terraforms-trait-table-sort-header-active) {
+		color: var(--c-orange);
+	}
+
+	:global(.terraforms-trait-table-sort-header .activities-time-mode-button:hover),
+	:global(.terraforms-trait-table-sort-header .activities-time-mode-button:focus-visible) {
+		color: var(--c-yellow);
+		outline: none;
+	}
+</style>

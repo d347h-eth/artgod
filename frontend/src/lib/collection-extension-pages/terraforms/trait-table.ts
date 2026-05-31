@@ -29,7 +29,10 @@ export type TerraformsTraitTableAriaSortValue = ValueOf<
 // DOM names shared by Terraforms trait table shells.
 export const TERRAFORMS_TRAIT_TABLE_DOM = {
 	classes: {
-		wrapper: 'table-wrap'
+		wrapper: 'table-wrap',
+		sortHeader: 'terraforms-trait-table-sort-header',
+		sortHeaderActive: 'terraforms-trait-table-sort-header-active',
+		sortButton: 'activities-time-mode-button'
 	}
 } as const;
 

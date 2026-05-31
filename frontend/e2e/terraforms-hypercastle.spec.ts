@@ -67,6 +67,10 @@ import {
 	TERRAFORMS_HYPERCASTLE_SURFACE_TEXTURE_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/hypercastle-surface-texture';
 import {
+	TERRAFORMS_TRAIT_TABLE_DOM,
+	TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS
+} from '../src/lib/collection-extension-pages/terraforms/trait-table';
+import {
 	attachDiagnosticsForTestFailure,
 	captureDiagnosticsForTest,
 	type PageDiagnosticsRegistry
@@ -176,8 +180,15 @@ const ARIA_ATTRIBUTE_VALUES = {
 } as const;
 const CSS_PROPERTY_NAMES = {
 	backgroundColor: 'background-color',
+	borderTopWidth: 'border-top-width',
 	color: 'color',
 	pointerEvents: 'pointer-events'
+} as const;
+const CSS_LENGTH_VALUES = {
+	ZeroPx: '0px'
+} as const;
+const CSS_VARIABLE_NAMES = {
+	Ice: '--c-ice'
 } as const;
 const TABLE_SELECTORS = {
 	bodyRows: 'tbody tr',
@@ -312,6 +323,11 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteCopyButton
 		),
+		biomeColorResetButton: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.biomeColorResetButton
+		),
+		tableSortButton: classSelector(TERRAFORMS_TRAIT_TABLE_DOM.classes.sortButton),
 		reachableLevelLayer: idSelector(
 			resolveTerraformsHypercastleOverviewLayerElementId(HYPERCASTLE_REACHABILITY_LEVEL_NUMBER)
 		),
@@ -541,8 +557,20 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toBeVisible();
 		await expect(zoneTable).toBeVisible();
 		await expect(biomePanel).toBeVisible();
+		await expect(
+			detailPanel.getByRole(ACCESSIBLE_ROLES.heading, {
+				name: TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones
+			})
+		).toBeVisible();
+		const biomeColorResetButton = detailPanel.locator(
+			HYPERCASTLE_PROBE_CONTRACT.selectors.biomeColorResetButton
+		);
+		await expect(biomeColorResetButton).toBeVisible();
+		await expect(biomeColorResetButton).toBeDisabled();
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
 		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows());
+		await assertTraitTableHeaderChrome(page, zoneTable);
+		await assertTraitTableHeaderChrome(page, biomeTable);
 		await biomeTable
 			.getByRole(ACCESSIBLE_ROLES.button, {
 				name: formatTerraformsBiomeSortLabel(TERRAFORMS_BIOME_TABLE_COLUMNS.Minted)
@@ -553,7 +581,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 			sortTerraformsBiomeRows(
 				expectedUnsortedSelectedLevelBiomeRows(),
 				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
-				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
+				TERRAFORMS_TRAIT_TABLE_SORT_DIRECTIONS.Descending
 			)
 		);
 		await biomeTable
@@ -719,6 +747,10 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(textureFillColors.length).toBeGreaterThan(0);
 		expect(textureFillColors.every((color) => targetRow.palette.includes(color))).toBe(true);
 		await assertBiomePalettePreview(page, biomeTable, targetRow.palette);
+		await expect(biomeColorResetButton).toBeEnabled();
+		await biomeColorResetButton.click();
+		await expect(biomeColorResetButton).toBeDisabled();
+		await assertBiomePalettePreviewReset(page, biomeTable);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.surfaceScreenshot);
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
@@ -1055,6 +1087,30 @@ async function assertBiomePalettePreview(
 	}
 }
 
+async function assertBiomePalettePreviewReset(page: Page, biomeTable: Locator): Promise<void> {
+	const expectedBackgroundColor = await resolveTransparentBackgroundColor(page);
+	const expectedCharacterColor = await resolveRootCssVariableColor(page, CSS_VARIABLE_NAMES.Ice);
+	const characterSet = biomeTable
+		.locator(classSelector(TERRAFORMS_BIOME_TABLE_DOM.classes.characterSet))
+		.first();
+	await expect(characterSet).toHaveCSS(CSS_PROPERTY_NAMES.backgroundColor, expectedBackgroundColor);
+
+	const characters = characterSet.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter);
+	for (const character of await characters.all()) {
+		await expect(character).toHaveCSS(CSS_PROPERTY_NAMES.color, expectedCharacterColor);
+	}
+}
+
+async function assertTraitTableHeaderChrome(page: Page, table: Locator): Promise<void> {
+	const expectedBackgroundColor = await resolveTransparentBackgroundColor(page);
+	const sortButtons = table.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.tableSortButton);
+	await expect(sortButtons.first()).toBeVisible();
+	for (const sortButton of await sortButtons.all()) {
+		await expect(sortButton).toHaveCSS(CSS_PROPERTY_NAMES.borderTopWidth, CSS_LENGTH_VALUES.ZeroPx);
+		await expect(sortButton).toHaveCSS(CSS_PROPERTY_NAMES.backgroundColor, expectedBackgroundColor);
+	}
+}
+
 async function resolveBrowserCssColor(page: Page, color: string): Promise<string> {
 	return page.evaluate(
 		({ color, colorProperty, tagName }) => {
@@ -1066,6 +1122,28 @@ async function resolveBrowserCssColor(page: Page, color: string): Promise<string
 			return resolvedColor;
 		},
 		{ color, colorProperty: CSS_PROPERTY_NAMES.color, tagName: TAG_NAMES.span }
+	);
+}
+
+async function resolveRootCssVariableColor(page: Page, variableName: string): Promise<string> {
+	const color = await page.evaluate(
+		(variableName) =>
+			getComputedStyle(document.documentElement).getPropertyValue(variableName).trim(),
+		variableName
+	);
+	return resolveBrowserCssColor(page, color);
+}
+
+async function resolveTransparentBackgroundColor(page: Page): Promise<string> {
+	return page.evaluate(
+		({ backgroundColorProperty, tagName }) => {
+			const probe = document.createElement(tagName);
+			document.body.append(probe);
+			const resolvedColor = getComputedStyle(probe).getPropertyValue(backgroundColorProperty);
+			probe.remove();
+			return resolvedColor;
+		},
+		{ backgroundColorProperty: CSS_PROPERTY_NAMES.backgroundColor, tagName: TAG_NAMES.span }
 	);
 }
 

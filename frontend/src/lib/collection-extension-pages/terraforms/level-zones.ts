@@ -66,7 +66,8 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_LABELS: Record<TerraformsLevelZoneTable
 
 // Section labels distinguish all-level detail tables.
 export const TERRAFORMS_LEVEL_ZONE_SECTION_LABELS = {
-	Zones: 'zones'
+	Zones: 'zones',
+	ResetBiomeColors: 'reset colors'
 } as const;
 
 // Column sets keep aggregate and selected-level tables from implying unavailable data.
@@ -89,7 +90,8 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_DOM = {
 		detailPanel: 'terraforms-hypercastle-level-detail',
 		zoneTable: 'terraforms-hypercastle-level-zone-table',
 		paletteSwatch: 'terraforms-hypercastle-zone-palette-swatch',
-		paletteCopyButton: 'terraforms-hypercastle-zone-palette-copy'
+		paletteCopyButton: 'terraforms-hypercastle-zone-palette-copy',
+		biomeColorResetButton: 'terraforms-hypercastle-biome-color-reset'
 	},
 	classes: {
 		root: 'terraforms-hypercastle-page',
@@ -97,9 +99,10 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_DOM = {
 		detailPanel: 'terraforms-hypercastle-level-detail',
 		detailPlaceholder: 'terraforms-hypercastle-level-detail-placeholder',
 		detailHeading: 'terraforms-hypercastle-level-detail-heading',
+		detailControls: 'terraforms-hypercastle-level-detail-controls',
+		resetBiomeColorsButton: 'button-link',
 		detailSubheading: 'terraforms-hypercastle-level-detail-subheading',
 		table: 'terraforms-hypercastle-zone-table',
-		sortButton: 'terraforms-hypercastle-zone-sort-button',
 		tableLink: 'terraforms-hypercastle-table-link',
 		paletteCell: 'terraforms-hypercastle-zone-palette-cell',
 		palette: 'terraforms-hypercastle-zone-palette',
