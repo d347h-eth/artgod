@@ -1996,6 +1996,12 @@ th {
 	margin-bottom: 0;
 }
 
+.bid-book-demand-table .bid-book-demand-group-header {
+	justify-content: center;
+	align-items: center;
+	gap: 0.35rem 0.8rem;
+}
+
 .bid-book-row-scope-header {
 	justify-content: center;
 	gap: 0.15rem 0.55rem;
@@ -2005,6 +2011,17 @@ th {
 	color: var(--c-ice);
 	font-weight: 700;
 	letter-spacing: 0;
+}
+
+.bid-book-demand-table .bid-book-demand-group-title {
+	flex: 0 0 100%;
+	font-size: 2rem;
+	line-height: 1;
+	text-align: center;
+}
+
+.bid-book-demand-table .bid-book-demand-trait-list {
+	justify-content: center;
 }
 
 .bid-book-demand-trait-list {
@@ -2054,7 +2071,7 @@ th {
 
 .bid-book-demand-group-spacer,
 .bid-book-demand-group-spacer td {
-	height: 1.55rem;
+	height: 3.1rem;
 }
 
 .bid-book-demand-group-spacer td {
