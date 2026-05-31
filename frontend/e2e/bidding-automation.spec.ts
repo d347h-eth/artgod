@@ -1,4 +1,4 @@
-import { expect, test, type Page } from 'playwright/test';
+import { expect, test, type Locator, type Page } from 'playwright/test';
 import {
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_TIER_SELECTION_MODE,
@@ -210,8 +210,7 @@ test.describe('bidding automation fixture harness', () => {
 		const filterAction = page
 			.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketFilter}"][data-traits="Mode=Terrain|Zone=Shahra"]`)
 			.first();
-		await expect(filterAction).toBeVisible();
-		await filterAction.click();
+		await clickCenterVerifiedAction(filterAction);
 		await expect(page).toHaveURL(/traits=Mode%3ATerrain/);
 		await expect(page).toHaveURL(/traits=Zone%3AShahra/);
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
@@ -224,7 +223,7 @@ test.describe('bidding automation fixture harness', () => {
 		const bidAction = page
 			.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Mode=Terrain|Zone=Shahra"]`)
 			.first();
-		await bidAction.click();
+		await clickCenterVerifiedAction(bidAction);
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toBeVisible();
 		await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.421');
 		await expect(page.locator('#bidding-automation-delta')).toHaveValue('0.001');
@@ -252,10 +251,9 @@ test.describe('bidding automation fixture harness', () => {
 		});
 
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
-		await page
-			.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Biome=42"]`)
-			.first()
-			.click();
+		await clickCenterVerifiedAction(
+			page.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Biome=42"]`).first()
+		);
 		const panel = page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`);
 		await expect(panel).toContainText('job-trait-biome-42');
 		await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.350');
@@ -338,10 +336,11 @@ test.describe('bidding automation fixture harness', () => {
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
 
-		await page
-			.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Mode=Terrain|Zone=Shahra"]`)
-			.first()
-			.click();
+		await clickCenterVerifiedAction(
+			page
+				.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketBid}"][data-traits="Mode=Terrain|Zone=Shahra"]`)
+				.first()
+		);
 		await page.getByRole('button', { name: 'Base' }).click({ force: true });
 		await expect(page.locator('#bidding-automation-floor')).toHaveValue('0.300');
 		await expect(page.locator('#bidding-automation-floor')).toBeDisabled();
@@ -415,6 +414,21 @@ async function confirmPriceTierAction(page: Page, actionKey: string): Promise<vo
 	await button.click({ force: true });
 	await expect(button).toHaveClass(/token-bidding-action-armed/);
 	await button.click({ force: true });
+}
+
+async function clickCenterVerifiedAction(action: Locator): Promise<void> {
+	await expect(action).toBeVisible();
+	await action.scrollIntoViewIfNeeded();
+	const receivesPointerEvents = await action.evaluate((element) => {
+		const rect = element.getBoundingClientRect();
+		const hitTarget = document.elementFromPoint(
+			rect.left + rect.width / 2,
+			rect.top + rect.height / 2
+		);
+		return hitTarget !== null && (hitTarget === element || element.contains(hitTarget));
+	});
+	expect(receivesPointerEvents).toBe(true);
+	await action.click({ force: true });
 }
 
 async function clickTokenCard(

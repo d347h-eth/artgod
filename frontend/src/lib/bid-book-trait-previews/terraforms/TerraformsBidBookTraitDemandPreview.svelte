@@ -41,6 +41,6 @@
 		--terraforms-biome-character-band-padding-block: 0.24rem;
 		--terraforms-biome-character-band-padding-inline: 0.32rem;
 		width: fit-content;
-		margin: 0.36rem auto 0;
+		margin: 0.36rem auto 0.125rem;
 	}
 </style>

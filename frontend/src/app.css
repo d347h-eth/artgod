@@ -1997,9 +1997,11 @@ th {
 }
 
 .bid-book-demand-table .bid-book-demand-group-header {
+	flex-wrap: nowrap;
 	justify-content: center;
 	align-items: center;
 	gap: 0.35rem 0.8rem;
+	white-space: nowrap;
 }
 
 .bid-book-row-scope-header {
@@ -2014,14 +2016,32 @@ th {
 }
 
 .bid-book-demand-table .bid-book-demand-group-title {
-	flex: 0 0 100%;
-	font-size: 2rem;
+	flex: 0 0 auto;
+	font-size: 1.5625rem;
 	line-height: 1;
+	position: relative;
 	text-align: center;
+	z-index: 1;
+}
+
+.bid-book-demand-table .bid-book-place-bid-icon-button {
+	align-self: center;
+	flex: 0 0 25px;
+	height: 25px;
+	min-height: 25px;
+	min-width: 25px;
+	position: relative;
+	width: 25px;
+	z-index: 2;
 }
 
 .bid-book-demand-table .bid-book-demand-trait-list {
+	flex-wrap: nowrap;
 	justify-content: center;
+}
+
+.bid-book-demand-table .runtime-kv-grid.bid-book-demand-group-meta {
+	flex-wrap: nowrap;
 }
 
 .bid-book-demand-trait-list {
@@ -3753,15 +3773,19 @@ th {
 	width: 11px;
 	height: 11px;
 	display: block;
-	fill: none;
-	stroke: currentColor;
-	stroke-width: 1.45;
-	stroke-linecap: square;
-	stroke-linejoin: miter;
+}
+
+.bid-book-place-bid-icon-button .filter-icon {
+	fill: currentColor;
+	stroke: none;
 }
 
 .bid-book-place-bid-icon {
 	fill: currentColor;
+	stroke: currentColor;
+	stroke-width: 1.45;
+	stroke-linecap: square;
+	stroke-linejoin: miter;
 }
 
 .runtime-tabs button:disabled:hover,
