@@ -391,7 +391,7 @@ group = "chain-rpc"
 label = "rpc endpoints"
 defaults = { local = "", deploy = "[{\"url\":\"http://ethereum-rpc:8545\",\"weight\":1}]", desktop = "" }
 help = "JSON array of Ethereum HTTP JSON-RPC endpoints used by backend, indexer, and trading runtimes. Each endpoint has a positive weight."
-input = "rpc_endpoint_list"
+input = "weighted_endpoint_list"
 required_for_launch = true
 validation = "rpc_endpoint_list"
 view = "basic"
@@ -402,16 +402,17 @@ group = "chain-rpc"
 label = "rpc backfill endpoints"
 default = ""
 help = "Optional JSON array of HTTP JSON-RPC endpoints used for backfill sync jobs; realtime sync keeps using RPC_URL."
-input = "rpc_endpoint_list"
+input = "weighted_endpoint_list"
 validation = "rpc_endpoint_list"
 
 [[settings]]
 key = "RPC_WS_URL"
 group = "chain-rpc"
-label = "rpc ws url"
-defaults = { local = "", deploy = "ws://ethereum-rpc:8546", desktop = "" }
-help = "Optional WebSocket RPC endpoint used to listen for new blocks faster and more cheaply, alongside periodic new-block polling."
-validation = "websocket_url"
+label = "rpc ws endpoints"
+defaults = { local = "", deploy = "[{\"url\":\"ws://ethereum-rpc:8546\",\"weight\":1}]", desktop = "" }
+help = "Optional JSON array of weighted WebSocket RPC endpoints used to listen for new blocks faster and more cheaply, alongside periodic new-block polling."
+input = "weighted_endpoint_list"
+validation = "websocket_endpoint_list"
 view = "basic"
 
 [[settings]]

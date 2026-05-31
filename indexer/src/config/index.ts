@@ -12,7 +12,9 @@ import {
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
     parseRpcEndpointConfigList,
+    parseRpcWebSocketEndpointConfigList,
     type RpcEndpointConfig,
+    type RpcWebSocketEndpointConfig,
 } from "@artgod/shared/config/rpc-endpoints";
 import {
     parseBoolean,
@@ -99,7 +101,7 @@ export type IndexerConfig = {
     rpc: {
         endpoints: RpcEndpointConfig[];
         backfillEndpoints?: RpcEndpointConfig[];
-        wsUrl?: string;
+        wsEndpoints?: RpcWebSocketEndpointConfig[];
         retryPolicy: {
             maxAttempts: number;
             baseDelayMs: number;
@@ -180,6 +182,9 @@ export function loadConfig(
     const backfillEndpoints = env.RPC_BACKFILL_URL?.trim()
         ? parseRpcEndpointConfigList(env.RPC_BACKFILL_URL, "RPC_BACKFILL_URL")
         : undefined;
+    const wsEndpoints = env.RPC_WS_URL?.trim()
+        ? parseRpcWebSocketEndpointConfigList(env.RPC_WS_URL, "RPC_WS_URL")
+        : undefined;
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
 
@@ -189,7 +194,7 @@ export function loadConfig(
         rpc: {
             endpoints: rpcEndpoints,
             backfillEndpoints,
-            wsUrl: env.RPC_WS_URL,
+            wsEndpoints,
             retryPolicy: {
                 maxAttempts: parseNumber(
                     env.RPC_RETRY_MAX_ATTEMPTS,

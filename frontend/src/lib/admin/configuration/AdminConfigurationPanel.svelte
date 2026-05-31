@@ -166,7 +166,7 @@
 							<h3>{group.label}</h3>
 							{#each group.fields as field (field.key)}
 								{@const validationIssue = fieldValidationIssue(field)}
-								{#if field.inputKind === 'rpc_endpoint_list'}
+								{#if field.inputKind === 'weighted_endpoint_list'}
 									<div
 										class="admin-config-row admin-config-textarea-row"
 										class:admin-config-row-warning={validationIssue !== null}
@@ -186,6 +186,10 @@
 											value={fieldValue(field)}
 											disabled={formDisabled}
 											invalid={validationIssue !== null}
+											validation={field.validation}
+											endpointLabel={field.validation === 'websocket_endpoint_list'
+												? 'WebSocket endpoint'
+												: 'RPC endpoint'}
 											onChange={(value) => {
 												setValue(field.key, value);
 											}}

@@ -26,10 +26,10 @@ The runtime env defaults are sourced from `config/settings.manifest.toml` and ge
 
 ## External Node RPC
 
-| Port   | Surface                | Used By                                    | Source                                        |
-| ------ | ---------------------- | ------------------------------------------ | --------------------------------------------- |
-| `8545` | Ethereum JSON-RPC HTTP | Deploy one-entry `RPC_URL` endpoint pool   | External node compose + `.env.deploy.example` |
-| `8546` | Ethereum JSON-RPC WS   | Deploy `RPC_WS_URL=ws://ethereum-rpc:8546` | External node compose + `.env.deploy.example` |
+| Port   | Surface                | Used By                                     | Source                                        |
+| ------ | ---------------------- | ------------------------------------------- | --------------------------------------------- |
+| `8545` | Ethereum JSON-RPC HTTP | Deploy one-entry `RPC_URL` endpoint pool    | External node compose + `.env.deploy.example` |
+| `8546` | Ethereum JSON-RPC WS   | Deploy one-entry `RPC_WS_URL` endpoint pool | External node compose + `.env.deploy.example` |
 
 ## Observability Services
 

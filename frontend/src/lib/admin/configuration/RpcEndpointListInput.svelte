@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { DEFAULT_RPC_ENDPOINT_WEIGHT, parseRpcEndpointConfigList } from '@artgod/shared/config/rpc-endpoints';
+	import {
+		DEFAULT_RPC_ENDPOINT_WEIGHT,
+		parseRpcEndpointConfigList,
+		parseRpcWebSocketEndpointConfigList
+	} from '@artgod/shared/config/rpc-endpoints';
+	import type { AdminConfigValidationRule } from '$lib/admin/configuration/ports';
 
 	type RpcEndpointDraft = {
 		url: string;
@@ -10,11 +15,15 @@
 		value,
 		disabled,
 		invalid = false,
+		validation = 'rpc_endpoint_list',
+		endpointLabel = 'RPC endpoint',
 		onChange
 	}: {
 		value: string;
 		disabled: boolean;
 		invalid?: boolean;
+		validation?: AdminConfigValidationRule | null;
+		endpointLabel?: string;
 		onChange: (value: string) => void;
 	} = $props();
 
@@ -64,7 +73,7 @@
 			return [emptyDraft()];
 		}
 		try {
-			return parseRpcEndpointConfigList(raw).map((endpoint) => ({
+			return parseEndpointList(raw).map((endpoint) => ({
 				url: endpoint.url,
 				weight: String(endpoint.weight)
 			}));
@@ -97,6 +106,12 @@
 			weight: String(DEFAULT_RPC_ENDPOINT_WEIGHT)
 		};
 	}
+
+	function parseEndpointList(raw: string): { url: string; weight: number }[] {
+		return validation === 'websocket_endpoint_list'
+			? parseRpcWebSocketEndpointConfigList(raw)
+			: parseRpcEndpointConfigList(raw);
+	}
 </script>
 
 <div class="rpc-endpoint-list">
@@ -107,7 +122,7 @@
 				class:admin-config-control-warning={invalid}
 				value={draft.url}
 				disabled={disabled}
-				aria-label={`RPC endpoint ${index + 1} URL`}
+				aria-label={`${endpointLabel} ${index + 1} URL`}
 				aria-invalid={invalid}
 				oninput={(event) => {
 					updateUrl(index, (event.currentTarget as HTMLInputElement).value);
@@ -121,7 +136,7 @@
 				step="1"
 				value={draft.weight}
 				disabled={disabled}
-				aria-label={`RPC endpoint ${index + 1} weight`}
+				aria-label={`${endpointLabel} ${index + 1} weight`}
 				aria-invalid={invalid}
 				oninput={(event) => {
 					updateWeight(index, (event.currentTarget as HTMLInputElement).value);

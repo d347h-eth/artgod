@@ -29,6 +29,8 @@ The viem adapter accepts a weighted HTTP JSON-RPC endpoint pool from `RPC_URL`. 
 
 Provides a WebSocket head listener used by the scheduler-worker.
 
+The viem WebSocket adapter accepts a separate weighted endpoint pool from `RPC_WS_URL`. It keeps one active connection to the highest effective-weight endpoint, records socket/listener failures against that endpoint, and reconnects through the same in-memory weight adjustment policy used by the HTTP pool. HTTP polling remains authoritative and fills any missed heads.
+
 ## Storage Port
 
 - Interface: `indexer/src/ports/storage.ts`

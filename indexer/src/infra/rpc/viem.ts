@@ -1,10 +1,10 @@
 import { createPublicClient, http } from "viem";
 import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
+import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import {
-    WeightedRpcEndpointSelector,
-    type RpcEndpointConfig,
-    type WeightedRpcEndpointSelection,
-} from "@artgod/shared/config/rpc-endpoints";
+    WeightedEndpointSelector,
+    type WeightedEndpointSelection,
+} from "@artgod/shared/config/weighted-endpoints";
 import type { RetryPolicy } from "../../domain/retry.js";
 import { getRetryDelayMs } from "../../domain/retry.js";
 import type { Metrics } from "@artgod/shared/observability/metrics";
@@ -46,7 +46,7 @@ type ViemRpcEndpoint = {
     circuitBreaker: CircuitBreaker;
 };
 
-type ViemRpcEndpointSelection = WeightedRpcEndpointSelection<ViemRpcEndpoint>;
+type ViemRpcEndpointSelection = WeightedEndpointSelection<ViemRpcEndpoint>;
 
 const DEFAULT_RETRY_POLICY: RetryPolicy = {
     maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
@@ -75,11 +75,11 @@ export class ViemRpcProvider implements RpcProviderPort {
     private cache?: CachePort;
     private metrics?: Metrics;
     private retryPolicy: RetryPolicy;
-    private endpointSelector: WeightedRpcEndpointSelector<ViemRpcEndpoint>;
+    private endpointSelector: WeightedEndpointSelector<ViemRpcEndpoint>;
 
     constructor(private config: ViemRpcConfig) {
         const endpoints = resolveRpcEndpoints(config);
-        this.endpointSelector = new WeightedRpcEndpointSelector(
+        this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
                 id: `rpc-${index + 1}`,

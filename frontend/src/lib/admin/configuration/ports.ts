@@ -4,12 +4,12 @@ export type AdminConfigInputKind =
 	| 'checkbox'
 	| 'textarea'
 	| 'select'
-	| 'rpc_endpoint_list';
+	| 'weighted_endpoint_list';
 export type AdminConfigValidationRule =
 	| 'url'
-	| 'websocket_url'
 	| 'positive_integer'
-	| 'rpc_endpoint_list';
+	| 'rpc_endpoint_list'
+	| 'websocket_endpoint_list';
 
 export type AdminConfigField = {
 	key: string;

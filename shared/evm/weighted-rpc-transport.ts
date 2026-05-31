@@ -1,8 +1,6 @@
 import { custom } from "viem";
-import {
-    WeightedRpcEndpointSelector,
-    type RpcEndpointConfig,
-} from "../config/rpc-endpoints.js";
+import type { RpcEndpointConfig } from "../config/rpc-endpoints.js";
+import { WeightedEndpointSelector } from "../config/weighted-endpoints.js";
 
 type JsonRpcRequest = {
     jsonrpc: "2.0";
@@ -35,7 +33,7 @@ export function createWeightedRpcTransport(
     endpoints: readonly RpcEndpointConfig[],
     options: WeightedRpcTransportOptions = {},
 ) {
-    const selector = new WeightedRpcEndpointSelector(
+    const selector = new WeightedEndpointSelector(
         endpoints.map((endpoint, index) => ({
             ...endpoint,
             id: `${options.endpointIdPrefix ?? "rpc"}-${index + 1}`,

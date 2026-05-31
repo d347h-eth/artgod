@@ -51,9 +51,9 @@ Optional fields:
 - `desktop_default`: desktop-specific default used for Admin-rendered `.env`.
 - `help`: Admin info-tip text.
 - `view`: `basic` or `advanced`; absent settings default to advanced-only UI.
-- `input`: `text`, `password`, `checkbox`, `textarea`, `select`, or `rpc_endpoint_list`.
+- `input`: `text`, `password`, `checkbox`, `textarea`, `select`, or `weighted_endpoint_list`.
 - `options`: allowed values for `select`.
-- `validation`: currently `url`, `websocket_url`, `positive_integer`, or `rpc_endpoint_list`.
+- `validation`: currently `url`, `positive_integer`, `rpc_endpoint_list`, or `websocket_endpoint_list`.
 - `required_for_launch`: blocks `start infra` when the effective desktop value is empty or invalid.
 - `desktop_managed`: set `false` for settings that are known to the app but should not be shown or rendered by desktop Admin.
 - `secret`: marks sensitive settings in the Admin schema.

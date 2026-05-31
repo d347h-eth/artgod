@@ -10,7 +10,7 @@ import type { AdminConfigField, AdminConfigState } from './ports';
 const RPC_URL_FIELD: AdminConfigField = {
 	key: 'RPC_URL',
 	label: 'rpc endpoints',
-	inputKind: 'rpc_endpoint_list',
+	inputKind: 'weighted_endpoint_list',
 	secret: false,
 	options: [],
 	help: '',
@@ -21,13 +21,13 @@ const RPC_URL_FIELD: AdminConfigField = {
 
 const RPC_WS_URL_FIELD: AdminConfigField = {
 	key: 'RPC_WS_URL',
-	label: 'rpc ws url',
-	inputKind: 'text',
+	label: 'rpc ws endpoints',
+	inputKind: 'weighted_endpoint_list',
 	secret: false,
 	options: [],
 	help: '',
 	requiredForLaunch: false,
-	validation: 'websocket_url',
+	validation: 'websocket_endpoint_list',
 	view: 'basic'
 };
 
@@ -123,36 +123,47 @@ describe('admin config validation', () => {
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 	});
 
-	it('accepts supported websocket URL schemes for websocket-only fields', () => {
+	it('accepts supported websocket endpoint config values', () => {
 		expect(
 			resolveAdminConfigValidationIssues(
-				config({ RPC_WS_URL: 'wss://rpc.example' }, [RPC_WS_URL_FIELD]),
+				config(
+					{
+						RPC_WS_URL: '[{"url":"wss://ws-a.example","weight":2},{"url":"ws://127.0.0.1:8546"}]'
+					},
+					[RPC_WS_URL_FIELD]
+				),
 				{
-					RPC_WS_URL: 'wss://rpc.example'
-				}
-			)
-		).toEqual([]);
-		expect(
-			resolveAdminConfigValidationIssues(
-				config({ RPC_WS_URL: 'ws://127.0.0.1:8546' }, [RPC_WS_URL_FIELD]),
-				{
-					RPC_WS_URL: 'ws://127.0.0.1:8546'
+					RPC_WS_URL: '[{"url":"wss://ws-a.example","weight":2},{"url":"ws://127.0.0.1:8546"}]'
 				}
 			)
 		).toEqual([]);
 	});
 
-	it('rejects non-websocket schemes for websocket-only fields', () => {
+	it('rejects plain websocket URL endpoint values', () => {
 		const issues = resolveAdminConfigValidationIssues(
-			config({ RPC_WS_URL: 'https://rpc.example' }, [RPC_WS_URL_FIELD]),
+			config({ RPC_WS_URL: 'wss://ws.example' }, [RPC_WS_URL_FIELD]),
 			{
-				RPC_WS_URL: 'https://rpc.example'
+				RPC_WS_URL: 'wss://ws.example'
 			}
 		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 		expect(issues.map((issue) => issue.message)).toEqual([
-			'RPC_WS_URL must be a valid WebSocket URL.'
+			'Invalid RPC_WS_URL: endpoint list must be a JSON array'
+		]);
+	});
+
+	it('rejects non-websocket schemes for websocket endpoint pools', () => {
+		const issues = resolveAdminConfigValidationIssues(
+			config({ RPC_WS_URL: '[{"url":"https://rpc.example","weight":1}]' }, [RPC_WS_URL_FIELD]),
+			{
+				RPC_WS_URL: '[{"url":"https://rpc.example","weight":1}]'
+			}
+		);
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
+		expect(issues.map((issue) => issue.message)).toEqual([
+			'Invalid RPC_WS_URL: endpoint 1 URL is invalid'
 		]);
 	});
 

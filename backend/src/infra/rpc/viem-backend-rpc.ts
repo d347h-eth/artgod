@@ -1,10 +1,8 @@
 import { createPublicClient, http } from "viem";
 import { getEnsAddress } from "viem/actions";
 import { normalize } from "viem/ens";
-import {
-    WeightedRpcEndpointSelector,
-    type RpcEndpointConfig,
-} from "@artgod/shared/config/rpc-endpoints";
+import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
+import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 
 export type BackendRpcHex = `0x${string}`;
@@ -27,7 +25,7 @@ const CURRENT_BLOCK_NUMBER_CACHE_TTL_MS = 2_000;
 type BackendViemClient = ReturnType<typeof createPublicClient>;
 
 export class ViemBackendRpcClient {
-    private readonly endpointSelector: WeightedRpcEndpointSelector<BackendViemClient>;
+    private readonly endpointSelector: WeightedEndpointSelector<BackendViemClient>;
     private currentBlockNumberCache: {
         blockNumber: number;
         expiresAtMs: number;
@@ -38,7 +36,7 @@ export class ViemBackendRpcClient {
         endpoints: readonly RpcEndpointConfig[],
         private readonly apm: ApmPort = NOOP_APM,
     ) {
-        this.endpointSelector = new WeightedRpcEndpointSelector(
+        this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
                 id: `backend-rpc-${index + 1}`,

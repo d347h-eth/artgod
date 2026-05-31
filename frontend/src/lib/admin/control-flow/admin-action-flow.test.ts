@@ -34,7 +34,7 @@ function configState(
 					{
 						key: REQUIRED_RPC_KEY,
 						label: 'rpc endpoints',
-						inputKind: 'rpc_endpoint_list',
+						inputKind: 'weighted_endpoint_list',
 						secret: false,
 						options: [],
 						help: '',

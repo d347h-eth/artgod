@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     parseRpcEndpointConfigList,
+    parseRpcWebSocketEndpointConfigList,
     serializeRpcEndpointConfigList,
     WeightedRpcEndpointSelector,
 } from "./rpc-endpoints.js";
@@ -91,6 +92,33 @@ describe("RPC endpoint config", () => {
     });
 });
 
+describe("RPC websocket endpoint config", () => {
+    it("parses weighted websocket endpoint lists", () => {
+        expect(
+            parseRpcWebSocketEndpointConfigList(
+                '[{"url":"wss://ws-a.example","weight":3},{"url":"ws://ws-b.example"}]',
+            ),
+        ).toEqual([
+            { url: "wss://ws-a.example", weight: 3 },
+            { url: "ws://ws-b.example", weight: 1 },
+        ]);
+    });
+
+    it("rejects plain websocket URL values", () => {
+        expect(() =>
+            parseRpcWebSocketEndpointConfigList("wss://ws-a.example"),
+        ).toThrow("endpoint list must be a JSON array");
+    });
+
+    it("rejects HTTP URLs for websocket endpoint pools", () => {
+        expect(() =>
+            parseRpcWebSocketEndpointConfigList(
+                '[{"url":"https://rpc.example","weight":1}]',
+            ),
+        ).toThrow("URL is invalid");
+    });
+});
+
 describe("WeightedRpcEndpointSelector", () => {
     it("selects endpoints according to configured weights", () => {
         const selector = new WeightedRpcEndpointSelector([
@@ -124,5 +152,19 @@ describe("WeightedRpcEndpointSelector", () => {
         expect(state.find((entry) => entry.id === "b")?.effectiveWeight).toBe(
             4,
         );
+    });
+
+    it("selects the highest effective endpoint for long-lived connections", () => {
+        const selector = new WeightedRpcEndpointSelector([
+            { id: "a", url: "wss://ws-a.example", weight: 3, value: "a" },
+            { id: "b", url: "wss://ws-b.example", weight: 1, value: "b" },
+        ]);
+
+        expect(selector.selectHighestEffectiveWeight().id).toBe("a");
+
+        selector.recordFailure("a");
+        selector.recordFailure("a");
+
+        expect(selector.selectHighestEffectiveWeight().id).toBe("b");
     });
 });

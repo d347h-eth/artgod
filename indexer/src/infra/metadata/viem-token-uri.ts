@@ -1,8 +1,6 @@
 import { createPublicClient, http } from "viem";
-import {
-    WeightedRpcEndpointSelector,
-    type RpcEndpointConfig,
-} from "@artgod/shared/config/rpc-endpoints";
+import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
+import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import type { TokenStandard } from "../../domain/metadata.js";
 import type { TokenUriResolverPort } from "../../ports/metadata.js";
@@ -33,14 +31,14 @@ export type TokenUriResolverConfig = {
 };
 
 export class ViemTokenUriResolver implements TokenUriResolverPort {
-    private endpointSelector: WeightedRpcEndpointSelector<
+    private endpointSelector: WeightedEndpointSelector<
         ReturnType<typeof createPublicClient>
     >;
     private metrics?: Metrics;
 
     constructor(config: TokenUriResolverConfig) {
         const endpoints = resolveTokenUriRpcEndpoints(config);
-        this.endpointSelector = new WeightedRpcEndpointSelector(
+        this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
                 id: `metadata-rpc-${index + 1}`,

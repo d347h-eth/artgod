@@ -62,7 +62,7 @@ docker network create ethereum-rpc
 Attach the node container and ArtGod runtimes to that network. The node should expose a stable Docker DNS alias that matches the deploy RPC URLs:
 
 - `RPC_URL=[{"url":"http://ethereum-rpc:8545","weight":1}]`
-- `RPC_WS_URL=ws://ethereum-rpc:8546`
+- `RPC_WS_URL=[{"url":"ws://ethereum-rpc:8546","weight":1}]`
 
 Keep this network separate from `public-edge`. The public edge network is for Cloudflare/Caddy-to-ArtGod web ingress; the RPC network is for private backend/indexer-to-node traffic.
 `RPC_URL` is a weighted endpoint pool; for one same-host node, use `[{"url":"http://ethereum-rpc:8545","weight":1}]`.
@@ -139,7 +139,7 @@ cp .env.deploy.example .env.deploy
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_FRESH_MS=600000`
 - `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_STALE_MS=1200000`
 - `RPC_URL=[{"url":"http://ethereum-rpc:8545","weight":1}]`
-- `RPC_WS_URL=ws://ethereum-rpc:8546` if using the node WebSocket endpoint
+- `RPC_WS_URL=[{"url":"ws://ethereum-rpc:8546","weight":1}]` if using the node WebSocket endpoint
 - `OPENSEA_API_KEY`
 
 If enabling deploy observability, also set:
@@ -216,7 +216,7 @@ Because public write/admin routes are not exposed in this deployment mode, do ma
 - `PUBLIC_SITE_HOST` is consumed by the optional bundled Caddy service and should match the host portion of `PUBLIC_BACKEND_ORIGIN`.
 - `PUBLIC_EDGE_NETWORK` is the shared external Docker network used to reach `artgod-backend` and `artgod-frontend` from another compose project.
 - `ETHEREUM_RPC_NETWORK` is the shared external Docker network used by backend/indexer runtimes to reach a same-host Ethereum node without publishing RPC beyond the host.
-- In same-host reth deployments, use `RPC_URL=[{"url":"http://ethereum-rpc:8545","weight":1}]` and `RPC_WS_URL=ws://ethereum-rpc:8546`; the reth container must join `ETHEREUM_RPC_NETWORK` with the `ethereum-rpc` alias.
+- In same-host reth deployments, use `RPC_URL=[{"url":"http://ethereum-rpc:8545","weight":1}]` and `RPC_WS_URL=[{"url":"ws://ethereum-rpc:8546","weight":1}]`; the reth container must join `ETHEREUM_RPC_NETWORK` with the `ethereum-rpc` alias.
 - `OBSERVABILITY_GRAFANA_HOST_BIND_IP` and `OBSERVABILITY_GRAFANA_HOST_BIND_PORT` publish deploy Grafana privately on the host, for example `http://10.77.0.1:42735` over WireGuard. Grafana is not joined to `public-edge` by default.
 - `PUBLIC_APP_DEPLOYMENT_MODE`, `PUBLIC_APP_CHAIN_REF`, and `PUBLIC_APP_COLLECTION_REF` are also build-time inputs for the SSR frontend image, and runtime inputs for the backend service.
 - `BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, `BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS`, and `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*` are backend runtime-only env vars. They do not affect the frontend image build. Recreating only the `backend` container is enough after changing them.

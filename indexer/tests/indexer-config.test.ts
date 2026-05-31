@@ -44,6 +44,8 @@ describe("Indexer config", () => {
                 '[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]',
             RPC_BACKFILL_URL:
                 '[{"url":"https://backfill-a.example","weight":3},{"url":"https://backfill-b.example","weight":1}]',
+            RPC_WS_URL:
+                '[{"url":"wss://ws-a.example","weight":2},{"url":"ws://ws-b.example","weight":1}]',
         });
 
         expect(config.rpc.endpoints).toEqual([
@@ -53,6 +55,10 @@ describe("Indexer config", () => {
         expect(config.rpc.backfillEndpoints).toEqual([
             { url: "https://backfill-a.example", weight: 3 },
             { url: "https://backfill-b.example", weight: 1 },
+        ]);
+        expect(config.rpc.wsEndpoints).toEqual([
+            { url: "wss://ws-a.example", weight: 2 },
+            { url: "ws://ws-b.example", weight: 1 },
         ]);
     });
 

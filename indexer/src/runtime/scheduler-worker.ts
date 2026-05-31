@@ -47,8 +47,8 @@ async function main() {
             resilience: config.rpc.resilience,
         });
 
-        const headSource = config.rpc.wsUrl
-            ? new ViemWebSocketHeadSource(config.rpc.wsUrl)
+        const headSource = config.rpc.wsEndpoints
+            ? new ViemWebSocketHeadSource(config.rpc.wsEndpoints)
             : undefined;
         const stopSchedulerWorker = await startSchedulerWorker(
             rpc,

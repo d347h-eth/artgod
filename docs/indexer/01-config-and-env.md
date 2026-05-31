@@ -12,7 +12,7 @@ Config is loaded in `indexer/src/config/index.ts` (core indexer workers) and `in
 
 - `IndexerConfig`:
     - `chainId`
-    - `rpc`: weighted HTTP endpoint pool, optional weighted backfill endpoint pool, optional `wsUrl`
+    - `rpc`: weighted HTTP endpoint pool, optional weighted backfill endpoint pool, optional weighted WebSocket endpoint pool
     - `tokens`: `wethAddress`
     - `queue`: NATS URL and stream prefix
 - `sync`: reorg depth, backfill batch size, backfill worker count, log chunk size
@@ -34,6 +34,7 @@ The indexer reads these variables from the root `.env`:
 - `RPC_BACKFILL_URL` (optional)
     - Optional JSON array of weighted HTTP JSON-RPC endpoints used by backfill sync jobs.
 - `RPC_WS_URL` (optional)
+    - Optional JSON array of weighted WebSocket RPC endpoints used by the scheduler as a single-active new-head listener with fallback.
 - `WETH_ADDRESS` (required)
 - `NATS_URL` (default: `nats://127.0.0.1:42720`)
 - `NATS_STREAM_PREFIX` (default: `artgod`)
