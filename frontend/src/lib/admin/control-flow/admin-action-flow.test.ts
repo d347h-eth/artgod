@@ -33,13 +33,13 @@ function configState(
 				fields: [
 					{
 						key: REQUIRED_RPC_KEY,
-						label: 'rpc url',
-						inputKind: 'text',
+						label: 'rpc endpoints',
+						inputKind: 'rpc_endpoint_list',
 						secret: false,
 						options: [],
 						help: '',
 						requiredForLaunch: true,
-						validation: 'url',
+						validation: 'rpc_endpoint_list',
 						view: 'basic'
 					}
 				]
@@ -135,9 +135,7 @@ describe('resolveAdminActionFlow', () => {
 
 		expect(state.state).toBe(ADMIN_FLOW_STATES.needsRequiredConfig);
 		expect(state.boot.disabled).toBe(true);
-		expect(state.boot.disabledReason).toBe(
-			'Required configuration is missing or invalid: RPC_URL'
-		);
+		expect(state.boot.disabledReason).toBe('Required configuration is missing or invalid: RPC_URL');
 	});
 
 	it('disables boot during transient runtime states', () => {

@@ -346,6 +346,7 @@ RPC (`indexer/src/infra/rpc/viem.ts`):
 
 - `rpc.latency` histogram (by method)
 - `rpc.failure` counter
+- `rpc.endpoint_failure` counter (by method and low-cardinality endpoint id)
 - `rpc.retry` counter
 - `rpc.circuit_open` counter
 - `rpc.rate_limiter.wait_ms` histogram

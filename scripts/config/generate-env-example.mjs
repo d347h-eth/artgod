@@ -16,7 +16,12 @@ const generatedDefaultsPath = path.join(
     "config",
     "generated-settings-defaults.ts",
 );
-const SUPPORTED_VALIDATION_RULES = ["url", "websocket_url", "positive_integer"];
+const SUPPORTED_VALIDATION_RULES = [
+    "url",
+    "websocket_url",
+    "positive_integer",
+    "rpc_endpoint_list",
+];
 const SUPPORTED_TARGETS = ["local", "deploy", "desktop"];
 const DEFAULT_TARGETS = SUPPORTED_TARGETS;
 
@@ -249,6 +254,7 @@ function validateManifest(manifest) {
                     "checkbox",
                     "textarea",
                     "select",
+                    "rpc_endpoint_list",
                 ].includes(input)
             ) {
                 errors.push(`${location}.input: unsupported input "${input}"`);

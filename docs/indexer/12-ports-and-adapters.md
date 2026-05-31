@@ -20,6 +20,8 @@ Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction`, and `getTran
 
 `readContract` is used for bootstrap ownership snapshots and offchain order validation. `getBalance` is used for native-ETH order checks.
 
+The viem adapter accepts a weighted HTTP JSON-RPC endpoint pool from `RPC_URL`. Selection uses the configured weights as the baseline and lowers an endpoint's effective weight after request failures so later attempts drift toward healthier endpoints. Adjusted weights are in-memory only.
+
 ## Head Source Port
 
 - Interface: `indexer/src/ports/head-source.ts`

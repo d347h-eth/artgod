@@ -9,13 +9,13 @@ import type { AdminConfigField, AdminConfigState } from './ports';
 
 const RPC_URL_FIELD: AdminConfigField = {
 	key: 'RPC_URL',
-	label: 'rpc url',
-	inputKind: 'text',
+	label: 'rpc endpoints',
+	inputKind: 'rpc_endpoint_list',
 	secret: false,
 	options: [],
 	help: '',
 	requiredForLaunch: true,
-	validation: 'url',
+	validation: 'rpc_endpoint_list',
 	view: 'basic'
 };
 
@@ -87,12 +87,25 @@ describe('admin config validation', () => {
 		);
 	});
 
-	it('accepts supported RPC URL schemes', () => {
+	it('accepts supported RPC endpoint config values', () => {
 		expect(resolveAdminLaunchConfigIssues(config({ RPC_URL: 'https://rpc.example' }))).toEqual([]);
 		expect(resolveAdminLaunchConfigIssues(config({ RPC_URL: 'http://127.0.0.1:8545' }))).toEqual(
 			[]
 		);
-		expect(resolveAdminLaunchConfigIssues(config({ RPC_URL: 'wss://rpc.example' }))).toEqual([]);
+		expect(
+			resolveAdminLaunchConfigIssues(
+				config({
+					RPC_URL:
+						'[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]'
+				})
+			)
+		).toEqual([]);
+	});
+
+	it('rejects websocket RPC endpoints for the HTTP JSON-RPC pool', () => {
+		const issues = resolveAdminLaunchConfigIssues(config({ RPC_URL: 'wss://rpc.example' }));
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 	});
 
 	it('rejects URLs without an explicit scheme separator', () => {

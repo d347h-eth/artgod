@@ -1,9 +1,11 @@
 import type { AdminConfigField, AdminConfigState } from '$lib/admin/configuration/ports';
+import { parseRpcEndpointConfigList } from '@artgod/shared/config/rpc-endpoints';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
 	url: 'url',
 	websocketUrl: 'websocket_url',
-	positiveInteger: 'positive_integer'
+	positiveInteger: 'positive_integer',
+	rpcEndpointList: 'rpc_endpoint_list'
 } as const;
 
 export const ADMIN_CONFIG_VALIDATION_ISSUE_KINDS = {
@@ -112,6 +114,17 @@ export function validateAdminConfigField(
 			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
 			`${field.key} must be a positive whole number.`
 		);
+	}
+	if (field.validation === ADMIN_CONFIG_VALIDATION_RULES.rpcEndpointList) {
+		try {
+			parseRpcEndpointConfigList(trimmed, field.key);
+		} catch (error) {
+			return buildValidationIssue(
+				field,
+				ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.url,
+				error instanceof Error ? error.message : `${field.key} must be valid RPC endpoints.`
+			);
+		}
 	}
 	return null;
 }

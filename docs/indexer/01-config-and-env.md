@@ -12,7 +12,7 @@ Config is loaded in `indexer/src/config/index.ts` (core indexer workers) and `in
 
 - `IndexerConfig`:
     - `chainId`
-    - `rpc`: `primaryUrl`, optional `backfillUrl`, optional `wsUrl`
+    - `rpc`: weighted HTTP endpoint pool, optional weighted backfill endpoint pool, optional `wsUrl`
     - `tokens`: `wethAddress`
     - `queue`: NATS URL and stream prefix
 - `sync`: reorg depth, backfill batch size, backfill worker count, log chunk size
@@ -28,7 +28,11 @@ The indexer reads these variables from the root `.env`:
     - Path to SQLite file. Relative paths are resolved from repo root.
 - `CHAIN_ID` (default: 1)
 - `RPC_URL` (required)
+    - HTTP JSON-RPC endpoint pool used by backend, indexer, and trading runtimes.
+    - A legacy single URL still means one endpoint with weight `1`.
+    - Multiple endpoints can be supplied as JSON, for example `[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]`, or as compact `url|weight;url|weight` entries.
 - `RPC_BACKFILL_URL` (optional)
+    - Optional weighted HTTP JSON-RPC endpoint pool used by backfill sync jobs.
 - `RPC_WS_URL` (optional)
 - `WETH_ADDRESS` (required)
 - `NATS_URL` (default: `nats://127.0.0.1:42720`)
@@ -50,6 +54,7 @@ The indexer reads these variables from the root `.env`:
 - `SEAPORT_CONDUIT_CONTROLLER` (required)
 
 `RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
+Endpoint weights define the baseline request share. Runtime adapters lower an endpoint's effective weight after observed request failures and recover it after successful requests; these adjusted weights are process-local and are not persisted.
 
 ### OpenSea Integration Mode (.env)
 

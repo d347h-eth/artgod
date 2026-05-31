@@ -4,7 +4,8 @@ use serde::Deserialize;
 
 const SETTINGS_MANIFEST_VERSION: u8 = 1;
 const SETTINGS_MANIFEST: &str = include_str!("../../../config/settings.manifest.toml");
-const SUPPORTED_VALIDATION_RULES: &[&str] = &["url", "websocket_url", "positive_integer"];
+const SUPPORTED_VALIDATION_RULES: &[&str] =
+    &["url", "websocket_url", "positive_integer", "rpc_endpoint_list"];
 const SUPPORTED_TARGETS: &[&str] = &["local", "deploy", "desktop"];
 
 /// Validated Admin configuration schema embedded into the desktop binary.
@@ -151,7 +152,7 @@ fn build_manifest_model(document: ManifestDocument) -> Result<AppConfigManifestM
         let input = setting.input.clone().unwrap_or_else(|| "text".to_owned());
         if !matches!(
             input.as_str(),
-            "text" | "password" | "checkbox" | "textarea" | "select"
+            "text" | "password" | "checkbox" | "textarea" | "select" | "rpc_endpoint_list"
         ) {
             errors.push(format!(
                 "settings manifest setting {} uses unsupported input {}",
@@ -336,7 +337,8 @@ mod tests {
             .expect("RPC_URL setting should exist");
 
         assert!(setting.required_for_launch);
-        assert_eq!(setting.validation.as_deref(), Some("url"));
+        assert_eq!(setting.input, "rpc_endpoint_list");
+        assert_eq!(setting.validation.as_deref(), Some("rpc_endpoint_list"));
     }
 
     #[test]
