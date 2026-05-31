@@ -29,6 +29,9 @@ describe("loadTradingConfig", () => {
 
         assert.equal(config.chainId, 1);
         assert.equal(config.rpc.primaryUrl, "http://127.0.0.1:42721");
+        assert.deepEqual(config.rpc.endpoints, [
+            { url: "http://127.0.0.1:42721", weight: 1 },
+        ]);
         assert.equal(config.queue.natsUrl, "nats://127.0.0.1:42720");
         assert.equal(config.queue.streamPrefix, "artgod");
         assert.equal(
@@ -63,6 +66,26 @@ describe("loadTradingConfig", () => {
             config.bidding.criteriaRefreshTraitsByCollection.terraforms,
             ["Zone", "Biome", "Level"],
         );
+    });
+
+    it("parses weighted RPC endpoint pools", () => {
+        const config = loadTradingConfig(
+            {
+                ...requiredBaseEnv,
+                RPC_URL:
+                    '[{"url":"https://rpc-a.example","weight":3},{"url":"https://rpc-b.example","weight":1}]',
+                BIDDING_ENABLED: "false",
+            },
+            {
+                envFilePath: "/tmp/artgod/runtime.env",
+            },
+        );
+
+        assert.equal(config.rpc.primaryUrl, "https://rpc-a.example");
+        assert.deepEqual(config.rpc.endpoints, [
+            { url: "https://rpc-a.example", weight: 3 },
+            { url: "https://rpc-b.example", weight: 1 },
+        ]);
     });
 
     it("does not require bot keys or jobs file when bidding is disabled", () => {

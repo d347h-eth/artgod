@@ -39,7 +39,7 @@ async function main() {
             metrics: runtimeMetrics.metrics,
         });
         const rpc = new ViemRpcProvider({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: runtimeMetrics.metrics,

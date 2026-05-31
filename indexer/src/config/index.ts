@@ -11,6 +11,10 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    parseRpcEndpointConfigList,
+    type RpcEndpointConfig,
+} from "@artgod/shared/config/rpc-endpoints";
+import {
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
@@ -94,7 +98,9 @@ export type IndexerConfig = {
     chainId: number;
     rpc: {
         primaryUrl: string;
+        endpoints: RpcEndpointConfig[];
         backfillUrl?: string;
+        backfillEndpoints?: RpcEndpointConfig[];
         wsUrl?: string;
         retryPolicy: {
             maxAttempts: number;
@@ -172,10 +178,10 @@ export function loadConfig(
 ): IndexerConfig {
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", DEFAULT_CHAIN_ID);
-    const rpcUrl = env.RPC_URL;
-    if (!rpcUrl) {
-        throw new Error("Missing RPC_URL");
-    }
+    const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
+    const backfillEndpoints = env.RPC_BACKFILL_URL?.trim()
+        ? parseRpcEndpointConfigList(env.RPC_BACKFILL_URL, "RPC_BACKFILL_URL")
+        : undefined;
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
 
@@ -183,8 +189,10 @@ export function loadConfig(
         dbPath,
         chainId,
         rpc: {
-            primaryUrl: rpcUrl,
-            backfillUrl: env.RPC_BACKFILL_URL,
+            primaryUrl: rpcEndpoints[0]?.url ?? "",
+            endpoints: rpcEndpoints,
+            backfillUrl: backfillEndpoints?.[0]?.url,
+            backfillEndpoints,
             wsUrl: env.RPC_WS_URL,
             retryPolicy: {
                 maxAttempts: parseNumber(

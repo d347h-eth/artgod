@@ -37,6 +37,27 @@ describe("Indexer config", () => {
         );
     });
 
+    it("parses weighted RPC endpoint pools", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            RPC_URL:
+                '[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]',
+            RPC_BACKFILL_URL:
+                "https://backfill-a.example|3;https://backfill-b.example|1",
+        });
+
+        expect(config.rpc.primaryUrl).toBe("https://rpc-a.example");
+        expect(config.rpc.endpoints).toEqual([
+            { url: "https://rpc-a.example", weight: 2 },
+            { url: "https://rpc-b.example", weight: 1 },
+        ]);
+        expect(config.rpc.backfillUrl).toBe("https://backfill-a.example");
+        expect(config.rpc.backfillEndpoints).toEqual([
+            { url: "https://backfill-a.example", weight: 3 },
+            { url: "https://backfill-b.example", weight: 1 },
+        ]);
+    });
+
     it("uses manifest defaults for unprovided runtime tunables", () => {
         const config = loadConfig(REQUIRED_ENV);
 
@@ -70,7 +91,9 @@ describe("Indexer config", () => {
         expect(config.sync).toEqual({
             reorgDepth: getSettingDefaultNumber("REORG_DEPTH"),
             backfillBatchSize: getSettingDefaultNumber("BACKFILL_BATCH_SIZE"),
-            backfillWorkerCount: getSettingDefaultNumber("BACKFILL_WORKER_COUNT"),
+            backfillWorkerCount: getSettingDefaultNumber(
+                "BACKFILL_WORKER_COUNT",
+            ),
             logChunkSize: getSettingDefaultNumber("LOG_CHUNK_SIZE"),
         });
         expect(config.cache).toEqual({

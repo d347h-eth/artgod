@@ -6,6 +6,10 @@ import {
     parseRequiredString,
 } from "@artgod/shared/utils/env";
 import type { EvmTransactionPolicyConfig } from "@artgod/shared/evm/transactions";
+import {
+    parseRpcEndpointConfigList,
+    type RpcEndpointConfig,
+} from "@artgod/shared/config/rpc-endpoints";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import { parseEther, parseGwei } from "viem";
 import {
@@ -84,6 +88,7 @@ export type TradingConfig = {
     chainId: number;
     rpc: {
         primaryUrl: string;
+        endpoints: RpcEndpointConfig[];
     };
     queue: {
         natsUrl: string;
@@ -113,7 +118,8 @@ export function loadTradingConfig(
 
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", 1);
-    const rpcUrl = parseRequiredString(env.RPC_URL, "RPC_URL");
+    const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
+    const rpcUrl = rpcEndpoints[0]?.url ?? "";
     const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
     const natsStreamPrefix = parseRequiredString(
         env.NATS_STREAM_PREFIX,
@@ -212,6 +218,7 @@ export function loadTradingConfig(
         chainId,
         rpc: {
             primaryUrl: rpcUrl,
+            endpoints: rpcEndpoints,
         },
         queue: {
             natsUrl,

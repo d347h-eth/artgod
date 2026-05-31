@@ -747,6 +747,10 @@ beforeAll(async () => {
         port: 42710,
         defaultChainId: 1,
         dbPath,
+        rpc: {
+            primaryUrl: "http://127.0.0.1:42721",
+            endpoints: [{ url: "http://127.0.0.1:42721", weight: 1 }],
+        },
         rpcUrl: "http://127.0.0.1:42721",
         wethAddress: WETH_ADDRESS,
         natsUrl: "nats://127.0.0.1:42720",
@@ -3926,19 +3930,29 @@ describe("backend api routes", () => {
     });
 
     it("keeps an existing CSRF token stable across browser tabs", async () => {
-        const firstCsrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:42710",
-            origin: "http://127.0.0.1:42701",
-        });
+        const firstCsrf = await resolve(
+            "GET",
+            "/api/security/csrf",
+            undefined,
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            },
+        );
         expect(firstCsrf.statusCode).toBe(200);
         const firstToken = firstCsrf.payload.token as string;
         const firstCookie = firstCsrf.headers["set-cookie"] as string;
 
-        const secondCsrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:42710",
-            origin: "http://127.0.0.1:42701",
-            cookie: firstCookie,
-        });
+        const secondCsrf = await resolve(
+            "GET",
+            "/api/security/csrf",
+            undefined,
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie: firstCookie,
+            },
+        );
         expect(secondCsrf.statusCode).toBe(200);
         expect(secondCsrf.payload.token).toBe(firstToken);
         expect(secondCsrf.headers["set-cookie"]).toContain(

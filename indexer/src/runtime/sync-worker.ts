@@ -92,16 +92,16 @@ async function main() {
             metrics: runtimeMetrics.metrics,
         });
         const primaryRpc = new ViemRpcProvider({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: runtimeMetrics.metrics,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
-        const backfillRpc = config.rpc.backfillUrl
+        const backfillRpc = config.rpc.backfillEndpoints
             ? new ViemRpcProvider({
-                  url: config.rpc.backfillUrl,
+                  endpoints: config.rpc.backfillEndpoints,
                   logChunkSize: config.sync.logChunkSize,
                   cache,
                   metrics: runtimeMetrics.metrics,

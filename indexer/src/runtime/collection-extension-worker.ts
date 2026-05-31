@@ -44,7 +44,7 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const rpc = new ViemRpcProvider({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
             retryPolicy: config.rpc.retryPolicy,

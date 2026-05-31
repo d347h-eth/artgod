@@ -12,9 +12,29 @@ describe("loadBackendConfig", () => {
         const config = loadBackendConfig(createBaseEnv());
 
         expect(config.rpcUrl).toBe("http://127.0.0.1:42721");
+        expect(config.rpc).toEqual({
+            primaryUrl: "http://127.0.0.1:42721",
+            endpoints: [{ url: "http://127.0.0.1:42721", weight: 1 }],
+        });
         expect(config.wethAddress).toBe(
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
         );
+    });
+
+    it("parses weighted RPC endpoint pools", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            RPC_URL:
+                '[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]',
+        });
+
+        expect(config.rpc).toEqual({
+            primaryUrl: "https://rpc-a.example",
+            endpoints: [
+                { url: "https://rpc-a.example", weight: 2 },
+                { url: "https://rpc-b.example", weight: 1 },
+            ],
+        });
     });
 
     it("defaults backend query cache to disabled", () => {

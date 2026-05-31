@@ -13,6 +13,10 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    parseRpcEndpointConfigList,
+    type RpcEndpointConfig,
+} from "@artgod/shared/config/rpc-endpoints";
+import {
     parseBoolean,
     parsePositiveInteger,
     parseRequiredString,
@@ -155,6 +159,10 @@ export type BackendConfig = {
     port: number;
     defaultChainId: number;
     dbPath: string;
+    rpc: {
+        primaryUrl: string;
+        endpoints: RpcEndpointConfig[];
+    };
     rpcUrl: string;
     wethAddress: string;
     natsUrl: string;
@@ -196,7 +204,8 @@ export function loadBackendConfig(
         DEFAULT_CHAIN_ID,
     );
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
-    const rpcUrl = parseRequiredString(env.RPC_URL, "RPC_URL");
+    const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
+    const rpcUrl = rpcEndpoints[0]?.url ?? "";
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
     const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
     const natsStreamPrefix = parseRequiredString(
@@ -229,6 +238,10 @@ export function loadBackendConfig(
         port,
         defaultChainId,
         dbPath,
+        rpc: {
+            primaryUrl: rpcUrl,
+            endpoints: rpcEndpoints,
+        },
         rpcUrl,
         wethAddress,
         natsUrl,

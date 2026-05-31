@@ -1,5 +1,11 @@
 import { createPublicClient, http } from "viem";
 import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    DEFAULT_RPC_ENDPOINT_WEIGHT,
+    WeightedRpcEndpointSelector,
+    type RpcEndpointConfig,
+    type WeightedRpcEndpointSelection,
+} from "@artgod/shared/config/rpc-endpoints";
 import type { RetryPolicy } from "../../domain/retry.js";
 import { getRetryDelayMs } from "../../domain/retry.js";
 import type { Metrics } from "@artgod/shared/observability/metrics";
@@ -22,7 +28,8 @@ import {
 } from "./resilience.js";
 
 export type ViemRpcConfig = {
-    url: string;
+    url?: string;
+    endpoints?: RpcEndpointConfig[];
     logChunkSize: number;
     cache?: CachePort;
     metrics?: Metrics;
@@ -32,6 +39,16 @@ export type ViemRpcConfig = {
         circuitBreaker: RpcCircuitBreakerConfig;
     };
 };
+
+type ViemPublicClient = ReturnType<typeof createPublicClient>;
+
+type ViemRpcEndpoint = {
+    client: ViemPublicClient;
+    rateLimiter: TokenBucketRateLimiter;
+    circuitBreaker: CircuitBreaker;
+};
+
+type ViemRpcEndpointSelection = WeightedRpcEndpointSelection<ViemRpcEndpoint>;
 
 const DEFAULT_RETRY_POLICY: RetryPolicy = {
     maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
@@ -57,31 +74,39 @@ const DEFAULT_CIRCUIT_BREAKER: RpcCircuitBreakerConfig = {
 };
 
 export class ViemRpcProvider implements RpcProviderPort {
-    private client: ReturnType<typeof createPublicClient>;
     private cache?: CachePort;
     private metrics?: Metrics;
     private retryPolicy: RetryPolicy;
-    private rateLimiter: TokenBucketRateLimiter;
-    private circuitBreaker: CircuitBreaker;
+    private endpointSelector: WeightedRpcEndpointSelector<ViemRpcEndpoint>;
 
     constructor(private config: ViemRpcConfig) {
-        this.client = createPublicClient({
-            transport: http(this.config.url),
-        });
+        const endpoints = resolveRpcEndpoints(config);
+        this.endpointSelector = new WeightedRpcEndpointSelector(
+            endpoints.map((endpoint, index) => ({
+                ...endpoint,
+                id: `rpc-${index + 1}`,
+                value: {
+                    client: createPublicClient({
+                        transport: http(endpoint.url),
+                    }),
+                    rateLimiter: new TokenBucketRateLimiter(
+                        config.resilience?.rateLimiter ?? DEFAULT_RATE_LIMITER,
+                    ),
+                    circuitBreaker: new CircuitBreaker(
+                        config.resilience?.circuitBreaker ??
+                            DEFAULT_CIRCUIT_BREAKER,
+                    ),
+                },
+            })),
+        );
         this.cache = config.cache;
         this.metrics = config.metrics;
         this.retryPolicy = config.retryPolicy ?? DEFAULT_RETRY_POLICY;
-        this.rateLimiter = new TokenBucketRateLimiter(
-            config.resilience?.rateLimiter ?? DEFAULT_RATE_LIMITER,
-        );
-        this.circuitBreaker = new CircuitBreaker(
-            config.resilience?.circuitBreaker ?? DEFAULT_CIRCUIT_BREAKER,
-        );
     }
 
     async getBlockNumber(): Promise<number> {
-        const value = await this.executeRpc("getBlockNumber", () =>
-            this.client.getBlockNumber(),
+        const value = await this.executeRpc("getBlockNumber", (client) =>
+            client.getBlockNumber(),
         );
         return toSafeNumber(value, "blockNumber");
     }
@@ -90,8 +115,8 @@ export class ViemRpcProvider implements RpcProviderPort {
         const cached = this.cache?.get<RpcBlock>("block", String(blockNumber));
         if (cached) return cached;
 
-        const block = await this.executeRpc("getBlock", () =>
-            this.client.getBlock({
+        const block = await this.executeRpc("getBlock", (client) =>
+            client.getBlock({
                 blockNumber: BigInt(blockNumber),
             }),
         );
@@ -115,8 +140,8 @@ export class ViemRpcProvider implements RpcProviderPort {
         const cached = this.cache?.get<RpcTransaction>("tx", txHash);
         if (cached) return cached;
 
-        const tx = await this.executeRpc("getTransaction", () =>
-            this.client.getTransaction({
+        const tx = await this.executeRpc("getTransaction", (client) =>
+            client.getTransaction({
                 hash: txHash as `0x${string}`,
             }),
         );
@@ -141,10 +166,12 @@ export class ViemRpcProvider implements RpcProviderPort {
         );
         if (cached) return cached;
 
-        const receipt = await this.executeRpc("getTransactionReceipt", () =>
-            this.client.getTransactionReceipt({
-                hash: txHash as `0x${string}`,
-            }),
+        const receipt = await this.executeRpc(
+            "getTransactionReceipt",
+            (client) =>
+                client.getTransactionReceipt({
+                    hash: txHash as `0x${string}`,
+                }),
         );
 
         const mapped: RpcTransactionReceipt = {
@@ -173,8 +200,8 @@ export class ViemRpcProvider implements RpcProviderPort {
                 fromBlock: BigInt(start),
                 toBlock: BigInt(end),
             };
-            const chunk = await this.executeRpc("getLogs", () =>
-                this.client.getLogs(params as any),
+            const chunk = await this.executeRpc("getLogs", (client) =>
+                client.getLogs(params as any),
             );
             logs.push(...chunk.map(mapLog));
         }
@@ -188,8 +215,8 @@ export class ViemRpcProvider implements RpcProviderPort {
         args?: readonly unknown[];
         blockNumber?: number;
     }): Promise<T> {
-        const result = await this.executeRpc("readContract", () =>
-            this.client.readContract({
+        const result = await this.executeRpc("readContract", (client) =>
+            client.readContract({
                 address: params.address as `0x${string}`,
                 abi: params.abi as any,
                 functionName: params.functionName as any,
@@ -204,8 +231,8 @@ export class ViemRpcProvider implements RpcProviderPort {
     }
 
     async getBalance(address: Hex): Promise<bigint> {
-        return this.executeRpc("getBalance", () =>
-            this.client.getBalance({
+        return this.executeRpc("getBalance", (client) =>
+            client.getBalance({
                 address: address as `0x${string}`,
             }),
         );
@@ -213,12 +240,13 @@ export class ViemRpcProvider implements RpcProviderPort {
 
     private async executeRpc<T>(
         method: string,
-        fn: () => Promise<T>,
+        fn: (client: ViemPublicClient) => Promise<T>,
     ): Promise<T> {
         const start = Date.now();
         try {
-            const result = await this.circuitBreaker.execute(() =>
-                this.withRetry(() => this.withRateLimit(method, fn), method),
+            const result = await this.withRetry(
+                () => this.executeRpcAttempt(method, fn),
+                method,
             );
             this.metrics?.histogram("rpc.latency", Date.now() - start, {
                 method,
@@ -233,14 +261,39 @@ export class ViemRpcProvider implements RpcProviderPort {
         }
     }
 
+    private async executeRpcAttempt<T>(
+        method: string,
+        fn: (client: ViemPublicClient) => Promise<T>,
+    ): Promise<T> {
+        const endpoint = this.endpointSelector.select();
+        try {
+            const result = await endpoint.value.circuitBreaker.execute(() =>
+                this.withRateLimit(endpoint, method, () =>
+                    fn(endpoint.value.client),
+                ),
+            );
+            this.endpointSelector.recordSuccess(endpoint.id);
+            return result;
+        } catch (error) {
+            this.endpointSelector.recordFailure(endpoint.id);
+            this.metrics?.increment("rpc.endpoint_failure", 1, {
+                method,
+                endpoint: endpoint.id,
+            });
+            throw error;
+        }
+    }
+
     private async withRateLimit<T>(
+        endpoint: ViemRpcEndpointSelection,
         method: string,
         fn: () => Promise<T>,
     ): Promise<T> {
-        const waitedMs = await this.rateLimiter.acquire();
+        const waitedMs = await endpoint.value.rateLimiter.acquire();
         if (waitedMs > 0) {
             this.metrics?.histogram("rpc.rate_limiter.wait_ms", waitedMs, {
                 method,
+                endpoint: endpoint.id,
             });
         }
         return fn();
@@ -265,6 +318,21 @@ export class ViemRpcProvider implements RpcProviderPort {
             }
         }
     }
+}
+
+function resolveRpcEndpoints(config: ViemRpcConfig): RpcEndpointConfig[] {
+    if (config.endpoints?.length) {
+        return config.endpoints;
+    }
+    if (config.url?.trim()) {
+        return [
+            {
+                url: config.url.trim(),
+                weight: DEFAULT_RPC_ENDPOINT_WEIGHT,
+            },
+        ];
+    }
+    throw new Error("At least one RPC endpoint URL is required");
 }
 
 function mapLog(log: any): RpcLog {

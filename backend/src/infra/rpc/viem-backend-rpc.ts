@@ -2,9 +2,11 @@ import { createPublicClient, http } from "viem";
 import { getEnsAddress } from "viem/actions";
 import { normalize } from "viem/ens";
 import {
-    NOOP_APM,
-    type ApmPort,
-} from "@artgod/shared/observability/apm";
+    DEFAULT_RPC_ENDPOINT_WEIGHT,
+    WeightedRpcEndpointSelector,
+    type RpcEndpointConfig,
+} from "@artgod/shared/config/rpc-endpoints";
+import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 
 export type BackendRpcHex = `0x${string}`;
 
@@ -19,33 +21,45 @@ const BACKEND_RPC_SPAN_ATTRIBUTE = {
     EnsNamePresent: "artgod.rpc.ens_name_present",
     StorageSlotPresent: "artgod.rpc.storage_slot_present",
     CacheHit: "artgod.rpc.cache_hit",
+    Endpoint: "artgod.rpc.endpoint",
 } as const;
 
 const CURRENT_BLOCK_NUMBER_CACHE_TTL_MS = 2_000;
+type BackendViemClient = ReturnType<typeof createPublicClient>;
 
 export class ViemBackendRpcClient {
-    private readonly client;
-    private currentBlockNumberCache:
-        | { blockNumber: number; expiresAtMs: number }
-        | null = null;
+    private readonly endpointSelector: WeightedRpcEndpointSelector<BackendViemClient>;
+    private currentBlockNumberCache: {
+        blockNumber: number;
+        expiresAtMs: number;
+    } | null = null;
     private readonly blockTimestampCache = new Map<number, number>();
 
-    constructor(rpcUrl: string, private readonly apm: ApmPort = NOOP_APM) {
-        this.client = createPublicClient({
-            transport: http(rpcUrl),
-        });
+    constructor(
+        rpc: string | readonly RpcEndpointConfig[],
+        private readonly apm: ApmPort = NOOP_APM,
+    ) {
+        this.endpointSelector = new WeightedRpcEndpointSelector(
+            resolveBackendRpcEndpoints(rpc).map((endpoint, index) => ({
+                ...endpoint,
+                id: `backend-rpc-${index + 1}`,
+                value: createPublicClient({
+                    transport: http(endpoint.url),
+                }),
+            })),
+        );
     }
 
     async resolveEnsAddress(name: string): Promise<string | null> {
-        return this.apm.withSpan(
+        return this.withRpcSpan(
             "backend.rpc.resolve_ens_address",
             {
                 [BACKEND_RPC_SPAN_ATTRIBUTE.EnsNamePresent]:
                     name.trim().length > 0,
             },
-            async () => {
+            async (client) => {
                 const normalizedName = normalize(name.trim());
-                const resolvedAddress = await getEnsAddress(this.client, {
+                const resolvedAddress = await getEnsAddress(client, {
                     name: normalizedName,
                     universalResolverAddress: ENS_UNIVERSAL_RESOLVER_ADDRESS,
                 });
@@ -61,21 +75,28 @@ export class ViemBackendRpcClient {
         const now = Date.now();
         const cached = this.currentBlockNumberCache;
         const cacheHit = cached !== null && cached.expiresAtMs > now;
-        return this.apm.withSpan(
+        if (cached !== null && cacheHit) {
+            return this.apm.withSpan(
+                "backend.rpc.current_block_number",
+                {
+                    [BACKEND_RPC_SPAN_ATTRIBUTE.CacheHit]: true,
+                },
+                async () => {
+                    return cached.blockNumber;
+                },
+            );
+        }
+        return this.withRpcSpan(
             "backend.rpc.current_block_number",
             {
-                [BACKEND_RPC_SPAN_ATTRIBUTE.CacheHit]: cacheHit,
+                [BACKEND_RPC_SPAN_ATTRIBUTE.CacheHit]: false,
             },
-            async () => {
-                if (cached !== null && cacheHit) {
-                    return cached.blockNumber;
-                }
-                const blockNumber = await this.client.getBlockNumber();
+            async (client) => {
+                const blockNumber = await client.getBlockNumber();
                 const parsedBlockNumber = Number(blockNumber);
                 this.currentBlockNumberCache = {
                     blockNumber: parsedBlockNumber,
-                    expiresAtMs:
-                        Date.now() + CURRENT_BLOCK_NUMBER_CACHE_TTL_MS,
+                    expiresAtMs: Date.now() + CURRENT_BLOCK_NUMBER_CACHE_TTL_MS,
                 };
                 return parsedBlockNumber;
             },
@@ -84,18 +105,26 @@ export class ViemBackendRpcClient {
 
     async getBlockTimestamp(blockNumber: number): Promise<number> {
         const cachedTimestamp = this.blockTimestampCache.get(blockNumber);
-        return this.apm.withSpan(
+        if (cachedTimestamp !== undefined) {
+            return this.apm.withSpan(
+                "backend.rpc.block_timestamp",
+                {
+                    [BACKEND_RPC_SPAN_ATTRIBUTE.BlockNumber]: blockNumber,
+                    [BACKEND_RPC_SPAN_ATTRIBUTE.CacheHit]: true,
+                },
+                async () => {
+                    return cachedTimestamp;
+                },
+            );
+        }
+        return this.withRpcSpan(
             "backend.rpc.block_timestamp",
             {
                 [BACKEND_RPC_SPAN_ATTRIBUTE.BlockNumber]: blockNumber,
-                [BACKEND_RPC_SPAN_ATTRIBUTE.CacheHit]:
-                    cachedTimestamp !== undefined,
+                [BACKEND_RPC_SPAN_ATTRIBUTE.CacheHit]: false,
             },
-            async () => {
-                if (cachedTimestamp !== undefined) {
-                    return cachedTimestamp;
-                }
-                const block = await this.client.getBlock({
+            async (client) => {
+                const block = await client.getBlock({
                     blockNumber: BigInt(blockNumber),
                 });
                 const timestamp = Number(block.timestamp);
@@ -114,12 +143,11 @@ export class ViemBackendRpcClient {
         args?: readonly unknown[];
         blockNumber?: number;
     }): Promise<T> {
-        return this.apm.withSpan(
+        return this.withRpcSpan(
             "backend.rpc.read_contract",
             {
                 [BACKEND_RPC_SPAN_ATTRIBUTE.ContractAddress]: params.address,
-                [BACKEND_RPC_SPAN_ATTRIBUTE.FunctionName]:
-                    params.functionName,
+                [BACKEND_RPC_SPAN_ATTRIBUTE.FunctionName]: params.functionName,
                 ...(params.blockNumber !== undefined
                     ? {
                           [BACKEND_RPC_SPAN_ATTRIBUTE.BlockNumber]:
@@ -127,8 +155,8 @@ export class ViemBackendRpcClient {
                       }
                     : {}),
             },
-            async () => {
-                const result = await this.client.readContract({
+            async (client) => {
+                const result = await client.readContract({
                     address: params.address,
                     abi: params.abi as any,
                     functionName: params.functionName as any,
@@ -148,7 +176,7 @@ export class ViemBackendRpcClient {
         slot: BackendRpcHex;
         blockNumber?: number;
     }): Promise<BackendRpcHex | null> {
-        return this.apm.withSpan(
+        return this.withRpcSpan(
             "backend.rpc.get_storage_at",
             {
                 [BACKEND_RPC_SPAN_ATTRIBUTE.ContractAddress]: params.address,
@@ -161,8 +189,8 @@ export class ViemBackendRpcClient {
                       }
                     : {}),
             },
-            async () => {
-                const value = await this.client.getStorageAt({
+            async (client) => {
+                const value = await client.getStorageAt({
                     address: params.address,
                     slot: params.slot,
                     blockNumber:
@@ -174,4 +202,43 @@ export class ViemBackendRpcClient {
             },
         );
     }
+
+    private async withRpcSpan<T>(
+        name: string,
+        attributes: Record<string, unknown>,
+        read: (client: BackendViemClient) => Promise<T>,
+    ): Promise<T> {
+        const endpoint = this.endpointSelector.select();
+        return this.apm.withSpan(
+            name,
+            {
+                ...attributes,
+                [BACKEND_RPC_SPAN_ATTRIBUTE.Endpoint]: endpoint.id,
+            },
+            async () => {
+                try {
+                    const result = await read(endpoint.value);
+                    this.endpointSelector.recordSuccess(endpoint.id);
+                    return result;
+                } catch (error) {
+                    this.endpointSelector.recordFailure(endpoint.id);
+                    throw error;
+                }
+            },
+        );
+    }
+}
+
+function resolveBackendRpcEndpoints(
+    rpc: string | readonly RpcEndpointConfig[],
+): RpcEndpointConfig[] {
+    if (typeof rpc !== "string") {
+        return [...rpc];
+    }
+    return [
+        {
+            url: rpc,
+            weight: DEFAULT_RPC_ENDPOINT_WEIGHT,
+        },
+    ];
 }

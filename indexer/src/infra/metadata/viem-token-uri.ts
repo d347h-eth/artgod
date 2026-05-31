@@ -1,4 +1,9 @@
 import { createPublicClient, http } from "viem";
+import {
+    DEFAULT_RPC_ENDPOINT_WEIGHT,
+    WeightedRpcEndpointSelector,
+    type RpcEndpointConfig,
+} from "@artgod/shared/config/rpc-endpoints";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import type { TokenStandard } from "../../domain/metadata.js";
 import type { TokenUriResolverPort } from "../../ports/metadata.js";
@@ -24,18 +29,28 @@ const ERC1155_METADATA_ABI = [
 ] as const;
 
 export type TokenUriResolverConfig = {
-    url: string;
+    url?: string;
+    endpoints?: RpcEndpointConfig[];
     metrics?: Metrics;
 };
 
 export class ViemTokenUriResolver implements TokenUriResolverPort {
-    private client: ReturnType<typeof createPublicClient>;
+    private endpointSelector: WeightedRpcEndpointSelector<
+        ReturnType<typeof createPublicClient>
+    >;
     private metrics?: Metrics;
 
     constructor(config: TokenUriResolverConfig) {
-        this.client = createPublicClient({
-            transport: http(config.url),
-        });
+        const endpoints = resolveTokenUriRpcEndpoints(config);
+        this.endpointSelector = new WeightedRpcEndpointSelector(
+            endpoints.map((endpoint, index) => ({
+                ...endpoint,
+                id: `metadata-rpc-${index + 1}`,
+                value: createPublicClient({
+                    transport: http(endpoint.url),
+                }),
+            })),
+        );
         this.metrics = config.metrics;
     }
 
@@ -75,14 +90,16 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         tokenId: string,
         blockNumber?: number,
     ): Promise<string> {
-        return this.client.readContract({
-            address: contract as `0x${string}`,
-            abi: ERC721_METADATA_ABI,
-            functionName: "tokenURI",
-            args: [BigInt(tokenId)],
-            blockNumber:
-                blockNumber !== undefined ? BigInt(blockNumber) : undefined,
-        });
+        return this.readWithEndpoint((client) =>
+            client.readContract({
+                address: contract as `0x${string}`,
+                abi: ERC721_METADATA_ABI,
+                functionName: "tokenURI",
+                args: [BigInt(tokenId)],
+                blockNumber:
+                    blockNumber !== undefined ? BigInt(blockNumber) : undefined,
+            }),
+        );
     }
 
     private async readErc1155Uri(
@@ -90,16 +107,52 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         tokenId: string,
         blockNumber?: number,
     ): Promise<string> {
-        const uri = await this.client.readContract({
-            address: contract as `0x${string}`,
-            abi: ERC1155_METADATA_ABI,
-            functionName: "uri",
-            args: [BigInt(tokenId)],
-            blockNumber:
-                blockNumber !== undefined ? BigInt(blockNumber) : undefined,
-        });
+        const uri = await this.readWithEndpoint((client) =>
+            client.readContract({
+                address: contract as `0x${string}`,
+                abi: ERC1155_METADATA_ABI,
+                functionName: "uri",
+                args: [BigInt(tokenId)],
+                blockNumber:
+                    blockNumber !== undefined ? BigInt(blockNumber) : undefined,
+            }),
+        );
         return expandErc1155Uri(uri, tokenId);
     }
+
+    private async readWithEndpoint<T>(
+        read: (client: ReturnType<typeof createPublicClient>) => Promise<T>,
+    ): Promise<T> {
+        const endpoint = this.endpointSelector.select();
+        try {
+            const result = await read(endpoint.value);
+            this.endpointSelector.recordSuccess(endpoint.id);
+            return result;
+        } catch (error) {
+            this.endpointSelector.recordFailure(endpoint.id);
+            this.metrics?.increment("metadata.resolve.endpoint_failure", 1, {
+                endpoint: endpoint.id,
+            });
+            throw error;
+        }
+    }
+}
+
+function resolveTokenUriRpcEndpoints(
+    config: TokenUriResolverConfig,
+): RpcEndpointConfig[] {
+    if (config.endpoints?.length) {
+        return config.endpoints;
+    }
+    if (config.url?.trim()) {
+        return [
+            {
+                url: config.url.trim(),
+                weight: DEFAULT_RPC_ENDPOINT_WEIGHT,
+            },
+        ];
+    }
+    throw new Error("At least one metadata RPC endpoint URL is required");
 }
 
 function expandErc1155Uri(uri: string, tokenId: string): string {

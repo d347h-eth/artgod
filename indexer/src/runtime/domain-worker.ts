@@ -71,7 +71,7 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const rpc = new ViemRpcProvider({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
             retryPolicy: config.rpc.retryPolicy,
@@ -86,7 +86,7 @@ async function main() {
             validateOrder,
         );
         const metadataResolver = new ViemTokenUriResolver({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
         });
         const metadataFetcher = new HttpMetadataFetcher({

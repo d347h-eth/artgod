@@ -1,4 +1,5 @@
 import { setDbPath } from "@artgod/shared/database";
+import { createWeightedRpcTransport } from "@artgod/shared/evm/weighted-rpc-transport";
 import {
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
@@ -14,7 +15,6 @@ import {
     createPublicClient,
     createWalletClient,
     formatEther,
-    http,
     type Hex,
     type PublicClient,
     type WalletClient,
@@ -148,9 +148,15 @@ export async function startBiddingRuntime(
     const tokenMetadataRepository = new SqliteTokenMetadataRepository(
         params.config.chainId,
     );
+    const rpcTransport = createWeightedRpcTransport(
+        params.config.rpc.endpoints,
+        {
+            endpointIdPrefix: "trading-rpc",
+        },
+    );
     const publicClient = createPublicClient({
         chain: mainnet,
-        transport: http(params.config.rpc.primaryUrl),
+        transport: rpcTransport,
     });
     const makerWethBalanceService = new ViemMakerWethBalanceService(
         publicClient,
@@ -159,7 +165,7 @@ export async function startBiddingRuntime(
     const walletClient = createWalletClient({
         account: privateKeyToAccount(params.privateKeyHex),
         chain: mainnet,
-        transport: http(params.config.rpc.primaryUrl),
+        transport: rpcTransport,
     });
     const openSeaConduit = getDefaultConduit(Chain.Mainnet);
     const wethAllowanceApprovalService = new ViemWethAllowanceApprovalService(
@@ -357,7 +363,9 @@ export async function startBiddingRuntime(
         );
         return true;
     };
-    const reconcileBidStreams = (collectionSlugs: string[]): {
+    const reconcileBidStreams = (
+        collectionSlugs: string[],
+    ): {
         added: number;
         removed: number;
     } => {
