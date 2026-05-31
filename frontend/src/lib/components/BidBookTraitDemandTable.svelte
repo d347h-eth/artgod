@@ -193,6 +193,11 @@
 						</tr>
 					{/each}
 					{#if group.activeOfferCount > 1}
+						{#if !group.hidden && hasVisibleRows(group)}
+							<tr class="bid-book-bucket-spacer" aria-hidden="true">
+								<td colspan={4}></td>
+							</tr>
+						{/if}
 						<tr class="bid-book-demand-group-meta-row" hidden={group.hidden}>
 							<td colspan={4}>
 								<div class="runtime-kv-grid bid-book-demand-group-meta">

@@ -2034,6 +2034,9 @@ th {
 }
 
 .bid-book-demand-group-preview {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
 	grid-column: 3;
 	justify-self: end;
 	width: 10rem;

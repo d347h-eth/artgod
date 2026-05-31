@@ -39,17 +39,18 @@
 		--terraforms-biome-character-band-grid-template-columns: repeat(9, minmax(0, 1fr));
 		--terraforms-biome-character-band-cell-size: 1rem;
 		--terraforms-biome-character-band-font-size: 1rem;
-		--terraforms-biome-character-band-padding-block: 0.0625rem;
+		--terraforms-biome-character-band-padding-block: 0.25rem;
 		--terraforms-biome-character-band-padding-inline: 0.16rem;
 		display: flex;
+		align-items: center;
 		justify-content: flex-end;
-		width: 10rem;
+		width: 100%;
 		margin: 0;
 	}
 
 	:global(.terraforms-bid-book-trait-preview .terraforms-biome-character-band) {
 		box-sizing: border-box;
 		justify-content: end;
-		width: 10rem;
+		width: 100%;
 	}
 </style>
