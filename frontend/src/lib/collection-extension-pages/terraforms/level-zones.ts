@@ -88,7 +88,6 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_DOM = {
 	testIds: {
 		detailPanel: 'terraforms-hypercastle-level-detail',
 		zoneTable: 'terraforms-hypercastle-level-zone-table',
-		paletteSwatch: 'terraforms-hypercastle-zone-palette-swatch',
 		paletteCopyButton: 'terraforms-hypercastle-zone-palette-copy'
 	},
 	classes: {
@@ -101,8 +100,6 @@ export const TERRAFORMS_LEVEL_ZONE_TABLE_DOM = {
 		table: 'terraforms-hypercastle-zone-table',
 		tableLink: 'terraforms-hypercastle-table-link',
 		paletteCell: 'terraforms-hypercastle-zone-palette-cell',
-		palette: 'terraforms-hypercastle-zone-palette',
-		paletteSwatch: 'terraforms-hypercastle-zone-palette-swatch',
 		paletteCopyButton: 'terraforms-hypercastle-zone-palette-copy-button',
 		paletteCopyButtonCopied: 'terraforms-hypercastle-zone-palette-copy-button-copied',
 		paletteCopyButtonFailed: 'terraforms-hypercastle-zone-palette-copy-button-failed',
@@ -299,6 +296,20 @@ export function formatTerraformsZonePaletteSwatchLabel(input: {
 		) +
 		TERRAFORMS_LEVEL_ZONE_SWATCH_LABEL_SEPARATOR +
 		input.color
+	);
+}
+
+// Builds all labels needed by the reusable Zone palette band component.
+export function buildTerraformsZonePaletteSwatchLabels(input: {
+	zoneName: string;
+	palette: readonly string[];
+}): readonly string[] {
+	return input.palette.map((color, index) =>
+		formatTerraformsZonePaletteSwatchLabel({
+			zoneName: input.zoneName,
+			color,
+			position: index + 1
+		})
 	);
 }
 

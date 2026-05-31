@@ -4,22 +4,22 @@
 	import { page } from '$app/state';
 	import { onDestroy, onMount } from 'svelte';
 	import type { CollectionExtensionPageProps } from '$lib/collection-extension-pages/types';
+	import TerraformsBiomeCharacterBand from '$lib/collection-extension-pages/terraforms/TerraformsBiomeCharacterBand.svelte';
 	import TerraformsHypercastleOverview from '$lib/collection-extension-pages/terraforms/TerraformsHypercastleOverview.svelte';
 	import TerraformsTraitTable from '$lib/collection-extension-pages/terraforms/TerraformsTraitTable.svelte';
+	import TerraformsZonePaletteBand from '$lib/collection-extension-pages/terraforms/TerraformsZonePaletteBand.svelte';
 	import CheckIcon from '$lib/components/CheckIcon.svelte';
 	import CopyIcon from '$lib/components/CopyIcon.svelte';
 	import {
 		applyTerraformsBiomeTokenCounts,
+		buildTerraformsBiomeCharacterLabels,
 		buildTerraformsBiomeRows,
 		buildTerraformsBiomeTokenHref,
-		formatTerraformsBiomeCharacterLabel,
 		formatTerraformsBiomeMintedTokenCount,
 		formatTerraformsBiomeSortLabel,
 		formatTerraformsBiomeTokenLabel,
 		resolveTerraformsBiomeAriaSort,
 		resolveTerraformsBiomeDefaultSortDirection,
-		resolveTerraformsBiomePreviewBackgroundColor,
-		resolveTerraformsBiomePreviewCharacterColor,
 		sortTerraformsBiomeRows,
 		TERRAFORMS_BIOME_TABLE_DOM,
 		TERRAFORMS_BIOME_TABLE_COLUMNS,
@@ -36,6 +36,7 @@
 		applyTerraformsLevelZoneTokenCounts,
 		buildTerraformsAllLevelZoneRows,
 		buildTerraformsLevelZoneRows,
+		buildTerraformsZonePaletteSwatchLabels,
 		buildTerraformsZoneTokenHref,
 		defaultTerraformsLevelZoneSortColumn,
 		defaultTerraformsLevelZoneSortDirection,
@@ -45,7 +46,6 @@
 		formatTerraformsZoneMintedTokenCount,
 		formatTerraformsZonePaletteCopyLabel,
 		formatTerraformsZonePaletteCopyValue,
-		formatTerraformsZonePaletteSwatchLabel,
 		formatTerraformsZoneTokenFilterLabel,
 		resolveTerraformsHypercastleLevel,
 		resolveTerraformsLevelZoneAriaSort,
@@ -166,9 +166,6 @@
 	);
 	let showBiomeTable = $derived(detailTitle !== null && biomeRows.length > 0);
 	let showDetailTitle = $derived(detailTitle !== null && !allLevelsSelected);
-	let biomePreviewBackgroundColor = $derived(
-		resolveTerraformsBiomePreviewBackgroundColor(biomePreviewPalette)
-	);
 
 	afterNavigate(() => {
 		syncSelectionFromCurrentLocation();
@@ -460,14 +457,6 @@
 		);
 	}
 
-	function biomeCharacterSetClass(): string {
-		const classNames: string[] = [TERRAFORMS_BIOME_TABLE_DOM.classes.characterSet];
-		if (biomePreviewPalette !== null) {
-			classNames.push(TERRAFORMS_BIOME_TABLE_DOM.classes.characterSetWithPalette);
-		}
-		return classNames.join(' ');
-	}
-
 	function resolveActiveZoneSortColumn(
 		columns: readonly TerraformsLevelZoneTableColumn[],
 		column: TerraformsLevelZoneTableColumn
@@ -539,33 +528,15 @@
 							{:else if column === TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Palette}
 								<td>
 									<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.paletteCell}>
-										<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.palette}>
-											{#each row.palette as color, colorIndex}
-												{@const swatchLabel = formatTerraformsZonePaletteSwatchLabel({
-													zoneName: row.name,
-													color,
-													position: colorIndex + 1
-												})}
-												{#if selectedLevelNumber !== null}
-													<button
-														type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
-														class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.paletteSwatch}
-														data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteSwatch}
-														style:background-color={color}
-														title={swatchLabel}
-														aria-label={swatchLabel}
-														onclick={() => applyZonePalette(row)}
-													></button>
-												{:else}
-													<span
-														class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.paletteSwatch}
-														data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteSwatch}
-														style:background-color={color}
-														title={swatchLabel}
-													></span>
-												{/if}
-											{/each}
-										</div>
+										<TerraformsZonePaletteBand
+											palette={row.palette}
+											swatchLabels={buildTerraformsZonePaletteSwatchLabels({
+												zoneName: row.name,
+												palette: row.palette
+											})}
+											selectable={selectedLevelNumber !== null}
+											onSelect={() => applyZonePalette(row)}
+										/>
 										<button
 											type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
 											class={paletteCopyButtonClass(row.key)}
@@ -602,12 +573,13 @@
 			<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
 				{TERRAFORMS_BIOME_TABLE_LABELS.Heading}
 			</h3>
-			{#if selectedLevelNumber !== null && biomePreviewPalette !== null}
+			{#if selectedLevelNumber !== null}
 				<div class={TERRAFORMS_BIOME_TABLE_DOM.classes.controls}>
 					<button
 						type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
 						class={TERRAFORMS_BIOME_TABLE_DOM.classes.colorResetButton}
 						data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.colorResetButton}
+						disabled={biomePreviewPalette === null}
 						onclick={resetBiomePreviewColors}
 					>
 						{TERRAFORMS_BIOME_TABLE_LABELS.ResetColors}
@@ -641,28 +613,14 @@
 								</td>
 							{:else if column === TERRAFORMS_BIOME_TABLE_COLUMNS.CharacterSet}
 								<td>
-									<div
-										class={biomeCharacterSetClass()}
-										style:background-color={biomePreviewBackgroundColor}
-									>
-										{#each row.displayCharacters as character, characterIndex}
-											<span
-												class={TERRAFORMS_BIOME_TABLE_DOM.classes.character}
-												data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.character}
-												style:color={resolveTerraformsBiomePreviewCharacterColor(
-													biomePreviewPalette,
-													characterIndex
-												)}
-												title={formatTerraformsBiomeCharacterLabel({
-													biomeIndex: row.biomeIndex,
-													position: characterIndex + 1,
-													character
-												})}
-											>
-												{character}
-											</span>
-										{/each}
-									</div>
+									<TerraformsBiomeCharacterBand
+										characters={row.displayCharacters}
+										characterLabels={buildTerraformsBiomeCharacterLabels({
+											biomeIndex: row.biomeIndex,
+											characters: row.displayCharacters
+										})}
+										palette={biomePreviewPalette}
+									/>
 								</td>
 							{:else if column === TERRAFORMS_BIOME_TABLE_COLUMNS.Minted}
 								<td class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.numericCell}>
@@ -679,9 +637,11 @@
 
 <style>
 	.terraforms-hypercastle-page {
-		--terraforms-hypercastle-biome-character-size: 36px;
-		--terraforms-hypercastle-biome-character-font-size: 36px;
-		--terraforms-hypercastle-zone-palette-swatch-size: 32px;
+		--terraforms-biome-character-band-padding-block: 10px;
+		--terraforms-biome-character-band-padding-inline: 10px;
+		--terraforms-biome-character-band-cell-size: 40px;
+		--terraforms-biome-character-band-font-size: 36px;
+		--terraforms-zone-palette-band-swatch-size: 38px;
 		display: grid;
 		grid-template-columns: minmax(420px, max-content) minmax(360px, max-content) minmax(
 				260px,
@@ -783,37 +743,6 @@
 		gap: 0.4rem;
 	}
 
-	.terraforms-hypercastle-zone-palette {
-		display: grid;
-		grid-template-columns: repeat(10, var(--terraforms-hypercastle-zone-palette-swatch-size));
-		grid-auto-rows: var(--terraforms-hypercastle-zone-palette-swatch-size);
-		width: fit-content;
-		background: var(--c-bg);
-	}
-
-	.terraforms-hypercastle-zone-palette-swatch {
-		display: block;
-		width: var(--terraforms-hypercastle-zone-palette-swatch-size);
-		height: var(--terraforms-hypercastle-zone-palette-swatch-size);
-		min-height: 0;
-		border: 0;
-		border-radius: 0;
-		padding: 0;
-		appearance: none;
-	}
-
-	button.terraforms-hypercastle-zone-palette-swatch {
-		cursor: pointer;
-	}
-
-	button.terraforms-hypercastle-zone-palette-swatch:hover,
-	button.terraforms-hypercastle-zone-palette-swatch:focus-visible {
-		position: relative;
-		z-index: 1;
-		outline: 1px solid var(--c-ice);
-		outline-offset: -1px;
-	}
-
 	.terraforms-hypercastle-zone-palette-copy-button {
 		display: inline-flex;
 		align-items: center;
@@ -868,35 +797,13 @@
 		font-family: var(--font-mono);
 	}
 
-	.terraforms-hypercastle-biome-character-set {
-		display: grid;
-		grid-template-columns: repeat(9, var(--terraforms-hypercastle-biome-character-size));
-		grid-auto-rows: var(--terraforms-hypercastle-biome-character-size);
-		align-items: center;
-		width: fit-content;
-	}
-
-	.terraforms-hypercastle-biome-character-set-with-palette {
-		padding: 3px;
-	}
-
-	.terraforms-hypercastle-biome-character {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: var(--terraforms-hypercastle-biome-character-size);
-		height: var(--terraforms-hypercastle-biome-character-size);
-		color: var(--c-ice);
-		font-family: var(--font-mathcastles-remix);
-		font-size: var(--terraforms-hypercastle-biome-character-font-size);
-		line-height: 1;
-	}
-
 	@media (max-width: 980px) {
 		.terraforms-hypercastle-page {
-			--terraforms-hypercastle-biome-character-size: 30px;
-			--terraforms-hypercastle-biome-character-font-size: 30px;
-			--terraforms-hypercastle-zone-palette-swatch-size: 27px;
+			--terraforms-biome-character-band-padding-block: 8px;
+			--terraforms-biome-character-band-padding-inline: 8px;
+			--terraforms-biome-character-band-cell-size: 34px;
+			--terraforms-biome-character-band-font-size: 30px;
+			--terraforms-zone-palette-band-swatch-size: 32px;
 			grid-template-columns: minmax(0, 1fr);
 			row-gap: 1rem;
 		}
@@ -930,8 +837,5 @@
 			min-width: 5rem;
 		}
 
-		.terraforms-hypercastle-biome-character-set-with-palette {
-			padding: 2px;
-		}
 	}
 </style>

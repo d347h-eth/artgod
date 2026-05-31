@@ -60,7 +60,6 @@ export const TERRAFORMS_BIOME_TABLE_DOM = {
 	testIds: {
 		panel: 'terraforms-hypercastle-biome-detail',
 		table: 'terraforms-hypercastle-biome-table',
-		character: 'terraforms-hypercastle-biome-character',
 		colorResetButton: 'terraforms-hypercastle-biome-color-reset'
 	},
 	classes: {
@@ -68,10 +67,7 @@ export const TERRAFORMS_BIOME_TABLE_DOM = {
 		controls: 'terraforms-hypercastle-biome-detail-controls',
 		colorResetButton: 'facet-panel-action-button facet-reset-button',
 		table: 'terraforms-hypercastle-biome-table',
-		numberCell: 'terraforms-hypercastle-biome-number-cell',
-		characterSet: 'terraforms-hypercastle-biome-character-set',
-		characterSetWithPalette: 'terraforms-hypercastle-biome-character-set-with-palette',
-		character: 'terraforms-hypercastle-biome-character'
+		numberCell: 'terraforms-hypercastle-biome-number-cell'
 	}
 } as const;
 
@@ -292,6 +288,20 @@ export function formatTerraformsBiomeCharacterLabel(input: {
 		String(input.position),
 		input.character
 	].join(TERRAFORMS_BIOME_CHARACTER_LABEL_SEPARATOR);
+}
+
+// Builds all labels needed by the reusable Biome character band component.
+export function buildTerraformsBiomeCharacterLabels(input: {
+	biomeIndex: number;
+	characters: readonly string[];
+}): readonly string[] {
+	return input.characters.map((character, index) =>
+		formatTerraformsBiomeCharacterLabel({
+			biomeIndex: input.biomeIndex,
+			position: index + 1,
+			character
+		})
+	);
 }
 
 function compareTerraformsBiomeRows(
