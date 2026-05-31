@@ -6,13 +6,21 @@ import {
 	TERRAFORMS_EXTENSION_KEY,
 	TERRAFORMS_EXTENSION_PAGE_REFS,
 	TERRAFORMS_HYPERCASTLE_LEVELS,
+	TERRAFORMS_LEVEL_ATTRIBUTE_KEY,
 	TERRAFORMS_ZONE_ATTRIBUTE_KEY
 } from '@artgod/shared/extensions/terraforms';
 import { TRAIT_CATALOG_QUERY_PARAMS } from '@artgod/shared/types';
 import {
+	applyTerraformsBiomeTokenCounts,
 	buildTerraformsBiomeRows,
 	buildTerraformsBiomeTokenHref,
+	defaultTerraformsBiomeSortColumn,
+	defaultTerraformsBiomeSortDirection,
+	formatTerraformsBiomeMintedTokenCount,
+	formatTerraformsBiomeSortLabel,
+	sortTerraformsBiomeRows,
 	TERRAFORMS_BIOME_FONT_FAMILY_NAME,
+	TERRAFORMS_BIOME_TABLE_COLUMNS,
 	TERRAFORMS_BIOME_TABLE_DOM,
 	TERRAFORMS_BIOME_TABLE_LABELS
 } from '../src/lib/collection-extension-pages/terraforms/biomes';
@@ -34,10 +42,9 @@ import {
 	defaultTerraformsSelectedLevelZoneSortColumn,
 	defaultTerraformsSelectedLevelZoneSortDirection,
 	formatTerraformsLevelZoneSortLabel,
+	formatTerraformsZoneMintedTokenCount,
 	formatTerraformsZonePaletteCopyLabel,
 	formatTerraformsZonePaletteCopyValue,
-	formatTerraformsZoneTopographyHeights,
-	formatTerraformsZoneTopographyRangeLabel,
 	sortTerraformsLevelZoneRows,
 	TERRAFORMS_LEVEL_ZONE_PALETTE_COPY_STATES,
 	TERRAFORMS_LEVEL_ZONE_SECTION_LABELS,
@@ -117,7 +124,6 @@ type HypercastleLevelDetailMetrics = {
 	heading: string | null;
 	rowCount: number;
 	rowNames: string[];
-	rowTopographyValues: string[];
 	paletteSwatchCount: number;
 	paletteCopyButtonCount: number;
 };
@@ -169,6 +175,8 @@ const ARIA_ATTRIBUTE_VALUES = {
 	true: 'true'
 } as const;
 const CSS_PROPERTY_NAMES = {
+	backgroundColor: 'background-color',
+	color: 'color',
 	pointerEvents: 'pointer-events'
 } as const;
 const TABLE_SELECTORS = {
@@ -177,6 +185,7 @@ const TABLE_SELECTORS = {
 } as const;
 const TAG_NAMES = {
 	anchor: 'a',
+	span: 'span',
 	svg: 'svg'
 } as const;
 const DATA_ATTRIBUTE_NAMES = {
@@ -219,7 +228,11 @@ const HYPERCASTLE_EXPECTED_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 3;
 const HYPERCASTLE_EXPECTED_VERTICAL_FACE_COUNT = HYPERCASTLE_EXPECTED_LEVEL_COUNT * 2;
 const HYPERCASTLE_E2E_TRAIT_CATALOG_ROUTE_PATTERN = '**/api/*/*/traits/catalog*';
 const HYPERCASTLE_E2E_TRAIT_SCOPE_SEPARATOR = ':';
-const HYPERCASTLE_E2E_MINTED_COUNT_TEXT = '0';
+const HYPERCASTLE_E2E_ALL_LEVEL_MINTED_COUNT = 0;
+const HYPERCASTLE_E2E_SELECTED_BIOME_COUNTS = {
+	22: 8,
+	23: 13
+} as const;
 const HYPERCASTLE_REACHABILITY_LEVEL_NUMBER = 12;
 const HYPERCASTLE_DETAIL_LEVEL = TERRAFORMS_HYPERCASTLE_LEVELS.find(
 	(level) => level.levelNumber === HYPERCASTLE_REACHABILITY_LEVEL_NUMBER
@@ -527,8 +540,28 @@ test.describe('Terraforms Hypercastle overview', () => {
 			})
 		).toBeVisible();
 		await expect(zoneTable).toBeVisible();
-		await expect(biomePanel).toHaveCount(0);
+		await expect(biomePanel).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
+		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows());
+		await biomeTable
+			.getByRole(ACCESSIBLE_ROLES.button, {
+				name: formatTerraformsBiomeSortLabel(TERRAFORMS_BIOME_TABLE_COLUMNS.Minted)
+			})
+			.click();
+		await assertBiomeTableRows(
+			biomeTable,
+			sortTerraformsBiomeRows(
+				expectedUnsortedSelectedLevelBiomeRows(),
+				TERRAFORMS_BIOME_TABLE_COLUMNS.Minted,
+				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
+			)
+		);
+		await biomeTable
+			.getByRole(ACCESSIBLE_ROLES.button, {
+				name: formatTerraformsBiomeSortLabel(TERRAFORMS_BIOME_TABLE_COLUMNS.Number)
+			})
+			.click();
+		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows());
 		const selectedLevelHrefBeforeTokenNavigation = page.url();
 		await zoneTable
 			.locator(TABLE_SELECTORS.bodyRows)
@@ -561,16 +594,16 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await expect(surfaceRerollButton).toBeVisible();
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.selectedScreenshot);
 
-		const topographySort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
-			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography)
+		const mintedSort = zoneTable.getByRole(ACCESSIBLE_ROLES.button, {
+			name: formatTerraformsLevelZoneSortLabel(TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted)
 		});
-		await topographySort.click();
+		await mintedSort.click();
 		await assertZoneTableRows(
 			zoneTable,
 			sortTerraformsLevelZoneRows(
-				buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
-				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography,
-				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
+				expectedUnsortedLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted,
+				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
 			)
 		);
 		await zoneTable
@@ -581,7 +614,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await assertZoneTableRows(
 			zoneTable,
 			sortTerraformsLevelZoneRows(
-				buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
+				expectedUnsortedLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
 				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
 			)
@@ -604,9 +637,6 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		expect(detailMetrics.rowCount).toBe(defaultRows.length);
 		expect(detailMetrics.rowNames).toEqual(defaultRows.map((row) => row.name));
-		expect(detailMetrics.rowTopographyValues).toEqual(
-			defaultRows.map((row) => formatTerraformsZoneTopographyHeights(row))
-		);
 		expect(detailMetrics.paletteSwatchCount).toBe(
 			defaultRows.reduce((sum, row) => sum + row.palette.length, 0)
 		);
@@ -625,7 +655,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 		await assertZoneTableRows(
 			zoneTable,
 			sortTerraformsLevelZoneRows(
-				buildTerraformsLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
+				expectedUnsortedLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
 				defaultTerraformsSelectedLevelZoneSortColumn(),
 				defaultTerraformsSelectedLevelZoneSortDirection()
 			)
@@ -641,7 +671,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 			TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceZoneIndex
 		);
 		const textureLevelRows = sortTerraformsLevelZoneRows(
-			buildTerraformsLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
+			expectedUnsortedLevelZoneRows(HYPERCASTLE_TEXTURE_LEVEL),
 			defaultTerraformsSelectedLevelZoneSortColumn(),
 			defaultTerraformsSelectedLevelZoneSortDirection()
 		);
@@ -688,6 +718,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 		);
 		expect(textureFillColors.length).toBeGreaterThan(0);
 		expect(textureFillColors.every((color) => targetRow.palette.includes(color))).toBe(true);
+		await assertBiomePalettePreview(page, biomeTable, targetRow.palette);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.surfaceScreenshot);
 		expect(browserErrors.consoleErrors).toEqual([]);
 		expect(browserErrors.pageErrors).toEqual([]);
@@ -936,9 +967,6 @@ async function collectHypercastleLevelDetailMetrics(
 			heading: heading?.textContent ?? null,
 			rowCount: rows.length,
 			rowNames: rowCells.map((cells) => cells[0]?.textContent ?? contract.emptyAttributeValue),
-			rowTopographyValues: rowCells.map(
-				(cells) => cells[3]?.textContent?.trim() ?? contract.emptyAttributeValue
-			),
 			paletteSwatchCount: table?.querySelectorAll(contract.selectors.paletteSwatch).length ?? 0,
 			paletteCopyButtonCount:
 				table?.querySelectorAll(contract.selectors.paletteCopyButton).length ?? 0
@@ -969,23 +997,15 @@ async function assertZoneTableRows(
 		await expect(
 			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.paletteCopyButton)
 		).toHaveCount(1);
-		if (row.topographyBucketCount === null) {
-			await expect(cells).toHaveCount(3);
-			await expect(cells.nth(2)).toHaveText(HYPERCASTLE_E2E_MINTED_COUNT_TEXT);
-		} else {
-			await expect(cells).toHaveCount(4);
-			await expect(cells.nth(2)).toHaveText(HYPERCASTLE_E2E_MINTED_COUNT_TEXT);
-			await expect(cells.nth(3)).toHaveText(formatTerraformsZoneTopographyHeights(row));
-			await expect(cells.nth(3)).toHaveAttribute(
-				SVG_ATTRIBUTE_NAMES.title,
-				formatTerraformsZoneTopographyRangeLabel(row)
-			);
-		}
+		await expect(cells).toHaveCount(3);
+		await expect(cells.nth(2)).toHaveText(formatTerraformsZoneMintedTokenCount(row));
 	}
 }
 
-async function assertBiomeTableRows(biomeTable: Locator): Promise<void> {
-	const expectedRows = buildTerraformsBiomeRows();
+async function assertBiomeTableRows(
+	biomeTable: Locator,
+	expectedRows = expectedAllLevelBiomeRows()
+): Promise<void> {
 	const rows = biomeTable.locator(TABLE_SELECTORS.bodyRows);
 	await expect(rows).toHaveCount(expectedRows.length);
 	await expect(biomeTable.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)).toHaveCount(
@@ -1005,11 +1025,48 @@ async function assertBiomeTableRows(biomeTable: Locator): Promise<void> {
 			})
 		);
 		await expect(
-			cells.nth(2).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
+			cells.nth(1).locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
 		).toHaveCount(row.displayCharacters.length);
+		await expect(cells.nth(2)).toHaveText(formatTerraformsBiomeMintedTokenCount(row));
 	}
-	await assertBiomeDisplayCharacters(rows, expectedRows, 22);
-	await assertBiomeDisplayCharacters(rows, expectedRows, 23);
+	if (expectedRows.length === buildTerraformsBiomeRows().length) {
+		await assertBiomeDisplayCharacters(rows, expectedRows, 22);
+		await assertBiomeDisplayCharacters(rows, expectedRows, 23);
+	}
+}
+
+async function assertBiomePalettePreview(
+	page: Page,
+	biomeTable: Locator,
+	palette: readonly string[]
+): Promise<void> {
+	const expectedBackgroundColor = await resolveBrowserCssColor(page, palette.at(-1)!);
+	const characterSet = biomeTable
+		.locator(classSelector(TERRAFORMS_BIOME_TABLE_DOM.classes.characterSet))
+		.first();
+	await expect(characterSet).toHaveCSS(CSS_PROPERTY_NAMES.backgroundColor, expectedBackgroundColor);
+
+	const characters = characterSet.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter);
+	for (const [index, color] of palette.slice(0, 9).entries()) {
+		await expect(characters.nth(index)).toHaveCSS(
+			CSS_PROPERTY_NAMES.color,
+			await resolveBrowserCssColor(page, color)
+		);
+	}
+}
+
+async function resolveBrowserCssColor(page: Page, color: string): Promise<string> {
+	return page.evaluate(
+		({ color, colorProperty, tagName }) => {
+			const probe = document.createElement(tagName);
+			probe.style.setProperty(colorProperty, color);
+			document.body.append(probe);
+			const resolvedColor = getComputedStyle(probe).getPropertyValue(colorProperty);
+			probe.remove();
+			return resolvedColor;
+		},
+		{ color, colorProperty: CSS_PROPERTY_NAMES.color, tagName: TAG_NAMES.span }
+	);
 }
 
 async function installTraitCatalogApiProbe(page: Page): Promise<void> {
@@ -1019,6 +1076,7 @@ async function installTraitCatalogApiProbe(page: Page): Promise<void> {
 			...requestUrl.searchParams.getAll(TRAIT_CATALOG_QUERY_PARAMS.ScopeTraits),
 			...requestUrl.searchParams.getAll(TRAIT_CATALOG_QUERY_PARAMS.ScopeTrait)
 		];
+		const scope = scopeValues.map(formatTraitCatalogScopeValue);
 
 		await route.fulfill({
 			status: 200,
@@ -1027,15 +1085,45 @@ async function installTraitCatalogApiProbe(page: Page): Promise<void> {
 				chain: {},
 				collection: {},
 				traitCatalog: {
-					scope: scopeValues.map(formatTraitCatalogScopeValue),
-					facets: [
-						{ key: TERRAFORMS_BIOME_ATTRIBUTE_KEY, values: [] },
-						{ key: TERRAFORMS_ZONE_ATTRIBUTE_KEY, values: [] }
-					]
+					scope,
+					facets: buildTraitCatalogProbeFacets(scope)
 				}
 			})
 		});
 	});
+}
+
+function buildTraitCatalogProbeFacets(scope: Array<{ key: string; value: string }>) {
+	const level = resolveTraitCatalogProbeLevel(scope);
+	if (level === null) {
+		return [
+			{ key: TERRAFORMS_BIOME_ATTRIBUTE_KEY, values: [] },
+			{ key: TERRAFORMS_ZONE_ATTRIBUTE_KEY, values: [] }
+		];
+	}
+
+	return [
+		{
+			key: TERRAFORMS_BIOME_ATTRIBUTE_KEY,
+			values: Object.entries(HYPERCASTLE_E2E_SELECTED_BIOME_COUNTS).map(([value, tokenCount]) => ({
+				value,
+				tokenCount
+			}))
+		},
+		{
+			key: TERRAFORMS_ZONE_ATTRIBUTE_KEY,
+			values: level.zones.map((zone, index) => ({
+				value: zone.name,
+				tokenCount: index + 1
+			}))
+		}
+	];
+}
+
+function resolveTraitCatalogProbeLevel(scope: Array<{ key: string; value: string }>) {
+	const levelScope = scope.find((filter) => filter.key === TERRAFORMS_LEVEL_ATTRIBUTE_KEY);
+	const levelNumber = Number(levelScope?.value);
+	return TERRAFORMS_HYPERCASTLE_LEVELS.find((level) => level.levelNumber === levelNumber) ?? null;
 }
 
 function formatTraitCatalogScopeValue(value: string): { key: string; value: string } {
@@ -1117,7 +1205,10 @@ async function collectUniqueAttributeValues(
 
 function expectedAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 	return sortTerraformsLevelZoneRows(
-		buildTerraformsAllLevelZoneRows(),
+		buildTerraformsAllLevelZoneRows().map((row) => ({
+			...row,
+			mintedTokenCount: HYPERCASTLE_E2E_ALL_LEVEL_MINTED_COUNT
+		})),
 		defaultTerraformsLevelZoneSortColumn(),
 		defaultTerraformsLevelZoneSortDirection()
 	);
@@ -1125,9 +1216,43 @@ function expectedAllLevelZoneRows(): TerraformsLevelZoneRow[] {
 
 function expectedDefaultLevelZoneRows(): TerraformsLevelZoneRow[] {
 	return sortTerraformsLevelZoneRows(
-		buildTerraformsLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
+		expectedUnsortedLevelZoneRows(HYPERCASTLE_DETAIL_LEVEL),
 		defaultTerraformsSelectedLevelZoneSortColumn(),
 		defaultTerraformsSelectedLevelZoneSortDirection()
+	);
+}
+
+function expectedUnsortedLevelZoneRows(
+	level: (typeof TERRAFORMS_HYPERCASTLE_LEVELS)[number]
+): TerraformsLevelZoneRow[] {
+	return buildTerraformsLevelZoneRows(level).map((row, index) => ({
+		...row,
+		mintedTokenCount: index + 1
+	}));
+}
+
+function expectedAllLevelBiomeRows(): ReturnType<typeof buildTerraformsBiomeRows> {
+	return sortTerraformsBiomeRows(
+		applyTerraformsBiomeTokenCounts(buildTerraformsBiomeRows(), {}, true),
+		defaultTerraformsBiomeSortColumn(),
+		defaultTerraformsBiomeSortDirection()
+	);
+}
+
+function expectedSelectedLevelBiomeRows(): ReturnType<typeof buildTerraformsBiomeRows> {
+	return sortTerraformsBiomeRows(
+		expectedUnsortedSelectedLevelBiomeRows(),
+		defaultTerraformsBiomeSortColumn(),
+		defaultTerraformsBiomeSortDirection()
+	);
+}
+
+function expectedUnsortedSelectedLevelBiomeRows(): ReturnType<typeof buildTerraformsBiomeRows> {
+	return applyTerraformsBiomeTokenCounts(
+		buildTerraformsBiomeRows(),
+		HYPERCASTLE_E2E_SELECTED_BIOME_COUNTS,
+		true,
+		{ mintedOnly: true }
 	);
 }
 

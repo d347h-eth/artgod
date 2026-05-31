@@ -10,8 +10,6 @@ import {
 	buildTerraformsLevelZoneRows,
 	buildTerraformsZoneTokenHref,
 	formatTerraformsZoneMintedTokenCount,
-	formatTerraformsZoneTopographyHeights,
-	formatTerraformsZoneTopographyRangeLabel,
 	resolveTerraformsHypercastleLevel,
 	resolveTerraformsLevelZoneAriaSort,
 	resolveTerraformsLevelZoneDefaultSortDirection,
@@ -23,60 +21,26 @@ import {
 import { formatTerraformsLevelTitle } from '$lib/collection-extension-pages/terraforms/hypercastle-selection';
 
 describe('Terraforms level Zone table data', () => {
-	it('builds static Zone distribution rows from topography buckets', () => {
+	it('builds selected-level Zone catalog rows with all-level table shape', () => {
 		const level = TERRAFORMS_HYPERCASTLE_LEVELS.find((candidate) => candidate.levelNumber === 12);
 
 		expect(level).toBeDefined();
 		const rows = buildTerraformsLevelZoneRows(level!);
-		const sortedRows = sortTerraformsLevelZoneRows(
-			rows,
-			TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography,
-			TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
-		);
 
-		expect(rows).toHaveLength(9);
-		expect(sortedRows.map((row) => row.name)).toEqual([
-			'Palace',
-			'Muxtai X1',
-			'Palace',
-			'Muxtai X1',
-			'Palace',
-			'Muxtai X1',
-			'Palace',
-			'Muxtai X1',
-			'Palace'
-		]);
-		expect(sortedRows.map((row) => row.topographyBucketCount)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1]);
-		expect(sortedRows.map((row) => formatTerraformsZoneTopographyHeights(row))).toEqual([
-			'4',
-			'3',
-			'2',
-			'1',
-			'0',
-			'-1',
-			'-2',
-			'-3',
-			'-4'
-		]);
-		expect(sortedRows[0]!.palette).toEqual(level!.zones[0]!.palette);
-		expect(sortedRows[1]!.palette).toEqual(level!.zones[1]!.palette);
-		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toContain('4: > 18000');
-		expect(formatTerraformsZoneTopographyRangeLabel(sortedRows[8]!)).toContain('-4: <= -26000');
+		expect(rows).toHaveLength(level!.zones.length);
+		expect(rows.map((row) => row.name)).toEqual(['Palace', 'Muxtai X1']);
+		expect(rows[0]!.palette).toEqual(level!.zones[0]!.palette);
+		expect(rows[1]!.palette).toEqual(level!.zones[1]!.palette);
 	});
 
-	it('builds the all-level Zone catalog without level-specific buckets', () => {
+	it('builds the all-level Zone catalog', () => {
 		const rows = buildTerraformsAllLevelZoneRows();
 
 		expect(rows).toHaveLength(TERRAFORMS_ZONES.length);
 		expect(rows[0]).toMatchObject({
 			zoneIndex: 0,
-			name: 'Alto',
-			topographyBucketCount: null,
-			topographyHeights: null,
-			topographyRangeLabel: null
+			name: 'Alto'
 		});
-		expect(formatTerraformsZoneTopographyHeights(rows[0]!)).toBe('');
-		expect(formatTerraformsZoneTopographyRangeLabel(rows[0]!)).toBe('');
 	});
 
 	it('sorts selected-level Zone rows by dynamic table columns', () => {
@@ -85,38 +49,26 @@ describe('Terraforms level Zone table data', () => {
 		expect(
 			sortTerraformsLevelZoneRows(
 				rows,
-				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Topography,
-				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
-			).map((row) => row.name)
-		).toEqual([
-			'Palace',
-			'Muxtai X1',
-			'Palace',
-			'Muxtai X1',
-			'Palace',
-			'Muxtai X1',
-			'Palace',
-			'Muxtai X1',
-			'Palace'
-		]);
-
-		expect(
-			sortTerraformsLevelZoneRows(
-				rows,
 				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Name,
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Ascending
 			).map((row) => row.name)
-		).toEqual([
-			'Muxtai X1',
-			'Muxtai X1',
-			'Muxtai X1',
-			'Muxtai X1',
-			'Palace',
-			'Palace',
-			'Palace',
-			'Palace',
-			'Palace'
-		]);
+		).toEqual(['Muxtai X1', 'Palace']);
+
+		const countedRows = applyTerraformsLevelZoneTokenCounts(
+			rows,
+			{
+				Palace: 2,
+				'Muxtai X1': 5
+			},
+			true
+		);
+		expect(
+			sortTerraformsLevelZoneRows(
+				countedRows,
+				TERRAFORMS_LEVEL_ZONE_TABLE_COLUMNS.Minted,
+				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
+			).map((row) => row.name)
+		).toEqual(['Muxtai X1', 'Palace']);
 	});
 
 	it('applies minted token counts to Zone rows for display and sorting', () => {
@@ -137,6 +89,21 @@ describe('Terraforms level Zone table data', () => {
 				TERRAFORMS_LEVEL_ZONE_SORT_DIRECTIONS.Descending
 			).map((row) => row.name)
 		).toEqual(['Holo', 'Alto']);
+	});
+
+	it('filters selected-level Zone rows to exact minted counts', () => {
+		const rows = applyTerraformsLevelZoneTokenCounts(
+			buildTerraformsLevelZoneRows(resolveTerraformsHypercastleLevel(12)!),
+			{
+				Palace: 0,
+				'Muxtai X1': 5
+			},
+			true,
+			{ mintedOnly: true }
+		);
+
+		expect(rows.map((row) => row.name)).toEqual(['Muxtai X1']);
+		expect(rows.map((row) => formatTerraformsZoneMintedTokenCount(row))).toEqual(['5']);
 	});
 
 	it('keeps table labels and aria-sort values centralized', () => {
