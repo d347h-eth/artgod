@@ -679,6 +679,9 @@
 
 <style>
 	.terraforms-hypercastle-page {
+		--terraforms-hypercastle-biome-character-size: 36px;
+		--terraforms-hypercastle-biome-character-font-size: 36px;
+		--terraforms-hypercastle-zone-palette-swatch-size: 32px;
 		display: grid;
 		grid-template-columns: minmax(420px, max-content) minmax(360px, max-content) minmax(
 				260px,
@@ -686,7 +689,7 @@
 			);
 		align-items: start;
 		justify-content: start;
-		column-gap: 2rem;
+		column-gap: 1rem;
 		max-width: 100%;
 	}
 
@@ -696,13 +699,13 @@
 	}
 
 	.terraforms-hypercastle-level-detail {
-		width: min(100%, 560px);
+		width: min(100%, 640px);
 		min-width: 0;
 		padding-top: 14px;
 	}
 
 	.terraforms-hypercastle-biome-detail {
-		width: min(100%, 340px);
+		width: min(100%, 560px);
 		min-width: 0;
 		padding-top: 14px;
 	}
@@ -747,7 +750,7 @@
 
 	:global(.terraforms-hypercastle-zone-table) {
 		width: auto;
-		min-width: 34rem;
+		min-width: 39rem;
 		table-layout: auto;
 	}
 
@@ -782,16 +785,16 @@
 
 	.terraforms-hypercastle-zone-palette {
 		display: grid;
-		grid-template-columns: repeat(10, 16px);
-		grid-auto-rows: 16px;
+		grid-template-columns: repeat(10, var(--terraforms-hypercastle-zone-palette-swatch-size));
+		grid-auto-rows: var(--terraforms-hypercastle-zone-palette-swatch-size);
 		width: fit-content;
 		background: var(--c-bg);
 	}
 
 	.terraforms-hypercastle-zone-palette-swatch {
 		display: block;
-		width: 16px;
-		height: 16px;
+		width: var(--terraforms-hypercastle-zone-palette-swatch-size);
+		height: var(--terraforms-hypercastle-zone-palette-swatch-size);
 		min-height: 0;
 		border: 0;
 		border-radius: 0;
@@ -848,11 +851,17 @@
 
 	:global(.terraforms-hypercastle-biome-table th:first-child),
 	:global(.terraforms-hypercastle-biome-table td:first-child) {
-		min-width: 4rem;
+		min-width: 3rem;
 	}
 
 	:global(.terraforms-hypercastle-biome-table) {
-		min-width: 17rem;
+		min-width: 31rem;
+	}
+
+	:global(.terraforms-hypercastle-biome-table th),
+	:global(.terraforms-hypercastle-biome-table td) {
+		padding-left: 0.35rem;
+		padding-right: 0.35rem;
 	}
 
 	.terraforms-hypercastle-biome-number-cell {
@@ -861,8 +870,8 @@
 
 	.terraforms-hypercastle-biome-character-set {
 		display: grid;
-		grid-template-columns: repeat(9, 20px);
-		grid-auto-rows: 20px;
+		grid-template-columns: repeat(9, var(--terraforms-hypercastle-biome-character-size));
+		grid-auto-rows: var(--terraforms-hypercastle-biome-character-size);
 		align-items: center;
 		width: fit-content;
 	}
@@ -875,16 +884,19 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 20px;
-		height: 20px;
+		width: var(--terraforms-hypercastle-biome-character-size);
+		height: var(--terraforms-hypercastle-biome-character-size);
 		color: var(--c-ice);
 		font-family: var(--font-mathcastles-remix);
-		font-size: 18px;
+		font-size: var(--terraforms-hypercastle-biome-character-font-size);
 		line-height: 1;
 	}
 
 	@media (max-width: 980px) {
 		.terraforms-hypercastle-page {
+			--terraforms-hypercastle-biome-character-size: 30px;
+			--terraforms-hypercastle-biome-character-font-size: 30px;
+			--terraforms-hypercastle-zone-palette-swatch-size: 27px;
 			grid-template-columns: minmax(0, 1fr);
 			row-gap: 1rem;
 		}
@@ -918,29 +930,8 @@
 			min-width: 5rem;
 		}
 
-		.terraforms-hypercastle-zone-palette {
-			grid-template-columns: repeat(10, 13px);
-			grid-auto-rows: 13px;
-		}
-
-		.terraforms-hypercastle-zone-palette-swatch {
-			width: 13px;
-			height: 13px;
-		}
-
-		.terraforms-hypercastle-biome-character-set {
-			grid-template-columns: repeat(9, 17px);
-			grid-auto-rows: 17px;
-		}
-
 		.terraforms-hypercastle-biome-character-set-with-palette {
 			padding: 2px;
-		}
-
-		.terraforms-hypercastle-biome-character {
-			width: 17px;
-			height: 17px;
-			font-size: 15px;
 		}
 	}
 </style>

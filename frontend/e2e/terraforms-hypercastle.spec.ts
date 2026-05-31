@@ -207,6 +207,10 @@ const DATA_ATTRIBUTE_NAMES = {
 const SCROLL_INTO_VIEW_POSITIONS = {
 	center: 'center'
 } as const;
+const HYPERCASTLE_PREVIEW_SCALE_CONSTRAINTS = {
+	maxWidthDeltaPx: 4,
+	minBiomeCharacterSizePx: 30
+} as const;
 const TEST_ARTIFACTS = {
 	pageScreenshot: {
 		name: 'terraforms-hypercastle-page.png',
@@ -529,6 +533,7 @@ test.describe('Terraforms Hypercastle overview', () => {
 		).toBeVisible();
 		await assertZoneTableRows(zoneTable, expectedAllLevelZoneRows());
 		await assertBiomeTableRows(biomeTable);
+		await assertTraitPreviewScale(zoneTable, biomeTable);
 		const surfaceKeyBeforeAllLevelsReroll = await page
 			.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.svg)
 			.getAttribute(TERRAFORMS_HYPERCASTLE_OVERVIEW_DOM.attributes.surfaceKey);
@@ -1118,6 +1123,37 @@ async function assertTraitTableHeaderChrome(page: Page, table: Locator): Promise
 		await expect(sortButton).toHaveCSS(CSS_PROPERTY_NAMES.borderTopWidth, CSS_LENGTH_VALUES.ZeroPx);
 		await expect(sortButton).toHaveCSS(CSS_PROPERTY_NAMES.backgroundColor, expectedBackgroundColor);
 	}
+}
+
+async function assertTraitPreviewScale(zoneTable: Locator, biomeTable: Locator): Promise<void> {
+	const zonePalette = zoneTable
+		.locator(classSelector(TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.palette))
+		.first();
+	const biomeCharacterSet = biomeTable
+		.locator(classSelector(TERRAFORMS_BIOME_TABLE_DOM.classes.characterSet))
+		.first();
+	const biomeCharacter = biomeCharacterSet
+		.locator(HYPERCASTLE_PROBE_CONTRACT.selectors.biomeCharacter)
+		.first();
+	await expect(zonePalette).toBeVisible();
+	await expect(biomeCharacterSet).toBeVisible();
+	await expect(biomeCharacter).toBeVisible();
+
+	const zonePaletteBox = await zonePalette.boundingBox();
+	const biomeCharacterSetBox = await biomeCharacterSet.boundingBox();
+	const biomeCharacterBox = await biomeCharacter.boundingBox();
+	expect(zonePaletteBox).not.toBeNull();
+	expect(biomeCharacterSetBox).not.toBeNull();
+	expect(biomeCharacterBox).not.toBeNull();
+	expect(Math.abs(zonePaletteBox!.width - biomeCharacterSetBox!.width)).toBeLessThanOrEqual(
+		HYPERCASTLE_PREVIEW_SCALE_CONSTRAINTS.maxWidthDeltaPx
+	);
+	expect(biomeCharacterBox!.width).toBeGreaterThanOrEqual(
+		HYPERCASTLE_PREVIEW_SCALE_CONSTRAINTS.minBiomeCharacterSizePx
+	);
+	expect(biomeCharacterBox!.height).toBeGreaterThanOrEqual(
+		HYPERCASTLE_PREVIEW_SCALE_CONSTRAINTS.minBiomeCharacterSizePx
+	);
 }
 
 async function assertBiomeResetButtonChrome(page: Page, button: Locator): Promise<void> {
