@@ -180,6 +180,7 @@ const ARIA_ATTRIBUTE_VALUES = {
 } as const;
 const CSS_PROPERTY_NAMES = {
 	backgroundColor: 'background-color',
+	borderTopColor: 'border-top-color',
 	borderTopWidth: 'border-top-width',
 	color: 'color',
 	pointerEvents: 'pointer-events'
@@ -188,7 +189,8 @@ const CSS_LENGTH_VALUES = {
 	ZeroPx: '0px'
 } as const;
 const CSS_VARIABLE_NAMES = {
-	Ice: '--c-ice'
+	Ice: '--c-ice',
+	Pink: '--c-pink'
 } as const;
 const TABLE_SELECTORS = {
 	bodyRows: 'tbody tr',
@@ -224,6 +226,10 @@ const TEST_ARTIFACTS = {
 	},
 	surfaceScreenshot: {
 		name: 'terraforms-hypercastle-surface-page.png',
+		contentType: 'image/png'
+	},
+	biomeResetScreenshot: {
+		name: 'terraforms-hypercastle-biome-reset-page.png',
 		contentType: 'image/png'
 	},
 	probe: {
@@ -315,6 +321,10 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_BIOME_TABLE_DOM.testIds.character
 		),
+		biomeColorResetButton: dataAttributeSelector(
+			DATA_ATTRIBUTE_NAMES.testId,
+			TERRAFORMS_BIOME_TABLE_DOM.testIds.colorResetButton
+		),
 		paletteSwatch: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteSwatch
@@ -322,10 +332,6 @@ const HYPERCASTLE_PROBE_CONTRACT = {
 		paletteCopyButton: dataAttributeSelector(
 			DATA_ATTRIBUTE_NAMES.testId,
 			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.paletteCopyButton
-		),
-		biomeColorResetButton: dataAttributeSelector(
-			DATA_ATTRIBUTE_NAMES.testId,
-			TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.biomeColorResetButton
 		),
 		tableSortButton: classSelector(TERRAFORMS_TRAIT_TABLE_DOM.classes.sortButton),
 		reachableLevelLayer: idSelector(
@@ -562,11 +568,10 @@ test.describe('Terraforms Hypercastle overview', () => {
 				name: TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones
 			})
 		).toBeVisible();
-		const biomeColorResetButton = detailPanel.locator(
+		const biomeColorResetButton = biomePanel.locator(
 			HYPERCASTLE_PROBE_CONTRACT.selectors.biomeColorResetButton
 		);
-		await expect(biomeColorResetButton).toBeVisible();
-		await expect(biomeColorResetButton).toBeDisabled();
+		await expect(biomeColorResetButton).toHaveCount(0);
 		await assertZoneTableRows(zoneTable, expectedDefaultLevelZoneRows());
 		await assertBiomeTableRows(biomeTable, expectedSelectedLevelBiomeRows());
 		await assertTraitTableHeaderChrome(page, zoneTable);
@@ -747,9 +752,12 @@ test.describe('Terraforms Hypercastle overview', () => {
 		expect(textureFillColors.length).toBeGreaterThan(0);
 		expect(textureFillColors.every((color) => targetRow.palette.includes(color))).toBe(true);
 		await assertBiomePalettePreview(page, biomeTable, targetRow.palette);
-		await expect(biomeColorResetButton).toBeEnabled();
+		await expect(biomeColorResetButton).toBeVisible();
+		await assertBiomeResetButtonChrome(page, biomeColorResetButton);
+		await assertBiomeResetButtonPlacement(biomeColorResetButton, biomeTable);
+		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.biomeResetScreenshot);
 		await biomeColorResetButton.click();
-		await expect(biomeColorResetButton).toBeDisabled();
+		await expect(biomeColorResetButton).toHaveCount(0);
 		await assertBiomePalettePreviewReset(page, biomeTable);
 		await attachPageScreenshot(page, testInfo, TEST_ARTIFACTS.surfaceScreenshot);
 		expect(browserErrors.consoleErrors).toEqual([]);
@@ -1064,6 +1072,7 @@ async function assertBiomeTableRows(
 	if (expectedRows.length === buildTerraformsBiomeRows().length) {
 		await assertBiomeDisplayCharacters(rows, expectedRows, 22);
 		await assertBiomeDisplayCharacters(rows, expectedRows, 23);
+		await assertBiomeDisplayCharacters(rows, expectedRows, 54);
 	}
 }
 
@@ -1109,6 +1118,20 @@ async function assertTraitTableHeaderChrome(page: Page, table: Locator): Promise
 		await expect(sortButton).toHaveCSS(CSS_PROPERTY_NAMES.borderTopWidth, CSS_LENGTH_VALUES.ZeroPx);
 		await expect(sortButton).toHaveCSS(CSS_PROPERTY_NAMES.backgroundColor, expectedBackgroundColor);
 	}
+}
+
+async function assertBiomeResetButtonChrome(page: Page, button: Locator): Promise<void> {
+	const expectedResetColor = await resolveRootCssVariableColor(page, CSS_VARIABLE_NAMES.Pink);
+	await expect(button).toHaveCSS(CSS_PROPERTY_NAMES.color, expectedResetColor);
+	await expect(button).toHaveCSS(CSS_PROPERTY_NAMES.borderTopColor, expectedResetColor);
+}
+
+async function assertBiomeResetButtonPlacement(button: Locator, table: Locator): Promise<void> {
+	const buttonBox = await button.boundingBox();
+	const tableBox = await table.boundingBox();
+	expect(buttonBox).not.toBeNull();
+	expect(tableBox).not.toBeNull();
+	expect(buttonBox!.y).toBeLessThan(tableBox!.y);
 }
 
 async function resolveBrowserCssColor(page: Page, color: string): Promise<string> {

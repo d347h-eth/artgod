@@ -43,6 +43,18 @@ const TERRAFORMS_RAIN_CLOUD_BIOME_DISPLAY_CHARACTERS = [
 	'🏔',
 	'🏔'
 ] as const;
+const TERRAFORMS_ZERO_ONE_BIOME_INDEX = 54;
+const TERRAFORMS_ZERO_ONE_BIOME_DISPLAY_CHARACTERS = [
+	'🕱',
+	'🕱',
+	'0',
+	'0',
+	'1',
+	'1',
+	'0',
+	'0',
+	'🖳'
+] as const;
 
 describe('Terraforms Biome table data', () => {
 	it('builds the all-level Biome catalog from static contract data', () => {
@@ -72,6 +84,19 @@ describe('Terraforms Biome table data', () => {
 		expect(rainCloudRow.displayCharacters).toEqual(TERRAFORMS_RAIN_CLOUD_BIOME_DISPLAY_CHARACTERS);
 		expect(resolveTerraformsBiomeDisplayCharacters(mountainBiome)).toEqual(
 			TERRAFORMS_MOUNTAIN_BIOME_DISPLAY_CHARACTERS
+		);
+	});
+
+	it('keeps numeric Biome characters as font-rendered digits', () => {
+		const rows = buildTerraformsBiomeRows();
+		const zeroOneBiome = TERRAFORMS_BIOMES[TERRAFORMS_ZERO_ONE_BIOME_INDEX]!;
+		const zeroOneRow = rows[TERRAFORMS_ZERO_ONE_BIOME_INDEX]!;
+
+		expect(zeroOneBiome.characters).toEqual(['?', '?', '0', '0', '1', '1', '0', '0', '?']);
+		expect(zeroOneRow.characters).toEqual(zeroOneBiome.characters);
+		expect(zeroOneRow.displayCharacters).toEqual(TERRAFORMS_ZERO_ONE_BIOME_DISPLAY_CHARACTERS);
+		expect(resolveTerraformsBiomeDisplayCharacters(zeroOneBiome)).toEqual(
+			TERRAFORMS_ZERO_ONE_BIOME_DISPLAY_CHARACTERS
 		);
 	});
 

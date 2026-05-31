@@ -506,17 +506,6 @@
 				<h2 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailHeading}>
 					{detailTitle}
 				</h2>
-				<div class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailControls}>
-					<button
-						type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
-						class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.resetBiomeColorsButton}
-						data-testid={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.testIds.biomeColorResetButton}
-						disabled={biomePreviewPalette === null}
-						onclick={resetBiomePreviewColors}
-					>
-						{TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.ResetBiomeColors}
-					</button>
-				</div>
 			{/if}
 			<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
 				{TERRAFORMS_LEVEL_ZONE_SECTION_LABELS.Zones}
@@ -613,6 +602,18 @@
 			<h3 class={TERRAFORMS_LEVEL_ZONE_TABLE_DOM.classes.detailSubheading}>
 				{TERRAFORMS_BIOME_TABLE_LABELS.Heading}
 			</h3>
+			{#if selectedLevelNumber !== null && biomePreviewPalette !== null}
+				<div class={TERRAFORMS_BIOME_TABLE_DOM.classes.controls}>
+					<button
+						type={TERRAFORMS_LEVEL_ZONE_BUTTON_TYPES.Button}
+						class={TERRAFORMS_BIOME_TABLE_DOM.classes.colorResetButton}
+						data-testid={TERRAFORMS_BIOME_TABLE_DOM.testIds.colorResetButton}
+						onclick={resetBiomePreviewColors}
+					>
+						{TERRAFORMS_BIOME_TABLE_LABELS.ResetColors}
+					</button>
+				</div>
+			{/if}
 			<TerraformsTraitTable
 				columns={TERRAFORMS_BIOME_TABLE_COLUMNS_ORDER}
 				labels={TERRAFORMS_BIOME_TABLE_LABELS}
@@ -714,7 +715,7 @@
 		letter-spacing: 0;
 	}
 
-	.terraforms-hypercastle-level-detail-controls {
+	.terraforms-hypercastle-biome-detail-controls {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--control-button-gap);
@@ -731,10 +732,6 @@
 	}
 
 	.terraforms-hypercastle-level-detail-heading + .terraforms-hypercastle-level-detail-subheading {
-		margin-top: 0;
-	}
-
-	.terraforms-hypercastle-level-detail-controls + .terraforms-hypercastle-level-detail-subheading {
 		margin-top: 0;
 	}
 

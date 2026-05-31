@@ -42,6 +42,7 @@ export type TerraformsBiomeSortDirection = TerraformsTraitTableSortDirection;
 // Labels used by the all-level Biome table.
 export const TERRAFORMS_BIOME_TABLE_LABELS = {
 	Heading: 'biomes',
+	ResetColors: 'reset colors',
 	[TERRAFORMS_BIOME_TABLE_COLUMNS.Number]: 'number',
 	[TERRAFORMS_BIOME_TABLE_COLUMNS.CharacterSet]: 'character set',
 	[TERRAFORMS_BIOME_TABLE_COLUMNS.Minted]: 'minted'
@@ -59,10 +60,13 @@ export const TERRAFORMS_BIOME_TABLE_DOM = {
 	testIds: {
 		panel: 'terraforms-hypercastle-biome-detail',
 		table: 'terraforms-hypercastle-biome-table',
-		character: 'terraforms-hypercastle-biome-character'
+		character: 'terraforms-hypercastle-biome-character',
+		colorResetButton: 'terraforms-hypercastle-biome-color-reset'
 	},
 	classes: {
 		panel: 'terraforms-hypercastle-biome-detail',
+		controls: 'terraforms-hypercastle-biome-detail-controls',
+		colorResetButton: 'facet-panel-action-button facet-reset-button',
 		table: 'terraforms-hypercastle-biome-table',
 		numberCell: 'terraforms-hypercastle-biome-number-cell',
 		characterSet: 'terraforms-hypercastle-biome-character-set',
@@ -122,7 +126,7 @@ const TERRAFORMS_BIOME_DISPLAY_CHARACTER_OVERRIDES: Readonly<
 	49: { 0: '🏔', 8: '🏔' },
 	50: { 0: '🕈', 1: '🞗', 2: '🞗', 3: '🞗' },
 	53: { 0: '🕱', 1: '🕱', 2: '🀰', 3: '🀰', 4: '🀰', 5: '🀰' },
-	54: { 0: '🕱', 1: '🕱', 2: 'GM', 3: 'GM', 6: 'GM', 8: '🖳' },
+	54: { 0: '🕱', 1: '🕱', 8: '🖳' },
 	55: { 0: '𓁹', 7: '🗁', 8: '🗁' },
 	62: { 0: '🗡', 1: '🞗', 2: '🞗', 3: '🞗', 4: '🞗', 5: '𓁹', 6: '𓁹', 7: '𓁹', 8: '🗝' },
 	64: { 8: '🗝' },
