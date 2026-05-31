@@ -55,6 +55,7 @@
 		type ToggleBiddingTokenInput
 	} from '$lib/bidding-automation-controller';
 	import { resolveCollectionBiddingSelectionControlPolicy } from '$lib/bidding-selection-control-policy';
+	import { resolveBidBookTraitDemandGroupPreview } from '$lib/bid-book-trait-previews';
 	import {
 		BIDDING_AUTOMATION_TOKEN_FILTER_SOURCE,
 		buildBiddingAutomationTokenFilterSnapshot,
@@ -263,6 +264,9 @@
 			canBidOnTraits,
 			hasSelectionSummary: biddingSelectionSummary !== null
 		})
+	);
+	const TraitDemandGroupPreview = $derived(
+		resolveBidBookTraitDemandGroupPreview(collection?.extensions ?? [])
 	);
 
 	$effect(() => {
@@ -914,6 +918,7 @@
 		onFilterTraitDemandGroup={onBidBookTraitDemandFilter}
 		onSelectBid={IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT ? null : onBidBookSelectBid}
 		showRowActions={bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Collection}
+		{TraitDemandGroupPreview}
 	/>
 {/snippet}
 

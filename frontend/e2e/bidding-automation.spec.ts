@@ -7,6 +7,11 @@ import {
 } from '@artgod/shared/types';
 import { TOKEN_BROWSER_STATUS } from '@artgod/shared/types/browse';
 import { BIDDING_SELECTION_ACTION_LABEL } from '../src/lib/bidding-selection-actions';
+import { TERRAFORMS_BID_BOOK_TRAIT_PREVIEW_DOM } from '../src/lib/bid-book-trait-previews/terraforms/preview-model';
+import {
+	TERRAFORMS_BIOME_CHARACTER_BAND_DOM,
+	TERRAFORMS_ZONE_PALETTE_BAND_DOM
+} from '../src/lib/collection-extension-pages/terraforms/trait-previews';
 import { TEST_IDS } from '../src/lib/test-ids';
 import {
 	attachDiagnosticsForTestFailure,
@@ -182,9 +187,25 @@ test.describe('bidding automation fixture harness', () => {
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
 	});
 
-	test('supports trait bucket bid and filter actions independently', async ({ page }) => {
+	test('supports trait bucket bid and filter actions independently', async ({ page }, testInfo) => {
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${BIDDING_PATH}?bid_scope=traits`);
+
+		await expect(
+			page.locator(`[data-testid="${TERRAFORMS_BID_BOOK_TRAIT_PREVIEW_DOM.testIds.root}"]`)
+		).toHaveCount(5);
+		await expect(
+			page.locator(`[data-testid="${TERRAFORMS_ZONE_PALETTE_BAND_DOM.testIds.swatch}"]`).first()
+		).toBeVisible();
+		await expect(
+			page
+				.locator(`[data-testid="${TERRAFORMS_BIOME_CHARACTER_BAND_DOM.testIds.character}"]`)
+				.first()
+		).toBeVisible();
+		await testInfo.attach('terraforms-bid-book-trait-previews-page.png', {
+			body: await page.screenshot({ fullPage: true }),
+			contentType: 'image/png'
+		});
 
 		const filterAction = page
 			.locator(`[data-testid="${TEST_IDS.BidBookTraitBucketFilter}"][data-traits="Mode=Terrain|Zone=Shahra"]`)

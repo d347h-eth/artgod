@@ -1,9 +1,11 @@
 <script lang="ts">
+	import type { Component } from 'svelte';
 	import type {
 		ApiBiddingBidBook,
 		ApiBiddingBidBookRow,
 		ApiBiddingJob
 	} from '$lib/api-types';
+	import type { BidBookTraitDemandGroupPreviewProps } from '$lib/bid-book-trait-previews';
 	import {
 		TRADING_BIDDING_BID_BOOK_PRICE_KIND,
 		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
@@ -79,6 +81,7 @@
 		makerBidHref = null,
 		onSelectTraitDemandBid = null,
 		onFilterTraitDemandGroup = null,
+		TraitDemandGroupPreview = null,
 		canSelectBid = null,
 		onSelectBid = null
 	}: {
@@ -100,6 +103,7 @@
 		onFilterTraitDemandGroup?:
 			| ((selection: BidBookTraitDemandFilterSelection) => MaybePromise<void>)
 			| null;
+		TraitDemandGroupPreview?: Component<BidBookTraitDemandGroupPreviewProps> | null;
 		canSelectBid?: ((bid: ApiBiddingBidBookRow) => boolean) | null;
 		onSelectBid?: ((bid: ApiBiddingBidBookRow) => MaybePromise<void>) | null;
 	} = $props();
@@ -929,6 +933,7 @@
 		onFilterGroup={filterDemandTableGroup}
 		onSetHighlighted={setHighlightedDemandRowMaker}
 		onClearHighlighted={clearHighlightedMaker}
+		{TraitDemandGroupPreview}
 	/>
 {:else}
 	<BidBookRowsTable

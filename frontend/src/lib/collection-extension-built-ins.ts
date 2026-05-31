@@ -1,4 +1,6 @@
 import { activityExtensionEventViewRegistrar } from '$lib/activity-extension-views';
+import { bidBookTraitDemandGroupPreviewRegistrar } from '$lib/bid-book-trait-previews';
+import { registerTerraformsBidBookTraitPreviews } from '$lib/bid-book-trait-previews/terraforms';
 import {
 	registerTerraformsActivityExtensionViews,
 	registerTerraformsCollectionNavigation
@@ -17,6 +19,7 @@ export function installBuiltInCollectionExtensions(): void {
 	builtInCollectionExtensionsInstalled = true;
 
 	registerTerraformsActivityExtensionViews(activityExtensionEventViewRegistrar);
+	registerTerraformsBidBookTraitPreviews(bidBookTraitDemandGroupPreviewRegistrar);
 	registerTerraformsCollectionExtensionPages(collectionExtensionPageRegistrar);
 	registerTerraformsCollectionNavigation(collectionExtensionNavigationRegistrar);
 	registerTerraformsTokenDetailExtensionSections(tokenDetailExtensionSectionRegistrar);

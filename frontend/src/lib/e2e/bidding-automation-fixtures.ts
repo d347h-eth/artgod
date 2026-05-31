@@ -1,4 +1,9 @@
 import {
+	TERRAFORMS_BIOME_ATTRIBUTE_KEY,
+	TERRAFORMS_EXTENSION_KEY,
+	TERRAFORMS_ZONE_ATTRIBUTE_KEY
+} from '@artgod/shared/extensions/terraforms';
+import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
@@ -78,7 +83,8 @@ export const BIDDING_E2E_COLLECTION: ApiCollection = {
 	deploymentBlock: 1,
 	bootstrapAnchorBlock: null,
 	createdAt: FIXTURE_NOW,
-	updatedAt: FIXTURE_NOW
+	updatedAt: FIXTURE_NOW,
+	extensions: [{ key: TERRAFORMS_EXTENSION_KEY }]
 };
 
 // Shared deterministic media fixture for token-card and token-detail rendering.
@@ -191,6 +197,17 @@ const BASE_BID_ROWS: ApiBiddingBidBookRow[] = [
 		priceEth: '0.310',
 		maker: MARKET_ADDRESS_B,
 		traits: [{ type: 'Zone', value: 'Shahra' }],
+		validUntil: 1_900_000_000
+	}),
+	bidRow({
+		orderId: '0xtrait-zone-biome-shahra-42',
+		scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Trait,
+		priceEth: '0.360',
+		maker: MARKET_ADDRESS_B,
+		traits: [
+			{ type: TERRAFORMS_ZONE_ATTRIBUTE_KEY, value: 'Shahra' },
+			{ type: TERRAFORMS_BIOME_ATTRIBUTE_KEY, value: '42' }
+		],
 		validUntil: 1_900_000_000
 	}),
 	bidRow({

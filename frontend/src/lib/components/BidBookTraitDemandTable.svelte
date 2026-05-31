@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { Component } from 'svelte';
+	import type { BidBookTraitDemandGroupPreviewProps } from '$lib/bid-book-trait-previews';
 	import type {
 		BidBookDemandTableGroup,
 		BidBookDemandTableTab
@@ -22,7 +24,8 @@
 		onSelectGroupBid,
 		onFilterGroup,
 		onSetHighlighted,
-		onClearHighlighted
+		onClearHighlighted,
+		TraitDemandGroupPreview = null
 	}: {
 		tabs: BidBookDemandTableTab[];
 		groups: BidBookDemandTableGroup[];
@@ -33,6 +36,7 @@
 		onFilterGroup: (group: BidBookDemandTableGroup) => MaybePromise<void>;
 		onSetHighlighted: (row: BidBookDemandTableRow) => void;
 		onClearHighlighted: () => void;
+		TraitDemandGroupPreview?: Component<BidBookTraitDemandGroupPreviewProps> | null;
 	} = $props();
 
 	function selectGroupBid(group: BidBookDemandTableGroup): void {
@@ -155,6 +159,9 @@
 									</button>
 								{/if}
 							</div>
+							{#if TraitDemandGroupPreview}
+								<TraitDemandGroupPreview traits={group.traits} />
+							{/if}
 						</td>
 					</tr>
 					{#each group.rows as row (row.bid.orderId)}
