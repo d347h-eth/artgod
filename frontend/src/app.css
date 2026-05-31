@@ -2069,10 +2069,6 @@ th {
 	justify-content: center;
 }
 
-.bid-book-demand-group-row + tr:not(.bid-book-demand-group-meta-row) td {
-	padding-top: 0.125rem;
-}
-
 .bid-book-demand-trait-list {
 	display: inline-flex;
 	flex-wrap: wrap;

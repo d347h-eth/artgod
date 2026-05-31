@@ -47,9 +47,13 @@
 <style>
 	.terraforms-biome-character-band {
 		display: grid;
-		grid-template-columns: repeat(9, var(--terraforms-biome-character-band-cell-size, 20px));
+		grid-template-columns: var(
+			--terraforms-biome-character-band-grid-template-columns,
+			repeat(9, var(--terraforms-biome-character-band-cell-size, 20px))
+		);
 		grid-auto-rows: var(--terraforms-biome-character-band-cell-size, 20px);
 		align-items: center;
+		justify-items: center;
 		width: fit-content;
 		padding: var(--terraforms-biome-character-band-padding-block, 8px)
 			var(--terraforms-biome-character-band-padding-inline, 10px);

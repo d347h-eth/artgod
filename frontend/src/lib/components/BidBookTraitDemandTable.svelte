@@ -50,6 +50,10 @@
 	function groupTraitSignature(group: BidBookDemandTableGroup): string {
 		return group.traits.map((trait) => `${trait.type}=${trait.value}`).join('|');
 	}
+
+	function hasVisibleRows(group: BidBookDemandTableGroup): boolean {
+		return group.rows.some((row) => !row.hidden);
+	}
 </script>
 
 <section class="bid-book-table-panel">
@@ -152,6 +156,11 @@
 							</div>
 						</td>
 					</tr>
+					{#if !group.hidden && hasVisibleRows(group)}
+						<tr class="bid-book-bucket-spacer" aria-hidden="true">
+							<td colspan={4}></td>
+						</tr>
+					{/if}
 					{#each group.rows as row (row.bid.orderId)}
 						{#if row.startsNewBucket}
 							<tr class="bid-book-bucket-spacer" aria-hidden="true">

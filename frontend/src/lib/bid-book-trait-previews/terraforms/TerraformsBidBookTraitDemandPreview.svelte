@@ -36,6 +36,7 @@
 <style>
 	.terraforms-bid-book-trait-preview {
 		--terraforms-zone-palette-band-swatch-size: 1rem;
+		--terraforms-biome-character-band-grid-template-columns: repeat(9, minmax(0, 1fr));
 		--terraforms-biome-character-band-cell-size: 1rem;
 		--terraforms-biome-character-band-font-size: 1rem;
 		--terraforms-biome-character-band-padding-block: 0.0625rem;
