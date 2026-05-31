@@ -1996,6 +1996,14 @@ th {
 	margin-bottom: 0;
 }
 
+.bid-book-demand-table .bid-book-demand-group-header {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+	align-items: center;
+	column-gap: 0.8rem;
+	white-space: nowrap;
+}
+
 .bid-book-row-scope-header {
 	justify-content: center;
 	gap: 0.15rem 0.55rem;
@@ -2005,6 +2013,64 @@ th {
 	color: var(--c-ice);
 	font-weight: 700;
 	letter-spacing: 0;
+}
+
+.bid-book-demand-table .bid-book-demand-group-title {
+	grid-column: 1;
+	justify-self: start;
+	font-size: 1rem;
+	line-height: 1;
+	position: relative;
+	text-align: left;
+	z-index: 1;
+}
+
+.bid-book-demand-group-controls {
+	display: inline-flex;
+	grid-column: 2;
+	align-items: center;
+	justify-content: center;
+	gap: 0.35rem;
+}
+
+.bid-book-demand-group-preview {
+	grid-column: 3;
+	justify-self: end;
+	width: 10rem;
+}
+
+.bid-book-demand-table .bid-book-place-bid-icon-button {
+	align-self: center;
+	flex: 0 0 16px;
+	height: 16px;
+	min-height: 16px;
+	min-width: 16px;
+	position: relative;
+	width: 16px;
+	z-index: 2;
+}
+
+.bid-book-demand-table .bid-book-demand-trait-list {
+	flex-wrap: nowrap;
+	justify-content: flex-start;
+}
+
+.bid-book-demand-table .runtime-kv-grid.bid-book-demand-group-meta {
+	flex-wrap: nowrap;
+}
+
+.bid-book-demand-group-meta-row td {
+	padding-top: 0.18rem;
+	padding-bottom: 0;
+	border-bottom: 0;
+}
+
+.bid-book-demand-group-meta-row .bid-book-demand-group-meta {
+	justify-content: center;
+}
+
+.bid-book-demand-group-row + tr:not(.bid-book-demand-group-meta-row) td {
+	padding-top: 0.125rem;
 }
 
 .bid-book-demand-trait-list {
@@ -2054,7 +2120,7 @@ th {
 
 .bid-book-demand-group-spacer,
 .bid-book-demand-group-spacer td {
-	height: 1.55rem;
+	height: 3.1rem;
 }
 
 .bid-book-demand-group-spacer td {
@@ -3736,15 +3802,19 @@ th {
 	width: 11px;
 	height: 11px;
 	display: block;
-	fill: none;
-	stroke: currentColor;
-	stroke-width: 1.45;
-	stroke-linecap: square;
-	stroke-linejoin: miter;
+}
+
+.bid-book-place-bid-icon-button .filter-icon {
+	fill: currentColor;
+	stroke: none;
 }
 
 .bid-book-place-bid-icon {
 	fill: currentColor;
+	stroke: currentColor;
+	stroke-width: 1.45;
+	stroke-linecap: square;
+	stroke-linejoin: miter;
 }
 
 .runtime-tabs button:disabled:hover,
