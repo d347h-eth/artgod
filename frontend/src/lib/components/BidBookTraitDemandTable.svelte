@@ -114,54 +114,42 @@
 										traitValueHref={group.traitValueHref}
 									/>
 								</span>
-								{#if group.activeOfferCount > 1}
-									<div class="runtime-kv-grid bid-book-demand-group-meta">
-										<div>
-											<span class="runtime-k">total</span>
-											<span class="runtime-v mono bid-book-price">
-												{group.totalAmount}
-											</span>
-										</div>
-										<div>
-											<span class="runtime-k">offers</span>
-											<span class="runtime-v mono">{group.activeOfferCount}</span>
-										</div>
-										<div>
-											<span class="runtime-k">makers</span>
-											<span class="runtime-v mono">{group.makerCount}</span>
-										</div>
+								{#if group.showFilterAction || group.showBidAction}
+									<div class="bid-book-demand-group-controls">
+										{#if group.showFilterAction}
+											<button
+												type="button"
+												class="bid-book-place-bid-icon-button"
+												data-testid={TEST_IDS.BidBookTraitBucketFilter}
+												data-traits={groupTraitSignature(group)}
+												aria-label={group.filterLabel}
+												title={group.filterLabel}
+												onclick={() => filterGroup(group)}
+											>
+												<FilterIcon />
+											</button>
+										{/if}
+										{#if group.showBidAction}
+											<button
+												type="button"
+												class="bid-book-place-bid-icon-button"
+												data-testid={TEST_IDS.BidBookTraitBucketBid}
+												data-traits={groupTraitSignature(group)}
+												aria-label={group.placeBidLabel}
+												title={group.placeBidLabel}
+												onclick={() => selectGroupBid(group)}
+											>
+												<PlaceBidIcon className="bid-book-place-bid-icon" />
+											</button>
+										{/if}
 									</div>
 								{/if}
-								{#if group.showFilterAction}
-									<button
-										type="button"
-										class="bid-book-place-bid-icon-button"
-										data-testid={TEST_IDS.BidBookTraitBucketFilter}
-										data-traits={groupTraitSignature(group)}
-										aria-label={group.filterLabel}
-										title={group.filterLabel}
-										onclick={() => filterGroup(group)}
-									>
-										<FilterIcon />
-									</button>
-								{/if}
-								{#if group.showBidAction}
-									<button
-										type="button"
-										class="bid-book-place-bid-icon-button"
-										data-testid={TEST_IDS.BidBookTraitBucketBid}
-										data-traits={groupTraitSignature(group)}
-										aria-label={group.placeBidLabel}
-										title={group.placeBidLabel}
-										onclick={() => selectGroupBid(group)}
-									>
-										<PlaceBidIcon className="bid-book-place-bid-icon" />
-									</button>
+								{#if TraitDemandGroupPreview}
+									<div class="bid-book-demand-group-preview">
+										<TraitDemandGroupPreview traits={group.traits} />
+									</div>
 								{/if}
 							</div>
-							{#if TraitDemandGroupPreview}
-								<TraitDemandGroupPreview traits={group.traits} />
-							{/if}
 						</td>
 					</tr>
 					{#each group.rows as row (row.bid.orderId)}
@@ -195,6 +183,28 @@
 							</td>
 						</tr>
 					{/each}
+					{#if group.activeOfferCount > 1}
+						<tr class="bid-book-demand-group-meta-row" hidden={group.hidden}>
+							<td colspan={4}>
+								<div class="runtime-kv-grid bid-book-demand-group-meta">
+									<div>
+										<span class="runtime-k">total</span>
+										<span class="runtime-v mono bid-book-price">
+											{group.totalAmount}
+										</span>
+									</div>
+									<div>
+										<span class="runtime-k">offers</span>
+										<span class="runtime-v mono">{group.activeOfferCount}</span>
+									</div>
+									<div>
+										<span class="runtime-k">makers</span>
+										<span class="runtime-v mono">{group.makerCount}</span>
+									</div>
+								</div>
+							</td>
+						</tr>
+					{/if}
 				{/each}
 			</tbody>
 		</table>

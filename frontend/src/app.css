@@ -1997,10 +1997,10 @@ th {
 }
 
 .bid-book-demand-table .bid-book-demand-group-header {
-	flex-wrap: nowrap;
-	justify-content: flex-start;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 	align-items: center;
-	gap: 0.35rem 0.8rem;
+	column-gap: 0.8rem;
 	white-space: nowrap;
 }
 
@@ -2016,7 +2016,8 @@ th {
 }
 
 .bid-book-demand-table .bid-book-demand-group-title {
-	flex: 0 0 auto;
+	grid-column: 1;
+	justify-self: start;
 	font-size: 1.125rem;
 	line-height: 1;
 	position: relative;
@@ -2024,14 +2025,27 @@ th {
 	z-index: 1;
 }
 
+.bid-book-demand-group-controls {
+	display: inline-flex;
+	grid-column: 2;
+	align-items: center;
+	justify-content: center;
+	gap: 0.35rem;
+}
+
+.bid-book-demand-group-preview {
+	grid-column: 3;
+	justify-self: end;
+}
+
 .bid-book-demand-table .bid-book-place-bid-icon-button {
 	align-self: center;
-	flex: 0 0 25px;
-	height: 25px;
-	min-height: 25px;
-	min-width: 25px;
+	flex: 0 0 18px;
+	height: 18px;
+	min-height: 18px;
+	min-width: 18px;
 	position: relative;
-	width: 25px;
+	width: 18px;
 	z-index: 2;
 }
 
@@ -2042,6 +2056,16 @@ th {
 
 .bid-book-demand-table .runtime-kv-grid.bid-book-demand-group-meta {
 	flex-wrap: nowrap;
+}
+
+.bid-book-demand-group-meta-row td {
+	padding-top: 0.18rem;
+	padding-bottom: 0;
+	border-bottom: 0;
+}
+
+.bid-book-demand-group-meta-row .bid-book-demand-group-meta {
+	justify-content: center;
 }
 
 .bid-book-demand-trait-list {

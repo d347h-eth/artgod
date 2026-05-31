@@ -35,12 +35,12 @@
 
 <style>
 	.terraforms-bid-book-trait-preview {
-		--terraforms-zone-palette-band-swatch-size: 1.4rem;
-		--terraforms-biome-character-band-cell-size: 1.56rem;
-		--terraforms-biome-character-band-font-size: 1.4rem;
-		--terraforms-biome-character-band-padding-block: 0.24rem;
-		--terraforms-biome-character-band-padding-inline: 0.32rem;
+		--terraforms-zone-palette-band-swatch-size: 1.125rem;
+		--terraforms-biome-character-band-cell-size: 1rem;
+		--terraforms-biome-character-band-font-size: 0.95rem;
+		--terraforms-biome-character-band-padding-block: 0.0625rem;
+		--terraforms-biome-character-band-padding-inline: 0.16rem;
 		width: fit-content;
-		margin: 0.36rem auto 0.125rem;
+		margin: 0;
 	}
 </style>
