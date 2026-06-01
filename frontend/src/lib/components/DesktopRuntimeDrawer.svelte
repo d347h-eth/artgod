@@ -3,7 +3,7 @@
 	import { adminRuntimeStore } from '$lib/admin/runtime/store';
 	import type { AdminConfigState } from '$lib/admin/configuration/ports';
 	import type { LifecycleEventLevel } from '$lib/admin/runtime/store';
-	import { parseBracketPrefixedLine, createTokenizedLogLine } from '$lib/runtime/log-line-format';
+	import { parseRuntimeLogLine, createTokenizedLogLine } from '$lib/runtime/log-line-format';
 	import {
 		resolveStartupSurfacePolicy,
 		type AdminConsoleTab
@@ -223,7 +223,7 @@
 
 	const parsedVisibleLogs = $derived.by(() =>
 		visibleLogs.map((entry) => {
-			const parsed = parseBracketPrefixedLine(entry.line);
+			const parsed = parseRuntimeLogLine(entry.line);
 			return {
 				process: entry.process,
 				tokens: parsed.tokens,
