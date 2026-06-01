@@ -1,6 +1,7 @@
 import {
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
 	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
 	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
 import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
@@ -19,8 +20,8 @@ const OWN_JOB_INTENT_PHASE_LABELS = {
 } as const;
 
 const OWN_BID_CONSTRAINT_LABELS = {
-	ceiling: 'hit ceiling',
-	floor: 'at floor'
+	[TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]: 'hit ceiling',
+	[TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor]: 'at floor'
 } as const satisfies Record<NonNullable<ApiBiddingBidBookRow['ownStatus']>['constraints'][number], string>;
 
 function ownJobIntentPhaseBadge(

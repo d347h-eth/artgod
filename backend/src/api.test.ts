@@ -29,6 +29,8 @@ import {
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_SCOPE_KIND,
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
     TRADING_BIDDING_TIER_SELECTION_MODE,
@@ -1552,6 +1554,17 @@ describe("backend api routes", () => {
                 "VALUES (?, '100000000000000000', '200000000000000000', '10000000000000000', 1)",
         ).run("own-signal-job");
         db.prepare(
+            "INSERT INTO trading_bidding_job_runtime_state " +
+                "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
+                "VALUES (?, '200000000000000000', ?, NULL, NULL, ?, ?, '210000000000000000', ?)",
+        ).run(
+            "own-signal-job",
+            "own-signal-bid",
+            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            JSON.stringify([TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]),
+            new Date().toISOString(),
+        );
+        db.prepare(
             "INSERT INTO trading_bot_runtime_state " +
                 "(bot_kind, chain_id, wallet_id, address, state, heartbeat_at, started_at, updated_at, last_error) " +
                 "VALUES (?, 1, 'wallet-own-signal', '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, ?, NULL)",
@@ -1615,8 +1628,8 @@ describe("backend api routes", () => {
         expect(ownBid).toMatchObject({
             maker: { label: "You", isOwn: true },
             ownStatus: {
-                position: "losing",
-                constraints: ["ceiling"],
+                position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+                constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
                 job: {
                     jobId: "own-signal-job",
                     revision: 1,
@@ -1636,7 +1649,7 @@ describe("backend api routes", () => {
             ),
         ).toEqual(["own-signal-bid"]);
         expect(makerFiltered.payload.bidBook.bids[0]?.ownStatus?.position).toBe(
-            "losing",
+            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
         );
     });
 

@@ -1622,11 +1622,13 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         floor: bigint,
         ceiling: bigint,
     ): void {
-        job.state.bidPosition = this.resolveRuntimeBidPosition(
+        const position = this.resolveRuntimeBidPosition(
             ownPrice,
             competitorPrice,
         );
+        job.state.bidPosition = position;
         job.state.bidConstraints = this.resolveRuntimeBidConstraints(
+            position,
             ownPrice,
             floor,
             ceiling,
@@ -1654,18 +1656,28 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
     }
 
     private resolveRuntimeBidConstraints(
+        position: TradingBiddingJobRuntimeBidPosition,
         ownPrice: bigint,
         floor: bigint,
         ceiling: bigint,
     ): TradingBiddingJobRuntimeConstraint[] {
-        const constraints: TradingBiddingJobRuntimeConstraint[] = [];
-        if (ceiling > 0n && ownPrice >= ceiling) {
-            constraints.push(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling);
+        const isAtCeiling = ceiling > 0n && ownPrice >= ceiling;
+        const isAtFloor = floor > 0n && ownPrice <= floor;
+
+        if (
+            position !== TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning &&
+            isAtCeiling
+        ) {
+            return [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling];
         }
-        if (floor > 0n && ownPrice <= floor) {
-            constraints.push(TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor);
+
+        if (isAtFloor) {
+            return [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor];
         }
-        return constraints;
+
+        return isAtCeiling
+            ? [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]
+            : [];
     }
 
     private async cancelMakerOffers(

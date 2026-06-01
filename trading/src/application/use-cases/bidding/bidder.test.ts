@@ -1150,7 +1150,7 @@ describe("Bidder stream refresh", () => {
             "terraforms",
             { type: "token", tokenId: "6236" },
             undefined,
-            { floor: 1n, ceiling: 15n, delta: 1n },
+            { floor: 15n, ceiling: 15n, delta: 1n },
         );
         job.state.activeOrderId = "0xmine";
         bidder.addJob(job);
