@@ -497,6 +497,9 @@ General rules:
 - single right-side actions should align to the bottom of the left action stack instead of floating at the top
 - feedback/status text should align to the form grid or center of the panel, not drift toward one edge
 - avoid status dropdowns; expose user intent through action buttons instead
+- the panel state row must reuse the same own-bid badge contract as the bid book
+- queued jobs stay `queued` until a backend-owned market bid row provides `winning`, `draw`, or `losing`
+- raw runtime fields such as current price and active order id are diagnostics, not primary panel state
 
 Action rules:
 

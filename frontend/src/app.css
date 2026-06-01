@@ -1967,6 +1967,10 @@ th {
 	margin-top: 0.25rem;
 }
 
+.token-bidding-state-badges .bid-book-own-status:first-child {
+	margin-inline-start: 0;
+}
+
 .token-grid-own-statuses .bid-book-own-status {
 	margin-inline-start: 0;
 }

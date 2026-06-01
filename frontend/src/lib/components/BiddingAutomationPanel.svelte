@@ -6,7 +6,6 @@
 	} from '@artgod/shared/types';
 	import type {
 		ApiBiddingBidBook,
-		ApiBiddingBidBookRow,
 		ApiBiddingCollectionSettings,
 		ApiBiddingJob,
 		ApiBiddingPriceTier,
@@ -36,7 +35,7 @@
 		resolveLoadedBiddingAutomationPanelKey
 	} from '$lib/bidding-automation-panel-state';
 	import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
-	import { bidBookRowEffectivePriceWei } from '$lib/bidding-bid-book-price';
+	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
 	import {
 		BIDDING_AUTOMATION_DRAFT_TARGET_TYPE,
 		BIDDING_AUTOMATION_PRICING_MODE,
@@ -122,9 +121,8 @@
 	let targetLookupJob = $state<ApiBiddingJob | null>(null);
 
 	const hasExistingJob = $derived(currentJob !== null);
-	const hasRuntimeState = $derived(currentJob?.runtime !== null && currentJob?.runtime !== undefined);
 	const selectedDraftUnsupported = $derived(!isBiddingAutomationDraftSubmittable(draft));
-	const bidPosition = $derived(resolveBidPosition(currentJob, bidBook));
+	const bidStateBadges = $derived(ownBiddingJobStateBadges(currentJob, bidBook));
 	const targetTokenId = $derived(biddingAutomationDraftTokenId(draft) ?? token?.tokenId ?? null);
 	const selectedPriceTier = $derived(resolveSelectedPriceTier());
 	const displayedFloorEth = $derived(
@@ -458,13 +456,6 @@
 		return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, maxLength - 3)}...`;
 	}
 
-	function formatEthLabel(value: string | null): string {
-		if (value === null || value.trim().length === 0) {
-			return '-';
-		}
-		return `${value} ETH`;
-	}
-
 	function formatJobTime(valueMs: number | null, mode: CompactTimeDisplayMode): string {
 		return formatCompactTime(valueMs, mode, nowMs);
 	}
@@ -479,43 +470,6 @@
 
 	function toggleRefreshedAtMode(): void {
 		refreshedAtMode = refreshedAtMode === 'relative' ? 'absolute' : 'relative';
-	}
-
-	function resolveBidPosition(
-		currentValue: ApiBiddingJob | null,
-		currentBidBook: ApiBiddingBidBook | null
-	): string | null {
-		if (!currentValue || !currentBidBook) {
-			return null;
-		}
-
-		const ownBid = bestBid(currentBidBook.bids, (bid) => bid.maker.isOwn);
-		if (!ownBid) {
-			return 'no active bid';
-		}
-
-		const opponentBid = bestBid(currentBidBook.bids, (bid) => !bid.maker.isOwn);
-		if (
-			!opponentBid ||
-			bidBookRowEffectivePriceWei(ownBid) >= bidBookRowEffectivePriceWei(opponentBid)
-		) {
-			return 'winning';
-		}
-		return 'outbid';
-	}
-
-	function bestBid(
-		bids: ApiBiddingBidBookRow[],
-		predicate: (bid: ApiBiddingBidBookRow) => boolean
-	): ApiBiddingBidBookRow | null {
-		return bids.filter(predicate).sort((left, right) => {
-			const leftPrice = bidBookRowEffectivePriceWei(left);
-			const rightPrice = bidBookRowEffectivePriceWei(right);
-			if (leftPrice === rightPrice) {
-				return left.orderId.localeCompare(right.orderId);
-			}
-			return leftPrice > rightPrice ? -1 : 1;
-		})[0] ?? null;
 	}
 
 	async function handleSave(statusOverride: EditableBiddingJobStatus | null = null): Promise<void> {
@@ -712,20 +666,16 @@
 					{/if}
 				</div>
 			{/if}
-			{#if bidPosition}
+			{#if bidStateBadges.length > 0}
 				<div>
-					<span class="runtime-k">position</span>
-					<span class="runtime-v">{bidPosition}</span>
-				</div>
-			{/if}
-			{#if hasRuntimeState}
-				<div>
-					<span class="runtime-k">current price</span>
-					<span class="runtime-v">{formatEthLabel(currentJob?.runtime?.currentPriceEth ?? null)}</span>
-				</div>
-				<div>
-					<span class="runtime-k">active order</span>
-					<span class="runtime-v mono">{currentJob?.runtime?.activeOrderId ?? '-'}</span>
+					<span class="runtime-k">state</span>
+					<span class="runtime-v token-bidding-state-badges">
+						{#each bidStateBadges as badge (`${badge.kind}:${badge.label}`)}
+							<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
+								{badge.label}
+							</span>
+						{/each}
+					</span>
 				</div>
 			{/if}
 		</div>

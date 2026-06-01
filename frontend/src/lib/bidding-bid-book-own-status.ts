@@ -1,8 +1,9 @@
 import {
 	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
-	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND
+	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_JOB_STATUS
 } from '@artgod/shared/types';
-import type { ApiBiddingBidBookRow } from '$lib/api-types';
+import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 
 export type BidBookOwnStatusBadge = {
 	kind:
@@ -22,6 +23,15 @@ const OWN_BID_CONSTRAINT_LABELS = {
 	floor: 'at floor'
 } as const satisfies Record<NonNullable<ApiBiddingBidBookRow['ownStatus']>['constraints'][number], string>;
 
+function ownJobIntentPhaseBadge(
+	phase: NonNullable<ApiBiddingBidBookRow['materialization']['phase']>
+): BidBookOwnStatusBadge {
+	return {
+		kind: phase,
+		label: OWN_JOB_INTENT_PHASE_LABELS[phase]
+	};
+}
+
 // Builds the compact own-bid badges shared by table rows and token offer cards.
 export function ownBidStatusBadges(bid: ApiBiddingBidBookRow): BidBookOwnStatusBadge[] {
 	if (!bid.maker.isOwn) {
@@ -29,12 +39,7 @@ export function ownBidStatusBadges(bid: ApiBiddingBidBookRow): BidBookOwnStatusB
 	}
 	if (bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent) {
 		const phase = bid.materialization.phase ?? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued;
-		return [
-			{
-				kind: phase,
-				label: OWN_JOB_INTENT_PHASE_LABELS[phase]
-			}
-		];
+		return [ownJobIntentPhaseBadge(phase)];
 	}
 	if (!bid.ownStatus) {
 		return [];
@@ -46,4 +51,36 @@ export function ownBidStatusBadges(bid: ApiBiddingBidBookRow): BidBookOwnStatusB
 			label: OWN_BID_CONSTRAINT_LABELS[constraint]
 		}))
 	];
+}
+
+// Resolves the user-facing state badges for the bidding panel from backend-owned bid-book signals.
+export function ownBiddingJobStateBadges(
+	job: ApiBiddingJob | null,
+	bidBook: ApiBiddingBidBook | null
+): BidBookOwnStatusBadge[] {
+	if (!job || job.status === TRADING_JOB_STATUS.Archived) {
+		return [];
+	}
+	if (job.status === TRADING_JOB_STATUS.Paused) {
+		return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused)];
+	}
+
+	const marketBid = bidBook?.bids.find(
+		(bid) => bid.maker.isOwn && bid.ownStatus?.job?.jobId === job.jobId
+	);
+	if (marketBid) {
+		return ownBidStatusBadges(marketBid);
+	}
+
+	const ownIntentBid = bidBook?.bids.find(
+		(bid) =>
+			bid.maker.isOwn &&
+			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent &&
+			bid.materialization.jobId === job.jobId
+	);
+	if (ownIntentBid) {
+		return ownBidStatusBadges(ownIntentBid);
+	}
+
+	return [ownJobIntentPhaseBadge(TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued)];
 }

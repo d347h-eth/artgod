@@ -21,7 +21,7 @@ function exactPrice(wei: string, eth: string): ApiBiddingBidBookRow['price'] {
 }
 
 describe('BiddingAutomationPanel', () => {
-	it('renders token job runtime state and editable scalar fields when open', () => {
+	it('renders token job state and editable scalar fields when open', () => {
 		const { body } = render(BiddingAutomationPanel, {
 			props: {
 				open: true,
@@ -103,8 +103,10 @@ describe('BiddingAutomationPanel', () => {
 
 		expect(body).toContain('role="dialog"');
 		expect(body).toContain('token bidding');
-		expect(body).toContain('0.15 ETH');
-		expect(body).toContain('0xabc123');
+		expect(body).toContain('>state<');
+		expect(body).toContain('>queued</span>');
+		expect(body).not.toContain('>current price<');
+		expect(body).not.toContain('>active order<');
 		expect(body).toContain('value="0.1"');
 		expect(body).toContain('value="0.2"');
 		expect(body).toContain('value="0.01"');
@@ -114,6 +116,78 @@ describe('BiddingAutomationPanel', () => {
 		expect(body).toContain('>modify<');
 		expect(body).toContain('>pause<');
 		expect(body).toContain('>archive<');
+	});
+
+	it('renders backend-owned market bid state for the current job', () => {
+		const { body } = render(BiddingAutomationPanel, {
+			props: {
+				open: true,
+				chain: testChain(),
+				collection: testCollection(),
+				token: testToken(),
+				job: testTokenJob(TRADING_JOB_STATUS.Enabled),
+				bidBook: {
+					state: {
+						source: 'bot_snapshot',
+						updatedAt: null,
+						snapshotRefreshedAtMs: null,
+						projectedAt: null,
+						rowCount: 1,
+						durationMs: null,
+						lastError: null
+					},
+					ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+					bids: [
+						{
+							orderId: '0xown-token',
+							source: 'bot_snapshot',
+							materialization: {
+								kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid,
+								jobId: null,
+								status: null,
+								phase: null
+							},
+							scope: {
+								kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+								label: '#1',
+								tokenId: '1',
+								traits: []
+							},
+							maker: {
+								address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+								label: 'You',
+								isOwn: true
+							},
+							price: exactPrice('200000000000000000', '0.2'),
+							quantity: '1',
+							currencyAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+							currencySymbol: 'WETH',
+							protocolAddress: null,
+							validUntil: 1_900_000_000,
+							placedAt: '2026-01-02T00:00:00Z',
+							snapshotRefreshedAtMs: null,
+							seenAt: '2026-01-02T00:00:00Z',
+							ownStatus: {
+								position: 'winning',
+								constraints: ['ceiling'],
+								job: {
+									jobId: 'job-token-1',
+									revision: 2,
+									status: TRADING_JOB_STATUS.Enabled
+								}
+							}
+						}
+					]
+				},
+				onClose: () => {},
+				onJobChange: () => {}
+			}
+		});
+
+		expect(body).toContain('>state<');
+		expect(body).toContain('>winning</span>');
+		expect(body).toContain('>hit ceiling</span>');
+		expect(body).not.toContain('>queued</span>');
 	});
 
 	it('uses the collection default delta for empty manual drafts', () => {
@@ -347,6 +421,7 @@ describe('BiddingAutomationPanel', () => {
 		});
 
 		expect(body).toContain('>modify<');
+		expect(body).toContain('>paused</span>');
 		expect(body).toContain('>activate<');
 		expect(body).toContain('>archive<');
 		expect(body).not.toContain('>pause<');
