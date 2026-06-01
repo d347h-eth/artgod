@@ -31,6 +31,18 @@ const RPC_WS_URL_FIELD: AdminConfigField = {
 	view: 'basic'
 };
 
+const DESKTOP_LOG_RETENTION_HOURS_FIELD: AdminConfigField = {
+	key: 'DESKTOP_LOG_RETENTION_HOURS',
+	label: 'desktop log retention hours',
+	inputKind: 'text',
+	secret: false,
+	options: [],
+	help: '',
+	requiredForLaunch: false,
+	validation: 'positive_integer',
+	view: 'basic'
+};
+
 function config(
 	values: Record<string, string>,
 	fields: AdminConfigField[] = [RPC_URL_FIELD]
@@ -119,6 +131,29 @@ describe('admin config validation', () => {
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 		expect(issues.map((issue) => issue.message)).toEqual([
 			'RPC_WS_URL must be a valid WebSocket URL.'
+		]);
+	});
+
+	it('validates positive integer fields', () => {
+		expect(
+			resolveAdminConfigValidationIssues(
+				config({ DESKTOP_LOG_RETENTION_HOURS: '48' }, [DESKTOP_LOG_RETENTION_HOURS_FIELD]),
+				{
+					DESKTOP_LOG_RETENTION_HOURS: '48'
+				}
+			)
+		).toEqual([]);
+
+		const issues = resolveAdminConfigValidationIssues(
+			config({ DESKTOP_LOG_RETENTION_HOURS: '0' }, [DESKTOP_LOG_RETENTION_HOURS_FIELD]),
+			{
+				DESKTOP_LOG_RETENTION_HOURS: '0'
+			}
+		);
+
+		expect(issues.map((issue) => issue.kind)).toEqual(['integer']);
+		expect(issues.map((issue) => issue.message)).toEqual([
+			'DESKTOP_LOG_RETENTION_HOURS must be a positive whole number.'
 		]);
 	});
 });
