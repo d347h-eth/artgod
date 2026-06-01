@@ -45,7 +45,8 @@ Observability containers run behind the `observability` compose profile in `dock
 - Backend launcher script `scripts/backend-dev.sh` truncates and rewrites `tmp/logs/backend-api.log`.
 - Frontend launcher script `scripts/frontend-dev.sh` truncates and rewrites `tmp/logs/frontend-web.log`.
 - Indexer launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
-- Desktop supervisor logs under app-data also use JSON Lines: structured
+- Desktop app-data logs are split by UTC day and retained through
+  `DESKTOP_LOG_RETENTION_HOURS`. They also use JSON Lines: structured
   backend/indexer/trading payloads stay parseable at line start, and plain
   child-process output is wrapped before it is written.
   The local observability setup expects the app-data log path to be exposed
