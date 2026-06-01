@@ -11,7 +11,10 @@
 	import CollectionExtensionPageOutlet from '$lib/collection-extension-pages/CollectionExtensionPageOutlet.svelte';
 	import type { ApiChain, ApiCollection, ApiCollectionMediaState } from '$lib/api-types';
 	import { buildCollectionNavigation } from '$lib/collection-navigation';
+	import CollectionJumpForm from '$lib/components/CollectionJumpForm.svelte';
 	import CollectionPageLayout from '$lib/components/CollectionPageLayout.svelte';
+	import KeyboardShortcutsHelp from '$lib/components/KeyboardShortcutsHelp.svelte';
+	import { createKeyboardShortcutsHelpController } from '$lib/components/keyboard-shortcuts-help-controller';
 	import {
 		collectionBiddingNavigationVisibilityForDeployment,
 		IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT,
@@ -34,6 +37,7 @@
 
 	const resolvedPage = $derived(resolveCollectionExtensionPage(page));
 	const extensionPageActions = createCollectionExtensionPageActionScope();
+	const keyboardShortcutsHelp = createKeyboardShortcutsHelpController();
 	const activeExtensionPage = $derived({
 		kind: COLLECTION_EXTENSION_NAVIGATION_TAB_TARGET_KIND.ExtensionPage,
 		extensionKey: page.extensionKey,
@@ -69,6 +73,13 @@
 	}
 </script>
 
+{#snippet extensionHeaderActions()}
+	{#if collection}
+		<CollectionJumpForm chainRef={chain?.slug ?? ''} {basePath} mediaMode={media.selectedMode} />
+	{/if}
+	<KeyboardShortcutsHelp {keyboardShortcutsHelp} />
+{/snippet}
+
 {#snippet extensionTopActions()}
 	{#if chain && collection && resolvedPage?.TopActions}
 		<div class="panel-top-actions-row">
@@ -91,6 +102,7 @@
 	{activeExtensionPage}
 	collectionAvailable={chain !== null && collection !== null}
 	showCustomization={!IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT}
+	headerActions={extensionHeaderActions}
 	topActions={resolvedPage?.TopActions ? extensionTopActions : undefined}
 >
 	{#snippet breadcrumbs()}

@@ -43,6 +43,9 @@ test.describe('bidding automation fixture harness', () => {
 			`${BIDDING_PATH}?bid_scope=token&traits=Zone:Shahra&maker=${MARKET_MAKER_A}`
 		);
 
+		await expectSecondaryTabHoverChrome(
+			page.getByLabel('Bid scope filter').getByRole('link', { name: 'traits' })
+		);
 		await page.getByRole('button', { name: BIDDING_SELECTION_ACTION_LABEL.BidOnAllTokens }).click();
 		await expect(page.getByText('1 tokens selected')).toBeVisible();
 
@@ -389,6 +392,27 @@ test.describe('bidding automation fixture harness', () => {
 async function openHarnessPage(page: Page, path: string): Promise<void> {
 	await page.goto(path, { waitUntil: 'domcontentloaded' });
 	await page.waitForFunction(() => document.documentElement.dataset.artgodHydrated === '1');
+}
+
+async function expectSecondaryTabHoverChrome(locator: Locator): Promise<void> {
+	await expect(locator).toBeVisible();
+	await locator.hover();
+	const colors = await locator.evaluate((element) => {
+		const computed = getComputedStyle(element);
+		const root = getComputedStyle(document.documentElement);
+		const probe = document.createElement('span');
+		probe.style.color = root.getPropertyValue('--c-yellow');
+		document.body.append(probe);
+		const yellow = getComputedStyle(probe).color;
+		probe.remove();
+		return {
+			border: computed.borderTopColor,
+			color: computed.color,
+			yellow
+		};
+	});
+	expect(colors.border).toBe(colors.yellow);
+	expect(colors.color).toBe(colors.yellow);
 }
 
 async function fillManualPrice(

@@ -201,8 +201,8 @@
 	}
 
 	.terraforms-dreams-filter-input {
-		width: 20rem;
-		max-width: min(72vw, 20rem);
+		width: 15rem;
+		max-width: min(72vw, 15rem);
 	}
 
 	.terraforms-dreams-submit-button {

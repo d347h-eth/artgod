@@ -422,6 +422,8 @@ test.describe('Terraforms Hypercastle overview', () => {
 				hasText: TERRAFORMS_EXTENSION_PAGE_REFS.Hypercastle
 			})
 		).toBeVisible();
+		await expect(page.getByPlaceholder('jump to token #/owner/.eth')).toBeVisible();
+		await expect(page.getByRole(ACCESSIBLE_ROLES.button, { name: 'keyboard shortcuts' })).toBeVisible();
 		const surfaceRerollButton = page.locator(
 			[
 				classSelector(COLLECTION_PAGE_ACTION_PANEL_CLASS_NAMES.stack),
