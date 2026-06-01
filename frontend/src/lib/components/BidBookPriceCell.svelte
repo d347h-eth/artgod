@@ -1,9 +1,6 @@
 <script lang="ts">
 	import type { ApiBiddingBidBookRow } from '$lib/api-types';
-	import {
-		TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
-		TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND
-	} from '@artgod/shared/types';
+	import { TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND } from '@artgod/shared/types';
 
 	type MaybePromise<T> = T | Promise<T>;
 
@@ -24,10 +21,7 @@
 	const canShowAction = $derived(actionLabel !== null && onSelect !== null);
 
 	function hasOpenSeaOrderHash(): boolean {
-		return (
-			bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid ||
-			bid.materialization.phase === TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder
-		);
+		return bid.materialization.kind === TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.MarketBid;
 	}
 
 	function ownIntentJobId(): string | null {

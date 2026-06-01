@@ -465,7 +465,7 @@ export type ApiBiddingBidBookRowMaterialization =
 			phase: TradingBiddingBidBookOwnJobPhase;
 	  };
 export type ApiBiddingBidBookOwnPosition = 'winning' | 'draw' | 'losing';
-export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor' | 'balance' | 'allowance';
+export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor';
 export type ApiBiddingBidBookOwnStatus = {
 	position: ApiBiddingBidBookOwnPosition;
 	constraints: ApiBiddingBidBookOwnConstraint[];

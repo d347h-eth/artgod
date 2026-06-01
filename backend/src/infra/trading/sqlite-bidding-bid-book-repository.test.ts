@@ -313,7 +313,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
     });
 
-    it("adds admin-only own job intent overlays for queued, runtime-active, and paused jobs", () => {
+    it("adds admin-only own job intent overlays for queued and paused jobs", () => {
         const repository = new SqliteBiddingBidBookRepository();
         seedBiddingRuntime(collectionId);
         insertProjectedState(collectionId, Date.now());
@@ -399,7 +399,7 @@ describe("SqliteBiddingBidBookRepository", () => {
         );
         assert.equal(
             runtimeCollectionBook.bids[0]?.materialization.phase,
-            TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder,
+            TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
         );
 
         const pausedTraitBook = repository.listCollectionBidBook({

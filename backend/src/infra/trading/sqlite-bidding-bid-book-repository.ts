@@ -1183,9 +1183,7 @@ function mapJobOverlayRow(
             phase:
                 job.status === TRADING_JOB_STATUS.Paused
                     ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
-                    : activeRuntime
-                      ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder
-                      : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+                    : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
         },
         scopeKind: scope.kind,
         scopeLabel: scope.label,
@@ -1324,12 +1322,12 @@ function resolveOwnBidPosition(
 function resolveOwnBidConstraints(
     job: BiddingJobSignal,
     bid: PersistedBiddingBidBookRow,
-): Array<"ceiling" | "floor" | "balance" | "allowance"> {
+): Array<"ceiling" | "floor"> {
     if (bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range) {
         return [];
     }
 
-    const constraints: Array<"ceiling" | "floor" | "balance" | "allowance"> = [];
+    const constraints: Array<"ceiling" | "floor"> = [];
     const price = BigInt(persistedBidBookRowEffectiveWei(bid));
     if (price >= BigInt(job.ceilingWei)) {
         constraints.push("ceiling");

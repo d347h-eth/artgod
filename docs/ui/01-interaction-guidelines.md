@@ -426,6 +426,8 @@ General rules:
 - prices align consistently and should not gain extra decimal precision from hidden or collapsed rows
 - display `WETH` only where currency disambiguation is useful
 - own bids should be visually marked and labeled as the user when the wallet identity is known
+- own-bid badges are limited to `queued`, `paused`, `winning`, `draw`, `losing`, `hit ceiling`, and `at floor`
+- runtime details such as active order ids must not become separate user-facing badge states
 
 Scope rules:
 

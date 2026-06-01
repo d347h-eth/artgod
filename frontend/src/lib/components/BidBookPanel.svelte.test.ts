@@ -521,7 +521,7 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-own-status-winning');
 		expect(body).toContain('>winning</span>');
 		expect(body).toContain('bid-book-own-status-ceiling');
-		expect(body).toContain('>ceiling</span>');
+		expect(body).toContain('>hit ceiling</span>');
 	});
 
 	it('renders clickable demand trait values and opens the preferred trait tab', () => {

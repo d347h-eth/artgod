@@ -383,10 +383,9 @@ export const TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND = {
 export type TradingBiddingBidBookRowMaterializationKind =
     (typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND)[keyof typeof TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND];
 
-// Explains which local job/runtime phase produced an own-intent bid-book row.
+// Names user-facing own-intent states before a real market bid row is visible.
 export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
     Queued: "queued",
-    ActiveOrder: "active_order",
     Paused: "paused",
 } as const;
 

@@ -95,11 +95,7 @@ export type PersistedBiddingBidBookState = {
 export type BiddingBidBookOwnPosition = "winning" | "draw" | "losing";
 
 // Names compact own-bid strategy limits that can be rendered directly in rows.
-export type BiddingBidBookOwnConstraint =
-    | "ceiling"
-    | "floor"
-    | "balance"
-    | "allowance";
+export type BiddingBidBookOwnConstraint = "ceiling" | "floor";
 
 // Carries backend-owned own-bid signals so the frontend does not reimplement bot rules.
 export type BiddingBidBookOwnStatus = {
