@@ -11,6 +11,8 @@ import type {
     TraitRangeFilter,
     TokenPresentationSummary,
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
+    TradingBiddingJobRuntimeBidPosition,
+    TradingBiddingJobRuntimeConstraint,
     TradingBiddingJobPricingSource,
     TradingJobStatus,
     TradingTraitCriterion,
@@ -53,6 +55,9 @@ export type BiddingJobView = {
         activeOrderId: string | null;
         activeProtocolAddress: string | null;
         activeExpirationTimeMs: number | null;
+        bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+        bidConstraints: TradingBiddingJobRuntimeConstraint[];
+        competitorPriceEth: string | null;
         lastRunAt: string | null;
         lastError: string | null;
         updatedAt: string;
@@ -238,6 +243,11 @@ export function mapPersistedBiddingJobToView(
               activeOrderId: job.runtime.activeOrderId,
               activeProtocolAddress: job.runtime.activeProtocolAddress,
               activeExpirationTimeMs: job.runtime.activeExpirationTimeMs,
+              bidPosition: job.runtime.bidPosition,
+              bidConstraints: job.runtime.bidConstraints,
+              competitorPriceEth: formatOptionalWeiAsEth(
+                  job.runtime.competitorPriceWei,
+              ),
               lastRunAt: job.runtime.lastRunAt,
               lastError: job.runtime.lastError,
               updatedAt: job.runtime.updatedAt,

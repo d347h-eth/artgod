@@ -1943,17 +1943,14 @@ th {
 }
 
 .bid-book-own-status-losing,
-.bid-book-own-status-ceiling,
-.bid-book-own-status-balance,
-.bid-book-own-status-allowance {
+.bid-book-own-status-ceiling {
 	background: var(--c-pink);
 	color: var(--c-bg);
 }
 
 .bid-book-own-status-draw,
 .bid-book-own-status-floor,
-.bid-book-own-status-queued,
-.bid-book-own-status-active_order {
+.bid-book-own-status-queued {
 	background: var(--c-cyan);
 	color: var(--c-bg);
 }
@@ -1968,6 +1965,10 @@ th {
 	justify-content: center;
 	gap: 0.3rem;
 	margin-top: 0.25rem;
+}
+
+.token-bidding-state-badges .bid-book-own-status:first-child {
+	margin-inline-start: 0;
 }
 
 .token-grid-own-statuses .bid-book-own-status {

@@ -28,6 +28,7 @@
 		bidBookPriceEffectiveEth,
 		bidBookRowEffectivePriceWei
 	} from '$lib/bidding-bid-book-price';
+	import { ownBiddingJobStateBadges } from '$lib/bidding-bid-book-own-status';
 	import type { BidBookTraitValueHref } from '$lib/bidding-bid-book-display';
 	import { trimBidBookTraitText } from '$lib/bidding-bid-book-display';
 	import BidBookMetaBar from '$lib/components/BidBookMetaBar.svelte';
@@ -123,9 +124,7 @@
 	const displayedBids = $derived(
 		bidBookExpanded ? visibleBids : collapsedBids
 	);
-	const ownBid = $derived(bestBid(visibleBids, (bid) => bid.maker.isOwn));
-	const opponentBid = $derived(bestBid(visibleBids, (bid) => !bid.maker.isOwn));
-	const position = $derived(resolvePosition(job, ownBid, opponentBid));
+	const ownStateBadges = $derived(ownBiddingJobStateBadges(job, bidBook));
 	const demandGroups = $derived(resolveDemandGroups(visibleBids));
 	const demandTraitTabs = $derived(resolveDemandTraitTabs(demandGroups));
 	const demandTableTabs = $derived(resolveDemandTableTabs(demandTraitTabs));
@@ -190,13 +189,6 @@
 		return left.label.localeCompare(right.label);
 	}
 
-	function bestBid(
-		rows: ApiBiddingBidBookRow[],
-		predicate: (row: ApiBiddingBidBookRow) => boolean
-	): ApiBiddingBidBookRow | null {
-		return rows.find(predicate) ?? null;
-	}
-
 	function resolveCollapsedBidCount(rows: ApiBiddingBidBookRow[]): number {
 		if (rows.length <= 1) {
 			return rows.length;
@@ -217,23 +209,6 @@
 		count: number
 	): ApiBiddingBidBookRow[] {
 		return rows.filter((bid, index) => index < count || bid.maker.isOwn);
-	}
-
-	function resolvePosition(
-		currentJob: ApiBiddingJob | null,
-		bestOwn: ApiBiddingBidBookRow | null,
-		bestOpponent: ApiBiddingBidBookRow | null
-	): string | null {
-		if (!currentJob) {
-			return null;
-		}
-		if (!bestOwn) {
-			return 'no active bid';
-		}
-		if (!bestOpponent || bidSortPriceWei(bestOwn) >= bidSortPriceWei(bestOpponent)) {
-			return 'winning';
-		}
-		return 'outbid';
 	}
 
 	function bidSortPriceWei(bid: ApiBiddingBidBookRow): bigint {
@@ -916,7 +891,7 @@
 
 </script>
 
-<BidBookMetaBar {bidBook} {position} {showTraitDemandView} {displayedDemandGroupCount} />
+<BidBookMetaBar {bidBook} {ownStateBadges} {showTraitDemandView} {displayedDemandGroupCount} />
 
 {#if visibleBids.length === 0}
 	<section class="bid-book-table-panel">

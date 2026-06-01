@@ -127,10 +127,11 @@ Bid-book filters:
 Own-bid display:
 
 - Rows from a live bot runtime can mark the configured bot wallet as `You`.
-- Own rows can carry position and job-constraint signals derived from backend/runtime read models.
-- Own declared jobs can appear as `own_job_intent` rows with `queued`, `active_order`, or `paused` phase.
-- Own-intent rows use range pricing until runtime feedback supplies a single active order price.
-- Balance and allowance constraint slots exist in the read-model contract but remain unset until the runtime persists explicit flags.
+- Own market rows can carry position signals: `winning`, `draw`, or `losing`, but only from a fresh bot-snapshot read and the bot-persisted runtime decision for the active order id.
+- Own market rows can carry bot-owned strategy-limit signals rendered as `hit ceiling` and `at floor`.
+- Own declared jobs can appear as `own_job_intent` rows with only `queued` or `paused` phase.
+- Own-intent rows use range pricing until runtime feedback supplies a single active order price, but that runtime feedback is not a user-facing badge state.
+- Backend and frontend code must not infer own bid position from passive order rows, exact-scope grouping, or local price comparisons.
 
 Orders fallback parser:
 

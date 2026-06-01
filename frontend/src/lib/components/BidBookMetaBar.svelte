@@ -5,15 +5,16 @@
 		bidBookRefreshPaceTitle,
 		formatBidBookFreshness
 	} from '$lib/bidding-bid-book-source';
+	import type { BidBookOwnStatusBadge } from '$lib/bidding-bid-book-own-status';
 
 	let {
 		bidBook,
-		position = null,
+		ownStateBadges = [],
 		showTraitDemandView = false,
 		displayedDemandGroupCount = 0
 	}: {
 		bidBook: ApiBiddingBidBook;
-		position?: string | null;
+		ownStateBadges?: BidBookOwnStatusBadge[];
 		showTraitDemandView?: boolean;
 		displayedDemandGroupCount?: number;
 	} = $props();
@@ -41,10 +42,16 @@
 			<span class="runtime-k">updated</span>
 			<span class="runtime-v mono">{formatBidBookFreshness(bidBook.state)}</span>
 		</div>
-		{#if position}
+		{#if ownStateBadges.length > 0}
 			<div>
-				<span class="runtime-k">position</span>
-				<span class="runtime-v">{position}</span>
+				<span class="runtime-k">state</span>
+				<span class="runtime-v token-bidding-state-badges">
+					{#each ownStateBadges as badge (`${badge.kind}:${badge.label}`)}
+						<span class={`bid-book-own-status bid-book-own-status-${badge.kind}`}>
+							{badge.label}
+						</span>
+					{/each}
+				</span>
 			</div>
 		{/if}
 	</div>

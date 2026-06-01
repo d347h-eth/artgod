@@ -1,5 +1,11 @@
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
+import {
+	TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
+	TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+	TRADING_BIDDING_BID_SCOPE_KIND,
+	TRADING_JOB_STATUS
+} from '@artgod/shared/types';
 import type { ApiBiddingBidBook, ApiBiddingBidBookRow, ApiBiddingJob } from '$lib/api-types';
 import BidBookPanel from './BidBookPanel.svelte';
 
@@ -438,7 +444,7 @@ describe('BidBookPanel', () => {
 	it('labels own bids and shows compact position and constraint badges', () => {
 		const job: ApiBiddingJob = {
 			jobId: 'job-token-1',
-			status: 'enabled',
+			status: TRADING_JOB_STATUS.Enabled,
 			revision: 1,
 			createdAt: '2026-01-01T00:00:00Z',
 			updatedAt: '2026-01-01T00:00:00Z',
@@ -476,7 +482,7 @@ describe('BidBookPanel', () => {
 				job: {
 					jobId: 'job-token-1',
 					revision: 1,
-					status: 'enabled' as const
+					status: TRADING_JOB_STATUS.Enabled
 				}
 			}
 		};
@@ -521,7 +527,99 @@ describe('BidBookPanel', () => {
 		expect(body).toContain('bid-book-own-status-winning');
 		expect(body).toContain('>winning</span>');
 		expect(body).toContain('bid-book-own-status-ceiling');
-		expect(body).toContain('>ceiling</span>');
+		expect(body).toContain('>hit ceiling</span>');
+	});
+
+	it('shows queued for own job intents instead of computing a market position locally', () => {
+		const job: ApiBiddingJob = {
+			jobId: 'job-token-1',
+			status: TRADING_JOB_STATUS.Enabled,
+			revision: 1,
+			createdAt: '2026-01-01T00:00:00Z',
+			updatedAt: '2026-01-01T00:00:00Z',
+			archivedAt: null,
+			target: {
+				type: 'token',
+				tokenId: '1'
+			},
+			config: {
+				floorEth: '0.1',
+				ceilingEth: '0.2',
+				deltaEth: '0.01',
+				pricingSource: null
+			},
+			runtime: null
+		};
+		const queuedIntent: ApiBiddingBidBookRow = {
+			...BASE_BID,
+			orderId: 'job-intent:job-token-1',
+			materialization: {
+				kind: TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND.OwnJobIntent,
+				jobId: 'job-token-1',
+				status: TRADING_JOB_STATUS.Enabled,
+				phase: TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued
+			},
+			scope: {
+				kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+				label: '#1',
+				tokenId: '1',
+				traits: []
+			},
+			maker: {
+				address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				label: 'You',
+				isOwn: true
+			},
+			price: {
+				kind: 'range',
+				floorWei: '100000000000000000',
+				floorEth: '0.1',
+				ceilingWei: '200000000000000000',
+				ceilingEth: '0.2'
+			}
+		};
+		const bidBook: ApiBiddingBidBook = {
+			state: {
+				source: 'bot_snapshot',
+				updatedAt: null,
+				snapshotRefreshedAtMs: null,
+				projectedAt: null,
+				rowCount: 2,
+				durationMs: null,
+				lastError: null
+			},
+			ownMakerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			bids: [
+				{
+					...BASE_BID,
+					orderId: '0xopponent-token',
+					scope: {
+						kind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+						label: '#1',
+						tokenId: '1',
+						traits: []
+					},
+					price: exactPrice('300000000000000000', '0.3')
+				},
+				queuedIntent
+			]
+		};
+
+		const { body } = render(BidBookPanel, {
+			props: {
+				bidBook,
+				job,
+				showScope: true,
+				basePath: '/ethereum/terraforms',
+				mediaMode: 'artifact'
+			}
+		});
+
+		expect(body).toContain('>state<');
+		expect(body).toContain('>queued</span>');
+		expect(body).not.toContain('>winning</span>');
+		expect(body).not.toContain('outbid');
+		expect(body).not.toContain('no active bid');
 	});
 
 	it('renders clickable demand trait values and opens the preferred trait tab', () => {

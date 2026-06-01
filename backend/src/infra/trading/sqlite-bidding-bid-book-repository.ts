@@ -20,17 +20,20 @@ import {
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
     TRADING_BIDDING_BID_BOOK_SOURCE,
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
-    TRADING_BIDDING_BID_BOOK_PRICE_KIND,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
     TRADING_JOB_STATUS,
     TRADING_JOB_TARGET_KIND,
+    isTradingBiddingJobRuntimeBidPosition,
+    isTradingBiddingJobRuntimeConstraint,
     type CollectionBiddingBidScopeFilter,
     type CollectionBiddingTraitFilterJoinMode,
     type TradingBiddingBidBookSource,
     type TradingBiddingBidScopeKind,
+    type TradingBiddingJobRuntimeBidPosition,
+    type TradingBiddingJobRuntimeConstraint,
     type TradingBotRuntimeState,
     type TradingJobStatus,
     type TradingTraitCriterion,
@@ -105,6 +108,9 @@ type BiddingJobSignalRow = {
     active_order_id: string | null;
     active_protocol_address: string | null;
     active_expiration_time_ms: number | null;
+    bid_position: string | null;
+    bid_constraints_json: string | null;
+    competitor_price_wei: string | null;
     runtime_updated_at: string | null;
 };
 
@@ -124,6 +130,9 @@ type BiddingJobSignal = {
         activeOrderId: string | null;
         activeProtocolAddress: string | null;
         activeExpirationTimeMs: number | null;
+        bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+        bidConstraints: TradingBiddingJobRuntimeConstraint[];
+        competitorPriceWei: string | null;
         updatedAt: string;
     } | null;
 };
@@ -277,7 +286,8 @@ export class SqliteBiddingBidBookRepository
         }>(
             "SELECT j.job_id, j.status, j.target_kind, j.token_id, j.revision, " +
                 "j.updated_at AS job_updated_at, s.floor_wei, s.ceiling_wei, s.quantity, s.target_traits_json, " +
-                "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_expiration_time_ms, r.updated_at AS runtime_updated_at " +
+                "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_expiration_time_ms, " +
+                "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, r.updated_at AS runtime_updated_at " +
                 "FROM trading_jobs j " +
                 "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
                 "LEFT JOIN trading_bidding_job_runtime_state r ON r.job_id = j.job_id " +
@@ -433,7 +443,12 @@ export class SqliteBiddingBidBookRepository
                 ...jobSummarySpanAttributes(jobs),
                 [BIDDING_SPAN_ATTRIBUTE.Source]: source,
             },
-            () => attachOwnBidRuntimeSignals(scopedBids, jobs),
+            () =>
+                attachOwnBidRuntimeSignals(
+                    scopedBids,
+                    jobs,
+                    source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+                ),
         );
         const finalBids = this.apm.withSyncSpan(
             "backend.bidding.repository.maker_filter",
@@ -546,7 +561,12 @@ export class SqliteBiddingBidBookRepository
                     ...jobSummarySpanAttributes(jobs),
                     [BIDDING_SPAN_ATTRIBUTE.Source]: source,
                 },
-                () => attachOwnBidRuntimeSignals(bids, jobs),
+                () =>
+                    attachOwnBidRuntimeSignals(
+                        bids,
+                        jobs,
+                        source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot,
+                    ),
             ),
         };
     }
@@ -677,6 +697,13 @@ export class SqliteBiddingBidBookRepository
                                   row.active_protocol_address,
                               activeExpirationTimeMs:
                                   row.active_expiration_time_ms,
+                              bidPosition: parseRuntimeBidPosition(
+                                  row.bid_position,
+                              ),
+                              bidConstraints: parseRuntimeBidConstraints(
+                                  row.bid_constraints_json,
+                              ),
+                              competitorPriceWei: row.competitor_price_wei,
                               updatedAt: row.runtime_updated_at,
                           }
                         : null,
@@ -1121,8 +1148,10 @@ function maybeAddOwnJobOverlays(
         return bidBook;
     }
 
+    const canSuppressJobIntent =
+        bidBook.state.source === TRADING_BIDDING_BID_BOOK_SOURCE.BotSnapshot;
     const overlayRows = jobs.flatMap((job) =>
-        shouldCreateOwnJobOverlay(job, bidBook.bids)
+        shouldCreateOwnJobOverlay(job, bidBook.bids, canSuppressJobIntent)
             ? [mapJobOverlayRow(job, bidBook.state.source, ownMakerAddress)]
             : [],
     );
@@ -1145,14 +1174,17 @@ function maybeAddOwnJobOverlays(
 function shouldCreateOwnJobOverlay(
     job: BiddingJobSignal,
     bids: PersistedBiddingBidBookRow[],
+    canSuppressJobIntent: boolean,
 ): boolean {
-    return !bids.some(
-        (bid) =>
-            bid.isOwn &&
-            ((job.runtime?.activeOrderId &&
-                bid.orderId === job.runtime.activeOrderId) ||
-                jobMatchesBid(job, bid)),
-    );
+    if (!canSuppressJobIntent) {
+        return true;
+    }
+
+    if (!job.runtime?.activeOrderId || !job.runtime.bidPosition) {
+        return true;
+    }
+
+    return !bids.some((bid) => activeRuntimeDecisionMatchesBid(job, bid));
 }
 
 function mapJobOverlayRow(
@@ -1183,9 +1215,7 @@ function mapJobOverlayRow(
             phase:
                 job.status === TRADING_JOB_STATUS.Paused
                     ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Paused
-                    : activeRuntime
-                      ? TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.ActiveOrder
-                      : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
+                    : TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE.Queued,
         },
         scopeKind: scope.kind,
         scopeLabel: scope.label,
@@ -1250,10 +1280,10 @@ function formatTraitScopeLabel(traits: TradingTraitCriterion[]): string {
 function attachOwnBidRuntimeSignals(
     bids: PersistedBiddingBidBookRow[],
     jobs: BiddingJobSignal[],
+    canAttachMarketDecision: boolean,
 ): PersistedBiddingBidBookRow[] {
-    const bidGroups = groupBidsByExactScope(bids);
     return bids.map((bid) => {
-        if (!bid.isOwn) {
+        if (!bid.isOwn || !canAttachMarketDecision) {
             return {
                 ...bid,
                 ownStatus: null,
@@ -1261,83 +1291,38 @@ function attachOwnBidRuntimeSignals(
         }
 
         const job =
-            jobs.find((candidate) => jobMatchesBid(candidate, bid)) ?? null;
+            jobs.find((candidate) =>
+                activeRuntimeDecisionMatchesBid(candidate, bid),
+            ) ?? null;
+        const runtime = job?.runtime ?? null;
         return {
             ...bid,
-            ownStatus: {
-                position: resolveOwnBidPosition(
-                    bidGroups.get(exactBidScopeKey(bid)) ?? [bid],
-                    bid,
-                ),
-                constraints: job ? resolveOwnBidConstraints(job, bid) : [],
-                job: job
-                    ? {
+            ownStatus: job && runtime?.bidPosition
+                ? {
+                      position: runtime.bidPosition,
+                      constraints: runtime.bidConstraints,
+                      job: {
                           jobId: job.jobId,
                           revision: job.revision,
                           status: job.status,
-                      }
-                    : null,
-            },
+                      },
+                  }
+                : null,
         };
     });
 }
 
-function groupBidsByExactScope(
-    bids: PersistedBiddingBidBookRow[],
-): Map<string, PersistedBiddingBidBookRow[]> {
-    const groups = new Map<string, PersistedBiddingBidBookRow[]>();
-    for (const bid of bids) {
-        const key = exactBidScopeKey(bid);
-        const group = groups.get(key) ?? [];
-        group.push(bid);
-        groups.set(key, group);
-    }
-    return groups;
-}
-
-function exactBidScopeKey(bid: PersistedBiddingBidBookRow): string {
-    return [
-        bid.scopeKind,
-        bid.tokenId ?? "",
-        bid.encodedTokenIds ?? "",
-        tradingTraitCriteriaKey(bid.scopeTraits),
-    ].join("\u0001");
-}
-
-function resolveOwnBidPosition(
-    bids: PersistedBiddingBidBookRow[],
-    ownBid: PersistedBiddingBidBookRow,
-): "winning" | "draw" | "losing" {
-    const ownPrice = BigInt(persistedBidBookRowEffectiveWei(ownBid));
-    const bestOpponent = bids.find((bid) => !bid.isOwn);
-    if (
-        !bestOpponent ||
-        ownPrice > BigInt(persistedBidBookRowEffectiveWei(bestOpponent))
-    ) {
-        return "winning";
-    }
-    return ownPrice === BigInt(persistedBidBookRowEffectiveWei(bestOpponent))
-        ? "draw"
-        : "losing";
-}
-
-function resolveOwnBidConstraints(
+function activeRuntimeDecisionMatchesBid(
     job: BiddingJobSignal,
     bid: PersistedBiddingBidBookRow,
-): Array<"ceiling" | "floor" | "balance" | "allowance"> {
-    if (bid.price.kind === TRADING_BIDDING_BID_BOOK_PRICE_KIND.Range) {
-        return [];
-    }
-
-    const constraints: Array<"ceiling" | "floor" | "balance" | "allowance"> = [];
-    const price = BigInt(persistedBidBookRowEffectiveWei(bid));
-    if (price >= BigInt(job.ceilingWei)) {
-        constraints.push("ceiling");
-    }
-    if (price <= BigInt(job.floorWei)) {
-        constraints.push("floor");
-    }
-    return constraints;
+): boolean {
+    return Boolean(
+        bid.isOwn &&
+            job.runtime?.activeOrderId &&
+            job.runtime.bidPosition &&
+            bid.orderId === job.runtime.activeOrderId &&
+            jobMatchesBid(job, bid),
+    );
 }
 
 function jobMatchesBid(
@@ -1796,6 +1781,32 @@ function parseTraitArray(value: string | null): TradingTraitCriterion[] {
                 },
             ];
         });
+    } catch {
+        return [];
+    }
+}
+
+function parseRuntimeBidPosition(
+    value: string | null,
+): TradingBiddingJobRuntimeBidPosition | null {
+    return isTradingBiddingJobRuntimeBidPosition(value) ? value : null;
+}
+
+function parseRuntimeBidConstraints(
+    value: string | null,
+): TradingBiddingJobRuntimeConstraint[] {
+    if (!value) {
+        return [];
+    }
+
+    try {
+        const parsed = JSON.parse(value);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed.flatMap((entry) =>
+            isTradingBiddingJobRuntimeConstraint(entry) ? [entry] : [],
+        );
     } catch {
         return [];
     }

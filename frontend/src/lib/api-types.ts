@@ -6,6 +6,8 @@ import {
 	type CollectionStatus,
 	type TradingBiddingBidBookSource,
 	type TradingBiddingBidBookOwnJobPhase,
+	type TradingBiddingJobRuntimeBidPosition,
+	type TradingBiddingJobRuntimeConstraint,
 	type TradingBiddingJobPricingSource,
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
@@ -412,6 +414,9 @@ export type ApiBiddingJobRuntimeState = {
 	activeOrderId: string | null;
 	activeProtocolAddress: string | null;
 	activeExpirationTimeMs: number | null;
+	bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+	bidConstraints: TradingBiddingJobRuntimeConstraint[];
+	competitorPriceEth: string | null;
 	lastRunAt: string | null;
 	lastError: string | null;
 	updatedAt: string;
@@ -465,7 +470,7 @@ export type ApiBiddingBidBookRowMaterialization =
 			phase: TradingBiddingBidBookOwnJobPhase;
 	  };
 export type ApiBiddingBidBookOwnPosition = 'winning' | 'draw' | 'losing';
-export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor' | 'balance' | 'allowance';
+export type ApiBiddingBidBookOwnConstraint = 'ceiling' | 'floor';
 export type ApiBiddingBidBookOwnStatus = {
 	position: ApiBiddingBidBookOwnPosition;
 	constraints: ApiBiddingBidBookOwnConstraint[];

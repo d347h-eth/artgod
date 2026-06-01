@@ -11,6 +11,8 @@ import type {
     TradingBiddingBidBookSource,
     TradingBiddingBidBookOwnJobPhase,
     TradingBiddingBidScopeKind,
+    TradingBiddingJobRuntimeBidPosition,
+    TradingBiddingJobRuntimeConstraint,
     TradingJobStatus,
     TradingTraitCriterion,
     CollectionBiddingBidScopeFilter,
@@ -91,17 +93,13 @@ export type PersistedBiddingBidBookState = {
     lastError: string | null;
 };
 
-// Describes an own bid's market rank within its exact bid-book scope.
-export type BiddingBidBookOwnPosition = "winning" | "draw" | "losing";
+// Describes the bot-owned market rank for an own bid row.
+export type BiddingBidBookOwnPosition = TradingBiddingJobRuntimeBidPosition;
 
-// Names compact own-bid strategy limits that can be rendered directly in rows.
-export type BiddingBidBookOwnConstraint =
-    | "ceiling"
-    | "floor"
-    | "balance"
-    | "allowance";
+// Names compact bot-owned strategy limits that can be rendered directly in rows.
+export type BiddingBidBookOwnConstraint = TradingBiddingJobRuntimeConstraint;
 
-// Carries backend-owned own-bid signals so the frontend does not reimplement bot rules.
+// Carries bot-decision-backed own-bid signals so the frontend does not reimplement bot rules.
 export type BiddingBidBookOwnStatus = {
     position: BiddingBidBookOwnPosition;
     constraints: BiddingBidBookOwnConstraint[];

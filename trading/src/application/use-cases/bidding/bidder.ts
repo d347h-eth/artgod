@@ -1,6 +1,12 @@
 import { Mutex, Semaphore } from "async-mutex";
 import { formatUnits } from "viem";
 import {
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+    type TradingBiddingJobRuntimeBidPosition,
+    type TradingBiddingJobRuntimeConstraint,
+} from "@artgod/shared/types";
+import {
     MarketEvent,
     Scope,
     TraitCriterion,
@@ -31,6 +37,9 @@ export type BiddingJobRuntimeStateSnapshot = {
     activeOrderId: string | null;
     activeProtocolAddress: string | null;
     activeExpirationTimeMs: number | null;
+    bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+    bidConstraints: TradingBiddingJobRuntimeConstraint[];
+    competitorPriceWei: string | null;
     lastRunAt: string | null;
     lastError: string | null;
 };
@@ -628,6 +637,8 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 biddingLog.debug(
                     `[Bidder] Skipping ${jobRef}. Effective ceiling after WETH balance clamp is zero.`,
                 );
+                this.clearRuntimeBidDecision(job);
+                this.persistJobRuntimeState(job);
                 return;
             }
 
@@ -635,6 +646,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 biddingLog.debug(
                     `[Bidder] No active bid for ${jobRef}. Placing target: ${formatOptionalUnit(desiredPrice)}`,
                 );
+                this.clearRuntimeBidDecision(job);
                 await this.placeAndTrack(job, desiredPrice);
                 return;
             }
@@ -648,13 +660,21 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 biddingLog.info(
                     `[Bidder] Renewing bid for ${jobRef}. Current: ${formatOptionalUnit(myPrice)}, New: ${formatOptionalUnit(desiredPrice)}, Reason: ${renewalReason}`,
                 );
+                this.clearRuntimeBidDecision(job);
                 await this.placeAndTrack(job, desiredPrice);
                 await this.cancelMakerOffers(job, myOffers);
                 return;
             }
 
             if (matchingMakerOffer) {
-                this.trackCurrentWinningOrder(job, matchingMakerOffer);
+                this.trackRuntimeBidDecision(
+                    job,
+                    matchingMakerOffer.price,
+                    competitorPrice,
+                    floor,
+                    ceiling,
+                );
+                this.trackCurrentOrder(job, matchingMakerOffer);
                 await this.cancelMakerOffers(
                     job,
                     myOffers,
@@ -682,6 +702,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             biddingLog.info(
                 `[Bidder] Adjusting bid ${direction} for ${jobRef}. Current: ${formatOptionalUnit(myPrice)}, New: ${formatOptionalUnit(desiredPrice)}, Competitor: ${formatOptionalUnit(competitorPrice)}`,
             );
+            this.clearRuntimeBidDecision(job);
             await this.placeAndTrack(job, desiredPrice);
             await this.cancelMakerOffers(job, myOffers);
         } catch (error: unknown) {
@@ -1529,7 +1550,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         biddingLog.info(`[Bidder] Cancelled offer for ${jobRef}: ${order.id}`);
     }
 
-    private trackCurrentWinningOrder(job: BidderJob, order: Order): void {
+    private trackCurrentOrder(job: BidderJob, order: Order): void {
         const nextExpirationTimeMs =
             this.toExpirationTimeMs(order.expirationTime) ??
             (job.state.activeOrderId === order.id
@@ -1548,6 +1569,7 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
         job.state.activeProtocolAddress = undefined;
         job.state.currentPrice = undefined;
         job.state.activeExpirationTimeMs = undefined;
+        this.clearRuntimeBidDecision(job);
         this.persistJobRuntimeState(job);
     }
 
@@ -1572,6 +1594,9 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
             activeOrderId: job.state.activeOrderId ?? null,
             activeProtocolAddress: job.state.activeProtocolAddress ?? null,
             activeExpirationTimeMs: job.state.activeExpirationTimeMs ?? null,
+            bidPosition: job.state.bidPosition ?? null,
+            bidConstraints: job.state.bidConstraints ?? [],
+            competitorPriceWei: job.state.competitorPrice?.toString() ?? null,
             lastRunAt: job.state.lastRun
                 ? new Date(job.state.lastRun).toISOString()
                 : null,
@@ -1588,6 +1613,71 @@ export class Bidder implements BidderRefreshPort, BidderActivationPort {
                 `[Bidder] Failed to persist runtime state for ${formatBidderJobReference(job)}: ${message}`,
             );
         });
+    }
+
+    private trackRuntimeBidDecision(
+        job: BidderJob,
+        ownPrice: bigint,
+        competitorPrice: bigint,
+        floor: bigint,
+        ceiling: bigint,
+    ): void {
+        const position = this.resolveRuntimeBidPosition(
+            ownPrice,
+            competitorPrice,
+        );
+        job.state.bidPosition = position;
+        job.state.bidConstraints = this.resolveRuntimeBidConstraints(
+            position,
+            ownPrice,
+            floor,
+            ceiling,
+        );
+        job.state.competitorPrice = competitorPrice;
+    }
+
+    private clearRuntimeBidDecision(job: BidderJob): void {
+        job.state.bidPosition = undefined;
+        job.state.bidConstraints = undefined;
+        job.state.competitorPrice = undefined;
+    }
+
+    private resolveRuntimeBidPosition(
+        ownPrice: bigint,
+        competitorPrice: bigint,
+    ): TradingBiddingJobRuntimeBidPosition {
+        if (ownPrice > competitorPrice) {
+            return TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning;
+        }
+        if (ownPrice === competitorPrice) {
+            return TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw;
+        }
+        return TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing;
+    }
+
+    private resolveRuntimeBidConstraints(
+        position: TradingBiddingJobRuntimeBidPosition,
+        ownPrice: bigint,
+        floor: bigint,
+        ceiling: bigint,
+    ): TradingBiddingJobRuntimeConstraint[] {
+        const isAtCeiling = ceiling > 0n && ownPrice >= ceiling;
+        const isAtFloor = floor > 0n && ownPrice <= floor;
+
+        if (
+            position !== TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning &&
+            isAtCeiling
+        ) {
+            return [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling];
+        }
+
+        if (isAtFloor) {
+            return [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor];
+        }
+
+        return isAtCeiling
+            ? [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling]
+            : [];
     }
 
     private async cancelMakerOffers(
