@@ -418,6 +418,14 @@ Supervisor captures stdout/stderr from each child process and writes:
 
 - `<app-data>/logs/<process>.log`
 
+Log files are JSON Lines. When backend/indexer/trading runtimes emit structured
+JSON, the supervisor keeps the JSON payload at the start of the line and adds
+bounded `process` and `stream` fields. It must not prepend text such as
+`[stdout]` before JSON payloads because Alloy/Loki JSON parsing depends on the
+first byte of each structured log line being `{`. Non-JSON child output is
+wrapped in a small JSON envelope with `t`, `level`, `component`, `action`,
+`process`, `stream`, and `msg`.
+
 It also emits log lines to frontend runtime event stream.
 This includes wallet-bound bot process logs once those runtimes are started.
 

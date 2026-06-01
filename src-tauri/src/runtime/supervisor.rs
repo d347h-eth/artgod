@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
-use time::OffsetDateTime;
 
 use super::app_config::load_app_config_state;
+use crate::desktop_log::{format_child_process_log_line, format_desktop_supervisor_log_line};
 use crate::runtime::bot_runtime::{
     BOT_RUNTIME_SPECS, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
     bot_runtime_spec,
@@ -1515,7 +1515,11 @@ where
             if let Ok(payload) = serde_json::from_str::<BotLifecyclePayload>(&payload_line) {
                 if payload.bot_kind == bot_kind && payload.kind().is_some() {
                     if let Some(log_file) = log_file.as_mut() {
-                        let _ = writeln!(log_file, "[lifecycle] {payload_line}");
+                        let _ = writeln!(
+                            log_file,
+                            "{}",
+                            format_child_process_log_line(&process, "lifecycle", &payload_line)
+                        );
                     }
                     let _ = lifecycle_tx.send(Ok(payload));
                     lifecycle_started = true;
@@ -1530,7 +1534,11 @@ where
             };
             let _ = app.emit("runtime-log", &payload);
             if let Some(log_file) = log_file.as_mut() {
-                let _ = writeln!(log_file, "[stdout] {payload_line}");
+                let _ = writeln!(
+                    log_file,
+                    "{}",
+                    format_child_process_log_line(&process, "stdout", &payload_line)
+                );
             }
         }
 
@@ -1915,7 +1923,11 @@ where
             };
             let _ = app.emit("runtime-log", &payload);
             if let Some(log_file) = log_file.as_mut() {
-                let _ = writeln!(log_file, "[{stream}] {payload_line}");
+                let _ = writeln!(
+                    log_file,
+                    "{}",
+                    format_child_process_log_line(&process, stream, &payload_line)
+                );
             }
         }
     })
@@ -1942,7 +1954,11 @@ fn emit_supervisor_log(app: &AppHandle, logs_dir: &std::path::Path, level: &str,
         Ok(file) => file,
         Err(_) => return,
     };
-    let _ = writeln!(log_file, "[{}] [{}] {}", rfc3339_now(), level, line);
+    let _ = writeln!(
+        log_file,
+        "{}",
+        format_desktop_supervisor_log_line(level, line)
+    );
 }
 
 enum MonitorOutcome {
@@ -2166,19 +2182,6 @@ fn probe_backend_runtime_health(backend_port: u16) -> Result<bool, String> {
     let payload: BackendRuntimeHealthResponse = serde_json::from_str(body)
         .map_err(|error| format!("invalid runtime health response: {error}"))?;
     Ok(payload.ok)
-}
-
-fn rfc3339_now() -> String {
-    let now = OffsetDateTime::now_utc();
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        now.year(),
-        u8::from(now.month()),
-        now.day(),
-        now.hour(),
-        now.minute(),
-        now.second()
-    )
 }
 
 fn update_status<F>(status_ref: &Arc<Mutex<RuntimeStatus>>, app: &AppHandle, update: F)
