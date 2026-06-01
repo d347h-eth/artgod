@@ -104,7 +104,6 @@ Implemented bidding UI:
 - collection bidding offers page is the primary operations surface for bid display and job targeting
 - asks, tokens, and offers pages expose shared bidding target controls where write controls are allowed
 - token detail renders the shared bidding automation panel inline for exact-token jobs
-- jobs page remains a read-only diagnostics/overview surface
 - reusable automation panel supports create, modify, activate, pause, and archive across target kinds
 - price-tier panel supports collection-scoped tier settings, tier CRUD, ordering, and staged reapply
 

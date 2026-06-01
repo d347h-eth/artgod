@@ -1549,63 +1549,6 @@ th {
 	padding: 0.75rem 0 0;
 }
 
-.bidding-jobs-table {
-	table-layout: auto;
-}
-
-.bidding-jobs-panel .table-wrap {
-	width: fit-content;
-	max-width: calc(100% - 1.5rem);
-	margin-inline: auto;
-}
-
-.bidding-jobs-panel .bidding-jobs-table {
-	width: max-content;
-}
-
-.bidding-image-cell {
-	width: 13rem;
-}
-
-.bidding-target-cell {
-	min-width: 15rem;
-}
-
-.bidding-target-label {
-	margin-bottom: 0.2rem;
-	color: var(--c-pink);
-	font-size: 0.68rem;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-}
-
-.bidding-target-summary {
-	line-height: 1.25;
-}
-
-.bidding-status-cell,
-.bidding-config-cell {
-	white-space: nowrap;
-}
-
-.bidding-runtime-cell {
-	min-width: 15rem;
-}
-
-.bidding-runtime-lines {
-	display: grid;
-	gap: 0.35rem;
-}
-
-.bidding-runtime-lines > div {
-	display: grid;
-	gap: 0.1rem;
-}
-
-.bidding-row-error {
-	margin: 0.35rem 0 0;
-}
-
 .bidding-price-tier-panel {
 	width: fit-content;
 	max-width: calc(100% - 1.5rem);

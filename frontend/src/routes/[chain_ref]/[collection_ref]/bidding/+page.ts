@@ -3,7 +3,6 @@ import type { PageLoad } from './$types';
 import {
 	BackendApiError,
 	getCollectionBiddingBidBook,
-	getCollectionBiddingJobs,
 	getCollectionBiddingPriceTiers
 } from '$lib/backend-api';
 import { emptyBiddingTokenOfferCardsPage } from '$lib/bidding-empty-state';
@@ -11,7 +10,6 @@ import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settin
 import { resolvePreferredCollectionBiddingNavigationHref } from '$lib/bidding-navigation-preferences';
 import {
 	parseCollectionBiddingBidScopeFilter,
-	parseCollectionBiddingView,
 	parseCollectionBiddingTraitFilterJoinMode,
 	parseBidBookMakerFilter,
 	parseShowMutedBidBook
@@ -42,7 +40,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 		return {
 			chain: null,
 			collection: null,
-			jobs: [],
 			biddingSettings: defaultBiddingCollectionSettings(),
 			priceTiers: [],
 			bidBook: {
@@ -65,16 +62,11 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				defaultMode: 'snapshot',
 				availableModes: [{ key: 'snapshot', label: 'snapshot' }]
 			},
-			included: {
-				tokensById: {},
-				hasTraitSummaryTemplate: false
-			},
 			basePath: '/',
 			selectedTraits: parseSelectedTraits(url.searchParams),
 			selectedTraitRanges: parseSelectedTraitRanges(url.searchParams),
 			bidScope: parseCollectionBiddingBidScopeFilter(url.searchParams),
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
-			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),
@@ -88,29 +80,25 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 	}
 
 	try {
-		// Load the authoritative jobs and source-selected bid book for this collection.
-		const [response, bidBookResponse, priceTiersResponse] = await Promise.all([
-			getCollectionBiddingJobs(fetch, params.chain_ref, params.collection_ref, url.searchParams),
+		// Load the source-selected bid book and local bidding settings for this collection.
+		const [bidBookResponse, priceTiersResponse] = await Promise.all([
 			getCollectionBiddingBidBook(fetch, params.chain_ref, params.collection_ref, url.searchParams),
 			getCollectionBiddingPriceTiers(fetch, params.chain_ref, params.collection_ref)
 		]);
 		return {
-			chain: response.chain,
-			collection: response.collection,
-			jobs: response.jobs,
+			chain: bidBookResponse.chain,
+			collection: bidBookResponse.collection,
 			biddingSettings: priceTiersResponse.settings,
 			priceTiers: priceTiersResponse.tiers,
 			bidBook: bidBookResponse.bidBook,
 			tokenOfferCards: bidBookResponse.tokenOfferCards,
 			facets: bidBookResponse.traits.facets,
-			media: response.media,
-			included: response.included,
-			basePath: `/${response.chain.slug}/${response.collection.slug}`,
+			media: bidBookResponse.media,
+			basePath: `/${bidBookResponse.chain.slug}/${bidBookResponse.collection.slug}`,
 			selectedTraits: bidBookResponse.traits.selected,
 			selectedTraitRanges: bidBookResponse.traits.selectedRanges,
 			bidScope: bidBookResponse.scopeFilter,
 			traitJoinMode: parseCollectionBiddingTraitFilterJoinMode(url.searchParams),
-			biddingView: parseCollectionBiddingView(url.searchParams),
 			showMuted: parseShowMutedBidBook(url.searchParams),
 			makerFilter: parseBidBookMakerFilter(url.searchParams),
 			mediaMode: normalizeMediaMode(url.searchParams.get('media_mode')),

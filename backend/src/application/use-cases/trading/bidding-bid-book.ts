@@ -1,6 +1,7 @@
 import { formatEther } from "viem";
 import type {
     ChainRecord,
+    CollectionMediaState,
     CollectionListItem,
     TokenCard,
     TraitFacet,
@@ -189,6 +190,7 @@ export type BiddingTokenOfferCardsPage = {
 export type ListCollectionBiddingBidBookOutput = {
     chain: ChainRecord;
     collection: CollectionListItem;
+    media: CollectionMediaState;
     scopeFilter: CollectionBiddingBidScopeFilter;
     traits: {
         selected: TraitFilter[];

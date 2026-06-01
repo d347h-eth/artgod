@@ -12,7 +12,6 @@ import {
 } from "../types/activity-feed.js";
 import {
     COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS,
-    COLLECTION_BIDDING_VIEW_QUERY_PARAMS,
 } from "../types/trading.js";
 
 // Correlates frontend SSR backend fetch logs with backend API response logs.
@@ -60,7 +59,6 @@ const HTTP_OBSERVABILITY_ALLOWED_QUERY_PARAM_NAMES = new Set<string>([
     ...Object.values(ACTIVITY_FEED_QUERY_PARAMS),
     ...Object.values(BLOCKSPACE_QUERY_PARAMS),
     ...Object.values(COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS),
-    ...Object.values(COLLECTION_BIDDING_VIEW_QUERY_PARAMS),
     ...Object.values(COLLECTION_DETAIL_QUERY_PARAMS),
     ...Object.values(COLLECTION_MEDIA_QUERY_PARAMS),
     ...Object.values(HTTP_OBSERVABILITY_GENERIC_QUERY_PARAMS),

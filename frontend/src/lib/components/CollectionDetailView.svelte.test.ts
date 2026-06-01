@@ -91,12 +91,8 @@ describe('CollectionDetailView', () => {
 		expect(body).toContain('<span class="runtime-tab-active">asks</span>');
 		expect(body).toContain('>offers<');
 		expect(body).toContain('>tokens<');
-		expect(body).toContain('>bidding<');
 		expect(body).toContain(
 			'/ethereum/milady?limit=25&amp;mode=grid&amp;media_mode=artifact&amp;traits=Hat%3ABeanie&amp;token_status=all'
-		);
-		expect(body).toContain(
-			'/ethereum/milady/bidding?media_mode=artifact&amp;traits=Hat%3ABeanie&amp;bidding_view=jobs'
 		);
 		expect(body).toContain('/ethereum/blockspace?collection=milady');
 		expect(body).toContain('placeholder="jump to token #/owner/.eth"');

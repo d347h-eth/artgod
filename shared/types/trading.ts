@@ -338,32 +338,12 @@ export const COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODES = [
     COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE.And,
 ] as const;
 
-// Names collection bidding view modes used by frontend navigation.
-export const COLLECTION_BIDDING_VIEW_MODE = {
-    BidBook: "bid_book",
-    Jobs: "jobs",
-} as const;
-
-export type CollectionBiddingViewMode =
-    (typeof COLLECTION_BIDDING_VIEW_MODE)[keyof typeof COLLECTION_BIDDING_VIEW_MODE];
-
-// Orders bidding view modes for stable frontend query parsing.
-export const COLLECTION_BIDDING_VIEW_MODES = [
-    COLLECTION_BIDDING_VIEW_MODE.BidBook,
-    COLLECTION_BIDDING_VIEW_MODE.Jobs,
-] as const;
-
 // Names bid-book query parameters shared by frontend links and backend handlers.
 export const COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS = {
     BidScope: "bid_scope",
     TraitJoin: "trait_join",
     Maker: "maker",
     ShowMuted: "show_muted",
-} as const;
-
-// Names collection bidding view query parameters.
-export const COLLECTION_BIDDING_VIEW_QUERY_PARAMS = {
-    View: "bidding_view",
 } as const;
 
 export const TRADING_BIDDING_BID_BOOK_SOURCE = {

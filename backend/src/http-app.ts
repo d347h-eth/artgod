@@ -30,7 +30,6 @@ import type {
 } from "./application/use-cases/sync-backfill/schedule-sync-backfill.js";
 import type { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import type { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
-import type { ListCollectionBiddingJobsUseCase } from "./application/use-cases/trading/list-collection-bidding-jobs.js";
 import type { ListCollectionBiddingBidBookUseCase } from "./application/use-cases/trading/list-collection-bidding-bid-book.js";
 import type { ListCollectionBiddingPriceTiersUseCase } from "./application/use-cases/trading/list-collection-bidding-price-tiers.js";
 import type { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
@@ -71,7 +70,6 @@ import { GetBlockspaceStateHttpAdapter } from "./http/handlers/blockspace/get-bl
 import { ScheduleBlockspaceBackfillHttpAdapter } from "./http/handlers/blockspace/schedule-blockspace-backfill.js";
 import { GetRuntimeHealthHttpAdapter } from "./http/handlers/health/get-runtime-health.js";
 import { ResolveOwnerRefHttpAdapter } from "./http/handlers/owners/resolve-owner-ref.js";
-import { ListCollectionBiddingJobsHttpAdapter } from "./http/handlers/trading/list-collection-bidding-jobs.js";
 import { ListCollectionBiddingBidBookHttpAdapter } from "./http/handlers/trading/list-collection-bidding-bid-book.js";
 import { ListCollectionBiddingPriceTiersHttpAdapter } from "./http/handlers/trading/list-collection-bidding-price-tiers.js";
 import { GetTokenBiddingJobHttpAdapter } from "./http/handlers/trading/get-token-bidding-job.js";
@@ -147,7 +145,6 @@ export function createApiApp(
     getTokenPreviewUseCase: GetTokenPreviewPort,
     getTokenUriUseCase: GetTokenUriUseCase,
     updateCollectionCustomizationUseCase: UpdateCollectionCustomizationUseCase,
-    listCollectionBiddingJobsUseCase: ListCollectionBiddingJobsUseCase,
     listCollectionBiddingBidBookUseCase: ListCollectionBiddingBidBookUseCase,
     listCollectionBiddingPriceTiersUseCase: ListCollectionBiddingPriceTiersUseCase,
     getTokenBiddingJobUseCase: GetTokenBiddingJobUseCase,
@@ -263,10 +260,6 @@ export function createApiApp(
         new UpdateCollectionCustomizationHttpAdapter(
             updateCollectionCustomizationUseCase,
         );
-    const listCollectionBiddingJobsAdapter =
-        new ListCollectionBiddingJobsHttpAdapter(
-            listCollectionBiddingJobsUseCase,
-        );
     const listCollectionBiddingBidBookAdapter =
         new ListCollectionBiddingBidBookHttpAdapter(
             listCollectionBiddingBidBookUseCase,
@@ -363,7 +356,6 @@ export function createApiApp(
         getTokenPreviewAdapter,
         getTokenUriAdapter,
         updateCollectionCustomizationAdapter,
-        listCollectionBiddingJobsAdapter,
         listCollectionBiddingBidBookAdapter,
         listCollectionBiddingPriceTiersAdapter,
         getTokenBiddingJobAdapter,

@@ -1,7 +1,6 @@
 import { formatEther, parseEther } from "viem";
 import type {
     ChainRecord,
-    CollectionMediaState,
     CollectionListItem,
     CollectionBiddingTraitFilterJoinMode,
     PersistedBiddingJobRecord,
@@ -9,7 +8,6 @@ import type {
     TokenBrowserStatus,
     TraitFilter,
     TraitRangeFilter,
-    TokenPresentationSummary,
     TRADING_BATCH_TOKEN_BIDDING_JOB_SELECTION_KIND,
     TradingBiddingJobRuntimeBidPosition,
     TradingBiddingJobRuntimeConstraint,
@@ -62,23 +60,6 @@ export type BiddingJobView = {
         lastError: string | null;
         updatedAt: string;
     } | null;
-};
-
-export type ListCollectionBiddingJobsInput = {
-    chainRef: string;
-    collectionRef: string;
-    mediaMode?: string;
-};
-
-export type ListCollectionBiddingJobsOutput = {
-    chain: ChainRecord;
-    collection: CollectionListItem;
-    media: CollectionMediaState;
-    jobs: BiddingJobView[];
-    included: {
-        tokensById: Record<string, TokenPresentationSummary>;
-        hasTraitSummaryTemplate: boolean;
-    };
 };
 
 export type GetTokenBiddingJobInput = {

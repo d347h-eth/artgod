@@ -42,7 +42,6 @@ import {
 	parseBidBookMakerFilter,
 	parseCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingTraitFilterJoinMode,
-	parseCollectionBiddingView,
 	parseShowMutedBidBook
 } from '$lib/bidding-query';
 import { defaultBiddingCollectionSettings } from '$lib/bidding-collection-settings';
@@ -447,23 +446,17 @@ export function buildBiddingE2eCollectionBiddingData(searchParams: URLSearchPara
 	return {
 		chain: BIDDING_E2E_CHAIN,
 		collection: BIDDING_E2E_COLLECTION,
-		jobs: JOBS,
 		biddingSettings: BIDDING_E2E_SETTINGS,
 		priceTiers: PRICE_TIERS,
 		bidBook,
 		tokenOfferCards,
 		facets: BIDDING_E2E_FACETS,
 		media: BIDDING_E2E_MEDIA,
-		included: {
-			tokensById: tokenPresentationSummaries(),
-			hasTraitSummaryTemplate: false
-		},
 		basePath: COLLECTION_BASE_PATH,
 		selectedTraits,
 		selectedTraitRanges,
 		bidScope,
 		traitJoinMode,
-		biddingView: parseCollectionBiddingView(searchParams),
 		showMuted: parseShowMutedBidBook(searchParams),
 		makerFilter,
 		mediaMode: normalizeMediaMode(searchParams.get('media_mode')),
@@ -698,22 +691,6 @@ function buildTokenDetailBidBook(tokenId: string): ApiBiddingBidBook {
 		ownMakerAddress: OWN_ADDRESS,
 		bids
 	};
-}
-
-function tokenPresentationSummaries() {
-	return Object.fromEntries(
-		TOKEN_CARDS.map((token) => [
-			token.tokenId,
-			{
-				tokenId: token.tokenId,
-				name: token.name,
-				image: token.image,
-				traitSummary: token.traitSummary,
-				hasMetadata: token.hasMetadata,
-				metadataUpdatedAt: token.metadataUpdatedAt
-			}
-		])
-	);
 }
 
 function traitFilterPresentation(): ApiTraitFilterPresentationFeatureState {

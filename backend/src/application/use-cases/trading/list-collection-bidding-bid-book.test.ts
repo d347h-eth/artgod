@@ -8,6 +8,7 @@ import { TRAIT_FILTER_DISPLAY_KIND } from "@artgod/shared/types";
 import type {
     ChainRecord,
     CollectionListItem,
+    CollectionMediaState,
     TokenCard,
     TraitFacet,
 } from "@artgod/shared/types/browse";
@@ -62,6 +63,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
             },
             {
                 resolveCollectionRef: () => collection(),
+                getCollectionMediaState: () => media(),
                 listCollectionTraitFacets: () => [traitFacet("Mode")],
                 listCollectionTokenCardsByIds: () => [tokenCard("7")],
             },
@@ -102,6 +104,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
         expect(apm.spans.map((span) => span.name)).toEqual([
             "backend.bidding.collection_bid_book.chain",
             "backend.bidding.collection_bid_book.collection",
+            "backend.bidding.collection_bid_book.media",
             "backend.bidding.collection_bid_book.trait_filter_presentation",
             "backend.bidding.collection_bid_book.trait_facets",
             "backend.bidding.collection_bid_book.trait_facets_apply",
@@ -170,6 +173,7 @@ describe("ListCollectionBiddingBidBookUseCase observability", () => {
             },
             {
                 resolveCollectionRef: () => collection(),
+                getCollectionMediaState: () => media(),
                 listCollectionTraitFacets: () => [],
                 listCollectionTokenCardsByIds: (params) => {
                     hydratedTokenIds.push(params.tokenIds);
@@ -239,6 +243,14 @@ function collection(): CollectionListItem {
         bootstrapAnchorBlock: 1,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+}
+
+function media(): CollectionMediaState {
+    return {
+        selectedMode: "snapshot",
+        defaultMode: "snapshot",
+        availableModes: [{ key: "snapshot", label: "snapshot" }],
     };
 }
 

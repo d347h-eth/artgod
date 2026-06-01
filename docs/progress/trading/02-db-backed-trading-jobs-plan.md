@@ -230,9 +230,6 @@ Trading routes are local backend routes. Mutating job routes are protected by th
 
 Collection bidding page:
 
-- `GET /api/:chain_ref/:collection_ref/bidding/jobs`
-- Lists current bidding jobs for a collection.
-- Default filters should include non-archived jobs.
 - `GET /api/:chain_ref/:collection_ref/bidding/bids`
 - Lists collection bid-book rows.
 - Missing `bid_scope` defaults to `token`, which returns explicit token-scoped offers grouped as paginated token cards in `tokenOfferCards`.
@@ -300,9 +297,8 @@ Follow the backend hexagonal rules:
 - composition in `backend/src/index.ts`
 - route registration in `backend/src/http-routes.ts`
 
-Initial use cases:
+Initial per-target use cases:
 
-- `ListCollectionBiddingJobsUseCase`
 - `GetTokenBiddingJobUseCase`
 - `UpsertTokenBiddingJobUseCase`
 - `ArchiveTokenBiddingJobUseCase`
@@ -511,9 +507,8 @@ Source selection:
 
 ### Slice 3: Userland Collection Bidding Page (done)
 
-- Add `bidding` tab after `customization`.
 - Add collection bidding page with bid-book display.
-- Keep jobs page as read-only diagnostics after automation panel rollout.
+- Keep bidding operations in offers/bid-book and shared automation surfaces.
 - Collection and trait scoped creation moved into the automation UX work.
 
 ### Slice 4: Token Detail Job Form (done)

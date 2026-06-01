@@ -14,7 +14,6 @@ import type {
 	CollectionBiddingPriceTierMutationApiResponse,
 	CollectionBiddingPriceTiersApiResponse,
 	BootstrapStatusApiResponse,
-	CollectionBiddingJobsApiResponse,
 	CollectionActivitiesApiResponse,
 	CollectionCustomizationApiResponse,
 	CollectionDetailApiResponse,
@@ -237,20 +236,6 @@ export async function getCollectionCustomization(
 	return requestJson<CollectionCustomizationApiResponse>(
 		fetchFn,
 		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/customization`
-	);
-}
-
-export async function getCollectionBiddingJobs(
-	fetchFn: typeof fetch,
-	chainRef: string,
-	collectionRef: string,
-	params?: URLSearchParams
-): Promise<CollectionBiddingJobsApiResponse> {
-	const query = params?.toString() ?? '';
-	const suffix = query ? `?${query}` : '';
-	return requestJson<CollectionBiddingJobsApiResponse>(
-		fetchFn,
-		`/api/${encodeURIComponent(chainRef)}/${encodeURIComponent(collectionRef)}/bidding/jobs${suffix}`
 	);
 }
 

@@ -22,8 +22,7 @@ describe('buildCollectionNavigation', () => {
 				kind: 'sales'
 			},
 			bidding: {
-				bidScope: 'traits',
-				viewMode: 'bid_book'
+				bidScope: 'traits'
 			}
 		});
 
@@ -35,9 +34,6 @@ describe('buildCollectionNavigation', () => {
 		);
 		expect(navigation.hrefs.tokens).toBe(
 			'/ethereum/milady?limit=25&mode=grid&media_mode=artifact&traits=Mode%3ATerrain&token_status=all'
-		);
-		expect(navigation.hrefs.bidding).toBe(
-			'/ethereum/milady/bidding?media_mode=artifact&bid_scope=traits&traits=Mode%3ATerrain&bidding_view=jobs'
 		);
 		expect(navigation.hrefs.activityKind('listings')).toBe(
 			'/ethereum/milady/activity?limit=25&kind=listings&media_mode=artifact&traits=Mode%3ATerrain'
@@ -105,9 +101,7 @@ describe('resolveCollectionSectionShortcutHref', () => {
 		expect(resolveCollectionSectionShortcutHref(keyEvent('3'), navigation)).toBe(
 			'/ethereum/milady?limit=25&mode=grid&media_mode=artifact&token_status=all'
 		);
-		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBe(
-			'/ethereum/milady/bidding?media_mode=artifact&bid_scope=traits&bidding_view=jobs'
-		);
+		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBeNull();
 	});
 
 	it('ignores shortcuts in text-entry targets and hidden bidding nav', () => {
@@ -130,27 +124,21 @@ describe('resolveCollectionSectionShortcutHref', () => {
 		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBeNull();
 	});
 
-	it('can expose read-only offers while hiding bidding jobs', () => {
+	it('can hide offers navigation explicitly', () => {
 		const navigation = buildCollectionNavigation({
 			basePath: '/',
 			mediaMode: 'artifact',
 			selectedTraits: [],
 			selectedTraitRanges: [],
 			bidding: {
-				showOffers: true,
-				showJobs: false,
+				showOffers: false,
 				bidScope: 'traits'
 			}
 		});
 
-		expect(navigation.showBiddingOffers).toBe(true);
-		expect(navigation.showBiddingJobs).toBe(false);
-		expect(navigation.hrefs.offers).toBe('/bidding?media_mode=artifact&bid_scope=traits');
-		expect(navigation.hrefs.bidding).toBeNull();
-		expect(resolveCollectionSectionShortcutHref(keyEvent('2'), navigation)).toBe(
-			'/bidding?media_mode=artifact&bid_scope=traits'
-		);
-		expect(resolveCollectionSectionShortcutHref(keyEvent('4'), navigation)).toBeNull();
+		expect(navigation.showBiddingOffers).toBe(false);
+		expect(navigation.hrefs.offers).toBeNull();
+		expect(resolveCollectionSectionShortcutHref(keyEvent('2'), navigation)).toBeNull();
 	});
 });
 

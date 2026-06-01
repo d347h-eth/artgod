@@ -51,7 +51,6 @@ import {
 import { ScheduleSyncBackfillUseCase } from "./application/use-cases/sync-backfill/schedule-sync-backfill.js";
 import { GetRuntimeHealthUseCase } from "./application/use-cases/health/get-runtime-health.js";
 import { ResolveOwnerRefUseCase } from "./application/use-cases/owners/resolve-owner-ref.js";
-import { ListCollectionBiddingJobsUseCase } from "./application/use-cases/trading/list-collection-bidding-jobs.js";
 import { ListCollectionBiddingBidBookUseCase } from "./application/use-cases/trading/list-collection-bidding-bid-book.js";
 import { ListCollectionBiddingPriceTiersUseCase } from "./application/use-cases/trading/list-collection-bidding-price-tiers.js";
 import { GetTokenBiddingJobUseCase } from "./application/use-cases/trading/get-token-bidding-job.js";
@@ -386,14 +385,6 @@ export function createBackendApp(
             extensionAwareCollectionsReadModel,
             extensionAwareCollectionCustomization,
         );
-    const listCollectionBiddingJobsUseCase =
-        new ListCollectionBiddingJobsUseCase(
-            config.defaultChainId,
-            chainsReadModel,
-            extensionAwareCollectionsReadModel,
-            extensionAwareCollectionCustomization,
-            biddingJobsRepository,
-        );
     const listCollectionBiddingBidBookUseCase =
         new ListCollectionBiddingBidBookUseCase(
             config.defaultChainId,
@@ -544,7 +535,6 @@ export function createBackendApp(
         tokenPreview.port,
         getTokenUriUseCase,
         updateCollectionCustomizationUseCase,
-        listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,
         listCollectionBiddingPriceTiersUseCase,
         getTokenBiddingJobUseCase,

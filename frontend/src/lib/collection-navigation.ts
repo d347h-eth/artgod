@@ -16,12 +16,9 @@ import type {
 	ApiTraitRangeFilter
 } from '$lib/api-types';
 import {
-	BIDDING_VIEW_QUERY_PARAM,
-	COLLECTION_BIDDING_VIEW_MODE,
 	buildCollectionBiddingQuery,
 	type CollectionBiddingBidScopeFilter,
-	type CollectionBiddingTraitFilterJoinMode,
-	type CollectionBiddingViewMode
+	type CollectionBiddingTraitFilterJoinMode
 } from '$lib/bidding-query';
 import { isKeyboardTextEntryTarget } from '$lib/components/keyboard-targets';
 import { buildCollectionCustomizationHref } from '$lib/customization-query';
@@ -54,10 +51,8 @@ export type CollectionNavigationState = {
 	bidding?: {
 		enabled?: boolean;
 		showOffers?: boolean;
-		showJobs?: boolean;
 		bidScope?: CollectionBiddingBidScopeFilter;
 		traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
-		viewMode?: CollectionBiddingViewMode;
 		maker?: string | null;
 		showMuted?: boolean;
 	};
@@ -69,7 +64,6 @@ export type CollectionNavigationState = {
 export type CollectionNavigation = {
 	basePath: string;
 	showBiddingOffers: boolean;
-	showBiddingJobs: boolean;
 	showBlockspace: boolean;
 	activityEventFeeds: ApiActivityExtensionEventFeed[];
 	collectionExtensions: ApiCollectionExtensionSummary[];
@@ -82,7 +76,6 @@ export type CollectionNavigation = {
 		asks: string;
 		offers: string | null;
 		tokens: string;
-		bidding: string | null;
 		holders: string;
 		blockspace: string | null;
 		customization: string;
@@ -90,7 +83,6 @@ export type CollectionNavigation = {
 		activityKind: (kind: ActivityFeedFilterKind) => string;
 		activityExtensionEvent: (event: ApiActivityExtensionEventRef) => string;
 		extensionPage: (target: CollectionExtensionNavigationPageTarget) => string;
-		biddingView: (view: CollectionBiddingViewMode) => string | null;
 	};
 };
 
@@ -106,7 +98,6 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	const collectionExtensions = state.collectionExtensions ?? [];
 	const defaultBiddingVisibility = state.bidding?.enabled ?? true;
 	const showBiddingOffers = state.bidding?.showOffers ?? defaultBiddingVisibility;
-	const showBiddingJobs = state.bidding?.showJobs ?? defaultBiddingVisibility;
 	const blockspaceHref = resolveBlockspaceHref(normalizedBasePath);
 	const showBlockspace = (state.blockspace?.enabled ?? true) && blockspaceHref !== null;
 
@@ -130,7 +121,6 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		selectedTraitRanges: state.selectedTraitRanges,
 		bidScope: state.bidding?.bidScope,
 		traitJoinMode: state.bidding?.traitJoinMode,
-		viewMode: state.bidding?.viewMode,
 		mediaMode,
 		maker: state.bidding?.maker,
 		showMuted: state.bidding?.showMuted
@@ -166,17 +156,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			query
 		);
 	};
-	const biddingViewHref = (view: CollectionBiddingViewMode): string | null => {
-		if (view === COLLECTION_BIDDING_VIEW_MODE.BidBook && !showBiddingOffers) return null;
-		if (view === COLLECTION_BIDDING_VIEW_MODE.Jobs && !showBiddingJobs) return null;
-		const query = new URLSearchParams(biddingQuery);
-		if (view === COLLECTION_BIDDING_VIEW_MODE.BidBook) {
-			query.delete(BIDDING_VIEW_QUERY_PARAM);
-		} else {
-			query.set(BIDDING_VIEW_QUERY_PARAM, view);
-		}
-		return withQuery(joinPath(normalizedBasePath, 'bidding'), query);
-	};
+	const offersHref = showBiddingOffers ? withQuery(joinPath(normalizedBasePath, 'bidding'), biddingQuery) : null;
 
 	const holdersQuery = new URLSearchParams();
 	appendMediaModeParam(holdersQuery, mediaMode);
@@ -184,7 +164,6 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 	return {
 		basePath: normalizedBasePath,
 		showBiddingOffers,
-		showBiddingJobs,
 		showBlockspace,
 		activityEventFeeds,
 		collectionExtensions,
@@ -195,9 +174,8 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 		},
 		hrefs: {
 			asks: tokenStatusHref('listed'),
-			offers: biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.BidBook),
+			offers: offersHref,
 			tokens: tokenStatusHref('all'),
-			bidding: biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.Jobs),
 			holders: withQuery(joinPath(normalizedBasePath, 'holders'), holdersQuery),
 			blockspace: showBlockspace ? blockspaceHref : null,
 			customization: buildCollectionCustomizationHref({
@@ -209,8 +187,7 @@ export function buildCollectionNavigation(state: CollectionNavigationState): Col
 			tokenStatus: tokenStatusHref,
 			activityKind: activityKindHref,
 			activityExtensionEvent: activityExtensionEventHref,
-			extensionPage: extensionPageHref,
-			biddingView: biddingViewHref
+			extensionPage: extensionPageHref
 		}
 	};
 }
@@ -258,8 +235,6 @@ export function resolveCollectionSectionShortcutHref(
 			return navigation.hrefs.offers;
 		case '3':
 			return navigation.hrefs.tokens;
-		case '4':
-			return navigation.hrefs.bidding;
 		default:
 			return null;
 	}
