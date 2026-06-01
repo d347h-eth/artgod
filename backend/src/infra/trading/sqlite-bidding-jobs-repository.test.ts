@@ -6,6 +6,8 @@ import { beforeEach, describe, it } from "vitest";
 import { db, setDbPath } from "@artgod/shared/database";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import {
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
     TRADING_BIDDING_JOB_PRICING_SOURCE_KIND,
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_STATUS,
@@ -265,18 +267,26 @@ describe("SqliteBiddingJobsRepository", () => {
             activeOrderId: string;
             activeProtocolAddress: string;
             activeExpirationTimeMs: number;
+            bidPosition: string;
+            bidConstraintsJson: string;
+            competitorPriceWei: string;
             lastRunAt: string;
             lastError: string;
         }>(
             "INSERT INTO trading_bidding_job_runtime_state " +
-                "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, last_run_at, last_error) " +
-                "VALUES (@jobId, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeExpirationTimeMs, @lastRunAt, @lastError)",
+                "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, last_run_at, last_error) " +
+                "VALUES (@jobId, @currentPriceWei, @activeOrderId, @activeProtocolAddress, @activeExpirationTimeMs, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @lastRunAt, @lastError)",
         ).run({
             jobId: created.job.jobId,
             currentPriceWei: "150000000000000000",
             activeOrderId: "0xactive-order",
             activeProtocolAddress: "0x00000000006c3852cbef3e08e8df289169ede581",
             activeExpirationTimeMs: 1_700_000_000_000,
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraintsJson: JSON.stringify([
+                TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+            ]),
+            competitorPriceWei: "250000000000000000",
             lastRunAt: "2026-04-23T12:00:00.000Z",
             lastError: "none",
         });
@@ -297,6 +307,17 @@ describe("SqliteBiddingJobsRepository", () => {
         assert.equal(updated.job.floorWei, "120000000000000000");
         assert.equal(updated.job.runtime?.activeOrderId, "0xactive-order");
         assert.equal(updated.job.runtime?.currentPriceWei, "150000000000000000");
+        assert.equal(
+            updated.job.runtime?.bidPosition,
+            TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+        );
+        assert.deepEqual(updated.job.runtime?.bidConstraints, [
+            TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling,
+        ]);
+        assert.equal(
+            updated.job.runtime?.competitorPriceWei,
+            "250000000000000000",
+        );
 
         assert.equal(updated.commands.length, 2);
         assert.deepEqual(

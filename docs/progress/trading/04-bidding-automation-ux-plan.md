@@ -121,7 +121,7 @@ Own bid rows display the runtime-owned state that is available from the backend 
 
 - own bid marker: visual highlight plus a compact icon or label
 - market position: winning, draw, or losing
-- strategy constraint state: ceiling hit, floor hit, balance limited, or allowance limited
+- strategy constraint state: hit ceiling or at floor
 - direct edit action that opens the automation panel with the associated job context
 
 Current limitation:
@@ -697,7 +697,7 @@ Current implementation notes:
 
 Status: complete.
 
-- Enrich own bid rows with job-linked status: winning, draw, losing, ceiling hit, floor hit, balance limited, and allowance limited.
+- Enrich own bid rows with job-linked status: winning, draw, losing, hit ceiling, and at floor.
 - Add compact icons or labels directly on own bid rows.
 - Use the existing maker filter for `my bids`; do not create a separate filtering mechanism.
 - Source own maker identity from bot/runtime state when available, and keep orders fallback honest when it cannot know the wallet.
@@ -716,16 +716,16 @@ Expected artifacts:
 
 Current implementation notes:
 
-- Bid-book rows now carry backend-owned `ownStatus` for own bids instead of deriving row status in the frontend.
+- Bid-book rows now carry bot-decision-backed `ownStatus` for own bids instead of deriving row status in the frontend or backend repository.
 - Bid-book rows now distinguish `market_bid` from `own_job_intent`, so queued or paused declared jobs can be shown before they are visible in OpenSea orders or the bot snapshot projection.
-- The bidding runtime persists active order feedback into `trading_bidding_job_runtime_state`, and backend reads use that feedback to turn own-intent rows into exact active-order rows when available.
+- The bidding runtime persists active order feedback and market decision fields into `trading_bidding_job_runtime_state`, and backend reads use that feedback to turn own-intent rows into exact active-order rows when available.
 - Standard/admin bid-book reads may include own-intent overlays; public single-collection reads remain market-only and omit local own-job context.
-- The repository computes own-bid position by exact bid scope before applying the maker filter, so `my bids` can still show losing/draw/winning against hidden opponents.
+- The repository does not compute own-bid position from exact scope or passive order rows; visible `winning`, `draw`, and `losing` states require a fresh bot-snapshot row whose order id matches the bot-persisted active order id and runtime decision.
 - Own bid rows are linked to matching non-archived declared jobs by token, collection, or exact trait target; the row status exposes job id, revision, and job status.
-- Floor and ceiling constraint labels are derived from the matching declared job scalar prices.
+- Floor and ceiling constraint labels are persisted by the bot runtime and rendered as `at floor` and `hit ceiling`.
 - Price is now explicit: market and runtime-active rows use exact prices, while queued/paused own-intent rows use a floor-ceiling range with the ceiling as the sort price.
-- `balance` and `allowance` are included in the read-model constraint contract, but they intentionally remain unset until the bidding runtime persists explicit constraint flags. Do not infer them from free-form error strings.
-- The frontend only renders `ownStatus` from the API and no longer reimplements bid-row position or floor/ceiling decisions.
+- `balance` and `allowance` are intentionally not user-facing bid-book badge states.
+- The frontend only renders `ownStatus` from the API and no longer reimplements bid-row position or constraint decisions.
 
 ### Slice 16: Offer-Filtered Selection Resolution
 

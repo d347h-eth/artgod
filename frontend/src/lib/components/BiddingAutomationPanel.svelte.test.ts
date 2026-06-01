@@ -78,6 +78,9 @@ describe('BiddingAutomationPanel', () => {
 						activeOrderId: '0xabc123',
 						activeProtocolAddress: '0xdef456',
 						activeExpirationTimeMs: 1760000000000,
+						bidPosition: null,
+						bidConstraints: [],
+						competitorPriceEth: null,
 						lastRunAt: '2026-01-01T13:00:00Z',
 						lastError: null,
 						updatedAt: '2026-01-01T13:00:30Z'
@@ -664,6 +667,9 @@ function testTokenJob(status: typeof TRADING_JOB_STATUS.Enabled | typeof TRADING
 			activeOrderId: '0xabc123',
 			activeProtocolAddress: '0xdef456',
 			activeExpirationTimeMs: 1760000000000,
+			bidPosition: null,
+			bidConstraints: [],
+			competitorPriceEth: null,
 			lastRunAt: '2026-01-01T13:00:00Z',
 			lastError: null,
 			updatedAt: '2026-01-01T13:00:30Z'

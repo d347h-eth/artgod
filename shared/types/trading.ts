@@ -392,6 +392,46 @@ export const TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE = {
 export type TradingBiddingBidBookOwnJobPhase =
     (typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE)[keyof typeof TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE];
 
+// Names bot-owned market position decisions persisted after a real bidding refresh.
+export const TRADING_BIDDING_JOB_RUNTIME_BID_POSITION = {
+    Winning: "winning",
+    Draw: "draw",
+    Losing: "losing",
+} as const;
+
+export type TradingBiddingJobRuntimeBidPosition =
+    (typeof TRADING_BIDDING_JOB_RUNTIME_BID_POSITION)[keyof typeof TRADING_BIDDING_JOB_RUNTIME_BID_POSITION];
+
+// Validates serialized bot-owned bid position values at adapter boundaries.
+export function isTradingBiddingJobRuntimeBidPosition(
+    value: unknown,
+): value is TradingBiddingJobRuntimeBidPosition {
+    return (
+        value === TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Winning ||
+        value === TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Draw ||
+        value === TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing
+    );
+}
+
+// Names bot-owned pricing constraints that explain why a bid cannot move further.
+export const TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT = {
+    Ceiling: "ceiling",
+    Floor: "floor",
+} as const;
+
+export type TradingBiddingJobRuntimeConstraint =
+    (typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT)[keyof typeof TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT];
+
+// Validates serialized bot-owned bid constraint values at adapter boundaries.
+export function isTradingBiddingJobRuntimeConstraint(
+    value: unknown,
+): value is TradingBiddingJobRuntimeConstraint {
+    return (
+        value === TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling ||
+        value === TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Floor
+    );
+}
+
 // Identifies whether a bid-book row has one market price or a configured job price range.
 export const TRADING_BIDDING_BID_BOOK_PRICE_KIND = {
     Exact: "exact",
@@ -417,6 +457,9 @@ export type PersistedBiddingJobRuntimeState = {
     activeOrderId: string | null;
     activeProtocolAddress: string | null;
     activeExpirationTimeMs: number | null;
+    bidPosition: TradingBiddingJobRuntimeBidPosition | null;
+    bidConstraints: TradingBiddingJobRuntimeConstraint[];
+    competitorPriceWei: string | null;
     lastRunAt: string | null;
     lastError: string | null;
     cancellationRequestedAt: string | null;

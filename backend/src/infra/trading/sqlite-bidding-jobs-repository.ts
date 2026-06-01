@@ -14,9 +14,13 @@ import {
     type PersistedTokenBiddingJobRecord,
     type TradingBiddingJobTargetDescriptor,
     type TradingBiddingJobPricingSource,
+    type TradingBiddingJobRuntimeBidPosition,
+    type TradingBiddingJobRuntimeConstraint,
     type TradingJobCommandKind,
     type TradingJobCommandRecord,
     type TradingTraitCriterion,
+    isTradingBiddingJobRuntimeBidPosition,
+    isTradingBiddingJobRuntimeConstraint,
     normalizeTradingTraitCriteria,
     tradingBiddingJobTargetKey,
     tradingTraitCriteriaKey,
@@ -55,6 +59,9 @@ type BiddingJobRow = {
     active_order_id: string | null;
     active_protocol_address: string | null;
     active_expiration_time_ms: number | null;
+    bid_position: string | null;
+    bid_constraints_json: string | null;
+    competitor_price_wei: string | null;
     last_run_at: string | null;
     last_error: string | null;
     cancellation_requested_at: string | null;
@@ -90,6 +97,7 @@ const BIDDING_JOB_SELECT =
     "s.floor_wei, s.ceiling_wei, s.delta_wei, s.price_tier_id, s.pricing_source_json, " +
     "s.quantity, s.target_traits_json, s.competitor_traits_json, " +
     "r.current_price_wei, r.active_order_id, r.active_protocol_address, r.active_expiration_time_ms, " +
+    "r.bid_position, r.bid_constraints_json, r.competitor_price_wei, " +
     "r.last_run_at, r.last_error, r.cancellation_requested_at, r.cancellation_completed_at, r.cancellation_error, r.updated_at AS runtime_updated_at " +
     "FROM trading_jobs j " +
     "JOIN trading_bidding_job_specs s ON s.job_id = j.job_id " +
@@ -1091,6 +1099,9 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
             activeOrderId: row.active_order_id,
             activeProtocolAddress: row.active_protocol_address,
             activeExpirationTimeMs: row.active_expiration_time_ms,
+            bidPosition: parseRuntimeBidPosition(row.bid_position),
+            bidConstraints: parseRuntimeBidConstraints(row.bid_constraints_json),
+            competitorPriceWei: row.competitor_price_wei,
             lastRunAt: row.last_run_at,
             lastError: row.last_error,
             cancellationRequestedAt: row.cancellation_requested_at,
@@ -1207,5 +1218,31 @@ export class SqliteBiddingJobsRepository implements BiddingJobsRepositoryPort {
                 `Invalid trading job command payload for commandId=${commandId}: ${message}`,
             );
         }
+    }
+}
+
+function parseRuntimeBidPosition(
+    value: string | null,
+): TradingBiddingJobRuntimeBidPosition | null {
+    return isTradingBiddingJobRuntimeBidPosition(value) ? value : null;
+}
+
+function parseRuntimeBidConstraints(
+    value: string | null,
+): TradingBiddingJobRuntimeConstraint[] {
+    if (!value) {
+        return [];
+    }
+
+    try {
+        const parsed = JSON.parse(value);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed.flatMap((entry) =>
+            isTradingBiddingJobRuntimeConstraint(entry) ? [entry] : [],
+        );
+    } catch {
+        return [];
     }
 }

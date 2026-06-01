@@ -1,6 +1,10 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import {
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
+} from "@artgod/shared/types";
+import {
     MarketEvent,
     Scope,
     TraitCriterion,
@@ -1103,6 +1107,61 @@ describe("Bidder stream refresh", () => {
         assert.equal(job.state.activeOrderId, "0xmine-high");
         assert.equal(job.state.activeProtocolAddress, "0xprotocol-high");
         assert.equal(job.state.currentPrice, 6n);
+    });
+
+    it("persists the bot-owned losing decision when a maintained bid is capped below the competitor", async () => {
+        const biddingService = new FakeBiddingService();
+        const futureExpirationTime = Math.floor(Date.now() / 1000) + 3600;
+        biddingService.activeOffers = [
+            {
+                id: "0xmine",
+                price: 15n,
+                maker: "0xmaker",
+                protocolAddress: "0xprotocol",
+                offerScope: "item",
+                expirationTime: futureExpirationTime,
+            },
+            { id: "0xother", price: 250n, maker: "0xother", offerScope: "item" },
+        ];
+        const persistedStates: Array<{
+            bidPosition: unknown;
+            bidConstraints: unknown[];
+            competitorPriceWei: string | null;
+        }> = [];
+        const bidder = new Bidder(
+            biddingService as any,
+            "0xmaker",
+            1000,
+            { dryRun: false },
+            undefined,
+            undefined,
+            {
+                persistJobRuntimeState: (snapshot) => {
+                    persistedStates.push({
+                        bidPosition: snapshot.bidPosition,
+                        bidConstraints: snapshot.bidConstraints,
+                        competitorPriceWei: snapshot.competitorPriceWei,
+                    });
+                },
+            },
+        );
+        const job = makeJob(
+            "token-hit",
+            "terraforms",
+            { type: "token", tokenId: "6236" },
+            undefined,
+            { floor: 1n, ceiling: 15n, delta: 1n },
+        );
+        job.state.activeOrderId = "0xmine";
+        bidder.addJob(job);
+
+        await bidder.refreshJob("token-hit");
+
+        assert.deepEqual(persistedStates.at(-1), {
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "250",
+        });
     });
 
     it("reuses an existing lower maker bid at the target price and cancels the higher stale bid", async () => {

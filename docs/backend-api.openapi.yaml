@@ -2323,6 +2323,9 @@ components:
                     activeOrderId,
                     activeProtocolAddress,
                     activeExpirationTimeMs,
+                    bidPosition,
+                    bidConstraints,
+                    competitorPriceEth,
                     lastRunAt,
                     lastError,
                     updatedAt,
@@ -2341,6 +2344,18 @@ components:
                     nullable: true
                 activeExpirationTimeMs:
                     type: integer
+                    nullable: true
+                bidPosition:
+                    type: string
+                    enum: [winning, draw, losing]
+                    nullable: true
+                bidConstraints:
+                    type: array
+                    items:
+                        type: string
+                        enum: [ceiling, floor]
+                competitorPriceEth:
+                    type: string
                     nullable: true
                 lastRunAt:
                     type: string

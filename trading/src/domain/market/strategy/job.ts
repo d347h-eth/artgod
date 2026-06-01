@@ -1,3 +1,8 @@
+import type {
+    TradingBiddingJobRuntimeBidPosition,
+    TradingBiddingJobRuntimeConstraint,
+} from "@artgod/shared/types";
+
 export interface BidderConfig {
     ceiling: bigint;
     floor: bigint;
@@ -10,6 +15,9 @@ export interface BidderState {
     activeProtocolAddress?: string;
     currentPrice?: bigint;
     activeExpirationTimeMs?: number;
+    bidPosition?: TradingBiddingJobRuntimeBidPosition;
+    bidConstraints?: TradingBiddingJobRuntimeConstraint[];
+    competitorPrice?: bigint;
 }
 
 export interface TraitSelector {

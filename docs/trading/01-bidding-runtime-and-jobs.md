@@ -141,7 +141,7 @@ Projection tables:
 
 - `trading_bidding_bid_book_rows`: materialized active bids by collection, source, scope, maker, unit price, quantity, validity, placement time, and display metadata
 - `trading_bidding_collection_bid_book_state`: projection freshness, row count, duration, and last error per collection/source
-- `trading_bidding_job_runtime_state`: bot-owned active-offer feedback that lets backend bid-book reads connect declared jobs to live orders
+- `trading_bidding_job_runtime_state`: bot-owned active-offer feedback and market decision state that lets backend bid-book reads connect declared jobs to live orders
 
 Bot snapshot projection:
 
@@ -159,6 +159,8 @@ Backend source selection:
 - otherwise use `orders`
 - standard/admin reads may overlay own declared jobs as `own_job_intent` rows before the bot has landed a matching market offer
 - public single-collection reads stay market-only and do not expose local own-job context
+- own market-position badges (`winning`, `draw`, `losing`) are attached only in fresh `bot_snapshot` mode and only from the bot-persisted runtime decision for the active order id
+- the backend must not infer own bid position from bid-book rows or exact-scope price comparisons
 
 Frontend labels:
 

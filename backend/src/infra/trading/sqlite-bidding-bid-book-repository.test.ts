@@ -16,6 +16,8 @@ import {
     TRADING_BIDDING_BID_BOOK_OWN_JOB_PHASE,
     TRADING_BIDDING_BID_BOOK_PRICE_KIND,
     TRADING_BIDDING_BID_BOOK_ROW_MATERIALIZATION_KIND,
+    TRADING_BIDDING_JOB_RUNTIME_BID_POSITION,
+    TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT,
     TRADING_BIDDING_BID_SCOPE_KIND,
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
@@ -266,6 +268,14 @@ describe("SqliteBiddingBidBookRepository", () => {
             scopeLabel: "unknown",
             priceWei: "999",
         });
+        seedJobRuntimeState({
+            jobId: "collection-job",
+            currentPriceWei: "200",
+            activeOrderId: "own-collection",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "210",
+        });
 
         const collectionBook = repository.listCollectionBidBook({
             chainId: 1,
@@ -430,6 +440,65 @@ describe("SqliteBiddingBidBookRepository", () => {
             tokenBook.bids.map((bid) => bid.orderId),
             ["job-intent:paused-trait-job", "0xruntime-order"],
         );
+    });
+
+    it("uses the bot runtime decision instead of exact-scope bid-book inference", () => {
+        const repository = new SqliteBiddingBidBookRepository();
+        seedBiddingRuntime(collectionId);
+        seedTokenBiddingJob({
+            collectionId,
+            jobId: "token-job",
+            tokenId: "6236",
+            floorWei: "150",
+            ceilingWei: "150",
+        });
+        insertProjectedState(collectionId, Date.now());
+        insertProjectedBid({
+            collectionId,
+            orderId: "own-token",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Token,
+            scopeLabel: "#6236",
+            tokenId: "6236",
+            maker: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            priceWei: "150",
+        });
+        insertProjectedBid({
+            collectionId,
+            orderId: "opponent-collection",
+            scopeKind: TRADING_BIDDING_BID_SCOPE_KIND.Collection,
+            scopeLabel: "collection",
+            maker: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            priceWei: "2500",
+        });
+        seedJobRuntimeState({
+            jobId: "token-job",
+            currentPriceWei: "150",
+            activeOrderId: "own-token",
+            bidPosition: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            bidConstraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            competitorPriceWei: "2500",
+        });
+
+        const tokenBook = repository.listTokenBidBook({
+            chainId: 1,
+            collectionId,
+            tokenId: "6236",
+            tokenTraits: [],
+            includeOwnJobContext: true,
+        });
+        const ownTokenBid = tokenBook.bids.find(
+            (bid) => bid.orderId === "own-token",
+        );
+
+        assert.deepEqual(ownTokenBid?.ownStatus, {
+            position: TRADING_BIDDING_JOB_RUNTIME_BID_POSITION.Losing,
+            constraints: [TRADING_BIDDING_JOB_RUNTIME_CONSTRAINT.Ceiling],
+            job: {
+                jobId: "token-job",
+                revision: 1,
+                status: TRADING_JOB_STATUS.Enabled,
+            },
+        });
     });
 
     it("falls back to indexed orders when enabled bot projections are stale", () => {
@@ -658,19 +727,55 @@ function seedTraitBiddingJob(input: {
     });
 }
 
+function seedTokenBiddingJob(input: {
+    collectionId: number;
+    jobId: string;
+    tokenId: string;
+    floorWei: string;
+    ceilingWei: string;
+}): void {
+    db.prepare(
+        "INSERT INTO trading_jobs " +
+            "(job_id, bot_kind, chain_id, collection_id, status, target_kind, token_id, revision) " +
+            "VALUES (@jobId, @botKind, 1, @collectionId, @status, @targetKind, @tokenId, 1)",
+    ).run({
+        jobId: input.jobId,
+        botKind: TRADING_BOT_KIND.Bidding,
+        collectionId: input.collectionId,
+        status: TRADING_JOB_STATUS.Enabled,
+        targetKind: TRADING_JOB_TARGET_KIND.Token,
+        tokenId: input.tokenId,
+    });
+    db.prepare(
+        "INSERT INTO trading_bidding_job_specs " +
+            "(job_id, floor_wei, ceiling_wei, delta_wei, quantity, target_traits_json) " +
+            "VALUES (@jobId, @floorWei, @ceilingWei, '1', NULL, '[]')",
+    ).run({
+        jobId: input.jobId,
+        floorWei: input.floorWei,
+        ceilingWei: input.ceilingWei,
+    });
+}
+
 function seedJobRuntimeState(input: {
     jobId: string;
     currentPriceWei: string;
     activeOrderId: string;
+    bidPosition?: string | null;
+    bidConstraints?: string[];
+    competitorPriceWei?: string | null;
 }): void {
     db.prepare(
         "INSERT INTO trading_bidding_job_runtime_state " +
-            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, updated_at) " +
-            "VALUES (@jobId, @currentPriceWei, @activeOrderId, NULL, 1900000000000, @updatedAt)",
+            "(job_id, current_price_wei, active_order_id, active_protocol_address, active_expiration_time_ms, bid_position, bid_constraints_json, competitor_price_wei, updated_at) " +
+            "VALUES (@jobId, @currentPriceWei, @activeOrderId, NULL, 1900000000000, @bidPosition, @bidConstraintsJson, @competitorPriceWei, @updatedAt)",
     ).run({
         jobId: input.jobId,
         currentPriceWei: input.currentPriceWei,
         activeOrderId: input.activeOrderId,
+        bidPosition: input.bidPosition ?? null,
+        bidConstraintsJson: JSON.stringify(input.bidConstraints ?? []),
+        competitorPriceWei: input.competitorPriceWei ?? null,
         updatedAt: "2026-05-17T00:00:00Z",
     });
 }

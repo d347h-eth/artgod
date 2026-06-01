@@ -427,6 +427,7 @@ General rules:
 - display `WETH` only where currency disambiguation is useful
 - own bids should be visually marked and labeled as the user when the wallet identity is known
 - own-bid badges are limited to `queued`, `paused`, `winning`, `draw`, `losing`, `hit ceiling`, and `at floor`
+- `winning`, `draw`, and `losing` must come from fresh bot runtime decision feedback, never from frontend/backend price inference
 - runtime details such as active order ids must not become separate user-facing badge states
 
 Scope rules:
@@ -498,7 +499,7 @@ General rules:
 - feedback/status text should align to the form grid or center of the panel, not drift toward one edge
 - avoid status dropdowns; expose user intent through action buttons instead
 - the panel state row must reuse the same own-bid badge contract as the bid book
-- queued jobs stay `queued` until a backend-owned market bid row provides `winning`, `draw`, or `losing`
+- queued jobs stay `queued` until a fresh bot-snapshot market row has a bot-persisted `winning`, `draw`, or `losing` decision
 - raw runtime fields such as current price and active order id are diagnostics, not primary panel state
 
 Action rules:
