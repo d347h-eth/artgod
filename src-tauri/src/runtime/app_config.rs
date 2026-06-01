@@ -126,6 +126,20 @@ pub fn load_app_config_state(app: &AppHandle) -> Result<AppConfigState, String> 
     Ok(build_app_config_state(&paths, settings.as_ref(), &model))
 }
 
+/// Loads effective manifest defaults plus saved overrides without rendering `.env`.
+pub fn load_effective_app_config_values(
+    app: &AppHandle,
+) -> Result<HashMap<String, String>, String> {
+    let paths = ensure_desktop_config_paths(app)?;
+    let model = load_app_config_manifest()?;
+    let settings = read_settings_document_if_exists(&paths)?;
+    let mut values = model.defaults.clone();
+    if let Some(document) = settings {
+        merge_known_values(&mut values, &document.overrides, &model.ordered_keys);
+    }
+    Ok(values)
+}
+
 fn build_app_config_state(
     paths: &DesktopConfigPaths,
     settings: Option<&AppSettingsDocument>,

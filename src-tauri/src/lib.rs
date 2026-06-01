@@ -2,7 +2,7 @@ mod desktop_log;
 mod runtime;
 mod wallet;
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
@@ -11,7 +11,10 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::desktop_log::append_desktop_log;
+use crate::desktop_log::{
+    append_desktop_log, cleanup_desktop_logs_for_app, log_file_belongs_to_process,
+    process_name_for_log_file, start_desktop_log_maintenance,
+};
 use runtime::{
     AppConfigState, DesktopRuntimeConfig, RuntimeEndpoints, RuntimeManager, RuntimeStatus,
     SaveAppConfigInput, ensure_desktop_config_paths, load_app_config_state, save_app_config,
@@ -163,12 +166,16 @@ fn app_config_get(app: AppHandle) -> Result<AppConfigState, String> {
 
 #[tauri::command]
 fn app_config_save(app: AppHandle, input: SaveAppConfigInput) -> Result<AppConfigState, String> {
-    save_app_config(&app, input)
+    let state = save_app_config(&app, input)?;
+    cleanup_desktop_logs_after_config_change(&app);
+    Ok(state)
 }
 
 #[tauri::command]
 fn app_config_use_defaults(app: AppHandle) -> Result<AppConfigState, String> {
-    use_default_app_config(&app)
+    let state = use_default_app_config(&app)?;
+    cleanup_desktop_logs_after_config_change(&app);
+    Ok(state)
 }
 
 #[tauri::command]
@@ -331,6 +338,7 @@ pub fn run() {
             app.manage(bot_state);
 
             ensure_desktop_config_paths(app.handle()).map_err(std::io::Error::other)?;
+            start_desktop_log_maintenance(app.handle().clone());
             append_desktop_log(app.handle(), "info", "Desktop app setup started");
             append_desktop_log(
                 app.handle(),
@@ -557,34 +565,33 @@ fn collect_logs_tail(logs_dir: &Path, limit: usize) -> Result<Vec<RuntimeLogLine
             )
         })?
         .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ext.eq_ignore_ascii_case("log"))
-                .unwrap_or(false)
-        })
+        .filter(|entry| process_name_for_log_file(&entry.path()).is_some())
         .collect::<Vec<_>>();
     entries.sort_by_key(|entry| entry.file_name());
 
-    let mut result = Vec::<RuntimeLogLine>::new();
+    let mut tails = BTreeMap::<String, VecDeque<String>>::new();
     for entry in entries {
         let path = entry.path();
-        let process = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(str::to_owned)
-            .unwrap_or_else(|| "unknown".to_owned());
-        let tail = read_file_tail_lines(&path, limit);
-        for line in tail {
-            result.push(RuntimeLogLine {
-                process: process.clone(),
-                line,
-            });
+        let Some(process) = process_name_for_log_file(&path) else {
+            continue;
+        };
+        let process_tail = tails.entry(process).or_default();
+        for line in read_file_tail_lines(&path, limit) {
+            if process_tail.len() >= limit {
+                let _ = process_tail.pop_front();
+            }
+            process_tail.push_back(line);
         }
     }
-    Ok(result)
+    Ok(tails
+        .into_iter()
+        .flat_map(|(process, tail)| {
+            tail.into_iter().map(move |line| RuntimeLogLine {
+                process: process.clone(),
+                line,
+            })
+        })
+        .collect::<Vec<_>>())
 }
 
 fn collect_process_logs_tail(
@@ -600,35 +607,28 @@ fn collect_process_logs_tail(
             )
         })?
         .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ext.eq_ignore_ascii_case("log"))
-                .unwrap_or(false)
-        })
+        .filter(|entry| log_file_belongs_to_process(&entry.path(), process))
         .collect::<Vec<_>>();
     entries.sort_by_key(|entry| entry.file_name());
 
+    let mut tail = VecDeque::<String>::new();
     for entry in entries {
         let path = entry.path();
-        let process_name = path.file_stem().and_then(|stem| stem.to_str());
-        if process_name != Some(process) {
-            continue;
+        for line in read_file_tail_lines(&path, limit) {
+            if tail.len() >= limit {
+                let _ = tail.pop_front();
+            }
+            tail.push_back(line);
         }
-        let tail = read_file_tail_lines(&path, limit);
-        let result = tail
-            .into_iter()
-            .map(|line| RuntimeLogLine {
-                process: process.to_owned(),
-                line,
-            })
-            .collect::<Vec<_>>();
-        return Ok(result);
     }
 
-    Ok(Vec::new())
+    Ok(tail
+        .into_iter()
+        .map(|line| RuntimeLogLine {
+            process: process.to_owned(),
+            line,
+        })
+        .collect::<Vec<_>>())
 }
 
 fn list_log_processes(logs_dir: &Path) -> Result<Vec<String>, String> {
@@ -640,25 +640,21 @@ fn list_log_processes(logs_dir: &Path) -> Result<Vec<String>, String> {
             )
         })?
         .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ext.eq_ignore_ascii_case("log"))
-                .unwrap_or(false)
-        })
-        .filter_map(|entry| {
-            entry
-                .path()
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .map(str::to_owned)
-        })
+        .filter_map(|entry| process_name_for_log_file(&entry.path()))
         .collect::<Vec<_>>();
     entries.sort();
     entries.dedup();
     Ok(entries)
+}
+
+fn cleanup_desktop_logs_after_config_change(app: &AppHandle) {
+    if let Err(error) = cleanup_desktop_logs_for_app(app) {
+        append_desktop_log(
+            app,
+            "warn",
+            &format!("Desktop log cleanup after config change failed: {error}"),
+        );
+    }
 }
 
 fn read_file_tail_lines(path: &Path, limit: usize) -> Vec<String> {
