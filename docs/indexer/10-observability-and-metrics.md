@@ -45,6 +45,9 @@ Observability containers run behind the `observability` compose profile in `dock
 - Backend launcher script `scripts/backend-dev.sh` truncates and rewrites `tmp/logs/backend-api.log`.
 - Frontend launcher script `scripts/frontend-dev.sh` truncates and rewrites `tmp/logs/frontend-web.log`.
 - Indexer launcher script `scripts/indexer-dev.sh` truncates and rewrites one file per worker under `tmp/logs`.
+- Desktop supervisor logs under app-data also use JSON Lines: structured
+  backend/indexer/trading payloads stay parseable at line start, and plain
+  child-process output is wrapped before it is written.
 - Alloy config in `observability/alloy/config.alloy`:
     - `local.file_match` targets `/var/log/artgod/backend-api.log`, `/var/log/artgod/frontend-web.log`, and `/var/log/artgod/indexer-*.log`.
     - `loki.source.file` tails from end.
