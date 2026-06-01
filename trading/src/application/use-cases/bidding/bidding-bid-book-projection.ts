@@ -1,5 +1,9 @@
 import type { CollectionOfferSnapshot } from "./collection-offer-snapshot-service.js";
-import { biddingLog } from "../../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../../utils/bidding-log.js";
 
 export interface BiddingBidBookProjectionResult {
     collectionSlug: string;
@@ -21,6 +25,10 @@ type ProjectionState = {
     timer?: ReturnType<typeof setTimeout>;
     lastCompletedAt: number;
 };
+
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.BiddingBidBookProjection,
+);
 
 // Coalesces snapshot-to-bid-book projection work without blocking snapshot refresh or bidder decisions.
 export class BiddingBidBookProjectionScheduler {
@@ -109,15 +117,19 @@ export class BiddingBidBookProjectionScheduler {
                 reason,
             );
             state.lastCompletedAt = Date.now();
-            biddingLog.debug(
-                `[BiddingBidBookProjectionScheduler] Projection complete for ${result.collectionSlug}. rows=${result.rowCount}, durationMs=${result.durationMs}, reason=${reason}`,
-            );
+            log.debug("projectionComplete", "Bidding bid-book projection complete", {
+                collectionSlug: result.collectionSlug,
+                rowCount: result.rowCount,
+                durationMs: result.durationMs,
+                reason,
+            });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error);
             state.lastCompletedAt = Date.now();
-            biddingLog.error(
-                `[BiddingBidBookProjectionScheduler] Projection failed for ${collectionSlug}. reason=${reason}, error=${message}`,
-            );
+            log.error("projectionFailed", "Bidding bid-book projection failed", {
+                collectionSlug,
+                reason,
+                ...toErrorLogFields(error),
+            });
         } finally {
             state.running = false;
         }

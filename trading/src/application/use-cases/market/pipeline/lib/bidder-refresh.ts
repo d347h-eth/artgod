@@ -1,7 +1,13 @@
 import { MarketEvent } from "../../../../../domain/market/event.js";
-import { biddingLog } from "../../../../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../../../../utils/bidding-log.js";
 import { BidderRefreshPort } from "../../../bidding/bidder.js";
 import { EventCallback, WrappingFn } from "../pipeline.js";
+
+const log = createBiddingComponentLogger(BIDDING_LOG_COMPONENT.BidderRefresh);
 
 // BidderRefresh wires stream events into the bidder hot-refresh port.
 export class BidderRefresh {
@@ -20,11 +26,11 @@ export class BidderRefresh {
                 try {
                     await this.refreshPort.refreshMatchingJobs(marketEvent);
                 } catch (error: unknown) {
-                    const message =
-                        error instanceof Error ? error.message : String(error);
-                    biddingLog.error(
-                        `[BidderRefresh] Failed to refresh jobs for ${marketEvent.getCollectionSlug()}: ${message}`,
-                    );
+                    log.error("refreshMatchingJobsFailed", "Failed to refresh matching bidding jobs", {
+                        collectionSlug: marketEvent.getCollectionSlug(),
+                        eventType: marketEvent.getType(),
+                        ...toErrorLogFields(error),
+                    });
                 }
 
                 await callback(marketEvent);

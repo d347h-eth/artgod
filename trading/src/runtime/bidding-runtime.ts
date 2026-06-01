@@ -49,7 +49,11 @@ import {
 } from "../config/trading-config.js";
 import { MarketEvent, Type } from "../domain/market/event.js";
 import { BidderJob } from "../domain/market/strategy/job.js";
-import { biddingLog } from "../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../utils/bidding-log.js";
 import { startBiddingCommandReconciliationLoop } from "./bidding-command-reconciliation-loop.js";
 import type {
     OpenSeaApiClient,
@@ -76,6 +80,13 @@ type RegisteredBidStream = {
     stream: OpenSeaEventStream;
     listener: StreamListener;
 };
+
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.BiddingRuntime,
+);
+const openSeaSdkLog = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.OpenSeaSdk,
+);
 
 export interface BiddingRuntimeLifecyclePort {
     bootstrapping(update: BiddingRuntimeBootstrapLifecycleUpdate): void;
@@ -118,17 +129,21 @@ export async function startBiddingRuntime(
 
     const biddingJobSource = new SqliteBiddingJobSource(params.config.chainId);
     // Load the authoritative enabled bidding jobs from SQLite before creating any market-facing adapters.
-    biddingLog.info(
-        `[BiddingRuntime] Loading bidding jobs from SQLite. dbPath=${params.config.dbPath}, chainId=${params.config.chainId}`,
-    );
+    log.info("loadJobs", "Loading bidding jobs from SQLite", {
+        dbPath: params.config.dbPath,
+        chainId: params.config.chainId,
+    });
     const jobs = await biddingJobSource.loadEnabledJobs();
     const watchedCollectionSlugs = collectWatchedCollectionSlugs(jobs);
     const snapshotBackedCollectionSlugs =
         collectSnapshotBackedCollectionSlugs(jobs);
     const tokenWarmCandidates = collectTokenWarmCandidateCount(jobs);
-    biddingLog.info(
-        `[BiddingRuntime] Loaded bidding jobs. jobs=${jobs.length}, watchedCollections=${watchedCollectionSlugs.length}, snapshotBackedCollections=${snapshotBackedCollectionSlugs.length}, tokenWarmCandidates=${tokenWarmCandidates}`,
-    );
+    log.info("jobsLoaded", "Loaded bidding jobs", {
+        jobCount: jobs.length,
+        watchedCollectionCount: watchedCollectionSlugs.length,
+        snapshotBackedCollectionCount: snapshotBackedCollectionSlugs.length,
+        tokenWarmCandidateCount: tokenWarmCandidates,
+    });
 
     const tokenMetadataRepository = new SqliteTokenMetadataRepository(
         params.config.chainId,
@@ -185,14 +200,21 @@ export async function startBiddingRuntime(
         total: allowanceApprovalTotal,
         detail: `status=${allowanceResult.status}, desired=${formatWeth(allowanceResult.desiredAllowanceWei)}, current=${formatOptionalWeth(allowanceResult.currentAllowanceWei)}`,
     });
-    biddingLog.info(
-        `[BiddingRuntime] Allowance approval bootstrap complete. status=${allowanceResult.status}, desired=${formatWeth(allowanceResult.desiredAllowanceWei)}, current=${formatOptionalWeth(allowanceResult.currentAllowanceWei)}`,
-    );
+    log.info("allowanceBootstrapComplete", "Allowance approval bootstrap complete", {
+        status: allowanceResult.status,
+        desiredAllowanceWei: allowanceResult.desiredAllowanceWei.toString(),
+        desiredAllowanceWeth: formatWeth(allowanceResult.desiredAllowanceWei),
+        currentAllowanceWei:
+            allowanceResult.currentAllowanceWei?.toString() ?? null,
+        currentAllowanceWeth: formatOptionalWeth(
+            allowanceResult.currentAllowanceWei,
+        ),
+    });
 
     // Create the write-capable OpenSea SDK lane for live offer discovery, placement, and cancellation.
     const biddingSdk = createBiddingSdkClient(
-        publicClient,
-        walletClient,
+        publicClient as unknown as PublicClient,
+        walletClient as WalletClient,
         params.config.rpc.primaryUrl,
         params.biddingConfig.openSea.biddingSecretKey,
     );
@@ -310,9 +332,10 @@ export async function startBiddingRuntime(
             collectionSlug,
             registerBidStream(streamClient, collectionSlug, bidPipeline),
         );
-        biddingLog.info(
-            `[BiddingRuntime] Subscribed direct OpenSea bid stream for ${collectionSlug}. streamCollections=${bidStreams.size}`,
-        );
+        log.info("bidStreamSubscribed", "Subscribed direct OpenSea bid stream", {
+            collectionSlug,
+            streamCollectionCount: bidStreams.size,
+        });
         return true;
     };
     const disposeBidStream = (collectionSlug: string): boolean => {
@@ -324,8 +347,13 @@ export async function startBiddingRuntime(
         // Unsubscribe the direct OpenSea bid stream once no enabled job needs this collection.
         registered.stream.dispose();
         bidStreams.delete(collectionSlug);
-        biddingLog.info(
-            `[BiddingRuntime] Unsubscribed direct OpenSea bid stream for ${collectionSlug}. streamCollections=${bidStreams.size}`,
+        log.info(
+            "bidStreamUnsubscribed",
+            "Unsubscribed direct OpenSea bid stream",
+            {
+                collectionSlug,
+                streamCollectionCount: bidStreams.size,
+            },
         );
         return true;
     };
@@ -412,9 +440,12 @@ export async function startBiddingRuntime(
         commandReconciler,
     );
 
-    biddingLog.info(
-        `[BiddingRuntime] Started bidder with ${jobs.length} job(s), watchedCollections=${watchedCollectionSlugs.length}, snapshotCollections=${snapshotBackedCollectionSlugs.length}, dryRun=${params.biddingConfig.dryRun}`,
-    );
+    log.info("bidderStarted", "Started bidder", {
+        jobCount: jobs.length,
+        watchedCollectionCount: watchedCollectionSlugs.length,
+        snapshotCollectionCount: snapshotBackedCollectionSlugs.length,
+        dryRun: params.biddingConfig.dryRun,
+    });
     // Switch to running heartbeat only after bootstrap and steady-state loops have started.
     runtimeState.startHeartbeat(
         runtimeStateIdentity,
@@ -589,9 +620,10 @@ async function startBiddingJobCommandSignalListener(
             await commandReconciler.processPendingCommands("nats");
         });
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        biddingLog.warn(
-            `[BiddingRuntime] Failed to start NATS bidding job command listener; DB polling remains active. error=${message}`,
+        log.warn(
+            "commandSignalListenerStartFailed",
+            "Failed to start NATS bidding job command listener; DB polling remains active",
+            toErrorLogFields(error),
         );
         return undefined;
     }
@@ -719,8 +751,9 @@ function createStreamClient(streamSecretKey: string): OpenSeaSdkStreamClient {
         // Route socket-level OpenSea stream errors through the bot logger instead of SDK console stderr.
         onError: (error) => {
             const formatted = formatOpenSeaStreamSocketError(error);
-            biddingLog.warn(
-                `[OpenSeaStream] Socket error from OpenSea stream. ${formatted.detail}`,
+            log.warn(
+                "openSeaStreamSocketError",
+                "Socket error from OpenSea stream",
                 formatted.meta,
             );
         },
@@ -729,7 +762,7 @@ function createStreamClient(streamSecretKey: string): OpenSeaSdkStreamClient {
 
 function createOpenSeaSdkLogger(lane: string): (line: string) => void {
     return (line: string) => {
-        biddingLog.debug(`[OpenSeaSDK:${lane}] ${line}`);
+        openSeaSdkLog.debug("sdkLog", "OpenSea SDK log line", { lane, line });
     };
 }
 

@@ -3,7 +3,11 @@ import {
     TRADING_JOB_COMMAND_KIND,
     TRADING_JOB_STATUS,
 } from "@artgod/shared/types";
-import { biddingLog } from "../../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../../utils/bidding-log.js";
 import type { BidderJob } from "../../../domain/market/strategy/job.js";
 import { Bidder } from "./bidder.js";
 import type {
@@ -22,6 +26,10 @@ export interface BiddingRuntimeJobPreparationPort {
     prepareEnabledJob(job: BidderJob): Promise<void>;
     reconcileEnabledJobs(jobs: BidderJob[]): Promise<void>;
 }
+
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.BiddingCommandReconciler,
+);
 
 // BiddingJobCommandReconciler applies durable DB Outbox commands to the live bidder.
 export class BiddingJobCommandReconciler {
@@ -43,15 +51,16 @@ export class BiddingJobCommandReconciler {
                 claimTimeoutMs: this.options.claimTimeoutMs,
             });
             if (commands.length === 0) {
-                biddingLog.debug(
-                    `[BiddingJobCommandReconciler] No pending commands. trigger=${trigger}`,
-                );
+                log.debug("noPendingCommands", "No pending bidding job commands", {
+                    trigger,
+                });
                 return 0;
             }
 
-            biddingLog.info(
-                `[BiddingJobCommandReconciler] Processing ${commands.length} command(s). trigger=${trigger}`,
-            );
+            log.info("processCommands", "Processing bidding job commands", {
+                trigger,
+                commandCount: commands.length,
+            });
             for (const command of commands) {
                 await this.processCommand(command);
             }
@@ -64,9 +73,9 @@ export class BiddingJobCommandReconciler {
             await this.applyCommand(command);
             await this.reconcileEnabledJobs();
             await this.commandRepository.markCompleted(command.commandId);
-            biddingLog.info(
-                `[BiddingJobCommandReconciler] Completed command. commandId=${command.commandId}, kind=${command.commandKind}, jobId=${command.jobId}, attempts=${command.attempts}`,
-            );
+            log.info("commandCompleted", "Completed bidding job command", {
+                ...commandLogFields(command),
+            });
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (command.attempts >= this.options.maxAttempts) {
@@ -74,8 +83,13 @@ export class BiddingJobCommandReconciler {
                     command.commandId,
                     message,
                 );
-                biddingLog.error(
-                    `[BiddingJobCommandReconciler] Command failed terminally. commandId=${command.commandId}, kind=${command.commandKind}, jobId=${command.jobId}, attempts=${command.attempts}, error=${message}`,
+                log.error(
+                    "commandTerminalFailure",
+                    "Bidding job command failed terminally",
+                    {
+                        ...commandLogFields(command),
+                        ...toErrorLogFields(error),
+                    },
                 );
                 return;
             }
@@ -84,8 +98,13 @@ export class BiddingJobCommandReconciler {
                 command.commandId,
                 message,
             );
-            biddingLog.warn(
-                `[BiddingJobCommandReconciler] Command failed and will retry. commandId=${command.commandId}, kind=${command.commandKind}, jobId=${command.jobId}, attempts=${command.attempts}, error=${message}`,
+            log.warn(
+                "commandRetryFailure",
+                "Bidding job command failed and will retry",
+                {
+                    ...commandLogFields(command),
+                    ...toErrorLogFields(error),
+                },
             );
         }
     }
@@ -122,49 +141,61 @@ export class BiddingJobCommandReconciler {
         const record = await this.jobSource.loadJobById(command.jobId);
         if (!record) {
             this.bidder.removeJob(command.jobId);
-            biddingLog.warn(
-                `[BiddingJobCommandReconciler] Job command references missing job. commandId=${command.commandId}, kind=${command.commandKind}, jobId=${command.jobId}`,
+            log.warn(
+                "commandMissingJob",
+                "Bidding job command references a missing job",
+                commandLogFields(command),
             );
             return;
         }
 
         if (record.status !== TRADING_JOB_STATUS.Enabled) {
             this.bidder.removeJob(command.jobId);
-            biddingLog.info(
-                `[BiddingJobCommandReconciler] Removed non-enabled job from scheduling. commandId=${command.commandId}, kind=${command.commandKind}, jobId=${command.jobId}, status=${record.status}`,
+            log.info(
+                "nonEnabledJobRemoved",
+                "Removed non-enabled bidding job from scheduling",
+                {
+                    ...commandLogFields(command),
+                    status: record.status,
+                },
             );
             return;
         }
 
         await this.jobPreparationPort.prepareEnabledJob(record.job);
         this.bidder.addJob(record.job);
-        biddingLog.info(
-            `[BiddingJobCommandReconciler] Applied enabled job. commandId=${command.commandId}, kind=${command.commandKind}, jobId=${command.jobId}, revision=${record.revision}`,
-        );
+        log.info("enabledJobApplied", "Applied enabled bidding job", {
+            ...commandLogFields(command),
+            revision: record.revision,
+        });
         // Run an immediate refresh so DB-driven changes affect market state without waiting for the next tick.
         await this.bidder.refreshJob(record.job.id);
     }
 
     private removeJobFromScheduling(command: BiddingJobCommand): void {
         const removed = this.bidder.removeJob(command.jobId);
-        biddingLog.info(
-            `[BiddingJobCommandReconciler] Removed job from scheduling. commandId=${command.commandId}, kind=${command.commandKind}, jobId=${command.jobId}, removed=${removed ? "yes" : "no"}`,
-        );
+        log.info("jobRemoved", "Removed bidding job from scheduling", {
+            ...commandLogFields(command),
+            removed,
+        });
     }
 
     private async cancelActiveOffer(command: BiddingJobCommand): Promise<void> {
         const job = await this.resolveJobForCancellation(command);
         if (!job) {
-            biddingLog.warn(
-                `[BiddingJobCommandReconciler] Cannot cancel active offer for missing job. commandId=${command.commandId}, jobId=${command.jobId}`,
+            log.warn(
+                "cancelMissingJob",
+                "Cannot cancel active offer for missing bidding job",
+                commandLogFields(command),
             );
             return;
         }
 
         const cancelled = await this.bidder.cancelActiveOffersForJob(job);
-        biddingLog.info(
-            `[BiddingJobCommandReconciler] Active-offer cancellation processed. commandId=${command.commandId}, jobId=${command.jobId}, cancelled=${cancelled}`,
-        );
+        log.info("activeOfferCancellationProcessed", "Active-offer cancellation processed", {
+            ...commandLogFields(command),
+            cancelled,
+        });
     }
 
     private async resolveJobForCancellation(
@@ -185,4 +216,13 @@ export class BiddingJobCommandReconciler {
         const jobs = await this.jobSource.loadEnabledJobs();
         await this.jobPreparationPort.reconcileEnabledJobs(jobs);
     }
+}
+
+function commandLogFields(command: BiddingJobCommand): Record<string, unknown> {
+    return {
+        commandId: command.commandId,
+        commandKind: command.commandKind,
+        jobId: command.jobId,
+        attempts: command.attempts,
+    };
 }

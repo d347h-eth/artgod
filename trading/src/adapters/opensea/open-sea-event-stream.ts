@@ -1,7 +1,10 @@
-import { inspect } from "node:util";
-import { logger } from "@artgod/shared/utils/logger";
 import { EventCallback } from "../../application/use-cases/market/pipeline/pipeline.js";
 import { MarketEvent } from "../../domain/market/event.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../utils/bidding-log.js";
 
 type HandlerRegistrationFn = (
     client: OpenSeaStreamClient,
@@ -39,6 +42,8 @@ export interface OpenSeaStreamClient {
 export interface OpenSeaMarketEventFactoryPort {
     newMarketEvent(event: unknown): MarketEvent | null;
 }
+
+const log = createBiddingComponentLogger(BIDDING_LOG_COMPONENT.OpenSeaEventStream);
 
 // OpenSeaEventStream adapts OpenSea stream subscriptions into normalized MarketEvent callbacks.
 export class OpenSeaEventStream {
@@ -126,22 +131,48 @@ export class OpenSeaEventStream {
         return (event: unknown) => {
             const marketEvent = this.marketEventFactory.newMarketEvent(event);
             if (marketEvent === null) {
-                logger.error(
-                    "[OpenSeaEventStream] Could not normalize OpenSea stream event",
-                    {
-                        payload: inspect(event),
-                    },
-                );
+                log.error("eventNormalizationFailed", "Could not normalize OpenSea stream event", {
+                    collectionSlug: this.collectionSlug,
+                    ...summarizeRawEvent(event),
+                });
                 return;
             }
 
             void callback(marketEvent).catch((error: unknown) => {
-                const message =
-                    error instanceof Error ? error.message : String(error);
-                logger.error(
-                    `[OpenSeaEventStream] Failed to process ${marketEvent.getType()} for ${marketEvent.getCollectionSlug()}: ${message}`,
-                );
+                log.error("eventProcessingFailed", "Failed to process OpenSea stream event", {
+                    collectionSlug: marketEvent.getCollectionSlug(),
+                    eventType: marketEvent.getType(),
+                    ...toErrorLogFields(error),
+                });
             });
         };
     }
+}
+
+function summarizeRawEvent(event: unknown): Record<string, unknown> {
+    if (!isRecord(event)) {
+        return { rawEventValueType: typeof event };
+    }
+
+    return {
+        rawEventConstructor: event.constructor?.name,
+        rawEventType: readString(event, "event_type") ?? readString(event, "type"),
+        rawEventCollectionSlug:
+            readString(event, "collection_slug") ?? readString(event, "collection"),
+        rawEventKeys: Object.keys(event).sort(),
+    };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object";
+}
+
+function readString(
+    record: Record<string, unknown>,
+    key: string,
+): string | undefined {
+    const value = record[key];
+    return typeof value === "string" && value.trim().length > 0
+        ? value
+        : undefined;
 }

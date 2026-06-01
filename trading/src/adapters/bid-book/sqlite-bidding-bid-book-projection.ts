@@ -10,7 +10,10 @@ import type {
     BiddingBidBookProjectionPort,
     BiddingBidBookProjectionResult,
 } from "../../application/use-cases/bidding/bidding-bid-book-projection.js";
-import { biddingLog } from "../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+} from "../../utils/bidding-log.js";
 
 type CollectionRow = {
     collection_id: number;
@@ -38,6 +41,10 @@ type BidBookProjectionRow = {
     placedAt: string | null;
     snapshotRefreshedAtMs: number;
 };
+
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.SqliteBiddingBidBookProjection,
+);
 
 export class SqliteBiddingBidBookProjection
     implements BiddingBidBookProjectionPort
@@ -157,8 +164,10 @@ export class SqliteBiddingBidBookProjection
             collectionSlug: snapshot.collectionSlug,
         }) as CollectionRow | undefined;
         if (!collection) {
-            biddingLog.warn(
-                `[SqliteBiddingBidBookProjection] Skipping ${snapshot.collectionSlug}: collection not found for bid-book projection.`,
+            log.warn(
+                "collectionMissing",
+                "Skipping bid-book projection because collection was not found",
+                { collectionSlug: snapshot.collectionSlug },
             );
             return {
                 collectionSlug: snapshot.collectionSlug,
@@ -199,9 +208,13 @@ export class SqliteBiddingBidBookProjection
         })();
 
         const durationMs = Date.now() - startedAt;
-        biddingLog.info(
-            `[SqliteBiddingBidBookProjection] Replaced bid book for ${snapshot.collectionSlug}. reason=${reason}, rows=${rows.length}, parseDurationMs=${durationBeforeWriteMs}, totalDurationMs=${durationMs}`,
-        );
+        log.info("bidBookReplaced", "Replaced projected bid book", {
+            collectionSlug: snapshot.collectionSlug,
+            reason,
+            rowCount: rows.length,
+            parseDurationMs: durationBeforeWriteMs,
+            durationMs,
+        });
         return {
             collectionSlug: snapshot.collectionSlug,
             rowCount: rows.length,

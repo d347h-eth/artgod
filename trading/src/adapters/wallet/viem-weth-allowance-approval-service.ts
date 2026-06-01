@@ -10,9 +10,16 @@ import {
     type EvmTransactionPolicyReader,
 } from "@artgod/shared/evm/transactions";
 import { formatEther, getAddress, type Address, type Hash } from "viem";
-import { biddingLog } from "../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../utils/bidding-log.js";
 
 const APPROVAL_RECEIPT_WAIT_LOG_INTERVAL_MS = 15_000;
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.WethAllowanceApprovalService,
+);
 
 const erc20AllowanceApprovalAbi = [
     {
@@ -129,8 +136,13 @@ export class ViemWethAllowanceApprovalService {
             );
         }
         if (desiredAllowanceWei === 0n) {
-            biddingLog.info(
-                `[WethAllowanceApproval] Startup approval disabled because BIDDING_WETH_ALLOWANCE_ETH=0.`,
+            log.info(
+                "startupApprovalDisabled",
+                "Startup WETH approval disabled",
+                {
+                    desiredAllowanceWei: desiredAllowanceWei.toString(),
+                    desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                },
             );
             return {
                 status: "disabled",
@@ -141,17 +153,24 @@ export class ViemWethAllowanceApprovalService {
             };
         }
 
-        biddingLog.info(
-            `[WethAllowanceApproval] Ensuring startup WETH allowance. owner=${ownerAddress}, spender=${this.spenderAddress}, weth=${this.wethAddress}, desired=${formatWeth(desiredAllowanceWei)}, dryRun=${input.dryRun === true}`,
-        );
+        log.info("ensureAllowanceStarted", "Ensuring startup WETH allowance", {
+            ownerAddress,
+            spenderAddress: this.spenderAddress,
+            wethAddress: this.wethAddress,
+            desiredAllowanceWei: desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+            dryRun: input.dryRun === true,
+        });
 
         // Read the current WETH allowance before deciding whether an approval transaction is needed.
         input.onProgress?.(
             `status=reading_current_allowance, desired=${formatWeth(desiredAllowanceWei)}`,
         );
-        biddingLog.info(
-            `[WethAllowanceApproval] Reading current WETH allowance from chain. owner=${ownerAddress}, spender=${this.spenderAddress}`,
-        );
+        log.info("currentAllowanceReadStarted", "Reading current WETH allowance from chain", {
+            ownerAddress,
+            spenderAddress: this.spenderAddress,
+            wethAddress: this.wethAddress,
+        });
         let currentAllowanceWei: bigint;
         try {
             currentAllowanceWei = await this.readClient.readContract({
@@ -161,23 +180,32 @@ export class ViemWethAllowanceApprovalService {
                 args: [ownerAddress, this.spenderAddress],
             });
         } catch (error) {
-            biddingLog.error(
-                `[WethAllowanceApproval] Failed to read current WETH allowance. owner=${ownerAddress}, spender=${this.spenderAddress}, error=${formatError(error)}`,
-            );
+            log.error("currentAllowanceReadFailed", "Failed to read current WETH allowance", {
+                ownerAddress,
+                spenderAddress: this.spenderAddress,
+                wethAddress: this.wethAddress,
+                ...toErrorLogFields(error),
+            });
             throw error;
         }
 
-        biddingLog.info(
-            `[WethAllowanceApproval] Current WETH allowance read. desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
-        );
+        log.info("currentAllowanceRead", "Current WETH allowance read", {
+            desiredAllowanceWei: desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+            currentAllowanceWei: currentAllowanceWei.toString(),
+            currentAllowanceWeth: formatWeth(currentAllowanceWei),
+        });
         input.onProgress?.(
             `status=current_allowance_read, desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
         );
 
         if (currentAllowanceWei >= desiredAllowanceWei) {
-            biddingLog.info(
-                `[WethAllowanceApproval] Existing WETH allowance is sufficient. desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
-            );
+            log.info("allowanceSufficient", "Existing WETH allowance is sufficient", {
+                desiredAllowanceWei: desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                currentAllowanceWei: currentAllowanceWei.toString(),
+                currentAllowanceWeth: formatWeth(currentAllowanceWei),
+            });
             return {
                 status: "sufficient",
                 ownerAddress,
@@ -187,17 +215,23 @@ export class ViemWethAllowanceApprovalService {
             };
         }
 
-        biddingLog.info(
-            `[WethAllowanceApproval] Existing WETH allowance is below desired allowance; approval is required. desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
-        );
+        log.info("approvalRequired", "Existing WETH allowance is below desired allowance", {
+            desiredAllowanceWei: desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+            currentAllowanceWei: currentAllowanceWei.toString(),
+            currentAllowanceWeth: formatWeth(currentAllowanceWei),
+        });
         input.onProgress?.(
             `status=approval_required, desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
         );
 
         if (input.dryRun) {
-            biddingLog.info(
-                `[WethAllowanceApproval] Dry-run mode would approve WETH allowance. desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
-            );
+            log.info("dryRunApproval", "Dry run would approve WETH allowance", {
+                desiredAllowanceWei: desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                currentAllowanceWei: currentAllowanceWei.toString(),
+                currentAllowanceWeth: formatWeth(currentAllowanceWei),
+            });
             return {
                 status: "dry_run",
                 ownerAddress,
@@ -216,9 +250,21 @@ export class ViemWethAllowanceApprovalService {
         input.onProgress?.(
             `status=submitting_approval, desired=${formatWeth(desiredAllowanceWei)}, current=${formatWeth(currentAllowanceWei)}`,
         );
-        biddingLog.info(
-            `[WethAllowanceApproval] Submitting WETH approval transaction. spender=${this.spenderAddress}, desired=${formatWeth(desiredAllowanceWei)}, maxFeePerGas=${formatWeiAsGwei(approvalTransactionPolicy.maxFeePerGasWei)}, maxPriorityFeePerGas=${formatWeiAsGwei(approvalTransactionPolicy.maxPriorityFeePerGasWei)}`,
-        );
+        log.info("approvalSubmitStarted", "Submitting WETH approval transaction", {
+            spenderAddress: this.spenderAddress,
+            desiredAllowanceWei: desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+            maxFeePerGasWei:
+                approvalTransactionPolicy.maxFeePerGasWei.toString(),
+            maxFeePerGasGwei: formatWeiAsGwei(
+                approvalTransactionPolicy.maxFeePerGasWei,
+            ),
+            maxPriorityFeePerGasWei:
+                approvalTransactionPolicy.maxPriorityFeePerGasWei.toString(),
+            maxPriorityFeePerGasGwei: formatWeiAsGwei(
+                approvalTransactionPolicy.maxPriorityFeePerGasWei,
+            ),
+        });
         let transactionHash: Hash;
         try {
             // Submit an exact WETH approval to the OpenSea conduit selected by the SDK for this chain.
@@ -232,15 +278,20 @@ export class ViemWethAllowanceApprovalService {
                     approvalTransactionPolicy.maxPriorityFeePerGasWei,
             });
         } catch (error) {
-            biddingLog.error(
-                `[WethAllowanceApproval] Failed to submit WETH approval transaction. spender=${this.spenderAddress}, desired=${formatWeth(desiredAllowanceWei)}, error=${formatError(error)}`,
-            );
+            log.error("approvalSubmitFailed", "Failed to submit WETH approval transaction", {
+                spenderAddress: this.spenderAddress,
+                desiredAllowanceWei: desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                ...toErrorLogFields(error),
+            });
             throw error;
         }
 
-        biddingLog.info(
-            `[WethAllowanceApproval] WETH approval transaction submitted. tx=${transactionHash}, desired=${formatWeth(desiredAllowanceWei)}`,
-        );
+        log.info("approvalSubmitted", "WETH approval transaction submitted", {
+            transactionHash,
+            desiredAllowanceWei: desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+        });
         await this.logBroadcastTransaction(transactionHash);
         input.onProgress?.(
             `status=approval_submitted, tx=${transactionHash}, desired=${formatWeth(desiredAllowanceWei)}`,
@@ -253,15 +304,24 @@ export class ViemWethAllowanceApprovalService {
                 onProgress: input.onProgress,
             });
         } catch (error) {
-            biddingLog.error(
-                `[WethAllowanceApproval] Failed while waiting for WETH approval receipt. tx=${transactionHash}, desired=${formatWeth(desiredAllowanceWei)}, previous=${formatWeth(currentAllowanceWei)}, error=${formatError(error)}`,
-            );
+            log.error("approvalReceiptWaitFailed", "Failed while waiting for WETH approval receipt", {
+                transactionHash,
+                desiredAllowanceWei: desiredAllowanceWei.toString(),
+                desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+                previousAllowanceWei: currentAllowanceWei.toString(),
+                previousAllowanceWeth: formatWeth(currentAllowanceWei),
+                ...toErrorLogFields(error),
+            });
             throw error;
         }
 
-        biddingLog.info(
-            `[WethAllowanceApproval] WETH approval transaction confirmed. desired=${formatWeth(desiredAllowanceWei)}, previous=${formatWeth(currentAllowanceWei)}, tx=${transactionHash}`,
-        );
+        log.info("approvalConfirmed", "WETH approval transaction confirmed", {
+            transactionHash,
+            desiredAllowanceWei: desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(desiredAllowanceWei),
+            previousAllowanceWei: currentAllowanceWei.toString(),
+            previousAllowanceWeth: formatWeth(currentAllowanceWei),
+        });
         return {
             status: "approved",
             ownerAddress,
@@ -276,9 +336,12 @@ export class ViemWethAllowanceApprovalService {
         ownerAddress: Address;
         desiredAllowanceWei: bigint;
     }): Promise<EvmPreparedTransactionPolicy> {
-        biddingLog.info(
-            `[WethAllowanceApproval] Preparing approval transaction policy. owner=${params.ownerAddress}, spender=${this.spenderAddress}`,
-        );
+        log.info("approvalPolicyPrepareStarted", "Preparing approval transaction policy", {
+            ownerAddress: params.ownerAddress,
+            spenderAddress: this.spenderAddress,
+            desiredAllowanceWei: params.desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
+        });
 
         const gasEstimate = await this.readOptionalGasEstimate(params);
         let transactionPolicy: EvmPreparedTransactionPolicy;
@@ -288,15 +351,59 @@ export class ViemWethAllowanceApprovalService {
                 fromAddress: params.ownerAddress,
             });
         } catch (error) {
-            biddingLog.error(
-                `[WethAllowanceApproval] Failed to prepare approval transaction policy. owner=${params.ownerAddress}, spender=${this.spenderAddress}, error=${formatError(error)}`,
-            );
+            log.error("approvalPolicyPrepareFailed", "Failed to prepare approval transaction policy", {
+                ownerAddress: params.ownerAddress,
+                spenderAddress: this.spenderAddress,
+                ...toErrorLogFields(error),
+            });
             throw error;
         }
 
-        biddingLog.info(
-            `[WethAllowanceApproval] Approval transaction policy ready. gasEstimate=${formatOptionalInteger(gasEstimate)}, baseFee=${formatWeiAsGwei(transactionPolicy.baseFeePerGasWei)}, latestBlock=${formatOptionalInteger(transactionPolicy.blockNumber)}, nodeGasPrice=${formatOptionalGwei(transactionPolicy.nodeGasPriceWei)}, nodeMaxFeePerGas=${formatOptionalGwei(transactionPolicy.nodeMaxFeePerGasWei)}, nodeMaxPriorityFeePerGas=${formatOptionalGwei(transactionPolicy.nodeMaxPriorityFeePerGasWei)}, feeHistoryPriorityFeePerGas=${formatOptionalGwei(transactionPolicy.feeHistoryPriorityFeePerGasWei)}, configuredMinPriorityFee=${formatWeiAsGwei(transactionPolicy.configuredMinPriorityFeePerGasWei)}, configuredFeeHistoryBlockCount=${transactionPolicy.configuredPriorityFeeHistoryBlockCount}, configuredFeeHistoryRewardPercentile=${transactionPolicy.configuredPriorityFeeHistoryRewardPercentile}, configuredBaseFeeMultiplier=${formatFeeMultiplierBps(transactionPolicy.configuredBaseFeeMultiplierBps)}, configuredMaxFeeCap=${formatWeiAsGwei(transactionPolicy.configuredMaxFeePerGasWei)}, selectedMaxFeePerGas=${formatWeiAsGwei(transactionPolicy.maxFeePerGasWei)}, selectedMaxPriorityFeePerGas=${formatWeiAsGwei(transactionPolicy.maxPriorityFeePerGasWei)}, latestNonce=${transactionPolicy.latestNonce}, pendingNonce=${transactionPolicy.pendingNonce}`,
-        );
+        log.info("approvalPolicyReady", "Approval transaction policy ready", {
+            gasEstimateWei: gasEstimate?.toString() ?? null,
+            baseFeePerGasWei: transactionPolicy.baseFeePerGasWei.toString(),
+            baseFeePerGasGwei: formatWeiAsGwei(
+                transactionPolicy.baseFeePerGasWei,
+            ),
+            latestBlockNumber: transactionPolicy.blockNumber?.toString() ?? null,
+            nodeGasPriceGwei: formatOptionalGwei(
+                transactionPolicy.nodeGasPriceWei,
+            ),
+            nodeMaxFeePerGasGwei: formatOptionalGwei(
+                transactionPolicy.nodeMaxFeePerGasWei,
+            ),
+            nodeMaxPriorityFeePerGasGwei: formatOptionalGwei(
+                transactionPolicy.nodeMaxPriorityFeePerGasWei,
+            ),
+            feeHistoryPriorityFeePerGasGwei: formatOptionalGwei(
+                transactionPolicy.feeHistoryPriorityFeePerGasWei,
+            ),
+            configuredMinPriorityFeeGwei: formatWeiAsGwei(
+                transactionPolicy.configuredMinPriorityFeePerGasWei,
+            ),
+            configuredPriorityFeeHistoryBlockCount:
+                transactionPolicy.configuredPriorityFeeHistoryBlockCount,
+            configuredPriorityFeeHistoryRewardPercentile:
+                transactionPolicy.configuredPriorityFeeHistoryRewardPercentile,
+            configuredBaseFeeMultiplier: formatFeeMultiplierBps(
+                transactionPolicy.configuredBaseFeeMultiplierBps,
+            ),
+            configuredMaxFeeCapGwei: formatWeiAsGwei(
+                transactionPolicy.configuredMaxFeePerGasWei,
+            ),
+            selectedMaxFeePerGasWei:
+                transactionPolicy.maxFeePerGasWei.toString(),
+            selectedMaxFeePerGasGwei: formatWeiAsGwei(
+                transactionPolicy.maxFeePerGasWei,
+            ),
+            selectedMaxPriorityFeePerGasWei:
+                transactionPolicy.maxPriorityFeePerGasWei.toString(),
+            selectedMaxPriorityFeePerGasGwei: formatWeiAsGwei(
+                transactionPolicy.maxPriorityFeePerGasWei,
+            ),
+            latestNonce: transactionPolicy.latestNonce,
+            pendingNonce: transactionPolicy.pendingNonce,
+        });
         return transactionPolicy;
     }
 
@@ -317,9 +424,12 @@ export class ViemWethAllowanceApprovalService {
                 args: [this.spenderAddress, params.desiredAllowanceWei],
             });
         } catch (error) {
-            biddingLog.warn(
-                `[WethAllowanceApproval] Failed to estimate approval gas. error=${formatError(error)}`,
-            );
+            log.warn("approvalGasEstimateFailed", "Failed to estimate approval gas", {
+                ownerAddress: params.ownerAddress,
+                spenderAddress: this.spenderAddress,
+                desiredAllowanceWei: params.desiredAllowanceWei.toString(),
+                ...toErrorLogFields(error),
+            });
             return null;
         }
     }
@@ -337,9 +447,9 @@ export class ViemWethAllowanceApprovalService {
                 baseFeePerGas: block.baseFeePerGas ?? null,
             };
         } catch (error) {
-            biddingLog.warn(
-                `[WethAllowanceApproval] Failed to read latest block fee data. error=${formatError(error)}`,
-            );
+            log.warn("latestBlockReadFailed", "Failed to read latest block fee data", {
+                ...toErrorLogFields(error),
+            });
             return {
                 number: null,
                 baseFeePerGas: null,
@@ -350,36 +460,44 @@ export class ViemWethAllowanceApprovalService {
     private async logBroadcastTransaction(
         transactionHash: Hash,
     ): Promise<void> {
-        const summary =
-            await this.readBroadcastTransactionSummary(transactionHash);
-        biddingLog.info(
-            `[WethAllowanceApproval] Broadcast transaction state from node. tx=${transactionHash}, ${summary}`,
-        );
+        const transactionFields =
+            await this.readBroadcastTransactionFields(transactionHash);
+        log.info("broadcastTransactionRead", "Broadcast transaction state from node", {
+            transactionHash,
+            ...transactionFields,
+        });
     }
 
-    private async readBroadcastTransactionSummary(
+    private async readBroadcastTransactionFields(
         transactionHash: Hash,
-    ): Promise<string> {
+    ): Promise<Record<string, unknown>> {
         if (!this.readClient.getTransaction) {
-            return "txLookup=unavailable";
+            return { transactionLookup: "unavailable" };
         }
         try {
             const transaction = await this.readClient.getTransaction({
                 hash: transactionHash,
             });
-            return [
-                "txLookup=found",
-                `type=${transaction.type ?? "unknown"}`,
-                `nonce=${transaction.nonce}`,
-                `gasLimit=${transaction.gas.toString()}`,
-                `gasPrice=${formatOptionalGwei(transaction.gasPrice ?? null)}`,
-                `maxFeePerGas=${formatOptionalGwei(transaction.maxFeePerGas ?? null)}`,
-                `maxPriorityFeePerGas=${formatOptionalGwei(transaction.maxPriorityFeePerGas ?? null)}`,
-                `block=${formatOptionalInteger(transaction.blockNumber ?? null)}`,
-                `blockHash=${transaction.blockHash ?? "pending"}`,
-            ].join(", ");
+            return {
+                transactionLookup: "found",
+                transactionType: transaction.type ?? "unknown",
+                nonce: transaction.nonce,
+                gasLimitWei: transaction.gas.toString(),
+                gasPriceGwei: formatOptionalGwei(transaction.gasPrice ?? null),
+                maxFeePerGasGwei: formatOptionalGwei(
+                    transaction.maxFeePerGas ?? null,
+                ),
+                maxPriorityFeePerGasGwei: formatOptionalGwei(
+                    transaction.maxPriorityFeePerGas ?? null,
+                ),
+                blockNumber: transaction.blockNumber?.toString() ?? null,
+                blockHash: transaction.blockHash ?? null,
+            };
         } catch (error) {
-            return `txLookup=failed, error=${formatError(error)}`;
+            return {
+                transactionLookup: "failed",
+                ...toErrorLogFields(error),
+            };
         }
     }
 
@@ -393,9 +511,13 @@ export class ViemWethAllowanceApprovalService {
         params.onProgress?.(
             `status=waiting_for_receipt, tx=${params.transactionHash}, desired=${formatWeth(params.desiredAllowanceWei)}, previous=${formatWeth(params.currentAllowanceWei)}`,
         );
-        biddingLog.info(
-            `[WethAllowanceApproval] Waiting for WETH approval receipt. tx=${params.transactionHash}, desired=${formatWeth(params.desiredAllowanceWei)}, previous=${formatWeth(params.currentAllowanceWei)}`,
-        );
+        log.info("approvalReceiptWaitStarted", "Waiting for WETH approval receipt", {
+            transactionHash: params.transactionHash,
+            desiredAllowanceWei: params.desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
+            previousAllowanceWei: params.currentAllowanceWei.toString(),
+            previousAllowanceWeth: formatWeth(params.currentAllowanceWei),
+        });
         let heartbeatInFlight = false;
         const waitLogInterval = setInterval(() => {
             if (heartbeatInFlight) {
@@ -415,8 +537,13 @@ export class ViemWethAllowanceApprovalService {
             await this.readClient.waitForTransactionReceipt({
                 hash: params.transactionHash,
                 onReplaced: (replacement) => {
-                    biddingLog.warn(
-                        `[WethAllowanceApproval] WETH approval transaction was replaced while waiting. originalTx=${params.transactionHash}, ${formatReceiptReplacement(replacement)}`,
+                    log.warn(
+                        "approvalTransactionReplaced",
+                        "WETH approval transaction was replaced while waiting",
+                        {
+                            originalTransactionHash: params.transactionHash,
+                            ...formatReceiptReplacementFields(replacement),
+                        },
                     );
                 },
             });
@@ -438,13 +565,22 @@ export class ViemWethAllowanceApprovalService {
         params.onProgress?.(
             `status=waiting_for_receipt, tx=${params.transactionHash}, elapsed=${elapsed}, desired=${formatWeth(params.desiredAllowanceWei)}, previous=${formatWeth(params.currentAllowanceWei)}`,
         );
-        const [transactionSummary, latestBlock] = await Promise.all([
-            this.readBroadcastTransactionSummary(params.transactionHash),
+        const [transactionFields, latestBlock] = await Promise.all([
+            this.readBroadcastTransactionFields(params.transactionHash),
             this.readOptionalLatestBlock(),
         ]);
-        biddingLog.info(
-            `[WethAllowanceApproval] Still waiting for WETH approval receipt. tx=${params.transactionHash}, elapsed=${elapsed}, desired=${formatWeth(params.desiredAllowanceWei)}, previous=${formatWeth(params.currentAllowanceWei)}, latestBlock=${formatOptionalInteger(latestBlock.number)}, baseFee=${formatOptionalGwei(latestBlock.baseFeePerGas)}, ${transactionSummary}`,
-        );
+        log.info("approvalReceiptWaitHeartbeat", "Still waiting for WETH approval receipt", {
+            transactionHash: params.transactionHash,
+            elapsed,
+            elapsedMs,
+            desiredAllowanceWei: params.desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(params.desiredAllowanceWei),
+            previousAllowanceWei: params.currentAllowanceWei.toString(),
+            previousAllowanceWeth: formatWeth(params.currentAllowanceWei),
+            latestBlockNumber: latestBlock.number?.toString() ?? null,
+            baseFeePerGasGwei: formatOptionalGwei(latestBlock.baseFeePerGas),
+            ...transactionFields,
+        });
     }
 }
 
@@ -456,32 +592,175 @@ function formatElapsed(elapsedMs: number): string {
     return `${Math.floor(elapsedMs / 1000)}s`;
 }
 
-function formatError(error: unknown): string {
-    if (error instanceof Error && error.message.trim().length > 0) {
-        return error.message;
-    }
-    return String(error);
-}
-
 function formatOptionalInteger(value: bigint | number | null): string {
     return value === null ? "n/a" : value.toString();
 }
 
 function logTransactionPolicyEvent(event: EvmTransactionPolicyEvent): void {
-    const message = `[WethAllowanceApproval] ${formatEvmTransactionPolicyEvent(event)}`;
+    const action = transactionPolicyEventAction(event);
+    const fields = transactionPolicyEventFields(event);
     if (
         event.type === "read_failed" ||
         event.type === "pending_nonce_detected"
     ) {
-        biddingLog.warn(message);
+        log.warn(action, "WETH approval transaction policy warning", fields);
         return;
     }
-    biddingLog.info(message);
+    log.info(action, "WETH approval transaction policy event", fields);
 }
 
-function formatReceiptReplacement(replacement: unknown): string {
+function transactionPolicyEventAction(
+    event: EvmTransactionPolicyEvent,
+): string {
+    switch (event.type) {
+        case "read_started":
+            return "transactionPolicyReadStarted";
+        case "read_failed":
+            return "transactionPolicyReadFailed";
+        case "latest_block_read":
+            return "transactionPolicyLatestBlockRead";
+        case "fee_estimate_read":
+            return "transactionPolicyFeeEstimateRead";
+        case "fee_history_read":
+            return "transactionPolicyFeeHistoryRead";
+        case "nonce_read":
+            return "transactionPolicyNonceRead";
+        case "pending_nonce_detected":
+            return "transactionPolicyPendingNonceDetected";
+        case "fee_policy_resolved":
+            return "transactionPolicyResolved";
+    }
+}
+
+function transactionPolicyEventFields(
+    event: EvmTransactionPolicyEvent,
+): Record<string, unknown> {
+    const base = {
+        policyEventType: event.type,
+        policyContext: event.context,
+        fromAddress: event.fromAddress,
+        policySummary: formatEvmTransactionPolicyEvent(event),
+    };
+
+    switch (event.type) {
+        case "read_started":
+            return { ...base, readAction: event.action };
+        case "read_failed":
+            return {
+                ...base,
+                readAction: event.action,
+                errorMessage: event.error,
+            };
+        case "latest_block_read":
+            return {
+                ...base,
+                blockNumber: event.blockNumber?.toString() ?? null,
+                baseFeePerGasWei: event.baseFeePerGasWei?.toString() ?? null,
+                baseFeePerGasGwei: formatOptionalGwei(
+                    event.baseFeePerGasWei,
+                ),
+            };
+        case "fee_estimate_read":
+            return {
+                ...base,
+                gasPriceWei: event.gasPriceWei?.toString() ?? null,
+                gasPriceGwei: formatOptionalGwei(event.gasPriceWei),
+                maxFeePerGasWei: event.maxFeePerGasWei?.toString() ?? null,
+                maxFeePerGasGwei: formatOptionalGwei(event.maxFeePerGasWei),
+                maxPriorityFeePerGasWei:
+                    event.maxPriorityFeePerGasWei?.toString() ?? null,
+                maxPriorityFeePerGasGwei: formatOptionalGwei(
+                    event.maxPriorityFeePerGasWei,
+                ),
+            };
+        case "fee_history_read":
+            return {
+                ...base,
+                blockCount: event.blockCount,
+                rewardPercentile: event.rewardPercentile,
+                rewardSampleWei: event.rewardSamples.map((sample) =>
+                    sample.toString(),
+                ),
+                selectedPriorityFeePerGasWei:
+                    event.selectedPriorityFeePerGasWei?.toString() ?? null,
+                selectedPriorityFeePerGasGwei: formatOptionalGwei(
+                    event.selectedPriorityFeePerGasWei,
+                ),
+            };
+        case "nonce_read":
+            return {
+                ...base,
+                blockTag: event.blockTag,
+                nonce: event.nonce,
+            };
+        case "pending_nonce_detected":
+            return {
+                ...base,
+                latestNonce: event.latestNonce,
+                pendingNonce: event.pendingNonce,
+                pendingCount: event.pendingNonce - event.latestNonce,
+            };
+        case "fee_policy_resolved":
+            return {
+                ...base,
+                blockNumber: event.blockNumber?.toString() ?? null,
+                baseFeePerGasWei: event.baseFeePerGasWei.toString(),
+                baseFeePerGasGwei: formatWeiAsGwei(event.baseFeePerGasWei),
+                nodeMaxFeePerGasWei:
+                    event.nodeMaxFeePerGasWei?.toString() ?? null,
+                nodeMaxFeePerGasGwei: formatOptionalGwei(
+                    event.nodeMaxFeePerGasWei,
+                ),
+                nodeMaxPriorityFeePerGasWei:
+                    event.nodeMaxPriorityFeePerGasWei?.toString() ?? null,
+                nodeMaxPriorityFeePerGasGwei: formatOptionalGwei(
+                    event.nodeMaxPriorityFeePerGasWei,
+                ),
+                feeHistoryPriorityFeePerGasWei:
+                    event.feeHistoryPriorityFeePerGasWei?.toString() ?? null,
+                feeHistoryPriorityFeePerGasGwei: formatOptionalGwei(
+                    event.feeHistoryPriorityFeePerGasWei,
+                ),
+                configuredMinPriorityFeePerGasWei:
+                    event.configuredMinPriorityFeePerGasWei.toString(),
+                configuredMinPriorityFeePerGasGwei: formatWeiAsGwei(
+                    event.configuredMinPriorityFeePerGasWei,
+                ),
+                configuredPriorityFeeHistoryBlockCount:
+                    event.configuredPriorityFeeHistoryBlockCount,
+                configuredPriorityFeeHistoryRewardPercentile:
+                    event.configuredPriorityFeeHistoryRewardPercentile,
+                configuredBaseFeeMultiplier: formatFeeMultiplierBps(
+                    event.configuredBaseFeeMultiplierBps,
+                ),
+                configuredMaxFeePerGasWei:
+                    event.configuredMaxFeePerGasWei.toString(),
+                configuredMaxFeePerGasGwei: formatWeiAsGwei(
+                    event.configuredMaxFeePerGasWei,
+                ),
+                maxPriorityFeePerGasWei:
+                    event.maxPriorityFeePerGasWei.toString(),
+                maxPriorityFeePerGasGwei: formatWeiAsGwei(
+                    event.maxPriorityFeePerGasWei,
+                ),
+                uncappedMaxFeePerGasWei:
+                    event.uncappedMaxFeePerGasWei.toString(),
+                uncappedMaxFeePerGasGwei: formatWeiAsGwei(
+                    event.uncappedMaxFeePerGasWei,
+                ),
+                maxFeePerGasWei: event.maxFeePerGasWei.toString(),
+                maxFeePerGasGwei: formatWeiAsGwei(event.maxFeePerGasWei),
+                latestNonce: event.latestNonce,
+                pendingNonce: event.pendingNonce,
+            };
+    }
+}
+
+function formatReceiptReplacementFields(
+    replacement: unknown,
+): Record<string, unknown> {
     if (!replacement || typeof replacement !== "object") {
-        return `replacement=${String(replacement)}`;
+        return { replacement: String(replacement) };
     }
     const value = replacement as {
         reason?: unknown;
@@ -489,11 +768,12 @@ function formatReceiptReplacement(replacement: unknown): string {
         transaction?: { hash?: unknown };
         transactionReceipt?: { transactionHash?: unknown; status?: unknown };
     };
-    return [
-        `reason=${value.reason ?? "unknown"}`,
-        `replacedTx=${value.replacedTransaction?.hash ?? "unknown"}`,
-        `replacementTx=${value.transaction?.hash ?? "unknown"}`,
-        `receiptTx=${value.transactionReceipt?.transactionHash ?? "unknown"}`,
-        `receiptStatus=${value.transactionReceipt?.status ?? "unknown"}`,
-    ].join(", ");
+    return {
+        replacementReason: value.reason ?? "unknown",
+        replacedTransactionHash: value.replacedTransaction?.hash ?? null,
+        replacementTransactionHash: value.transaction?.hash ?? null,
+        receiptTransactionHash:
+            value.transactionReceipt?.transactionHash ?? null,
+        receiptStatus: value.transactionReceipt?.status ?? null,
+    };
 }

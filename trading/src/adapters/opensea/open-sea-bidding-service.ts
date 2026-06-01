@@ -28,7 +28,11 @@ import {
     BIDDING_DEFAULT_ORDER_LOOKUP_MAX_PAGES,
     BIDDING_DEFAULT_TOKEN_CRITERIA_TRAITS_BY_COLLECTION,
 } from "../../config/bidding-defaults.js";
-import { biddingLog } from "../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../utils/bidding-log.js";
 import { defaultRetryPolicy, RetryPolicy, retry } from "../support/retry.js";
 import { TokenBucketRateLimiter } from "../support/token-bucket-rate-limiter.js";
 import {
@@ -64,6 +68,9 @@ export interface OpenSeaBiddingServiceOptions {
 
 const OPENSEA_WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const OPENSEA_MAINNET_CHAIN = "ethereum";
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.OpenSeaBiddingService,
+);
 
 const sdkCallCosts: Record<string, { get: number; post: number }> = {
     getOffersByNFT: { get: 1, post: 0 },
@@ -154,15 +161,13 @@ export class OpenSeaBiddingService implements BiddingService {
                         continue;
                     }
 
-                    // biddingLog.debug(
-                    //     `[OpenSeaBiddingService] Found item offer: ${parsed.id}, Price: ${formatUnits(parsed.price, 18)} ETH, Maker: ${parsed.maker} (scope=item, priceSource=${parsed.priceSource ?? parsed.source ?? "unknown"}, qty=${parsed.quantity ?? 1n})`,
-                    // );
                     this.addUniqueOffer(offers, parsed);
                 }
             } catch (error) {
-                biddingLog.error(
-                    `[OpenSeaBiddingService] Failed to get item offers for ${formatBidderJobReference(job)}: ${toErrorMessage(error)}`,
-                );
+                log.error("itemOffersFetchFailed", "Failed to get item offers", {
+                    ...jobLogFields(job),
+                    ...toErrorLogFields(error),
+                });
                 throw error;
             }
         }
@@ -176,8 +181,13 @@ export class OpenSeaBiddingService implements BiddingService {
                     this.addUniqueOffer(offers, offer),
                 );
             } catch (error) {
-                biddingLog.error(
-                    `[OpenSeaBiddingService] Failed to read cached token snapshot offers: ${toErrorMessage(error)}`,
+                log.error(
+                    "cachedTokenSnapshotOffersReadFailed",
+                    "Failed to read cached token snapshot offers",
+                    {
+                        ...jobLogFields(job),
+                        ...toErrorLogFields(error),
+                    },
                 );
                 throw error;
             }
@@ -238,8 +248,13 @@ export class OpenSeaBiddingService implements BiddingService {
                             lookupTraitSelectors,
                         );
                     expandedTraitSelectorCount = expandedTraitTargets.length;
-                    biddingLog.debug(
-                        `[OpenSeaBiddingService] Competitive trait lookup for ${formatBidderJobReference(job)}: ${expandedTraitTargets.length} trait selector(s) resolved.`,
+                    log.debug(
+                        "competitiveTraitLookupResolved",
+                        "Competitive trait lookup resolved selectors",
+                        {
+                            ...jobLogFields(job),
+                            selectorCount: expandedTraitTargets.length,
+                        },
                     );
 
                     for (const traitTarget of expandedTraitTargets) {
@@ -280,8 +295,13 @@ export class OpenSeaBiddingService implements BiddingService {
                     }
                 }
             } catch (error) {
-                biddingLog.error(
-                    `[OpenSeaBiddingService] Failed to fetch collection/trait offers for ${formatBidderJobReference(job)}: ${toErrorMessage(error)}`,
+                log.error(
+                    "collectionTraitOffersFetchFailed",
+                    "Failed to fetch collection or trait offers",
+                    {
+                        ...jobLogFields(job),
+                        ...toErrorLogFields(error),
+                    },
                 );
                 throw error;
             }
@@ -307,25 +327,36 @@ export class OpenSeaBiddingService implements BiddingService {
                     "bestOffer",
                 );
                 if (parsed && !offers.find((offer) => offer.id === parsed.id)) {
-                    biddingLog.debug(
-                        `[OpenSeaBiddingService] Found best offer for ${formatBidderJobReference(job)}: ${parsed.id}, Price: ${formatUnits(parsed.price, 18)} ETH, Maker: ${parsed.maker} (scope=${parsed.offerScope ?? "unknown"}, priceSource=${parsed.priceSource ?? parsed.source ?? "unknown"}, qty=${parsed.quantity ?? 1n})`,
-                    );
+                    log.debug("bestOfferFound", "Found best offer", {
+                        ...jobLogFields(job),
+                        ...orderLogFields(parsed),
+                    });
                     offers.push(parsed);
                 }
             } catch (error) {
                 if (!isNotFoundError(error)) {
-                    biddingLog.error(
-                        `[OpenSeaBiddingService] Failed to get best offer for ${formatBidderJobReference(job)}: ${toErrorMessage(error)}`,
-                    );
+                    log.error("bestOfferFetchFailed", "Failed to get best offer", {
+                        ...jobLogFields(job),
+                        ...toErrorLogFields(error),
+                    });
                     throw error;
                 }
             }
         }
 
         if (isCompetitiveTraitJob) {
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Competitive trait buckets for ${formatBidderJobReference(job)}: CollectionWide=${competitiveBucketCounts.collectionWide.size}, TargetTrait=${competitiveBucketCounts.targetTrait.size}, CompetitorTraits=${competitiveBucketCounts.competitorTraits.size}, SelectorsRequested=${lookupTraitSelectors.length}, SelectorsExpanded=${expandedTraitSelectorCount}, TrackedTotal=${offers.length}`,
-            );
+            log.debug("competitiveTraitBuckets", "Competitive trait offer buckets resolved", {
+                ...jobLogFields(job),
+                collectionWideOfferCount:
+                    competitiveBucketCounts.collectionWide.size,
+                targetTraitOfferCount:
+                    competitiveBucketCounts.targetTrait.size,
+                competitorTraitOfferCount:
+                    competitiveBucketCounts.competitorTraits.size,
+                selectorsRequested: lookupTraitSelectors.length,
+                selectorsExpanded: expandedTraitSelectorCount,
+                trackedOfferCount: offers.length,
+            });
         }
 
         return offers.sort((left, right) =>
@@ -364,8 +395,14 @@ export class OpenSeaBiddingService implements BiddingService {
 
             return null;
         } catch (error) {
-            biddingLog.error(
-                `[OpenSeaBiddingService] Failed to get active token offer by maker: ${toErrorMessage(error)}`,
+            log.error(
+                "activeTokenOfferByMakerFetchFailed",
+                "Failed to get active token offer by maker",
+                {
+                    ...jobLogFields(job),
+                    makerAddress,
+                    ...toErrorLogFields(error),
+                },
             );
             throw error;
         }
@@ -382,9 +419,10 @@ export class OpenSeaBiddingService implements BiddingService {
 
         if (protocolAddress) {
             try {
-                biddingLog.debug(
-                    `[OpenSeaBiddingService] Fetching order ${orderHash} via getOrderByHash...`,
-                );
+                log.debug("orderDirectLookupStarted", "Fetching order by hash", {
+                    orderHash,
+                    protocolAddress,
+                });
                 const response = await this.withRetry(
                     "getOrderByHash",
                     "order by hash",
@@ -394,20 +432,28 @@ export class OpenSeaBiddingService implements BiddingService {
 
                 if (matchesOrderHash(response, orderHash)) {
                     foundOrder = response;
-                    biddingLog.debug(
-                        `[OpenSeaBiddingService] Found order ${orderHash} via direct lookup.`,
-                    );
+                    log.debug("orderDirectLookupFound", "Found order by direct lookup", {
+                        orderHash,
+                        protocolAddress,
+                    });
                 }
             } catch (error) {
-                biddingLog.debug(
-                    `[OpenSeaBiddingService] getOrderByHash failed for ${orderHash}: ${toErrorMessage(error)}`,
-                );
+                log.debug("orderDirectLookupFailed", "Order direct lookup failed", {
+                    orderHash,
+                    protocolAddress,
+                    ...toErrorLogFields(error),
+                });
             }
         }
 
         if (!foundOrder && collectionSlug) {
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Order ${orderHash} not resolved via direct lookup. Scanning collection offers for ${collectionSlug}...`,
+            log.debug(
+                "orderCollectionScanStarted",
+                "Order not resolved via direct lookup; scanning collection offers",
+                {
+                    orderHash,
+                    collectionSlug,
+                },
             );
 
             let cursor: string | undefined;
@@ -427,17 +473,30 @@ export class OpenSeaBiddingService implements BiddingService {
                     );
 
                     const offers = asArray(response?.offers);
-                    biddingLog.debug(
-                        `[OpenSeaBiddingService] Page ${page + 1}: Fetched ${offers.length} offers for collection ${collectionSlug}.`,
+                    log.debug(
+                        "orderCollectionScanPageFetched",
+                        "Fetched collection offers page while scanning for order",
+                        {
+                            orderHash,
+                            collectionSlug,
+                            page: page + 1,
+                            offerCount: offers.length,
+                        },
                     );
 
                     foundOrder =
                         offers.find((offer) =>
                             matchesOrderHash(offer, orderHash),
-                        ) ?? null;
+                    ) ?? null;
                     if (foundOrder) {
-                        biddingLog.debug(
-                            `[OpenSeaBiddingService] Found order ${orderHash} in collection-specific offers list (Page ${page + 1}).`,
+                        log.debug(
+                            "orderCollectionScanFound",
+                            "Found order in collection-specific offers list",
+                            {
+                                orderHash,
+                                collectionSlug,
+                                page: page + 1,
+                            },
                         );
                         break;
                     }
@@ -453,8 +512,15 @@ export class OpenSeaBiddingService implements BiddingService {
                     cursor = next;
                     page++;
                 } catch (error) {
-                    biddingLog.debug(
-                        `[OpenSeaBiddingService] Failed to fetch collection offers page ${page + 1}: ${toErrorMessage(error)}`,
+                    log.debug(
+                        "orderCollectionScanPageFailed",
+                        "Failed to fetch collection offers page while scanning for order",
+                        {
+                            orderHash,
+                            collectionSlug,
+                            page: page + 1,
+                            ...toErrorLogFields(error),
+                        },
                     );
                     throw error;
                 }
@@ -462,9 +528,10 @@ export class OpenSeaBiddingService implements BiddingService {
         }
 
         if (!foundOrder) {
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Order ${orderHash} not found in market.`,
-            );
+            log.debug("orderNotFound", "Order not found in market", {
+                orderHash,
+                collectionSlug: collectionSlug ?? null,
+            });
             return null;
         }
 
@@ -482,21 +549,25 @@ export class OpenSeaBiddingService implements BiddingService {
         )?.toLowerCase();
         if (status) {
             if (status !== "active") {
-                biddingLog.debug(
-                    `[OpenSeaBiddingService] Recovered order ${orderHash} is not active (status=${status}).`,
-                );
+                log.debug("recoveredOrderInactive", "Recovered order is not active", {
+                    orderHash,
+                    status,
+                });
                 return null;
             }
 
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Successfully recovered order ${orderHash}. Status: ${status}`,
-            );
+            log.debug("orderRecovered", "Successfully recovered order", {
+                orderHash,
+                status,
+            });
             return parsed;
         }
 
         if (isLegacyInactive(foundOrder)) {
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Recovered order ${orderHash} is not active (legacy checks failed).`,
+            log.debug(
+                "recoveredOrderLegacyInactive",
+                "Recovered order is not active by legacy checks",
+                { orderHash },
             );
             return null;
         }
@@ -614,9 +685,12 @@ export class OpenSeaBiddingService implements BiddingService {
                     ) ?? expirationTime,
             };
         } catch (error) {
-            biddingLog.error(
-                `[OpenSeaBiddingService] Failed to place offer: ${toErrorMessage(error)}`,
-            );
+            log.error("offerPlaceFailed", "Failed to place offer", {
+                ...jobLogFields(job),
+                amountWei: amount.toString(),
+                amountEth: formatUnits(amount, 18),
+                ...toErrorLogFields(error),
+            });
             throw error;
         }
     }
@@ -644,16 +718,20 @@ export class OpenSeaBiddingService implements BiddingService {
                 this.retryPolicy,
                 {
                     onRetry: ({ attempt, error }) => {
-                        biddingLog.info(
-                            `[OpenSeaBiddingService] Failed to cancel offer ${order.id} (attempt ${attempt}): ${toErrorMessage(error)}`,
-                        );
+                        log.info("offerCancelRetry", "Retrying offer cancellation", {
+                            orderId: order.id,
+                            protocolAddress: order.protocolAddress ?? null,
+                            attempt,
+                            ...toErrorLogFields(error),
+                        });
                     },
                 },
             );
         } catch (error) {
-            biddingLog.error(
-                `[OpenSeaBiddingService] Failed to cancel offer ${order.id} after retries: ${toErrorMessage(error)}`,
-            );
+            log.error("offerCancelFailed", "Failed to cancel offer after retries", {
+                ...orderLogFields(order),
+                ...toErrorLogFields(error),
+            });
             throw error;
         }
     }
@@ -677,9 +755,12 @@ export class OpenSeaBiddingService implements BiddingService {
             this.retryPolicy,
             {
                 onRetry: ({ attempt, error }) => {
-                    biddingLog.info(
-                        `[OpenSeaBiddingService] Failed to get ${logLabel} (attempt ${attempt}): ${toErrorMessage(error)}`,
-                    );
+                    log.info("sdkCallRetry", "Retrying OpenSea SDK call", {
+                        sdkAction: action,
+                        logLabel,
+                        attempt,
+                        ...toErrorLogFields(error),
+                    });
                 },
             },
         );
@@ -717,9 +798,11 @@ export class OpenSeaBiddingService implements BiddingService {
             }
 
             if (seenCursors.has(next)) {
-                biddingLog.error(
-                    `[OpenSeaBiddingService] NFT offer pagination loop detected for ${collectionSlug}#${tokenId}. Stopping.`,
-                );
+                log.error("nftOfferPaginationLoop", "NFT offer pagination loop detected", {
+                    collectionSlug,
+                    tokenId,
+                    cursor: next,
+                });
                 break;
             }
 
@@ -848,9 +931,9 @@ export class OpenSeaBiddingService implements BiddingService {
                 return [{ type, value: String(value) }];
             });
         } catch (error) {
-            biddingLog.error(
-                `[OpenSeaBiddingService] Failed to parse cached token metadata: ${toErrorMessage(error)}`,
-            );
+            log.error("cachedTokenMetadataParseFailed", "Failed to parse cached token metadata", {
+                ...toErrorLogFields(error),
+            });
             return [];
         }
     }
@@ -887,8 +970,13 @@ export class OpenSeaBiddingService implements BiddingService {
                         return true;
                     }
                 } catch {
-                    biddingLog.debug(
-                        `[OpenSeaBiddingService] Failed to parse encoded_token_ids range "${segment}" while matching token ${tokenId}`,
+                    log.debug(
+                        "encodedTokenIdsRangeParseFailed",
+                        "Failed to parse encoded token id range",
+                        {
+                            segment,
+                            tokenId,
+                        },
                     );
                     return false;
                 }
@@ -900,8 +988,13 @@ export class OpenSeaBiddingService implements BiddingService {
                     return true;
                 }
             } catch {
-                biddingLog.debug(
-                    `[OpenSeaBiddingService] Failed to parse encoded_token_ids value "${segment}" while matching token ${tokenId}`,
+                log.debug(
+                    "encodedTokenIdsValueParseFailed",
+                    "Failed to parse encoded token id value",
+                    {
+                        segment,
+                        tokenId,
+                    },
                 );
                 return false;
             }
@@ -931,8 +1024,10 @@ export class OpenSeaBiddingService implements BiddingService {
         const tokenTarget = job.target;
 
         if (!this.collectionOfferSnapshotProvider) {
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Cached snapshot scan skipped for ${formatBidderJobReference(job)}: no snapshot provider configured`,
+            log.debug(
+                "cachedSnapshotScanSkipped",
+                "Cached snapshot scan skipped because no snapshot provider is configured",
+                jobLogFields(job),
             );
             return [];
         }
@@ -941,8 +1036,10 @@ export class OpenSeaBiddingService implements BiddingService {
             job.collectionSlug,
         );
         if (!snapshot) {
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Cached snapshot scan skipped for ${formatBidderJobReference(job)}: no snapshot for ${job.collectionSlug}`,
+            log.debug(
+                "cachedSnapshotMissing",
+                "Cached snapshot scan skipped because no snapshot exists",
+                jobLogFields(job),
             );
             return [];
         }
@@ -1122,8 +1219,10 @@ export class OpenSeaBiddingService implements BiddingService {
         }
 
         if (!this.collectionOfferSnapshotProvider) {
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Cached snapshot scan skipped for ${formatBidderJobReference(job)}: no snapshot provider configured`,
+            log.debug(
+                "cachedSnapshotScanSkipped",
+                "Cached snapshot scan skipped because no snapshot provider is configured",
+                jobLogFields(job),
             );
             return null;
         }
@@ -1132,8 +1231,10 @@ export class OpenSeaBiddingService implements BiddingService {
             job.collectionSlug,
         );
         if (!snapshot) {
-            biddingLog.debug(
-                `[OpenSeaBiddingService] Cached snapshot scan skipped for ${formatBidderJobReference(job)}: no snapshot for ${job.collectionSlug}`,
+            log.debug(
+                "cachedSnapshotMissing",
+                "Cached snapshot scan skipped because no snapshot exists",
+                jobLogFields(job),
             );
             return null;
         }
@@ -1200,9 +1301,15 @@ export class OpenSeaBiddingService implements BiddingService {
             }
         });
 
-        biddingLog.debug(
-            `[OpenSeaBiddingService] Cached snapshot scan for ${formatBidderJobReference(job)}: snapshotTotal=${snapshot.offers.length}, snapshotAgeMs=${Date.now() - snapshot.refreshedAt}, collectionWideAdded=${summary.collectionWideAdded}, exactCriteriaMatched=${summary.exactCriteriaMatched}, explicitItemSkipped=${summary.explicitItemSkipped}, targetTraits=${this.formatTraitTargetsForLog(targetTraits)}`,
-        );
+        log.debug("cachedCollectionSnapshotScan", "Cached collection snapshot scan complete", {
+            ...jobLogFields(job),
+            snapshotOfferCount: snapshot.offers.length,
+            snapshotAgeMs: Date.now() - snapshot.refreshedAt,
+            collectionWideAdded: summary.collectionWideAdded,
+            exactCriteriaMatched: summary.exactCriteriaMatched ?? 0,
+            explicitItemSkipped: summary.explicitItemSkipped,
+            targetTraits,
+        });
 
         return cachedOffers;
     }
@@ -1212,9 +1319,22 @@ export class OpenSeaBiddingService implements BiddingService {
         snapshot: CollectionOfferSnapshot,
         summary: SnapshotScanSummary,
     ): void {
-        biddingLog.debug(
-            `[OpenSeaBiddingService] Cached snapshot scan for ${formatBidderJobReference(job)}: snapshotTotal=${snapshot.offers.length}, snapshotAgeMs=${Date.now() - snapshot.refreshedAt}, collectionWideAdded=${summary.collectionWideAdded}, explicitItemSkipped=${summary.explicitItemSkipped}, criteriaSeen=${summary.criteriaSeen ?? 0}, criteriaMatched=${summary.criteriaMatched ?? 0}, criteriaMismatched=${summary.criteriaMismatched ?? 0}, criteriaUntracked=${summary.criteriaUntracked ?? 0}, encodedTokenIdsMatched=${summary.encodedTokenIdsMatched ?? 0}, encodedTokenIdsSkipped=${summary.encodedTokenIdsSkipped ?? 0}, metadataFound=${summary.metadataFound ?? false}, tokenTraits=${this.formatTraitTargetsForLog(summary.tokenTraits ?? [])}${summary.mismatchSamples && summary.mismatchSamples.length > 0 ? `, mismatchSamples=${summary.mismatchSamples.join(",")}` : ""}`,
-        );
+        log.debug("cachedTokenSnapshotScan", "Cached token snapshot scan complete", {
+            ...jobLogFields(job),
+            snapshotOfferCount: snapshot.offers.length,
+            snapshotAgeMs: Date.now() - snapshot.refreshedAt,
+            collectionWideAdded: summary.collectionWideAdded,
+            explicitItemSkipped: summary.explicitItemSkipped,
+            criteriaSeen: summary.criteriaSeen ?? 0,
+            criteriaMatched: summary.criteriaMatched ?? 0,
+            criteriaMismatched: summary.criteriaMismatched ?? 0,
+            criteriaUntracked: summary.criteriaUntracked ?? 0,
+            encodedTokenIdsMatched: summary.encodedTokenIdsMatched ?? 0,
+            encodedTokenIdsSkipped: summary.encodedTokenIdsSkipped ?? 0,
+            metadataFound: summary.metadataFound ?? false,
+            tokenTraits: summary.tokenTraits ?? [],
+            mismatchSamples: summary.mismatchSamples ?? [],
+        });
     }
 
     private dedupeTraitTargets(targets: TraitTarget[]): TraitTarget[] {
@@ -1279,8 +1399,10 @@ export class OpenSeaBiddingService implements BiddingService {
                 break;
             }
             if (seenCursors.has(next)) {
-                biddingLog.error(
-                    `[OpenSeaBiddingService] Collection offers pagination loop detected for ${collectionSlug}. Stopping.`,
+                log.error(
+                    "collectionOffersPaginationLoop",
+                    "Collection offers pagination loop detected",
+                    { collectionSlug, cursor: next },
                 );
                 break;
             }
@@ -1323,9 +1445,12 @@ export class OpenSeaBiddingService implements BiddingService {
                 break;
             }
             if (seenCursors.has(next)) {
-                biddingLog.error(
-                    `[OpenSeaBiddingService] Trait offers pagination loop detected for ${collectionSlug} (${traitType}=${traitValue}). Stopping.`,
-                );
+                log.error("traitOffersPaginationLoop", "Trait offers pagination loop detected", {
+                    collectionSlug,
+                    traitType,
+                    traitValue,
+                    cursor: next,
+                });
                 break;
             }
 
@@ -1416,8 +1541,13 @@ export class OpenSeaBiddingService implements BiddingService {
                 () => this.sdk.api.getTraits(job.collectionSlug),
             );
         } catch (error) {
-            biddingLog.error(
-                `[OpenSeaBiddingService] Failed to expand type-only trait selectors for ${formatBidderJobReference(job)}: ${toErrorMessage(error)}`,
+            log.error(
+                "typeOnlyTraitSelectorExpansionFailed",
+                "Failed to expand type-only trait selectors",
+                {
+                    ...jobLogFields(job),
+                    ...toErrorLogFields(error),
+                },
             );
             return this.dedupeTraitTargets(explicitTargets);
         }
@@ -1426,9 +1556,10 @@ export class OpenSeaBiddingService implements BiddingService {
         for (const selector of typeOnlySelectors) {
             const values = Object.keys(asRecord(counts[selector.type]));
             if (values.length === 0) {
-                biddingLog.info(
-                    `[OpenSeaBiddingService] No trait values found for selector type "${selector.type}" in collection ${job.collectionSlug}.`,
-                );
+                log.info("traitSelectorValuesMissing", "No trait values found for selector type", {
+                    ...jobLogFields(job),
+                    traitType: selector.type,
+                });
                 continue;
             }
 
@@ -1459,6 +1590,30 @@ export class OpenSeaBiddingService implements BiddingService {
 
 function asArray(value: unknown): unknown[] {
     return Array.isArray(value) ? value : [];
+}
+
+function jobLogFields(job: BidderJob): Record<string, unknown> {
+    return {
+        jobId: job.id,
+        jobRef: formatBidderJobReference(job),
+        collectionSlug: job.collectionSlug,
+        collectionAddress: job.collectionAddress,
+        targetType: job.target.type,
+        tokenId: job.target.type === "token" ? job.target.tokenId : null,
+    };
+}
+
+function orderLogFields(order: Order): Record<string, unknown> {
+    return {
+        orderId: order.id,
+        maker: order.maker,
+        priceWei: order.price.toString(),
+        priceEth: formatUnits(order.price, 18),
+        offerScope: order.offerScope ?? null,
+        priceSource: order.priceSource ?? order.source ?? null,
+        quantity: order.quantity?.toString() ?? "1",
+        protocolAddress: order.protocolAddress ?? null,
+    };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

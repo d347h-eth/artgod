@@ -1,9 +1,17 @@
-import { biddingLog } from "../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../utils/bidding-log.js";
 import type { BiddingJobCommandReconciler } from "../application/use-cases/bidding/bidding-job-command-reconciler.js";
 
 export type BiddingCommandReconciliationLoopHandle = {
     shutdown(): Promise<void>;
 };
+
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.BiddingCommandReconciliationLoop,
+);
 
 // Starts the periodic DB Outbox scan used to recover command wake-ups that were not published.
 export function startBiddingCommandReconciliationLoop(
@@ -23,10 +31,10 @@ export function startBiddingCommandReconciliationLoop(
                 .processPendingCommands("poll")
                 .then(() => undefined)
                 .catch((error: unknown) => {
-                    const message =
-                        error instanceof Error ? error.message : String(error);
-                    biddingLog.warn(
-                        `[BiddingCommandReconciliationLoop] Poll scan failed. error=${message}`,
+                    log.warn(
+                        "pollScanFailed",
+                        "Bidding command poll scan failed",
+                        toErrorLogFields(error),
                     );
                 })
                 .finally(schedule);
