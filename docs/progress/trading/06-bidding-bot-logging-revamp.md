@@ -1,6 +1,7 @@
 # Bidding Bot Logging Revamp
 
-Status: discovery complete, awaiting implementation start.
+Status: implementation complete; TypeScript verified; Vitest blocked by local
+PnP dependency resolution for Vitest 4.
 
 This note captures the settled context and planned review slices for revamping
 the `trading` workspace bidding bot logs so runtime output matches ArtGod's
@@ -70,63 +71,62 @@ or raw request payloads that may contain secrets.
 - `trading/src/adapters/jobs/nats-bidding-job-command-signal-listener.ts`
 - `trading/src/adapters/bid-book/sqlite-bidding-bid-book-projection.ts`
 
-## Planned Review Slices
+## Completed Review Slices
 
-1. Add a typed trading log helper.
+1. Added a typed trading log helper.
    - Require `component` and `action` for trading log calls.
    - Keep test-run suppression for low-value debug/info output.
    - Add focused tests around emitted payload shape and secret-safe behavior.
 
-2. Convert runtime and lifecycle-adjacent logs.
+2. Converted runtime and lifecycle-adjacent logs.
    - Bidding runtime startup, shutdown, bootstrap phases, stream subscription,
      command loop, and entrypoint startup failures.
    - Keep lifecycle stdout payloads unchanged because the supervisor consumes
      them as a control protocol.
 
-3. Convert command, snapshot, and projection logs.
+3. Converted command, snapshot, and projection logs.
    - DB Outbox claim/complete/retry/terminal failure.
    - NATS wake-up handling.
    - Snapshot watch/reconcile/refresh/TTL skip summaries.
    - Bid-book projection success/failure summaries.
 
-4. Convert bidder decision logs.
+4. Converted bidder decision logs.
    - Job execution state, warmup, hot-refresh effects, active-order recovery,
      placement, cancellation, renewal, dry-run actions, and runtime-state
      persistence failures.
 
-5. Convert OpenSea and wallet adapter logs.
+5. Converted OpenSea and wallet adapter logs.
    - SDK retry/pagination/recovery logs.
    - Stream normalization/handler failures.
    - WETH allowance and EVM transaction-policy logs.
 
-6. Update docs and run verification.
+6. Updated docs and ran verification.
    - Trading docs should mention structured log fields and component/action
      naming.
-   - Run focused trading tests and TypeScript checks before committing.
+   - `yarn tsc -b trading` passes.
+   - `yarn workspace @artgod/trading test` is blocked before test execution by
+     Yarn PnP resolving `@vitest/utils` from `vitest@4.0.13`.
 
 ## Suggested Component Names
 
-- `TradingBotRuntime`
+- `BiddingBotRuntime`
 - `BiddingRuntime`
 - `BiddingCommandReconciliationLoop`
-- `BiddingJobCommandReconciler`
-- `BiddingJobCommandSignal`
+- `BiddingCommandReconciler`
+- `BiddingCommandSignalListener`
 - `Bidder`
 - `CollectionOfferSnapshotService`
-- `BiddingBidBookProjectionScheduler`
+- `BiddingBidBookProjection`
 - `SqliteBiddingBidBookProjection`
 - `OpenSeaBiddingService`
 - `OpenSeaCollectionOfferSource`
 - `OpenSeaEventStream`
-- `OpenSeaSDK`
-- `WethAllowanceApproval`
+- `OpenSeaSdk`
+- `WethAllowanceApprovalService`
 
-## Open Checks Before Implementation
+## Settled Checks
 
-- Confirm whether `action` values should use lower camelCase like existing
-  backend/indexer logs, or snake case for Grafana query readability.
-- Decide whether to add a shared trading field helper for common job references
-  or keep small local mappers near each component.
-- Keep the supervisor/Alloy ingestion path out of scope for this revamp unless
-  new evidence shows trading bot JSON is still not being tailed in a target
-  deployment mode.
+- `action` values use lower camelCase to match existing backend/indexer logs.
+- Common field mappers stayed local to the components that need them.
+- Supervisor/Alloy ingestion stayed out of scope because the desktop log path
+  now preserves structured child-process JSON Lines.
