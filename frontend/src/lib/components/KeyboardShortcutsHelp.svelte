@@ -69,10 +69,6 @@
 				{
 					keys: ['3'],
 					description: 'open tokens'
-				},
-				{
-					keys: ['4'],
-					description: 'open bidding'
 				}
 			]
 		},
