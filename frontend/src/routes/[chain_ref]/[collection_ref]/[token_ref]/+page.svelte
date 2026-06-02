@@ -673,7 +673,6 @@
 		{#if shouldShowTokenBiddingAutomation()}
 			<BiddingAutomationPanel
 				open
-				variant="inline"
 				chain={data?.chain ?? null}
 				collection={data?.collection ?? null}
 				token={displayedToken}

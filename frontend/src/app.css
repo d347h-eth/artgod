@@ -2597,16 +2597,6 @@ th {
 	padding: 0.75rem;
 }
 
-.bidding-automation-panel-inline {
-	position: relative;
-	right: auto;
-	bottom: auto;
-	z-index: auto;
-	margin-block-start: var(--token-detail-section-gap);
-	margin-inline: auto;
-	max-height: none;
-}
-
 .bidding-automation-panel-collapsed {
 	position: fixed;
 	right: 0;
@@ -2624,12 +2614,6 @@ th {
 	color: var(--c-cyan);
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-blue) 35%, transparent);
 	cursor: pointer;
-}
-
-.bidding-automation-panel-collapsed-inline {
-	position: static;
-	margin-block-start: var(--token-detail-section-gap);
-	margin-inline: auto;
 }
 
 .bidding-automation-panel-collapsed:hover {

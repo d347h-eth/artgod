@@ -55,7 +55,6 @@
 	import PlaceBidIcon from '$lib/components/PlaceBidIcon.svelte';
 	import { TEST_IDS } from '$lib/test-ids';
 
-	type BiddingAutomationPanelVariant = 'floating' | 'inline';
 	type ConfirmableBiddingAction = 'create' | 'modify' | 'activate' | 'pause' | 'archive';
 
 	let {
@@ -69,7 +68,6 @@
 		biddingSettings = defaultBiddingCollectionSettings(),
 		priceTiers = [],
 		expandSignal = 0,
-		variant = 'floating',
 		onClose = null,
 		onJobChange = null,
 		onJobsChange = null
@@ -84,7 +82,6 @@
 		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
 		expandSignal?: number;
-		variant?: BiddingAutomationPanelVariant;
 		onClose?: (() => void) | null;
 		onJobChange?: ((job: ApiBiddingJob | null) => void) | null;
 		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
@@ -591,7 +588,6 @@
 	<button
 		type="button"
 		class="bidding-automation-panel-collapsed"
-		class:bidding-automation-panel-collapsed-inline={variant === 'inline'}
 		aria-label="show bidding panel"
 		title="show bidding panel"
 		onclick={showPanel}
@@ -601,16 +597,13 @@
 {:else if open}
 	<div
 		class="runtime-section bidding-automation-panel"
-		class:bidding-automation-panel-inline={variant === 'inline'}
 		data-testid={TEST_IDS.BiddingPanel}
-		role={variant === 'inline' ? 'region' : 'dialog'}
+		role="dialog"
 		aria-label="bidding automation"
 	>
 		<header class="panel-header bidding-automation-panel-header">
 			<h2 class="panel-title">token bidding</h2>
-			{#if variant !== 'inline'}
-				<button type="button" class="button-link" onclick={hidePanel}>hide</button>
-			{/if}
+			<button type="button" class="button-link" onclick={hidePanel}>hide</button>
 		</header>
 
 		<div class="runtime-kv-grid token-bidding-runtime-grid">

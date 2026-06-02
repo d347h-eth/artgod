@@ -266,12 +266,12 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
 		);
-		expect(body).toContain('role="region" aria-label="bidding automation"');
+		expect(body).toContain('role="dialog" aria-label="bidding automation"');
 		expect(body).toContain('token bidding');
 		expect(body).toContain('value="0.101"');
 		expect(body).toContain('value="0.001"');
 		expect(body).toContain('>create<');
-		expect(body).not.toContain('>hide<');
+		expect(body).toContain('>hide<');
 		expect(body).not.toContain('>use<');
 	});
 
