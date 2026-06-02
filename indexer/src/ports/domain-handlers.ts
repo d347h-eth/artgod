@@ -26,9 +26,20 @@ export type DomainSyncContext = {
     sourceKind: string;
 };
 
+export type OrderUpdateByMakerRuntimeContext = {
+    jobId: string;
+    attempt: number;
+    scheduledAt: number;
+    traceId?: string | null;
+    consumerName?: string;
+};
+
 export interface OrdersDomainPort {
     handleDomainSync(context: DomainSyncContext): Promise<void>;
-    handleOrderUpdateByMaker(payload: OrderUpdateByMakerPayload): Promise<void>;
+    handleOrderUpdateByMaker(
+        payload: OrderUpdateByMakerPayload,
+        context?: OrderUpdateByMakerRuntimeContext,
+    ): Promise<void>;
     handleOrderUpdateById(payload: OrderUpdateByIdPayload): Promise<void>;
     handleOrderUpsert(payload: OrderUpsertPayload): Promise<void>;
 }

@@ -10,6 +10,43 @@ export const ORDER_STATUS = {
 
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 
+// Domain states derived from an order validity window.
+export const ORDER_VALIDITY_STATE = {
+    NotStarted: "not_started",
+    Expired: ORDER_STATUS.Expired,
+    NoExpiry: "no_expiry",
+    ActiveTimeWindow: "active_time_window",
+} as const;
+
+export type OrderValidityState =
+    (typeof ORDER_VALIDITY_STATE)[keyof typeof ORDER_VALIDITY_STATE];
+
+export type OrderValidityWindow = {
+    validFrom?: number | null;
+    validUntil?: number | null;
+};
+
+// Classifies an order validity window without exposing raw state literals to callers.
+export function resolveOrderValidityState(
+    window: OrderValidityWindow,
+    nowSeconds: number,
+): OrderValidityState {
+    if (window.validFrom !== null && window.validFrom !== undefined) {
+        if (window.validFrom > nowSeconds) {
+            return ORDER_VALIDITY_STATE.NotStarted;
+        }
+    }
+    if (window.validUntil !== null && window.validUntil !== undefined) {
+        if (window.validUntil <= nowSeconds) {
+            return ORDER_VALIDITY_STATE.Expired;
+        }
+    }
+    if (window.validUntil === null || window.validUntil === undefined) {
+        return ORDER_VALIDITY_STATE.NoExpiry;
+    }
+    return ORDER_VALIDITY_STATE.ActiveTimeWindow;
+}
+
 export const ORDER_SOURCE_STATUS = {
     Active: "active",
     Inactive: "inactive",
