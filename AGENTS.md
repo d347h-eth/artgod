@@ -30,6 +30,16 @@ For implementation details, use:
 
 ## Agent-Only Rules
 
+- Investigation/report prompts are not implementation requests. When the user
+  provides symptoms, logs, screenshots, queue output, or asks "any idea what's
+  going on?", "investigate", "analyze", or "report", do not change code, create
+  worktrees, commit, run fix-oriented commands, or otherwise execute a remedy
+  unless the user explicitly asks for implementation. In those turns, provide
+  diagnosis, evidence, risks, and proposed next steps only; if intent is
+  ambiguous, ask before acting.
+- Worktree/branch/commit preferences in an investigation prompt are constraints
+  for future implementation, not authorization to start implementation by
+  themselves.
 - Do not duplicate project status text from `README.md` into this file.
 - Do not introduce user-specific absolute filesystem paths in docs or code comments.
   Prefer workspace-relative paths or environment variables.
