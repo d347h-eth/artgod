@@ -193,6 +193,37 @@ describe('createBiddingAutomationController', () => {
 		expect(controller.selectionSummary()).toBe('1 token selected');
 	});
 
+	it('replaces the active token selection for exclusive card gestures', () => {
+		const controller = createBiddingAutomationController();
+
+		controller.toggleToken({
+			tokenId: '1',
+			gesture: 'ctrl_left_click',
+			selected: true,
+			visibleTokenIds: ['1', '2', '3']
+		});
+		controller.toggleToken({
+			tokenId: '2',
+			gesture: 'ctrl_left_click',
+			selected: true,
+			visibleTokenIds: ['1', '2', '3']
+		});
+		controller.toggleToken({
+			tokenId: '3',
+			gesture: 'ctrl_alt_left_click',
+			selected: true,
+			visibleTokenIds: ['1', '2', '3']
+		});
+
+		const selection = get(controller.state).selection;
+		expect(selection?.type).toBe(BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens);
+		if (selection?.type !== BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens) {
+			throw new Error('expected explicit token selection');
+		}
+		expect(selection.tokenIds).toEqual(['3']);
+		expect(controller.selectionSummary()).toBe('1 token selected');
+	});
+
 	it('allows a later select-all action to replace an explicit token selection', () => {
 		const controller = createBiddingAutomationController();
 
@@ -298,5 +329,27 @@ describe('resolveTokenCardSelectionGesture', () => {
 
 		expect(resolveTokenCardSelectionGesture(ctrlClick)).toBe('ctrl_left_click');
 		expect(resolveTokenCardSelectionGesture(middleClick)).toBe('middle_click');
+	});
+
+	it('maps modified card gestures to exclusive token selection', () => {
+		const mediaButton = {
+			closest: () => null
+		};
+		const ctrlAltClick = {
+			type: 'click',
+			button: 0,
+			ctrlKey: true,
+			altKey: true,
+			target: mediaButton
+		} as unknown as MouseEvent;
+		const altMiddleClick = {
+			type: 'auxclick',
+			button: 1,
+			altKey: true,
+			target: mediaButton
+		} as unknown as MouseEvent;
+
+		expect(resolveTokenCardSelectionGesture(ctrlAltClick)).toBe('ctrl_alt_left_click');
+		expect(resolveTokenCardSelectionGesture(altMiddleClick)).toBe('alt_middle_click');
 	});
 });

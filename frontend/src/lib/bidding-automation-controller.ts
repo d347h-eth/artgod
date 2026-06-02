@@ -248,6 +248,12 @@ function nextSelectionAfterTokenToggle(
 	selection: BiddingAutomationSelection | null,
 	input: ToggleBiddingTokenInput
 ): BiddingAutomationSelection | null {
+	if (isExclusiveTokenCardSelectionGesture(input.gesture)) {
+		return {
+			type: BIDDING_AUTOMATION_SELECTION_SOURCE_TYPE.ExplicitTokens,
+			tokenIds: [input.tokenId]
+		};
+	}
 	const nextTokenIds = selectedTokenIds(selection, input.visibleTokenIds);
 	if (input.selected) {
 		nextTokenIds.add(input.tokenId);
@@ -299,13 +305,26 @@ export function resolveTokenCardSelectionGesture(
 	if (isNativeLinkActivationTarget(event.target)) {
 		return null;
 	}
+	if (event.type === 'click' && event.button === 0 && event.ctrlKey && event.altKey) {
+		return 'ctrl_alt_left_click';
+	}
 	if (event.type === 'click' && event.button === 0 && event.ctrlKey) {
 		return 'ctrl_left_click';
+	}
+	if (event.type === 'auxclick' && event.button === 1 && event.altKey) {
+		return 'alt_middle_click';
 	}
 	if (event.type === 'auxclick' && event.button === 1) {
 		return 'middle_click';
 	}
 	return null;
+}
+
+// Identifies card gestures that replace the active bidding token selection.
+export function isExclusiveTokenCardSelectionGesture(
+	gesture: TokenCardSelectionGesture
+): boolean {
+	return gesture === 'ctrl_alt_left_click' || gesture === 'alt_middle_click';
 }
 
 function isNativeLinkActivationTarget(target: EventTarget | null): boolean {

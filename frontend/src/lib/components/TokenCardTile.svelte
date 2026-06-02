@@ -15,6 +15,7 @@
 	} from '$lib/components/token-preview-controller';
 	import { modifierKeyState } from '$lib/components/modifier-key-state';
 	import {
+		isExclusiveTokenCardSelectionGesture,
 		resolveTokenCardSelectionGesture
 	} from '$lib/bidding-automation-controller';
 	import type { TokenCardSelectionProps } from '$lib/token-card-selection';
@@ -79,7 +80,7 @@
 		selection.onToggle({
 			tokenId: token.tokenId,
 			gesture,
-			selected: !selection.state.selected
+			selected: isExclusiveTokenCardSelectionGesture(gesture) || !selection.state.selected
 		});
 	}
 
