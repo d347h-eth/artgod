@@ -4,12 +4,8 @@ import {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
 	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
-	COLLECTION_BIDDING_VIEW_MODE,
-	COLLECTION_BIDDING_VIEW_MODES,
-	COLLECTION_BIDDING_VIEW_QUERY_PARAMS,
 	type CollectionBiddingBidScopeFilter,
-	type CollectionBiddingTraitFilterJoinMode,
-	type CollectionBiddingViewMode
+	type CollectionBiddingTraitFilterJoinMode
 } from '@artgod/shared/types';
 import type { ApiTokenAttribute, ApiTraitRangeFilter } from '$lib/api-types';
 import { appendMediaModeParam } from '$lib/media-mode';
@@ -19,18 +15,11 @@ import { appendTraitParams, appendTraitRangeParams } from '$lib/trait-filters';
 export {
 	COLLECTION_BIDDING_BID_SCOPE_FILTER,
 	COLLECTION_BIDDING_BID_SCOPE_FILTERS,
-	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE,
-	COLLECTION_BIDDING_VIEW_MODE,
-	COLLECTION_BIDDING_VIEW_MODES
+	COLLECTION_BIDDING_TRAIT_FILTER_JOIN_MODE
 };
-export type {
-	CollectionBiddingBidScopeFilter,
-	CollectionBiddingTraitFilterJoinMode,
-	CollectionBiddingViewMode
-};
+export type { CollectionBiddingBidScopeFilter, CollectionBiddingTraitFilterJoinMode };
 
 export const BID_SCOPE_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.BidScope;
-export const BIDDING_VIEW_QUERY_PARAM = COLLECTION_BIDDING_VIEW_QUERY_PARAMS.View;
 export const BID_BOOK_MAKER_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.Maker;
 const SHOW_MUTED_BID_BOOK_QUERY_PARAM = COLLECTION_BIDDING_BID_BOOK_QUERY_PARAMS.ShowMuted;
 
@@ -41,7 +30,6 @@ export function buildCollectionBiddingQuery(params: {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	bidScope?: CollectionBiddingBidScopeFilter;
 	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
-	viewMode?: CollectionBiddingViewMode;
 	mediaMode?: string | null;
 	maker?: string | null;
 	showMuted?: boolean;
@@ -50,9 +38,6 @@ export function buildCollectionBiddingQuery(params: {
 }): URLSearchParams {
 	const query = new URLSearchParams();
 	appendMediaModeParam(query, params.mediaMode ?? null);
-	if (params.viewMode && params.viewMode !== COLLECTION_BIDDING_VIEW_MODE.BidBook) {
-		query.set(BIDDING_VIEW_QUERY_PARAM, params.viewMode);
-	}
 	if (params.bidScope && params.bidScope !== COLLECTION_BIDDING_BID_SCOPE_FILTER.Token) {
 		query.set(BID_SCOPE_QUERY_PARAM, params.bidScope);
 	}
@@ -86,7 +71,6 @@ export function buildCollectionBiddingHref(params: {
 	selectedTraitRanges: ApiTraitRangeFilter[];
 	bidScope?: CollectionBiddingBidScopeFilter;
 	traitJoinMode?: CollectionBiddingTraitFilterJoinMode;
-	viewMode?: CollectionBiddingViewMode;
 	mediaMode?: string | null;
 	maker?: string | null;
 	showMuted?: boolean;
@@ -117,15 +101,6 @@ export function parseCollectionBiddingBidScopeFilter(
 	);
 }
 
-export function parseCollectionBiddingView(
-	searchParams: URLSearchParams
-): CollectionBiddingViewMode {
-	return parseOrderedQueryControl(
-		COLLECTION_BIDDING_VIEW_MODES,
-		searchParams.get(BIDDING_VIEW_QUERY_PARAM)
-	);
-}
-
 export function parseCollectionBiddingTraitFilterJoinMode(
 	searchParams: URLSearchParams
 ): CollectionBiddingTraitFilterJoinMode {
@@ -140,7 +115,6 @@ export function nextCollectionBiddingBidScopeFilter(
 ): CollectionBiddingBidScopeFilter {
 	return nextOrderedQueryControl(COLLECTION_BIDDING_BID_SCOPE_FILTERS, current);
 }
-
 function parseOrderedQueryControl<T extends string>(
 	values: OrderedQueryControlValues<T>,
 	raw: string | null

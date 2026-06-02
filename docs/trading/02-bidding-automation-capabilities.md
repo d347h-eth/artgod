@@ -154,7 +154,6 @@ Admin read endpoints:
 
 | Method | Path | Capability |
 | --- | --- | --- |
-| `GET` | `/api/:chain_ref/:collection_ref/bidding/jobs` | List declared bidding jobs and included token cards. |
 | `GET` | `/api/:chain_ref/:collection_ref/:token_ref/bidding/job` | Get the exact-token bidding job, if one exists. |
 | `POST` | `/api/:chain_ref/:collection_ref/bidding/jobs/target-lookup` | Resolve a token, trait, or collection draft target into an existing declared job. |
 | `GET` | `/api/:chain_ref/:collection_ref/bidding/price-tiers` | List tiers plus collection bidding settings. |
@@ -219,7 +218,6 @@ Remaining gaps are recorded inline in the same row as the measured file instead 
 | Use case | `backend/src/application/use-cases/trading/get-token-bidding-bid-book.ts` | 100.00% | n/a | 100.00% | 100.00% | Token bid-book API path is covered through API tests. |
 | Use case | `backend/src/application/use-cases/trading/get-token-bidding-job.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Exact-token job lookup is covered. |
 | Use case | `backend/src/application/use-cases/trading/list-collection-bidding-bid-book.ts` | 86.00% | 72.41% | 92.31% | 86.00% | Orders fallback, snapshot selection, scopes, maker, and traits are covered; more SQL/source edge cases remain. |
-| Use case | `backend/src/application/use-cases/trading/list-collection-bidding-jobs.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Job list API path is covered. |
 | Use case | `backend/src/application/use-cases/trading/list-collection-bidding-price-tiers.ts` | 100.00% | n/a | 100.00% | 100.00% | Price-tier list and settings API path is covered. |
 | Use case | `backend/src/application/use-cases/trading/ports.ts` | n/a | n/a | n/a | n/a | Port/type contract only; no runtime statements emitted into coverage. |
 | Use case | `backend/src/application/use-cases/trading/preview-bidding-price-tier-reapply.ts` | 100.00% | 100.00% | 100.00% | 100.00% | Reapply preview and unknown-tier error are covered. |
@@ -239,7 +237,6 @@ Remaining gaps are recorded inline in the same row as the measured file instead 
 | HTTP handler | `backend/src/http/handlers/trading/get-token-bidding-bid-book.ts` | 100.00% | n/a | 100.00% | 100.00% | Token bid-book route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/get-token-bidding-job.ts` | 100.00% | n/a | 100.00% | 100.00% | Exact-token job lookup route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/list-collection-bidding-bid-book.ts` | 100.00% | n/a | 100.00% | 100.00% | Collection bid-book route is covered. |
-| HTTP handler | `backend/src/http/handlers/trading/list-collection-bidding-jobs.ts` | 100.00% | n/a | 100.00% | 100.00% | Job-list route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/list-collection-bidding-price-tiers.ts` | 100.00% | n/a | 100.00% | 100.00% | Price-tier list route is covered. |
 | HTTP handler | `backend/src/http/handlers/trading/lookup-bidding-job-target.ts` | 83.33% | 81.81% | 100.00% | 83.33% | Target lookup DTO mapping covers core variants, invalid quantity, empty trait target, and non-object trait entries. |
 | HTTP handler | `backend/src/http/handlers/trading/preview-bidding-price-tier-reapply.ts` | 100.00% | n/a | 100.00% | 100.00% | Reapply preview route is covered. |

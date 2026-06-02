@@ -539,18 +539,6 @@ export type ApiBiddingTokenOfferCardsPage = {
 	totalPages: number;
 };
 
-export type CollectionBiddingJobsApiResponse = {
-	chain: ApiChain;
-	collection: ApiCollection;
-	media: ApiCollectionMediaState;
-	jobs: ApiBiddingJob[];
-	included: {
-		tokensById: Record<string, ApiTokenPresentationSummary>;
-		eventMediaByActivityId: Record<string, ApiActivityEventMedia>;
-		hasTraitSummaryTemplate: boolean;
-	};
-};
-
 export type CollectionBiddingPriceTiersApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
@@ -603,6 +591,7 @@ export type BiddingPriceTierReapplyApplyApiResponse = {
 export type CollectionBiddingBidBookApiResponse = {
 	chain: ApiChain;
 	collection: ApiCollection;
+	media: ApiCollectionMediaState;
 	scopeFilter: ApiCollectionBiddingBidScopeFilter;
 	traits: {
 		selected: ApiTokenAttribute[];

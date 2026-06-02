@@ -292,8 +292,6 @@ beforeAll(async () => {
         await import("./infra/trading/sqlite-bidding-price-tiers-repository.js");
     const collectionSettingsRepositoryModule =
         await import("./infra/collections/sqlite-collection-settings-repository.js");
-    const listCollectionBiddingJobsUseCaseModule =
-        await import("./application/use-cases/trading/list-collection-bidding-jobs.js");
     const listCollectionBiddingBidBookUseCaseModule =
         await import("./application/use-cases/trading/list-collection-bidding-bid-book.js");
     const listCollectionBiddingPriceTiersUseCaseModule =
@@ -334,14 +332,6 @@ beforeAll(async () => {
         new biddingPriceTiersRepositoryModule.SqliteBiddingPriceTiersRepository();
     const collectionSettingsRepository =
         new collectionSettingsRepositoryModule.SqliteCollectionSettingsRepository();
-    const listCollectionBiddingJobsUseCase =
-        new listCollectionBiddingJobsUseCaseModule.ListCollectionBiddingJobsUseCase(
-            1,
-            chainsReadModel,
-            collectionsReadModel,
-            customizationReadModel,
-            biddingJobsRepository,
-        );
     const listCollectionBiddingBidBookUseCase =
         new listCollectionBiddingBidBookUseCaseModule.ListCollectionBiddingBidBookUseCase(
             1,
@@ -678,7 +668,6 @@ beforeAll(async () => {
         getTokenPreviewUseCase,
         getTokenUriUseCase,
         updateCollectionCustomizationUseCase,
-        listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,
         listCollectionBiddingPriceTiersUseCase,
         getTokenBiddingJobUseCase,
@@ -726,7 +715,6 @@ beforeAll(async () => {
         getTokenPreviewUseCase,
         getTokenUriUseCase,
         updateCollectionCustomizationUseCase,
-        listCollectionBiddingJobsUseCase,
         listCollectionBiddingBidBookUseCase,
         listCollectionBiddingPriceTiersUseCase,
         getTokenBiddingJobUseCase,
@@ -1005,12 +993,6 @@ describe("backend api routes", () => {
         const csrf = await resolvePublic("GET", "/api/security/csrf");
         expect(csrf.statusCode).toBe(404);
 
-        const biddingJobs = await resolvePublic(
-            "GET",
-            "/api/ethereum/terraforms/bidding/jobs",
-        );
-        expect(biddingJobs.statusCode).toBe(404);
-
         const biddingBids = await resolvePublic(
             "GET",
             "/api/ethereum/terraforms/bidding/bids",
@@ -1040,15 +1022,8 @@ describe("backend api routes", () => {
         expect(nonPublicBiddingBids.statusCode).toBe(404);
     });
 
-    it("lists empty bidding jobs and returns null for tokens without a job", async () => {
+    it("returns null for tokens without a job", async () => {
         clearTradingJobFixtures();
-
-        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
-        expect(jobs.statusCode).toBe(200);
-        expect(jobs.payload.collection.slug).toBe("milady");
-        expect(jobs.payload.media.selectedMode).toBe("snapshot");
-        expect(jobs.payload.included.tokensById).toEqual({});
-        expect(jobs.payload.jobs).toEqual([]);
 
         const tokenJob = await resolve(
             "GET",
@@ -1708,18 +1683,6 @@ describe("backend api routes", () => {
             },
         });
 
-        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
-        expect(jobs.statusCode).toBe(200);
-        expect(jobs.payload.jobs).toHaveLength(1);
-        expect(jobs.payload.included.tokensById["1"]).toMatchObject({
-            tokenId: "1",
-        });
-        expect(jobs.payload.jobs[0].target).toEqual({
-            type: "token",
-            tokenId: "1",
-        });
-        expect(jobs.payload.jobs[0].status).toBe(TRADING_JOB_STATUS.Paused);
-
         const tokenJob = await resolve(
             "GET",
             "/api/ethereum/milady/1/bidding/job",
@@ -1933,10 +1896,6 @@ describe("backend api routes", () => {
         expect(updated.payload.job.revision).toBe(2);
         expect(updated.payload.job.status).toBe(TRADING_JOB_STATUS.Paused);
 
-        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
-        expect(jobs.statusCode).toBe(200);
-        expect(jobs.payload.jobs).toHaveLength(1);
-        expect(jobs.payload.jobs[0].target).toEqual(updated.payload.job.target);
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
             TRADING_JOB_COMMAND_KIND.JobPaused,
@@ -1984,10 +1943,6 @@ describe("backend api routes", () => {
         expect(updated.payload.job.revision).toBe(2);
         expect(updated.payload.job.status).toBe(TRADING_JOB_STATUS.Paused);
 
-        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
-        expect(jobs.statusCode).toBe(200);
-        expect(jobs.payload.jobs).toHaveLength(1);
-        expect(jobs.payload.jobs[0].target).toEqual(updated.payload.job.target);
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
             TRADING_JOB_COMMAND_KIND.JobPaused,
@@ -2097,9 +2052,6 @@ describe("backend api routes", () => {
             { type: "token", tokenId: "2" },
         ]);
 
-        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
-        expect(jobs.statusCode).toBe(200);
-        expect(jobs.payload.jobs).toHaveLength(2);
         expect(listTradingCommandKinds()).toEqual([
             TRADING_JOB_COMMAND_KIND.JobCreated,
             TRADING_JOB_COMMAND_KIND.JobCreated,
@@ -2132,10 +2084,6 @@ describe("backend api routes", () => {
         expect(archived.statusCode).toBe(200);
         expect(archived.payload.job.status).toBe(TRADING_JOB_STATUS.Archived);
         expect(archived.payload.job.archivedAt).toEqual(expect.any(String));
-
-        const jobs = await resolve("GET", "/api/ethereum/milady/bidding/jobs");
-        expect(jobs.statusCode).toBe(200);
-        expect(jobs.payload.jobs).toEqual([]);
 
         const tokenJob = await resolve(
             "GET",

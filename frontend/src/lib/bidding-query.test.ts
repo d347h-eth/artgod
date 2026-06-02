@@ -4,7 +4,6 @@ import {
 	parseBidBookMakerFilter,
 	nextCollectionBiddingBidScopeFilter,
 	parseCollectionBiddingBidScopeFilter,
-	parseCollectionBiddingView,
 	parseCollectionBiddingTraitFilterJoinMode
 } from '$lib/bidding-query';
 
@@ -52,15 +51,13 @@ describe('buildCollectionBiddingQuery', () => {
 });
 
 describe('collection bidding ordered query controls', () => {
-	it('parses bid scope and view from the canonical ordered value lists', () => {
+	it('parses bid scope from the canonical ordered value list', () => {
 		expect(parseCollectionBiddingBidScopeFilter(new URLSearchParams('bid_scope=traits'))).toBe(
 			'traits'
 		);
 		expect(parseCollectionBiddingBidScopeFilter(new URLSearchParams('bid_scope=nope'))).toBe(
 			'token'
 		);
-		expect(parseCollectionBiddingView(new URLSearchParams('bidding_view=jobs'))).toBe('jobs');
-		expect(parseCollectionBiddingView(new URLSearchParams('bidding_view=nope'))).toBe('bid_book');
 	});
 
 	it('cycles bid scope using the canonical ordered value list', () => {

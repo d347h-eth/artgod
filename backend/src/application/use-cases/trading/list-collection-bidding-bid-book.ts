@@ -1,6 +1,7 @@
 import type {
     ChainRecord,
     CollectionListItem,
+    CollectionMediaState,
     TokenCard,
     CollectionBiddingBidScopeFilter,
     CollectionBiddingTraitFilterJoinMode,
@@ -70,6 +71,11 @@ export class ListCollectionBiddingBidBookUseCase {
                 chainId: number,
                 collectionRef: string,
             ): CollectionListItem;
+            getCollectionMediaState(params: {
+                chainId: number;
+                collectionId: number;
+                mediaMode?: string;
+            }): CollectionMediaState;
             listCollectionTraitFacets(
                 chainId: number,
                 collectionId: number,
@@ -139,6 +145,17 @@ export class ListCollectionBiddingBidBookUseCase {
             [BIDDING_SPAN_ATTRIBUTE.CollectionId]: collection.collectionId,
             ...buildBiddingRequestSpanAttributes(input),
         };
+        // Resolve collection media once so the bid-book page does not depend on the removed jobs list.
+        const media = this.apm.withSyncSpan(
+            "backend.bidding.collection_bid_book.media",
+            attributes,
+            () =>
+                this.collectionReadPort.getCollectionMediaState({
+                    chainId: chain.publicChainId,
+                    collectionId: collection.collectionId,
+                    mediaMode: input.mediaMode,
+                }),
+        );
         const traitFilterPresentation = this.apm.withSyncSpan(
             "backend.bidding.collection_bid_book.trait_filter_presentation",
             attributes,
@@ -281,6 +298,7 @@ export class ListCollectionBiddingBidBookUseCase {
         return {
             chain,
             collection,
+            media,
             scopeFilter: input.scopeFilter,
             traits: {
                 selected: input.traits,

@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	applyCollectionBiddingNavigationPreferenceToQuery,
-	type CollectionBiddingNavigationPreference
-} from '$lib/bidding-navigation-preferences';
+import { applyCollectionBiddingNavigationPreferenceToQuery } from '$lib/bidding-navigation-preferences';
 
 describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 	it('adds stored bid scope when URL omits it', () => {
@@ -28,12 +25,12 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 	it('keeps explicit URL bid scope ahead of stored values', () => {
 		expect(
 			applyCollectionBiddingNavigationPreferenceToQuery(
-				new URLSearchParams('bidding_view=bid_book&bid_scope=collection'),
+				new URLSearchParams('bid_scope=collection'),
 				{
 					bidScope: 'traits'
 				}
 			).toString()
-		).toBe('bidding_view=bid_book&bid_scope=collection');
+		).toBe('bid_scope=collection');
 	});
 
 	it('omits stored default values from the generated URL', () => {
@@ -58,16 +55,4 @@ describe('applyCollectionBiddingNavigationPreferenceToQuery', () => {
 		).toBe('bid_scope=collection');
 	});
 
-	it('ignores obsolete stored bidding view values', () => {
-		const obsoletePreference = JSON.parse(
-			'{"biddingView":"jobs","bidScope":"traits"}'
-		) as Partial<CollectionBiddingNavigationPreference>;
-
-		expect(
-			applyCollectionBiddingNavigationPreferenceToQuery(
-				new URLSearchParams(),
-				obsoletePreference
-			).toString()
-		).toBe('bid_scope=traits');
-	});
 });

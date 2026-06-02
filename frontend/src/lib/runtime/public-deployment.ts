@@ -78,11 +78,9 @@ export function publicCollectionTokenDetailPath(tokenRef: string): string {
 
 export function collectionBiddingNavigationVisibilityForDeployment(): {
 	showOffers: boolean;
-	showJobs: boolean;
 } {
 	return {
-		showOffers: true,
-		showJobs: !IS_PUBLIC_SINGLE_COLLECTION_DEPLOYMENT
+		showOffers: true
 	};
 }
 

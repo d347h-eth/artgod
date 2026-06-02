@@ -37,8 +37,14 @@ describe('KeyboardShortcutsHelp', () => {
 		expect(body).toContain('>F1<');
 		expect(body).toContain('>1<');
 		expect(body).toContain('open asks');
-		expect(body).toContain('>4<');
-		expect(body).toContain('open bidding');
+		expect(body).not.toContain('>4<');
+		expect(body).not.toContain('open bidding');
+		expect(body).toContain('>Ctrl+LMB<');
+		expect(body).toContain('>MMB<');
+		expect(body).toContain('append or remove token card from bidding selection');
+		expect(body).toContain('>Ctrl+Alt+LMB<');
+		expect(body).toContain('>Alt+MMB<');
+		expect(body).toContain('select only this token card for bidding');
 		expect(body).toContain('>S<');
 		expect(body).toContain('cycle bid scope');
 		expect(body).toContain('>T<');

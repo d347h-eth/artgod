@@ -6,7 +6,12 @@ export type TokenCardSelectionState = {
 };
 
 // Names the card gestures that feature-specific controllers may map to selection.
-export type TokenCardSelectionGesture = 'ctrl_left_click' | 'middle_click' | 'remove_button';
+export type TokenCardSelectionGesture =
+	| 'ctrl_left_click'
+	| 'middle_click'
+	| 'ctrl_alt_left_click'
+	| 'alt_middle_click'
+	| 'remove_button';
 
 // Carries a token-card selection request from reusable card UI to feature state.
 export type TokenCardSelectionToggleRequest = {

@@ -563,28 +563,6 @@ paths:
                 "500":
                     $ref: "#/components/responses/InternalError"
 
-    /api/{chain_ref}/{collection_ref}/bidding/jobs:
-        get:
-            tags: [Trading]
-            summary: List bidding jobs for a collection
-            operationId: listCollectionBiddingJobs
-            parameters:
-                - $ref: "#/components/parameters/ChainRef"
-                - $ref: "#/components/parameters/CollectionRef"
-            responses:
-                "200":
-                    description: Bidding jobs for the collection
-                    content:
-                        application/json:
-                            schema:
-                                $ref: "#/components/schemas/ListCollectionBiddingJobsResponse"
-                "400":
-                    $ref: "#/components/responses/BadRequest"
-                "404":
-                    $ref: "#/components/responses/NotFound"
-                "500":
-                    $ref: "#/components/responses/InternalError"
-
     /api/{chain_ref}/{collection_ref}/bidding/bids:
         get:
             tags: [Trading]
@@ -3219,24 +3197,6 @@ components:
                 changed:
                     type: boolean
 
-        ListCollectionBiddingJobsResponse:
-            type: object
-            required: [chain, collection, media, jobs, included]
-            additionalProperties: false
-            properties:
-                chain:
-                    $ref: "#/components/schemas/ChainRecord"
-                collection:
-                    $ref: "#/components/schemas/CollectionListItem"
-                media:
-                    $ref: "#/components/schemas/CollectionMediaState"
-                jobs:
-                    type: array
-                    items:
-                        $ref: "#/components/schemas/BiddingJob"
-                included:
-                    $ref: "#/components/schemas/ActivityFeedIncludes"
-
         BiddingJobMutationResponse:
             type: object
             required: [chain, collection, job]
@@ -3353,6 +3313,7 @@ components:
                 [
                     chain,
                     collection,
+                    media,
                     scopeFilter,
                     traits,
                     bidBook,
@@ -3364,6 +3325,8 @@ components:
                     $ref: "#/components/schemas/ChainRecord"
                 collection:
                     $ref: "#/components/schemas/CollectionListItem"
+                media:
+                    $ref: "#/components/schemas/CollectionMediaState"
                 scopeFilter:
                     type: string
                     enum: [token, traits, collection]

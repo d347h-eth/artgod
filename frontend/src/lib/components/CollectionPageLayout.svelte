@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { ActivityFeedFilterKind } from '@artgod/shared/types';
 	import type { Snippet } from 'svelte';
-	import type { CollectionBiddingViewMode } from '$lib/bidding-query';
 	import type { CollectionExtensionNavigationPageTarget } from '$lib/collection-extension-navigation';
 	import type { CollectionNavigation } from '$lib/collection-navigation';
 	import CollectionSectionTabs from '$lib/components/CollectionSectionTabs.svelte';
@@ -15,7 +14,6 @@
 		activeActivityKind = null,
 		activeActivityExtensionEvent = null,
 		activeExtensionPage = null,
-		activeBiddingView = null,
 		collectionAvailable = true,
 		showCustomization = true,
 		breadcrumbs,
@@ -37,7 +35,6 @@
 		activeActivityKind?: ActivityFeedFilterKind | null;
 		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
 		activeExtensionPage?: CollectionExtensionNavigationPageTarget | null;
-		activeBiddingView?: CollectionBiddingViewMode | null;
 		collectionAvailable?: boolean;
 		showCustomization?: boolean;
 		breadcrumbs: Snippet;
@@ -62,7 +59,6 @@
 					{activeActivityKind}
 					{activeActivityExtensionEvent}
 					{activeExtensionPage}
-					{activeBiddingView}
 					{showCustomization}
 				/>
 			{:else}

@@ -3,10 +3,6 @@
 	import { COLLECTION_ACTIVITY_FILTER_KINDS } from '$lib/activity-query';
 	import type { ApiActivityExtensionEventRef } from '$lib/api-types';
 	import {
-		COLLECTION_BIDDING_VIEW_MODE,
-		type CollectionBiddingViewMode
-	} from '$lib/bidding-query';
-	import {
 		collectionExtensionNavigationTabPage,
 		collectionExtensionNavigationTabActivityEvent,
 		resolveCollectionExtensionNavigationGroups,
@@ -23,7 +19,6 @@
 		activeActivityKind = null,
 		activeActivityExtensionEvent = null,
 		activeExtensionPage = null,
-		activeBiddingView = null,
 		showCustomization = true
 	}: {
 		navigation: CollectionNavigation;
@@ -40,7 +35,6 @@
 		activeActivityKind?: ActivityFeedFilterKind | null;
 		activeActivityExtensionEvent?: ApiActivityExtensionEventRef | null;
 		activeExtensionPage?: CollectionExtensionNavigationPageTarget | null;
-		activeBiddingView?: CollectionBiddingViewMode | null;
 		showCustomization?: boolean;
 	} = $props();
 
@@ -54,10 +48,6 @@
 
 	function activityExtensionEventHref(event: ApiActivityExtensionEventRef): string {
 		return navigation.hrefs.activityExtensionEvent(event);
-	}
-
-	function biddingViewHref(view: CollectionBiddingViewMode): string {
-		return navigation.hrefs.biddingView(view) ?? '#';
 	}
 
 	// Core tab group labels stay generic while extension feeds may provide their own group.
@@ -119,16 +109,11 @@
 		<div class="runtime-tab-group-items">
 			{@render navItem('asks', tokenStatusHref('listed'), active === 'tokens' && activeTokenStatus === 'listed')}
 			{#if navigation.showBiddingOffers}
-				{@render navItem('offers', biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.BidBook), active === 'bidding' && activeBiddingView === COLLECTION_BIDDING_VIEW_MODE.BidBook)}
+				{@render navItem('offers', navigation.hrefs.offers ?? '#', active === 'bidding')}
 			{/if}
 			{@render navItem('tokens', tokenStatusHref('all'), active === 'tokens' && activeTokenStatus === 'all')}
 		</div>
 	</div>
-	{#if navigation.showBiddingJobs}
-		<div class="runtime-tab-standalone">
-			{@render navItem('bidding', biddingViewHref(COLLECTION_BIDDING_VIEW_MODE.Jobs), active === 'bidding' && activeBiddingView === COLLECTION_BIDDING_VIEW_MODE.Jobs)}
-		</div>
-	{/if}
 	<div class="runtime-tab-group">
 		<span class="runtime-tab-group-label">{COLLECTION_SECTION_TAB_GROUP_LABELS.AssetEvents}</span>
 		<div class="runtime-tab-group-items">

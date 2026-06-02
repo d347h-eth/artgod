@@ -69,16 +69,20 @@
 				{
 					keys: ['3'],
 					description: 'open tokens'
-				},
-				{
-					keys: ['4'],
-					description: 'open bidding'
 				}
 			]
 		},
 		{
 			title: 'Bidding',
 			entries: [
+				{
+					keys: ['Ctrl+LMB', 'MMB'],
+					description: 'append or remove token card from bidding selection'
+				},
+				{
+					keys: ['Ctrl+Alt+LMB', 'Alt+MMB'],
+					description: 'select only this token card for bidding'
+				},
 				{
 					keys: ['S'],
 					description: 'cycle bid scope'

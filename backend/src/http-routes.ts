@@ -108,10 +108,6 @@ import type {
     ResolveOwnerRefRoute,
 } from "./http/handlers/owners/resolve-owner-ref.js";
 import type {
-    ListCollectionBiddingJobsHttpAdapter,
-    ListCollectionBiddingJobsRoute,
-} from "./http/handlers/trading/list-collection-bidding-jobs.js";
-import type {
     ListCollectionBiddingBidBookHttpAdapter,
     ListCollectionBiddingBidBookRoute,
 } from "./http/handlers/trading/list-collection-bidding-bid-book.js";
@@ -245,7 +241,6 @@ export function registerApiRoutes(
     getTokenPreviewAdapter: GetTokenPreviewHttpAdapter,
     getTokenUriAdapter: GetTokenUriHttpAdapter,
     updateCollectionCustomizationAdapter: UpdateCollectionCustomizationHttpAdapter,
-    listCollectionBiddingJobsAdapter: ListCollectionBiddingJobsHttpAdapter,
     listCollectionBiddingBidBookAdapter: ListCollectionBiddingBidBookHttpAdapter,
     listCollectionBiddingPriceTiersAdapter: ListCollectionBiddingPriceTiersHttpAdapter,
     getTokenBiddingJobAdapter: GetTokenBiddingJobHttpAdapter,
@@ -473,12 +468,6 @@ export function registerApiRoutes(
         options,
         "/api/:chain_ref/:collection_ref/customization",
         getCollectionCustomizationAdapter.handle,
-    );
-    registerObservedGet<ListCollectionBiddingJobsRoute>(
-        app,
-        options,
-        "/api/:chain_ref/:collection_ref/bidding/jobs",
-        listCollectionBiddingJobsAdapter.handle,
     );
     registerObservedGet<ListCollectionBiddingPriceTiersRoute>(
         app,
