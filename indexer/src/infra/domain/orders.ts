@@ -11,6 +11,7 @@ import {
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_SOURCE_STATUS,
     ORDER_STATUS,
+    resolveOrderValidityState,
 } from "../../domain/orders.js";
 import type {
     OrderUpdateByIdPayload,
@@ -19,18 +20,26 @@ import type {
 } from "../../domain/order-jobs.js";
 import type {
     DomainSyncContext,
+    OrderUpdateByMakerRuntimeContext,
     OrdersDomainPort,
 } from "../../ports/domain-handlers.js";
 import type {
     OrderLocalTokenSetStatus,
     OrderRecord,
     OrderSeaportDataSourceKind,
+    OrderValidityState,
     SeaportOrderData,
     OrderSourceScopeKind,
     OrderSourceStatus,
     OrderStatus,
 } from "../../domain/orders.js";
 import type { TokenSetSchema } from "../../domain/token-sets.js";
+import {
+    ORDER_UPDATE_BY_MAKER_LOG_CONTEXT,
+    ORDER_UPDATE_BY_MAKER_LOG_MESSAGE,
+    ORDER_UPDATE_BY_MAKER_REPORTING_BUCKET,
+    ORDER_UPDATE_BY_MAKER_REPORTING_LIMIT,
+} from "./order-update-by-maker-reporting.js";
 
 type OrderRow = {
     id: string;
@@ -101,6 +110,58 @@ type MakerWethBuyOrdersParams = {
 type MakerSeaportOrdersParams = {
     chainId: number;
     maker: string;
+};
+
+type OrderUpdateByMakerLogContext = {
+    component: typeof ORDER_UPDATE_BY_MAKER_LOG_CONTEXT.Component;
+    action: typeof ORDER_UPDATE_BY_MAKER_LOG_CONTEXT.Action;
+    chainId: number;
+    scope: OrderUpdateByMakerPayload["scope"];
+    maker: string;
+    reason: OrderUpdateByMakerPayload["reason"];
+    blockNumber: number | null;
+    blockHash: string | null;
+    txHash: string | null;
+    logIndex: number | null;
+    collectionId: number | null;
+    tokenId: string | null;
+    jobId: string | null;
+    attempt: number | null;
+    scheduledAt: number | null;
+    traceId: string | null;
+    consumerName: string | null;
+};
+
+type OrderRowsProfile = {
+    count: number;
+    sourceStatuses: Record<string, number>;
+    fillabilityStatuses: Record<string, number>;
+    sides: Record<string, number>;
+    collections: Record<string, number>;
+    validity: Partial<Record<OrderValidityState, number>>;
+};
+
+type ValidationSummary = {
+    statuses: Record<string, number>;
+    reasons: Record<string, number>;
+    slowest: SlowOrderValidation[];
+};
+
+type SlowOrderValidation = {
+    orderId: string;
+    collectionId: number;
+    side: string | null;
+    sourceStatus: string;
+    fillabilityStatus: string;
+    durationMs: number;
+    status: OrderStatus;
+    reason: string;
+};
+
+type TimedOrderValidation = {
+    status: OrderStatus;
+    reason: string;
+    durationMs: number;
 };
 
 const SELECT_ORDER_FIELDS =
@@ -223,47 +284,102 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
 
     async handleOrderUpdateByMaker(
         payload: OrderUpdateByMakerPayload,
+        context?: OrderUpdateByMakerRuntimeContext,
     ): Promise<void> {
+        const startedAt = Date.now();
+        const selectedRows = this.selectMakerUpdateCandidates(payload);
         const rows = this.filterCurrentStateRows(
             payload.chainId,
-            this.selectMakerUpdateCandidates(payload),
+            selectedRows,
             payload.blockNumber,
         );
+        const logContext = buildOrderUpdateByMakerLogContext(payload, context);
+        const candidateOrders = selectedRows.length;
+        const currentStateCandidateOrders = rows.length;
+        const skippedBeforeAnchorOrders =
+            candidateOrders - currentStateCandidateOrders;
+        const nowSeconds = Math.floor(startedAt / 1000);
+
         if (rows.length === 0) {
-            logger.debug("Orders update-by-maker matched no candidate orders", {
-                component: "OrdersDomain",
-                action: "handleOrderUpdateByMaker",
-                ...payload,
+            logger.debug(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Completed, {
+                ...logContext,
+                durationMs: Date.now() - startedAt,
+                candidateOrders,
+                currentStateCandidateOrders,
+                skippedBeforeAnchorOrders,
+                candidateProfile: profileOrderRows(selectedRows, nowSeconds),
+                currentStateCandidateProfile: profileOrderRows(
+                    rows,
+                    nowSeconds,
+                ),
+                validatedOrders: 0,
+                updated: 0,
+                validation: createValidationSummary(),
             });
             return;
         }
 
+        logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Started, {
+            ...logContext,
+            candidateOrders,
+            currentStateCandidateOrders,
+            skippedBeforeAnchorOrders,
+            candidateProfile: profileOrderRows(selectedRows, nowSeconds),
+            currentStateCandidateProfile: profileOrderRows(rows, nowSeconds),
+        });
+
         let updated = 0;
-        for (const row of rows) {
-            const validation = await this.revalidateSeaportOrder(row);
+        let validatedOrders = 0;
+        let lastProgressLogAt = startedAt;
+        const validationSummary = createValidationSummary();
+        for (let index = 0; index < rows.length; index += 1) {
+            const row = rows[index]!;
+            const validation = await this.revalidateSeaportOrderWithReporting(
+                row,
+                logContext,
+                index + 1,
+                rows.length,
+                startedAt,
+            );
             const result = this.updateOrderFillabilityStatus.run({
                 fillabilityStatus: validation.status,
                 chainId: payload.chainId,
                 orderId: row.id,
             });
+            validatedOrders += 1;
             updated += result.changes;
-            logger.debug("Orders update-by-maker validation result", {
-                component: "OrdersDomain",
-                action: "handleOrderUpdateByMaker",
-                chainId: payload.chainId,
-                orderId: row.id,
-                triggerReason: payload.reason,
-                status: validation.status,
-                reason: validation.reason,
-            });
+            recordValidation(validationSummary, row, validation);
+
+            const now = Date.now();
+            if (
+                now - lastProgressLogAt >=
+                ORDER_UPDATE_BY_MAKER_REPORTING_LIMIT.ProgressLogIntervalMs
+            ) {
+                lastProgressLogAt = now;
+                logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Progress, {
+                    ...logContext,
+                    durationMs: now - startedAt,
+                    candidateOrders,
+                    currentStateCandidateOrders,
+                    skippedBeforeAnchorOrders,
+                    validatedOrders,
+                    remainingOrders: rows.length - validatedOrders,
+                    updated,
+                    lastOrderId: row.id,
+                    validation: validationSummary,
+                });
+            }
         }
 
-        logger.debug("Orders update-by-maker applied", {
-            component: "OrdersDomain",
-            action: "handleOrderUpdateByMaker",
-            ...payload,
-            matchedOrders: rows.length,
+        logger.info(ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.Completed, {
+            ...logContext,
+            durationMs: Date.now() - startedAt,
+            candidateOrders,
+            currentStateCandidateOrders,
+            skippedBeforeAnchorOrders,
+            validatedOrders,
             updated,
+            validation: validationSummary,
         });
     }
 
@@ -302,10 +418,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         }
 
         let row: OrderRow | undefined;
-        if (
-            payload.blockNumber !== null &&
-            payload.blockNumber !== undefined
-        ) {
+        if (payload.blockNumber !== null && payload.blockNumber !== undefined) {
             row = this.selectOrderById.get({
                 chainId: payload.chainId,
                 orderId: payload.orderId,
@@ -315,7 +428,7 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     component: "OrdersDomain",
                     action: "handleOrderUpdateById",
                     ...payload,
-                    });
+                });
                 return;
             }
             if (
@@ -325,15 +438,18 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     payload.blockNumber,
                 )
             ) {
-                logger.debug("Orders update-by-id skipped before bootstrap anchor", {
-                    component: "OrdersDomain",
-                    action: "handleOrderUpdateById",
-                    chainId: row.chain_id,
-                    collectionId: row.collection_id,
-                    orderId: row.id,
-                    reason: payload.reason,
-                    blockNumber: payload.blockNumber ?? null,
-                });
+                logger.debug(
+                    "Orders update-by-id skipped before bootstrap anchor",
+                    {
+                        component: "OrdersDomain",
+                        action: "handleOrderUpdateById",
+                        chainId: row.chain_id,
+                        collectionId: row.collection_id,
+                        orderId: row.id,
+                        reason: payload.reason,
+                        blockNumber: payload.blockNumber ?? null,
+                    },
+                );
                 return;
             }
         }
@@ -537,10 +653,9 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             );
         }
 
-        const row = this.selectCollectionAnchor.get(
-            chainId,
-            collectionId,
-        ) as CollectionAnchorRow | undefined;
+        const row = this.selectCollectionAnchor.get(chainId, collectionId) as
+            | CollectionAnchorRow
+            | undefined;
         const anchorBlock = row?.bootstrap_anchor_block ?? null;
         anchorByCollectionId?.set(collectionId, anchorBlock);
         return CollectionRecord.canProjectCurrentStateAtBlock(
@@ -553,6 +668,44 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
         row: OrderRow,
     ): Promise<{ status: OrderStatus; reason: string }> {
         return this.validateOrder(mapOrderRow(row));
+    }
+
+    private async revalidateSeaportOrderWithReporting(
+        row: OrderRow,
+        context: OrderUpdateByMakerLogContext,
+        orderPosition: number,
+        orderCount: number,
+        jobStartedAt: number,
+    ): Promise<TimedOrderValidation> {
+        const startedAt = Date.now();
+        const slowTimer = setInterval(() => {
+            logger.warn(
+                ORDER_UPDATE_BY_MAKER_LOG_MESSAGE.ValidationStillRunning,
+                {
+                    ...context,
+                    orderId: row.id,
+                    orderPosition,
+                    orderCount,
+                    orderElapsedMs: Date.now() - startedAt,
+                    jobElapsedMs: Date.now() - jobStartedAt,
+                    collectionId: row.collection_id,
+                    side: row.side,
+                    sourceStatus: row.source_status,
+                    fillabilityStatus: row.fillability_status,
+                },
+            );
+        }, ORDER_UPDATE_BY_MAKER_REPORTING_LIMIT.SlowValidationLogIntervalMs);
+        unrefTimer(slowTimer);
+
+        try {
+            const validation = await this.revalidateSeaportOrder(row);
+            return {
+                ...validation,
+                durationMs: Date.now() - startedAt,
+            };
+        } finally {
+            clearInterval(slowTimer);
+        }
     }
 }
 
@@ -596,6 +749,117 @@ function mapOrderRow(row: OrderRow): OrderRecord {
 function parseSeaportDataJson(value: string | null): SeaportOrderData | null {
     if (!value) return null;
     return JSON.parse(value) as SeaportOrderData;
+}
+
+function buildOrderUpdateByMakerLogContext(
+    payload: OrderUpdateByMakerPayload,
+    context?: OrderUpdateByMakerRuntimeContext,
+): OrderUpdateByMakerLogContext {
+    return {
+        component: ORDER_UPDATE_BY_MAKER_LOG_CONTEXT.Component,
+        action: ORDER_UPDATE_BY_MAKER_LOG_CONTEXT.Action,
+        chainId: payload.chainId,
+        scope: payload.scope,
+        maker: payload.maker.toLowerCase(),
+        reason: payload.reason,
+        blockNumber: payload.blockNumber ?? null,
+        blockHash: payload.blockHash ?? null,
+        txHash: payload.txHash ?? null,
+        logIndex: payload.logIndex ?? null,
+        collectionId:
+            payload.scope === MAKER_TRIGGER_SCOPE.Token
+                ? payload.collectionId
+                : null,
+        tokenId:
+            payload.scope === MAKER_TRIGGER_SCOPE.Token
+                ? payload.tokenId
+                : null,
+        jobId: context?.jobId ?? null,
+        attempt: context?.attempt ?? null,
+        scheduledAt: context?.scheduledAt ?? null,
+        traceId: context?.traceId ?? null,
+        consumerName: context?.consumerName ?? null,
+    };
+}
+
+function profileOrderRows(
+    rows: OrderRow[],
+    nowSeconds: number,
+): OrderRowsProfile {
+    const profile: OrderRowsProfile = {
+        count: rows.length,
+        sourceStatuses: {},
+        fillabilityStatuses: {},
+        sides: {},
+        collections: {},
+        validity: {},
+    };
+    for (const row of rows) {
+        incrementCount(profile.sourceStatuses, row.source_status);
+        incrementCount(profile.fillabilityStatuses, row.fillability_status);
+        incrementCount(
+            profile.sides,
+            row.side ?? ORDER_UPDATE_BY_MAKER_REPORTING_BUCKET.Unknown,
+        );
+        incrementCount(profile.collections, String(row.collection_id));
+        incrementCount(
+            profile.validity,
+            resolveOrderValidityState(
+                {
+                    validFrom: row.valid_from,
+                    validUntil: row.valid_until,
+                },
+                nowSeconds,
+            ),
+        );
+    }
+    return profile;
+}
+
+function createValidationSummary(): ValidationSummary {
+    return { statuses: {}, reasons: {}, slowest: [] };
+}
+
+function recordValidation(
+    summary: ValidationSummary,
+    row: OrderRow,
+    validation: TimedOrderValidation,
+): void {
+    incrementCount(summary.statuses, validation.status);
+    incrementCount(summary.reasons, validation.reason);
+    summary.slowest.push({
+        orderId: row.id,
+        collectionId: row.collection_id,
+        side: row.side,
+        sourceStatus: row.source_status,
+        fillabilityStatus: row.fillability_status,
+        durationMs: validation.durationMs,
+        status: validation.status,
+        reason: validation.reason,
+    });
+    summary.slowest.sort((left, right) => right.durationMs - left.durationMs);
+    if (
+        summary.slowest.length >
+        ORDER_UPDATE_BY_MAKER_REPORTING_LIMIT.SlowSampleLimit
+    ) {
+        summary.slowest.length =
+            ORDER_UPDATE_BY_MAKER_REPORTING_LIMIT.SlowSampleLimit;
+    }
+}
+
+function incrementCount<Key extends string>(
+    counts: Partial<Record<Key, number>>,
+    key: Key,
+): void {
+    counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function unrefTimer(timer: ReturnType<typeof setInterval>): void {
+    if (typeof timer !== "object" || timer === null || !("unref" in timer)) {
+        return;
+    }
+    const maybeTimer = timer as { unref?: () => void };
+    maybeTimer.unref?.();
 }
 
 function hasSeaportData(order: OrderRecord): boolean {

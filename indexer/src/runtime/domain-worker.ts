@@ -42,6 +42,8 @@ import {
 } from "../domain/order-jobs.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
+const ORDER_UPDATE_BY_MAKER_LEASE_EXTENSION_MS = 10_000;
+
 async function main() {
     try {
         const config = loadConfig();
@@ -97,6 +99,7 @@ async function main() {
         const metadataStatsDomain = new SqliteMetadataStatsDomain();
         const activityDomain = new SqliteActivityDomain();
         const collectionExtensions = new SqliteCollectionExtensions();
+        const orderUpdateByMakerConsumerName = `orders-update-by-maker-${config.chainId}`;
 
         const stopOrders = await runWorker(
             queue,
@@ -121,14 +124,21 @@ async function main() {
             queue,
             {
                 queue: QUEUE_NAMES.OrdersUpdateByMaker,
-                consumerName: `orders-update-by-maker-${config.chainId}`,
+                consumerName: orderUpdateByMakerConsumerName,
                 maxInFlight: 1,
+                extendLeaseMs: ORDER_UPDATE_BY_MAKER_LEASE_EXTENSION_MS,
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
             async (job: JobEnvelope<OrderUpdateByMakerPayload>) => {
                 if (job.kind !== ORDER_JOB_KIND.UpdateByMaker) return;
-                await ordersDomain.handleOrderUpdateByMaker(job.payload);
+                await ordersDomain.handleOrderUpdateByMaker(job.payload, {
+                    jobId: job.jobId,
+                    attempt: job.attempt ?? 0,
+                    scheduledAt: job.scheduledAt,
+                    traceId: job.traceId ?? null,
+                    consumerName: orderUpdateByMakerConsumerName,
+                });
             },
             {
                 apm: runtimeApm.apm,
