@@ -42,6 +42,8 @@ import {
 } from "../domain/order-jobs.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
+const ORDER_UPDATE_BY_MAKER_LEASE_EXTENSION_MS = 10_000;
+
 async function main() {
     try {
         const config = loadConfig();
@@ -123,6 +125,7 @@ async function main() {
                 queue: QUEUE_NAMES.OrdersUpdateByMaker,
                 consumerName: `orders-update-by-maker-${config.chainId}`,
                 maxInFlight: 1,
+                extendLeaseMs: ORDER_UPDATE_BY_MAKER_LEASE_EXTENSION_MS,
                 maxAttempts: 5,
                 deadLetterQueue: QUEUE_NAMES.DeadLetter,
             },
