@@ -9,8 +9,10 @@ import {
     TOKEN_SCOPED_MAKER_TRIGGER_REASON,
 } from "../src/domain/maker-triggers.js";
 import {
+    ORDER_SOURCE_STATUS,
     ORDER_STATUS,
     type OrderRecord,
+    type OrderSourceStatus,
     type OrderStatus,
 } from "../src/domain/orders.js";
 import type { OrderUpsertPayload } from "../src/domain/order-jobs.js";
@@ -45,6 +47,11 @@ describe("orders update by maker", () => {
         const chainId = 1;
         const fixture = await readFixture("item_listed.json");
         const order = await insertOrderFromFixture(chainId, fixture);
+        const inactiveOrder = await insertOrderFromFixture(chainId, fixture, {
+            orderId:
+                "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            sourceStatus: ORDER_SOURCE_STATUS.Inactive,
+        });
         const validatedOrderIds: string[] = [];
         const domain = new SqliteOrdersDomain(
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
@@ -72,6 +79,9 @@ describe("orders update by maker", () => {
         });
 
         expect(getFillabilityStatus(order.orderId)).toBe(ORDER_STATUS.Fillable);
+        expect(getFillabilityStatus(inactiveOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
         expect(validatedOrderIds).toEqual([order.orderId]);
     });
 
@@ -117,11 +127,59 @@ describe("orders update by maker", () => {
         expect(validatedOrderIds).toEqual([order.orderId]);
     });
 
-    it("revalidates only WETH buy orders for erc20-balance triggers", async () => {
+    it("revalidates only active actionable WETH buy orders for erc20-balance triggers", async () => {
         const chainId = 1;
         const buyFixture = await readFixture("item_received_bid.json");
         const buyOrder = await insertOrderFromFixture(chainId, buyFixture, {
             currency: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        });
+        const underfundedBuyOrder = await insertOrderFromFixture(
+            chainId,
+            buyFixture,
+            {
+                orderId:
+                    "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                maker: buyOrder.maker,
+                currency: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+            },
+        );
+        setOrderStatuses(underfundedBuyOrder.orderId, {
+            fillabilityStatus: ORDER_STATUS.NoBalance,
+        });
+        const inactiveBuyOrder = await insertOrderFromFixture(
+            chainId,
+            buyFixture,
+            {
+                orderId:
+                    "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                maker: buyOrder.maker,
+                currency: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                sourceStatus: ORDER_SOURCE_STATUS.Inactive,
+            },
+        );
+        const cancelledBuyOrder = await insertOrderFromFixture(
+            chainId,
+            buyFixture,
+            {
+                orderId:
+                    "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                maker: buyOrder.maker,
+                currency: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                sourceStatus: ORDER_SOURCE_STATUS.Cancelled,
+            },
+        );
+        const terminalBuyOrder = await insertOrderFromFixture(
+            chainId,
+            buyFixture,
+            {
+                orderId:
+                    "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                maker: buyOrder.maker,
+                currency: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+            },
+        );
+        setOrderStatuses(terminalBuyOrder.orderId, {
+            fillabilityStatus: ORDER_STATUS.Filled,
         });
 
         const sellFixture = await readFixture("item_listed.json");
@@ -136,10 +194,19 @@ describe("orders update by maker", () => {
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
             async (candidate) => {
                 validatedOrderIds.push(candidate.id);
-                if (candidate.id !== buyOrder.orderId) {
+                if (
+                    candidate.id !== buyOrder.orderId &&
+                    candidate.id !== underfundedBuyOrder.orderId
+                ) {
                     return {
                         status: ORDER_STATUS.Invalid,
                         reason: "unexpected-order-selection",
+                    };
+                }
+                if (candidate.id === underfundedBuyOrder.orderId) {
+                    return {
+                        status: ORDER_STATUS.Fillable,
+                        reason: "weth-balance-restored",
                     };
                 }
                 return {
@@ -163,10 +230,24 @@ describe("orders update by maker", () => {
         expect(getFillabilityStatus(buyOrder.orderId)).toBe(
             ORDER_STATUS.NoBalance,
         );
+        expect(getFillabilityStatus(underfundedBuyOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(getFillabilityStatus(inactiveBuyOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(getFillabilityStatus(cancelledBuyOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(getFillabilityStatus(terminalBuyOrder.orderId)).toBe(
+            ORDER_STATUS.Filled,
+        );
         expect(getFillabilityStatus(sellOrder.orderId)).toBe(
             ORDER_STATUS.Fillable,
         );
-        expect(validatedOrderIds).toEqual([buyOrder.orderId]);
+        expect(validatedOrderIds.sort()).toEqual(
+            [buyOrder.orderId, underfundedBuyOrder.orderId].sort(),
+        );
     });
 
     it("logs maker revalidation as one compact aggregate report", async () => {
@@ -288,6 +369,20 @@ describe("orders update by maker", () => {
         const chainId = 1;
         const fixture = await readFixture("item_received_bid.json");
         const order = await insertOrderFromFixture(chainId, fixture);
+        const noApprovalOrder = await insertOrderFromFixture(chainId, fixture, {
+            orderId:
+                "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            maker: order.maker,
+        });
+        setOrderStatuses(noApprovalOrder.orderId, {
+            fillabilityStatus: ORDER_STATUS.NoApproval,
+        });
+        const inactiveOrder = await insertOrderFromFixture(chainId, fixture, {
+            orderId:
+                "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            maker: order.maker,
+            sourceStatus: ORDER_SOURCE_STATUS.Inactive,
+        });
         const validatedOrderIds: string[] = [];
         const domain = new SqliteOrdersDomain(
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
@@ -314,7 +409,15 @@ describe("orders update by maker", () => {
         expect(getFillabilityStatus(order.orderId)).toBe(
             ORDER_STATUS.Cancelled,
         );
-        expect(validatedOrderIds).toEqual([order.orderId]);
+        expect(getFillabilityStatus(noApprovalOrder.orderId)).toBe(
+            ORDER_STATUS.Cancelled,
+        );
+        expect(getFillabilityStatus(inactiveOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(validatedOrderIds.sort()).toEqual(
+            [order.orderId, noApprovalOrder.orderId].sort(),
+        );
     });
 
     it("ignores maker triggers before the collection bootstrap anchor", async () => {
@@ -440,6 +543,29 @@ function getFillabilityStatus(orderId: string): string | null {
         .prepare<[string]>("SELECT fillability_status FROM orders WHERE id = ?")
         .get(orderId) as { fillability_status: string } | undefined;
     return row?.fillability_status ?? null;
+}
+
+function setOrderStatuses(
+    orderId: string,
+    statuses: {
+        sourceStatus?: OrderSourceStatus;
+        fillabilityStatus?: OrderStatus;
+    },
+): void {
+    db.prepare<{
+        orderId: string;
+        sourceStatus: string | null;
+        fillabilityStatus: string | null;
+    }>(
+        "UPDATE orders SET " +
+            "source_status = COALESCE(@sourceStatus, source_status), " +
+            "fillability_status = COALESCE(@fillabilityStatus, fillability_status) " +
+            "WHERE id = @orderId",
+    ).run({
+        orderId,
+        sourceStatus: statuses.sourceStatus ?? null,
+        fillabilityStatus: statuses.fillabilityStatus ?? null,
+    });
 }
 
 function createUnusedValidator() {
