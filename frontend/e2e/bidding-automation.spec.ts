@@ -297,12 +297,20 @@ test.describe('bidding automation fixture harness', () => {
 		await installBiddingAutomationApiMock(page);
 		await openHarnessPage(page, `${COLLECTION_PATH}/101`);
 
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'show bidding panel' })).toHaveCount(0);
 		await expect(page.getByRole('button', { name: /^place bid on collection/ })).toHaveCount(0);
 		await page.getByRole('button', { name: 'bid on token' }).click();
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toContainText('#101');
+		await page.getByRole('button', { name: 'hide' }).click();
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'show bidding panel' })).toHaveCount(0);
 
 		await page.getByRole('button', { name: 'place bid on Zone=Shahra' }).click();
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toContainText('Zone=Shahra');
+		await page.getByRole('button', { name: 'hide' }).click();
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'show bidding panel' })).toHaveCount(0);
 
 		const traitRowBid = page.locator(`[data-testid="${TEST_IDS.BidBookRowBid}"][data-traits="Biome=42"]`).first();
 		await traitRowBid.click();
@@ -332,7 +340,9 @@ test.describe('bidding automation fixture harness', () => {
 
 		await page.getByRole('button', { name: 'place bid on #101' }).first().click();
 		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toContainText('#101');
-		await expect(page.getByRole('button', { name: 'hide' })).toHaveCount(0);
+		await page.getByRole('button', { name: 'hide' }).click();
+		await expect(page.locator(`[data-testid="${TEST_IDS.BiddingPanel}"]`)).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'show bidding panel' })).toHaveCount(0);
 	});
 
 	test('supports panel tier pricing and floating panel keybindings', async ({ page }) => {

@@ -97,6 +97,8 @@
 	let tokenBiddingJob = $state<ApiBiddingJob | null>(data?.tokenBiddingJob ?? null);
 	let selectedTokenBidBookBid = $state<ApiBiddingBidBookRow | null>(null);
 	let selectedTokenTraitTarget = $state<ApiTokenDetailTrait | null>(null);
+	let tokenBiddingPanelOpen = $state(false);
+	let tokenBiddingPanelExpandSignal = $state(0);
 	let tokenDetailRequestId = 0;
 	const tokenBiddingDraft = $derived(resolveTokenBiddingDraft());
 
@@ -107,6 +109,7 @@
 		tokenBiddingJob = data?.tokenBiddingJob ?? null;
 		selectedTokenBidBookBid = null;
 		selectedTokenTraitTarget = null;
+		tokenBiddingPanelOpen = false;
 		tokenDetailRequestId += 1;
 	});
 
@@ -258,16 +261,28 @@
 	function onBidBookSelectBid(bid: ApiBiddingBidBookRow): void {
 		selectedTokenBidBookBid = bid;
 		selectedTokenTraitTarget = null;
+		openTokenBiddingPanel();
 	}
 
 	function bidOnDisplayedToken(): void {
 		selectedTokenBidBookBid = null;
 		selectedTokenTraitTarget = null;
+		openTokenBiddingPanel();
 	}
 
 	function bidOnTokenTrait(trait: ApiTokenDetailTrait): void {
 		selectedTokenBidBookBid = null;
 		selectedTokenTraitTarget = trait;
+		openTokenBiddingPanel();
+	}
+
+	function openTokenBiddingPanel(): void {
+		tokenBiddingPanelOpen = true;
+		tokenBiddingPanelExpandSignal += 1;
+	}
+
+	function closeTokenBiddingPanel(): void {
+		tokenBiddingPanelOpen = false;
 	}
 
 	function tokenTraitBidLabel(trait: ApiTokenDetailTrait): string {
@@ -672,7 +687,7 @@
 
 		{#if shouldShowTokenBiddingAutomation()}
 			<BiddingAutomationPanel
-				open
+				open={tokenBiddingPanelOpen}
 				chain={data?.chain ?? null}
 				collection={data?.collection ?? null}
 				token={displayedToken}
@@ -681,6 +696,9 @@
 				bidBook={data?.tokenBiddingBidBook ?? emptyBiddingBidBook()}
 				biddingSettings={data?.biddingSettings ?? defaultBiddingCollectionSettings()}
 				priceTiers={data?.priceTiers ?? []}
+				expandSignal={tokenBiddingPanelExpandSignal}
+				showCollapsedLauncher={false}
+				onClose={closeTokenBiddingPanel}
 				onJobChange={onTokenBiddingJobChange}
 			/>
 		{/if}

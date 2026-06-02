@@ -266,12 +266,13 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady/bidding?media_mode=artifact&amp;bid_scope=traits&amp;maker=0xcccccccccccccccccccccccccccccccccccccccc'
 		);
-		expect(body).toContain('role="dialog" aria-label="bidding automation"');
-		expect(body).toContain('token bidding');
-		expect(body).toContain('value="0.101"');
-		expect(body).toContain('value="0.001"');
-		expect(body).toContain('>create<');
-		expect(body).toContain('>hide<');
+		expect(body).not.toContain('role="dialog" aria-label="bidding automation"');
+		expect(body).not.toContain('bidding-automation-panel-collapsed');
+		expect(body).not.toContain('token bidding');
+		expect(body).not.toContain('value="0.101"');
+		expect(body).not.toContain('value="0.001"');
+		expect(body).not.toContain('>create<');
+		expect(body).not.toContain('>hide<');
 		expect(body).not.toContain('>use<');
 	});
 
@@ -380,11 +381,13 @@ describe('token detail page', () => {
 		expect(body).toContain(
 			'/ethereum/milady?limit=250&amp;mode=grid&amp;token_status=listed&amp;media_mode=artifact&amp;traits=Hat%3ABeanie'
 		);
-		expect(body).toContain('token bidding');
-		expect(body).toContain('value="0.1"');
-		expect(body).toContain('value="0.2"');
-		expect(body).toContain('value="0.01"');
-		expect(body).toContain('>modify<');
+		expect(body).not.toContain('role="dialog" aria-label="bidding automation"');
+		expect(body).not.toContain('bidding-automation-panel-collapsed');
+		expect(body).not.toContain('token bidding');
+		expect(body).not.toContain('value="0.1"');
+		expect(body).not.toContain('value="0.2"');
+		expect(body).not.toContain('value="0.01"');
+		expect(body).not.toContain('>modify<');
 	});
 
 	it('keeps token-local lost mode out of collection navigation links', () => {

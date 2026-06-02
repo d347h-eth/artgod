@@ -68,6 +68,7 @@
 		biddingSettings = defaultBiddingCollectionSettings(),
 		priceTiers = [],
 		expandSignal = 0,
+		showCollapsedLauncher = true,
 		onClose = null,
 		onJobChange = null,
 		onJobsChange = null
@@ -82,6 +83,7 @@
 		biddingSettings?: ApiBiddingCollectionSettings;
 		priceTiers?: ApiBiddingPriceTier[];
 		expandSignal?: number;
+		showCollapsedLauncher?: boolean;
 		onClose?: (() => void) | null;
 		onJobChange?: ((job: ApiBiddingJob | null) => void) | null;
 		onJobsChange?: ((jobs: ApiBiddingJob[]) => void) | null;
@@ -236,6 +238,10 @@
 	}
 
 	function hidePanel(): void {
+		if (!showCollapsedLauncher) {
+			onClose?.();
+			return;
+		}
 		panelCollapsed = true;
 	}
 
@@ -584,7 +590,7 @@
 	onfocusin={onWindowFocusIn}
 />
 
-{#if open && panelCollapsed}
+{#if open && panelCollapsed && showCollapsedLauncher}
 	<button
 		type="button"
 		class="bidding-automation-panel-collapsed"
@@ -594,7 +600,7 @@
 	>
 		<PlaceBidIcon className="bidding-automation-panel-collapsed-icon" />
 	</button>
-{:else if open}
+{:else if open && !panelCollapsed}
 	<div
 		class="runtime-section bidding-automation-panel"
 		data-testid={TEST_IDS.BiddingPanel}
