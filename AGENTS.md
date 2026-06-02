@@ -43,6 +43,11 @@ For implementation details, use:
 - Do not duplicate project status text from `README.md` into this file.
 - Do not introduce user-specific absolute filesystem paths in docs or code comments.
   Prefer workspace-relative paths or environment variables.
+- Apply instructions through first-principles engineering judgment. When a
+  literal reading of any instruction conflicts with SOLID, separation of
+  concerns, dependency direction, domain ownership, semantic correctness, or the
+  existing architecture, do not follow it blindly; state the conflict and
+  preserve the stronger engineering principle.
 - Always plan and implement new code using Hexagonal Architecture (Ports & Adapters).
 - Keep top-level runtime flows linear and readable; separate business actions into named helpers.
 - Avoid mixing unrelated concerns in one block; use clear naming and spacing.
