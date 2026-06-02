@@ -51,9 +51,6 @@ export class BiddingJobCommandReconciler {
                 claimTimeoutMs: this.options.claimTimeoutMs,
             });
             if (commands.length === 0) {
-                log.debug("noPendingCommands", "No pending bidding job commands", {
-                    trigger,
-                });
                 return 0;
             }
 

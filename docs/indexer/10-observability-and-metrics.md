@@ -13,7 +13,7 @@ It also records known limitations and what is still missing for complete trace-t
 
 Current setup is local-first and split by signal type:
 
-- Logs: local backend API, frontend SSR, and indexer runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
+- Logs: local backend API, frontend SSR, indexer, and trading bot runtimes write JSON log files to `tmp/logs/*.log`; deploy containers are discovered by Alloy through Docker labels.
 - Metrics: backend API and indexer runtimes expose `/metrics` over HTTP; Prometheus scrapes them and Grafana reads Prometheus.
 - Traces: backend API and indexer runtimes send OTLP traces directly to Tempo (`:42732`), and Grafana reads Tempo.
 - Profiles: backend API and indexer runtimes send profiles directly to Pyroscope (`:42733`), and Grafana reads Pyroscope.
@@ -35,7 +35,7 @@ Observability containers run behind the `observability` compose profile in `dock
 
 `docker-compose.deploy.yml` defines the same signal stores behind its own `observability` profile, but uses deploy-specific wiring:
 
-- `grafana` joins the external `public-edge` network with alias `artgod-grafana` and listens on container port `42735`.
+- `grafana` is exposed by host bind only and listens on container port `42735`.
 - Prometheus scrapes `backend:42740` and indexer worker service names such as `indexer-sync-worker:42742` using `observability/prometheus/deploy-prometheus.yml`.
 - Grafana datasources use compose service names from `observability/grafana/provisioning-deploy/datasources`.
 - Alloy uses Docker discovery through a read-only Docker socket and keeps only containers labeled `com.artgod.observability.logs=true`.
@@ -48,8 +48,11 @@ Observability containers run behind the `observability` compose profile in `dock
 - Desktop supervisor logs under app-data also use JSON Lines: structured
   backend/indexer/trading payloads stay parseable at line start, and plain
   child-process output is wrapped before it is written.
+  The local observability setup expects the app-data log path to be exposed
+  through the shared `tmp/logs` root, so trading bot files such as
+  `trading-bidding-bot.log` are visible to Alloy without a separate mount.
 - Alloy config in `observability/alloy/config.alloy`:
-    - `local.file_match` targets `/var/log/artgod/backend-api.log`, `/var/log/artgod/frontend-web.log`, and `/var/log/artgod/indexer-*.log`.
+    - `local.file_match` targets `/var/log/artgod/backend-api.log`, `/var/log/artgod/frontend-web.log`, `/var/log/artgod/indexer-*.log`, and `/var/log/artgod/trading-*.log`.
     - `loki.source.file` tails from end.
     - JSON parsing extracts `t`, `level`, `component`, `action`.
     - Loki labels include `level`, `component`, `action`.
@@ -415,7 +418,7 @@ The profile type is intentionally `wall:cpu...` for Node workers, not `process_c
 
 ### Logs
 
-- If logs do not appear in Grafana Explore, verify `scripts/backend-dev.sh`, `scripts/frontend-dev.sh`, and/or `scripts/indexer-dev.sh` are writing into `tmp/logs` and Alloy is mounted to that same host path.
+- If logs do not appear in Grafana Explore, verify `scripts/backend-dev.sh`, `scripts/frontend-dev.sh`, `scripts/indexer-dev.sh`, and/or the desktop supervisor are writing into `tmp/logs` and Alloy is mounted to that same host path.
 - After triggering a frontend SSR page that calls the backend API, run `./scripts/check-observability-log-ingestion.sh` to verify Loki has both frontend SSR backend-fetch logs and backend API query-cache logs.
 - Use `ssrBackendRequestId` in Loki to correlate `FrontendSSR/backend_api_response` entries with `BackendApi/query_cache_response` entries for the same backend call.
 - Browser response headers on an SSR-rendered page show the aggregate query-cache summary forwarded by the SSR route load. Exact backend subrequest headers are recorded in the backend and frontend SSR Loki log payloads.
