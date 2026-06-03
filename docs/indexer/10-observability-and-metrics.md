@@ -51,6 +51,9 @@ Observability containers run behind the `observability` compose profile in `dock
   The local observability setup expects the app-data log path to be exposed
   through the shared `tmp/logs` root, so trading bot files such as
   `trading-bidding-bot.log` are visible to Alloy without a separate mount.
+  Known desktop runtime log files are provisioned when the app-data log
+  directory is initialized, without truncating existing files, so Alloy can tail
+  late-started wallet-bound bot logs while still using `tail_from_end`.
 - Alloy config in `observability/alloy/config.alloy`:
     - `local.file_match` targets `/var/log/artgod/backend-api.log`, `/var/log/artgod/frontend-web.log`, `/var/log/artgod/indexer-*.log`, and `/var/log/artgod/trading-*.log`.
     - `loki.source.file` tails from end.

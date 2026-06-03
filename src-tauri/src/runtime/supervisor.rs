@@ -19,11 +19,12 @@ use crate::runtime::bot_runtime::{
     bot_runtime_spec,
 };
 use crate::runtime::config::DesktopRuntimeConfig;
+use crate::runtime::process_registry::{
+    BACKEND_ARTIFACT, BACKEND_PROCESS_NAME, INDEXER_WORKERS, NATS_PROCESS_NAME,
+    SUPERVISOR_PROCESS_NAME,
+};
 use crate::wallet::domain::BotKind;
 
-const BACKEND_PROCESS_NAME: &str = "backend";
-const NATS_PROCESS_NAME: &str = "nats";
-const SUPERVISOR_PROCESS_NAME: &str = "desktop-supervisor";
 const STARTUP_PORT_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_RUNTIME_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -34,58 +35,6 @@ const STARTUP_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(150);
 const BOT_START_SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
 // Once bootstrapping started, long warmup is allowed as long as the bot keeps reporting progress.
 const BOT_BOOTSTRAP_STALL_TIMEOUT: Duration = Duration::from_secs(180);
-
-const BACKEND_ARTIFACT: &str = "backend/dist-desktop/server.mjs";
-const INDEXER_WORKERS: &[(&str, &str)] = &[
-    (
-        "indexer-scheduler-worker",
-        "indexer/dist-desktop/scheduler-worker.mjs",
-    ),
-    (
-        "indexer-sync-worker",
-        "indexer/dist-desktop/sync-worker.mjs",
-    ),
-    (
-        "indexer-reorg-worker",
-        "indexer/dist-desktop/reorg-worker.mjs",
-    ),
-    (
-        "indexer-domain-worker",
-        "indexer/dist-desktop/domain-worker.mjs",
-    ),
-    (
-        "indexer-offchain-ingest-worker",
-        "indexer/dist-desktop/offchain-ingest-worker.mjs",
-    ),
-    (
-        "indexer-opensea-stream-worker",
-        "indexer/dist-desktop/opensea-stream-worker.mjs",
-    ),
-    (
-        "indexer-opensea-bootstrap-worker",
-        "indexer/dist-desktop/opensea-bootstrap-worker.mjs",
-    ),
-    (
-        "indexer-opensea-reconcile-worker",
-        "indexer/dist-desktop/opensea-reconcile-worker.mjs",
-    ),
-    (
-        "indexer-opensea-reconcile-scheduler-worker",
-        "indexer/dist-desktop/opensea-reconcile-scheduler-worker.mjs",
-    ),
-    (
-        "indexer-bootstrap-worker",
-        "indexer/dist-desktop/bootstrap-worker.mjs",
-    ),
-    (
-        "indexer-collection-extension-worker",
-        "indexer/dist-desktop/collection-extension-worker.mjs",
-    ),
-    (
-        "indexer-dead-letter-worker",
-        "indexer/dist-desktop/dead-letter-worker.mjs",
-    ),
-];
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

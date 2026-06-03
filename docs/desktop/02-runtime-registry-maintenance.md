@@ -37,6 +37,7 @@ If a worker is missing here, no `dist-desktop` artifact is produced for desktop 
 
 File:
 
+- `src-tauri/src/runtime/process_registry.rs`
 - `src-tauri/src/runtime/supervisor.rs`
 
 What is explicit here:
@@ -44,6 +45,8 @@ What is explicit here:
 - `BACKEND_ARTIFACT`
 - `INDEXER_WORKERS` list of `(process_name, artifact_relative_path)`
 - `BOT_RUNTIME_SPECS` list of wallet-bound bot process names, artifacts, and critical dependencies
+- expected app-data log filenames are derived from the same registry so
+  late-started wallet-bound bot logs exist before Alloy tails them
 
 Supervisor uses these lists to spawn, monitor, and log runtime processes.
 
@@ -183,6 +186,7 @@ When adding a new trading bot runtime (example `foo-bot`):
 
 4. Add supervisor bot spec.
    : Add the process name, artifact path, and critical dependency list in `src-tauri/src/runtime/bot_runtime.rs`.
+   : The app-data log file is provisioned automatically from `BOT_RUNTIME_SPECS`.
 
 5. Sync admin/UI contracts if needed.
    : Update `src-tauri/src/wallet/tauri/bot_commands.rs` and `frontend/src/lib/admin/bots/**` if the new bot kind must be operator-visible.
@@ -222,7 +226,7 @@ yarn check:runtime-registry
 rg -n "dev:.*worker" indexer/package.json
 rg -n "start_worker" scripts/indexer-dev.sh
 rg -n "entryPoints|worker" scripts/build/build-runtime-artifacts.mjs
-rg -n "INDEXER_WORKERS|BACKEND_ARTIFACT" src-tauri/src/runtime/supervisor.rs
+rg -n "INDEXER_WORKERS|BACKEND_ARTIFACT" src-tauri/src/runtime/process_registry.rs
 rg -n "INDEXER_METRICS_PORT_|metrics\\.ports" indexer/src/config/observability-env.ts config/settings.manifest.toml .env.example
 rg -n "runtime:|946" observability/prometheus/prometheus.yml
 ```

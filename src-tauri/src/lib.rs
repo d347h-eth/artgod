@@ -330,6 +330,7 @@ pub fn run() {
             let bot_state = BotCommandState::load(&app.handle()).map_err(std::io::Error::other)?;
             app.manage(bot_state);
 
+            ensure_desktop_config_paths(app.handle()).map_err(std::io::Error::other)?;
             append_desktop_log(app.handle(), "info", "Desktop app setup started");
             append_desktop_log(
                 app.handle(),
@@ -543,18 +544,8 @@ fn resolve_userland_ui_url(app: &AppHandle, state: &DesktopState) -> Result<Stri
 }
 
 fn resolve_logs_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
-    let logs_dir = app_data_dir.join("logs");
-    fs::create_dir_all(&logs_dir).map_err(|error| {
-        format!(
-            "Failed to create logs directory {}: {error}",
-            logs_dir.display()
-        )
-    })?;
-    Ok(logs_dir)
+    let paths = ensure_desktop_config_paths(app)?;
+    Ok(paths.logs_dir)
 }
 
 fn collect_logs_tail(logs_dir: &Path, limit: usize) -> Result<Vec<RuntimeLogLine>, String> {

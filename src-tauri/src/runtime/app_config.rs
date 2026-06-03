@@ -11,6 +11,7 @@ use uuid::Uuid;
 use super::app_config_manifest::{
     AppConfigManifestModel, AppConfigManifestSetting, load_app_config_manifest,
 };
+use super::log_files::ensure_runtime_log_files;
 
 const SETTINGS_VERSION: u8 = 1;
 
@@ -107,6 +108,7 @@ pub fn ensure_desktop_config_paths(app: &AppHandle) -> Result<DesktopConfigPaths
     })?;
     fs::create_dir_all(&logs_dir)
         .map_err(|error| format!("Failed to create logs dir {}: {error}", logs_dir.display()))?;
+    ensure_runtime_log_files(&logs_dir)?;
 
     Ok(DesktopConfigPaths {
         app_data_dir,

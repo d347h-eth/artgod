@@ -2,6 +2,8 @@ mod app_config;
 mod app_config_manifest;
 mod bot_runtime;
 mod config;
+mod log_files;
+mod process_registry;
 mod supervisor;
 
 pub use app_config::{

@@ -19,12 +19,12 @@ const DESKTOP_RESOURCE_SCRIPT_PATH = path.join(
     "build",
     "prepare-desktop-runtime-resources.mjs",
 );
-const SUPERVISOR_PATH = path.join(
+const PROCESS_REGISTRY_PATH = path.join(
     rootDir,
     "src-tauri",
     "src",
     "runtime",
-    "supervisor.rs",
+    "process_registry.rs",
 );
 const BOT_RUNTIME_PATH = path.join(
     rootDir,
@@ -147,7 +147,7 @@ async function parseBuildTradingArtifacts() {
 }
 
 async function parseSupervisorWorkers() {
-    const source = await readFile(SUPERVISOR_PATH, "utf8");
+    const source = await readFile(PROCESS_REGISTRY_PATH, "utf8");
     const processNames = new Set();
     const artifactNames = new Set();
     const pattern =
@@ -159,7 +159,7 @@ async function parseSupervisorWorkers() {
     }
 
     if (artifactNames.size === 0) {
-        throw new Error("Failed to parse INDEXER_WORKERS from supervisor.rs");
+        throw new Error("Failed to parse INDEXER_WORKERS from process_registry.rs");
     }
 
     return { processNames, artifactNames };
@@ -292,13 +292,13 @@ async function main() {
     const metricsEnvVars = await parseMetricsEnvVars();
 
     assertNoMissingEntries({
-        source: "supervisor INDEXER_WORKERS artifacts",
+        source: "desktop process registry INDEXER_WORKERS artifacts",
         expected: runtimeWorkers,
         actual: supervisorWorkers,
         errors,
     });
     assertNoUnknownEntries({
-        source: "supervisor INDEXER_WORKERS artifacts",
+        source: "desktop process registry INDEXER_WORKERS artifacts",
         expected: runtimeWorkers,
         actual: supervisorWorkers,
         errors,
@@ -358,13 +358,13 @@ async function main() {
         [...runtimeWorkers].map((name) => `indexer-${name}`),
     );
     assertNoMissingEntries({
-        source: "supervisor INDEXER_WORKERS process names",
+        source: "desktop process registry INDEXER_WORKERS process names",
         expected: expectedProcessNames,
         actual: supervisorProcessNames,
         errors,
     });
     assertNoUnknownEntries({
-        source: "supervisor INDEXER_WORKERS process names",
+        source: "desktop process registry INDEXER_WORKERS process names",
         expected: expectedProcessNames,
         actual: supervisorProcessNames,
         errors,

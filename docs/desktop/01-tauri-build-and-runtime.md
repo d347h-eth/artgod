@@ -418,6 +418,11 @@ Supervisor captures stdout/stderr from each child process and writes:
 
 - `<app-data>/logs/<process>.log`
 
+The desktop app provisions expected runtime log files when the app-data log
+directory is initialized. Provisioning is create-if-missing only; it does not
+truncate existing user logs. This lets Alloy attach to staged-but-not-yet-started
+wallet-bound bot log files before the operator unlocks and starts the bot.
+
 Log files are JSON Lines. When backend/indexer/trading runtimes emit structured
 JSON, the supervisor keeps the JSON payload at the start of the line and adds
 bounded `process` and `stream` fields. It must not prepend text such as
