@@ -87,6 +87,19 @@ Startup order:
 `trading_bot_runtime_state` stores non-secret bot heartbeat state.
 Backend bid-book reads use it to decide whether the bot snapshot projection can be treated as live.
 
+## Runtime Logging
+
+The bidding bot emits JSON Lines through the shared ArtGod logger. Every
+operator-facing runtime log sets stable `component` and `action` fields for
+Alloy/Loki labels, and puts job, collection, token, offer, transaction,
+snapshot, retry, and error details into dedicated JSON payload fields.
+
+Lifecycle payloads such as `bot_bootstrapping` and `bot_ready` remain the
+supervisor control protocol and are separate from diagnostic log entries.
+
+Bot logs must never include wallet private keys, secret-envelope payloads,
+OpenSea secret keys, or raw OpenSea request/stream payloads.
+
 ## Job Persistence
 
 SQLite is the only supported declared-job source.

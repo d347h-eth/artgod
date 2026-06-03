@@ -13,7 +13,11 @@ import {
     tradingJobSignalStreamName,
     type TradingBiddingJobsChangedSignal,
 } from "@artgod/shared/types";
-import { biddingLog } from "../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../utils/bidding-log.js";
 
 export type BiddingJobCommandSignalListenerConfig = {
     natsUrl: string;
@@ -28,6 +32,10 @@ export type BiddingJobCommandSignalHandler = (
 export type BiddingJobCommandSignalListenerHandle = {
     shutdown(): Promise<void>;
 };
+
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.BiddingCommandSignalListener,
+);
 
 export class NatsBiddingJobCommandSignalListener {
     private readonly streamName: string;
@@ -71,10 +79,10 @@ export class NatsBiddingJobCommandSignalListener {
                     try {
                         signal = codec.decode(message.data);
                     } catch (error) {
-                        const detail =
-                            error instanceof Error ? error.message : String(error);
-                        biddingLog.warn(
-                            `[BiddingJobCommandSignal] Dropping invalid signal payload. error=${detail}`,
+                        log.warn(
+                            "invalidSignalPayload",
+                            "Dropping invalid bidding job signal payload",
+                            toErrorLogFields(error),
                         );
                         message.term();
                         return;
@@ -84,24 +92,27 @@ export class NatsBiddingJobCommandSignalListener {
                         signal.kind !==
                         TRADING_JOB_SIGNAL_KIND.BiddingJobsChanged
                     ) {
-                        biddingLog.warn(
-                            `[BiddingJobCommandSignal] Dropping unsupported signal kind=${String(signal.kind)}`,
+                        log.warn(
+                            "unsupportedSignalKind",
+                            "Dropping unsupported bidding job signal kind",
+                            { signalKind: String(signal.kind) },
                         );
                         message.term();
                         return;
                     }
 
                     try {
-                        biddingLog.info(
-                            `[BiddingJobCommandSignal] Received bidding job wake-up. commands=${signal.commandIds.length}, jobs=${signal.jobIds.length}`,
-                        );
+                        log.info("signalReceived", "Received bidding job wake-up signal", {
+                            commandCount: signal.commandIds.length,
+                            jobCount: signal.jobIds.length,
+                        });
                         await handler(signal);
                         message.ack();
                     } catch (error) {
-                        const detail =
-                            error instanceof Error ? error.message : String(error);
-                        biddingLog.warn(
-                            `[BiddingJobCommandSignal] Signal handling failed; message will be retried. error=${detail}`,
+                        log.warn(
+                            "signalHandlingFailed",
+                            "Bidding job signal handling failed; message will be retried",
+                            toErrorLogFields(error),
                         );
                         message.nak();
                     }

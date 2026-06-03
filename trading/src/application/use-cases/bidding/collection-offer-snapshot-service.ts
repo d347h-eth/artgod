@@ -1,4 +1,8 @@
-import { biddingLog } from "../../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../../utils/bidding-log.js";
 import { sleep } from "../../../utils/sleep.js";
 
 export interface CollectionOfferSnapshot {
@@ -47,6 +51,10 @@ interface CollectionRefreshState {
     pendingReason?: string;
     inFlightPromise?: Promise<void>;
 }
+
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.CollectionOfferSnapshotService,
+);
 
 // Maintains authoritative collection offer snapshots with deduped refreshes per collection.
 export class CollectionOfferSnapshotService
@@ -126,9 +134,10 @@ export class CollectionOfferSnapshotService
         }
 
         this.watchedCollectionSlugs.add(collectionSlug);
-        biddingLog.info(
-            `[CollectionOfferSnapshotService] Added watched collection ${collectionSlug}. watchedCollections=${this.watchedCollectionSlugs.size}`,
-        );
+        log.info("collectionWatched", "Added watched collection", {
+            collectionSlug,
+            watchedCollectionCount: this.watchedCollectionSlugs.size,
+        });
         if (this.started && !this.pollTimer) {
             this.scheduleNextPoll();
         }
@@ -141,9 +150,10 @@ export class CollectionOfferSnapshotService
             return false;
         }
 
-        biddingLog.info(
-            `[CollectionOfferSnapshotService] Removed watched collection ${collectionSlug}. watchedCollections=${this.watchedCollectionSlugs.size}`,
-        );
+        log.info("collectionUnwatched", "Removed watched collection", {
+            collectionSlug,
+            watchedCollectionCount: this.watchedCollectionSlugs.size,
+        });
         if (this.watchedCollectionSlugs.size === 0 && this.pollTimer) {
             clearTimeout(this.pollTimer);
             this.pollTimer = undefined;
@@ -187,11 +197,11 @@ export class CollectionOfferSnapshotService
         void this.refreshAndWait(collectionSlug, reason, {
             respectTtl: true,
         }).catch((error: unknown) => {
-            const message =
-                error instanceof Error ? error.message : String(error);
-            biddingLog.error(
-                `[CollectionOfferSnapshotService] Failed to refresh ${collectionSlug} (reason=${reason}): ${message}`,
-            );
+            log.error("refreshFailed", "Collection offer snapshot refresh failed", {
+                collectionSlug,
+                reason,
+                ...toErrorLogFields(error),
+            });
         });
     }
 
@@ -229,8 +239,14 @@ export class CollectionOfferSnapshotService
             return false;
         }
 
-        biddingLog.debug(
-            `[CollectionOfferSnapshotService] Waiting for in-flight ${collectionSlug} refresh before deciding TTL skip: reason=${reason}, ttlMs=${this.refreshTtlMs}`,
+        log.debug(
+            "waitForFreshInFlightRefresh",
+            "Waiting for in-flight collection offer snapshot refresh",
+            {
+                collectionSlug,
+                reason,
+                ttlMs: this.refreshTtlMs,
+            },
         );
         await state.inFlightPromise;
         if (!this.isSnapshotFresh(collectionSlug)) {
@@ -243,9 +259,12 @@ export class CollectionOfferSnapshotService
 
     private logFreshSnapshotSkip(collectionSlug: string, reason: string): void {
         const snapshotAgeMs = this.getSnapshotAgeMs(collectionSlug);
-        biddingLog.debug(
-            `[CollectionOfferSnapshotService] Skipping ${collectionSlug} refresh: reason=${reason}, snapshotAgeMs=${snapshotAgeMs}, ttlMs=${this.refreshTtlMs}`,
-        );
+        log.debug("freshSnapshotSkipped", "Skipping fresh collection offer snapshot refresh", {
+            collectionSlug,
+            reason,
+            snapshotAgeMs,
+            ttlMs: this.refreshTtlMs,
+        });
     }
 
     private async refreshCollection(
@@ -447,8 +466,15 @@ export class CollectionOfferSnapshotService
             }
         }
 
-        biddingLog.debug(
-            `[CollectionOfferSnapshotService] Refreshed ${collectionSlug}: reason=${reason}, total=${offers.length}, collectionWide=${collectionWideLike}, criteria=${criteriaOffers}, multiTrait=${multiTraitOffers}, explicitItem=${explicitItemOffers}, traitTypes=${Array.from(seenTraitTypes).sort().join("|") || "none"}`,
-        );
+        log.debug("snapshotRefreshed", "Collection offer snapshot refreshed", {
+            collectionSlug,
+            reason,
+            offerCount: offers.length,
+            collectionWideOfferCount: collectionWideLike,
+            criteriaOfferCount: criteriaOffers,
+            multiTraitOfferCount: multiTraitOffers,
+            explicitItemOfferCount: explicitItemOffers,
+            traitTypes: Array.from(seenTraitTypes).sort(),
+        });
     }
 }

@@ -7,7 +7,11 @@ import {
     retry,
 } from "../support/retry.js";
 import { TokenBucketRateLimiter } from "../support/token-bucket-rate-limiter.js";
-import { biddingLog } from "../../utils/bidding-log.js";
+import {
+    BIDDING_LOG_COMPONENT,
+    createBiddingComponentLogger,
+    toErrorLogFields,
+} from "../../utils/bidding-log.js";
 import { OpenSeaApiClient } from "./open-sea-client.js";
 import { BIDDING_DEFAULT_OPEN_SEA_OFFERS_PAGE_SIZE } from "../../config/bidding-defaults.js";
 
@@ -16,6 +20,10 @@ export interface OpenSeaCollectionOfferSourceOptions {
     retryPolicy?: RetryPolicy;
     rateLimiter?: TokenBucketRateLimiter;
 }
+
+const log = createBiddingComponentLogger(
+    BIDDING_LOG_COMPONENT.OpenSeaCollectionOfferSource,
+);
 
 // OpenSeaCollectionOfferSource is the snapshot lane adapter used by the shared collection offer cache.
 export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
@@ -60,9 +68,11 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
                 this.retryPolicy,
                 {
                     onRetry: ({ attempt, error }) => {
-                        biddingLog.info(
-                            `[OpenSeaCollectionOfferSource] Failed to get all offers for ${collectionSlug} (attempt ${attempt}): ${toErrorMessage(error)}`,
-                        );
+                        log.info("getAllOffersRetry", "Retrying OpenSea all-offers request", {
+                            collectionSlug,
+                            attempt,
+                            ...toErrorLogFields(error),
+                        });
                     },
                 },
             );
@@ -76,9 +86,10 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
             }
 
             if (seenCursors.has(next)) {
-                biddingLog.error(
-                    `[OpenSeaCollectionOfferSource] Pagination loop detected for ${collectionSlug}. Stopping.`,
-                );
+                log.error("paginationLoopDetected", "OpenSea all-offers pagination loop detected", {
+                    collectionSlug,
+                    cursor: next,
+                });
                 break;
             }
 
@@ -92,8 +103,4 @@ export class OpenSeaCollectionOfferSource implements CollectionOfferSource {
 
 function asArray(value: unknown): unknown[] {
     return Array.isArray(value) ? value : [];
-}
-
-function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
