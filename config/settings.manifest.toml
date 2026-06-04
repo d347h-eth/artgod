@@ -357,6 +357,15 @@ default = "1500"
 targets = ["local", "desktop"]
 
 [[settings]]
+key = "DESKTOP_LOG_RETENTION_HOURS"
+group = "desktop-runtime"
+label = "desktop log retention hours"
+default = "48"
+targets = ["local", "desktop"]
+help = "How long desktop app-data log files are retained. Logs are split by UTC day; 48 keeps current-day and previous-day files."
+validation = "positive_integer"
+
+[[settings]]
 key = "DESKTOP_WALLET_STORE_DIR"
 group = "desktop-runtime"
 label = "desktop wallet store dir"

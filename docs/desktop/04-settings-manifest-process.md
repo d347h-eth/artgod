@@ -53,7 +53,7 @@ Optional fields:
 - `view`: `basic` or `advanced`; absent settings default to advanced-only UI.
 - `input`: `text`, `password`, `checkbox`, `textarea`, or `select`.
 - `options`: allowed values for `select`.
-- `validation`: currently `url` or `websocket_url`.
+- `validation`: currently `url`, `websocket_url`, or `positive_integer`.
 - `required_for_launch`: blocks `start infra` when the effective desktop value is empty or invalid.
 - `desktop_managed`: set `false` for settings that are known to the app but should not be shown or rendered by desktop Admin.
 - `secret`: marks sensitive settings in the Admin schema.

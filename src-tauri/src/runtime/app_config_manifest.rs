@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 const SETTINGS_MANIFEST_VERSION: u8 = 1;
 const SETTINGS_MANIFEST: &str = include_str!("../../../config/settings.manifest.toml");
-const SUPPORTED_VALIDATION_RULES: &[&str] = &["url", "websocket_url"];
+const SUPPORTED_VALIDATION_RULES: &[&str] = &["url", "websocket_url", "positive_integer"];
 const SUPPORTED_TARGETS: &[&str] = &["local", "deploy", "desktop"];
 
 /// Validated Admin configuration schema embedded into the desktop binary.
@@ -350,5 +350,24 @@ mod tests {
 
         assert!(!setting.required_for_launch);
         assert_eq!(setting.validation.as_deref(), Some("websocket_url"));
+    }
+
+    #[test]
+    fn manifest_marks_desktop_log_retention_positive_integer() {
+        let model = load_app_config_manifest().expect("load settings manifest");
+        let setting = model
+            .settings
+            .iter()
+            .find(|setting| setting.key == "DESKTOP_LOG_RETENTION_HOURS")
+            .expect("DESKTOP_LOG_RETENTION_HOURS setting");
+
+        assert_eq!(
+            model
+                .defaults
+                .get("DESKTOP_LOG_RETENTION_HOURS")
+                .map(String::as_str),
+            Some("48")
+        );
+        assert_eq!(setting.validation.as_deref(), Some("positive_integer"));
     }
 }

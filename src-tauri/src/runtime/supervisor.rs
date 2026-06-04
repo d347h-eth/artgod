@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
@@ -13,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use super::app_config::load_app_config_state;
-use crate::desktop_log::{format_child_process_log_line, format_desktop_supervisor_log_line};
+use crate::desktop_log::{append_child_process_log_line, append_desktop_supervisor_log};
 use crate::runtime::bot_runtime::{
     BOT_RUNTIME_SPECS, BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState,
     bot_runtime_spec,
@@ -1430,12 +1429,6 @@ where
     R: std::io::Read + Send + 'static,
 {
     thread::spawn(move || {
-        let file_path = logs_dir.join(format!("{process}.log"));
-        let mut log_file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&file_path)
-            .ok();
         let mut buffered = BufReader::new(reader);
         let mut line = String::new();
         let mut lifecycle_started = false;
@@ -1463,13 +1456,7 @@ where
 
             if let Ok(payload) = serde_json::from_str::<BotLifecyclePayload>(&payload_line) {
                 if payload.bot_kind == bot_kind && payload.kind().is_some() {
-                    if let Some(log_file) = log_file.as_mut() {
-                        let _ = writeln!(
-                            log_file,
-                            "{}",
-                            format_child_process_log_line(&process, "lifecycle", &payload_line)
-                        );
-                    }
+                    append_child_process_log_line(&logs_dir, &process, "lifecycle", &payload_line);
                     let _ = lifecycle_tx.send(Ok(payload));
                     lifecycle_started = true;
                     continue;
@@ -1482,13 +1469,7 @@ where
                 line: payload_line.clone(),
             };
             let _ = app.emit("runtime-log", &payload);
-            if let Some(log_file) = log_file.as_mut() {
-                let _ = writeln!(
-                    log_file,
-                    "{}",
-                    format_child_process_log_line(&process, "stdout", &payload_line)
-                );
-            }
+            append_child_process_log_line(&logs_dir, &process, "stdout", &payload_line);
         }
 
         if !lifecycle_started {
@@ -1843,12 +1824,6 @@ where
     R: std::io::Read + Send + 'static,
 {
     thread::spawn(move || {
-        let file_path = logs_dir.join(format!("{process}.log"));
-        let mut log_file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&file_path)
-            .ok();
         let mut buffered = BufReader::new(reader);
         let mut line = String::new();
 
@@ -1871,13 +1846,7 @@ where
                 line: payload_line.clone(),
             };
             let _ = app.emit("runtime-log", &payload);
-            if let Some(log_file) = log_file.as_mut() {
-                let _ = writeln!(
-                    log_file,
-                    "{}",
-                    format_child_process_log_line(&process, stream, &payload_line)
-                );
-            }
+            append_child_process_log_line(&logs_dir, &process, stream, &payload_line);
         }
     })
 }
@@ -1897,17 +1866,7 @@ fn emit_supervisor_log(app: &AppHandle, logs_dir: &std::path::Path, level: &str,
         line: line.to_owned(),
     };
     let _ = app.emit("runtime-log", &payload);
-
-    let file_path = logs_dir.join(format!("{SUPERVISOR_PROCESS_NAME}.log"));
-    let mut log_file = match OpenOptions::new().create(true).append(true).open(file_path) {
-        Ok(file) => file,
-        Err(_) => return,
-    };
-    let _ = writeln!(
-        log_file,
-        "{}",
-        format_desktop_supervisor_log_line(level, line)
-    );
+    append_desktop_supervisor_log(logs_dir, level, line);
 }
 
 enum MonitorOutcome {

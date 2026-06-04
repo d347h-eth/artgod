@@ -2,12 +2,14 @@ import type { AdminConfigField, AdminConfigState } from '$lib/admin/configuratio
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
 	url: 'url',
-	websocketUrl: 'websocket_url'
+	websocketUrl: 'websocket_url',
+	positiveInteger: 'positive_integer'
 } as const;
 
 export const ADMIN_CONFIG_VALIDATION_ISSUE_KINDS = {
 	required: 'required',
-	url: 'url'
+	url: 'url',
+	integer: 'integer'
 } as const;
 
 export type AdminConfigValidationIssueKind =
@@ -101,6 +103,16 @@ export function validateAdminConfigField(
 			`${field.key} must be a valid WebSocket URL.`
 		);
 	}
+	if (
+		field.validation === ADMIN_CONFIG_VALIDATION_RULES.positiveInteger &&
+		!isPositiveInteger(trimmed)
+	) {
+		return buildValidationIssue(
+			field,
+			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
+			`${field.key} must be a positive whole number.`
+		);
+	}
 	return null;
 }
 
@@ -144,4 +156,11 @@ function isSupportedWebSocketUrl(value: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+function isPositiveInteger(value: string): boolean {
+	if (!/^[1-9]\d*$/.test(value)) {
+		return false;
+	}
+	return Number.isSafeInteger(Number(value));
 }

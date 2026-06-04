@@ -8,11 +8,12 @@ mod supervisor;
 
 pub use app_config::{
     AppConfigState, SaveAppConfigInput, ensure_desktop_config_paths, load_app_config_state,
-    save_app_config, use_default_app_config,
+    load_effective_app_config_values, save_app_config, use_default_app_config,
 };
 pub use bot_runtime::{
     BotCriticalDependencyStatus, BotRuntimeSnapshot, BotRuntimeState, bot_runtime_spec,
     build_trading_secret_envelope,
 };
 pub use config::{DesktopRuntimeConfig, DesktopWalletConfig};
+pub(crate) use log_files::ensure_runtime_log_files;
 pub use supervisor::{RuntimeEndpoints, RuntimeManager, RuntimeStatus};

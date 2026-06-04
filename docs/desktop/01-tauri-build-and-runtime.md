@@ -416,12 +416,14 @@ Wallet-bound bot runtimes use separate restart semantics:
 
 Supervisor captures stdout/stderr from each child process and writes:
 
-- `<app-data>/logs/<process>.log`
+- `<app-data>/logs/<process>-YYYY-MM-DD.log`
 
-The desktop app provisions expected runtime log files when the app-data log
-directory is initialized. Provisioning is create-if-missing only; it does not
-truncate existing user logs. This lets Alloy attach to staged-but-not-yet-started
-wallet-bound bot log files before the operator unlocks and starts the bot.
+The desktop app provisions expected current-day runtime log files when the
+app-data log directory is initialized and during periodic log maintenance.
+Provisioning is create-if-missing only; it does not truncate existing user logs.
+This lets Alloy attach to staged-but-not-yet-started wallet-bound bot log files
+before the operator unlocks and starts the bot, including after UTC date rollover
+during long-running app sessions.
 
 Log files are JSON Lines. When backend/indexer/trading runtimes emit structured
 JSON, the supervisor keeps the JSON payload at the start of the line and adds
@@ -430,6 +432,16 @@ bounded `process` and `stream` fields. It must not prepend text such as
 first byte of each structured log line being `{`. Non-JSON child output is
 wrapped in a small JSON envelope with `t`, `level`, `component`, `action`,
 `process`, `stream`, and `msg`.
+
+Desktop log files rotate by UTC day. App and supervisor log writes resolve the
+current daily target on each append, so a long-running app naturally moves from
+`<process>-2026-06-01.log` to `<process>-2026-06-02.log` at the UTC date
+boundary. `DESKTOP_LOG_RETENTION_HOURS` controls retention for all app-data log
+files and defaults to `48`, which keeps the current UTC day plus the previous UTC
+day. A value of `24` keeps only the current UTC day; `72` keeps the current day
+plus the previous two days. The desktop app runs periodic staging and cleanup
+while it is open and also cleans up immediately after Admin config save/default
+reset, so retention changes apply without requiring app relaunch.
 
 It also emits log lines to frontend runtime event stream.
 This includes wallet-bound bot process logs once those runtimes are started.
