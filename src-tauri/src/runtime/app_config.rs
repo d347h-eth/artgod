@@ -87,6 +87,19 @@ struct DesktopSettings {
 
 /// Ensures app-data/config/log directories exist without creating runtime `.env`.
 pub fn ensure_desktop_config_paths(app: &AppHandle) -> Result<DesktopConfigPaths, String> {
+    ensure_desktop_config_paths_inner(app, true)
+}
+
+fn ensure_desktop_config_paths_without_runtime_logs(
+    app: &AppHandle,
+) -> Result<DesktopConfigPaths, String> {
+    ensure_desktop_config_paths_inner(app, false)
+}
+
+fn ensure_desktop_config_paths_inner(
+    app: &AppHandle,
+    provision_runtime_logs: bool,
+) -> Result<DesktopConfigPaths, String> {
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -108,7 +121,9 @@ pub fn ensure_desktop_config_paths(app: &AppHandle) -> Result<DesktopConfigPaths
     })?;
     fs::create_dir_all(&logs_dir)
         .map_err(|error| format!("Failed to create logs dir {}: {error}", logs_dir.display()))?;
-    ensure_runtime_log_files(&logs_dir)?;
+    if provision_runtime_logs {
+        ensure_runtime_log_files(&logs_dir)?;
+    }
 
     Ok(DesktopConfigPaths {
         app_data_dir,
@@ -130,7 +145,7 @@ pub fn load_app_config_state(app: &AppHandle) -> Result<AppConfigState, String> 
 pub fn load_effective_app_config_values(
     app: &AppHandle,
 ) -> Result<HashMap<String, String>, String> {
-    let paths = ensure_desktop_config_paths(app)?;
+    let paths = ensure_desktop_config_paths_without_runtime_logs(app)?;
     let model = load_app_config_manifest()?;
     let settings = read_settings_document_if_exists(&paths)?;
     let mut values = model.defaults.clone();

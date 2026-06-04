@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use tauri::{AppHandle, Manager};
 use time::{Date, Month, OffsetDateTime};
 
-use crate::runtime::load_effective_app_config_values;
+use crate::runtime::{ensure_runtime_log_files, load_effective_app_config_values};
 
 const DESKTOP_APP_PROCESS_NAME: &str = "desktop-app";
 const DESKTOP_SUPERVISOR_PROCESS_NAME: &str = "desktop-supervisor";
@@ -23,7 +23,7 @@ pub(crate) fn start_desktop_log_maintenance(app: AppHandle) {
         .name("desktop-log-maintenance".to_owned())
         .spawn(move || {
             loop {
-                if let Err(error) = cleanup_desktop_logs_for_app(&app) {
+                if let Err(error) = maintain_desktop_logs_for_app(&app) {
                     append_desktop_log(
                         &app,
                         "warn",
@@ -33,6 +33,12 @@ pub(crate) fn start_desktop_log_maintenance(app: AppHandle) {
                 thread::sleep(LOG_MAINTENANCE_INTERVAL);
             }
         });
+}
+
+fn maintain_desktop_logs_for_app(app: &AppHandle) -> Result<(), String> {
+    provision_current_day_runtime_logs_for_app(app)?;
+    cleanup_desktop_logs_for_app(app)?;
+    Ok(())
 }
 
 /// Appends a line to the desktop app log file when the app-data path is available.
@@ -99,6 +105,14 @@ pub(crate) fn ensure_current_desktop_log_file(
             )
         })?;
     Ok(file_path)
+}
+
+fn provision_current_day_runtime_logs_for_app(app: &AppHandle) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
+    ensure_runtime_log_files(&app_data_dir.join("logs"))
 }
 
 /// Removes expired desktop logs according to the current manifest-backed setting.

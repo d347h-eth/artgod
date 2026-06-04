@@ -15,4 +15,5 @@ pub use bot_runtime::{
     build_trading_secret_envelope,
 };
 pub use config::{DesktopRuntimeConfig, DesktopWalletConfig};
+pub(crate) use log_files::ensure_runtime_log_files;
 pub use supervisor::{RuntimeEndpoints, RuntimeManager, RuntimeStatus};

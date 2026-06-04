@@ -91,6 +91,9 @@ Priority legend:
       Sources: `docs/blueprint/01-architecture-overview.md`, `docs/progress/indexer/01-architecture-gaps.md`
 - [ ] `BKL-046` Replace direct manual blockspace backfill fan-out with persisted run state, deterministic range job ids, and a bounded JetStream feeder.
       Sources: `docs/progress/indexer/19-large-manual-backfill-durability-plan.md`, `docs/progress/indexer/04-job-queueing-gaps.md`
+- [ ] `BKL-047` Add cached desktop app-data log writers if sustained log volume makes per-line open/write/close too expensive.
+      Sources: `src-tauri/src/desktop_log.rs`, user notes
+      Notes: Current desktop logging intentionally opens the current UTC-day file per line to keep rotation simple and robust. Revisit when normal desktop workloads sustain roughly `1,000+` log lines per second across all processes, or when Alloy/disk pressure shows the log writer path is a bottleneck. A cached-writer design must preserve per-process/day rollover, flush behavior, and supervisor output-thread safety.
 - [ ] `BKL-037` Add concurrency controls for bootstrap ownership snapshot and token ID enumeration paths (similar to metadata concurrency controls).
       Sources: `indexer/src/runtime/bootstrap-worker.ts`, user notes
 - [ ] `BKL-038` Move well-known on-chain contract addresses from env/config into DB-backed canonical address registry (for example `canonical_addresses` by chain + role).
