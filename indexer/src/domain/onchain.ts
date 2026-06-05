@@ -1,5 +1,9 @@
 import type { Hex, RpcLog } from "../ports/rpc.js";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import {
+    COLLECTION_STANDARD,
+    type CollectionStandard,
+} from "./collections.js";
 import type {
     CollectionScopedMakerTriggerReason,
     GlobalMakerTriggerReason,
@@ -22,34 +26,53 @@ type CollectionScopedTokenAttribution = CollectionScopedChainAttribution & {
     tokenId: string;
 };
 
+// NFT approval scope tells downstream workers how broadly to revalidate maker state.
+export const NFT_APPROVAL_SCOPE = {
+    Token: "token",
+    Collection: "collection",
+} as const;
+
+export type NftApprovalScope =
+    (typeof NFT_APPROVAL_SCOPE)[keyof typeof NFT_APPROVAL_SCOPE];
+
 // Collection-scoped token transfer captured from on-chain logs.
 export type NftTransferEvent = CollectionScopedTokenAttribution & {
     from: string;
     to: string;
     amount: string;
-    kind: "erc721" | "erc1155";
+    kind: CollectionStandard;
 };
 
 type TokenScopedNftApprovalEvent = CollectionScopedTokenAttribution & {
-    scope: "token";
+    scope: typeof NFT_APPROVAL_SCOPE.Token;
     owner: string;
     operator: string;
-    kind: "erc721";
+    kind: typeof COLLECTION_STANDARD.Erc721;
 };
 
 type CollectionScopedNftApprovalEvent = CollectionScopedChainAttribution & {
-    scope: "collection";
+    scope: typeof NFT_APPROVAL_SCOPE.Collection;
     contract: string;
     owner: string;
     operator: string;
     approved: boolean;
-    kind: "erc721" | "erc1155";
+    kind: CollectionStandard;
 };
 
 // NFT approval events are ephemeral maker-state hints, not persisted inventory.
 export type NftApprovalEvent =
     | TokenScopedNftApprovalEvent
     | CollectionScopedNftApprovalEvent;
+
+// Narrows approval events without leaking raw scope literals to callers.
+export function isTokenScopedNftApprovalEvent(
+    event: NftApprovalEvent,
+): event is Extract<
+    NftApprovalEvent,
+    { scope: typeof NFT_APPROVAL_SCOPE.Token }
+> {
+    return event.scope === NFT_APPROVAL_SCOPE.Token;
+}
 
 export type NftBalanceDelta = CollectionScopedTokenAttribution & {
     owner: string;
@@ -190,7 +213,7 @@ export type EventBase = {
 };
 
 export type TransferDecoded = {
-    standard: "erc721" | "erc1155";
+    standard: CollectionStandard;
     from: string;
     to: string;
     tokenId: string;
@@ -198,7 +221,7 @@ export type TransferDecoded = {
 };
 
 export type EnhancedEvent = {
-    kind: "erc721" | "erc1155";
+    kind: CollectionStandard;
     base: EventBase;
     decoded: TransferDecoded;
 };
