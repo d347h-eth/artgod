@@ -7,25 +7,38 @@
 ## Critical Agent Standard Reminder
 
 - Challenge every prompt against project context, existing architecture, and industry best practices before acting. If the user's requested path is ad hoc, duplicative, unsafe, or worse than an established project/industry pattern, say so directly and steer the work toward the better standard.
+- Treat user corrections as engineering feedback to reason through, not as
+  brainless rewrite instructions. Identify the principle behind the correction,
+  apply it narrowly to the actual defect, and challenge any literal
+  interpretation that would degrade code clarity, architecture, or maintainable
+  design.
 
 ## Non-Negotiable Literal Ownership Rule
 
-- Before any edit, scan the planned change for new hard-coded semantic literals.
-  Do not add them.
+- Before any edit, scan the planned change for new hard-coded semantic value
+  literals and for pointless over-abstraction. Challenge both before acting.
+  Do not add hard-coded semantic values, and do not replace ordinary language
+  syntax with constants.
 - This applies to **all code**, not only consumers: production code, tests,
   fixtures, scripts, Svelte, TypeScript, Rust, SQL adapters, config generators,
   runtime composition, observability, logs, metrics, dashboards, and docs that
   define code contracts.
-- Semantic literals include statuses, kinds, modes, actions, event names,
+- Semantic value literals include statuses, kinds, modes, actions, event names,
   component names, metric names, log action names, route names, route params,
   query keys, cache keys, storage enum values, config/env keys, protocol labels,
   extension keys, CSS/state tokens, selector IDs, and any value that another
   module, test, UI, runtime, dashboard, log query, or operator workflow must
   recognize.
-- Define each semantic literal once in the owning module/domain/config contract,
+- Define each semantic value once in the owning module/domain/config contract,
   export it with a short purpose comment, and import that constant/helper
   everywhere else. If ownership is unclear, create or extend the correct owning
   contract before using the value.
+- Do **not** satisfy this rule by turning struct fields, object property names,
+  DTO shapes, destructuring keys, method names, local variables, or language
+  syntax into constants. Keep normal readable property syntax such as
+  `{ component: value }` and `record.component`. Only centralize a field name
+  when it is truly a shared serialized/wire vocabulary and doing so improves the
+  owning boundary contract rather than obscuring ordinary code.
 - Tests must import the same constants/contracts as runtime code unless the test
   is intentionally asserting wire/storage serialization at the boundary.
 - Do not satisfy this rule by moving unrelated or extension-specific literals
