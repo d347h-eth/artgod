@@ -340,16 +340,55 @@ bounds for UI range filtering.
 
 The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 
-### Metrics (current hooks)
+### RPC Logs and Metrics
 
-RPC (`indexer/src/infra/rpc/viem.ts`):
+Backend and indexer RPC adapters emit dedicated structured logs and matching
+Prometheus metrics for JSON-RPC calls, endpoint attempts, retry scheduling,
+rate-limit waits, circuit-open events, endpoint weight drift, and websocket
+failover. Trading bot RPC observability is intentionally not wired in this
+round.
 
-- `rpc.latency` histogram (by method)
-- `rpc.failure` counter
-- `rpc.endpoint_failure` counter (by method and low-cardinality endpoint id)
-- `rpc.retry` counter
+RPC logs use stable fields:
+
+- `workspace`: `backend` or `indexer`
+- `rpcComponent`: low-cardinality adapter lane, such as `backend-rpc`,
+  `primary-http-rpc`, `backfill-http-rpc`, `metadata-rpc`, or
+  `scheduler-ws-rpc`
+- `protocol`: `http` or `websocket`
+- `method`: RPC method or websocket watch operation
+- `endpointId`: low-cardinality configured endpoint id
+- `endpointOrigin`: URL origin only; paths, query strings, credentials, and raw
+  API-key-bearing URLs are not logged
+- `configuredWeight` and `effectiveWeight`
+- `attempt`, `durationMs`, `error`, `errorClass`, and retry delay fields where
+  applicable
+
+RPC metrics export with the workspace runtime prefixes:
+
+- backend: `artgod_backend_...`
+- indexer: `artgod_indexer_...`
+
+The canonical RPC metrics are:
+
+- `rpc.call` counter by `component`, `protocol`, `method`, `endpoint`,
+  `result`, and `error_class`
+- `rpc.call.duration_ms` histogram with the same labels
+- `rpc.endpoint.attempt` counter by endpoint attempt result
+- `rpc.endpoint.attempt.duration_ms` histogram with the same labels
+- `rpc.endpoint.event` counter for lifecycle events such as `configured`,
+  `attempt_started`, `attempt_succeeded`, `attempt_failed`,
+  `retry_scheduled`, `connect_started`, `connected`, `head_received`,
+  `connection_failed`, `reconnect_scheduled`, and `connection_stopped`
+- `rpc.endpoint.configured_weight` and `rpc.endpoint.effective_weight` gauges
+- `rpc.retry.attempt` counter for retry attempts scheduled after failed
+  endpoint attempts; this is not a "retry succeeded" metric
 - `rpc.circuit_open` counter
 - `rpc.rate_limiter.wait_ms` histogram
+
+The indexer HTTP provider still emits its older compatibility metrics
+(`rpc.latency`, `rpc.failure`, `rpc.endpoint_failure`, and `rpc.retry`), but
+the Grafana dashboard uses the canonical metrics above because their semantics
+are explicit.
 
 Cache (`indexer/src/infra/cache/memory.ts`):
 
@@ -360,6 +399,8 @@ Metadata fetch/resolve:
 
 - `metadata.resolve.latency` histogram
 - `metadata.resolve.failure` counter
+- `metadata.resolve.endpoint_failure` counter (by low-cardinality endpoint id
+  and component)
 - `metadata.fetch.latency` histogram
 - `metadata.fetch.success`, `metadata.fetch.failure` counters
 
@@ -410,6 +451,12 @@ Provisioned datasources:
 Provisioned dashboard:
 
 - `observability/grafana/provisioning/dashboards/runtime-metrics-overview.json`
+
+The runtime metrics dashboard has separate RPC sections for indexer and backend
+workspaces. Each section shows call rate by result, endpoint failure counts,
+endpoint failure percentage, call latency p95, and effective endpoint weight.
+The indexer section also includes retry-attempt counts and websocket endpoint
+events because websocket failover is currently indexer-owned.
 
 Current Tempo `tracesToProfiles` mapping is:
 
