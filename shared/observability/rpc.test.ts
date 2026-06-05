@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { RpcObservability } from "./rpc.js";
+import {
+    RPC_OBSERVABILITY_METRIC,
+    RPC_OBSERVABILITY_RESULT,
+    RPC_OBSERVABILITY_SENTINEL,
+    RPC_OBSERVABILITY_WORKSPACE,
+    RPC_PROTOCOL,
+    RpcObservability,
+} from "./rpc.js";
 import type { MetricLabels, Metrics } from "./metrics/types.js";
 import type { LogLevel } from "../utils/logger.js";
+
+const TEST_RPC_COMPONENT = "primary-http-rpc";
+const TEST_RPC_ENDPOINT_ID = "primary-rpc-1";
+const TEST_RPC_ENDPOINT_URL =
+    "https://user:secret@rpc.example/api-key?token=secret";
+const TEST_RPC_ORIGIN = "https://rpc.example";
+const TEST_RPC_METHOD = "getBlock";
+const TEST_LOG_COMPONENT = "TestRpc";
+const TEST_ERROR_CLASS = Error.name;
 
 class CapturingMetrics implements Metrics {
     readonly increments: Array<{
@@ -49,29 +65,29 @@ describe("RpcObservability", () => {
                 logs.push({ level: "error", message, meta }),
         };
         const observer = new RpcObservability({
-            workspace: "indexer",
-            component: "primary-http-rpc",
-            protocol: "http",
+            workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
+            component: TEST_RPC_COMPONENT,
+            protocol: RPC_PROTOCOL.Http,
             metrics,
             logger,
-            logComponent: "TestRpc",
+            logComponent: TEST_LOG_COMPONENT,
         });
         const endpoint = {
-            id: "primary-rpc-1",
-            url: "https://user:secret@rpc.example/api-key?token=secret",
+            id: TEST_RPC_ENDPOINT_ID,
+            url: TEST_RPC_ENDPOINT_URL,
             configuredWeight: 2,
             effectiveWeight: 1,
         };
 
         observer.recordConfiguredEndpoint(endpoint);
-        const call = observer.startCall("getBlock");
+        const call = observer.startCall(TEST_RPC_METHOD);
         const attempt = observer.startEndpointAttempt(call, endpoint, 1);
         const error = new Error(
-            "HTTP request failed URL: https://user:secret@rpc.example/api-key?token=secret",
+            `HTTP request failed URL: ${TEST_RPC_ENDPOINT_URL}`,
         );
         observer.recordEndpointAttemptFailure(attempt, endpoint, error);
         observer.recordRetryScheduled({
-            method: "getBlock",
+            method: TEST_RPC_METHOD,
             endpoint,
             attempt: 1,
             nextAttempt: 2,
@@ -80,54 +96,54 @@ describe("RpcObservability", () => {
         observer.recordCallFailure(call, endpoint, error);
 
         expect(metrics.increments).toContainEqual({
-            name: "rpc.endpoint.attempt",
+            name: RPC_OBSERVABILITY_METRIC.EndpointAttempt,
             value: 1,
             labels: {
-                component: "primary-http-rpc",
-                protocol: "http",
-                method: "getBlock",
-                endpoint: "primary-rpc-1",
-                result: "failure",
-                error_class: "Error",
+                component: TEST_RPC_COMPONENT,
+                protocol: RPC_PROTOCOL.Http,
+                method: TEST_RPC_METHOD,
+                endpoint: TEST_RPC_ENDPOINT_ID,
+                result: RPC_OBSERVABILITY_RESULT.Failure,
+                error_class: TEST_ERROR_CLASS,
             },
         });
         expect(metrics.increments).toContainEqual({
-            name: "rpc.call",
+            name: RPC_OBSERVABILITY_METRIC.Call,
             value: 1,
             labels: {
-                component: "primary-http-rpc",
-                protocol: "http",
-                method: "getBlock",
-                endpoint: "primary-rpc-1",
-                result: "failure",
-                error_class: "Error",
+                component: TEST_RPC_COMPONENT,
+                protocol: RPC_PROTOCOL.Http,
+                method: TEST_RPC_METHOD,
+                endpoint: TEST_RPC_ENDPOINT_ID,
+                result: RPC_OBSERVABILITY_RESULT.Failure,
+                error_class: TEST_ERROR_CLASS,
             },
         });
         expect(metrics.increments).toContainEqual({
-            name: "rpc.retry.attempt",
+            name: RPC_OBSERVABILITY_METRIC.RetryAttempt,
             value: 1,
             labels: {
-                component: "primary-http-rpc",
-                protocol: "http",
-                method: "getBlock",
-                endpoint: "primary-rpc-1",
-                result: "none",
-                error_class: "none",
+                component: TEST_RPC_COMPONENT,
+                protocol: RPC_PROTOCOL.Http,
+                method: TEST_RPC_METHOD,
+                endpoint: TEST_RPC_ENDPOINT_ID,
+                result: RPC_OBSERVABILITY_RESULT.None,
+                error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
                 attempt: 1,
                 next_attempt: 2,
             },
         });
         expect(metrics.gauges).toContainEqual({
-            name: "rpc.endpoint.effective_weight",
+            name: RPC_OBSERVABILITY_METRIC.EndpointEffectiveWeight,
             value: 1,
             labels: {
-                component: "primary-http-rpc",
-                protocol: "http",
-                endpoint: "primary-rpc-1",
+                component: TEST_RPC_COMPONENT,
+                protocol: RPC_PROTOCOL.Http,
+                endpoint: TEST_RPC_ENDPOINT_ID,
             },
         });
         const serializedLogs = JSON.stringify(logs);
-        expect(serializedLogs).toContain("https://rpc.example");
+        expect(serializedLogs).toContain(TEST_RPC_ORIGIN);
         expect(serializedLogs).not.toContain("api-key");
         expect(serializedLogs).not.toContain("secret");
     });

@@ -1,7 +1,106 @@
 import { logger as defaultLogger, type LogLevel } from "../utils/logger.js";
 import type { Metrics } from "./metrics/types.js";
 
-export type RpcProtocol = "http" | "websocket";
+// Canonical workspace labels used by RPC logs and metrics.
+export const RPC_OBSERVABILITY_WORKSPACE = {
+    Backend: "backend",
+    Indexer: "indexer",
+} as const;
+
+// Canonical protocol labels used by RPC logs and metrics.
+export const RPC_PROTOCOL = {
+    Http: "http",
+    WebSocket: "websocket",
+} as const;
+
+// Canonical result labels used by RPC logs and metrics.
+export const RPC_OBSERVABILITY_RESULT = {
+    Success: "success",
+    Failure: "failure",
+    None: "none",
+} as const;
+
+// Canonical endpoint lifecycle event labels used by RPC observability.
+export const RPC_OBSERVABILITY_EVENT = {
+    Configured: "configured",
+    AttemptStarted: "attempt_started",
+    AttemptSucceeded: "attempt_succeeded",
+    AttemptFailed: "attempt_failed",
+    RetryScheduled: "retry_scheduled",
+    RateLimiterWaited: "rate_limiter_waited",
+    CircuitOpen: "circuit_open",
+    ConnectStarted: "connect_started",
+    Connected: "connected",
+    HeadReceived: "head_received",
+    ConnectionFailed: "connection_failed",
+    ReconnectScheduled: "reconnect_scheduled",
+    ConnectionStopped: "connection_stopped",
+} as const;
+
+// Canonical structured log action labels for shared RPC observer events.
+export const RPC_OBSERVABILITY_LOG_ACTION = {
+    EndpointAttemptStarted: "endpoint_attempt_started",
+    EndpointAttemptSucceeded: "endpoint_attempt_succeeded",
+    EndpointAttemptFailed: "endpoint_attempt_failed",
+    CallSucceeded: "call_succeeded",
+    CallFailed: "call_failed",
+    RetryScheduled: RPC_OBSERVABILITY_EVENT.RetryScheduled,
+    RateLimiterWaited: RPC_OBSERVABILITY_EVENT.RateLimiterWaited,
+    CircuitOpen: RPC_OBSERVABILITY_EVENT.CircuitOpen,
+} as const;
+
+// Canonical human-readable log messages emitted by the shared RPC observer.
+export const RPC_OBSERVABILITY_LOG_MESSAGE = {
+    EndpointConfigured: "RPC endpoint configured",
+    EndpointAttemptStarted: "RPC endpoint attempt started",
+    EndpointAttemptSucceeded: "RPC endpoint attempt succeeded",
+    EndpointAttemptFailed: "RPC endpoint attempt failed",
+    CallSucceeded: "RPC call succeeded",
+    CallFailed: "RPC call failed",
+    RetryScheduled: "RPC retry scheduled",
+    RateLimiterWaited: "RPC rate limiter waited",
+    CircuitOpen: "RPC circuit open",
+    EndpointEvent: "RPC endpoint event",
+    WebSocketConnectStarted: "RPC websocket connect started",
+    WebSocketConnected: "RPC websocket connected",
+    WebSocketHeadReceived: "RPC websocket head received",
+    WebSocketEndpointFailed: "RPC websocket endpoint failed",
+    WebSocketReconnectScheduled: "RPC websocket reconnect scheduled",
+    WebSocketConnectionStopped: "RPC websocket connection stopped",
+} as const;
+
+// Canonical metric names emitted by the shared RPC observer.
+export const RPC_OBSERVABILITY_METRIC = {
+    Call: "rpc.call",
+    CallDurationMs: "rpc.call.duration_ms",
+    EndpointAttempt: "rpc.endpoint.attempt",
+    EndpointAttemptDurationMs: "rpc.endpoint.attempt.duration_ms",
+    EndpointEvent: "rpc.endpoint.event",
+    EndpointConfiguredWeight: "rpc.endpoint.configured_weight",
+    EndpointEffectiveWeight: "rpc.endpoint.effective_weight",
+    RetryAttempt: "rpc.retry.attempt",
+    CircuitOpen: "rpc.circuit_open",
+    RateLimiterWaitMs: "rpc.rate_limiter.wait_ms",
+} as const;
+
+// Sentinel values used when an RPC metric dimension is intentionally absent.
+export const RPC_OBSERVABILITY_SENTINEL = {
+    NoEndpoint: "none",
+    NoErrorClass: "none",
+    NoMethod: "none",
+} as const;
+
+const DEFAULT_RPC_LOG_COMPONENT = "RpcAdapter";
+const DEFAULT_RPC_ENDPOINT_EVENT_LOG_LEVEL: LogLevel = "debug";
+const INVALID_URL_ORIGIN = "invalid-url";
+
+export type RpcProtocol = (typeof RPC_PROTOCOL)[keyof typeof RPC_PROTOCOL];
+export type RpcObservabilityWorkspace =
+    (typeof RPC_OBSERVABILITY_WORKSPACE)[keyof typeof RPC_OBSERVABILITY_WORKSPACE];
+export type RpcObservabilityResult =
+    (typeof RPC_OBSERVABILITY_RESULT)[keyof typeof RPC_OBSERVABILITY_RESULT];
+export type RpcObservabilityEvent =
+    (typeof RPC_OBSERVABILITY_EVENT)[keyof typeof RPC_OBSERVABILITY_EVENT];
 
 export type RpcEndpointSnapshot = {
     id: string;
@@ -11,7 +110,7 @@ export type RpcEndpointSnapshot = {
 };
 
 export type RpcObservabilityConfig = {
-    workspace: "backend" | "indexer";
+    workspace: RpcObservabilityWorkspace;
     component: string;
     protocol: RpcProtocol;
     metrics?: Metrics;
@@ -45,16 +144,13 @@ export type RpcRateLimitWaitInput = {
 };
 
 export type RpcEndpointEventInput = {
-    event: string;
+    event: RpcObservabilityEvent;
     method: string;
     endpoint: RpcEndpointSnapshot;
     level?: LogLevel;
     message?: string;
     extra?: Record<string, unknown>;
 };
-
-const NO_ERROR_CLASS = "none";
-const NO_ENDPOINT = "none";
 
 // RpcObservability centralizes JSON-RPC logs and matching low-cardinality metrics.
 export class RpcObservability {
@@ -65,16 +161,16 @@ export class RpcObservability {
     constructor(private readonly config: RpcObservabilityConfig) {
         this.metrics = config.metrics;
         this.log = config.logger ?? defaultLogger;
-        this.logComponent = config.logComponent ?? "RpcAdapter";
+        this.logComponent = config.logComponent ?? DEFAULT_RPC_LOG_COMPONENT;
     }
 
     recordConfiguredEndpoint(endpoint: RpcEndpointSnapshot): void {
         this.recordEndpointWeightGauges(endpoint);
         this.recordEndpointEvent({
-            event: "configured",
-            method: "none",
+            event: RPC_OBSERVABILITY_EVENT.Configured,
+            method: RPC_OBSERVABILITY_SENTINEL.NoMethod,
             endpoint,
-            message: "RPC endpoint configured",
+            message: RPC_OBSERVABILITY_LOG_MESSAGE.EndpointConfigured,
         });
     }
 
@@ -97,12 +193,19 @@ export class RpcObservability {
             attemptStartedAtMs: Date.now(),
         };
         this.recordEndpointWeightGauges(endpoint);
-        this.log.debug("RPC endpoint attempt started", {
-            ...this.baseLogFields("endpoint_attempt_started", call.method),
+        this.log.debug(RPC_OBSERVABILITY_LOG_MESSAGE.EndpointAttemptStarted, {
+            ...this.baseLogFields(
+                RPC_OBSERVABILITY_LOG_ACTION.EndpointAttemptStarted,
+                call.method,
+            ),
             ...this.endpointLogFields(endpoint),
             attempt,
         });
-        this.incrementEndpointEvent("attempt_started", call.method, endpoint);
+        this.incrementEndpointEvent(
+            RPC_OBSERVABILITY_EVENT.AttemptStarted,
+            call.method,
+            endpoint,
+        );
         return context;
     }
 
@@ -112,8 +215,11 @@ export class RpcObservability {
     ): void {
         const durationMs = elapsedMs(context.attemptStartedAtMs);
         this.recordEndpointWeightGauges(endpoint);
-        this.log.debug("RPC endpoint attempt succeeded", {
-            ...this.baseLogFields("endpoint_attempt_succeeded", context.method),
+        this.log.debug(RPC_OBSERVABILITY_LOG_MESSAGE.EndpointAttemptSucceeded, {
+            ...this.baseLogFields(
+                RPC_OBSERVABILITY_LOG_ACTION.EndpointAttemptSucceeded,
+                context.method,
+            ),
             ...this.endpointLogFields(endpoint),
             attempt: context.attempt,
             durationMs,
@@ -121,11 +227,15 @@ export class RpcObservability {
         this.recordEndpointAttemptMetric(
             context.method,
             endpoint,
-            "success",
-            NO_ERROR_CLASS,
+            RPC_OBSERVABILITY_RESULT.Success,
+            RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
             durationMs,
         );
-        this.incrementEndpointEvent("attempt_succeeded", context.method, endpoint);
+        this.incrementEndpointEvent(
+            RPC_OBSERVABILITY_EVENT.AttemptSucceeded,
+            context.method,
+            endpoint,
+        );
     }
 
     recordEndpointAttemptFailure(
@@ -136,8 +246,11 @@ export class RpcObservability {
         const durationMs = elapsedMs(context.attemptStartedAtMs);
         const errorClass = errorClassName(error);
         this.recordEndpointWeightGauges(endpoint);
-        this.log.warn("RPC endpoint attempt failed", {
-            ...this.baseLogFields("endpoint_attempt_failed", context.method),
+        this.log.warn(RPC_OBSERVABILITY_LOG_MESSAGE.EndpointAttemptFailed, {
+            ...this.baseLogFields(
+                RPC_OBSERVABILITY_LOG_ACTION.EndpointAttemptFailed,
+                context.method,
+            ),
             ...this.endpointLogFields(endpoint),
             ...errorLogFields(error),
             attempt: context.attempt,
@@ -146,15 +259,15 @@ export class RpcObservability {
         this.recordEndpointAttemptMetric(
             context.method,
             endpoint,
-            "failure",
+            RPC_OBSERVABILITY_RESULT.Failure,
             errorClass,
             durationMs,
         );
         this.incrementEndpointEvent(
-            "attempt_failed",
+            RPC_OBSERVABILITY_EVENT.AttemptFailed,
             context.method,
             endpoint,
-            "failure",
+            RPC_OBSERVABILITY_RESULT.Failure,
             errorClass,
         );
     }
@@ -164,16 +277,19 @@ export class RpcObservability {
         endpoint: RpcEndpointSnapshot,
     ): void {
         const durationMs = elapsedMs(call.startedAtMs);
-        this.log.debug("RPC call succeeded", {
-            ...this.baseLogFields("call_succeeded", call.method),
+        this.log.debug(RPC_OBSERVABILITY_LOG_MESSAGE.CallSucceeded, {
+            ...this.baseLogFields(
+                RPC_OBSERVABILITY_LOG_ACTION.CallSucceeded,
+                call.method,
+            ),
             ...this.endpointLogFields(endpoint),
             durationMs,
         });
         this.recordCallMetric(
             call.method,
             endpoint,
-            "success",
-            NO_ERROR_CLASS,
+            RPC_OBSERVABILITY_RESULT.Success,
+            RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
             durationMs,
         );
     }
@@ -185,8 +301,11 @@ export class RpcObservability {
     ): void {
         const durationMs = elapsedMs(call.startedAtMs);
         const errorClass = errorClassName(error);
-        this.log.warn("RPC call failed", {
-            ...this.baseLogFields("call_failed", call.method),
+        this.log.warn(RPC_OBSERVABILITY_LOG_MESSAGE.CallFailed, {
+            ...this.baseLogFields(
+                RPC_OBSERVABILITY_LOG_ACTION.CallFailed,
+                call.method,
+            ),
             ...(endpoint ? this.endpointLogFields(endpoint) : {}),
             ...errorLogFields(error),
             durationMs,
@@ -194,39 +313,53 @@ export class RpcObservability {
         this.recordCallMetric(
             call.method,
             endpoint,
-            "failure",
+            RPC_OBSERVABILITY_RESULT.Failure,
             errorClass,
             durationMs,
         );
     }
 
     recordRetryScheduled(input: RpcRetryScheduledInput): void {
-        this.log.warn("RPC retry scheduled", {
-            ...this.baseLogFields("retry_scheduled", input.method),
+        this.log.warn(RPC_OBSERVABILITY_LOG_MESSAGE.RetryScheduled, {
+            ...this.baseLogFields(
+                RPC_OBSERVABILITY_LOG_ACTION.RetryScheduled,
+                input.method,
+            ),
             ...this.endpointLogFields(input.endpoint),
             attempt: input.attempt,
             nextAttempt: input.nextAttempt,
             delayMs: input.delayMs,
         });
-        this.metrics?.increment("rpc.retry.attempt", 1, {
+        this.metrics?.increment(RPC_OBSERVABILITY_METRIC.RetryAttempt, 1, {
             ...this.baseMetricLabels(input.method, input.endpoint),
             attempt: input.attempt,
             next_attempt: input.nextAttempt,
         });
-        this.incrementEndpointEvent("retry_scheduled", input.method, input.endpoint);
+        this.incrementEndpointEvent(
+            RPC_OBSERVABILITY_EVENT.RetryScheduled,
+            input.method,
+            input.endpoint,
+        );
     }
 
     recordRateLimitWait(input: RpcRateLimitWaitInput): void {
-        this.log.debug("RPC rate limiter waited", {
-            ...this.baseLogFields("rate_limiter_waited", input.method),
+        this.log.debug(RPC_OBSERVABILITY_LOG_MESSAGE.RateLimiterWaited, {
+            ...this.baseLogFields(
+                RPC_OBSERVABILITY_LOG_ACTION.RateLimiterWaited,
+                input.method,
+            ),
             ...this.endpointLogFields(input.endpoint),
             waitedMs: input.waitedMs,
         });
-        this.metrics?.histogram("rpc.rate_limiter.wait_ms", input.waitedMs, {
-            ...this.baseMetricLabels(input.method, input.endpoint),
-        });
+        this.metrics?.histogram(
+            RPC_OBSERVABILITY_METRIC.RateLimiterWaitMs,
+            input.waitedMs,
+            {
+                ...this.baseMetricLabels(input.method, input.endpoint),
+            },
+        );
         this.incrementEndpointEvent(
-            "rate_limiter_waited",
+            RPC_OBSERVABILITY_EVENT.RateLimiterWaited,
             input.method,
             input.endpoint,
         );
@@ -237,31 +370,34 @@ export class RpcObservability {
         endpoint: RpcEndpointSnapshot,
         error: unknown,
     ): void {
-        this.log.warn("RPC circuit open", {
-            ...this.baseLogFields("circuit_open", method),
+        this.log.warn(RPC_OBSERVABILITY_LOG_MESSAGE.CircuitOpen, {
+            ...this.baseLogFields(RPC_OBSERVABILITY_LOG_ACTION.CircuitOpen, method),
             ...this.endpointLogFields(endpoint),
             ...errorLogFields(error),
         });
-        this.metrics?.increment("rpc.circuit_open", 1, {
+        this.metrics?.increment(RPC_OBSERVABILITY_METRIC.CircuitOpen, 1, {
             ...this.baseMetricLabels(method, endpoint),
             error_class: errorClassName(error),
         });
         this.incrementEndpointEvent(
-            "circuit_open",
+            RPC_OBSERVABILITY_EVENT.CircuitOpen,
             method,
             endpoint,
-            "failure",
+            RPC_OBSERVABILITY_RESULT.Failure,
             errorClassName(error),
         );
     }
 
     recordEndpointEvent(input: RpcEndpointEventInput): void {
-        const level = input.level ?? "debug";
-        this.log[level](input.message ?? "RPC endpoint event", {
-            ...this.baseLogFields(input.event, input.method),
-            ...this.endpointLogFields(input.endpoint),
-            ...(input.extra ?? {}),
-        });
+        const level = input.level ?? DEFAULT_RPC_ENDPOINT_EVENT_LOG_LEVEL;
+        this.log[level](
+            input.message ?? RPC_OBSERVABILITY_LOG_MESSAGE.EndpointEvent,
+            {
+                ...this.baseLogFields(input.event, input.method),
+                ...this.endpointLogFields(input.endpoint),
+                ...(input.extra ?? {}),
+            },
+        );
         this.recordEndpointWeightGauges(input.endpoint);
         this.incrementEndpointEvent(input.event, input.method, input.endpoint);
     }
@@ -269,39 +405,47 @@ export class RpcObservability {
     private recordCallMetric(
         method: string,
         endpoint: RpcEndpointSnapshot | null,
-        result: "success" | "failure",
+        result: RpcObservabilityResult,
         errorClass: string,
         durationMs: number,
     ): void {
         const labels = this.baseMetricLabels(method, endpoint, result, errorClass);
-        this.metrics?.increment("rpc.call", 1, labels);
-        this.metrics?.histogram("rpc.call.duration_ms", durationMs, labels);
+        this.metrics?.increment(RPC_OBSERVABILITY_METRIC.Call, 1, labels);
+        this.metrics?.histogram(
+            RPC_OBSERVABILITY_METRIC.CallDurationMs,
+            durationMs,
+            labels,
+        );
     }
 
     private recordEndpointAttemptMetric(
         method: string,
         endpoint: RpcEndpointSnapshot,
-        result: "success" | "failure",
+        result: RpcObservabilityResult,
         errorClass: string,
         durationMs: number,
     ): void {
         const labels = this.baseMetricLabels(method, endpoint, result, errorClass);
-        this.metrics?.increment("rpc.endpoint.attempt", 1, labels);
+        this.metrics?.increment(
+            RPC_OBSERVABILITY_METRIC.EndpointAttempt,
+            1,
+            labels,
+        );
         this.metrics?.histogram(
-            "rpc.endpoint.attempt.duration_ms",
+            RPC_OBSERVABILITY_METRIC.EndpointAttemptDurationMs,
             durationMs,
             labels,
         );
     }
 
     private incrementEndpointEvent(
-        event: string,
+        event: RpcObservabilityEvent,
         method: string,
         endpoint: RpcEndpointSnapshot | null,
-        result = "none",
-        errorClass = NO_ERROR_CLASS,
+        result: RpcObservabilityResult = RPC_OBSERVABILITY_RESULT.None,
+        errorClass = RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
     ): void {
-        this.metrics?.increment("rpc.endpoint.event", 1, {
+        this.metrics?.increment(RPC_OBSERVABILITY_METRIC.EndpointEvent, 1, {
             ...this.baseMetricLabels(method, endpoint, result, errorClass),
             event,
         });
@@ -314,12 +458,12 @@ export class RpcObservability {
             endpoint: endpoint.id,
         };
         this.metrics?.gauge(
-            "rpc.endpoint.configured_weight",
+            RPC_OBSERVABILITY_METRIC.EndpointConfiguredWeight,
             endpoint.configuredWeight,
             labels,
         );
         this.metrics?.gauge(
-            "rpc.endpoint.effective_weight",
+            RPC_OBSERVABILITY_METRIC.EndpointEffectiveWeight,
             endpoint.effectiveWeight,
             labels,
         );
@@ -328,14 +472,14 @@ export class RpcObservability {
     private baseMetricLabels(
         method: string,
         endpoint: RpcEndpointSnapshot | null,
-        result = "none",
-        errorClass = NO_ERROR_CLASS,
+        result: RpcObservabilityResult = RPC_OBSERVABILITY_RESULT.None,
+        errorClass = RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
     ): Record<string, string | number> {
         return {
             component: this.config.component,
             protocol: this.config.protocol,
             method,
-            endpoint: endpoint?.id ?? NO_ENDPOINT,
+            endpoint: endpoint?.id ?? RPC_OBSERVABILITY_SENTINEL.NoEndpoint,
             result,
             error_class: errorClass,
         };
@@ -394,7 +538,7 @@ function safeEndpointOrigin(url: string): string {
     try {
         return new URL(url).origin;
     } catch {
-        return "invalid-url";
+        return INVALID_URL_ORIGIN;
     }
 }
 
