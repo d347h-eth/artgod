@@ -129,19 +129,21 @@ export class WeightedEndpointSelector<T> {
         return this.toSelection(selected);
     }
 
-    recordSuccess(id: string): void {
+    recordSuccess(id: string): WeightedEndpointSelection<T> | undefined {
         const state = this.findState(id);
-        if (!state) return;
+        if (!state) return undefined;
         state.consecutiveFailures = Math.max(0, state.consecutiveFailures - 1);
+        return this.toSelection(state);
     }
 
-    recordFailure(id: string): void {
+    recordFailure(id: string): WeightedEndpointSelection<T> | undefined {
         const state = this.findState(id);
-        if (!state) return;
+        if (!state) return undefined;
         state.consecutiveFailures = Math.min(
             MAX_FAILURE_PENALTY_EXPONENT,
             state.consecutiveFailures + 1,
         );
+        return this.toSelection(state);
     }
 
     snapshot(): WeightedEndpointSelection<T>[] {

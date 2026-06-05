@@ -36,6 +36,7 @@
         "./observability/apm": "./observability/apm.ts",
         "./observability/http": "./observability/http.ts",
         "./observability/metrics": "./observability/metrics/index.ts",
+        "./observability/rpc": "./observability/rpc.ts",
         "./database": "./database/db.ts",
         "./migrations": "./database/migrations.ts",
         "./read-models": "./read-models/index.ts",
