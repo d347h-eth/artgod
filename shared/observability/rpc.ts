@@ -443,7 +443,7 @@ export class RpcObservability {
         method: string,
         endpoint: RpcEndpointSnapshot | null,
         result: RpcObservabilityResult = RPC_OBSERVABILITY_RESULT.None,
-        errorClass = RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+        errorClass: string = RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
     ): void {
         this.metrics?.increment(RPC_OBSERVABILITY_METRIC.EndpointEvent, 1, {
             ...this.baseMetricLabels(method, endpoint, result, errorClass),
@@ -473,7 +473,7 @@ export class RpcObservability {
         method: string,
         endpoint: RpcEndpointSnapshot | null,
         result: RpcObservabilityResult = RPC_OBSERVABILITY_RESULT.None,
-        errorClass = RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+        errorClass: string = RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
     ): Record<string, string | number> {
         return {
             component: this.config.component,
