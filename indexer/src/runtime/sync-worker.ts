@@ -212,6 +212,8 @@ async function main() {
                     ),
                     blocks: blocks.length,
                     transfers: data.collectionScoped.nftTransferEvents.length,
+                    nftApprovals:
+                        data.collectionScoped.nftApprovalEvents.length,
                     balanceDeltas:
                         data.collectionScoped.nftBalanceDeltas.length,
                 });
@@ -297,6 +299,8 @@ async function main() {
                         blocks: blocks.length,
                         transfers:
                             data.collectionScoped.nftTransferEvents.length,
+                        nftApprovals:
+                            data.collectionScoped.nftApprovalEvents.length,
                         balanceDeltas:
                             data.collectionScoped.nftBalanceDeltas.length,
                     });
@@ -708,6 +712,10 @@ function filterCurrentStateOnChainData(
             nftTransferEvents: filterCurrentStateCollectionScopedEvents(
                 collectionsById,
                 data.collectionScoped.nftTransferEvents,
+            ),
+            nftApprovalEvents: filterCurrentStateCollectionScopedEvents(
+                collectionsById,
+                data.collectionScoped.nftApprovalEvents,
             ),
             nftBalanceDeltas: filterCurrentStateCollectionScopedEvents(
                 collectionsById,

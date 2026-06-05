@@ -1,7 +1,10 @@
 import { decodeEventLog, encodeEventTopics, zeroAddress } from "viem";
 import { ERC1155_ABI, ERC721_ABI } from "../abi/index.js";
 import type { CollectionRecord } from "../domain/collections.js";
-import { TOKEN_SCOPED_MAKER_TRIGGER_REASON } from "../domain/maker-triggers.js";
+import {
+    COLLECTION_SCOPED_MAKER_TRIGGER_REASON,
+    TOKEN_SCOPED_MAKER_TRIGGER_REASON,
+} from "../domain/maker-triggers.js";
 import type {
     EnhancedEvent,
     EnhancedTransaction,
@@ -37,6 +40,14 @@ const [ERC721_TRANSFER_TOPIC] = encodeEventTopics({
     abi: ERC721_ABI,
     eventName: "Transfer",
 }) as [Hex];
+const [ERC721_APPROVAL_TOPIC] = encodeEventTopics({
+    abi: ERC721_ABI,
+    eventName: "Approval",
+}) as [Hex];
+const [ERC721_APPROVAL_FOR_ALL_TOPIC] = encodeEventTopics({
+    abi: ERC721_ABI,
+    eventName: "ApprovalForAll",
+}) as [Hex];
 const [ERC1155_TRANSFER_SINGLE_TOPIC] = encodeEventTopics({
     abi: ERC1155_ABI,
     eventName: "TransferSingle",
@@ -45,10 +56,19 @@ const [ERC1155_TRANSFER_BATCH_TOPIC] = encodeEventTopics({
     abi: ERC1155_ABI,
     eventName: "TransferBatch",
 }) as [Hex];
+const ERC721_TRANSFER_EVENT = ERC721_ABI[0];
+const ERC721_APPROVAL_EVENT = ERC721_ABI[1];
+const ERC721_APPROVAL_FOR_ALL_EVENT = ERC721_ABI[2];
+const ERC1155_TRANSFER_SINGLE_EVENT = ERC1155_ABI[0];
+const ERC1155_TRANSFER_BATCH_EVENT = ERC1155_ABI[1];
 const TRANSFER_EVENTS = [
-    ERC721_ABI[0],
-    ERC1155_ABI[0],
-    ERC1155_ABI[1],
+    ERC721_TRANSFER_EVENT,
+    ERC1155_TRANSFER_SINGLE_EVENT,
+    ERC1155_TRANSFER_BATCH_EVENT,
+] as const;
+const NFT_APPROVAL_EVENTS = [
+    ERC721_APPROVAL_EVENT,
+    ERC721_APPROVAL_FOR_ALL_EVENT,
 ] as const;
 
 /**
@@ -71,6 +91,7 @@ export async function syncRange(
             transactions: [],
             collectionScoped: {
                 nftTransferEvents: [],
+                nftApprovalEvents: [],
                 nftBalanceDeltas: [],
                 fillEvents: [],
                 orderInfos: [],
@@ -95,6 +116,14 @@ export async function syncRange(
         events: TRANSFER_EVENTS,
     });
 
+    // NFT approvals change sell-order executability without changing ownership.
+    const nftApprovalLogs = await rpc.getLogs({
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+        address: addresses.length === 1 ? addresses[0] : addresses,
+        events: NFT_APPROVAL_EVENTS,
+    });
+
     // Metadata refresh triggers (e.g. ERC-4906) for tracked collections.
     const metadataRefreshLogs = await rpc.getLogs({
         fromBlock: range.fromBlock,
@@ -114,6 +143,20 @@ export async function syncRange(
     for (const log of logs) {
         enhancedEvents.push(...decodeTransferLog(log));
     }
+
+    const trackedContracts = new Set(
+        collections.map((collection) => collection.address.toLowerCase()),
+    );
+    const resolutionContext: CollectionResolutionContext = {
+        chainId,
+        collections,
+        trackedContracts,
+        collectionScopeResolver,
+    };
+    const nftApprovalEvents = resolveNftApprovalEvents(
+        nftApprovalLogs.flatMap(decodeNftApprovalLog),
+        resolutionContext,
+    );
 
     const metadataRefreshEvents: DecodedMetadataRefreshEvent[] = [];
     const metadataRefreshRangeEvents: DecodedMetadataRefreshRangeEvent[] = [];
@@ -156,16 +199,11 @@ export async function syncRange(
     }
 
     const transactions = await buildEnhancedTransactions(rpc, enhancedEvents);
-    const trackedContracts = new Set(
-        collections.map((collection) => collection.address.toLowerCase()),
-    );
-    const resolutionContext: CollectionResolutionContext = {
-        chainId,
-        collections,
-        trackedContracts,
-        collectionScopeResolver,
-    };
     const data = accumulateOnChainData(transactions, resolutionContext);
+    data.collectionScoped.nftApprovalEvents.push(...nftApprovalEvents);
+    data.collectionScoped.makerTriggers.push(
+        ...deriveMakerTriggersFromNftApprovals(nftApprovalEvents),
+    );
     data.collectionScoped.metadataRefreshEvents = [
         ...resolveMetadataRefreshEvents(
             metadataRefreshEvents,
@@ -208,6 +246,38 @@ type CollectionResolutionContext = {
     collectionScopeResolver: CollectionScopeResolverPort;
 };
 
+export type DecodedNftApprovalLog =
+    | {
+          scope: "token";
+          contract: string;
+          owner: string;
+          operator: string;
+          tokenId: string;
+          kind: "erc721";
+          blockNumber: number;
+          blockHash: string;
+          txHash: string;
+          logIndex: number;
+      }
+    | {
+          scope: "collection";
+          contract: string;
+          owner: string;
+          operator: string;
+          approved: boolean;
+          kind?: "erc721" | "erc1155";
+          blockNumber: number;
+          blockHash: string;
+          txHash: string;
+          logIndex: number;
+      };
+
+/** Collection-level operator approval decoded before collection resolution. */
+export type DecodedNftApprovalForAllLog = Extract<
+    DecodedNftApprovalLog,
+    { scope: "collection" }
+>;
+
 /**
  * Route a log to the correct transfer decoder based on topic0.
  * TransferBatch expands into multiple EnhancedEvent entries.
@@ -229,6 +299,118 @@ function decodeTransferLog(log: RpcLog): EnhancedEvent[] {
     }
 
     return [];
+}
+
+/**
+ * Route NFT approval logs to the matching approval decoder.
+ */
+export function decodeNftApprovalLog(log: RpcLog): DecodedNftApprovalLog[] {
+    const topic0 = log.topics[0];
+    if (!topic0) return [];
+
+    if (topic0 === ERC721_APPROVAL_TOPIC) {
+        return decodeErc721Approval(log);
+    }
+
+    if (topic0 === ERC721_APPROVAL_FOR_ALL_TOPIC) {
+        return decodeNftApprovalForAll(log);
+    }
+
+    return [];
+}
+
+/**
+ * Decode a single ERC721 token approval log.
+ */
+export function decodeErc721Approval(log: RpcLog): DecodedNftApprovalLog[] {
+    const topics = log.topics as [Hex, ...Hex[]];
+    if (topics[0] !== ERC721_APPROVAL_TOPIC) return [];
+    try {
+        const decoded = decodeEventLog({
+            abi: ERC721_ABI,
+            eventName: "Approval",
+            data: log.data,
+            topics,
+        });
+        const owner = decoded.args.owner as string;
+        const operator = decoded.args.approved as string;
+        const tokenId = decoded.args.tokenId as bigint;
+        return [
+            {
+                scope: "token",
+                contract: log.address,
+                owner,
+                operator,
+                tokenId: tokenId.toString(),
+                kind: "erc721",
+                blockNumber: log.blockNumber,
+                blockHash: log.blockHash,
+                txHash: log.transactionHash,
+                logIndex: log.logIndex,
+            },
+        ];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Decode a collection operator approval log.
+ * ERC721 and ERC1155 ApprovalForAll have the same event signature, so the
+ * collection standard is applied later from the resolved collection context.
+ */
+export function decodeNftApprovalForAll(
+    log: RpcLog,
+): DecodedNftApprovalForAllLog[] {
+    const topics = log.topics as [Hex, ...Hex[]];
+    if (topics[0] !== ERC721_APPROVAL_FOR_ALL_TOPIC) return [];
+    try {
+        const decoded = decodeEventLog({
+            abi: ERC721_ABI,
+            eventName: "ApprovalForAll",
+            data: log.data,
+            topics,
+        });
+        return [
+            {
+                scope: "collection",
+                contract: log.address,
+                owner: decoded.args.owner as string,
+                operator: decoded.args.operator as string,
+                approved: decoded.args.approved as boolean,
+                blockNumber: log.blockNumber,
+                blockHash: log.blockHash,
+                txHash: log.transactionHash,
+                logIndex: log.logIndex,
+            },
+        ];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Decode a single ERC721 collection operator approval log.
+ */
+export function decodeErc721ApprovalForAll(
+    log: RpcLog,
+): DecodedNftApprovalLog[] {
+    return decodeNftApprovalForAll(log).map((event) => ({
+        ...event,
+        kind: "erc721",
+    }));
+}
+
+/**
+ * Decode a single ERC1155 collection operator approval log.
+ */
+export function decodeErc1155ApprovalForAll(
+    log: RpcLog,
+): DecodedNftApprovalLog[] {
+    return decodeNftApprovalForAll(log).map((event) => ({
+        ...event,
+        kind: "erc1155",
+    }));
 }
 
 /**
@@ -422,6 +604,7 @@ function accumulateOnChainData(
         transactions: [],
         collectionScoped: {
             nftTransferEvents: [],
+            nftApprovalEvents: [],
             nftBalanceDeltas: [],
             fillEvents: [],
             orderInfos: [],
@@ -606,6 +789,100 @@ function deriveTokenScopedMakerTriggersFromTransfers(
             logIndex: event.logIndex,
         });
     }
+    return out;
+}
+
+function resolveNftApprovalEvents(
+    events: DecodedNftApprovalLog[],
+    resolutionContext: CollectionResolutionContext,
+): OnChainData["collectionScoped"]["nftApprovalEvents"] {
+    const resolved: OnChainData["collectionScoped"]["nftApprovalEvents"] = [];
+
+    for (const event of events) {
+        const contract = event.contract.toLowerCase();
+        if (!resolutionContext.trackedContracts.has(contract)) {
+            continue;
+        }
+
+        if (event.scope === "token") {
+            const collectionId = resolveCollectionId(
+                resolutionContext,
+                contract,
+                event.tokenId,
+            );
+            if (collectionId === null) {
+                continue;
+            }
+            resolved.push({
+                ...event,
+                collectionId,
+                contract,
+                owner: event.owner.toLowerCase(),
+                operator: event.operator.toLowerCase(),
+            });
+            continue;
+        }
+
+        const collectionIds =
+            resolutionContext.collectionScopeResolver.resolveContractScopedCollectionIds(
+                resolutionContext.chainId,
+                resolutionContext.collections,
+                contract,
+            );
+        for (const collectionId of collectionIds) {
+            const collection = resolutionContext.collections.find(
+                (candidate) => candidate.id === collectionId,
+            );
+            if (!collection) {
+                continue;
+            }
+            resolved.push({
+                ...event,
+                collectionId,
+                contract,
+                kind: event.kind ?? collection.standard,
+                owner: event.owner.toLowerCase(),
+                operator: event.operator.toLowerCase(),
+            });
+        }
+    }
+
+    return resolved;
+}
+
+function deriveMakerTriggersFromNftApprovals(
+    events: OnChainData["collectionScoped"]["nftApprovalEvents"],
+): OnChainData["collectionScoped"]["makerTriggers"] {
+    const out: OnChainData["collectionScoped"]["makerTriggers"] = [];
+
+    for (const event of events) {
+        if (event.scope === "token") {
+            out.push({
+                maker: event.owner,
+                collectionId: event.collectionId,
+                contract: event.contract,
+                tokenId: event.tokenId,
+                reason: TOKEN_SCOPED_MAKER_TRIGGER_REASON.NftApproval,
+                blockNumber: event.blockNumber,
+                blockHash: event.blockHash,
+                txHash: event.txHash,
+                logIndex: event.logIndex,
+            });
+            continue;
+        }
+
+        out.push({
+            maker: event.owner,
+            collectionId: event.collectionId,
+            contract: event.contract,
+            reason: COLLECTION_SCOPED_MAKER_TRIGGER_REASON.NftApprovalForAll,
+            blockNumber: event.blockNumber,
+            blockHash: event.blockHash,
+            txHash: event.txHash,
+            logIndex: event.logIndex,
+        });
+    }
+
     return out;
 }
 

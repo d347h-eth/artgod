@@ -34,7 +34,8 @@ Still missing from the blueprint accumulator:
 ## Maker Trigger Pattern
 
 - Maker triggers are split into token-scoped and global forms.
-- NFT transfers and fill-derived item movement produce token-scoped triggers.
+- NFT transfers, single-token NFT approvals, and fill-derived item movement produce token-scoped triggers.
+- NFT operator approvals produce collection-scoped triggers.
 - ERC20 balance/approval and Seaport counter invalidations produce global triggers.
 
 ## Transfer Uniqueness

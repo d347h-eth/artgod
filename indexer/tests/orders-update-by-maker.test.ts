@@ -5,6 +5,7 @@ import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { MAKER_TRIGGER_SCOPE } from "../src/domain/order-jobs.js";
 import {
+    COLLECTION_SCOPED_MAKER_TRIGGER_REASON,
     GLOBAL_MAKER_TRIGGER_REASON,
     TOKEN_SCOPED_MAKER_TRIGGER_REASON,
 } from "../src/domain/maker-triggers.js";
@@ -125,6 +126,76 @@ describe("orders update by maker", () => {
             ORDER_STATUS.Fillable,
         );
         expect(validatedOrderIds).toEqual([order.orderId]);
+    });
+
+    it("revalidates active sell orders for collection-wide nft approval changes", async () => {
+        const chainId = 1;
+        const fixture = await readFixture("item_listed.json");
+        const firstOrder = await insertOrderFromFixture(chainId, fixture);
+        const secondOrder = await insertOrderFromFixture(chainId, fixture, {
+            orderId:
+                "0x1111111111111111111111111111111111111111111111111111111111111111",
+            maker: firstOrder.maker,
+            tokenId: "9999",
+        });
+        setOrderStatuses(secondOrder.orderId, {
+            fillabilityStatus: ORDER_STATUS.NoApproval,
+        });
+        const inactiveOrder = await insertOrderFromFixture(chainId, fixture, {
+            orderId:
+                "0x2222222222222222222222222222222222222222222222222222222222222222",
+            maker: firstOrder.maker,
+            tokenId: "10000",
+            sourceStatus: ORDER_SOURCE_STATUS.Inactive,
+        });
+        const siblingOrder = await insertOrderFromFixture(chainId, fixture, {
+            collectionId: 2,
+            orderId:
+                "0x3333333333333333333333333333333333333333333333333333333333333333",
+            maker: firstOrder.maker,
+            tokenId: "10001",
+        });
+
+        const validatedOrderIds: string[] = [];
+        const domain = new SqliteOrdersDomain(
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            async (candidate) => {
+                validatedOrderIds.push(candidate.id);
+                return {
+                    status: ORDER_STATUS.Fillable,
+                    reason: "approval-state-refreshed",
+                };
+            },
+        );
+
+        await domain.handleOrderUpdateByMaker({
+            chainId,
+            scope: MAKER_TRIGGER_SCOPE.Collection,
+            collectionId: firstOrder.collectionId,
+            maker: firstOrder.maker,
+            contract: firstOrder.contract,
+            reason: COLLECTION_SCOPED_MAKER_TRIGGER_REASON.NftApprovalForAll,
+            blockNumber: 1,
+            blockHash: "0x1",
+            txHash: "0x2",
+            logIndex: 0,
+        });
+
+        expect(getFillabilityStatus(firstOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(getFillabilityStatus(secondOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(getFillabilityStatus(inactiveOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(getFillabilityStatus(siblingOrder.orderId)).toBe(
+            ORDER_STATUS.Fillable,
+        );
+        expect(validatedOrderIds.sort()).toEqual(
+            [firstOrder.orderId, secondOrder.orderId].sort(),
+        );
     });
 
     it("revalidates only active actionable WETH buy orders for erc20-balance triggers", async () => {

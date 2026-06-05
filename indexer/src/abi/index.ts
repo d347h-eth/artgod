@@ -9,6 +9,26 @@ export const ERC721_ABI = [
         ],
         anonymous: false,
     },
+    {
+        type: "event",
+        name: "Approval",
+        inputs: [
+            { indexed: true, name: "owner", type: "address" },
+            { indexed: true, name: "approved", type: "address" },
+            { indexed: true, name: "tokenId", type: "uint256" },
+        ],
+        anonymous: false,
+    },
+    {
+        type: "event",
+        name: "ApprovalForAll",
+        inputs: [
+            { indexed: true, name: "owner", type: "address" },
+            { indexed: true, name: "operator", type: "address" },
+            { indexed: false, name: "approved", type: "bool" },
+        ],
+        anonymous: false,
+    },
 ] as const;
 
 export const ERC721_ENUMERABLE_ABI = [
@@ -57,6 +77,16 @@ export const ERC1155_ABI = [
             { indexed: true, name: "to", type: "address" },
             { indexed: false, name: "ids", type: "uint256[]" },
             { indexed: false, name: "values", type: "uint256[]" },
+        ],
+        anonymous: false,
+    },
+    {
+        type: "event",
+        name: "ApprovalForAll",
+        inputs: [
+            { indexed: true, name: "account", type: "address" },
+            { indexed: true, name: "operator", type: "address" },
+            { indexed: false, name: "approved", type: "bool" },
         ],
         anonymous: false,
     },

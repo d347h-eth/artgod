@@ -566,6 +566,21 @@ export class SqliteCollectionRegistry
         return matches[0]!.id;
     }
 
+    resolveContractScopedCollectionIds(
+        _chainId: number,
+        collections: CollectionRecord[],
+        contract: string,
+    ): number[] {
+        // Contract-wide events, such as ApprovalForAll, affect every local scope on that NFT contract.
+        return collections
+            .filter(
+                (collection) =>
+                    collection.address.toLowerCase() ===
+                    contract.toLowerCase(),
+            )
+            .map((collection) => collection.id);
+    }
+
     splitRangeByCollectionScope(
         chainId: number,
         collections: CollectionRecord[],

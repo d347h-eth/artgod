@@ -1,6 +1,7 @@
 import type { Hex, RpcLog } from "../ports/rpc.js";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import type {
+    CollectionScopedMakerTriggerReason,
     GlobalMakerTriggerReason,
     TokenScopedMakerTriggerReason,
 } from "./maker-triggers.js";
@@ -28,6 +29,27 @@ export type NftTransferEvent = CollectionScopedTokenAttribution & {
     amount: string;
     kind: "erc721" | "erc1155";
 };
+
+type TokenScopedNftApprovalEvent = CollectionScopedTokenAttribution & {
+    scope: "token";
+    owner: string;
+    operator: string;
+    kind: "erc721";
+};
+
+type CollectionScopedNftApprovalEvent = CollectionScopedChainAttribution & {
+    scope: "collection";
+    contract: string;
+    owner: string;
+    operator: string;
+    approved: boolean;
+    kind: "erc721" | "erc1155";
+};
+
+// NFT approval events are ephemeral maker-state hints, not persisted inventory.
+export type NftApprovalEvent =
+    | TokenScopedNftApprovalEvent
+    | CollectionScopedNftApprovalEvent;
 
 export type NftBalanceDelta = CollectionScopedTokenAttribution & {
     owner: string;
@@ -67,6 +89,17 @@ export type TokenScopedMakerTrigger = CollectionScopedTokenAttribution & {
     maker: string;
     reason: TokenScopedMakerTriggerReason;
 };
+
+// Collection-scoped maker trigger = collection-wide NFT approval changed.
+export type CollectionScopedMakerTrigger = CollectionScopedChainAttribution & {
+    contract: string;
+    maker: string;
+    reason: CollectionScopedMakerTriggerReason;
+};
+
+export type CollectionMakerTrigger =
+    | TokenScopedMakerTrigger
+    | CollectionScopedMakerTrigger;
 
 // Global maker trigger = maker-wide fillability changed, but no single collection
 // can be identified at sync time yet.
@@ -122,10 +155,11 @@ export type TransactionRecord = {
 
 export type CollectionScopedOnChainData = {
     nftTransferEvents: NftTransferEvent[];
+    nftApprovalEvents: NftApprovalEvent[];
     nftBalanceDeltas: NftBalanceDelta[];
     fillEvents: FillEvent[];
     orderInfos: OrderInfo[];
-    makerTriggers: TokenScopedMakerTrigger[];
+    makerTriggers: CollectionMakerTrigger[];
     metadataRefreshEvents: MetadataRefreshEvent[];
     metadataRefreshRangeEvents: MetadataRefreshRangeEvent[];
     collectionExtensionEvents: CollectionExtensionEvent[];

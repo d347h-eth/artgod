@@ -77,6 +77,11 @@ export interface CollectionScopeResolverPort {
         contract: string,
         tokenId: string,
     ): number | null;
+    resolveContractScopedCollectionIds(
+        chainId: number,
+        collections: CollectionRecord[],
+        contract: string,
+    ): number[];
     splitRangeByCollectionScope(
         chainId: number,
         collections: CollectionRecord[],

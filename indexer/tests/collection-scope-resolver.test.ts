@@ -134,8 +134,16 @@ describe("collection scope resolver", () => {
                 collectionId: explicit,
                 fromTokenId: "35",
                 toTokenId: "35",
-            },
-        ]);
+                },
+            ]);
+
+        expect(
+            registry.resolveContractScopedCollectionIds(
+                chainId,
+                collections,
+                contract,
+            ),
+        ).toEqual([rangeA, rangeB, explicit]);
     });
 
     it("selects live and anchored bootstrapping collections for realtime sync", () => {

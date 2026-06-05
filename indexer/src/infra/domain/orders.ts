@@ -102,6 +102,12 @@ type MakerSellOrdersForTokenParams = {
     tokenId: string;
 } & ActiveRevalidatableOrderParams;
 
+type MakerSellOrdersForCollectionParams = {
+    chainId: number;
+    collectionId: number;
+    maker: string;
+} & ActiveRevalidatableOrderParams;
+
 type MakerWethBuyOrdersParams = {
     chainId: number;
     maker: string;
@@ -203,6 +209,14 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             SELECT_ORDER_FIELDS +
                 "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
                 "AND collection_id = @collectionId AND token_id = @tokenId " +
+                ACTIVE_REVALIDATABLE_ORDER_FILTER +
+                "AND seaport_data_json IS NOT NULL",
+        );
+    private selectMakerSellOrdersForCollection =
+        db.prepare<MakerSellOrdersForCollectionParams>(
+            SELECT_ORDER_FIELDS +
+                "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
+                "AND collection_id = @collectionId " +
                 ACTIVE_REVALIDATABLE_ORDER_FILTER +
                 "AND seaport_data_json IS NOT NULL",
         );
@@ -618,6 +632,14 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 ...activeRevalidatableOrderParams(),
             }) as OrderRow[];
         }
+        if (payload.scope === MAKER_TRIGGER_SCOPE.Collection) {
+            return this.selectMakerSellOrdersForCollection.all({
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+                maker,
+                ...activeRevalidatableOrderParams(),
+            }) as OrderRow[];
+        }
 
         switch (payload.reason) {
             case GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance:
@@ -794,7 +816,7 @@ function buildOrderUpdateByMakerLogContext(
         txHash: payload.txHash ?? null,
         logIndex: payload.logIndex ?? null,
         collectionId:
-            payload.scope === MAKER_TRIGGER_SCOPE.Token
+            payload.scope !== MAKER_TRIGGER_SCOPE.Global
                 ? payload.collectionId
                 : null,
         tokenId:

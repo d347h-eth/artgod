@@ -7,6 +7,7 @@ import {
 import { CollectionRecord } from "../src/domain/collections.js";
 import type { JobEnvelope } from "../src/domain/jobs.js";
 import {
+    COLLECTION_SCOPED_MAKER_TRIGGER_REASON,
     GLOBAL_MAKER_TRIGGER_REASON,
     TOKEN_SCOPED_MAKER_TRIGGER_REASON,
 } from "../src/domain/maker-triggers.js";
@@ -90,6 +91,16 @@ describe("backfill order maintenance", () => {
             txHash: "0xtoken",
             logIndex: 1,
         });
+        data.collectionScoped.makerTriggers.push({
+            collectionId: 7,
+            contract: "0x0000000000000000000000000000000000000007",
+            maker: "0x00000000000000000000000000000000000000a2",
+            reason: COLLECTION_SCOPED_MAKER_TRIGGER_REASON.NftApprovalForAll,
+            blockNumber: 101,
+            blockHash: "0xblock",
+            txHash: "0xcollection",
+            logIndex: 2,
+        });
         data.global.makerTriggers.push(
             globalTrigger(
                 GLOBAL_MAKER_TRIGGER_REASON.Erc20Balance,
@@ -117,12 +128,17 @@ describe("backfill order maintenance", () => {
         );
 
         const makerPayloads = orderUpdateByMakerPayloads(queue);
-        expect(makerPayloads).toHaveLength(1);
+        expect(makerPayloads).toHaveLength(2);
         expect(makerPayloads[0]).toMatchObject({
             scope: MAKER_TRIGGER_SCOPE.Token,
             reason: TOKEN_SCOPED_MAKER_TRIGGER_REASON.NftTransfer,
             collectionId: 7,
             tokenId: "1",
+        });
+        expect(makerPayloads[1]).toMatchObject({
+            scope: MAKER_TRIGGER_SCOPE.Collection,
+            reason: COLLECTION_SCOPED_MAKER_TRIGGER_REASON.NftApprovalForAll,
+            collectionId: 7,
         });
     });
 
@@ -268,6 +284,7 @@ function emptyOnChainData(): OnChainData {
         transactions: [],
         collectionScoped: {
             nftTransferEvents: [],
+            nftApprovalEvents: [],
             nftBalanceDeltas: [],
             fillEvents: [],
             orderInfos: [],
