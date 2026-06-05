@@ -3,7 +3,14 @@
 // heuristics or ad hoc scope-kind string checks.
 import type { CollectionStatus } from "@artgod/shared/types";
 
-export type CollectionStandard = "erc721" | "erc1155";
+// Collection standards supported by the on-chain indexer and order domain.
+export const COLLECTION_STANDARD = {
+    Erc721: "erc721",
+    Erc1155: "erc1155",
+} as const;
+
+export type CollectionStandard =
+    (typeof COLLECTION_STANDARD)[keyof typeof COLLECTION_STANDARD];
 
 export type OpenSeaCollectionStatus =
     | "pending"

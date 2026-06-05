@@ -1,6 +1,7 @@
 import type { OrderSourceStatus } from "./orders.js";
 import {
     MAKER_TRIGGER_SCOPE,
+    type CollectionScopedMakerTriggerReason,
     type GlobalMakerTriggerReason,
     type MakerTriggerReason,
     type TokenScopedMakerTriggerReason,
@@ -39,6 +40,15 @@ export type TokenScopedOrderUpdateByMakerPayload =
         reason: TokenScopedMakerTriggerReason;
     };
 
+// Collection-scoped maker updates re-validate active sell orders in one collection.
+export type CollectionScopedOrderUpdateByMakerPayload =
+    OrderUpdateByMakerAttribution & {
+        scope: typeof MAKER_TRIGGER_SCOPE.Collection;
+        collectionId: number;
+        contract?: string;
+        reason: CollectionScopedMakerTriggerReason;
+    };
+
 export type GlobalOrderUpdateByMakerPayload = OrderUpdateByMakerAttribution & {
     scope: typeof MAKER_TRIGGER_SCOPE.Global;
     reason: GlobalMakerTriggerReason;
@@ -46,6 +56,7 @@ export type GlobalOrderUpdateByMakerPayload = OrderUpdateByMakerAttribution & {
 
 export type OrderUpdateByMakerPayload =
     | TokenScopedOrderUpdateByMakerPayload
+    | CollectionScopedOrderUpdateByMakerPayload
     | GlobalOrderUpdateByMakerPayload;
 
 // Order update by id = explicit fill/cancel/on-chain order create for a single order.

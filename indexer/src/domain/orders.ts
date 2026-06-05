@@ -10,6 +10,16 @@ export const ORDER_STATUS = {
 
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 
+// Fillability states that maker balance, approval, ownership, or counter changes can still transition.
+export const ORDER_REVALIDATABLE_FILLABILITY_STATUS = {
+    Fillable: ORDER_STATUS.Fillable,
+    NoBalance: ORDER_STATUS.NoBalance,
+    NoApproval: ORDER_STATUS.NoApproval,
+} as const;
+
+export type OrderRevalidatableFillabilityStatus =
+    (typeof ORDER_REVALIDATABLE_FILLABILITY_STATUS)[keyof typeof ORDER_REVALIDATABLE_FILLABILITY_STATUS];
+
 // Domain states derived from an order validity window.
 export const ORDER_VALIDITY_STATE = {
     NotStarted: "not_started",

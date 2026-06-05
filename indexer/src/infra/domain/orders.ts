@@ -7,6 +7,7 @@ import {
 } from "../../domain/maker-triggers.js";
 import {
     ORDER_LOCAL_TOKEN_SET_STATUS,
+    ORDER_REVALIDATABLE_FILLABILITY_STATUS,
     ORDER_SEAPORT_DATA_SOURCE_KIND,
     ORDER_SOURCE_SCOPE_KIND,
     ORDER_SOURCE_STATUS,
@@ -99,17 +100,30 @@ type MakerSellOrdersForTokenParams = {
     collectionId: number;
     maker: string;
     tokenId: string;
-};
+} & ActiveRevalidatableOrderParams;
+
+type MakerSellOrdersForCollectionParams = {
+    chainId: number;
+    collectionId: number;
+    maker: string;
+} & ActiveRevalidatableOrderParams;
 
 type MakerWethBuyOrdersParams = {
     chainId: number;
     maker: string;
     currency: string;
-};
+} & ActiveRevalidatableOrderParams;
 
 type MakerSeaportOrdersParams = {
     chainId: number;
     maker: string;
+} & ActiveRevalidatableOrderParams;
+
+type ActiveRevalidatableOrderParams = {
+    sourceStatus: OrderSourceStatus;
+    fillableStatus: OrderStatus;
+    noBalanceStatus: OrderStatus;
+    noApprovalStatus: OrderStatus;
 };
 
 type OrderUpdateByMakerLogContext = {
@@ -169,6 +183,10 @@ const SELECT_ORDER_FIELDS =
     "valid_from, valid_until, fillability_status, source_status, seaport_data_json, seaport_data_source_kind, block_number, tx_hash, log_index " +
     "FROM orders ";
 
+const ACTIVE_REVALIDATABLE_ORDER_FILTER =
+    "AND source_status = @sourceStatus " +
+    "AND fillability_status IN (@fillableStatus, @noBalanceStatus, @noApprovalStatus) ";
+
 export class SqliteOrdersDomain implements OrdersDomainPort {
     private readonly wethAddress: string;
     private readonly validateOrder: SeaportOrderValidator;
@@ -191,17 +209,28 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
             SELECT_ORDER_FIELDS +
                 "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
                 "AND collection_id = @collectionId AND token_id = @tokenId " +
+                ACTIVE_REVALIDATABLE_ORDER_FILTER +
+                "AND seaport_data_json IS NOT NULL",
+        );
+    private selectMakerSellOrdersForCollection =
+        db.prepare<MakerSellOrdersForCollectionParams>(
+            SELECT_ORDER_FIELDS +
+                "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'sell' " +
+                "AND collection_id = @collectionId " +
+                ACTIVE_REVALIDATABLE_ORDER_FILTER +
                 "AND seaport_data_json IS NOT NULL",
         );
     private selectMakerWethBuyOrders = db.prepare<MakerWethBuyOrdersParams>(
         SELECT_ORDER_FIELDS +
             "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker AND side = 'buy' " +
             "AND currency = @currency " +
+            ACTIVE_REVALIDATABLE_ORDER_FILTER +
             "AND seaport_data_json IS NOT NULL",
     );
     private selectMakerSeaportOrders = db.prepare<MakerSeaportOrdersParams>(
         SELECT_ORDER_FIELDS +
             "WHERE chain_id = @chainId AND kind = 'seaport' AND maker = @maker " +
+            ACTIVE_REVALIDATABLE_ORDER_FILTER +
             "AND seaport_data_json IS NOT NULL",
     );
     private selectCollectionAnchor = db.prepare<[number, number]>(
@@ -600,6 +629,15 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                 collectionId: payload.collectionId,
                 maker,
                 tokenId: payload.tokenId,
+                ...activeRevalidatableOrderParams(),
+            }) as OrderRow[];
+        }
+        if (payload.scope === MAKER_TRIGGER_SCOPE.Collection) {
+            return this.selectMakerSellOrdersForCollection.all({
+                chainId: payload.chainId,
+                collectionId: payload.collectionId,
+                maker,
+                ...activeRevalidatableOrderParams(),
             }) as OrderRow[];
         }
 
@@ -610,11 +648,13 @@ export class SqliteOrdersDomain implements OrdersDomainPort {
                     chainId: payload.chainId,
                     maker,
                     currency: this.wethAddress,
+                    ...activeRevalidatableOrderParams(),
                 }) as OrderRow[];
             case GLOBAL_MAKER_TRIGGER_REASON.OrderCounter:
                 return this.selectMakerSeaportOrders.all({
                     chainId: payload.chainId,
                     maker,
+                    ...activeRevalidatableOrderParams(),
                 }) as OrderRow[];
         }
     }
@@ -751,6 +791,15 @@ function parseSeaportDataJson(value: string | null): SeaportOrderData | null {
     return JSON.parse(value) as SeaportOrderData;
 }
 
+function activeRevalidatableOrderParams(): ActiveRevalidatableOrderParams {
+    return {
+        sourceStatus: ORDER_SOURCE_STATUS.Active,
+        fillableStatus: ORDER_REVALIDATABLE_FILLABILITY_STATUS.Fillable,
+        noBalanceStatus: ORDER_REVALIDATABLE_FILLABILITY_STATUS.NoBalance,
+        noApprovalStatus: ORDER_REVALIDATABLE_FILLABILITY_STATUS.NoApproval,
+    };
+}
+
 function buildOrderUpdateByMakerLogContext(
     payload: OrderUpdateByMakerPayload,
     context?: OrderUpdateByMakerRuntimeContext,
@@ -767,7 +816,7 @@ function buildOrderUpdateByMakerLogContext(
         txHash: payload.txHash ?? null,
         logIndex: payload.logIndex ?? null,
         collectionId:
-            payload.scope === MAKER_TRIGGER_SCOPE.Token
+            payload.scope !== MAKER_TRIGGER_SCOPE.Global
                 ? payload.collectionId
                 : null,
         tokenId:

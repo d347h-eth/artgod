@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import { encodeAbiParameters, encodeEventTopics, type Hex } from "viem";
 import { ERC1155_ABI, ERC721_ABI } from "../src/abi/index.js";
 import {
+    decodeErc1155ApprovalForAll,
     decodeErc1155TransferBatch,
     decodeErc1155TransferSingle,
+    decodeErc721Approval,
+    decodeErc721ApprovalForAll,
     decodeErc721Transfer,
 } from "../src/application/sync.js";
 import type { RpcLog } from "../src/ports/rpc.js";
@@ -70,6 +73,50 @@ describe("transfer decoders", () => {
         expect(event.decoded.amount).toBe("1");
     });
 
+    it("decodes ERC721 Approval", () => {
+        const topics = eventTopics(ERC721_ABI, "Approval", [
+            { type: "address", value: FROM },
+            { type: "address", value: OPERATOR },
+            { type: "uint256", value: 123n },
+        ]);
+        const log = buildLog("0x", topics, 11);
+        const events = decodeErc721Approval(log);
+
+        expect(events).toHaveLength(1);
+        const event = events[0];
+        expect(event).toMatchObject({
+            scope: "token",
+            contract: CONTRACT,
+            tokenId: "123",
+            kind: "erc721",
+            logIndex: 11,
+        });
+        expect(event?.owner.toLowerCase()).toBe(FROM);
+        expect(event?.operator.toLowerCase()).toBe(OPERATOR);
+    });
+
+    it("decodes ERC721 ApprovalForAll", () => {
+        const topics = eventTopics(ERC721_ABI, "ApprovalForAll", [
+            { type: "address", value: FROM },
+            { type: "address", value: OPERATOR },
+        ]);
+        const data = encodeAbiParameters([{ type: "bool" }], [true]);
+        const log = buildLog(data, topics, 12);
+        const events = decodeErc721ApprovalForAll(log);
+
+        expect(events).toHaveLength(1);
+        const event = events[0];
+        expect(event).toMatchObject({
+            scope: "collection",
+            contract: CONTRACT,
+            approved: true,
+            kind: "erc721",
+            logIndex: 12,
+        });
+        expect(event?.owner.toLowerCase()).toBe(FROM);
+        expect(event?.operator.toLowerCase()).toBe(OPERATOR);
+    });
+
     it("decodes ERC1155 TransferSingle", () => {
         const topics = eventTopics(ERC1155_ABI, "TransferSingle", [
             { type: "address", value: OPERATOR },
@@ -116,5 +163,27 @@ describe("transfer decoders", () => {
         expect(events[1]?.base.batchIndex).toBe(1);
         expect(events[1]?.decoded.tokenId).toBe("8");
         expect(events[1]?.decoded.amount).toBe("12");
+    });
+
+    it("decodes ERC1155 ApprovalForAll", () => {
+        const topics = eventTopics(ERC1155_ABI, "ApprovalForAll", [
+            { type: "address", value: FROM },
+            { type: "address", value: OPERATOR },
+        ]);
+        const data = encodeAbiParameters([{ type: "bool" }], [false]);
+        const log = buildLog(data, topics, 13);
+        const events = decodeErc1155ApprovalForAll(log);
+
+        expect(events).toHaveLength(1);
+        const event = events[0];
+        expect(event).toMatchObject({
+            scope: "collection",
+            contract: CONTRACT,
+            approved: false,
+            kind: "erc1155",
+            logIndex: 13,
+        });
+        expect(event?.owner.toLowerCase()).toBe(FROM);
+        expect(event?.operator.toLowerCase()).toBe(OPERATOR);
     });
 });

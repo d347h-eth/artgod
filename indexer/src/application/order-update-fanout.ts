@@ -1,6 +1,6 @@
 import type { CollectionRecord } from "../domain/collections.js";
 import type { JobEnvelope } from "../domain/jobs.js";
-import type { OnChainData } from "../domain/onchain.js";
+import type { CollectionMakerTrigger, OnChainData } from "../domain/onchain.js";
 import {
     MAKER_TRIGGER_SCOPE,
     ORDER_JOB_KIND,
@@ -22,28 +22,9 @@ export async function publishOrderUpdateJobs(
 ): Promise<void> {
     for (const makerTrigger of data.collectionScoped.makerTriggers) {
         const maker = makerTrigger.maker.toLowerCase();
-        const job: JobEnvelope<OrderUpdateByMakerPayload> = {
-            jobId: `orders:update:maker:${chainId}:${maker}:${makerTrigger.collectionId}:${makerTrigger.tokenId}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
-            kind: ORDER_JOB_KIND.UpdateByMaker,
-            queue: QUEUE_NAMES.OrdersUpdateByMaker,
-            payload: {
-                chainId,
-                scope: MAKER_TRIGGER_SCOPE.Token,
-                maker: makerTrigger.maker,
-                collectionId: makerTrigger.collectionId,
-                contract: makerTrigger.contract,
-                tokenId: makerTrigger.tokenId,
-                reason: makerTrigger.reason,
-                blockNumber: makerTrigger.blockNumber,
-                blockHash: makerTrigger.blockHash,
-                txHash: makerTrigger.txHash,
-                logIndex: makerTrigger.logIndex,
-            },
-            attempt: 0,
-            scheduledAt: Date.now(),
-            chainId,
-            collectionId: makerTrigger.collectionId,
-        };
+        const job = isTokenScopedMakerTrigger(makerTrigger)
+            ? buildTokenScopedMakerJob(chainId, maker, makerTrigger)
+            : buildCollectionScopedMakerJob(chainId, maker, makerTrigger);
         await queue.publish(QUEUE_NAMES.OrdersUpdateByMaker, job);
     }
 
@@ -120,6 +101,69 @@ export async function publishOrderUpdateJobs(
             order,
         );
     }
+}
+
+function buildTokenScopedMakerJob(
+    chainId: number,
+    maker: string,
+    makerTrigger: Extract<CollectionMakerTrigger, { tokenId: string }>,
+): JobEnvelope<OrderUpdateByMakerPayload> {
+    return {
+        jobId: `orders:update:maker:${chainId}:${maker}:${makerTrigger.collectionId}:${makerTrigger.tokenId}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
+        kind: ORDER_JOB_KIND.UpdateByMaker,
+        queue: QUEUE_NAMES.OrdersUpdateByMaker,
+        payload: {
+            chainId,
+            scope: MAKER_TRIGGER_SCOPE.Token,
+            maker: makerTrigger.maker,
+            collectionId: makerTrigger.collectionId,
+            contract: makerTrigger.contract,
+            tokenId: makerTrigger.tokenId,
+            reason: makerTrigger.reason,
+            blockNumber: makerTrigger.blockNumber,
+            blockHash: makerTrigger.blockHash,
+            txHash: makerTrigger.txHash,
+            logIndex: makerTrigger.logIndex,
+        },
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId,
+        collectionId: makerTrigger.collectionId,
+    };
+}
+
+function buildCollectionScopedMakerJob(
+    chainId: number,
+    maker: string,
+    makerTrigger: Exclude<CollectionMakerTrigger, { tokenId: string }>,
+): JobEnvelope<OrderUpdateByMakerPayload> {
+    return {
+        jobId: `orders:update:maker:${chainId}:${maker}:${makerTrigger.collectionId}:collection:${makerTrigger.reason}:${makerTrigger.blockNumber}:${makerTrigger.logIndex}`,
+        kind: ORDER_JOB_KIND.UpdateByMaker,
+        queue: QUEUE_NAMES.OrdersUpdateByMaker,
+        payload: {
+            chainId,
+            scope: MAKER_TRIGGER_SCOPE.Collection,
+            maker: makerTrigger.maker,
+            collectionId: makerTrigger.collectionId,
+            contract: makerTrigger.contract,
+            reason: makerTrigger.reason,
+            blockNumber: makerTrigger.blockNumber,
+            blockHash: makerTrigger.blockHash,
+            txHash: makerTrigger.txHash,
+            logIndex: makerTrigger.logIndex,
+        },
+        attempt: 0,
+        scheduledAt: Date.now(),
+        chainId,
+        collectionId: makerTrigger.collectionId,
+    };
+}
+
+function isTokenScopedMakerTrigger(
+    trigger: CollectionMakerTrigger,
+): trigger is Extract<CollectionMakerTrigger, { tokenId: string }> {
+    return "tokenId" in trigger;
 }
 
 // Coarse gate for global triggers.

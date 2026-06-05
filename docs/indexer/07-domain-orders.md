@@ -164,10 +164,14 @@ Maker triggers are re-validation hints, not unconditional cancels.
 
 Current maker trigger scoping is split explicitly:
 
-- `nft-transfer`, `item_sold`, `item_transferred`
+- `nft-transfer`, `nft-approval`, `item_sold`, `item_transferred`
     - token-scoped payload
     - includes `collectionId + tokenId`
     - re-validate exact-token sell orders for that maker
+- `nft-approval-for-all`
+    - collection-scoped payload
+    - includes `collectionId`
+    - re-validate active sell orders in that collection for that maker
 - `erc20-balance`, `approval-change`
     - global payload
     - re-validate WETH-denominated buy orders for that maker

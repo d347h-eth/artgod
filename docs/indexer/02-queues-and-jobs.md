@@ -161,11 +161,12 @@ This split matters for historical backfill. Pre-anchor ranges are still imported
     - `orders.update-by-maker`
     - `orders.update-by-id`
 
-Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected. Offchain ingest also emits order update jobs for OpenSea fill/transfer side-effects and explicit order status changes.
+Order update jobs are emitted by the sync worker whenever maker state changes (NFT transfers, NFT approvals, or WETH transfers/approvals when the bidder index is active) or when explicit fill/cancel/on-chain order events are detected. Offchain ingest also emits order update jobs for OpenSea fill/transfer side-effects and explicit order status changes.
 
 `orders.update-by-maker` now uses a scoped payload contract:
 
 - token-scoped updates include `scope = token`, `collectionId`, and `tokenId`
+- collection-scoped updates include `scope = collection` and `collectionId`
 - global updates include `scope = global` and omit collection/token attribution
 
 - OpenSea jobs (`indexer/src/domain/opensea-jobs.ts`):
