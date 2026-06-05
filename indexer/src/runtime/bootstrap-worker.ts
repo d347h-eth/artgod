@@ -53,6 +53,10 @@ import type { Hex, RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
@@ -91,8 +95,8 @@ async function main() {
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
-            component: "bootstrap-http-rpc",
-            endpointIdPrefix: "bootstrap-rpc",
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.BootstrapHttp,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.BootstrapHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -104,8 +108,8 @@ async function main() {
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
-            component: "metadata-rpc",
-            endpointIdPrefix: "metadata-rpc",
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.Metadata,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata,
         });
         const metadataFetcher = new HttpMetadataFetcher({
             metrics: runtimeMetrics.metrics,

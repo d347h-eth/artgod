@@ -29,6 +29,10 @@ import { ViemTokenUriResolver } from "../infra/metadata/viem-token-uri.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { SqliteActivityDomain } from "../infra/domain/activities.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "../infra/rpc/observability.js";
 import { SqliteConduitRegistry } from "../infra/conduits/sqlite.js";
 import { validateSeaportOrder } from "../application/offchain/seaport-validate.js";
 import type { MetadataUpdatedToken } from "../domain/metadata.js";
@@ -74,8 +78,8 @@ async function main() {
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
-            component: "domain-http-rpc",
-            endpointIdPrefix: "domain-rpc",
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.DomainHttp,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.DomainHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -90,8 +94,8 @@ async function main() {
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
-            component: "metadata-rpc",
-            endpointIdPrefix: "metadata-rpc",
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.Metadata,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata,
         });
         const metadataFetcher = new HttpMetadataFetcher({
             metrics: runtimeMetrics.metrics,

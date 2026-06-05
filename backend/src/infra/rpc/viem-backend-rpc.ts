@@ -5,7 +5,11 @@ import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import type { Metrics } from "@artgod/shared/observability/metrics";
-import { RpcObservability } from "@artgod/shared/observability/rpc";
+import {
+    RPC_OBSERVABILITY_WORKSPACE,
+    RPC_PROTOCOL,
+    RpcObservability,
+} from "@artgod/shared/observability/rpc";
 
 export type BackendRpcHex = `0x${string}`;
 
@@ -22,6 +26,18 @@ const BACKEND_RPC_SPAN_ATTRIBUTE = {
     CacheHit: "artgod.rpc.cache_hit",
     Endpoint: "artgod.rpc.endpoint",
 } as const;
+
+// Component label used to split backend RPC logs and metrics.
+const BACKEND_RPC_OBSERVABILITY_COMPONENT = "backend-rpc";
+
+// Endpoint ID prefix used for backend RPC provider labels.
+const BACKEND_RPC_ENDPOINT_ID_PREFIX = "backend-rpc";
+
+// Logger component label emitted by the backend RPC adapter.
+const BACKEND_RPC_LOG_COMPONENT = "BackendRpc";
+
+// Span prefix stripped to derive compact backend RPC method labels.
+const BACKEND_RPC_SPAN_PREFIX = "backend.rpc.";
 
 const CURRENT_BLOCK_NUMBER_CACHE_TTL_MS = 2_000;
 type BackendViemClient = ReturnType<typeof createPublicClient>;
@@ -43,18 +59,18 @@ export class ViemBackendRpcClient {
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
-                id: `backend-rpc-${index + 1}`,
+                id: `${BACKEND_RPC_ENDPOINT_ID_PREFIX}-${index + 1}`,
                 value: createPublicClient({
                     transport: http(endpoint.url),
                 }),
             })),
         );
         this.rpcObservability = new RpcObservability({
-            workspace: "backend",
-            component: "backend-rpc",
-            protocol: "http",
+            workspace: RPC_OBSERVABILITY_WORKSPACE.Backend,
+            component: BACKEND_RPC_OBSERVABILITY_COMPONENT,
+            protocol: RPC_PROTOCOL.Http,
             metrics,
-            logComponent: "BackendRpc",
+            logComponent: BACKEND_RPC_LOG_COMPONENT,
         });
         for (const endpoint of this.endpointSelector.snapshot()) {
             this.rpcObservability.recordConfiguredEndpoint(endpoint);
@@ -270,5 +286,8 @@ export class ViemBackendRpcClient {
 }
 
 function backendRpcMethodLabel(spanName: string): string {
-    return spanName.replace(/^backend\.rpc\./, "");
+    if (spanName.startsWith(BACKEND_RPC_SPAN_PREFIX)) {
+        return spanName.slice(BACKEND_RPC_SPAN_PREFIX.length);
+    }
+    return spanName;
 }

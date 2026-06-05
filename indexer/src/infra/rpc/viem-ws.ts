@@ -4,10 +4,20 @@ import type { RpcWebSocketEndpointConfig } from "@artgod/shared/config/rpc-endpo
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import {
     errorLogFields,
+    RPC_OBSERVABILITY_EVENT,
+    RPC_OBSERVABILITY_LOG_MESSAGE,
+    RPC_OBSERVABILITY_WORKSPACE,
+    RPC_PROTOCOL,
     RpcObservability,
     type RpcEndpointSnapshot,
 } from "@artgod/shared/observability/rpc";
 import type { HeadSourcePort } from "../../ports/head-source.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_LOG_COMPONENT,
+    INDEXER_RPC_METHOD,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "./observability.js";
 
 type WatchBlockNumberOptions = Parameters<
     ReturnType<typeof createPublicClient>["watchBlockNumber"]
@@ -40,22 +50,26 @@ export class ViemWebSocketHeadSource implements HeadSourcePort {
         endpoints: readonly RpcWebSocketEndpointConfig[],
         options: ViemWebSocketHeadSourceOptions = {},
     ) {
-        const component = options.component ?? "websocket-head-rpc";
+        const component =
+            options.component ?? INDEXER_RPC_OBSERVABILITY_COMPONENT.WebSocketHead;
+        const endpointIdPrefix =
+            options.endpointIdPrefix ??
+            INDEXER_RPC_ENDPOINT_ID_PREFIX.WebSocketDefault;
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
-                id: `${options.endpointIdPrefix ?? "ws-rpc"}-${index + 1}`,
+                id: `${endpointIdPrefix}-${index + 1}`,
                 value: endpoint.url,
             })),
         );
         this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
         this.createClient = options.createClient ?? createViemWebSocketClient;
         this.rpcObservability = new RpcObservability({
-            workspace: "indexer",
+            workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
             component,
-            protocol: "websocket",
+            protocol: RPC_PROTOCOL.WebSocket,
             metrics: options.metrics,
-            logComponent: "IndexerWebSocketRpc",
+            logComponent: INDEXER_RPC_LOG_COMPONENT.WebSocket,
         });
         for (const endpoint of this.endpointSelector.snapshot()) {
             this.rpcObservability.recordConfiguredEndpoint(endpoint);
@@ -84,10 +98,10 @@ export class ViemWebSocketHeadSource implements HeadSourcePort {
         const endpoint = this.endpointSelector.selectHighestEffectiveWeight();
         try {
             this.rpcObservability.recordEndpointEvent({
-                event: "connect_started",
-                method: "watchBlockNumber",
+                event: RPC_OBSERVABILITY_EVENT.ConnectStarted,
+                method: INDEXER_RPC_METHOD.WatchBlockNumber,
                 endpoint,
-                message: "RPC websocket connect started",
+                message: RPC_OBSERVABILITY_LOG_MESSAGE.WebSocketConnectStarted,
             });
             const client = this.createClient(endpoint.value);
             this.activeUnwatch = client.watchBlockNumber({
@@ -103,10 +117,11 @@ export class ViemWebSocketHeadSource implements HeadSourcePort {
                             "blockNumber",
                         );
                         this.rpcObservability.recordEndpointEvent({
-                            event: "head_received",
-                            method: "watchBlockNumber",
+                            event: RPC_OBSERVABILITY_EVENT.HeadReceived,
+                            method: INDEXER_RPC_METHOD.WatchBlockNumber,
                             endpoint: updatedEndpoint,
-                            message: "RPC websocket head received",
+                            message:
+                                RPC_OBSERVABILITY_LOG_MESSAGE.WebSocketHeadReceived,
                             extra: { headNumber: parsedHead },
                         });
                         this.onHead?.(parsedHead);
@@ -120,10 +135,10 @@ export class ViemWebSocketHeadSource implements HeadSourcePort {
             });
             this.activeEndpoint = endpoint;
             this.rpcObservability.recordEndpointEvent({
-                event: "connected",
-                method: "watchBlockNumber",
+                event: RPC_OBSERVABILITY_EVENT.Connected,
+                method: INDEXER_RPC_METHOD.WatchBlockNumber,
                 endpoint,
-                message: "RPC websocket connected",
+                message: RPC_OBSERVABILITY_LOG_MESSAGE.WebSocketConnected,
             });
         } catch (error) {
             this.handleEndpointError(endpoint.id, error);
@@ -138,11 +153,11 @@ export class ViemWebSocketHeadSource implements HeadSourcePort {
             this.endpointSelector.snapshot().find((entry) => entry.id === endpointId);
         if (endpoint) {
             this.rpcObservability.recordEndpointEvent({
-                event: "connection_failed",
-                method: "watchBlockNumber",
+                event: RPC_OBSERVABILITY_EVENT.ConnectionFailed,
+                method: INDEXER_RPC_METHOD.WatchBlockNumber,
                 endpoint,
                 level: "warn",
-                message: "RPC websocket endpoint failed",
+                message: RPC_OBSERVABILITY_LOG_MESSAGE.WebSocketEndpointFailed,
                 extra: errorLogFields(error),
             });
         }
@@ -151,11 +166,12 @@ export class ViemWebSocketHeadSource implements HeadSourcePort {
         this.clearReconnectTimer();
         if (endpoint) {
             this.rpcObservability.recordEndpointEvent({
-                event: "reconnect_scheduled",
-                method: "watchBlockNumber",
+                event: RPC_OBSERVABILITY_EVENT.ReconnectScheduled,
+                method: INDEXER_RPC_METHOD.WatchBlockNumber,
                 endpoint,
                 level: "warn",
-                message: "RPC websocket reconnect scheduled",
+                message:
+                    RPC_OBSERVABILITY_LOG_MESSAGE.WebSocketReconnectScheduled,
                 extra: { reconnectDelayMs: this.reconnectDelayMs },
             });
         }
@@ -173,10 +189,11 @@ export class ViemWebSocketHeadSource implements HeadSourcePort {
         if (unwatch) {
             if (endpoint) {
                 this.rpcObservability.recordEndpointEvent({
-                    event: "connection_stopped",
-                    method: "watchBlockNumber",
+                    event: RPC_OBSERVABILITY_EVENT.ConnectionStopped,
+                    method: INDEXER_RPC_METHOD.WatchBlockNumber,
                     endpoint,
-                    message: "RPC websocket connection stopped",
+                    message:
+                        RPC_OBSERVABILITY_LOG_MESSAGE.WebSocketConnectionStopped,
                 });
             }
             unwatch();

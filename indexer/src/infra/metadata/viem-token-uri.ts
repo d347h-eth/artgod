@@ -2,14 +2,26 @@ import { createPublicClient, http } from "viem";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import type { Metrics } from "@artgod/shared/observability/metrics";
-import { RpcObservability } from "@artgod/shared/observability/rpc";
+import {
+    RPC_OBSERVABILITY_WORKSPACE,
+    RPC_PROTOCOL,
+    RpcObservability,
+} from "@artgod/shared/observability/rpc";
 import type { TokenStandard } from "../../domain/metadata.js";
 import type { TokenUriResolverPort } from "../../ports/metadata.js";
+import {
+    INDEXER_METADATA_RPC_METRIC,
+    INDEXER_METADATA_RPC_RESULT,
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_LOG_COMPONENT,
+    INDEXER_RPC_METHOD,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "../rpc/observability.js";
 
 const ERC721_METADATA_ABI = [
     {
         type: "function",
-        name: "tokenURI",
+        name: INDEXER_RPC_METHOD.TokenUri,
         stateMutability: "view",
         inputs: [{ name: "tokenId", type: "uint256" }],
         outputs: [{ name: "", type: "string" }],
@@ -19,7 +31,7 @@ const ERC721_METADATA_ABI = [
 const ERC1155_METADATA_ABI = [
     {
         type: "function",
-        name: "uri",
+        name: INDEXER_RPC_METHOD.Erc1155Uri,
         stateMutability: "view",
         inputs: [{ name: "id", type: "uint256" }],
         outputs: [{ name: "", type: "string" }],
@@ -43,8 +55,10 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
 
     constructor(config: TokenUriResolverConfig) {
         const endpoints = resolveTokenUriRpcEndpoints(config);
-        this.rpcComponent = config.component ?? "metadata-rpc";
-        const endpointIdPrefix = config.endpointIdPrefix ?? "metadata-rpc";
+        this.rpcComponent =
+            config.component ?? INDEXER_RPC_OBSERVABILITY_COMPONENT.Metadata;
+        const endpointIdPrefix =
+            config.endpointIdPrefix ?? INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata;
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -56,11 +70,11 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         );
         this.metrics = config.metrics;
         this.rpcObservability = new RpcObservability({
-            workspace: "indexer",
+            workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
             component: this.rpcComponent,
-            protocol: "http",
+            protocol: RPC_PROTOCOL.Http,
             metrics: this.metrics,
-            logComponent: "IndexerMetadataRpc",
+            logComponent: INDEXER_RPC_LOG_COMPONENT.Metadata,
         });
         for (const endpoint of this.endpointSelector.snapshot()) {
             this.rpcObservability.recordConfiguredEndpoint(endpoint);
@@ -80,19 +94,23 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
                     ? await this.readErc721Uri(contract, tokenId, blockNumber)
                     : await this.readErc1155Uri(contract, tokenId, blockNumber);
             this.metrics?.histogram(
-                "metadata.resolve.latency",
+                INDEXER_METADATA_RPC_METRIC.ResolveLatency,
                 Date.now() - start,
-                { standard, result: "ok" },
+                { standard, result: INDEXER_METADATA_RPC_RESULT.Ok },
             );
             return uri;
         } catch (error) {
-            this.metrics?.increment("metadata.resolve.failure", 1, {
-                standard,
-            });
+            this.metrics?.increment(
+                INDEXER_METADATA_RPC_METRIC.ResolveFailure,
+                1,
+                {
+                    standard,
+                },
+            );
             this.metrics?.histogram(
-                "metadata.resolve.latency",
+                INDEXER_METADATA_RPC_METRIC.ResolveLatency,
                 Date.now() - start,
-                { standard, result: "error" },
+                { standard, result: INDEXER_METADATA_RPC_RESULT.Error },
             );
             return null;
         }
@@ -103,11 +121,11 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         tokenId: string,
         blockNumber?: number,
     ): Promise<string> {
-        return this.readWithEndpoint("tokenURI", (client) =>
+        return this.readWithEndpoint(INDEXER_RPC_METHOD.TokenUri, (client) =>
             client.readContract({
                 address: contract as `0x${string}`,
                 abi: ERC721_METADATA_ABI,
-                functionName: "tokenURI",
+                functionName: INDEXER_RPC_METHOD.TokenUri,
                 args: [BigInt(tokenId)],
                 blockNumber:
                     blockNumber !== undefined ? BigInt(blockNumber) : undefined,
@@ -120,15 +138,19 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         tokenId: string,
         blockNumber?: number,
     ): Promise<string> {
-        const uri = await this.readWithEndpoint("uri", (client) =>
-            client.readContract({
-                address: contract as `0x${string}`,
-                abi: ERC1155_METADATA_ABI,
-                functionName: "uri",
-                args: [BigInt(tokenId)],
-                blockNumber:
-                    blockNumber !== undefined ? BigInt(blockNumber) : undefined,
-            }),
+        const uri = await this.readWithEndpoint(
+            INDEXER_RPC_METHOD.Erc1155Uri,
+            (client) =>
+                client.readContract({
+                    address: contract as `0x${string}`,
+                    abi: ERC1155_METADATA_ABI,
+                    functionName: INDEXER_RPC_METHOD.Erc1155Uri,
+                    args: [BigInt(tokenId)],
+                    blockNumber:
+                        blockNumber !== undefined
+                            ? BigInt(blockNumber)
+                            : undefined,
+                }),
         );
         return expandErc1155Uri(uri, tokenId);
     }
@@ -163,10 +185,14 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
                 error,
             );
             this.rpcObservability.recordCallFailure(call, updatedEndpoint, error);
-            this.metrics?.increment("metadata.resolve.endpoint_failure", 1, {
-                endpoint: updatedEndpoint.id,
-                component: this.rpcComponent,
-            });
+            this.metrics?.increment(
+                INDEXER_METADATA_RPC_METRIC.EndpointFailure,
+                1,
+                {
+                    endpoint: updatedEndpoint.id,
+                    component: this.rpcComponent,
+                },
+            );
             throw error;
         }
     }

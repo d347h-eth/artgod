@@ -9,6 +9,9 @@ import type { RetryPolicy } from "../../domain/retry.js";
 import { getRetryDelayMs } from "../../domain/retry.js";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import {
+    RPC_OBSERVABILITY_SENTINEL,
+    RPC_OBSERVABILITY_WORKSPACE,
+    RPC_PROTOCOL,
     RpcObservability,
     type RpcCallContext,
 } from "@artgod/shared/observability/rpc";
@@ -29,6 +32,12 @@ import {
     type RpcRateLimiterConfig,
     TokenBucketRateLimiter,
 } from "./resilience.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_LEGACY_METRIC,
+    INDEXER_RPC_LOG_COMPONENT,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "./observability.js";
 
 export type ViemRpcConfig = {
     endpoints: RpcEndpointConfig[];
@@ -87,8 +96,10 @@ export class ViemRpcProvider implements RpcProviderPort {
 
     constructor(private config: ViemRpcConfig) {
         const endpoints = resolveRpcEndpoints(config);
-        this.rpcComponent = config.component ?? "http-rpc";
-        const endpointIdPrefix = config.endpointIdPrefix ?? "rpc";
+        this.rpcComponent =
+            config.component ?? INDEXER_RPC_OBSERVABILITY_COMPONENT.DefaultHttp;
+        const endpointIdPrefix =
+            config.endpointIdPrefix ?? INDEXER_RPC_ENDPOINT_ID_PREFIX.DefaultHttp;
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -111,11 +122,11 @@ export class ViemRpcProvider implements RpcProviderPort {
         this.metrics = config.metrics;
         this.retryPolicy = config.retryPolicy ?? DEFAULT_RETRY_POLICY;
         this.rpcObservability = new RpcObservability({
-            workspace: "indexer",
+            workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
             component: this.rpcComponent,
-            protocol: "http",
+            protocol: RPC_PROTOCOL.Http,
             metrics: this.metrics,
-            logComponent: "IndexerRpc",
+            logComponent: INDEXER_RPC_LOG_COMPONENT.Http,
         });
         for (const endpoint of this.endpointSelector.snapshot()) {
             this.rpcObservability.recordConfiguredEndpoint(endpoint);
@@ -272,14 +283,18 @@ export class ViemRpcProvider implements RpcProviderPort {
                 method,
                 () => lastEndpoint,
             );
-            this.metrics?.histogram("rpc.latency", Date.now() - start, {
-                method,
-                component: this.rpcComponent,
-            });
+            this.metrics?.histogram(
+                INDEXER_RPC_LEGACY_METRIC.Latency,
+                Date.now() - start,
+                {
+                    method,
+                    component: this.rpcComponent,
+                },
+            );
             this.rpcObservability.recordCallSuccess(call, result.endpoint);
             return result.value;
         } catch (error) {
-            this.metrics?.increment("rpc.failure", 1, {
+            this.metrics?.increment(INDEXER_RPC_LEGACY_METRIC.Failure, 1, {
                 method,
                 component: this.rpcComponent,
             });
@@ -332,11 +347,15 @@ export class ViemRpcProvider implements RpcProviderPort {
                 updatedEndpoint,
                 error,
             );
-            this.metrics?.increment("rpc.endpoint_failure", 1, {
-                method,
-                endpoint: updatedEndpoint.id,
-                component: this.rpcComponent,
-            });
+            this.metrics?.increment(
+                INDEXER_RPC_LEGACY_METRIC.EndpointFailure,
+                1,
+                {
+                    method,
+                    endpoint: updatedEndpoint.id,
+                    component: this.rpcComponent,
+                },
+            );
             throw error;
         }
     }
@@ -381,11 +400,13 @@ export class ViemRpcProvider implements RpcProviderPort {
                         delayMs: delay,
                     });
                 }
-                this.metrics?.increment("rpc.retry", 1, {
+                this.metrics?.increment(INDEXER_RPC_LEGACY_METRIC.Retry, 1, {
                     attempt,
                     method,
                     component: this.rpcComponent,
-                    endpoint: lastEndpoint?.id ?? "none",
+                    endpoint:
+                        lastEndpoint?.id ??
+                        RPC_OBSERVABILITY_SENTINEL.NoEndpoint,
                 });
                 await sleep(delay);
                 attempt += 1;

@@ -1,9 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import { ViemWebSocketHeadSource } from "../src/infra/rpc/viem-ws.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_METHOD,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "../src/infra/rpc/observability.js";
 import type {
     MetricLabels,
     Metrics,
 } from "@artgod/shared/observability/metrics";
+import {
+    RPC_OBSERVABILITY_EVENT,
+    RPC_OBSERVABILITY_METRIC,
+    RPC_OBSERVABILITY_RESULT,
+    RPC_OBSERVABILITY_SENTINEL,
+    RPC_PROTOCOL,
+} from "@artgod/shared/observability/rpc";
+
+const FIRST_WS_ENDPOINT_ID = `${INDEXER_RPC_ENDPOINT_ID_PREFIX.WebSocketDefault}-1`;
 
 type WatchOptions = {
     emitOnBegin: boolean;
@@ -102,25 +116,25 @@ describe("ViemWebSocketHeadSource", () => {
         expect(watches.has("wss://ws-b.example")).toBe(true);
         expect(errors).toEqual(["Error: socket down"]);
         expect(metrics.increments).toContainEqual({
-            name: "rpc.endpoint.event",
+            name: RPC_OBSERVABILITY_METRIC.EndpointEvent,
             value: 1,
             labels: {
-                component: "websocket-head-rpc",
-                protocol: "websocket",
-                method: "watchBlockNumber",
-                endpoint: "ws-rpc-1",
-                result: "none",
-                error_class: "none",
-                event: "reconnect_scheduled",
+                component: INDEXER_RPC_OBSERVABILITY_COMPONENT.WebSocketHead,
+                protocol: RPC_PROTOCOL.WebSocket,
+                method: INDEXER_RPC_METHOD.WatchBlockNumber,
+                endpoint: FIRST_WS_ENDPOINT_ID,
+                result: RPC_OBSERVABILITY_RESULT.None,
+                error_class: RPC_OBSERVABILITY_SENTINEL.NoErrorClass,
+                event: RPC_OBSERVABILITY_EVENT.ReconnectScheduled,
             },
         });
         expect(metrics.gauges).toContainEqual({
-            name: "rpc.endpoint.effective_weight",
+            name: RPC_OBSERVABILITY_METRIC.EndpointEffectiveWeight,
             value: 0.5,
             labels: {
-                component: "websocket-head-rpc",
-                protocol: "websocket",
-                endpoint: "ws-rpc-1",
+                component: INDEXER_RPC_OBSERVABILITY_COMPONENT.WebSocketHead,
+                protocol: RPC_PROTOCOL.WebSocket,
+                endpoint: FIRST_WS_ENDPOINT_ID,
             },
         });
 
