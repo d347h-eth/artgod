@@ -1,11 +1,42 @@
 import { describe, expect, it, vi } from "vitest";
 import { ViemWebSocketHeadSource } from "../src/infra/rpc/viem-ws.js";
+import type {
+    MetricLabels,
+    Metrics,
+} from "@artgod/shared/observability/metrics";
 
 type WatchOptions = {
     emitOnBegin: boolean;
     onBlockNumber: (blockNumber: bigint) => void;
     onError: (error: unknown) => void;
 };
+
+class CapturingMetrics implements Metrics {
+    readonly increments: Array<{
+        name: string;
+        value?: number;
+        labels?: MetricLabels;
+    }> = [];
+    readonly gauges: Array<{ name: string; value: number; labels?: MetricLabels }> =
+        [];
+    readonly histograms: Array<{
+        name: string;
+        value: number;
+        labels?: MetricLabels;
+    }> = [];
+
+    increment(name: string, value?: number, labels?: MetricLabels): void {
+        this.increments.push({ name, value, labels });
+    }
+
+    gauge(name: string, value: number, labels?: MetricLabels): void {
+        this.gauges.push({ name, value, labels });
+    }
+
+    histogram(name: string, value: number, labels?: MetricLabels): void {
+        this.histograms.push({ name, value, labels });
+    }
+}
 
 describe("ViemWebSocketHeadSource", () => {
     it("connects to the highest ranked websocket endpoint on start", async () => {
@@ -37,12 +68,14 @@ describe("ViemWebSocketHeadSource", () => {
         const watches = new Map<string, WatchOptions>();
         const stopped: string[] = [];
         const errors: string[] = [];
+        const metrics = new CapturingMetrics();
         const source = new ViemWebSocketHeadSource(
             [
                 { url: "wss://ws-a.example", weight: 1 },
                 { url: "wss://ws-b.example", weight: 1 },
             ],
             {
+                metrics,
                 reconnectDelayMs: 10,
                 createClient: (url) => ({
                     watchBlockNumber: (options) => {
@@ -68,6 +101,28 @@ describe("ViemWebSocketHeadSource", () => {
         expect(stopped).toEqual(["wss://ws-a.example"]);
         expect(watches.has("wss://ws-b.example")).toBe(true);
         expect(errors).toEqual(["Error: socket down"]);
+        expect(metrics.increments).toContainEqual({
+            name: "rpc.endpoint.event",
+            value: 1,
+            labels: {
+                component: "websocket-head-rpc",
+                protocol: "websocket",
+                method: "watchBlockNumber",
+                endpoint: "ws-rpc-1",
+                result: "none",
+                error_class: "none",
+                event: "reconnect_scheduled",
+            },
+        });
+        expect(metrics.gauges).toContainEqual({
+            name: "rpc.endpoint.effective_weight",
+            value: 0.5,
+            labels: {
+                component: "websocket-head-rpc",
+                protocol: "websocket",
+                endpoint: "ws-rpc-1",
+            },
+        });
 
         await stop();
         vi.useRealTimers();

@@ -4,6 +4,8 @@ import { normalize } from "viem/ens";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
+import type { Metrics } from "@artgod/shared/observability/metrics";
+import { RpcObservability } from "@artgod/shared/observability/rpc";
 
 export type BackendRpcHex = `0x${string}`;
 
@@ -26,6 +28,7 @@ type BackendViemClient = ReturnType<typeof createPublicClient>;
 
 export class ViemBackendRpcClient {
     private readonly endpointSelector: WeightedEndpointSelector<BackendViemClient>;
+    private readonly rpcObservability: RpcObservability;
     private currentBlockNumberCache: {
         blockNumber: number;
         expiresAtMs: number;
@@ -35,6 +38,7 @@ export class ViemBackendRpcClient {
     constructor(
         endpoints: readonly RpcEndpointConfig[],
         private readonly apm: ApmPort = NOOP_APM,
+        metrics?: Metrics,
     ) {
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
@@ -45,6 +49,16 @@ export class ViemBackendRpcClient {
                 }),
             })),
         );
+        this.rpcObservability = new RpcObservability({
+            workspace: "backend",
+            component: "backend-rpc",
+            protocol: "http",
+            metrics,
+            logComponent: "BackendRpc",
+        });
+        for (const endpoint of this.endpointSelector.snapshot()) {
+            this.rpcObservability.recordConfiguredEndpoint(endpoint);
+        }
     }
 
     async resolveEnsAddress(name: string): Promise<string | null> {
@@ -206,6 +220,13 @@ export class ViemBackendRpcClient {
         read: (client: BackendViemClient) => Promise<T>,
     ): Promise<T> {
         const endpoint = this.endpointSelector.select();
+        const method = backendRpcMethodLabel(name);
+        const call = this.rpcObservability.startCall(method);
+        const attempt = this.rpcObservability.startEndpointAttempt(
+            call,
+            endpoint,
+            1,
+        );
         return this.apm.withSpan(
             name,
             {
@@ -215,13 +236,39 @@ export class ViemBackendRpcClient {
             async () => {
                 try {
                     const result = await read(endpoint.value);
-                    this.endpointSelector.recordSuccess(endpoint.id);
+                    const updatedEndpoint =
+                        this.endpointSelector.recordSuccess(endpoint.id) ??
+                        endpoint;
+                    this.rpcObservability.recordEndpointAttemptSuccess(
+                        attempt,
+                        updatedEndpoint,
+                    );
+                    this.rpcObservability.recordCallSuccess(
+                        call,
+                        updatedEndpoint,
+                    );
                     return result;
                 } catch (error) {
-                    this.endpointSelector.recordFailure(endpoint.id);
+                    const updatedEndpoint =
+                        this.endpointSelector.recordFailure(endpoint.id) ??
+                        endpoint;
+                    this.rpcObservability.recordEndpointAttemptFailure(
+                        attempt,
+                        updatedEndpoint,
+                        error,
+                    );
+                    this.rpcObservability.recordCallFailure(
+                        call,
+                        updatedEndpoint,
+                        error,
+                    );
                     throw error;
                 }
             },
         );
     }
+}
+
+function backendRpcMethodLabel(spanName: string): string {
+    return spanName.replace(/^backend\.rpc\./, "");
 }

@@ -91,6 +91,8 @@ async function main() {
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
+            component: "bootstrap-http-rpc",
+            endpointIdPrefix: "bootstrap-rpc",
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -102,6 +104,8 @@ async function main() {
         const metadataResolver = new ViemTokenUriResolver({
             endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
+            component: "metadata-rpc",
+            endpointIdPrefix: "metadata-rpc",
         });
         const metadataFetcher = new HttpMetadataFetcher({
             metrics: runtimeMetrics.metrics,

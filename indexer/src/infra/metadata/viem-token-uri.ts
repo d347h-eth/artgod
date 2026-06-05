@@ -2,6 +2,7 @@ import { createPublicClient, http } from "viem";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import type { Metrics } from "@artgod/shared/observability/metrics";
+import { RpcObservability } from "@artgod/shared/observability/rpc";
 import type { TokenStandard } from "../../domain/metadata.js";
 import type { TokenUriResolverPort } from "../../ports/metadata.js";
 
@@ -28,6 +29,8 @@ const ERC1155_METADATA_ABI = [
 export type TokenUriResolverConfig = {
     endpoints: RpcEndpointConfig[];
     metrics?: Metrics;
+    component?: string;
+    endpointIdPrefix?: string;
 };
 
 export class ViemTokenUriResolver implements TokenUriResolverPort {
@@ -35,19 +38,33 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         ReturnType<typeof createPublicClient>
     >;
     private metrics?: Metrics;
+    private rpcObservability: RpcObservability;
+    private rpcComponent: string;
 
     constructor(config: TokenUriResolverConfig) {
         const endpoints = resolveTokenUriRpcEndpoints(config);
+        this.rpcComponent = config.component ?? "metadata-rpc";
+        const endpointIdPrefix = config.endpointIdPrefix ?? "metadata-rpc";
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
-                id: `metadata-rpc-${index + 1}`,
+                id: `${endpointIdPrefix}-${index + 1}`,
                 value: createPublicClient({
                     transport: http(endpoint.url),
                 }),
             })),
         );
         this.metrics = config.metrics;
+        this.rpcObservability = new RpcObservability({
+            workspace: "indexer",
+            component: this.rpcComponent,
+            protocol: "http",
+            metrics: this.metrics,
+            logComponent: "IndexerMetadataRpc",
+        });
+        for (const endpoint of this.endpointSelector.snapshot()) {
+            this.rpcObservability.recordConfiguredEndpoint(endpoint);
+        }
     }
 
     async resolveTokenUri(
@@ -86,7 +103,7 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         tokenId: string,
         blockNumber?: number,
     ): Promise<string> {
-        return this.readWithEndpoint((client) =>
+        return this.readWithEndpoint("tokenURI", (client) =>
             client.readContract({
                 address: contract as `0x${string}`,
                 abi: ERC721_METADATA_ABI,
@@ -103,7 +120,7 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         tokenId: string,
         blockNumber?: number,
     ): Promise<string> {
-        const uri = await this.readWithEndpoint((client) =>
+        const uri = await this.readWithEndpoint("uri", (client) =>
             client.readContract({
                 address: contract as `0x${string}`,
                 abi: ERC1155_METADATA_ABI,
@@ -117,17 +134,38 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
     }
 
     private async readWithEndpoint<T>(
+        method: string,
         read: (client: ReturnType<typeof createPublicClient>) => Promise<T>,
     ): Promise<T> {
+        const call = this.rpcObservability.startCall(method);
         const endpoint = this.endpointSelector.select();
+        const attempt = this.rpcObservability.startEndpointAttempt(
+            call,
+            endpoint,
+            1,
+        );
         try {
             const result = await read(endpoint.value);
-            this.endpointSelector.recordSuccess(endpoint.id);
+            const updatedEndpoint =
+                this.endpointSelector.recordSuccess(endpoint.id) ?? endpoint;
+            this.rpcObservability.recordEndpointAttemptSuccess(
+                attempt,
+                updatedEndpoint,
+            );
+            this.rpcObservability.recordCallSuccess(call, updatedEndpoint);
             return result;
         } catch (error) {
-            this.endpointSelector.recordFailure(endpoint.id);
+            const updatedEndpoint =
+                this.endpointSelector.recordFailure(endpoint.id) ?? endpoint;
+            this.rpcObservability.recordEndpointAttemptFailure(
+                attempt,
+                updatedEndpoint,
+                error,
+            );
+            this.rpcObservability.recordCallFailure(call, updatedEndpoint, error);
             this.metrics?.increment("metadata.resolve.endpoint_failure", 1, {
-                endpoint: endpoint.id,
+                endpoint: updatedEndpoint.id,
+                component: this.rpcComponent,
             });
             throw error;
         }

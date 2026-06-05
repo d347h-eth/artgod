@@ -43,12 +43,18 @@ async function main() {
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: runtimeMetrics.metrics,
+            component: "scheduler-http-rpc",
+            endpointIdPrefix: "scheduler-rpc",
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
 
         const headSource = config.rpc.wsEndpoints
-            ? new ViemWebSocketHeadSource(config.rpc.wsEndpoints)
+            ? new ViemWebSocketHeadSource(config.rpc.wsEndpoints, {
+                  metrics: runtimeMetrics.metrics,
+                  component: "scheduler-ws-rpc",
+                  endpointIdPrefix: "scheduler-ws-rpc",
+              })
             : undefined;
         const stopSchedulerWorker = await startSchedulerWorker(
             rpc,

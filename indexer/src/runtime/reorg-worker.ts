@@ -54,6 +54,8 @@ async function main() {
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
+            component: "reorg-http-rpc",
+            endpointIdPrefix: "reorg-rpc",
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });

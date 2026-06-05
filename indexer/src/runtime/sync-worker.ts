@@ -96,6 +96,8 @@ async function main() {
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: runtimeMetrics.metrics,
+            component: "primary-http-rpc",
+            endpointIdPrefix: "primary-rpc",
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -105,6 +107,8 @@ async function main() {
                   logChunkSize: config.sync.logChunkSize,
                   cache,
                   metrics: runtimeMetrics.metrics,
+                  component: "backfill-http-rpc",
+                  endpointIdPrefix: "backfill-rpc",
                   retryPolicy: config.rpc.retryPolicy,
                   resilience: config.rpc.resilience,
               })

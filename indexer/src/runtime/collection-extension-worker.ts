@@ -47,6 +47,8 @@ async function main() {
             endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
+            component: "collection-extension-http-rpc",
+            endpointIdPrefix: "collection-extension-rpc",
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
