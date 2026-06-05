@@ -1,6 +1,7 @@
 import { custom } from "viem";
 import type { RpcEndpointConfig } from "../config/rpc-endpoints.js";
 import { WeightedEndpointSelector } from "../config/weighted-endpoints.js";
+import type { RpcObservability } from "../observability/rpc.js";
 
 type JsonRpcRequest = {
     jsonrpc: "2.0";
@@ -24,6 +25,7 @@ type JsonRpcResponse = {
 export type WeightedRpcTransportOptions = {
     endpointIdPrefix?: string;
     fetchFn?: typeof fetch;
+    rpcObservability?: RpcObservability;
 };
 
 let nextRequestId = 1;
@@ -41,10 +43,17 @@ export function createWeightedRpcTransport(
         })),
     );
     const fetchRpc = options.fetchFn ?? fetch;
+    for (const endpoint of selector.snapshot()) {
+        options.rpcObservability?.recordConfiguredEndpoint(endpoint);
+    }
 
     return custom({
         request: async ({ method, params }) => {
+            const call = options.rpcObservability?.startCall(method);
             const endpoint = selector.select();
+            const attempt =
+                call &&
+                options.rpcObservability?.startEndpointAttempt(call, endpoint, 1);
             try {
                 const result = await requestJsonRpc(fetchRpc, endpoint.value, {
                     jsonrpc: "2.0",
@@ -52,10 +61,38 @@ export function createWeightedRpcTransport(
                     method,
                     params: params ?? [],
                 });
-                selector.recordSuccess(endpoint.id);
+                const updatedEndpoint =
+                    selector.recordSuccess(endpoint.id) ?? endpoint;
+                if (attempt) {
+                    options.rpcObservability?.recordEndpointAttemptSuccess(
+                        attempt,
+                        updatedEndpoint,
+                    );
+                }
+                if (call) {
+                    options.rpcObservability?.recordCallSuccess(
+                        call,
+                        updatedEndpoint,
+                    );
+                }
                 return result;
             } catch (error) {
-                selector.recordFailure(endpoint.id);
+                const updatedEndpoint =
+                    selector.recordFailure(endpoint.id) ?? endpoint;
+                if (attempt) {
+                    options.rpcObservability?.recordEndpointAttemptFailure(
+                        attempt,
+                        updatedEndpoint,
+                        error,
+                    );
+                }
+                if (call) {
+                    options.rpcObservability?.recordCallFailure(
+                        call,
+                        updatedEndpoint,
+                        error,
+                    );
+                }
                 throw error;
             }
         },

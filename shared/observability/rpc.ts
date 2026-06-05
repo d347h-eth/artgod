@@ -5,6 +5,7 @@ import type { Metrics } from "./metrics/types.js";
 export const RPC_OBSERVABILITY_WORKSPACE = {
     Backend: "backend",
     Indexer: "indexer",
+    Trading: "trading",
 } as const;
 
 // Canonical protocol labels used by RPC logs and metrics.
