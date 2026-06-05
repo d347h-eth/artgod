@@ -385,10 +385,9 @@ The canonical RPC metrics are:
 - `rpc.circuit_open` counter
 - `rpc.rate_limiter.wait_ms` histogram
 
-The indexer HTTP provider still emits its older compatibility metrics
-(`rpc.latency`, `rpc.failure`, `rpc.endpoint_failure`, and `rpc.retry`), but
-the Grafana dashboard uses the canonical metrics above because their semantics
-are explicit.
+The canonical metrics above are the only RPC metric model. Do not add parallel
+RPC counters or histograms with overlapping semantics; extend the shared RPC
+observer vocabulary instead.
 
 Cache (`indexer/src/infra/cache/memory.ts`):
 

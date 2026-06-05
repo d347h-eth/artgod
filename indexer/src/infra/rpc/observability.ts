@@ -42,14 +42,6 @@ export const INDEXER_RPC_METHOD = {
     Erc1155Uri: "uri",
 } as const;
 
-// Legacy indexer RPC metric names retained for existing dashboard queries.
-export const INDEXER_RPC_LEGACY_METRIC = {
-    Latency: "rpc.latency",
-    Failure: "rpc.failure",
-    EndpointFailure: "rpc.endpoint_failure",
-    Retry: "rpc.retry",
-} as const;
-
 // Metadata resolver metric names emitted around token URI RPC reads.
 export const INDEXER_METADATA_RPC_METRIC = {
     ResolveLatency: "metadata.resolve.latency",
