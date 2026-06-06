@@ -4,7 +4,10 @@ import {
     WeightedEndpointSelector,
     type WeightedEndpointSelection,
 } from "@artgod/shared/config/weighted-endpoints";
-import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
 import {
     CircuitBreaker,
     CircuitOpenError,
@@ -72,29 +75,8 @@ type TokenUriRpcEndpoint = {
 type TokenUriRpcEndpointSelection =
     WeightedEndpointSelection<TokenUriRpcEndpoint>;
 
-const DEFAULT_RETRY_POLICY: RpcRetryPolicy = {
-    maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
-    baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
-    maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
-};
-
-const DEFAULT_RESILIENCE: RpcEndpointResilienceConfig = {
-    rateLimiter: {
-        requestsPerSecond: getSettingDefaultNumber(
-            "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-        ),
-        burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
-    },
-    circuitBreaker: {
-        failureThreshold: getSettingDefaultNumber(
-            "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-        ),
-        openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
-        halfOpenMaxRequests: getSettingDefaultNumber(
-            "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-        ),
-    },
-};
+const DEFAULT_RETRY_POLICY = getDefaultRpcRetryPolicy();
+const DEFAULT_RESILIENCE = getDefaultRpcEndpointResilienceConfig();
 
 export class ViemTokenUriResolver implements TokenUriResolverPort {
     private endpointSelector: WeightedEndpointSelector<TokenUriRpcEndpoint>;
@@ -111,7 +93,10 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
             config.component ?? INDEXER_RPC_OBSERVABILITY_COMPONENT.Metadata;
         const endpointIdPrefix =
             config.endpointIdPrefix ?? INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata;
-        const createClient = config.createClient ?? createTokenUriViemClient;
+        const createClient =
+            config.createClient ??
+            ((url) =>
+                createTokenUriViemClient(url, resilience.requestTimeoutMs));
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -342,8 +327,11 @@ function expandErc1155Uri(uri: string, tokenId: string): string {
     return uri.replace("{id}", hex);
 }
 
-function createTokenUriViemClient(url: string): TokenUriRpcClient {
+function createTokenUriViemClient(
+    url: string,
+    requestTimeoutMs: number,
+): TokenUriRpcClient {
     return createPublicClient({
-        transport: http(url),
+        transport: http(url, { timeout: requestTimeoutMs }),
     });
 }

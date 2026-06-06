@@ -4,6 +4,10 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
 import { loadConfig } from "../src/config/index.js";
 
 const REQUIRED_ENV = {
@@ -66,28 +70,10 @@ describe("Indexer config", () => {
         const config = loadConfig(REQUIRED_ENV);
 
         expect(config.chainId).toBe(getSettingDefaultNumber("CHAIN_ID"));
-        expect(config.rpc.retryPolicy).toEqual({
-            maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
-            baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
-            maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
-        });
-        expect(config.rpc.resilience).toEqual({
-            rateLimiter: {
-                requestsPerSecond: getSettingDefaultNumber(
-                    "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-                ),
-                burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
-            },
-            circuitBreaker: {
-                failureThreshold: getSettingDefaultNumber(
-                    "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-                ),
-                openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
-                halfOpenMaxRequests: getSettingDefaultNumber(
-                    "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-                ),
-            },
-        });
+        expect(config.rpc.retryPolicy).toEqual(getDefaultRpcRetryPolicy());
+        expect(config.rpc.resilience).toEqual(
+            getDefaultRpcEndpointResilienceConfig(),
+        );
         expect(config.queue).toEqual({
             natsUrl: getSettingDefault("NATS_URL"),
             streamPrefix: getSettingDefault("NATS_STREAM_PREFIX"),

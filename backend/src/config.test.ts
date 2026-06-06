@@ -4,8 +4,15 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+    RPC_RESILIENCE_ENV_KEY,
+} from "@artgod/shared/config/rpc-resilience";
 import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
+
+const TEST_RPC_REQUEST_TIMEOUT_MS = 2_500;
 
 describe("loadBackendConfig", () => {
     it("normalizes canonical address config to lowercase", () => {
@@ -39,14 +46,17 @@ describe("loadBackendConfig", () => {
     it("parses backend RPC resilience overrides", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),
-            RPC_RETRY_MAX_ATTEMPTS: "3",
-            RPC_RETRY_BASE_DELAY_MS: "50",
-            RPC_RETRY_MAX_DELAY_MS: "500",
-            RPC_RATE_LIMIT_REQUESTS_PER_SECOND: "0",
-            RPC_RATE_LIMIT_BURST: "25",
-            RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD: "2",
-            RPC_CIRCUIT_BREAKER_OPEN_MS: "1000",
-            RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS: "1",
+            [RPC_RESILIENCE_ENV_KEY.HttpRequestTimeoutMs]: String(
+                TEST_RPC_REQUEST_TIMEOUT_MS,
+            ),
+            [RPC_RESILIENCE_ENV_KEY.RetryMaxAttempts]: "3",
+            [RPC_RESILIENCE_ENV_KEY.RetryBaseDelayMs]: "50",
+            [RPC_RESILIENCE_ENV_KEY.RetryMaxDelayMs]: "500",
+            [RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond]: "0",
+            [RPC_RESILIENCE_ENV_KEY.RateLimitBurst]: "25",
+            [RPC_RESILIENCE_ENV_KEY.CircuitBreakerFailureThreshold]: "2",
+            [RPC_RESILIENCE_ENV_KEY.CircuitBreakerOpenMs]: "1000",
+            [RPC_RESILIENCE_ENV_KEY.CircuitBreakerHalfOpenMaxRequests]: "1",
         });
 
         expect(config.rpc).toEqual({
@@ -57,6 +67,7 @@ describe("loadBackendConfig", () => {
                 maxDelayMs: 500,
             },
             resilience: {
+                requestTimeoutMs: TEST_RPC_REQUEST_TIMEOUT_MS,
                 rateLimiter: {
                     requestsPerSecond: 0,
                     burst: 25,
@@ -330,27 +341,7 @@ function createBaseEnv(): Record<string, string> {
 
 function expectedDefaultRpcPolicy() {
     return {
-        retryPolicy: {
-            maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
-            baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
-            maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
-        },
-        resilience: {
-            rateLimiter: {
-                requestsPerSecond: getSettingDefaultNumber(
-                    "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-                ),
-                burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
-            },
-            circuitBreaker: {
-                failureThreshold: getSettingDefaultNumber(
-                    "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-                ),
-                openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
-                halfOpenMaxRequests: getSettingDefaultNumber(
-                    "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-                ),
-            },
-        },
+        retryPolicy: getDefaultRpcRetryPolicy(),
+        resilience: getDefaultRpcEndpointResilienceConfig(),
     };
 }

@@ -7,8 +7,10 @@ const TEST_RETRY_POLICY = {
     baseDelayMs: 0,
     maxDelayMs: 0,
 };
+const TEST_REQUEST_TIMEOUT_MS = 5_000;
 
 const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
+    requestTimeoutMs: TEST_REQUEST_TIMEOUT_MS,
     rateLimiter: {
         requestsPerSecond: 0,
         burst: 1,

@@ -15,6 +15,7 @@ import {
     parseRpcEndpointConfigList,
     type RpcEndpointConfig,
 } from "@artgod/shared/config/rpc-endpoints";
+import { parseRpcHttpRequestTimeoutMs } from "@artgod/shared/config/rpc-resilience";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import { parseEther, parseGwei } from "viem";
 import {
@@ -108,6 +109,7 @@ export type TradingConfig = {
     chainId: number;
     rpc: {
         endpoints: RpcEndpointConfig[];
+        requestTimeoutMs: number;
     };
     queue: {
         natsUrl: string;
@@ -139,6 +141,7 @@ export function loadTradingConfig(
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", 1);
     const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
+    const rpcRequestTimeoutMs = parseRpcHttpRequestTimeoutMs(env);
     const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
     const natsStreamPrefix = parseRequiredString(
         env.NATS_STREAM_PREFIX,
@@ -238,6 +241,7 @@ export function loadTradingConfig(
         chainId,
         rpc: {
             endpoints: rpcEndpoints,
+            requestTimeoutMs: rpcRequestTimeoutMs,
         },
         queue: {
             natsUrl,

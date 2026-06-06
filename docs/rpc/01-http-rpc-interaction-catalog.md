@@ -122,8 +122,9 @@ It has the strongest HTTP JSON-RPC resilience coverage in the project:
 - per-endpoint circuit breaker
 - structured RPC logs and matching metrics
 
-The policy is configured through `RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, and
-`RPC_CIRCUIT_BREAKER_*`.
+The policy is configured through `RPC_HTTP_REQUEST_TIMEOUT_MS`, `RPC_RETRY_*`,
+`RPC_RATE_LIMIT_*`, and `RPC_CIRCUIT_BREAKER_*`. The timeout is per HTTP
+request attempt; the retry policy still bounds the total number of attempts.
 
 ### Scheduler Worker
 

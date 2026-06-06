@@ -13,6 +13,7 @@
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
         "./config/opensea-integration": "./config/opensea-integration.ts",
         "./config/rpc-endpoints": "./config/rpc-endpoints.ts",
+        "./config/rpc-resilience": "./config/rpc-resilience.ts",
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",
         "./evm/transactions": "./evm/transactions.ts",
         "./evm/rpc-resilience": "./evm/rpc-resilience.ts",

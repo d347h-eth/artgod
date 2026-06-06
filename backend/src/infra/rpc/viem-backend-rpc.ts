@@ -6,7 +6,10 @@ import {
     WeightedEndpointSelector,
     type WeightedEndpointSelection,
 } from "@artgod/shared/config/weighted-endpoints";
-import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
 import {
     CircuitBreaker,
     CircuitOpenError,
@@ -70,29 +73,8 @@ export type ViemBackendRpcClientOptions = {
     sleep?: (ms: number) => Promise<void>;
 };
 
-const DEFAULT_RETRY_POLICY: RpcRetryPolicy = {
-    maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
-    baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
-    maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
-};
-
-const DEFAULT_RESILIENCE: RpcEndpointResilienceConfig = {
-    rateLimiter: {
-        requestsPerSecond: getSettingDefaultNumber(
-            "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-        ),
-        burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
-    },
-    circuitBreaker: {
-        failureThreshold: getSettingDefaultNumber(
-            "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-        ),
-        openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
-        halfOpenMaxRequests: getSettingDefaultNumber(
-            "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-        ),
-    },
-};
+const DEFAULT_RETRY_POLICY = getDefaultRpcRetryPolicy();
+const DEFAULT_RESILIENCE = getDefaultRpcEndpointResilienceConfig();
 
 export class ViemBackendRpcClient {
     private readonly endpointSelector: WeightedEndpointSelector<BackendRpcEndpoint>;
@@ -112,7 +94,10 @@ export class ViemBackendRpcClient {
     ) {
         this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
         const resilience = options.resilience ?? DEFAULT_RESILIENCE;
-        const createClient = options.createClient ?? createBackendViemClient;
+        const createClient =
+            options.createClient ??
+            ((url) =>
+                createBackendViemClient(url, resilience.requestTimeoutMs));
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -423,8 +408,11 @@ function backendRpcMethodLabel(spanName: string): string {
     return spanName;
 }
 
-function createBackendViemClient(url: string): BackendViemClient {
+function createBackendViemClient(
+    url: string,
+    requestTimeoutMs: number,
+): BackendViemClient {
     return createPublicClient({
-        transport: http(url),
+        transport: http(url, { timeout: requestTimeoutMs }),
     });
 }

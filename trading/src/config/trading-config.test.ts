@@ -2,6 +2,10 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import { parseEther } from "viem";
 import {
+    getDefaultRpcEndpointResilienceConfig,
+    RPC_RESILIENCE_ENV_KEY,
+} from "@artgod/shared/config/rpc-resilience";
+import {
     loadTradingConfig,
     TRADING_METRICS_ENV_KEY,
 } from "./trading-config.js";
@@ -14,6 +18,8 @@ const requiredBaseEnv = {
     NATS_STREAM_PREFIX: "artgod",
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
 } satisfies Record<string, string>;
+
+const TEST_RPC_REQUEST_TIMEOUT_MS = 2_500;
 
 describe("loadTradingConfig", () => {
     it("loads enabled bidding config with defaults", () => {
@@ -34,6 +40,10 @@ describe("loadTradingConfig", () => {
         assert.deepEqual(config.rpc.endpoints, [
             { url: "http://127.0.0.1:42721", weight: 1 },
         ]);
+        assert.equal(
+            config.rpc.requestTimeoutMs,
+            getDefaultRpcEndpointResilienceConfig().requestTimeoutMs,
+        );
         assert.deepEqual(config.metrics, {
             enabled: false,
             host: "0.0.0.0",
@@ -83,6 +93,9 @@ describe("loadTradingConfig", () => {
                 ...requiredBaseEnv,
                 RPC_URL:
                     '[{"url":"https://rpc-a.example","weight":3},{"url":"https://rpc-b.example","weight":1}]',
+                [RPC_RESILIENCE_ENV_KEY.HttpRequestTimeoutMs]: String(
+                    TEST_RPC_REQUEST_TIMEOUT_MS,
+                ),
                 BIDDING_ENABLED: "false",
             },
             {
@@ -94,6 +107,7 @@ describe("loadTradingConfig", () => {
             { url: "https://rpc-a.example", weight: 3 },
             { url: "https://rpc-b.example", weight: 1 },
         ]);
+        assert.equal(config.rpc.requestTimeoutMs, TEST_RPC_REQUEST_TIMEOUT_MS);
     });
 
     it("parses trading metrics endpoint config", () => {

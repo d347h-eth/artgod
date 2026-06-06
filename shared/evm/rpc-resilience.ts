@@ -20,6 +20,7 @@ export type RpcCircuitBreakerConfig = {
 
 // Groups the per-endpoint resilience controls used by JSON-RPC adapters.
 export type RpcEndpointResilienceConfig = {
+    requestTimeoutMs: number;
     rateLimiter: RpcRateLimiterConfig;
     circuitBreaker: RpcCircuitBreakerConfig;
 };
@@ -43,6 +44,7 @@ export type ExecuteWithRpcRetryOptions<T> = {
 const RPC_CIRCUIT_OPEN_ERROR_MESSAGE = "RPC circuit is open";
 const RPC_CIRCUIT_HALF_OPEN_LIMIT_ERROR_MESSAGE =
     "RPC circuit is half-open and probe limit is reached";
+const RPC_REQUEST_TIMEOUT_ERROR_MESSAGE = "RPC request timed out";
 
 type ClockFn = () => number;
 type SleepFn = (ms: number) => Promise<void>;
@@ -52,6 +54,15 @@ export class CircuitOpenError extends Error {
     constructor(message: string) {
         super(message);
         this.name = "CircuitOpenError";
+    }
+}
+
+// Error raised when an HTTP JSON-RPC attempt exceeds its request timeout.
+export class RpcRequestTimeoutError extends Error {
+    constructor(timeoutMs: number, cause?: unknown) {
+        super(`${RPC_REQUEST_TIMEOUT_ERROR_MESSAGE} after ${timeoutMs}ms`);
+        this.name = "RpcRequestTimeoutError";
+        this.cause = cause;
     }
 }
 
@@ -236,6 +247,57 @@ export class CircuitBreaker {
         this.consecutiveFailures = 0;
         this.halfOpenInFlight = 0;
         this.halfOpenSuccesses = 0;
+    }
+}
+
+// Fetches one HTTP JSON-RPC attempt with a bounded per-attempt timeout.
+export async function fetchWithRpcRequestTimeout(
+    fetchRpc: typeof fetch,
+    input: RequestInfo | URL,
+    init: RequestInit,
+    timeoutMs: number,
+): Promise<Response> {
+    if (timeoutMs <= 0) {
+        return fetchRpc(input, init);
+    }
+
+    const controller = new AbortController();
+    const externalSignal = init.signal;
+    const abortFromExternalSignal = () => controller.abort();
+    if (externalSignal?.aborted) {
+        controller.abort();
+    } else {
+        externalSignal?.addEventListener("abort", abortFromExternalSignal, {
+            once: true,
+        });
+    }
+    let didTimeout = false;
+    const timedInit = {
+        ...init,
+        signal: controller.signal,
+    };
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<Response>((_, reject) => {
+        timeout = setTimeout(() => {
+            didTimeout = true;
+            controller.abort();
+            reject(new RpcRequestTimeoutError(timeoutMs));
+        }, timeoutMs);
+    });
+    const fetchPromise = fetchRpc(input, timedInit);
+
+    try {
+        return await Promise.race([fetchPromise, timeoutPromise]);
+    } catch (error) {
+        if (didTimeout && !(error instanceof RpcRequestTimeoutError)) {
+            throw new RpcRequestTimeoutError(timeoutMs, error);
+        }
+        throw error;
+    } finally {
+        externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+        if (timeout) {
+            clearTimeout(timeout);
+        }
     }
 }
 

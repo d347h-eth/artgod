@@ -1,9 +1,11 @@
 import { Buffer } from "node:buffer";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
+import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
 import {
     WeightedEndpointSelector,
     type WeightedEndpointSelection,
 } from "@artgod/shared/config/weighted-endpoints";
+import { fetchWithRpcRequestTimeout } from "@artgod/shared/evm/rpc-resilience";
 import {
     RPC_OBSERVABILITY_SENTINEL,
     type RpcCallContext,
@@ -15,6 +17,7 @@ export type OpenSeaSdkRpcConnectionOptions = {
     endpointIdPrefix: string;
     fetchFn?: typeof fetch;
     rpcObservability: RpcObservability;
+    requestTimeoutMs?: number;
 };
 
 export type OpenSeaSdkRpcConnection = {
@@ -43,6 +46,8 @@ const HTTP_METHOD_POST = "POST";
 const CONTENT_TYPE_HEADER = "content-type";
 const JSON_CONTENT_TYPE = "application/json";
 const BATCH_RPC_METHOD_LABEL = "batch";
+const DEFAULT_RPC_REQUEST_TIMEOUT_MS =
+    getDefaultRpcEndpointResilienceConfig().requestTimeoutMs;
 
 // Creates the FetchRequest-shaped object OpenSea passes into ethers' JsonRpcProvider.
 export function createOpenSeaSdkRpcConnection(
@@ -64,6 +69,7 @@ export function createOpenSeaSdkRpcConnection(
         selector,
         options.rpcObservability,
         options.fetchFn ?? fetch,
+        options.requestTimeoutMs ?? DEFAULT_RPC_REQUEST_TIMEOUT_MS,
     );
 }
 
@@ -75,6 +81,7 @@ class ObservedOpenSeaSdkRpcConnection implements OpenSeaSdkRpcConnection {
         private readonly selector: WeightedEndpointSelector<string>,
         private readonly rpcObservability: RpcObservability,
         private readonly fetchRpc: typeof fetch,
+        private readonly requestTimeoutMs: number,
         headers: Record<string, string> = {},
         body: string | Uint8Array | null = null,
     ) {
@@ -95,6 +102,7 @@ class ObservedOpenSeaSdkRpcConnection implements OpenSeaSdkRpcConnection {
             this.selector,
             this.rpcObservability,
             this.fetchRpc,
+            this.requestTimeoutMs,
             this.headers,
             this.requestBody,
         );
@@ -114,14 +122,19 @@ class ObservedOpenSeaSdkRpcConnection implements OpenSeaSdkRpcConnection {
             1,
         );
         try {
-            const response = await this.fetchRpc(endpoint.value, {
-                method: HTTP_METHOD_POST,
-                headers: this.headers,
-                body:
-                    this.requestBody === null
-                        ? undefined
-                        : bodyToString(this.requestBody),
-            });
+            const response = await fetchWithRpcRequestTimeout(
+                this.fetchRpc,
+                endpoint.value,
+                {
+                    method: HTTP_METHOD_POST,
+                    headers: this.headers,
+                    body:
+                        this.requestBody === null
+                            ? undefined
+                            : bodyToString(this.requestBody),
+                },
+                this.requestTimeoutMs,
+            );
             const bodyText = await response.text();
             return new ObservedOpenSeaSdkRpcResponse(
                 {

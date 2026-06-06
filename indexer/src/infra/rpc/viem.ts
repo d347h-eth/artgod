@@ -1,5 +1,8 @@
 import { createPublicClient, http } from "viem";
-import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import {
     WeightedEndpointSelector,
@@ -9,9 +12,7 @@ import {
     CircuitBreaker,
     CircuitOpenError,
     executeWithRpcRetry,
-    type RpcCircuitBreakerConfig,
     type RpcEndpointResilienceConfig,
-    type RpcRateLimiterConfig,
     type RpcRetryPolicy,
     TokenBucketRateLimiter,
 } from "@artgod/shared/evm/rpc-resilience";
@@ -59,28 +60,8 @@ type ViemRpcEndpoint = {
 
 type ViemRpcEndpointSelection = WeightedEndpointSelection<ViemRpcEndpoint>;
 
-const DEFAULT_RETRY_POLICY: RpcRetryPolicy = {
-    maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
-    baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
-    maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
-};
-
-const DEFAULT_RATE_LIMITER: RpcRateLimiterConfig = {
-    requestsPerSecond: getSettingDefaultNumber(
-        "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-    ),
-    burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
-};
-
-const DEFAULT_CIRCUIT_BREAKER: RpcCircuitBreakerConfig = {
-    failureThreshold: getSettingDefaultNumber(
-        "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-    ),
-    openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
-    halfOpenMaxRequests: getSettingDefaultNumber(
-        "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-    ),
-};
+const DEFAULT_RETRY_POLICY = getDefaultRpcRetryPolicy();
+const DEFAULT_RESILIENCE = getDefaultRpcEndpointResilienceConfig();
 
 export class ViemRpcProvider implements RpcProviderPort {
     private cache?: CachePort;
@@ -96,20 +77,22 @@ export class ViemRpcProvider implements RpcProviderPort {
         const endpointIdPrefix =
             config.endpointIdPrefix ??
             INDEXER_RPC_ENDPOINT_ID_PREFIX.DefaultHttp;
+        const resilience = config.resilience ?? DEFAULT_RESILIENCE;
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
                 id: `${endpointIdPrefix}-${index + 1}`,
                 value: {
                     client: createPublicClient({
-                        transport: http(endpoint.url),
+                        transport: http(endpoint.url, {
+                            timeout: resilience.requestTimeoutMs,
+                        }),
                     }),
                     rateLimiter: new TokenBucketRateLimiter(
-                        config.resilience?.rateLimiter ?? DEFAULT_RATE_LIMITER,
+                        resilience.rateLimiter,
                     ),
                     circuitBreaker: new CircuitBreaker(
-                        config.resilience?.circuitBreaker ??
-                            DEFAULT_CIRCUIT_BREAKER,
+                        resilience.circuitBreaker,
                     ),
                 },
             })),

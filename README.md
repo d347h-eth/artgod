@@ -278,7 +278,7 @@ Useful optional env groups:
 - Backend query cache (`BACKEND_QUERY_CACHE_PROVIDER`, `BACKEND_PUBLIC_COLLECTION_*`, `BACKEND_QUERY_CACHE_TOKEN_PREVIEW_*`)
 - Observability signal-store endpoints (`OBSERVABILITY_OTLP_HTTP_URL`, `OBSERVABILITY_PYROSCOPE_URL`)
 - Backend observability (`BACKEND_METRICS_*`, `BACKEND_APM_*`)
-- RPC endpoint pools and resilience (`RPC_URL`, `RPC_BACKFILL_URL`, `RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
+- RPC endpoint pools and resilience (`RPC_URL`, `RPC_BACKFILL_URL`, `RPC_HTTP_REQUEST_TIMEOUT_MS`, `RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
 - Metadata refresh/batch tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
 - OpenSea integration (`OPENSEA_INTEGRATION_MODE`, `OPENSEA_API_KEY`)

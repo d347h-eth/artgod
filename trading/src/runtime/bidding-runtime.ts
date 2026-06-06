@@ -168,6 +168,7 @@ export async function startBiddingRuntime(
                 params.metrics,
                 TRADING_RPC_OBSERVABILITY_COMPONENT.BiddingViem,
             ),
+            requestTimeoutMs: params.config.rpc.requestTimeoutMs,
         },
     );
     const publicClient = createPublicClient({
@@ -248,6 +249,7 @@ export async function startBiddingRuntime(
                 params.metrics,
                 TRADING_RPC_OBSERVABILITY_COMPONENT.OpenSeaSdk,
             ),
+            requestTimeoutMs: params.config.rpc.requestTimeoutMs,
         },
     );
     const biddingSdk = createBiddingSdkClient(

@@ -3,6 +3,8 @@ import {
     CircuitBreaker,
     CircuitOpenError,
     executeWithRpcRetry,
+    fetchWithRpcRequestTimeout,
+    RpcRequestTimeoutError,
     TokenBucketRateLimiter,
 } from "./rpc-resilience.js";
 
@@ -174,5 +176,25 @@ describe("executeWithRpcRetry", () => {
             { attempt: 2, nextAttempt: 3, delayMs: 150 },
         ]);
         expect(sleeps).toEqual([100, 150]);
+    });
+});
+
+describe("fetchWithRpcRequestTimeout", () => {
+    it("aborts and rejects when a fetch attempt exceeds its timeout", async () => {
+        let requestSignal: AbortSignal | undefined;
+        const fetchRpc: typeof fetch = async (_input, init) => {
+            requestSignal = init?.signal ?? undefined;
+            return new Promise<Response>(() => {});
+        };
+
+        await expect(
+            fetchWithRpcRequestTimeout(
+                fetchRpc,
+                "https://rpc-a.example",
+                {},
+                1,
+            ),
+        ).rejects.toBeInstanceOf(RpcRequestTimeoutError);
+        expect(requestSignal?.aborted).toBe(true);
     });
 });

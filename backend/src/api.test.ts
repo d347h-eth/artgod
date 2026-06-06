@@ -10,6 +10,10 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
+import {
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_BEACON_EVENT_GROUPS,
     TERRAFORMS_BEACON_EVENT_TYPES,
@@ -749,30 +753,8 @@ beforeAll(async () => {
         dbPath,
         rpc: {
             endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
-            retryPolicy: {
-                maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
-                baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
-                maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
-            },
-            resilience: {
-                rateLimiter: {
-                    requestsPerSecond: getSettingDefaultNumber(
-                        "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-                    ),
-                    burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
-                },
-                circuitBreaker: {
-                    failureThreshold: getSettingDefaultNumber(
-                        "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-                    ),
-                    openMs: getSettingDefaultNumber(
-                        "RPC_CIRCUIT_BREAKER_OPEN_MS",
-                    ),
-                    halfOpenMaxRequests: getSettingDefaultNumber(
-                        "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-                    ),
-                },
-            },
+            retryPolicy: getDefaultRpcRetryPolicy(),
+            resilience: getDefaultRpcEndpointResilienceConfig(),
         },
         wethAddress: WETH_ADDRESS,
         natsUrl: "nats://127.0.0.1:42720",

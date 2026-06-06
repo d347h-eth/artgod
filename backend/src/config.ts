@@ -17,6 +17,10 @@ import {
     type RpcEndpointConfig,
 } from "@artgod/shared/config/rpc-endpoints";
 import {
+    parseRpcEndpointResilienceConfig,
+    parseRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
+import {
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
@@ -97,29 +101,6 @@ const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = getSettingDefault(
 const DEFAULT_PUBLIC_APP_DEPLOYMENT_MODE = getSettingDefault(
     "PUBLIC_APP_DEPLOYMENT_MODE",
 );
-const DEFAULT_RPC_RETRY_MAX_ATTEMPTS = getSettingDefaultNumber(
-    "RPC_RETRY_MAX_ATTEMPTS",
-);
-const DEFAULT_RPC_RETRY_BASE_DELAY_MS = getSettingDefaultNumber(
-    "RPC_RETRY_BASE_DELAY_MS",
-);
-const DEFAULT_RPC_RETRY_MAX_DELAY_MS = getSettingDefaultNumber(
-    "RPC_RETRY_MAX_DELAY_MS",
-);
-const DEFAULT_RPC_RATE_LIMIT_REQUESTS_PER_SECOND = getSettingDefaultNumber(
-    "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-);
-const DEFAULT_RPC_RATE_LIMIT_BURST = getSettingDefaultNumber(
-    "RPC_RATE_LIMIT_BURST",
-);
-const DEFAULT_RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD = getSettingDefaultNumber(
-    "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-);
-const DEFAULT_RPC_CIRCUIT_BREAKER_OPEN_MS = getSettingDefaultNumber(
-    "RPC_CIRCUIT_BREAKER_OPEN_MS",
-);
-const DEFAULT_RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS =
-    getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS");
 
 export type BackendSecurityConfig = {
     allowedHosts: string[];
@@ -267,8 +248,8 @@ export function loadBackendConfig(
         dbPath,
         rpc: {
             endpoints: rpcEndpoints,
-            retryPolicy: parseBackendRpcRetryPolicy(env),
-            resilience: parseBackendRpcResilienceConfig(env),
+            retryPolicy: parseRpcRetryPolicy(env),
+            resilience: parseRpcEndpointResilienceConfig(env),
         },
         wethAddress,
         natsUrl,
@@ -281,64 +262,6 @@ export function loadBackendConfig(
         metrics,
         apm,
         integrations,
-    };
-}
-
-function parseBackendRpcRetryPolicy(
-    env: Record<string, string | undefined>,
-): RpcRetryPolicy {
-    return {
-        maxAttempts: parsePositiveInteger(
-            env.RPC_RETRY_MAX_ATTEMPTS,
-            "RPC_RETRY_MAX_ATTEMPTS",
-            DEFAULT_RPC_RETRY_MAX_ATTEMPTS,
-        ),
-        baseDelayMs: parseNumber(
-            env.RPC_RETRY_BASE_DELAY_MS,
-            "RPC_RETRY_BASE_DELAY_MS",
-            DEFAULT_RPC_RETRY_BASE_DELAY_MS,
-        ),
-        maxDelayMs: parseNumber(
-            env.RPC_RETRY_MAX_DELAY_MS,
-            "RPC_RETRY_MAX_DELAY_MS",
-            DEFAULT_RPC_RETRY_MAX_DELAY_MS,
-        ),
-    };
-}
-
-function parseBackendRpcResilienceConfig(
-    env: Record<string, string | undefined>,
-): RpcEndpointResilienceConfig {
-    return {
-        rateLimiter: {
-            requestsPerSecond: parseNumber(
-                env.RPC_RATE_LIMIT_REQUESTS_PER_SECOND,
-                "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-                DEFAULT_RPC_RATE_LIMIT_REQUESTS_PER_SECOND,
-            ),
-            burst: parsePositiveInteger(
-                env.RPC_RATE_LIMIT_BURST,
-                "RPC_RATE_LIMIT_BURST",
-                DEFAULT_RPC_RATE_LIMIT_BURST,
-            ),
-        },
-        circuitBreaker: {
-            failureThreshold: parsePositiveInteger(
-                env.RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
-                "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-                DEFAULT_RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
-            ),
-            openMs: parsePositiveInteger(
-                env.RPC_CIRCUIT_BREAKER_OPEN_MS,
-                "RPC_CIRCUIT_BREAKER_OPEN_MS",
-                DEFAULT_RPC_CIRCUIT_BREAKER_OPEN_MS,
-            ),
-            halfOpenMaxRequests: parsePositiveInteger(
-                env.RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS,
-                "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-                DEFAULT_RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS,
-            ),
-        },
     };
 }
 

@@ -1,7 +1,9 @@
 import { custom } from "viem";
 import type { RpcEndpointConfig } from "../config/rpc-endpoints.js";
+import { getDefaultRpcEndpointResilienceConfig } from "../config/rpc-resilience.js";
 import { WeightedEndpointSelector } from "../config/weighted-endpoints.js";
 import type { RpcObservability } from "../observability/rpc.js";
+import { fetchWithRpcRequestTimeout } from "./rpc-resilience.js";
 
 type JsonRpcRequest = {
     jsonrpc: "2.0";
@@ -26,9 +28,12 @@ export type WeightedRpcTransportOptions = {
     endpointIdPrefix?: string;
     fetchFn?: typeof fetch;
     rpcObservability?: RpcObservability;
+    requestTimeoutMs?: number;
 };
 
 let nextRequestId = 1;
+const DEFAULT_RPC_REQUEST_TIMEOUT_MS =
+    getDefaultRpcEndpointResilienceConfig().requestTimeoutMs;
 
 // Builds a viem transport that chooses a weighted endpoint for each JSON-RPC request.
 export function createWeightedRpcTransport(
@@ -43,6 +48,8 @@ export function createWeightedRpcTransport(
         })),
     );
     const fetchRpc = options.fetchFn ?? fetch;
+    const requestTimeoutMs =
+        options.requestTimeoutMs ?? DEFAULT_RPC_REQUEST_TIMEOUT_MS;
     for (const endpoint of selector.snapshot()) {
         options.rpcObservability?.recordConfiguredEndpoint(endpoint);
     }
@@ -59,12 +66,17 @@ export function createWeightedRpcTransport(
                     1,
                 );
             try {
-                const result = await requestJsonRpc(fetchRpc, endpoint.value, {
-                    jsonrpc: "2.0",
-                    id: nextJsonRpcRequestId(),
-                    method,
-                    params: params ?? [],
-                });
+                const result = await requestJsonRpc(
+                    fetchRpc,
+                    endpoint.value,
+                    requestTimeoutMs,
+                    {
+                        jsonrpc: "2.0",
+                        id: nextJsonRpcRequestId(),
+                        method,
+                        params: params ?? [],
+                    },
+                );
                 const updatedEndpoint =
                     selector.recordSuccess(endpoint.id) ?? endpoint;
                 if (attempt) {
@@ -113,15 +125,21 @@ function nextJsonRpcRequestId(): number {
 async function requestJsonRpc(
     fetchRpc: typeof fetch,
     url: string,
+    requestTimeoutMs: number,
     request: JsonRpcRequest,
 ): Promise<unknown> {
-    const response = await fetchRpc(url, {
-        method: "POST",
-        headers: {
-            "content-type": "application/json",
+    const response = await fetchWithRpcRequestTimeout(
+        fetchRpc,
+        url,
+        {
+            method: "POST",
+            headers: {
+                "content-type": "application/json",
+            },
+            body: JSON.stringify(request),
         },
-        body: JSON.stringify(request),
-    });
+        requestTimeoutMs,
+    );
     if (!response.ok) {
         throw new Error(`RPC endpoint returned HTTP ${response.status}`);
     }
