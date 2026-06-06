@@ -38,6 +38,13 @@ Endpoint weighting and dynamic demotion/promotion are implemented by
 effective weights after endpoint success or failure. It is not persistence, a
 retry policy, or a circuit breaker by itself.
 
+HTTP JSON-RPC endpoint execution and matching observability are centralized in
+`shared/evm/rpc-execution.ts`. Backend, indexer, metadata, trading viem, and
+OpenSea SDK bridge lanes use that shared harness for endpoint attempt lifecycle,
+call outcome metrics, endpoint weight updates, retry scheduling, rate-limit
+waits, and circuit-open events. Adapter-local code owns only the RPC operation,
+domain mapping, and any integration-specific wrappers such as APM spans.
+
 ## Runtime Summary
 
 | Workspace | Runtime / Process                  | Use Case                                                               | Adapter                                             | Config Lane                     | Component Label                                                                      | Adapter Retry | Circuit Breaker | Rate Limit | Current Behavior                                                                                                                                                         |

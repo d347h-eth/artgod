@@ -1,17 +1,13 @@
 import { createPublicClient, http } from "viem";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
-import {
-    WeightedEndpointSelector,
-    type WeightedEndpointSelection,
-} from "@artgod/shared/config/weighted-endpoints";
+import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import {
     getDefaultRpcEndpointResilienceConfig,
     getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
+import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
 import {
     CircuitBreaker,
-    CircuitOpenError,
-    executeWithRpcRetry,
     type RpcEndpointResilienceConfig,
     type RpcRetryPolicy,
     TokenBucketRateLimiter,
@@ -21,7 +17,6 @@ import {
     RPC_OBSERVABILITY_WORKSPACE,
     RPC_PROTOCOL,
     RpcObservability,
-    type RpcCallContext,
 } from "@artgod/shared/observability/rpc";
 import type { TokenStandard } from "../../domain/metadata.js";
 import type { TokenUriResolverPort } from "../../ports/metadata.js";
@@ -72,8 +67,6 @@ type TokenUriRpcEndpoint = {
     rateLimiter: TokenBucketRateLimiter;
     circuitBreaker: CircuitBreaker;
 };
-type TokenUriRpcEndpointSelection =
-    WeightedEndpointSelection<TokenUriRpcEndpoint>;
 
 const DEFAULT_RETRY_POLICY = getDefaultRpcRetryPolicy();
 const DEFAULT_RESILIENCE = getDefaultRpcEndpointResilienceConfig();
@@ -203,112 +196,26 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
         method: string,
         read: (client: TokenUriRpcClient) => Promise<T>,
     ): Promise<T> {
-        const call = this.rpcObservability.startCall(method);
-        let lastEndpoint: TokenUriRpcEndpointSelection | null = null;
-        try {
-            const result = await executeWithRpcRetry({
-                policy: this.retryPolicy,
-                executeAttempt: (attempt) =>
-                    this.readEndpointAttempt(
-                        method,
-                        read,
-                        call,
-                        attempt,
-                        (endpoint) => {
-                            lastEndpoint = endpoint;
-                        },
-                    ),
-                onRetryScheduled: ({ attempt, nextAttempt, delayMs }) => {
-                    if (lastEndpoint) {
-                        this.rpcObservability.recordRetryScheduled({
-                            method,
-                            endpoint: lastEndpoint,
-                            attempt,
-                            nextAttempt,
-                            delayMs,
-                        });
-                    }
-                },
-                sleep: this.config.sleep,
-            });
-            this.rpcObservability.recordCallSuccess(call, result.endpoint);
-            return result.value;
-        } catch (error) {
-            this.rpcObservability.recordCallFailure(call, lastEndpoint, error);
-            throw error;
-        }
-    }
-
-    private async readEndpointAttempt<T>(
-        method: string,
-        read: (client: TokenUriRpcClient) => Promise<T>,
-        call: RpcCallContext,
-        attemptNumber: number,
-        setLastEndpoint: (endpoint: TokenUriRpcEndpointSelection) => void,
-    ): Promise<{ value: T; endpoint: TokenUriRpcEndpointSelection }> {
-        const endpoint = this.endpointSelector.select();
-        setLastEndpoint(endpoint);
-        const attempt = this.rpcObservability.startEndpointAttempt(
-            call,
-            endpoint,
-            attemptNumber,
-        );
-        try {
-            const result = await endpoint.value.circuitBreaker.execute(() =>
-                this.withRateLimit(endpoint, method, () =>
-                    read(endpoint.value.client),
-                ),
-            );
-            const updatedEndpoint =
-                this.endpointSelector.recordSuccess(endpoint.id) ?? endpoint;
-            setLastEndpoint(updatedEndpoint);
-            this.rpcObservability.recordEndpointAttemptSuccess(
-                attempt,
-                updatedEndpoint,
-            );
-            return { value: result, endpoint: updatedEndpoint };
-        } catch (error) {
-            const updatedEndpoint =
-                this.endpointSelector.recordFailure(endpoint.id) ?? endpoint;
-            setLastEndpoint(updatedEndpoint);
-            if (error instanceof CircuitOpenError) {
-                this.rpcObservability.recordCircuitOpen(
-                    method,
-                    updatedEndpoint,
-                    error,
+        return executeObservedRpcEndpointCall({
+            selector: this.endpointSelector,
+            method,
+            rpcObservability: this.rpcObservability,
+            retryPolicy: this.retryPolicy,
+            sleep: this.config.sleep,
+            circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+            rateLimiter: (endpoint) => endpoint.value.rateLimiter,
+            execute: (endpoint) => read(endpoint.value.client),
+            onEndpointFailure: (endpoint) => {
+                this.metrics?.increment(
+                    INDEXER_METADATA_RPC_METRIC.EndpointFailure,
+                    1,
+                    {
+                        endpoint: endpoint.id,
+                        component: this.rpcComponent,
+                    },
                 );
-            }
-            this.rpcObservability.recordEndpointAttemptFailure(
-                attempt,
-                updatedEndpoint,
-                error,
-            );
-            this.metrics?.increment(
-                INDEXER_METADATA_RPC_METRIC.EndpointFailure,
-                1,
-                {
-                    endpoint: updatedEndpoint.id,
-                    component: this.rpcComponent,
-                },
-            );
-            throw error;
-        }
-    }
-
-    private async withRateLimit<T>(
-        endpoint: TokenUriRpcEndpointSelection,
-        method: string,
-        read: () => Promise<T>,
-    ): Promise<T> {
-        const waitedMs = await endpoint.value.rateLimiter.acquire();
-        if (waitedMs > 0) {
-            this.rpcObservability.recordRateLimitWait({
-                method,
-                endpoint,
-                waitedMs,
-            });
-        }
-        return read();
+            },
+        });
     }
 }
 

@@ -4,14 +4,10 @@ import {
     getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
-import {
-    WeightedEndpointSelector,
-    type WeightedEndpointSelection,
-} from "@artgod/shared/config/weighted-endpoints";
+import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
+import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
 import {
     CircuitBreaker,
-    CircuitOpenError,
-    executeWithRpcRetry,
     type RpcEndpointResilienceConfig,
     type RpcRetryPolicy,
     TokenBucketRateLimiter,
@@ -21,7 +17,6 @@ import {
     RPC_OBSERVABILITY_WORKSPACE,
     RPC_PROTOCOL,
     RpcObservability,
-    type RpcCallContext,
 } from "@artgod/shared/observability/rpc";
 import type { CachePort } from "../../ports/cache.js";
 import type {
@@ -57,8 +52,6 @@ type ViemRpcEndpoint = {
     rateLimiter: TokenBucketRateLimiter;
     circuitBreaker: CircuitBreaker;
 };
-
-type ViemRpcEndpointSelection = WeightedEndpointSelection<ViemRpcEndpoint>;
 
 const DEFAULT_RETRY_POLICY = getDefaultRpcRetryPolicy();
 const DEFAULT_RESILIENCE = getDefaultRpcEndpointResilienceConfig();
@@ -249,103 +242,15 @@ export class ViemRpcProvider implements RpcProviderPort {
         method: string,
         fn: (client: ViemPublicClient) => Promise<T>,
     ): Promise<T> {
-        const call = this.rpcObservability.startCall(method);
-        let lastEndpoint: ViemRpcEndpointSelection | null = null;
-        try {
-            const result = await executeWithRpcRetry({
-                policy: this.retryPolicy,
-                executeAttempt: (attempt) =>
-                    this.executeRpcAttempt(
-                        method,
-                        fn,
-                        call,
-                        attempt,
-                        (endpoint) => {
-                            lastEndpoint = endpoint;
-                        },
-                    ),
-                onRetryScheduled: ({ attempt, nextAttempt, delayMs }) => {
-                    if (lastEndpoint) {
-                        this.rpcObservability.recordRetryScheduled({
-                            method,
-                            endpoint: lastEndpoint,
-                            attempt,
-                            nextAttempt,
-                            delayMs,
-                        });
-                    }
-                },
-            });
-            this.rpcObservability.recordCallSuccess(call, result.endpoint);
-            return result.value;
-        } catch (error) {
-            this.rpcObservability.recordCallFailure(call, lastEndpoint, error);
-            throw error;
-        }
-    }
-
-    private async executeRpcAttempt<T>(
-        method: string,
-        fn: (client: ViemPublicClient) => Promise<T>,
-        call: RpcCallContext,
-        attempt: number,
-        setLastEndpoint: (endpoint: ViemRpcEndpointSelection) => void,
-    ): Promise<{ value: T; endpoint: ViemRpcEndpointSelection }> {
-        const endpoint = this.endpointSelector.select();
-        setLastEndpoint(endpoint);
-        const attemptContext = this.rpcObservability.startEndpointAttempt(
-            call,
-            endpoint,
-            attempt,
-        );
-        try {
-            const result = await endpoint.value.circuitBreaker.execute(() =>
-                this.withRateLimit(endpoint, method, () =>
-                    fn(endpoint.value.client),
-                ),
-            );
-            const updatedEndpoint =
-                this.endpointSelector.recordSuccess(endpoint.id) ?? endpoint;
-            setLastEndpoint(updatedEndpoint);
-            this.rpcObservability.recordEndpointAttemptSuccess(
-                attemptContext,
-                updatedEndpoint,
-            );
-            return { value: result, endpoint: updatedEndpoint };
-        } catch (error) {
-            const updatedEndpoint =
-                this.endpointSelector.recordFailure(endpoint.id) ?? endpoint;
-            setLastEndpoint(updatedEndpoint);
-            if (error instanceof CircuitOpenError) {
-                this.rpcObservability.recordCircuitOpen(
-                    method,
-                    updatedEndpoint,
-                    error,
-                );
-            }
-            this.rpcObservability.recordEndpointAttemptFailure(
-                attemptContext,
-                updatedEndpoint,
-                error,
-            );
-            throw error;
-        }
-    }
-
-    private async withRateLimit<T>(
-        endpoint: ViemRpcEndpointSelection,
-        method: string,
-        fn: () => Promise<T>,
-    ): Promise<T> {
-        const waitedMs = await endpoint.value.rateLimiter.acquire();
-        if (waitedMs > 0) {
-            this.rpcObservability.recordRateLimitWait({
-                method,
-                endpoint,
-                waitedMs,
-            });
-        }
-        return fn();
+        return executeObservedRpcEndpointCall({
+            selector: this.endpointSelector,
+            method,
+            rpcObservability: this.rpcObservability,
+            retryPolicy: this.retryPolicy,
+            circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+            rateLimiter: (endpoint) => endpoint.value.rateLimiter,
+            execute: (endpoint) => fn(endpoint.value.client),
+        });
     }
 }
 

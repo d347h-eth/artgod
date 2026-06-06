@@ -1,15 +1,14 @@
 import { Buffer } from "node:buffer";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
 import { getDefaultRpcEndpointResilienceConfig } from "@artgod/shared/config/rpc-resilience";
+import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
 import {
-    WeightedEndpointSelector,
-    type WeightedEndpointSelection,
-} from "@artgod/shared/config/weighted-endpoints";
+    startObservedRpcEndpointAttempt,
+    type ObservedRpcEndpointAttempt,
+} from "@artgod/shared/evm/rpc-execution";
 import { fetchWithRpcRequestTimeout } from "@artgod/shared/evm/rpc-resilience";
 import {
     RPC_OBSERVABILITY_SENTINEL,
-    type RpcCallContext,
-    type RpcEndpointAttemptContext,
     type RpcObservability,
 } from "@artgod/shared/observability/rpc";
 
@@ -32,14 +31,8 @@ export type OpenSeaSdkRpcResponse = {
     assertOk(): void;
 };
 
-type RpcEndpointSelection = WeightedEndpointSelection<string>;
-
 type ResponseObservation = {
-    rpcObservability: RpcObservability;
-    selector: WeightedEndpointSelector<string>;
-    endpoint: RpcEndpointSelection;
-    call: RpcCallContext;
-    attempt: RpcEndpointAttemptContext;
+    attempt: ObservedRpcEndpointAttempt<string>;
 };
 
 const HTTP_METHOD_POST = "POST";
@@ -114,17 +107,15 @@ class ObservedOpenSeaSdkRpcConnection implements OpenSeaSdkRpcConnection {
 
     async send(): Promise<OpenSeaSdkRpcResponse> {
         const method = parseJsonRpcMethodLabel(this.requestBody);
-        const call = this.rpcObservability.startCall(method);
-        const endpoint = this.selector.select();
-        const attempt = this.rpcObservability.startEndpointAttempt(
-            call,
-            endpoint,
-            1,
-        );
+        const attempt = startObservedRpcEndpointAttempt({
+            selector: this.selector,
+            method,
+            rpcObservability: this.rpcObservability,
+        });
         try {
             const response = await fetchWithRpcRequestTimeout(
                 this.fetchRpc,
-                endpoint.value,
+                attempt.endpoint.value,
                 {
                     method: HTTP_METHOD_POST,
                     headers: this.headers,
@@ -142,25 +133,10 @@ class ObservedOpenSeaSdkRpcConnection implements OpenSeaSdkRpcConnection {
                     statusText: response.statusText,
                     bodyText,
                 },
-                {
-                    rpcObservability: this.rpcObservability,
-                    selector: this.selector,
-                    endpoint,
-                    call,
-                    attempt,
-                },
+                { attempt },
             );
         } catch (error) {
-            recordRpcFailure(
-                {
-                    rpcObservability: this.rpcObservability,
-                    selector: this.selector,
-                    endpoint,
-                    call,
-                    attempt,
-                },
-                error,
-            );
+            recordRpcFailure({ attempt }, error);
             throw error;
         }
     }
@@ -226,18 +202,7 @@ class ObservedOpenSeaSdkRpcResponse implements OpenSeaSdkRpcResponse {
     private recordSuccess(): void {
         if (this.observed) return;
         this.observed = true;
-        const endpoint =
-            this.observation.selector.recordSuccess(
-                this.observation.endpoint.id,
-            ) ?? this.observation.endpoint;
-        this.observation.rpcObservability.recordEndpointAttemptSuccess(
-            this.observation.attempt,
-            endpoint,
-        );
-        this.observation.rpcObservability.recordCallSuccess(
-            this.observation.call,
-            endpoint,
-        );
+        this.observation.attempt.recordSuccess();
     }
 
     private recordFailure(error: unknown): void {
@@ -277,19 +242,7 @@ function recordRpcFailure(
     observation: ResponseObservation,
     error: unknown,
 ): void {
-    const endpoint =
-        observation.selector.recordFailure(observation.endpoint.id) ??
-        observation.endpoint;
-    observation.rpcObservability.recordEndpointAttemptFailure(
-        observation.attempt,
-        endpoint,
-        error,
-    );
-    observation.rpcObservability.recordCallFailure(
-        observation.call,
-        endpoint,
-        error,
-    );
+    observation.attempt.recordFailure(error);
 }
 
 function parseJsonRpcMethodLabel(body: string | Uint8Array | null): string {
