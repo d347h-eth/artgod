@@ -10,10 +10,10 @@ import {
     RpcObservability,
 } from "../observability/rpc.js";
 import {
-    createResilientReadOnlyWeightedRpcTransport,
+    createResilientWeightedRpcTransport,
     createWeightedRpcTransport,
     EVM_STATE_CHANGING_RPC_METHOD,
-    READ_ONLY_RPC_STATE_CHANGING_METHOD_ERROR,
+    RPC_STATE_CHANGING_METHOD_REJECTED_ERROR,
 } from "./weighted-rpc-transport.js";
 
 const TEST_ENDPOINT_ID_PREFIX = "test-rpc";
@@ -240,8 +240,8 @@ describe("createWeightedRpcTransport", () => {
     });
 });
 
-describe("createResilientReadOnlyWeightedRpcTransport", () => {
-    it("retries read-only requests through the next weighted endpoint", async () => {
+describe("createResilientWeightedRpcTransport", () => {
+    it("retries eligible requests through the next weighted endpoint", async () => {
         const calls: string[] = [];
         const fetchFn: typeof fetch = async (input) => {
             calls.push(String(input));
@@ -277,7 +277,7 @@ describe("createResilientReadOnlyWeightedRpcTransport", () => {
             );
         };
         const client = createPublicClient({
-            transport: createResilientReadOnlyWeightedRpcTransport(
+            transport: createResilientWeightedRpcTransport(
                 [
                     { url: TEST_RPC_ENDPOINT_URL, weight: 1 },
                     { url: TEST_SECOND_RPC_ENDPOINT_URL, weight: 1 },
@@ -319,7 +319,7 @@ describe("createResilientReadOnlyWeightedRpcTransport", () => {
             );
         };
         const client = createPublicClient({
-            transport: createResilientReadOnlyWeightedRpcTransport(
+            transport: createResilientWeightedRpcTransport(
                 [{ url: TEST_RPC_ENDPOINT_URL, weight: 1 }],
                 {
                     fetchFn,
@@ -335,7 +335,7 @@ describe("createResilientReadOnlyWeightedRpcTransport", () => {
                 method: EVM_STATE_CHANGING_RPC_METHOD.SendRawTransaction,
                 params: ["0x"],
             }),
-        ).rejects.toThrow(READ_ONLY_RPC_STATE_CHANGING_METHOD_ERROR);
+        ).rejects.toThrow(RPC_STATE_CHANGING_METHOD_REJECTED_ERROR);
 
         expect(calls).toEqual([]);
     });

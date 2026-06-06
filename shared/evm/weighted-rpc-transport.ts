@@ -35,6 +35,7 @@ type JsonRpcResponse = {
     error?: JsonRpcError;
 };
 
+// Options for single-attempt weighted JSON-RPC transports.
 export type WeightedRpcTransportOptions = {
     endpointIdPrefix?: string;
     fetchFn?: typeof fetch;
@@ -42,7 +43,8 @@ export type WeightedRpcTransportOptions = {
     requestTimeoutMs?: number;
 };
 
-export type ResilientReadOnlyWeightedRpcTransportOptions = {
+// Options for retrying weighted JSON-RPC transports.
+export type ResilientWeightedRpcTransportOptions = {
     endpointIdPrefix?: string;
     fetchFn?: typeof fetch;
     resilience: RpcEndpointResilienceConfig;
@@ -60,7 +62,7 @@ type ResilientRpcEndpoint = {
 type ResilientRpcEndpointSelection =
     WeightedEndpointSelection<ResilientRpcEndpoint>;
 
-type ReadOnlyRpcAttemptInput = {
+type ResilientRpcAttemptInput = {
     selector: WeightedEndpointSelector<ResilientRpcEndpoint>;
     fetchRpc: typeof fetch;
     requestTimeoutMs: number;
@@ -72,7 +74,7 @@ type ReadOnlyRpcAttemptInput = {
     onEndpointObserved?: (endpoint: ResilientRpcEndpointSelection) => void;
 };
 
-type ReadOnlyRpcAttemptResult = {
+type ResilientRpcAttemptResult = {
     endpoint: ResilientRpcEndpointSelection;
     result: unknown;
 };
@@ -89,9 +91,9 @@ const VIEM_TRANSPORT_RETRY_DISABLED = 0;
 const RPC_HTTP_STATUS_ERROR_PREFIX = "RPC endpoint returned HTTP";
 const JSON_RPC_ERROR_PREFIX = "JSON-RPC error";
 
-// Error prefix used when a write method is routed through the read-only transport lane.
-export const READ_ONLY_RPC_STATE_CHANGING_METHOD_ERROR =
-    "Read-only RPC transport cannot execute state-changing method";
+// Error prefix used when a retrying transport rejects a transaction-submitting method.
+export const RPC_STATE_CHANGING_METHOD_REJECTED_ERROR =
+    "Resilient RPC transport rejected state-changing method";
 
 // JSON-RPC methods that can submit or request a transaction write.
 export const EVM_STATE_CHANGING_RPC_METHOD = {
@@ -187,10 +189,10 @@ export function createWeightedRpcTransport(
     );
 }
 
-// Builds a read-only viem transport with shared retry, circuit, rate-limit, and endpoint weighting policy.
-export function createResilientReadOnlyWeightedRpcTransport(
+// Builds a viem transport with shared retry, circuit, rate-limit, and endpoint weighting policy.
+export function createResilientWeightedRpcTransport(
     endpoints: readonly RpcEndpointConfig[],
-    options: ResilientReadOnlyWeightedRpcTransportOptions,
+    options: ResilientWeightedRpcTransportOptions,
 ) {
     const selector = new WeightedEndpointSelector(
         endpoints.map((endpoint, index) => ({
@@ -215,7 +217,7 @@ export function createResilientReadOnlyWeightedRpcTransport(
     return custom(
         {
             request: async ({ method, params }) => {
-                assertReadOnlyRpcMethod(method);
+                assertRetryableRpcMethod(method);
 
                 const call = options.rpcObservability?.startCall(method);
                 let lastEndpoint: ResilientRpcEndpointSelection | null = null;
@@ -225,7 +227,7 @@ export function createResilientReadOnlyWeightedRpcTransport(
                         sleep: options.sleep,
                         executeAttempt: async (attempt) => {
                             const attemptResult =
-                                await executeReadOnlyRpcAttempt({
+                                await executeResilientRpcAttempt({
                                     selector,
                                     fetchRpc,
                                     requestTimeoutMs:
@@ -279,9 +281,9 @@ export function createResilientReadOnlyWeightedRpcTransport(
     );
 }
 
-async function executeReadOnlyRpcAttempt(
-    input: ReadOnlyRpcAttemptInput,
-): Promise<ReadOnlyRpcAttemptResult> {
+async function executeResilientRpcAttempt(
+    input: ResilientRpcAttemptInput,
+): Promise<ResilientRpcAttemptResult> {
     const endpoint = input.selector.select();
     input.onEndpointObserved?.(endpoint);
     const attemptContext =
@@ -350,10 +352,10 @@ async function executeReadOnlyRpcAttempt(
     }
 }
 
-function assertReadOnlyRpcMethod(method: string): void {
+function assertRetryableRpcMethod(method: string): void {
     if (EVM_STATE_CHANGING_RPC_METHODS.has(method)) {
         throw new Error(
-            `${READ_ONLY_RPC_STATE_CHANGING_METHOD_ERROR}: ${method}`,
+            `${RPC_STATE_CHANGING_METHOD_REJECTED_ERROR}: ${method}`,
         );
     }
 }

@@ -1,6 +1,6 @@
 import { setDbPath } from "@artgod/shared/database";
 import {
-    createResilientReadOnlyWeightedRpcTransport,
+    createResilientWeightedRpcTransport,
     createWeightedRpcTransport,
 } from "@artgod/shared/evm/weighted-rpc-transport";
 import type { Metrics } from "@artgod/shared/observability/metrics";
@@ -163,7 +163,7 @@ export async function startBiddingRuntime(
         params.config.chainId,
     );
     assertConfiguredRpcEndpoints(params.config.rpc.endpoints);
-    const readOnlyRpcTransport = createResilientReadOnlyWeightedRpcTransport(
+    const readOnlyRpcTransport = createResilientWeightedRpcTransport(
         params.config.rpc.endpoints,
         {
             endpointIdPrefix:

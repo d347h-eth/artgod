@@ -223,7 +223,7 @@ request attempt; the retry policy still bounds the total number of attempts.
   adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
 - Safety boundary: state-changing JSON-RPC methods are rejected before endpoint
   selection so write submissions cannot accidentally run through the retrying
-  read-only transport.
+  read-only lane.
 
 ### Bidding Write-Capable Viem Lane
 
@@ -303,13 +303,11 @@ Not covered:
 
 ## Recommended Follow-Up
 
-The remaining runtime gap is trading. Do not put blind retry around the current
-single viem transport, because that lane includes write/broadcast paths such as
-approval submission. The cleaner follow-up is to split trading JSON-RPC method
-classes first:
+The remaining trading runtime gaps are the write-capable viem lane and the
+OpenSea SDK bridge. Do not put blind retry around write/broadcast paths such as
+approval submission. The existing resilient transport is scoped to methods that
+can safely use shared retry, rate-limit, and circuit-breaker policy:
 
-- read-only calls can compose the shared retry, rate-limit, and circuit-breaker
-  primitives.
 - write/broadcast calls need idempotency-aware handling before retry is safe.
 - the OpenSea SDK bridge needs the same read/write classification before it can
   share the retry layer.
