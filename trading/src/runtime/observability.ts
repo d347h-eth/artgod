@@ -11,13 +11,15 @@ export const TRADING_METRICS_LOG_COMPONENT = "TradingMetrics";
 
 // Component labels that split trading RPC metrics by integration lane.
 export const TRADING_RPC_OBSERVABILITY_COMPONENT = {
-    BiddingViem: "bidding-viem-rpc",
+    BiddingReadOnlyViem: "bidding-read-only-viem-rpc",
+    BiddingWriteCapableViem: "bidding-write-capable-viem-rpc",
     OpenSeaSdk: "bidding-opensea-sdk-rpc",
 } as const;
 
 // Endpoint ID prefixes used by trading RPC endpoint metrics.
 export const TRADING_RPC_ENDPOINT_ID_PREFIX = {
-    BiddingViem: "trading-rpc",
+    BiddingReadOnlyViem: "trading-read-only-rpc",
+    BiddingWriteCapableViem: "trading-write-capable-rpc",
     OpenSeaSdk: "trading-opensea-sdk-rpc",
 } as const;
 

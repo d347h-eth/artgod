@@ -3,6 +3,7 @@ import { describe, it } from "vitest";
 import { parseEther } from "viem";
 import {
     getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
     RPC_RESILIENCE_ENV_KEY,
 } from "@artgod/shared/config/rpc-resilience";
 import {
@@ -20,6 +21,12 @@ const requiredBaseEnv = {
 } satisfies Record<string, string>;
 
 const TEST_RPC_REQUEST_TIMEOUT_MS = 2_500;
+const TEST_RPC_ENDPOINT_A = "https://rpc-a.example";
+const TEST_RPC_ENDPOINT_B = "https://rpc-b.example";
+const TEST_WEIGHTED_RPC_ENDPOINTS_JSON = JSON.stringify([
+    { url: TEST_RPC_ENDPOINT_A, weight: 3 },
+    { url: TEST_RPC_ENDPOINT_B, weight: 1 },
+]);
 
 describe("loadTradingConfig", () => {
     it("loads enabled bidding config with defaults", () => {
@@ -40,10 +47,11 @@ describe("loadTradingConfig", () => {
         assert.deepEqual(config.rpc.endpoints, [
             { url: "http://127.0.0.1:42721", weight: 1 },
         ]);
-        assert.equal(
-            config.rpc.requestTimeoutMs,
-            getDefaultRpcEndpointResilienceConfig().requestTimeoutMs,
+        assert.deepEqual(
+            config.rpc.resilience,
+            getDefaultRpcEndpointResilienceConfig(),
         );
+        assert.deepEqual(config.rpc.retryPolicy, getDefaultRpcRetryPolicy());
         assert.deepEqual(config.metrics, {
             enabled: false,
             host: "0.0.0.0",
@@ -91,8 +99,7 @@ describe("loadTradingConfig", () => {
         const config = loadTradingConfig(
             {
                 ...requiredBaseEnv,
-                RPC_URL:
-                    '[{"url":"https://rpc-a.example","weight":3},{"url":"https://rpc-b.example","weight":1}]',
+                RPC_URL: TEST_WEIGHTED_RPC_ENDPOINTS_JSON,
                 [RPC_RESILIENCE_ENV_KEY.HttpRequestTimeoutMs]: String(
                     TEST_RPC_REQUEST_TIMEOUT_MS,
                 ),
@@ -104,10 +111,13 @@ describe("loadTradingConfig", () => {
         );
 
         assert.deepEqual(config.rpc.endpoints, [
-            { url: "https://rpc-a.example", weight: 3 },
-            { url: "https://rpc-b.example", weight: 1 },
+            { url: TEST_RPC_ENDPOINT_A, weight: 3 },
+            { url: TEST_RPC_ENDPOINT_B, weight: 1 },
         ]);
-        assert.equal(config.rpc.requestTimeoutMs, TEST_RPC_REQUEST_TIMEOUT_MS);
+        assert.equal(
+            config.rpc.resilience.requestTimeoutMs,
+            TEST_RPC_REQUEST_TIMEOUT_MS,
+        );
     });
 
     it("parses trading metrics endpoint config", () => {

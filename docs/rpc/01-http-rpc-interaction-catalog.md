@@ -54,7 +54,8 @@ retry policy, or a circuit breaker by itself.
 | Indexer   | domain-worker                      | Offchain order validation and domain maintenance                       | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `domain-http-rpc`                                                                    | Yes           | Yes             | Yes        | Reads Seaport order status, counters, ownership/approval state, WETH balances/allowance, native ETH balance, and conduit data.                                           |
 | Indexer   | reorg-worker                       | Stored block verification and repair scheduling                        | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `reorg-http-rpc`                                                                     | Yes           | Yes             | Yes        | Reads block hashes and current head to detect reorgs and publish recovery backfills.                                                                                     |
 | Indexer   | collection-extension-worker        | Extension artifact refresh                                             | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `collection-extension-http-rpc`                                                      | Yes           | Yes             | Yes        | Extension code can read transactions and contracts through the same indexer provider.                                                                                    |
-| Trading   | bidding-bot                        | Viem public and wallet clients                                         | `shared/evm/weighted-rpc-transport.ts`              | `RPC_URL`                       | `bidding-viem-rpc`                                                                   | No            | No              | No         | WETH balance reads, allowance reads, approval submission, fee/nonce reads, transaction lookup, and receipt waits use one weighted endpoint attempt per viem request.     |
+| Trading   | bidding-bot                        | Viem read-only public client                                           | `shared/evm/weighted-rpc-transport.ts`              | `RPC_URL`                       | `bidding-read-only-viem-rpc`                                                         | Yes           | Yes             | Yes        | WETH balance reads, allowance reads, fee simulation, transaction lookup, and receipt waits retry through the weighted pool with shared per-endpoint resilience.          |
+| Trading   | bidding-bot                        | Viem write-capable wallet client                                       | `shared/evm/weighted-rpc-transport.ts`              | `RPC_URL`                       | `bidding-write-capable-viem-rpc`                                                     | No            | No              | No         | Startup WETH approval submission uses one weighted endpoint attempt per viem request. Viem internal transport retries are disabled for this lane.                        |
 | Trading   | bidding-bot                        | OpenSea SDK Seaport bridge                                             | `trading/src/runtime/opensea-sdk-rpc-connection.ts` | `RPC_URL`                       | `bidding-opensea-sdk-rpc`                                                            | No            | No              | No         | OpenSea SDK bridge requests are observed and weighted without importing ethers directly. HTTP, invalid JSON, and JSON-RPC errors demote the selected endpoint.           |
 | Trading   | sniping-bot                        | No current HTTP JSON-RPC runtime                                       | None                                                | None                            | None                                                                                 | N/A           | N/A             | N/A        | The supervisor can emit a ready lifecycle payload, but the real sniping runtime is not functionally ported.                                                              |
 
@@ -207,22 +208,35 @@ request attempt; the retry policy still bounds the total number of attempts.
 
 ## Trading Details
 
-### Bidding Viem Lane
+### Bidding Read-Only Viem Lane
 
 - Runtime: `trading/src/runtime/bidding-runtime.ts`.
 - Adapter: `shared/evm/weighted-rpc-transport.ts`.
-- HTTP lane: `bidding-viem-rpc`.
+- HTTP lane: `bidding-read-only-viem-rpc`.
 - Config: `RPC_URL`.
 - RPC method paths:
     - WETH `balanceOf` for maker balance checks.
     - WETH `allowance` during startup allowance bootstrap.
-    - WETH `approve` when allowance must be submitted.
-    - fee, nonce, transaction lookup, and receipt-wait calls used by the allowance
-      flow and viem wallet/public clients.
+    - fee simulation, transaction lookup, and receipt-wait calls used by the
+      allowance flow and viem public client.
+- Resilience: weighted endpoint selection, dynamic endpoint weight drift,
+  adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
+- Safety boundary: state-changing JSON-RPC methods are rejected before endpoint
+  selection so write submissions cannot accidentally run through the retrying
+  read-only transport.
+
+### Bidding Write-Capable Viem Lane
+
+- Runtime: `trading/src/runtime/bidding-runtime.ts`.
+- Adapter: `shared/evm/weighted-rpc-transport.ts`.
+- HTTP lane: `bidding-write-capable-viem-rpc`.
+- Config: `RPC_URL`.
+- RPC method paths:
+    - WETH `approve` submission when startup allowance must be increased.
 - Resilience: weighted endpoint selection and dynamic endpoint weight drift only.
-- Audit note: this lane has no adapter retry, circuit breaker, or JSON-RPC rate
-  limiter. The allowance service has detailed logs around individual actions,
-  but those logs do not add transport resilience.
+- Safety boundary: viem internal transport retries are disabled. Retry policy for
+  transaction writes remains owned by explicit transaction orchestration, not the
+  generic JSON-RPC transport.
 
 ### OpenSea SDK Seaport Bridge Lane
 

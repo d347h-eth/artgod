@@ -1,5 +1,8 @@
 import { setDbPath } from "@artgod/shared/database";
-import { createWeightedRpcTransport } from "@artgod/shared/evm/weighted-rpc-transport";
+import {
+    createResilientReadOnlyWeightedRpcTransport,
+    createWeightedRpcTransport,
+} from "@artgod/shared/evm/weighted-rpc-transport";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import {
     RPC_OBSERVABILITY_WORKSPACE,
@@ -160,34 +163,48 @@ export async function startBiddingRuntime(
         params.config.chainId,
     );
     assertConfiguredRpcEndpoints(params.config.rpc.endpoints);
-    const rpcTransport = createWeightedRpcTransport(
+    const readOnlyRpcTransport = createResilientReadOnlyWeightedRpcTransport(
         params.config.rpc.endpoints,
         {
-            endpointIdPrefix: TRADING_RPC_ENDPOINT_ID_PREFIX.BiddingViem,
+            endpointIdPrefix:
+                TRADING_RPC_ENDPOINT_ID_PREFIX.BiddingReadOnlyViem,
             rpcObservability: createTradingRpcObservability(
                 params.metrics,
-                TRADING_RPC_OBSERVABILITY_COMPONENT.BiddingViem,
+                TRADING_RPC_OBSERVABILITY_COMPONENT.BiddingReadOnlyViem,
             ),
-            requestTimeoutMs: params.config.rpc.requestTimeoutMs,
+            resilience: params.config.rpc.resilience,
+            retryPolicy: params.config.rpc.retryPolicy,
         },
     );
-    const publicClient = createPublicClient({
+    const readOnlyPublicClient = createPublicClient({
         chain: mainnet,
-        transport: rpcTransport,
+        transport: readOnlyRpcTransport,
     });
     const makerWethBalanceService = new ViemMakerWethBalanceService(
-        publicClient,
+        readOnlyPublicClient,
         params.config.tokens.wethAddress,
     );
-    const walletClient = createWalletClient({
+    const writeCapableRpcTransport = createWeightedRpcTransport(
+        params.config.rpc.endpoints,
+        {
+            endpointIdPrefix:
+                TRADING_RPC_ENDPOINT_ID_PREFIX.BiddingWriteCapableViem,
+            rpcObservability: createTradingRpcObservability(
+                params.metrics,
+                TRADING_RPC_OBSERVABILITY_COMPONENT.BiddingWriteCapableViem,
+            ),
+            requestTimeoutMs: params.config.rpc.resilience.requestTimeoutMs,
+        },
+    );
+    const writeCapableWalletClient = createWalletClient({
         account: privateKeyToAccount(params.privateKeyHex),
         chain: mainnet,
-        transport: rpcTransport,
+        transport: writeCapableRpcTransport,
     });
     const openSeaConduit = getDefaultConduit(Chain.Mainnet);
     const wethAllowanceApprovalService = new ViemWethAllowanceApprovalService(
-        publicClient,
-        walletClient,
+        readOnlyPublicClient,
+        writeCapableWalletClient,
         params.config.tokens.wethAddress,
         openSeaConduit.address,
         params.biddingConfig.transactionPolicy,
@@ -249,12 +266,12 @@ export async function startBiddingRuntime(
                 params.metrics,
                 TRADING_RPC_OBSERVABILITY_COMPONENT.OpenSeaSdk,
             ),
-            requestTimeoutMs: params.config.rpc.requestTimeoutMs,
+            requestTimeoutMs: params.config.rpc.resilience.requestTimeoutMs,
         },
     );
     const biddingSdk = createBiddingSdkClient(
-        publicClient as unknown as PublicClient,
-        walletClient as WalletClient,
+        readOnlyPublicClient as unknown as PublicClient,
+        writeCapableWalletClient as WalletClient,
         sdkRpcConnection,
         params.biddingConfig.openSea.biddingSecretKey,
     );

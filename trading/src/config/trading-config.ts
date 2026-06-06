@@ -11,11 +11,18 @@ import {
     parseRequiredString,
 } from "@artgod/shared/utils/env";
 import type { EvmTransactionPolicyConfig } from "@artgod/shared/evm/transactions";
+import type {
+    RpcEndpointResilienceConfig,
+    RpcRetryPolicy,
+} from "@artgod/shared/evm/rpc-resilience";
 import {
     parseRpcEndpointConfigList,
     type RpcEndpointConfig,
 } from "@artgod/shared/config/rpc-endpoints";
-import { parseRpcHttpRequestTimeoutMs } from "@artgod/shared/config/rpc-resilience";
+import {
+    parseRpcEndpointResilienceConfig,
+    parseRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
 import { resolveRuntimeEnvPath } from "@artgod/shared/utils/runtime-env";
 import { parseEther, parseGwei } from "viem";
 import {
@@ -109,7 +116,8 @@ export type TradingConfig = {
     chainId: number;
     rpc: {
         endpoints: RpcEndpointConfig[];
-        requestTimeoutMs: number;
+        resilience: RpcEndpointResilienceConfig;
+        retryPolicy: RpcRetryPolicy;
     };
     queue: {
         natsUrl: string;
@@ -141,7 +149,8 @@ export function loadTradingConfig(
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", 1);
     const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
-    const rpcRequestTimeoutMs = parseRpcHttpRequestTimeoutMs(env);
+    const rpcRetryPolicy = parseRpcRetryPolicy(env);
+    const rpcResilience = parseRpcEndpointResilienceConfig(env);
     const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
     const natsStreamPrefix = parseRequiredString(
         env.NATS_STREAM_PREFIX,
@@ -241,7 +250,8 @@ export function loadTradingConfig(
         chainId,
         rpc: {
             endpoints: rpcEndpoints,
-            requestTimeoutMs: rpcRequestTimeoutMs,
+            resilience: rpcResilience,
+            retryPolicy: rpcRetryPolicy,
         },
         queue: {
             natsUrl,

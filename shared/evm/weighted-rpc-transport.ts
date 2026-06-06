@@ -1,12 +1,23 @@
 import { custom } from "viem";
 import type { RpcEndpointConfig } from "../config/rpc-endpoints.js";
 import { getDefaultRpcEndpointResilienceConfig } from "../config/rpc-resilience.js";
-import { WeightedEndpointSelector } from "../config/weighted-endpoints.js";
-import type { RpcObservability } from "../observability/rpc.js";
-import { fetchWithRpcRequestTimeout } from "./rpc-resilience.js";
+import {
+    WeightedEndpointSelector,
+    type WeightedEndpointSelection,
+} from "../config/weighted-endpoints.js";
+import type { RpcCallContext, RpcObservability } from "../observability/rpc.js";
+import {
+    CircuitBreaker,
+    CircuitOpenError,
+    executeWithRpcRetry,
+    fetchWithRpcRequestTimeout,
+    TokenBucketRateLimiter,
+    type RpcEndpointResilienceConfig,
+    type RpcRetryPolicy,
+} from "./rpc-resilience.js";
 
 type JsonRpcRequest = {
-    jsonrpc: "2.0";
+    jsonrpc: typeof JSON_RPC_VERSION;
     id: number;
     method: string;
     params: unknown;
@@ -31,9 +42,67 @@ export type WeightedRpcTransportOptions = {
     requestTimeoutMs?: number;
 };
 
+export type ResilientReadOnlyWeightedRpcTransportOptions = {
+    endpointIdPrefix?: string;
+    fetchFn?: typeof fetch;
+    resilience: RpcEndpointResilienceConfig;
+    retryPolicy: RpcRetryPolicy;
+    rpcObservability?: RpcObservability;
+    sleep?: (ms: number) => Promise<void>;
+};
+
+type ResilientRpcEndpoint = {
+    url: string;
+    circuitBreaker: CircuitBreaker;
+    rateLimiter: TokenBucketRateLimiter;
+};
+
+type ResilientRpcEndpointSelection =
+    WeightedEndpointSelection<ResilientRpcEndpoint>;
+
+type ReadOnlyRpcAttemptInput = {
+    selector: WeightedEndpointSelector<ResilientRpcEndpoint>;
+    fetchRpc: typeof fetch;
+    requestTimeoutMs: number;
+    method: string;
+    params: unknown;
+    attempt: number;
+    call?: RpcCallContext;
+    rpcObservability?: RpcObservability;
+    onEndpointObserved?: (endpoint: ResilientRpcEndpointSelection) => void;
+};
+
+type ReadOnlyRpcAttemptResult = {
+    endpoint: ResilientRpcEndpointSelection;
+    result: unknown;
+};
+
 let nextRequestId = 1;
 const DEFAULT_RPC_REQUEST_TIMEOUT_MS =
     getDefaultRpcEndpointResilienceConfig().requestTimeoutMs;
+const DEFAULT_RPC_ENDPOINT_ID_PREFIX = "rpc";
+const JSON_RPC_VERSION = "2.0";
+const HTTP_METHOD_POST = "POST";
+const CONTENT_TYPE_HEADER = "content-type";
+const JSON_CONTENT_TYPE = "application/json";
+const VIEM_TRANSPORT_RETRY_DISABLED = 0;
+const RPC_HTTP_STATUS_ERROR_PREFIX = "RPC endpoint returned HTTP";
+const JSON_RPC_ERROR_PREFIX = "JSON-RPC error";
+
+// Error prefix used when a write method is routed through the read-only transport lane.
+export const READ_ONLY_RPC_STATE_CHANGING_METHOD_ERROR =
+    "Read-only RPC transport cannot execute state-changing method";
+
+// JSON-RPC methods that can submit or request a transaction write.
+export const EVM_STATE_CHANGING_RPC_METHOD = {
+    SendRawTransaction: "eth_sendRawTransaction",
+    SendTransaction: "eth_sendTransaction",
+    WalletSendTransaction: "wallet_sendTransaction",
+} as const;
+
+const EVM_STATE_CHANGING_RPC_METHODS = new Set<string>(
+    Object.values(EVM_STATE_CHANGING_RPC_METHOD),
+);
 
 // Builds a viem transport that chooses a weighted endpoint for each JSON-RPC request.
 export function createWeightedRpcTransport(
@@ -43,7 +112,7 @@ export function createWeightedRpcTransport(
     const selector = new WeightedEndpointSelector(
         endpoints.map((endpoint, index) => ({
             ...endpoint,
-            id: `${options.endpointIdPrefix ?? "rpc"}-${index + 1}`,
+            id: `${options.endpointIdPrefix ?? DEFAULT_RPC_ENDPOINT_ID_PREFIX}-${index + 1}`,
             value: endpoint.url,
         })),
     );
@@ -54,65 +123,239 @@ export function createWeightedRpcTransport(
         options.rpcObservability?.recordConfiguredEndpoint(endpoint);
     }
 
-    return custom({
-        request: async ({ method, params }) => {
-            const call = options.rpcObservability?.startCall(method);
-            const endpoint = selector.select();
-            const attempt =
-                call &&
-                options.rpcObservability?.startEndpointAttempt(
-                    call,
-                    endpoint,
-                    1,
-                );
-            try {
-                const result = await requestJsonRpc(
-                    fetchRpc,
-                    endpoint.value,
-                    requestTimeoutMs,
-                    {
-                        jsonrpc: "2.0",
-                        id: nextJsonRpcRequestId(),
-                        method,
-                        params: params ?? [],
-                    },
-                );
-                const updatedEndpoint =
-                    selector.recordSuccess(endpoint.id) ?? endpoint;
-                if (attempt) {
-                    options.rpcObservability?.recordEndpointAttemptSuccess(
-                        attempt,
-                        updatedEndpoint,
-                    );
-                }
-                if (call) {
-                    options.rpcObservability?.recordCallSuccess(
+    return custom(
+        {
+            request: async ({ method, params }) => {
+                const call = options.rpcObservability?.startCall(method);
+                const endpoint = selector.select();
+                const attempt =
+                    call &&
+                    options.rpcObservability?.startEndpointAttempt(
                         call,
-                        updatedEndpoint,
+                        endpoint,
+                        1,
                     );
-                }
-                return result;
-            } catch (error) {
-                const updatedEndpoint =
-                    selector.recordFailure(endpoint.id) ?? endpoint;
-                if (attempt) {
-                    options.rpcObservability?.recordEndpointAttemptFailure(
-                        attempt,
-                        updatedEndpoint,
-                        error,
+                try {
+                    const result = await requestJsonRpc(
+                        fetchRpc,
+                        endpoint.value,
+                        requestTimeoutMs,
+                        {
+                            jsonrpc: JSON_RPC_VERSION,
+                            id: nextJsonRpcRequestId(),
+                            method,
+                            params: params ?? [],
+                        },
                     );
+                    const updatedEndpoint =
+                        selector.recordSuccess(endpoint.id) ?? endpoint;
+                    if (attempt) {
+                        options.rpcObservability?.recordEndpointAttemptSuccess(
+                            attempt,
+                            updatedEndpoint,
+                        );
+                    }
+                    if (call) {
+                        options.rpcObservability?.recordCallSuccess(
+                            call,
+                            updatedEndpoint,
+                        );
+                    }
+                    return result;
+                } catch (error) {
+                    const updatedEndpoint =
+                        selector.recordFailure(endpoint.id) ?? endpoint;
+                    if (attempt) {
+                        options.rpcObservability?.recordEndpointAttemptFailure(
+                            attempt,
+                            updatedEndpoint,
+                            error,
+                        );
+                    }
+                    if (call) {
+                        options.rpcObservability?.recordCallFailure(
+                            call,
+                            updatedEndpoint,
+                            error,
+                        );
+                    }
+                    throw error;
                 }
-                if (call) {
-                    options.rpcObservability?.recordCallFailure(
-                        call,
-                        updatedEndpoint,
-                        error,
-                    );
-                }
-                throw error;
-            }
+            },
         },
-    });
+        { retryCount: VIEM_TRANSPORT_RETRY_DISABLED },
+    );
+}
+
+// Builds a read-only viem transport with shared retry, circuit, rate-limit, and endpoint weighting policy.
+export function createResilientReadOnlyWeightedRpcTransport(
+    endpoints: readonly RpcEndpointConfig[],
+    options: ResilientReadOnlyWeightedRpcTransportOptions,
+) {
+    const selector = new WeightedEndpointSelector(
+        endpoints.map((endpoint, index) => ({
+            ...endpoint,
+            id: `${options.endpointIdPrefix ?? DEFAULT_RPC_ENDPOINT_ID_PREFIX}-${index + 1}`,
+            value: {
+                url: endpoint.url,
+                circuitBreaker: new CircuitBreaker(
+                    options.resilience.circuitBreaker,
+                ),
+                rateLimiter: new TokenBucketRateLimiter(
+                    options.resilience.rateLimiter,
+                ),
+            },
+        })),
+    );
+    const fetchRpc = options.fetchFn ?? fetch;
+    for (const endpoint of selector.snapshot()) {
+        options.rpcObservability?.recordConfiguredEndpoint(endpoint);
+    }
+
+    return custom(
+        {
+            request: async ({ method, params }) => {
+                assertReadOnlyRpcMethod(method);
+
+                const call = options.rpcObservability?.startCall(method);
+                let lastEndpoint: ResilientRpcEndpointSelection | null = null;
+                try {
+                    const result = await executeWithRpcRetry({
+                        policy: options.retryPolicy,
+                        sleep: options.sleep,
+                        executeAttempt: async (attempt) => {
+                            const attemptResult =
+                                await executeReadOnlyRpcAttempt({
+                                    selector,
+                                    fetchRpc,
+                                    requestTimeoutMs:
+                                        options.resilience.requestTimeoutMs,
+                                    method,
+                                    params: params ?? [],
+                                    attempt,
+                                    call,
+                                    rpcObservability: options.rpcObservability,
+                                    onEndpointObserved: (endpoint) => {
+                                        lastEndpoint = endpoint;
+                                    },
+                                });
+                            return attemptResult;
+                        },
+                        onRetryScheduled: ({
+                            attempt,
+                            nextAttempt,
+                            delayMs,
+                        }) => {
+                            if (!lastEndpoint) return;
+                            options.rpcObservability?.recordRetryScheduled({
+                                method,
+                                endpoint: lastEndpoint,
+                                attempt,
+                                nextAttempt,
+                                delayMs,
+                            });
+                        },
+                    });
+                    if (call) {
+                        options.rpcObservability?.recordCallSuccess(
+                            call,
+                            result.endpoint,
+                        );
+                    }
+                    return result.result;
+                } catch (error) {
+                    if (call) {
+                        options.rpcObservability?.recordCallFailure(
+                            call,
+                            lastEndpoint,
+                            error,
+                        );
+                    }
+                    throw error;
+                }
+            },
+        },
+        { retryCount: VIEM_TRANSPORT_RETRY_DISABLED },
+    );
+}
+
+async function executeReadOnlyRpcAttempt(
+    input: ReadOnlyRpcAttemptInput,
+): Promise<ReadOnlyRpcAttemptResult> {
+    const endpoint = input.selector.select();
+    input.onEndpointObserved?.(endpoint);
+    const attemptContext =
+        input.call &&
+        input.rpcObservability?.startEndpointAttempt(
+            input.call,
+            endpoint,
+            input.attempt,
+        );
+
+    try {
+        const result = await endpoint.value.circuitBreaker.execute(async () => {
+            const waitedMs = await endpoint.value.rateLimiter.acquire();
+            if (waitedMs > 0) {
+                input.rpcObservability?.recordRateLimitWait({
+                    method: input.method,
+                    endpoint,
+                    waitedMs,
+                });
+            }
+
+            return requestJsonRpc(
+                input.fetchRpc,
+                endpoint.value.url,
+                input.requestTimeoutMs,
+                {
+                    jsonrpc: JSON_RPC_VERSION,
+                    id: nextJsonRpcRequestId(),
+                    method: input.method,
+                    params: input.params,
+                },
+            );
+        });
+        const updatedEndpoint =
+            input.selector.recordSuccess(endpoint.id) ?? endpoint;
+        input.onEndpointObserved?.(updatedEndpoint);
+        if (attemptContext) {
+            input.rpcObservability?.recordEndpointAttemptSuccess(
+                attemptContext,
+                updatedEndpoint,
+            );
+        }
+        return {
+            endpoint: updatedEndpoint,
+            result,
+        };
+    } catch (error) {
+        const updatedEndpoint =
+            input.selector.recordFailure(endpoint.id) ?? endpoint;
+        input.onEndpointObserved?.(updatedEndpoint);
+        if (error instanceof CircuitOpenError) {
+            input.rpcObservability?.recordCircuitOpen(
+                input.method,
+                updatedEndpoint,
+                error,
+            );
+        }
+        if (attemptContext) {
+            input.rpcObservability?.recordEndpointAttemptFailure(
+                attemptContext,
+                updatedEndpoint,
+                error,
+            );
+        }
+        throw error;
+    }
+}
+
+function assertReadOnlyRpcMethod(method: string): void {
+    if (EVM_STATE_CHANGING_RPC_METHODS.has(method)) {
+        throw new Error(
+            `${READ_ONLY_RPC_STATE_CHANGING_METHOD_ERROR}: ${method}`,
+        );
+    }
 }
 
 function nextJsonRpcRequestId(): number {
@@ -132,16 +375,16 @@ async function requestJsonRpc(
         fetchRpc,
         url,
         {
-            method: "POST",
+            method: HTTP_METHOD_POST,
             headers: {
-                "content-type": "application/json",
+                [CONTENT_TYPE_HEADER]: JSON_CONTENT_TYPE,
             },
             body: JSON.stringify(request),
         },
         requestTimeoutMs,
     );
     if (!response.ok) {
-        throw new Error(`RPC endpoint returned HTTP ${response.status}`);
+        throw new Error(`${RPC_HTTP_STATUS_ERROR_PREFIX} ${response.status}`);
     }
 
     const payload = (await response.json()) as JsonRpcResponse;
@@ -152,7 +395,9 @@ async function requestJsonRpc(
 }
 
 function buildJsonRpcError(error: JsonRpcError): Error {
-    const parsed = new Error(error.message || `JSON-RPC error ${error.code}`);
+    const parsed = new Error(
+        error.message || `${JSON_RPC_ERROR_PREFIX} ${error.code}`,
+    );
     Object.assign(parsed, {
         code: error.code,
         data: error.data,
