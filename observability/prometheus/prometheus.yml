@@ -47,3 +47,9 @@ scrape_configs:
           - targets: ["127.0.0.1:42748"]
             labels:
                 runtime: "dead-letter-worker"
+
+    - job_name: "artgod-trading"
+      static_configs:
+          - targets: ["127.0.0.1:42753"]
+            labels:
+                runtime: "bidding-bot"

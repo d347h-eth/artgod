@@ -79,9 +79,11 @@ Observability containers run behind the `observability` compose profile in `dock
     - `42750` opensea-reconcile-worker
     - `42751` opensea-reconcile-scheduler-worker
     - `42752` collection-extension-worker
+    - `42753` bidding-bot
 - Runtime metrics bootstrap:
     - `shared/observability/metrics/runtime.ts` initializes generic runtime metrics only when enabled.
     - `backend/src/observability/metrics.ts` initializes backend-specific metrics with the `artgod_backend_` prefix.
+    - `trading/src/runtime/bot-runtime.ts` initializes bidding-bot metrics with the `artgod_trading_` prefix.
     - `shared/observability/metrics/prometheus.ts` lazily imports `prom-client`.
     - `shared/observability/metrics/server.ts` exposes `/metrics` and `/healthz`.
 
@@ -116,6 +118,9 @@ Main env flags (declared in `config/settings.manifest.toml`, generated into `.en
 - `BACKEND_METRICS_ENABLED`
 - `BACKEND_METRICS_HOST`
 - `BACKEND_METRICS_PORT`
+- `TRADING_METRICS_ENABLED`
+- `TRADING_METRICS_HOST`
+- `TRADING_METRICS_PORT_BIDDING_BOT`
 - `INDEXER_APM_ENABLED`
 - `INDEXER_APM_SERVICE_NAMESPACE`
 - `INDEXER_APM_TRACES_ENABLED`
@@ -135,7 +140,7 @@ Design notes:
 
 - metrics and APM exporters are optional and degrade to no-op paths when disabled.
 - packages are loaded lazily at runtime; missing packages do not crash observability-disabled runs.
-- Observability config accepts workspace-specific names (`INDEXER_*`, `BACKEND_*`) and composition-level endpoint names (`OBSERVABILITY_*`) only.
+- Observability config accepts workspace-specific names (`INDEXER_*`, `BACKEND_*`, `TRADING_*`) and composition-level endpoint names (`OBSERVABILITY_*`) only.
 
 ## What Is Instrumented Today
 
@@ -342,18 +347,19 @@ The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by defau
 
 ### RPC Logs and Metrics
 
-Backend and indexer RPC adapters emit dedicated structured logs and matching
+Backend, indexer, and trading RPC adapters emit dedicated structured logs and matching
 Prometheus metrics for JSON-RPC calls, endpoint attempts, retry scheduling,
 rate-limit waits, circuit-open events, endpoint weight drift, and websocket
-failover. Trading bot RPC observability is intentionally not wired in this
-round.
+failover. Trading records the bidding viem transport separately from the
+OpenSea SDK bridge lane so SDK-driven Seaport RPC calls do not disappear into
+the generic bidding metrics.
 
 RPC logs use stable fields:
 
-- `workspace`: `backend` or `indexer`
+- `workspace`: `backend`, `indexer`, or `trading`
 - `rpcComponent`: low-cardinality adapter lane, such as `backend-rpc`,
   `primary-http-rpc`, `backfill-http-rpc`, `metadata-rpc`, or
-  `scheduler-ws-rpc`
+  `scheduler-ws-rpc`, `bidding-viem-rpc`, or `bidding-opensea-sdk-rpc`
 - `protocol`: `http` or `websocket`
 - `method`: RPC method or websocket watch operation
 - `endpointId`: low-cardinality configured endpoint id
@@ -367,6 +373,7 @@ RPC metrics export with the workspace runtime prefixes:
 
 - backend: `artgod_backend_...`
 - indexer: `artgod_indexer_...`
+- trading: `artgod_trading_...`
 
 The canonical RPC metrics are:
 
@@ -451,11 +458,11 @@ Provisioned dashboard:
 
 - `observability/grafana/provisioning/dashboards/runtime-metrics-overview.json`
 
-The runtime metrics dashboard has separate RPC sections for indexer and backend
-workspaces. Each section shows call rate by result, endpoint failure counts,
-endpoint failure percentage, call latency p95, and effective endpoint weight.
-The indexer section also includes retry-attempt counts and websocket endpoint
-events because websocket failover is currently indexer-owned.
+The runtime metrics dashboard has separate RPC sections for indexer, backend,
+and trading workspaces. Each section shows call rate by result, endpoint failure
+counts, endpoint failure percentage, call latency p95, and effective endpoint
+weight. The indexer section also includes retry-attempt counts and websocket
+endpoint events because websocket failover is currently indexer-owned.
 
 Current Tempo `tracesToProfiles` mapping is:
 
@@ -539,9 +546,11 @@ To reach full trace-profile correlation:
     - `curl http://127.0.0.1:42740/metrics`
     - `curl http://127.0.0.1:42742/metrics`
     - `curl http://127.0.0.1:42752/metrics`
+    - `curl http://127.0.0.1:42753/metrics`
 - Check Grafana:
     - logs in Loki Explore
     - `up{job="artgod-backend"}` in Prometheus Explore
     - `up{job="artgod-indexer"}` in Prometheus Explore
+    - `up{job="artgod-trading"}` in Prometheus Explore
     - traces visible in Tempo
     - profiles visible in Pyroscope with `wall:cpu` profile type

@@ -60,6 +60,7 @@ The runtime env defaults are sourced from `config/settings.manifest.toml` and ge
 | `42750` | opensea-reconcile-worker           | `config/settings.manifest.toml` |
 | `42751` | opensea-reconcile-scheduler-worker | `config/settings.manifest.toml` |
 | `42752` | collection-extension-worker        | `config/settings.manifest.toml` |
+| `42753` | bidding-bot                        | `config/settings.manifest.toml` |
 
 ## Public Edge Exception
 

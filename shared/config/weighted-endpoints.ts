@@ -97,11 +97,24 @@ export class WeightedEndpointSelector<T> {
         });
     }
 
+    /*
+     * Selects the next endpoint with smooth weighted round-robin over current
+     * effective weights. For weights A=3, B=1:
+     *
+     * round 1: A=3, B=1 -> pick A -> A=-1, B=1
+     * round 2: A=2, B=2 -> pick A -> A=-2, B=2
+     * round 3: A=1, B=3 -> pick B -> A=1, B=-1
+     * round 4: A=4, B=0 -> pick A -> A=0, B=0
+     *
+     * Selections: A, A, B, A, which matches the 3:1 ratio while spreading B
+     * smoothly into the rotation.
+     */
     select(): WeightedEndpointSelection<T> {
         let totalWeight = 0;
         let selected = this.states[0];
 
         for (const state of this.states) {
+            // Failure penalties reduce effective weight, so weaker endpoints accrue selection credit more slowly.
             const weight = this.effectiveWeight(state);
             state.currentWeight += weight;
             totalWeight += weight;
@@ -110,6 +123,8 @@ export class WeightedEndpointSelector<T> {
             }
         }
 
+        // Make the selected endpoint pay for this win by subtracting the full pool weight.
+        // Without this debit, the highest-weight endpoint would keep the most credit and win repeatedly.
         selected.currentWeight -= totalWeight;
         return this.toSelection(selected);
     }
