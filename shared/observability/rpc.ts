@@ -372,7 +372,10 @@ export class RpcObservability {
         error: unknown,
     ): void {
         this.log.warn(RPC_OBSERVABILITY_LOG_MESSAGE.CircuitOpen, {
-            ...this.baseLogFields(RPC_OBSERVABILITY_LOG_ACTION.CircuitOpen, method),
+            ...this.baseLogFields(
+                RPC_OBSERVABILITY_LOG_ACTION.CircuitOpen,
+                method,
+            ),
             ...this.endpointLogFields(endpoint),
             ...errorLogFields(error),
         });
@@ -410,7 +413,12 @@ export class RpcObservability {
         errorClass: string,
         durationMs: number,
     ): void {
-        const labels = this.baseMetricLabels(method, endpoint, result, errorClass);
+        const labels = this.baseMetricLabels(
+            method,
+            endpoint,
+            result,
+            errorClass,
+        );
         this.metrics?.increment(RPC_OBSERVABILITY_METRIC.Call, 1, labels);
         this.metrics?.histogram(
             RPC_OBSERVABILITY_METRIC.CallDurationMs,
@@ -426,7 +434,12 @@ export class RpcObservability {
         errorClass: string,
         durationMs: number,
     ): void {
-        const labels = this.baseMetricLabels(method, endpoint, result, errorClass);
+        const labels = this.baseMetricLabels(
+            method,
+            endpoint,
+            result,
+            errorClass,
+        );
         this.metrics?.increment(
             RPC_OBSERVABILITY_METRIC.EndpointAttempt,
             1,
@@ -486,7 +499,10 @@ export class RpcObservability {
         };
     }
 
-    private baseLogFields(action: string, method: string): Record<string, unknown> {
+    private baseLogFields(
+        action: string,
+        method: string,
+    ): Record<string, unknown> {
         return {
             component: this.logComponent,
             action,
@@ -522,7 +538,9 @@ export function errorLogFields(error: unknown): Record<string, unknown> {
         return {
             error: sanitizeRpcErrorMessage(error.message),
             errorClass: errorClassName(error),
-            ...(candidate.code !== undefined ? { errorCode: candidate.code } : {}),
+            ...(candidate.code !== undefined
+                ? { errorCode: candidate.code }
+                : {}),
         };
     }
     return {

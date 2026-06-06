@@ -32,8 +32,11 @@ class CapturingMetrics implements Metrics {
         value?: number;
         labels?: MetricLabels;
     }> = [];
-    readonly gauges: Array<{ name: string; value: number; labels?: MetricLabels }> =
-        [];
+    readonly gauges: Array<{
+        name: string;
+        value: number;
+        labels?: MetricLabels;
+    }> = [];
     readonly histograms: Array<{
         name: string;
         value: number;
@@ -140,9 +143,9 @@ describe("createWeightedRpcTransport", () => {
             ),
         });
 
-        await expect(
-            client.request({ method: TEST_RPC_METHOD }),
-        ).resolves.toBe(TEST_RPC_RESULT);
+        await expect(client.request({ method: TEST_RPC_METHOD })).resolves.toBe(
+            TEST_RPC_RESULT,
+        );
 
         expect(metrics.gauges).toContainEqual({
             name: RPC_OBSERVABILITY_METRIC.EndpointConfiguredWeight,

@@ -53,7 +53,11 @@ export function createWeightedRpcTransport(
             const endpoint = selector.select();
             const attempt =
                 call &&
-                options.rpcObservability?.startEndpointAttempt(call, endpoint, 1);
+                options.rpcObservability?.startEndpointAttempt(
+                    call,
+                    endpoint,
+                    1,
+                );
             try {
                 const result = await requestJsonRpc(fetchRpc, endpoint.value, {
                     jsonrpc: "2.0",
