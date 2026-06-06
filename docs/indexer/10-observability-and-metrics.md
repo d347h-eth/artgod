@@ -354,6 +354,10 @@ failover. Trading records the bidding viem transport separately from the
 OpenSea SDK bridge lane so SDK-driven Seaport RPC calls do not disappear into
 the generic bidding metrics.
 
+The full HTTP JSON-RPC interaction map, including retry and circuit-breaker
+coverage by workspace and runtime lane, is maintained in
+`docs/rpc/01-http-rpc-interaction-catalog.md`.
+
 RPC logs use stable fields:
 
 - `workspace`: `backend`, `indexer`, or `trading`

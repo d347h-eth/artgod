@@ -407,6 +407,7 @@ The public deploy compose exposes the same stack behind its `observability` prof
 Reference docs:
 
 - `docs/indexer/10-observability-and-metrics.md`
+- `docs/rpc/01-http-rpc-interaction-catalog.md`
 - `docs/progress/indexer/16-trace-profile-linking-plan.md`
 
 ## Canonical Docs
@@ -420,6 +421,7 @@ Use these as primary references for design and implementation details:
 - `docs/desktop/03-wallet-keystore-and-bot-unlock.md`
 - `docs/desktop/04-settings-manifest-process.md`
 - `docs/ports/01-port-catalog.md`
+- `docs/rpc/01-http-rpc-interaction-catalog.md`
 - `docs/trading/01-bidding-runtime-and-jobs.md`
 - `docs/trading/02-bidding-automation-capabilities.md`
 - `docs/progress/trading/01-bidder-integration-plan.md`
