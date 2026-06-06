@@ -13,6 +13,7 @@ describe("loadBackendConfig", () => {
 
         expect(config.rpc).toEqual({
             endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
+            ...expectedDefaultRpcPolicy(),
         });
         expect(config.wethAddress).toBe(
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
@@ -31,6 +32,41 @@ describe("loadBackendConfig", () => {
                 { url: "https://rpc-a.example", weight: 2 },
                 { url: "https://rpc-b.example", weight: 1 },
             ],
+            ...expectedDefaultRpcPolicy(),
+        });
+    });
+
+    it("parses backend RPC resilience overrides", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            RPC_RETRY_MAX_ATTEMPTS: "3",
+            RPC_RETRY_BASE_DELAY_MS: "50",
+            RPC_RETRY_MAX_DELAY_MS: "500",
+            RPC_RATE_LIMIT_REQUESTS_PER_SECOND: "0",
+            RPC_RATE_LIMIT_BURST: "25",
+            RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD: "2",
+            RPC_CIRCUIT_BREAKER_OPEN_MS: "1000",
+            RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS: "1",
+        });
+
+        expect(config.rpc).toEqual({
+            endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
+            retryPolicy: {
+                maxAttempts: 3,
+                baseDelayMs: 50,
+                maxDelayMs: 500,
+            },
+            resilience: {
+                rateLimiter: {
+                    requestsPerSecond: 0,
+                    burst: 25,
+                },
+                circuitBreaker: {
+                    failureThreshold: 2,
+                    openMs: 1000,
+                    halfOpenMaxRequests: 1,
+                },
+            },
         });
     });
 
@@ -289,5 +325,32 @@ function createBaseEnv(): Record<string, string> {
         BACKEND_ALLOWED_ORIGINS:
             "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701",
         BACKEND_CSRF_COOKIE_SECURE: "false",
+    };
+}
+
+function expectedDefaultRpcPolicy() {
+    return {
+        retryPolicy: {
+            maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
+            baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
+            maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
+        },
+        resilience: {
+            rateLimiter: {
+                requestsPerSecond: getSettingDefaultNumber(
+                    "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
+                ),
+                burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
+            },
+            circuitBreaker: {
+                failureThreshold: getSettingDefaultNumber(
+                    "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                ),
+                openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
+                halfOpenMaxRequests: getSettingDefaultNumber(
+                    "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+                ),
+            },
+        },
     };
 }

@@ -10,6 +10,7 @@ import {
     CircuitOpenError,
     executeWithRpcRetry,
     type RpcCircuitBreakerConfig,
+    type RpcEndpointResilienceConfig,
     type RpcRateLimiterConfig,
     type RpcRetryPolicy,
     TokenBucketRateLimiter,
@@ -45,10 +46,7 @@ export type ViemRpcConfig = {
     component?: string;
     endpointIdPrefix?: string;
     retryPolicy?: RpcRetryPolicy;
-    resilience?: {
-        rateLimiter: RpcRateLimiterConfig;
-        circuitBreaker: RpcCircuitBreakerConfig;
-    };
+    resilience?: RpcEndpointResilienceConfig;
 };
 
 type ViemPublicClient = ReturnType<typeof createPublicClient>;

@@ -40,23 +40,23 @@ retry policy, or a circuit breaker by itself.
 
 ## Runtime Summary
 
-| Workspace | Runtime / Process                  | Use Case                                                               | Adapter                                             | Config Lane                     | Component Label                                                                      | Adapter Retry | Circuit Breaker | Rate Limit | Current Behavior                                                                                                                                                        |
-| --------- | ---------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------ | ------------- | --------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend   | backend API                        | ENS owner resolution                                                   | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL`                       | `backend-rpc`                                                                        | No            | No              | No         | One weighted endpoint attempt per request; failures demote the endpoint and bubble to the API error path.                                                               |
-| Backend   | backend API                        | Blockspace and backfill state head/timestamp lookup                    | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL`                       | `backend-rpc`                                                                        | No            | No              | No         | Current block has a short in-memory cache; block timestamps have an in-memory cache. The use case falls back to indexed state or unavailable timestamps when RPC fails. |
-| Backend   | backend API                        | Extension activity preview rendering                                   | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL`                       | `backend-rpc`                                                                        | No            | No              | No         | Extension renderers can call `readContract` and `getStorageAt`; failures demote the endpoint and bubble through preview error handling.                                 |
-| Backend   | backend API                        | Token URI reads                                                        | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL`                       | `backend-rpc`                                                                        | No            | No              | No         | Extension-owned token URI resolution can call extension contracts; generic ERC721 fallback reads `tokenURI`.                                                            |
-| Indexer   | scheduler-worker                   | HTTP head polling                                                      | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `scheduler-http-rpc`                                                                 | Yes           | Yes             | Yes        | Each retry attempt reselects through the weighted pool. Circuit-open, retry, rate-limit, call, and endpoint-attempt events are logged and metered.                      |
-| Indexer   | sync-worker realtime consumer      | Realtime block sync                                                    | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `primary-http-rpc`                                                                   | Yes           | Yes             | Yes        | Reads logs, blocks, transactions, and receipts through the primary provider. Worker job retry is separate from adapter retry.                                           |
-| Indexer   | sync-worker backfill consumer      | Backfill, gap repair, reorg catch-up, bootstrap catch-up               | `indexer/src/infra/rpc/viem.ts`                     | `RPC_BACKFILL_URL` or `RPC_URL` | `backfill-http-rpc` when a separate pool is configured; otherwise `primary-http-rpc` | Yes           | Yes             | Yes        | Uses the dedicated backfill pool when configured; otherwise shares the primary provider instance.                                                                       |
-| Indexer   | bootstrap-worker                   | Collection bootstrap, anchor reads, token enumeration, owner snapshots | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `bootstrap-http-rpc`                                                                 | Yes           | Yes             | Yes        | Reads blocks, current head, total supply, enumerable token ids, and owners through the indexer provider.                                                                |
-| Indexer   | bootstrap-worker and domain-worker | On-chain metadata URI resolution                                       | `indexer/src/infra/metadata/viem-token-uri.ts`      | `RPC_URL`                       | `metadata-rpc`                                                                       | No            | No              | No         | Reads ERC721 `tokenURI` and ERC1155 `uri`; resolver returns `null` after a failed read and emits metadata failure metrics.                                              |
-| Indexer   | domain-worker                      | Offchain order validation and domain maintenance                       | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `domain-http-rpc`                                                                    | Yes           | Yes             | Yes        | Reads Seaport order status, counters, ownership/approval state, WETH balances/allowance, native ETH balance, and conduit data.                                          |
-| Indexer   | reorg-worker                       | Stored block verification and repair scheduling                        | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `reorg-http-rpc`                                                                     | Yes           | Yes             | Yes        | Reads block hashes and current head to detect reorgs and publish recovery backfills.                                                                                    |
-| Indexer   | collection-extension-worker        | Extension artifact refresh                                             | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `collection-extension-http-rpc`                                                      | Yes           | Yes             | Yes        | Extension code can read transactions and contracts through the same indexer provider.                                                                                   |
-| Trading   | bidding-bot                        | Viem public and wallet clients                                         | `shared/evm/weighted-rpc-transport.ts`              | `RPC_URL`                       | `bidding-viem-rpc`                                                                   | No            | No              | No         | WETH balance reads, allowance reads, approval submission, fee/nonce reads, transaction lookup, and receipt waits use one weighted endpoint attempt per viem request.    |
-| Trading   | bidding-bot                        | OpenSea SDK Seaport bridge                                             | `trading/src/runtime/opensea-sdk-rpc-connection.ts` | `RPC_URL`                       | `bidding-opensea-sdk-rpc`                                                            | No            | No              | No         | OpenSea SDK bridge requests are observed and weighted without importing ethers directly. HTTP, invalid JSON, and JSON-RPC errors demote the selected endpoint.          |
-| Trading   | sniping-bot                        | No current HTTP JSON-RPC runtime                                       | None                                                | None                            | None                                                                                 | N/A           | N/A             | N/A        | The supervisor can emit a ready lifecycle payload, but the real sniping runtime is not functionally ported.                                                             |
+| Workspace | Runtime / Process                  | Use Case                                                               | Adapter                                             | Config Lane                     | Component Label                                                                      | Adapter Retry | Circuit Breaker | Rate Limit | Current Behavior                                                                                                                                                         |
+| --------- | ---------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------ | ------------- | --------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Backend   | backend API                        | ENS owner resolution                                                   | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL`                       | `backend-rpc`                                                                        | Yes           | Yes             | Yes        | Each retry attempt reselects through the weighted pool. Endpoint attempts, retry scheduling, circuit-open, rate-limit, and call outcomes are logged and metered.         |
+| Backend   | backend API                        | Blockspace and backfill state head/timestamp lookup                    | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL`                       | `backend-rpc`                                                                        | Yes           | Yes             | Yes        | Current block has a short in-memory cache; block timestamps have an in-memory cache. The use case falls back to indexed state or unavailable timestamps after RPC fails. |
+| Backend   | backend API                        | Extension activity preview rendering                                   | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL`                       | `backend-rpc`                                                                        | Yes           | Yes             | Yes        | Extension renderers can call `readContract` and `getStorageAt`; failures demote endpoints and retry before bubbling through preview error handling.                      |
+| Backend   | backend API                        | Token URI reads                                                        | `backend/src/infra/rpc/viem-backend-rpc.ts`         | `RPC_URL`                       | `backend-rpc`                                                                        | Yes           | Yes             | Yes        | Extension-owned token URI resolution can call extension contracts; generic ERC721 fallback reads `tokenURI` through the resilient backend RPC client.                    |
+| Indexer   | scheduler-worker                   | HTTP head polling                                                      | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `scheduler-http-rpc`                                                                 | Yes           | Yes             | Yes        | Each retry attempt reselects through the weighted pool. Circuit-open, retry, rate-limit, call, and endpoint-attempt events are logged and metered.                       |
+| Indexer   | sync-worker realtime consumer      | Realtime block sync                                                    | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `primary-http-rpc`                                                                   | Yes           | Yes             | Yes        | Reads logs, blocks, transactions, and receipts through the primary provider. Worker job retry is separate from adapter retry.                                            |
+| Indexer   | sync-worker backfill consumer      | Backfill, gap repair, reorg catch-up, bootstrap catch-up               | `indexer/src/infra/rpc/viem.ts`                     | `RPC_BACKFILL_URL` or `RPC_URL` | `backfill-http-rpc` when a separate pool is configured; otherwise `primary-http-rpc` | Yes           | Yes             | Yes        | Uses the dedicated backfill pool when configured; otherwise shares the primary provider instance.                                                                        |
+| Indexer   | bootstrap-worker                   | Collection bootstrap, anchor reads, token enumeration, owner snapshots | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `bootstrap-http-rpc`                                                                 | Yes           | Yes             | Yes        | Reads blocks, current head, total supply, enumerable token ids, and owners through the indexer provider.                                                                 |
+| Indexer   | bootstrap-worker and domain-worker | On-chain metadata URI resolution                                       | `indexer/src/infra/metadata/viem-token-uri.ts`      | `RPC_URL`                       | `metadata-rpc`                                                                       | Yes           | Yes             | Yes        | Reads ERC721 `tokenURI` and ERC1155 `uri`; transient endpoint failures retry through the weighted pool before the resolver returns `null`.                               |
+| Indexer   | domain-worker                      | Offchain order validation and domain maintenance                       | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `domain-http-rpc`                                                                    | Yes           | Yes             | Yes        | Reads Seaport order status, counters, ownership/approval state, WETH balances/allowance, native ETH balance, and conduit data.                                           |
+| Indexer   | reorg-worker                       | Stored block verification and repair scheduling                        | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `reorg-http-rpc`                                                                     | Yes           | Yes             | Yes        | Reads block hashes and current head to detect reorgs and publish recovery backfills.                                                                                     |
+| Indexer   | collection-extension-worker        | Extension artifact refresh                                             | `indexer/src/infra/rpc/viem.ts`                     | `RPC_URL`                       | `collection-extension-http-rpc`                                                      | Yes           | Yes             | Yes        | Extension code can read transactions and contracts through the same indexer provider.                                                                                    |
+| Trading   | bidding-bot                        | Viem public and wallet clients                                         | `shared/evm/weighted-rpc-transport.ts`              | `RPC_URL`                       | `bidding-viem-rpc`                                                                   | No            | No              | No         | WETH balance reads, allowance reads, approval submission, fee/nonce reads, transaction lookup, and receipt waits use one weighted endpoint attempt per viem request.     |
+| Trading   | bidding-bot                        | OpenSea SDK Seaport bridge                                             | `trading/src/runtime/opensea-sdk-rpc-connection.ts` | `RPC_URL`                       | `bidding-opensea-sdk-rpc`                                                            | No            | No              | No         | OpenSea SDK bridge requests are observed and weighted without importing ethers directly. HTTP, invalid JSON, and JSON-RPC errors demote the selected endpoint.           |
+| Trading   | sniping-bot                        | No current HTTP JSON-RPC runtime                                       | None                                                | None                            | None                                                                                 | N/A           | N/A             | N/A        | The supervisor can emit a ready lifecycle payload, but the real sniping runtime is not functionally ported.                                                              |
 
 ## Backend Details
 
@@ -65,9 +65,10 @@ retry policy, or a circuit breaker by itself.
 - Entry point: `backend/src/application/use-cases/owners/resolve-owner-ref.ts`.
 - Concrete adapter: `ViemBackendRpcClient.resolveEnsAddress`.
 - RPC method path: viem ENS resolution through `getEnsAddress`.
-- Resilience: weighted endpoint selection and dynamic endpoint weight drift only.
+- Resilience: weighted endpoint selection, dynamic endpoint weight drift,
+  adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
 - Fallback: none. A failed or unresolved ENS lookup reaches the API as an error
-  or not-found outcome.
+  or not-found outcome after retry exhaustion.
 
 ### Blockspace and Backfill State
 
@@ -76,7 +77,8 @@ retry policy, or a circuit breaker by itself.
 - Concrete adapter methods:
   `getCurrentBlockNumber` and `getBlockTimestamp`.
 - RPC method path: current block number and block-by-number timestamp reads.
-- Resilience: weighted endpoint selection and dynamic endpoint weight drift only.
+- Resilience: weighted endpoint selection, dynamic endpoint weight drift,
+  adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
 - Fallback: the use case catches failures. Head falls back to the highest
   indexed block; missing timestamps are reported as unavailable.
 - Local caching: current block number is cached briefly; successful block
@@ -91,9 +93,10 @@ retry policy, or a circuit breaker by itself.
 - Concrete adapter methods: `readContract` and `getStorageAt`.
 - RPC method path: extension-owned contract reads, renderer reads, storage-slot
   lookup, and generic ERC721 `tokenURI`.
-- Resilience: weighted endpoint selection and dynamic endpoint weight drift only.
+- Resilience: weighted endpoint selection, dynamic endpoint weight drift,
+  adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
 - Fallback: extension-specific. Generic token URI fallback returns not found
-  when the contract read fails.
+  when the contract read still fails after retry exhaustion.
 
 ## Indexer Details
 
@@ -167,10 +170,10 @@ The policy is configured through `RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, and
 - Adapter: `indexer/src/infra/metadata/viem-token-uri.ts`.
 - HTTP lane: `metadata-rpc`.
 - RPC method paths: ERC721 `tokenURI` and ERC1155 `uri`.
-- Resilience: weighted endpoint selection and dynamic endpoint weight drift only.
-- Fallback: the resolver records metadata failure metrics and returns `null`.
-- Audit note: this is an intentional fail-soft path today, but it does not have
-  the retry/circuit/rate-limit guarantees of `ViemRpcProvider`.
+- Resilience: weighted endpoint selection, dynamic endpoint weight drift,
+  adapter retry, per-endpoint rate limiting, and per-endpoint circuit breaker.
+- Fallback: the resolver records metadata failure metrics and returns `null`
+  after retry exhaustion.
 
 ### Domain Worker
 
@@ -260,15 +263,15 @@ Covered today:
 - All indexer runtime lanes that use `ViemRpcProvider` have adapter retry,
   per-endpoint rate limiting, per-endpoint circuit breaker, weighted endpoint
   selection, structured logs, and metrics.
+- Backend `ViemBackendRpcClient` has adapter retry, per-endpoint rate limiting,
+  per-endpoint circuit breaker, weighted endpoint selection, structured logs,
+  metrics, and local caches for selected reads.
+- Indexer `ViemTokenUriResolver` has adapter retry, per-endpoint rate limiting,
+  per-endpoint circuit breaker, weighted endpoint selection, structured logs,
+  metrics, and metadata failure metrics.
 
 Partially covered today:
 
-- Backend `ViemBackendRpcClient` has weighted endpoint selection, dynamic weight
-  drift, observability, and local caches for selected reads. It does not have
-  adapter retry, circuit breaker, or rate limiting.
-- Indexer `ViemTokenUriResolver` has weighted endpoint selection, dynamic weight
-  drift, observability, and metadata failure metrics. It does not have adapter
-  retry, circuit breaker, or rate limiting.
 - Trading `createWeightedRpcTransport` has weighted endpoint selection, dynamic
   weight drift, and observability. It does not have adapter retry, circuit
   breaker, or rate limiting.
@@ -285,15 +288,13 @@ Not covered:
 
 ## Recommended Follow-Up
 
-The clean next step is to extract a shared HTTP JSON-RPC resilience layer that
-can be reused by backend, indexer metadata, and trading without copying the
-indexer provider internals. That layer should compose:
+The remaining runtime gap is trading. Do not put blind retry around the current
+single viem transport, because that lane includes write/broadcast paths such as
+approval submission. The cleaner follow-up is to split trading JSON-RPC method
+classes first:
 
-- weighted endpoint selector
-- retry policy
-- circuit breaker
-- optional token-bucket rate limiter
-- existing shared RPC observability
-
-Then each workspace can keep its own adapter boundary and method vocabulary
-while sharing the transport resilience policy.
+- read-only calls can compose the shared retry, rate-limit, and circuit-breaker
+  primitives.
+- write/broadcast calls need idempotency-aware handling before retry is safe.
+- the OpenSea SDK bridge needs the same read/write classification before it can
+  share the retry layer.

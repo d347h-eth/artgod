@@ -110,6 +110,8 @@ async function main() {
             metrics: runtimeMetrics.metrics,
             component: INDEXER_RPC_OBSERVABILITY_COMPONENT.Metadata,
             endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata,
+            retryPolicy: config.rpc.retryPolicy,
+            resilience: config.rpc.resilience,
         });
         const metadataFetcher = new HttpMetadataFetcher({
             metrics: runtimeMetrics.metrics,

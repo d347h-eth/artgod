@@ -2,13 +2,26 @@ import { createPublicClient, http } from "viem";
 import { getEnsAddress } from "viem/actions";
 import { normalize } from "viem/ens";
 import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
-import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
+import {
+    WeightedEndpointSelector,
+    type WeightedEndpointSelection,
+} from "@artgod/shared/config/weighted-endpoints";
+import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    CircuitBreaker,
+    CircuitOpenError,
+    executeWithRpcRetry,
+    type RpcEndpointResilienceConfig,
+    type RpcRetryPolicy,
+    TokenBucketRateLimiter,
+} from "@artgod/shared/evm/rpc-resilience";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import {
     RPC_OBSERVABILITY_WORKSPACE,
     RPC_PROTOCOL,
     RpcObservability,
+    type RpcCallContext,
 } from "@artgod/shared/observability/rpc";
 
 export type BackendRpcHex = `0x${string}`;
@@ -41,10 +54,50 @@ const BACKEND_RPC_SPAN_PREFIX = "backend.rpc.";
 
 const CURRENT_BLOCK_NUMBER_CACHE_TTL_MS = 2_000;
 type BackendViemClient = ReturnType<typeof createPublicClient>;
+export type BackendRpcClientFactory = (url: string) => BackendViemClient;
+type BackendRpcEndpoint = {
+    client: BackendViemClient;
+    rateLimiter: TokenBucketRateLimiter;
+    circuitBreaker: CircuitBreaker;
+};
+type BackendRpcEndpointSelection =
+    WeightedEndpointSelection<BackendRpcEndpoint>;
+
+export type ViemBackendRpcClientOptions = {
+    retryPolicy?: RpcRetryPolicy;
+    resilience?: RpcEndpointResilienceConfig;
+    createClient?: BackendRpcClientFactory;
+    sleep?: (ms: number) => Promise<void>;
+};
+
+const DEFAULT_RETRY_POLICY: RpcRetryPolicy = {
+    maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
+    baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
+    maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
+};
+
+const DEFAULT_RESILIENCE: RpcEndpointResilienceConfig = {
+    rateLimiter: {
+        requestsPerSecond: getSettingDefaultNumber(
+            "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
+        ),
+        burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
+    },
+    circuitBreaker: {
+        failureThreshold: getSettingDefaultNumber(
+            "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+        ),
+        openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
+        halfOpenMaxRequests: getSettingDefaultNumber(
+            "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
+        ),
+    },
+};
 
 export class ViemBackendRpcClient {
-    private readonly endpointSelector: WeightedEndpointSelector<BackendViemClient>;
+    private readonly endpointSelector: WeightedEndpointSelector<BackendRpcEndpoint>;
     private readonly rpcObservability: RpcObservability;
+    private readonly retryPolicy: RpcRetryPolicy;
     private currentBlockNumberCache: {
         blockNumber: number;
         expiresAtMs: number;
@@ -55,14 +108,24 @@ export class ViemBackendRpcClient {
         endpoints: readonly RpcEndpointConfig[],
         private readonly apm: ApmPort = NOOP_APM,
         metrics?: Metrics,
+        private readonly options: ViemBackendRpcClientOptions = {},
     ) {
+        this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
+        const resilience = options.resilience ?? DEFAULT_RESILIENCE;
+        const createClient = options.createClient ?? createBackendViemClient;
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
                 id: `${BACKEND_RPC_ENDPOINT_ID_PREFIX}-${index + 1}`,
-                value: createPublicClient({
-                    transport: http(endpoint.url),
-                }),
+                value: {
+                    client: createClient(endpoint.url),
+                    rateLimiter: new TokenBucketRateLimiter(
+                        resilience.rateLimiter,
+                    ),
+                    circuitBreaker: new CircuitBreaker(
+                        resilience.circuitBreaker,
+                    ),
+                },
             })),
         );
         this.rpcObservability = new RpcObservability({
@@ -235,13 +298,60 @@ export class ViemBackendRpcClient {
         attributes: Record<string, unknown>,
         read: (client: BackendViemClient) => Promise<T>,
     ): Promise<T> {
-        const endpoint = this.endpointSelector.select();
         const method = backendRpcMethodLabel(name);
         const call = this.rpcObservability.startCall(method);
+        let lastEndpoint: BackendRpcEndpointSelection | null = null;
+        try {
+            const result = await executeWithRpcRetry({
+                policy: this.retryPolicy,
+                executeAttempt: (attempt) =>
+                    this.executeRpcAttempt(
+                        name,
+                        attributes,
+                        method,
+                        read,
+                        call,
+                        attempt,
+                        (endpoint) => {
+                            lastEndpoint = endpoint;
+                        },
+                    ),
+                onRetryScheduled: ({ attempt, nextAttempt, delayMs }) => {
+                    if (lastEndpoint) {
+                        this.rpcObservability.recordRetryScheduled({
+                            method,
+                            endpoint: lastEndpoint,
+                            attempt,
+                            nextAttempt,
+                            delayMs,
+                        });
+                    }
+                },
+                sleep: this.options.sleep,
+            });
+            this.rpcObservability.recordCallSuccess(call, result.endpoint);
+            return result.value;
+        } catch (error) {
+            this.rpcObservability.recordCallFailure(call, lastEndpoint, error);
+            throw error;
+        }
+    }
+
+    private async executeRpcAttempt<T>(
+        name: string,
+        attributes: Record<string, unknown>,
+        method: string,
+        read: (client: BackendViemClient) => Promise<T>,
+        call: RpcCallContext,
+        attemptNumber: number,
+        setLastEndpoint: (endpoint: BackendRpcEndpointSelection) => void,
+    ): Promise<{ value: T; endpoint: BackendRpcEndpointSelection }> {
+        const endpoint = this.endpointSelector.select();
+        setLastEndpoint(endpoint);
         const attempt = this.rpcObservability.startEndpointAttempt(
             call,
             endpoint,
-            1,
+            attemptNumber,
         );
         return this.apm.withSpan(
             name,
@@ -251,30 +361,35 @@ export class ViemBackendRpcClient {
             },
             async () => {
                 try {
-                    const result = await read(endpoint.value);
+                    const result = await endpoint.value.circuitBreaker.execute(
+                        () =>
+                            this.withRateLimit(endpoint, method, () =>
+                                read(endpoint.value.client),
+                            ),
+                    );
                     const updatedEndpoint =
                         this.endpointSelector.recordSuccess(endpoint.id) ??
                         endpoint;
+                    setLastEndpoint(updatedEndpoint);
                     this.rpcObservability.recordEndpointAttemptSuccess(
                         attempt,
                         updatedEndpoint,
                     );
-                    this.rpcObservability.recordCallSuccess(
-                        call,
-                        updatedEndpoint,
-                    );
-                    return result;
+                    return { value: result, endpoint: updatedEndpoint };
                 } catch (error) {
                     const updatedEndpoint =
                         this.endpointSelector.recordFailure(endpoint.id) ??
                         endpoint;
+                    setLastEndpoint(updatedEndpoint);
+                    if (error instanceof CircuitOpenError) {
+                        this.rpcObservability.recordCircuitOpen(
+                            method,
+                            updatedEndpoint,
+                            error,
+                        );
+                    }
                     this.rpcObservability.recordEndpointAttemptFailure(
                         attempt,
-                        updatedEndpoint,
-                        error,
-                    );
-                    this.rpcObservability.recordCallFailure(
-                        call,
                         updatedEndpoint,
                         error,
                     );
@@ -283,6 +398,22 @@ export class ViemBackendRpcClient {
             },
         );
     }
+
+    private async withRateLimit<T>(
+        endpoint: BackendRpcEndpointSelection,
+        method: string,
+        read: () => Promise<T>,
+    ): Promise<T> {
+        const waitedMs = await endpoint.value.rateLimiter.acquire();
+        if (waitedMs > 0) {
+            this.rpcObservability.recordRateLimitWait({
+                method,
+                endpoint,
+                waitedMs,
+            });
+        }
+        return read();
+    }
 }
 
 function backendRpcMethodLabel(spanName: string): string {
@@ -290,4 +421,10 @@ function backendRpcMethodLabel(spanName: string): string {
         return spanName.slice(BACKEND_RPC_SPAN_PREFIX.length);
     }
     return spanName;
+}
+
+function createBackendViemClient(url: string): BackendViemClient {
+    return createPublicClient({
+        transport: http(url),
+    });
 }

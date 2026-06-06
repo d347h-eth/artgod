@@ -170,6 +170,10 @@ export function createBackendApp(
         config.rpc.endpoints,
         backendObservability.apm,
         backendObservability.metrics,
+        {
+            retryPolicy: config.rpc.retryPolicy,
+            resilience: config.rpc.resilience,
+        },
     );
     const collectionExtensionRecords = new SqliteCollectionExtensionRecords();
     const collectionCustomizationRecords =

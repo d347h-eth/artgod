@@ -18,6 +18,12 @@ export type RpcCircuitBreakerConfig = {
     halfOpenMaxRequests: number;
 };
 
+// Groups the per-endpoint resilience controls used by JSON-RPC adapters.
+export type RpcEndpointResilienceConfig = {
+    rateLimiter: RpcRateLimiterConfig;
+    circuitBreaker: RpcCircuitBreakerConfig;
+};
+
 // Describes one scheduled retry after a failed JSON-RPC attempt.
 export type RpcRetryScheduledContext = {
     attempt: number;
