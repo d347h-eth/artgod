@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
     CircuitBreaker,
     CircuitOpenError,
+    executeWithRpcRetry,
     TokenBucketRateLimiter,
-} from "../src/infra/rpc/resilience.js";
+} from "./rpc-resilience.js";
 
 describe("TokenBucketRateLimiter", () => {
     it("returns immediate permits inside burst and waits after it is exhausted", async () => {
@@ -132,5 +133,46 @@ describe("CircuitBreaker", () => {
         await expect(
             breaker.execute(async () => "blocked"),
         ).rejects.toBeInstanceOf(CircuitOpenError);
+    });
+});
+
+describe("executeWithRpcRetry", () => {
+    it("runs retry attempts with bounded backoff", async () => {
+        const scheduled: Array<{
+            attempt: number;
+            nextAttempt: number;
+            delayMs: number;
+        }> = [];
+        const sleeps: number[] = [];
+        let attempts = 0;
+
+        const result = await executeWithRpcRetry({
+            policy: {
+                maxAttempts: 3,
+                baseDelayMs: 100,
+                maxDelayMs: 150,
+            },
+            executeAttempt: async () => {
+                attempts += 1;
+                if (attempts < 3) {
+                    throw new Error("temporary rpc failure");
+                }
+                return "ok";
+            },
+            onRetryScheduled: ({ attempt, nextAttempt, delayMs }) => {
+                scheduled.push({ attempt, nextAttempt, delayMs });
+            },
+            sleep: async (ms) => {
+                sleeps.push(ms);
+            },
+        });
+
+        expect(result).toBe("ok");
+        expect(attempts).toBe(3);
+        expect(scheduled).toEqual([
+            { attempt: 1, nextAttempt: 2, delayMs: 100 },
+            { attempt: 2, nextAttempt: 3, delayMs: 150 },
+        ]);
+        expect(sleeps).toEqual([100, 150]);
     });
 });

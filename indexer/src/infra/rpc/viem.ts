@@ -5,8 +5,15 @@ import {
     WeightedEndpointSelector,
     type WeightedEndpointSelection,
 } from "@artgod/shared/config/weighted-endpoints";
-import type { RetryPolicy } from "../../domain/retry.js";
-import { getRetryDelayMs } from "../../domain/retry.js";
+import {
+    CircuitBreaker,
+    CircuitOpenError,
+    executeWithRpcRetry,
+    type RpcCircuitBreakerConfig,
+    type RpcRateLimiterConfig,
+    type RpcRetryPolicy,
+    TokenBucketRateLimiter,
+} from "@artgod/shared/evm/rpc-resilience";
 import type { Metrics } from "@artgod/shared/observability/metrics";
 import {
     RPC_OBSERVABILITY_WORKSPACE,
@@ -25,13 +32,6 @@ import type {
     RpcTransactionReceipt,
 } from "../../ports/rpc.js";
 import {
-    CircuitBreaker,
-    CircuitOpenError,
-    type RpcCircuitBreakerConfig,
-    type RpcRateLimiterConfig,
-    TokenBucketRateLimiter,
-} from "./resilience.js";
-import {
     INDEXER_RPC_ENDPOINT_ID_PREFIX,
     INDEXER_RPC_LOG_COMPONENT,
     INDEXER_RPC_OBSERVABILITY_COMPONENT,
@@ -44,7 +44,7 @@ export type ViemRpcConfig = {
     metrics?: Metrics;
     component?: string;
     endpointIdPrefix?: string;
-    retryPolicy?: RetryPolicy;
+    retryPolicy?: RpcRetryPolicy;
     resilience?: {
         rateLimiter: RpcRateLimiterConfig;
         circuitBreaker: RpcCircuitBreakerConfig;
@@ -61,7 +61,7 @@ type ViemRpcEndpoint = {
 
 type ViemRpcEndpointSelection = WeightedEndpointSelection<ViemRpcEndpoint>;
 
-const DEFAULT_RETRY_POLICY: RetryPolicy = {
+const DEFAULT_RETRY_POLICY: RpcRetryPolicy = {
     maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
     baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
     maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
@@ -86,7 +86,7 @@ const DEFAULT_CIRCUIT_BREAKER: RpcCircuitBreakerConfig = {
 
 export class ViemRpcProvider implements RpcProviderPort {
     private cache?: CachePort;
-    private retryPolicy: RetryPolicy;
+    private retryPolicy: RpcRetryPolicy;
     private endpointSelector: WeightedEndpointSelector<ViemRpcEndpoint>;
     private rpcObservability: RpcObservability;
     private rpcComponent: string;
@@ -96,7 +96,8 @@ export class ViemRpcProvider implements RpcProviderPort {
         this.rpcComponent =
             config.component ?? INDEXER_RPC_OBSERVABILITY_COMPONENT.DefaultHttp;
         const endpointIdPrefix =
-            config.endpointIdPrefix ?? INDEXER_RPC_ENDPOINT_ID_PREFIX.DefaultHttp;
+            config.endpointIdPrefix ??
+            INDEXER_RPC_ENDPOINT_ID_PREFIX.DefaultHttp;
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
@@ -270,14 +271,30 @@ export class ViemRpcProvider implements RpcProviderPort {
         const call = this.rpcObservability.startCall(method);
         let lastEndpoint: ViemRpcEndpointSelection | null = null;
         try {
-            const result = await this.withRetry(
-                (attempt) =>
-                    this.executeRpcAttempt(method, fn, call, attempt, (endpoint) => {
-                        lastEndpoint = endpoint;
-                    }),
-                method,
-                () => lastEndpoint,
-            );
+            const result = await executeWithRpcRetry({
+                policy: this.retryPolicy,
+                executeAttempt: (attempt) =>
+                    this.executeRpcAttempt(
+                        method,
+                        fn,
+                        call,
+                        attempt,
+                        (endpoint) => {
+                            lastEndpoint = endpoint;
+                        },
+                    ),
+                onRetryScheduled: ({ attempt, nextAttempt, delayMs }) => {
+                    if (lastEndpoint) {
+                        this.rpcObservability.recordRetryScheduled({
+                            method,
+                            endpoint: lastEndpoint,
+                            attempt,
+                            nextAttempt,
+                            delayMs,
+                        });
+                    }
+                },
+            });
             this.rpcObservability.recordCallSuccess(call, result.endpoint);
             return result.value;
         } catch (error) {
@@ -349,36 +366,6 @@ export class ViemRpcProvider implements RpcProviderPort {
         }
         return fn();
     }
-
-    private async withRetry<T>(
-        fn: (attempt: number) => Promise<T>,
-        method: string,
-        getLastEndpoint: () => ViemRpcEndpointSelection | null,
-    ): Promise<T> {
-        let attempt = 1;
-        for (;;) {
-            try {
-                return await fn(attempt);
-            } catch (err) {
-                if (attempt >= this.retryPolicy.maxAttempts) {
-                    throw err;
-                }
-                const delay = getRetryDelayMs(attempt, this.retryPolicy);
-                const lastEndpoint = getLastEndpoint();
-                if (lastEndpoint) {
-                    this.rpcObservability.recordRetryScheduled({
-                        method,
-                        endpoint: lastEndpoint,
-                        attempt,
-                        nextAttempt: attempt + 1,
-                        delayMs: delay,
-                    });
-                }
-                await sleep(delay);
-                attempt += 1;
-            }
-        }
-    }
 }
 
 function resolveRpcEndpoints(config: ViemRpcConfig): RpcEndpointConfig[] {
@@ -406,8 +393,4 @@ function toSafeNumber(value: bigint, label: string): number {
         throw new Error(`${label} exceeds JS safe integer: ${String(value)}`);
     }
     return num;
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }

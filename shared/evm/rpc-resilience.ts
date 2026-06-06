@@ -1,14 +1,47 @@
+// Policy values that configure JSON-RPC retry attempts.
+export type RpcRetryPolicy = {
+    maxAttempts: number;
+    baseDelayMs: number;
+    maxDelayMs: number;
+};
+
+// Policy values that configure a per-endpoint JSON-RPC token bucket.
 export type RpcRateLimiterConfig = {
     requestsPerSecond: number;
     burst: number;
 };
 
+// Policy values that configure a per-endpoint JSON-RPC circuit breaker.
 export type RpcCircuitBreakerConfig = {
     failureThreshold: number;
     openMs: number;
     halfOpenMaxRequests: number;
 };
 
+// Describes one scheduled retry after a failed JSON-RPC attempt.
+export type RpcRetryScheduledContext = {
+    attempt: number;
+    nextAttempt: number;
+    delayMs: number;
+    error: unknown;
+};
+
+// Inputs for running JSON-RPC work through a bounded retry loop.
+export type ExecuteWithRpcRetryOptions<T> = {
+    policy: RpcRetryPolicy;
+    executeAttempt: (attempt: number) => Promise<T>;
+    onRetryScheduled?: (context: RpcRetryScheduledContext) => void;
+    sleep?: SleepFn;
+};
+
+const RPC_CIRCUIT_OPEN_ERROR_MESSAGE = "RPC circuit is open";
+const RPC_CIRCUIT_HALF_OPEN_LIMIT_ERROR_MESSAGE =
+    "RPC circuit is half-open and probe limit is reached";
+
+type ClockFn = () => number;
+type SleepFn = (ms: number) => Promise<void>;
+
+// Error raised when a JSON-RPC endpoint circuit rejects traffic.
 export class CircuitOpenError extends Error {
     constructor(message: string) {
         super(message);
@@ -16,9 +49,7 @@ export class CircuitOpenError extends Error {
     }
 }
 
-type ClockFn = () => number;
-type SleepFn = (ms: number) => Promise<void>;
-
+// TokenBucketRateLimiter smooths JSON-RPC request throughput per endpoint.
 export class TokenBucketRateLimiter {
     private readonly requestsPerSecond: number;
     private readonly burst: number;
@@ -92,6 +123,7 @@ export class TokenBucketRateLimiter {
 
 type CircuitState = "closed" | "open" | "half-open";
 
+// CircuitBreaker stops repeated JSON-RPC failures from hammering one endpoint.
 export class CircuitBreaker {
     private state: CircuitState = "closed";
     private consecutiveFailures = 0;
@@ -144,7 +176,7 @@ export class CircuitBreaker {
 
     private ensureRequestAllowed(): void {
         if (this.state === "open") {
-            throw new CircuitOpenError("RPC circuit is open");
+            throw new CircuitOpenError(RPC_CIRCUIT_OPEN_ERROR_MESSAGE);
         }
         if (
             this.state === "half-open" &&
@@ -153,7 +185,7 @@ export class CircuitBreaker {
         ) {
             // Limit probe concurrency while testing service recovery.
             throw new CircuitOpenError(
-                "RPC circuit is half-open and probe limit is reached",
+                RPC_CIRCUIT_HALF_OPEN_LIMIT_ERROR_MESSAGE,
             );
         }
     }
@@ -199,6 +231,42 @@ export class CircuitBreaker {
         this.halfOpenInFlight = 0;
         this.halfOpenSuccesses = 0;
     }
+}
+
+// Runs JSON-RPC work through bounded retry with exponential backoff.
+export async function executeWithRpcRetry<T>(
+    options: ExecuteWithRpcRetryOptions<T>,
+): Promise<T> {
+    const sleep = options.sleep ?? sleepMs;
+    let attempt = 1;
+    for (;;) {
+        try {
+            return await options.executeAttempt(attempt);
+        } catch (error) {
+            if (attempt >= options.policy.maxAttempts) {
+                throw error;
+            }
+            const delayMs = getRpcRetryDelayMs(attempt, options.policy);
+            options.onRetryScheduled?.({
+                attempt,
+                nextAttempt: attempt + 1,
+                delayMs,
+                error,
+            });
+            await sleep(delayMs);
+            attempt += 1;
+        }
+    }
+}
+
+// Computes the bounded exponential backoff delay for one retry attempt.
+export function getRpcRetryDelayMs(
+    attempt: number,
+    policy: RpcRetryPolicy,
+): number {
+    const exp = Math.max(0, attempt - 1);
+    const delay = policy.baseDelayMs * Math.pow(2, exp);
+    return Math.min(delay, policy.maxDelayMs);
 }
 
 function sleepMs(ms: number): Promise<void> {
