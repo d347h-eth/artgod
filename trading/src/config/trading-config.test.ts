@@ -1,7 +1,10 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import { parseEther } from "viem";
-import { loadTradingConfig } from "./trading-config.js";
+import {
+    loadTradingConfig,
+    TRADING_METRICS_ENV_KEY,
+} from "./trading-config.js";
 
 const requiredBaseEnv = {
     ARTGOD_DB_PATH: "database/sqlite/main/db",
@@ -31,6 +34,13 @@ describe("loadTradingConfig", () => {
         assert.deepEqual(config.rpc.endpoints, [
             { url: "http://127.0.0.1:42721", weight: 1 },
         ]);
+        assert.deepEqual(config.metrics, {
+            enabled: false,
+            host: "0.0.0.0",
+            ports: {
+                biddingBot: 42753,
+            },
+        });
         assert.equal(config.queue.natsUrl, "nats://127.0.0.1:42720");
         assert.equal(config.queue.streamPrefix, "artgod");
         assert.equal(
@@ -84,6 +94,29 @@ describe("loadTradingConfig", () => {
             { url: "https://rpc-a.example", weight: 3 },
             { url: "https://rpc-b.example", weight: 1 },
         ]);
+    });
+
+    it("parses trading metrics endpoint config", () => {
+        const config = loadTradingConfig(
+            {
+                ...requiredBaseEnv,
+                BIDDING_ENABLED: "false",
+                [TRADING_METRICS_ENV_KEY.Enabled]: "true",
+                [TRADING_METRICS_ENV_KEY.Host]: "127.0.0.1",
+                [TRADING_METRICS_ENV_KEY.PortBiddingBot]: "49001",
+            },
+            {
+                envFilePath: "/tmp/artgod/runtime.env",
+            },
+        );
+
+        assert.deepEqual(config.metrics, {
+            enabled: true,
+            host: "127.0.0.1",
+            ports: {
+                biddingBot: 49001,
+            },
+        });
     });
 
     it("does not require bot keys or jobs file when bidding is disabled", () => {

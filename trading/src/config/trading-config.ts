@@ -1,5 +1,10 @@
 import dotenv from "dotenv";
 import {
+    getSettingDefault,
+    getSettingDefaultBoolean,
+    getSettingDefaultNumber,
+} from "@artgod/shared/config/generated-settings-defaults";
+import {
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
@@ -35,6 +40,21 @@ import {
     BIDDING_DEFAULT_TX_PENDING_NONCE_POLICY,
     BIDDING_DEFAULT_WETH_ALLOWANCE_ETH,
 } from "./bidding-defaults.js";
+
+// Env keys that own the trading metrics scrape endpoint config.
+export const TRADING_METRICS_ENV_KEY = {
+    Enabled: "TRADING_METRICS_ENABLED",
+    Host: "TRADING_METRICS_HOST",
+    PortBiddingBot: "TRADING_METRICS_PORT_BIDDING_BOT",
+} as const;
+
+export type TradingMetricsConfig = {
+    enabled: boolean;
+    host: string;
+    ports: {
+        biddingBot: number;
+    };
+};
 
 export type EnabledBiddingConfig = {
     enabled: true;
@@ -96,6 +116,7 @@ export type TradingConfig = {
     tokens: {
         wethAddress: string;
     };
+    metrics: TradingMetricsConfig;
     bidding: EnabledBiddingConfig | DisabledBiddingConfig;
 };
 
@@ -124,6 +145,7 @@ export function loadTradingConfig(
         "NATS_STREAM_PREFIX",
     );
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
+    const metrics = parseTradingMetricsConfig(env);
 
     const biddingBase = {
         dryRun: parseBoolean(env.BIDDING_DRY_RUN, "BIDDING_DRY_RUN", false),
@@ -224,6 +246,7 @@ export function loadTradingConfig(
         tokens: {
             wethAddress,
         },
+        metrics,
         bidding: biddingEnabled
             ? {
                   enabled: true,
@@ -258,6 +281,30 @@ function parseOpenSeaSecrets(env: Record<string, string | undefined>): {
     };
 
     return secrets;
+}
+
+function parseTradingMetricsConfig(
+    env: Record<string, string | undefined>,
+): TradingMetricsConfig {
+    return {
+        enabled: parseBoolean(
+            env[TRADING_METRICS_ENV_KEY.Enabled],
+            TRADING_METRICS_ENV_KEY.Enabled,
+            getSettingDefaultBoolean(TRADING_METRICS_ENV_KEY.Enabled),
+        ),
+        host: parseRequiredString(
+            env[TRADING_METRICS_ENV_KEY.Host] ??
+                getSettingDefault(TRADING_METRICS_ENV_KEY.Host),
+            TRADING_METRICS_ENV_KEY.Host,
+        ),
+        ports: {
+            biddingBot: parsePositiveInteger(
+                env[TRADING_METRICS_ENV_KEY.PortBiddingBot],
+                TRADING_METRICS_ENV_KEY.PortBiddingBot,
+                getSettingDefaultNumber(TRADING_METRICS_ENV_KEY.PortBiddingBot),
+            ),
+        },
+    };
 }
 
 function parseBiddingTransactionPolicy(

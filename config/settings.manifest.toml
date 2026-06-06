@@ -49,6 +49,10 @@ id = "trading-opensea"
 label = "Trading OpenSea"
 
 [[groups]]
+id = "trading-observability"
+label = "Trading Observability"
+
+[[groups]]
 id = "bidding"
 label = "Bidding"
 
@@ -861,6 +865,26 @@ view = "basic"
 input = "password"
 secret = true
 help = "Use to create a dedicated OpenSea lane for fetching offers data from the orderbook (separate from the indexer OPENSEA_API_KEY; you can use the same key at the risk of degraded performance)."
+
+[[settings]]
+key = "TRADING_METRICS_ENABLED"
+group = "trading-observability"
+label = "trading metrics enabled"
+default = "false"
+input = "checkbox"
+
+[[settings]]
+key = "TRADING_METRICS_HOST"
+group = "trading-observability"
+label = "trading metrics host"
+default = "0.0.0.0"
+
+[[settings]]
+key = "TRADING_METRICS_PORT_BIDDING_BOT"
+group = "trading-observability"
+label = "trading metrics port bidding bot"
+default = "42753"
+validation = "positive_integer"
 
 [[settings]]
 key = "BIDDING_ENABLED"
