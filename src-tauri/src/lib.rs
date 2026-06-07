@@ -16,8 +16,9 @@ use crate::desktop_log::{
     process_name_for_log_file, start_desktop_log_maintenance,
 };
 use runtime::{
-    AppConfigState, DesktopRuntimeConfig, RPC_ENDPOINT_LIST_ENV_KEY, RuntimeEndpoints,
-    RuntimeManager, RuntimeStatus, SaveAppConfigInput, ensure_desktop_config_paths,
+    AppConfigState, DesktopRuntimeConfig, RPC_ENDPOINT_LIST_ENV_KEY, RpcEndpointBenchmarkInput,
+    RpcEndpointBenchmarkResult, RuntimeEndpoints, RuntimeManager, RuntimeStatus,
+    SaveAppConfigInput, benchmark_rpc_endpoints, ensure_desktop_config_paths,
     load_app_config_state, save_app_config, use_default_app_config,
 };
 use serde::Serialize;
@@ -176,6 +177,14 @@ fn app_config_use_defaults(app: AppHandle) -> Result<AppConfigState, String> {
     let state = use_default_app_config(&app)?;
     cleanup_desktop_logs_after_config_change(&app);
     Ok(state)
+}
+
+#[tauri::command]
+async fn app_config_benchmark_rpc_endpoints(
+    app: AppHandle,
+    input: RpcEndpointBenchmarkInput,
+) -> Result<RpcEndpointBenchmarkResult, String> {
+    benchmark_rpc_endpoints(&app, input).await
 }
 
 #[tauri::command]
@@ -434,6 +443,7 @@ pub fn run() {
             app_config_get,
             app_config_save,
             app_config_use_defaults,
+            app_config_benchmark_rpc_endpoints,
             wallet_list,
             wallet_get_status,
             wallet_import,

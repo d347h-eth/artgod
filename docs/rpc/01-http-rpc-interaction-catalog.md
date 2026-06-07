@@ -9,6 +9,8 @@ resilience coverage.
 Included:
 
 - HTTP JSON-RPC calls made by backend, indexer, and trading runtime code.
+- Desktop Admin configuration-time HTTP JSON-RPC probes used for automated
+  endpoint sourcing and pre-start sanity checks.
 - Developer scripts that make direct HTTP JSON-RPC calls.
 - Smoke-test configuration that drives real runtime HTTP JSON-RPC calls.
 
@@ -261,12 +263,13 @@ request attempt; the retry policy still bounds the total number of attempts.
 
 ## Developer Scripts and Tests
 
-| Path                                                      | Use Case                                                             | Endpoint Source                               | Weighted Selection      | Adapter Retry           | Circuit Breaker         | Rate Limit              | Notes                                                                                     |
-| --------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------- | ----------------------- | ----------------------- | ----------------------- | ----------------------- | ----------------------------------------------------------------------------------------- |
-| `scripts/dump-tx.js`                                      | Dump transaction, receipt, and block data                            | `--rpc` or first endpoint from `RPC_URL_LIST` | No                      | No                      | No                      | No                      | Uses a direct viem HTTP client for manual diagnostics.                                    |
-| `scripts/debug/ethereum-node-probe.mjs`                   | Probe node health, account state, txpool, and optional self-transfer | `--rpc` or first endpoint from `RPC_URL_LIST` | No                      | No                      | No                      | No                      | Uses direct viem HTTP clients and optional wallet client.                                 |
-| `scripts/benchmark-contract-read/fetch-terraform-data.ts` | Benchmark Terraforms contract reads                                  | Fixed local benchmark URL                     | No                      | No                      | No                      | No                      | Uses raw JSON-RPC batch fetches for benchmarking only.                                    |
-| `indexer/tests/smoke.test.ts`                             | End-to-end indexer smoke tests                                       | `SMOKE_RPC_URL_LIST`                          | Follows runtime adapter | Follows runtime adapter | Follows runtime adapter | Follows runtime adapter | The test config feeds actual indexer workers, so coverage follows the indexer rows above. |
+| Path                                                      | Use Case                                                             | Endpoint Source                                                  | Weighted Selection                   | Adapter Retry           | Circuit Breaker         | Rate Limit              | Notes                                                                                                                                                                                                           |
+| --------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------ | ----------------------- | ----------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src-tauri/src/runtime/rpc_auto_sourcing.rs`              | Admin automated public RPC sourcing and pre-start sanity checks      | Embedded/saved/fresh Chainlist payload or current `RPC_URL_LIST` | Initial latency-derived weights only | No                      | No                      | No                      | Runs before runtime startup from the desktop Admin plane; successful Chainlist sourcing writes a curated `RPC_URL_LIST` config value, while configured-list sanity checks do not replace the user endpoint set. |
+| `scripts/dump-tx.js`                                      | Dump transaction, receipt, and block data                            | `--rpc` or first endpoint from `RPC_URL_LIST`                    | No                                   | No                      | No                      | No                      | Uses a direct viem HTTP client for manual diagnostics.                                                                                                                                                          |
+| `scripts/debug/ethereum-node-probe.mjs`                   | Probe node health, account state, txpool, and optional self-transfer | `--rpc` or first endpoint from `RPC_URL_LIST`                    | No                                   | No                      | No                      | No                      | Uses direct viem HTTP clients and optional wallet client.                                                                                                                                                       |
+| `scripts/benchmark-contract-read/fetch-terraform-data.ts` | Benchmark Terraforms contract reads                                  | Fixed local benchmark URL                                        | No                                   | No                      | No                      | No                      | Uses raw JSON-RPC batch fetches for benchmarking only.                                                                                                                                                          |
+| `indexer/tests/smoke.test.ts`                             | End-to-end indexer smoke tests                                       | `SMOKE_RPC_URL_LIST`                                             | Follows runtime adapter              | Follows runtime adapter | Follows runtime adapter | Follows runtime adapter | The test config feeds actual indexer workers, so coverage follows the indexer rows above.                                                                                                                       |
 
 ## Non-Callers
 
@@ -274,7 +277,8 @@ These areas configure or validate RPC settings but do not initiate HTTP
 JSON-RPC requests themselves:
 
 - Frontend/Admin UI configuration surfaces.
-- Desktop Rust runtime config validation and process env composition.
+- Desktop Rust runtime config validation and process env composition outside
+  the Admin RPC auto-sourcing benchmark command listed above.
 - Shared config parsers and generated setting defaults.
 - Docs and OpenAPI definitions.
 

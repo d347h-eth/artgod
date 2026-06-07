@@ -1,10 +1,12 @@
 import type { AdminConfigState } from '$lib/admin/configuration/ports';
 import {
+	ADMIN_CONFIG_VALIDATION_ISSUE_KINDS,
 	formatLaunchConfigIssueSummary,
 	resolveAdminLaunchConfigIssues
 } from '$lib/admin/configuration/validation';
 import type { LifecyclePhase } from '$lib/runtime/lifecycle/core/types';
 import type { RuntimeStatus } from '$lib/runtime/lifecycle/ports';
+import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
 
 export const ADMIN_ACTION_FLOW_LABELS = {
 	config: 'config',
@@ -46,6 +48,7 @@ export type AdminActionFlowInput = {
 	runtimeStatus: RuntimeStatus | null;
 	runtimeBusyAction: string | null;
 	lifecyclePhase: LifecyclePhase;
+	rpcAutoSourcingFailed: boolean;
 };
 
 export type AdminActionFlow = {
@@ -86,7 +89,19 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 	const configured = input.config?.configured === true;
 	const bootUsesDefaults = !configured;
 	const requiredConfigIssues = resolveAdminLaunchConfigIssues(input.config);
-	const requiredConfigReady = input.config !== null && requiredConfigIssues.length === 0;
+	const autoSourceableRpcIssue = requiredConfigIssues.find((issue) =>
+		isAutoSourceableMissingRpcIssue(issue, configured)
+	);
+	const blockingRequiredConfigIssues = requiredConfigIssues.filter(
+		(issue) => !isAutoSourceableMissingRpcIssue(issue, configured)
+	);
+	const requiredConfigReady = input.config !== null && blockingRequiredConfigIssues.length === 0;
+	const bootWarningReason =
+		blockingRequiredConfigIssues.length > 0
+			? formatLaunchConfigIssueSummary(blockingRequiredConfigIssues)
+			: input.rpcAutoSourcingFailed && autoSourceableRpcIssue
+				? `Automated RPC sourcing failed: ${RPC_ENDPOINT_LIST_ENV_KEY}`
+				: null;
 
 	const state = resolveFlowState({
 		configLoaded: !input.configLoading && input.config !== null,
@@ -108,8 +123,8 @@ export function resolveAdminActionFlow(input: AdminActionFlowInput): AdminAction
 				? ADMIN_ACTION_FLOW_LABELS.bootWithDefaults
 				: ADMIN_ACTION_FLOW_LABELS.boot,
 			usesDefaults: bootUsesDefaults,
-			disabledReason: formatLaunchConfigIssueSummary(requiredConfigIssues),
-			requiredConfigIssueKeys: requiredConfigIssues.map((issue) => issue.key),
+			disabledReason: bootWarningReason,
+			requiredConfigIssueKeys: blockingRequiredConfigIssues.map((issue) => issue.key),
 			disabled:
 				input.configLoading ||
 				input.config === null ||
@@ -143,6 +158,17 @@ function resolveRuntimeState(status: RuntimeStatus | null): AdminRuntimeState {
 	return ADMIN_RUNTIME_STATES.unknown;
 }
 
+function isAutoSourceableMissingRpcIssue(
+	issue: ReturnType<typeof resolveAdminLaunchConfigIssues>[number],
+	configured: boolean
+): boolean {
+	return (
+		!configured &&
+		issue.key === RPC_ENDPOINT_LIST_ENV_KEY &&
+		issue.kind === ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.required
+	);
+}
+
 function resolveFlowState(input: {
 	configLoaded: boolean;
 	configured: boolean;
@@ -164,9 +190,7 @@ function resolveFlowState(input: {
 		return ADMIN_FLOW_STATES.running;
 	}
 	if (!input.requiredConfigReady) {
-		return input.configured
-			? ADMIN_FLOW_STATES.needsRequiredConfig
-			: ADMIN_FLOW_STATES.needsConfig;
+		return input.configured ? ADMIN_FLOW_STATES.needsRequiredConfig : ADMIN_FLOW_STATES.needsConfig;
 	}
 	if (!input.configured) {
 		return ADMIN_FLOW_STATES.needsConfig;

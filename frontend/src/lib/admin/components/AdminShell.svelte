@@ -4,6 +4,8 @@
 	import AdminConfigurationPanel from '$lib/admin/configuration/AdminConfigurationPanel.svelte';
 	import { createTauriAdminConfigPort } from '$lib/admin/configuration/adapters/tauri-admin-config-port';
 	import type {
+		AdminRpcEndpointBenchmarkInput,
+		AdminRpcEndpointBenchmarkResult,
 		AdminConfigSaveInput,
 		AdminConfigState
 	} from '$lib/admin/configuration/ports';
@@ -14,11 +16,24 @@
 	import { adminRuntimeStore } from '$lib/admin/runtime/store';
 	import { APP_VERSION } from '$lib/runtime/app-version';
 	import type { AdminConsoleTab } from '$lib/runtime/lifecycle-ui-policy';
+	import {
+		RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY,
+		RPC_ENDPOINT_BENCHMARK_SOURCES,
+		normalizeRpcAutoSourcingTrackingPolicy
+	} from '@artgod/shared/config/rpc-auto-sourcing';
+	import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
 
 	type AdminShellTab = 'config' | 'system' | 'control' | 'wallets' | 'bots' | 'logs';
 
 	const configPort = createTauriAdminConfigPort();
 	const runtimeState = adminRuntimeStore.state;
+	const ADMIN_CONFIG_BUSY_ACTIONS = {
+		save: 'save',
+		defaults: 'defaults',
+		rpcAutoSource: 'rpc_auto_source',
+		rpcSanityCheck: 'rpc_sanity_check',
+		rpcBenchmark: 'rpc_benchmark'
+	} as const;
 
 	let activeTab = $state<AdminShellTab | null>(null);
 	let config = $state<AdminConfigState | null>(null);
@@ -26,6 +41,7 @@
 	let configBusyAction = $state<string | null>(null);
 	let configError = $state<string | null>(null);
 	let configNotice = $state<string | null>(null);
+	let rpcAutoSourcingFailed = $state(false);
 	let startupAutoStartRequested = false;
 
 	const tabs: Array<{ id: AdminShellTab; label: string }> = [
@@ -44,7 +60,8 @@
 			runtimeInitialized: $runtimeState.initialized,
 			runtimeStatus: $runtimeState.status,
 			runtimeBusyAction: $runtimeState.busyAction,
-			lifecyclePhase: $runtimeState.lifecycle.phase
+			lifecyclePhase: $runtimeState.lifecycle.phase,
+			rpcAutoSourcingFailed
 		})
 	);
 
@@ -86,9 +103,10 @@
 	}
 
 	async function saveConfig(input: AdminConfigSaveInput): Promise<void> {
-		await withConfigAction('save', async () => {
+		await withConfigAction(ADMIN_CONFIG_BUSY_ACTIONS.save, async () => {
 			config = await configPort.saveConfig(input);
 			configNotice = 'configuration saved';
+			rpcAutoSourcingFailed = false;
 			activeTab = null;
 		});
 	}
@@ -98,12 +116,35 @@
 		if (flow.boot.disabled) {
 			return;
 		}
+		let rpcAlreadyBenchmarked = false;
 		if (flow.boot.usesDefaults) {
-			await withConfigAction('defaults', async () => {
-				config = await configPort.useDefaults();
-				configNotice = 'default settings applied';
+			const configuredDefaults = await withConfigAction(ADMIN_CONFIG_BUSY_ACTIONS.rpcAutoSource, async () => {
+				const nextValues = { ...(config?.values ?? {}) };
+				if (isMissingRpcEndpointList(nextValues)) {
+					// Source RPC endpoints before first-launch defaults render the runtime env.
+					const result = await configPort.benchmarkRpcEndpoints({
+						source: RPC_ENDPOINT_BENCHMARK_SOURCES.savedChainlist,
+						trackingPolicy: resolveRpcAutoSourcingTrackingPolicy(nextValues)
+					});
+					nextValues[RPC_ENDPOINT_LIST_ENV_KEY] = result.encodedEndpoints;
+					configNotice = formatRpcBenchmarkNotice(result);
+					rpcAlreadyBenchmarked = true;
+				}
+				config = await configPort.saveConfig({
+					values: nextValues,
+					autoLaunchOnStartup: false
+				});
+				configNotice = configNotice ?? 'default settings applied';
+				rpcAutoSourcingFailed = false;
 			});
-			if (!config || configBusyAction !== null || configError) {
+			if (!configuredDefaults || !config || configBusyAction !== null || configError) {
+				rpcAutoSourcingFailed = true;
+				return;
+			}
+		}
+		if (!rpcAlreadyBenchmarked) {
+			const benchmarkedConfiguredList = await sanityCheckConfiguredRpcEndpointList();
+			if (!benchmarkedConfiguredList) {
 				return;
 			}
 		}
@@ -111,13 +152,59 @@
 		await adminRuntimeStore.start();
 	}
 
+	async function sanityCheckConfiguredRpcEndpointList(): Promise<boolean> {
+		const currentConfig = config;
+		if (!currentConfig || isMissingRpcEndpointList(currentConfig.values)) {
+			return false;
+		}
+		return withConfigAction(ADMIN_CONFIG_BUSY_ACTIONS.rpcSanityCheck, async () => {
+			// Verify at least one configured endpoint works without replacing the saved endpoint list.
+			const result = await configPort.benchmarkRpcEndpoints({
+				source: RPC_ENDPOINT_BENCHMARK_SOURCES.configuredEndpoints,
+				trackingPolicy: resolveRpcAutoSourcingTrackingPolicy(currentConfig.values),
+				rpcUrlList: currentConfig.values[RPC_ENDPOINT_LIST_ENV_KEY]
+			});
+			configNotice = formatRpcBenchmarkNotice(result);
+		});
+	}
+
+	async function benchmarkRpcEndpoints(
+		input: AdminRpcEndpointBenchmarkInput
+	): Promise<AdminRpcEndpointBenchmarkResult> {
+		if (configBusyAction !== null) {
+			throw new Error('Configuration action already running.');
+		}
+		configBusyAction = ADMIN_CONFIG_BUSY_ACTIONS.rpcBenchmark;
+		configError = null;
+		configNotice = null;
+		try {
+			const result = await configPort.benchmarkRpcEndpoints(input);
+			configNotice = formatRpcBenchmarkNotice(result);
+			rpcAutoSourcingFailed = false;
+			return result;
+		} catch (error) {
+			configError = toErrorMessage(error, 'RPC endpoint benchmark failed.');
+			throw error;
+		} finally {
+			configBusyAction = null;
+		}
+	}
+
 	function requestStartupAutoStart(nextConfig: AdminConfigState): void {
 		if (startupAutoStartRequested || !nextConfig.autoLaunchOnStartup) {
 			return;
 		}
 		startupAutoStartRequested = true;
+		void autoStartSystem();
+	}
+
+	async function autoStartSystem(): Promise<void> {
 		activeTab = 'system';
-		void adminRuntimeStore.autoStart();
+		const benchmarkedConfiguredList = await sanityCheckConfiguredRpcEndpointList();
+		if (!benchmarkedConfiguredList) {
+			return;
+		}
+		await adminRuntimeStore.autoStart();
 	}
 
 	function openConfiguration(): void {
@@ -135,20 +222,40 @@
 		void adminRuntimeStore.openUserlandUi();
 	}
 
-	async function withConfigAction(action: string, work: () => Promise<void>): Promise<void> {
+	async function withConfigAction(action: string, work: () => Promise<void>): Promise<boolean> {
 		if (configBusyAction !== null) {
-			return;
+			return false;
 		}
 		configBusyAction = action;
 		configError = null;
 		configNotice = null;
 		try {
 			await work();
+			return true;
 		} catch (error) {
 			configError = toErrorMessage(error, 'Configuration action failed.');
+			return false;
 		} finally {
 			configBusyAction = null;
 		}
+	}
+
+	function isMissingRpcEndpointList(values: Record<string, string>): boolean {
+		return (values[RPC_ENDPOINT_LIST_ENV_KEY] ?? '').trim().length === 0;
+	}
+
+	function resolveRpcAutoSourcingTrackingPolicy(values: Record<string, string>): string {
+		return normalizeRpcAutoSourcingTrackingPolicy(
+			values[RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY]?.trim()
+		);
+	}
+
+	function formatRpcBenchmarkNotice(result: AdminRpcEndpointBenchmarkResult): string {
+		if (result.source === RPC_ENDPOINT_BENCHMARK_SOURCES.configuredEndpoints) {
+			return `${result.sourceDescription}: ${result.successCount}/${result.eligibleCount} endpoints passed`;
+		}
+		const trackedCount = result.trackingCounts.yes + result.trackingCounts.unspecified;
+		return `${result.sourceDescription}: ${result.successCount}/${result.eligibleCount} endpoints passed, tracking none ${result.trackingCounts.none}, limited ${result.trackingCounts.limited}, tracked ${trackedCount}`;
 	}
 
 	function toErrorMessage(error: unknown, fallback: string): string {
@@ -254,6 +361,7 @@
 						busyAction={configBusyAction}
 						errorMessage={configError}
 						onSave={saveConfig}
+						onBenchmarkRpcEndpoints={benchmarkRpcEndpoints}
 						onClose={() => {
 							activeTab = null;
 							configNotice = null;

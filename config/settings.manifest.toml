@@ -401,6 +401,17 @@ validation = "rpc_endpoint_list"
 view = "basic"
 
 [[settings]]
+key = "RPC_AUTO_SOURCING_TRACKING_POLICY"
+group = "chain-rpc"
+label = "auto rpc tracking policy"
+default = "none"
+targets = ["desktop"]
+help = "Privacy filter used when Admin sources public RPC endpoints from Chainlist. none includes only providers declaring no tracking; limited also includes functional/rate-limit tracking; all includes every concrete HTTP endpoint."
+input = "select"
+options = ["none", "limited", "all"]
+view = "basic"
+
+[[settings]]
 key = "RPC_BACKFILL_URL_LIST"
 group = "chain-rpc"
 label = "rpc backfill endpoints"

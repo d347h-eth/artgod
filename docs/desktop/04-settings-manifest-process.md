@@ -28,6 +28,12 @@ The rendered desktop `.env` remains the child-process startup contract for backe
 settings.manifest.toml defaults + settings.json overrides
 ```
 
+Admin-only desktop settings may still live in the manifest when they control
+desktop configuration actions rather than child-process runtime behavior.
+`RPC_AUTO_SOURCING_TRACKING_POLICY` is one such setting: it controls the Admin
+Chainlist endpoint sourcing action, defaults to no-tracking endpoints, and is
+targeted only at `desktop`.
+
 Public web deployment still manages public-hosting-only values directly through deployment env files. Those settings remain in the manifest for `.env.example` and generated defaults, but should be marked `desktop_managed = false` when they do not belong in the desktop Admin UI or desktop-rendered `.env`.
 
 The root manifest `default` is the local developer `.env.example` baseline.
