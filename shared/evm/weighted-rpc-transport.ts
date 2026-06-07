@@ -1,10 +1,7 @@
 import { custom } from "viem";
 import type { RpcEndpointConfig } from "../config/rpc-endpoints.js";
 import { getDefaultRpcEndpointResilienceConfig } from "../config/rpc-resilience.js";
-import {
-    WeightedEndpointSelector,
-    type WeightedEndpointSelection,
-} from "../config/weighted-endpoints.js";
+import { WeightedEndpointSelector } from "../config/weighted-endpoints.js";
 import type { RpcObservability } from "../observability/rpc.js";
 import { executeObservedRpcEndpointCall } from "./rpc-execution.js";
 import {

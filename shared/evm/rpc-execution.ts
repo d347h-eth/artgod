@@ -131,26 +131,38 @@ export function startObservedRpcEndpointAttempt<TEndpoint>(input: {
         endpoint,
         input.attempt ?? 1,
     );
+    let closedEndpoint: WeightedEndpointSelection<TEndpoint> | null = null;
+    const closeAttempt = (
+        record: () => WeightedEndpointSelection<TEndpoint>,
+    ): WeightedEndpointSelection<TEndpoint> => {
+        if (closedEndpoint) return closedEndpoint;
+        closedEndpoint = record();
+        return closedEndpoint;
+    };
 
     return {
         endpoint,
         recordSuccess: () =>
-            recordObservedRpcEndpointAttemptSuccess({
-                selector: input.selector,
-                rpcObservability: input.rpcObservability,
-                call,
-                attempt,
-                endpoint,
-            }),
+            closeAttempt(() =>
+                recordObservedRpcEndpointAttemptSuccess({
+                    selector: input.selector,
+                    rpcObservability: input.rpcObservability,
+                    call,
+                    attempt,
+                    endpoint,
+                }),
+            ),
         recordFailure: (error) =>
-            recordObservedRpcEndpointAttemptFailure({
-                selector: input.selector,
-                rpcObservability: input.rpcObservability,
-                call,
-                attempt,
-                endpoint,
-                error,
-            }),
+            closeAttempt(() =>
+                recordObservedRpcEndpointAttemptFailure({
+                    selector: input.selector,
+                    rpcObservability: input.rpcObservability,
+                    call,
+                    attempt,
+                    endpoint,
+                    error,
+                }),
+            ),
     };
 }
 

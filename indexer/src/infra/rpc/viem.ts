@@ -43,9 +43,13 @@ export type ViemRpcConfig = {
     endpointIdPrefix?: string;
     retryPolicy?: RpcRetryPolicy;
     resilience?: RpcEndpointResilienceConfig;
+    createClient?: ViemRpcClientFactory;
 };
 
 type ViemPublicClient = ReturnType<typeof createPublicClient>;
+
+// Factory hook for injecting viem clients while this adapter owns RPC resilience.
+export type ViemRpcClientFactory = (url: string) => ViemPublicClient;
 
 type ViemRpcEndpoint = {
     client: ViemPublicClient;
@@ -71,16 +75,15 @@ export class ViemRpcProvider implements RpcProviderPort {
             config.endpointIdPrefix ??
             INDEXER_RPC_ENDPOINT_ID_PREFIX.DefaultHttp;
         const resilience = config.resilience ?? DEFAULT_RESILIENCE;
+        const createClient =
+            config.createClient ??
+            ((url) => createViemRpcClient(url, resilience.requestTimeoutMs));
         this.endpointSelector = new WeightedEndpointSelector(
             endpoints.map((endpoint, index) => ({
                 ...endpoint,
                 id: `${endpointIdPrefix}-${index + 1}`,
                 value: {
-                    client: createPublicClient({
-                        transport: http(endpoint.url, {
-                            timeout: resilience.requestTimeoutMs,
-                        }),
-                    }),
+                    client: createClient(endpoint.url),
                     rateLimiter: new TokenBucketRateLimiter(
                         resilience.rateLimiter,
                     ),
@@ -259,6 +262,17 @@ function resolveRpcEndpoints(config: ViemRpcConfig): RpcEndpointConfig[] {
         return config.endpoints;
     }
     throw new Error("At least one RPC endpoint URL is required");
+}
+
+function createViemRpcClient(
+    url: string,
+    requestTimeoutMs: number,
+): ViemPublicClient {
+    return createPublicClient({
+        transport: http(url, {
+            timeout: requestTimeoutMs,
+        }),
+    });
 }
 
 function mapLog(log: any): RpcLog {
