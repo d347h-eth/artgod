@@ -423,7 +423,7 @@ view = "basic"
 key = "RPC_HTTP_REQUEST_TIMEOUT_MS"
 group = "chain-rpc"
 label = "rpc http request timeout ms"
-default = "5000"
+default = "10000"
 help = "Per-attempt timeout for HTTP JSON-RPC requests."
 validation = "positive_integer"
 view = "basic"
@@ -432,28 +432,28 @@ view = "basic"
 key = "RPC_RETRY_MAX_ATTEMPTS"
 group = "chain-rpc"
 label = "rpc retry max attempts"
-default = "5"
+default = "10"
 view = "basic"
 
 [[settings]]
 key = "RPC_RETRY_BASE_DELAY_MS"
 group = "chain-rpc"
 label = "rpc retry base delay ms"
-default = "100"
+default = "500"
 view = "basic"
 
 [[settings]]
 key = "RPC_RETRY_MAX_DELAY_MS"
 group = "chain-rpc"
 label = "rpc retry max delay ms"
-default = "3000"
+default = "10000"
 view = "basic"
 
 [[settings]]
 key = "RPC_RATE_LIMIT_REQUESTS_PER_SECOND"
 group = "chain-rpc"
 label = "rpc rate limit requests per second"
-default = "50"
+defaults = { local = "5", deploy = "50", desktop = "5" }
 help = "Use 0 to disable RPC request rate limiting."
 view = "basic"
 
@@ -461,7 +461,7 @@ view = "basic"
 key = "RPC_RATE_LIMIT_BURST"
 group = "chain-rpc"
 label = "rpc rate limit burst"
-defaults = { local = "50", deploy = "100", desktop = "50" }
+defaults = { local = "5", deploy = "50", desktop = "5" }
 view = "basic"
 
 [[settings]]
@@ -670,7 +670,7 @@ default = "32"
 key = "BACKFILL_BATCH_SIZE"
 group = "indexer"
 label = "backfill batch size"
-default = "50"
+default = "10"
 view = "basic"
 
 [[settings]]
