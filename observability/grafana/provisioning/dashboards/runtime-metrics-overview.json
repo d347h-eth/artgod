@@ -440,13 +440,158 @@
             "targets": [
                 {
                     "editorMode": "code",
+                    "expr": "max by (worker, component, endpoint) (artgod_indexer_rpc_endpoint_configured_weight{worker=~\"$worker\", chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} configured",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
                     "expr": "max by (worker, component, endpoint) (artgod_indexer_rpc_endpoint_effective_weight{worker=~\"$worker\", chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} effective",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Indexer Endpoint Configured vs Effective Weight",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 25
+            },
+            "id": 109,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, component, endpoint, error_class) (increase(artgod_indexer_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"failure\"}[5m]))",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} / {{error_class}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Indexer Endpoint Failures by Error Class (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 25
+            },
+            "id": 110,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, component, endpoint, error_class) (increase(artgod_indexer_rpc_circuit_open_total{worker=~\"$worker\", chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} / {{error_class}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Indexer Circuit Opens (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 25
+            },
+            "id": 111,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, component, endpoint) (rate(artgod_indexer_rpc_rate_limiter_wait_ms_bucket{worker=~\"$worker\", chain_id=~\"$chain_id\"}[$__rate_interval])))",
                     "legendFormat": "{{worker}} / {{component}} / {{endpoint}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Indexer Endpoint Effective Weight",
+            "title": "Indexer Rate Limit Wait p95",
             "type": "timeseries"
         },
         {
@@ -468,7 +613,7 @@
                 "h": 8,
                 "w": 24,
                 "x": 0,
-                "y": 25
+                "y": 33
             },
             "id": 108,
             "options": {
@@ -501,7 +646,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 33
+                "y": 41
             },
             "id": 201,
             "panels": [],
@@ -527,7 +672,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 34
+                "y": 42
             },
             "id": 202,
             "options": {
@@ -573,7 +718,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 34
+                "y": 42
             },
             "id": 203,
             "options": {
@@ -619,7 +764,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 34
+                "y": 42
             },
             "id": 204,
             "options": {
@@ -663,9 +808,9 @@
             },
             "gridPos": {
                 "h": 8,
-                "w": 12,
+                "w": 8,
                 "x": 0,
-                "y": 42
+                "y": 50
             },
             "id": 205,
             "options": {
@@ -709,9 +854,55 @@
             },
             "gridPos": {
                 "h": 8,
-                "w": 12,
-                "x": 12,
-                "y": 42
+                "w": 8,
+                "x": 8,
+                "y": 50
+            },
+            "id": 207,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (service, component, endpoint, method) (increase(artgod_backend_rpc_retry_attempt_total{service=~\"$service\", chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{service}} / {{component}} / {{endpoint}} / {{method}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend RPC Retry Attempts (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 50
             },
             "id": 206,
             "options": {
@@ -729,13 +920,158 @@
             "targets": [
                 {
                     "editorMode": "code",
+                    "expr": "max by (service, component, endpoint) (artgod_backend_rpc_endpoint_configured_weight{service=~\"$service\", chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{service}} / {{component}} / {{endpoint}} configured",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
                     "expr": "max by (service, component, endpoint) (artgod_backend_rpc_endpoint_effective_weight{service=~\"$service\", chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{service}} / {{component}} / {{endpoint}} effective",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Backend Endpoint Configured vs Effective Weight",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 58
+            },
+            "id": 208,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (service, component, endpoint, error_class) (increase(artgod_backend_rpc_endpoint_attempt_total{service=~\"$service\", chain_id=~\"$chain_id\", result=\"failure\"}[5m]))",
+                    "legendFormat": "{{service}} / {{component}} / {{endpoint}} / {{error_class}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend Endpoint Failures by Error Class (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 58
+            },
+            "id": 209,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (service, component, endpoint, error_class) (increase(artgod_backend_rpc_circuit_open_total{service=~\"$service\", chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{service}} / {{component}} / {{endpoint}} / {{error_class}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Backend Circuit Opens (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 58
+            },
+            "id": 210,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, service, component, endpoint) (rate(artgod_backend_rpc_rate_limiter_wait_ms_bucket{service=~\"$service\", chain_id=~\"$chain_id\"}[$__rate_interval])))",
                     "legendFormat": "{{service}} / {{component}} / {{endpoint}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Backend Endpoint Effective Weight",
+            "title": "Backend Rate Limit Wait p95",
             "type": "timeseries"
         },
         {
@@ -744,7 +1080,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 50
+                "y": 66
             },
             "id": 251,
             "panels": [],
@@ -770,7 +1106,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 51
+                "y": 67
             },
             "id": 252,
             "options": {
@@ -816,7 +1152,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 51
+                "y": 67
             },
             "id": 253,
             "options": {
@@ -862,7 +1198,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 51
+                "y": 67
             },
             "id": 254,
             "options": {
@@ -906,9 +1242,9 @@
             },
             "gridPos": {
                 "h": 8,
-                "w": 12,
+                "w": 8,
                 "x": 0,
-                "y": 59
+                "y": 75
             },
             "id": 255,
             "options": {
@@ -952,9 +1288,55 @@
             },
             "gridPos": {
                 "h": 8,
-                "w": 12,
-                "x": 12,
-                "y": 59
+                "w": 8,
+                "x": 8,
+                "y": 75
+            },
+            "id": 257,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, component, endpoint, method) (increase(artgod_trading_rpc_retry_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} / {{method}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Trading RPC Retry Attempts (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 75
             },
             "id": 256,
             "options": {
@@ -972,13 +1354,158 @@
             "targets": [
                 {
                     "editorMode": "code",
+                    "expr": "max by (worker, component, endpoint) (artgod_trading_rpc_endpoint_configured_weight{worker=~\"$worker\", chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} configured",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
                     "expr": "max by (worker, component, endpoint) (artgod_trading_rpc_endpoint_effective_weight{worker=~\"$worker\", chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} effective",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Trading Endpoint Configured vs Effective Weight",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 83
+            },
+            "id": 258,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, component, endpoint, error_class) (increase(artgod_trading_rpc_endpoint_attempt_total{worker=~\"$worker\", chain_id=~\"$chain_id\", result=\"failure\"}[5m]))",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} / {{error_class}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Trading Endpoint Failures by Error Class (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 83
+            },
+            "id": 259,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (worker, component, endpoint, error_class) (increase(artgod_trading_rpc_circuit_open_total{worker=~\"$worker\", chain_id=~\"$chain_id\"}[5m]))",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} / {{error_class}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Trading Circuit Opens (5m Count)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "mappings": [],
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 83
+            },
+            "id": 260,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, worker, component, endpoint) (rate(artgod_trading_rpc_rate_limiter_wait_ms_bucket{worker=~\"$worker\", chain_id=~\"$chain_id\"}[$__rate_interval])))",
                     "legendFormat": "{{worker}} / {{component}} / {{endpoint}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Trading Endpoint Effective Weight",
+            "title": "Trading Rate Limit Wait p95",
             "type": "timeseries"
         },
         {
@@ -987,7 +1514,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 67
+                "y": 91
             },
             "id": 301,
             "panels": [],
@@ -1013,7 +1540,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 68
+                "y": 92
             },
             "id": 6,
             "options": {
@@ -1066,7 +1593,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 68
+                "y": 92
             },
             "id": 7,
             "options": {
@@ -1112,7 +1639,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 68
+                "y": 92
             },
             "id": 8,
             "options": {
@@ -1157,13 +1684,15 @@
                 "h": 9,
                 "w": 12,
                 "x": 0,
-                "y": 76
+                "y": 100
             },
             "id": 9,
             "options": {
                 "footer": {
                     "fields": "",
-                    "reducer": ["lastNotNull"],
+                    "reducer": [
+                        "lastNotNull"
+                    ],
                     "show": false
                 },
                 "showHeader": true
@@ -1216,13 +1745,15 @@
                 "h": 9,
                 "w": 12,
                 "x": 12,
-                "y": 76
+                "y": 100
             },
             "id": 10,
             "options": {
                 "footer": {
                     "fields": "",
-                    "reducer": ["lastNotNull"],
+                    "reducer": [
+                        "lastNotNull"
+                    ],
                     "show": false
                 },
                 "showHeader": true
@@ -1263,7 +1794,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 85
+                "y": 109
             },
             "id": 401,
             "panels": [],
@@ -1289,7 +1820,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 86
+                "y": 110
             },
             "id": 11,
             "options": {
@@ -1335,7 +1866,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 86
+                "y": 110
             },
             "id": 12,
             "options": {
@@ -1381,7 +1912,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 86
+                "y": 110
             },
             "id": 13,
             "options": {
@@ -1441,7 +1972,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 94
+                "y": 118
             },
             "id": 14,
             "options": {
@@ -1487,7 +2018,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 94
+                "y": 118
             },
             "id": 17,
             "options": {
@@ -1533,7 +2064,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 94
+                "y": 118
             },
             "id": 15,
             "options": {
@@ -1579,7 +2110,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 102
+                "y": 126
             },
             "id": 16,
             "options": {
@@ -1610,15 +2141,23 @@
     "refresh": "10s",
     "schemaVersion": 39,
     "style": "dark",
-    "tags": ["artgod", "runtime", "metrics"],
+    "tags": [
+        "artgod",
+        "runtime",
+        "metrics"
+    ],
     "templating": {
         "list": [
             {
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": ["All"],
-                    "value": ["$__all"]
+                    "text": [
+                        "All"
+                    ],
+                    "value": [
+                        "$__all"
+                    ]
                 },
                 "datasource": {
                     "type": "prometheus",
@@ -1640,8 +2179,12 @@
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": ["All"],
-                    "value": ["$__all"]
+                    "text": [
+                        "All"
+                    ],
+                    "value": [
+                        "$__all"
+                    ]
                 },
                 "datasource": {
                     "type": "prometheus",
@@ -1663,8 +2206,12 @@
                 "allValue": ".*",
                 "current": {
                     "selected": true,
-                    "text": ["All"],
-                    "value": ["$__all"]
+                    "text": [
+                        "All"
+                    ],
+                    "value": [
+                        "$__all"
+                    ]
                 },
                 "datasource": {
                     "type": "prometheus",

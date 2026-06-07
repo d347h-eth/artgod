@@ -462,9 +462,10 @@ Provisioned dashboard:
 
 The runtime metrics dashboard has separate RPC sections for indexer, backend,
 and trading workspaces. Each section shows call rate by result, endpoint failure
-counts, endpoint failure percentage, call latency p95, and effective endpoint
-weight. The indexer section also includes retry-attempt counts and websocket
-endpoint events because websocket failover is currently indexer-owned.
+counts, endpoint failure percentage, call latency p95, retry-attempt counts,
+configured versus effective endpoint weight, endpoint failures by error class,
+circuit-open counts, and rate-limit wait p95. The indexer section also includes
+websocket endpoint events because websocket failover is currently indexer-owned.
 
 Current Tempo `tracesToProfiles` mapping is:
 
