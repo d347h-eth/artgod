@@ -12,6 +12,7 @@
         "./config/blockspace": "./config/blockspace.ts",
         "./config/generated-settings-defaults": "./config/generated-settings-defaults.ts",
         "./config/opensea-integration": "./config/opensea-integration.ts",
+        "./config/rpc-auto-sourcing": "./config/rpc-auto-sourcing.ts",
         "./config/rpc-endpoints": "./config/rpc-endpoints.ts",
         "./config/rpc-resilience": "./config/rpc-resilience.ts",
         "./config/weighted-endpoints": "./config/weighted-endpoints.ts",

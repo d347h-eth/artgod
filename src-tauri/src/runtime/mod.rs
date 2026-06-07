@@ -5,6 +5,7 @@ mod config;
 mod env_keys;
 mod log_files;
 mod process_registry;
+mod rpc_auto_sourcing;
 mod supervisor;
 
 pub use app_config::{
@@ -18,4 +19,7 @@ pub use bot_runtime::{
 pub use config::{DesktopRuntimeConfig, DesktopWalletConfig};
 pub(crate) use env_keys::RPC_ENDPOINT_LIST_ENV_KEY;
 pub(crate) use log_files::ensure_runtime_log_files;
+pub use rpc_auto_sourcing::{
+    RpcEndpointBenchmarkInput, RpcEndpointBenchmarkResult, benchmark_rpc_endpoints,
+};
 pub use supervisor::{RuntimeEndpoints, RuntimeManager, RuntimeStatus};

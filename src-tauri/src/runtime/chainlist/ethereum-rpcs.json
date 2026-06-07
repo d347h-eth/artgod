@@ -1,0 +1,373 @@
+[
+  {
+    "name": "Ethereum Mainnet",
+    "chain": "ETH",
+    "icon": "ethereum",
+    "rpc": [
+      {
+        "url": "https://rpc.nodeflare.app/eth/public",
+        "tracking": "none"
+      },
+      {
+        "url": "https://go.getblock.io/aefd01aa907c4805ba3c00a9e5b48c6b",
+        "tracking": "none"
+      },
+      {
+        "url": "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://ethereum-rpc.publicnode.com",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.ankr.com/eth/c4cc6a8c87ec30258076de433ab2cf3d834228aae3fc4d76087873e4fea11635",
+        "tracking": "yes"
+      },
+      {
+        "url": "wss://ethereum-rpc.publicnode.com",
+        "tracking": "none"
+      },
+      {
+        "url": "https://1rpc.io/eth",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.builder0x69.io",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.mevblocker.io",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.flashbots.net",
+        "tracking": "none"
+      },
+      {
+        "url": "https://virginia.rpc.blxrbdn.com",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://uk.rpc.blxrbdn.com",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://singapore.rpc.blxrbdn.com",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://eth.rpc.blxrbdn.com",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://cloudflare-eth.com",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://eth-mainnet.public.blastapi.io",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://api.securerpc.com/v1",
+        "tracking": "unspecified"
+      },
+      {
+        "url": "https://openapi.bitstack.com/v1/wNFxbiJyQsSeLrX8RRCHi7NpRxrlErZk/DjShIqLishPCTB9HiMkPHXjUM9CNM9Na/ETH/mainnet",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://ethereum-public.nodies.app",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://eth-mainnet-public.unifra.io",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://ethereum.public.blockpi.network/v1/rpc/public",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://rpc.payload.de",
+        "tracking": "none"
+      },
+      {
+        "url": "https://api.zmok.io/mainnet/oaen6dy8ff6hju9k",
+        "tracking": "none"
+      },
+      {
+        "url": "https://eth-mainnet.g.alchemy.com/v2/demo",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://mainnet.eth.cloud.ava.do"
+      },
+      {
+        "url": "https://ethereumnodelight.app.runonflux.io"
+      },
+      {
+        "url": "https://eth-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf"
+      },
+      {
+        "url": "https://main-light.eth.linkpool.io"
+      },
+      {
+        "url": "https://rpc.eth.gateway.fm",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://rpc.chain49.com/ethereum?api_key=14d1a8b86d8a4b4797938332394203dc",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://eth.meowrpc.com",
+        "tracking": "none"
+      },
+      {
+        "url": "https://eth.drpc.org",
+        "tracking": "none"
+      },
+      {
+        "url": "https://mainnet.gateway.tenderly.co",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://virtual.mainnet.rpc.tenderly.co/7355b215-ef17-4e3e-8f64-d494284ef18a",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://virtual.mainnet.rpc.tenderly.co/5804dcf7-70e6-4988-b2b0-3672193e0c91",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://gateway.tenderly.co/public/mainnet",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://api.zan.top/eth-mainnet",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://eth-mainnet.diamondswap.org/rpc",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://rpc.notadegen.com/eth"
+      },
+      {
+        "url": "https://eth.merkle.io",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.lokibuilder.xyz/wallet",
+        "tracking": "none"
+      },
+      {
+        "url": "https://services.tokenview.io/vipapi/nodeservice/eth?apikey=qVHq2o6jpaakcw3lRstl",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://eth.nodeconnect.org",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://api.stateless.solutions/ethereum/v1/demo",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.polysplit.cloud/v1/chain/1",
+        "tracking": "none"
+      },
+      {
+        "url": "https://public.stackup.sh/api/v1/node/ethereum-mainnet",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://ethereum-mainnet.gateway.tatum.io",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://public-eth.nownodes.io",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://rpc.nodifi.ai/api/rpc/free",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.graffiti.farm",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://rpc.public.curie.radiumblock.co/http/ethereum",
+        "tracking": "none"
+      },
+      {
+        "url": "https://eth-mainnet.4everland.org/v1/37fa9972c1b1cd5fab542c7bdd4cde2f",
+        "tracking": "limited"
+      },
+      {
+        "url": "wss://eth-mainnet.4everland.org/ws/v1/37fa9972c1b1cd5fab542c7bdd4cde2f",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://rpc.public.curie.radiumblock.co/ws/ethereum",
+        "tracking": "none"
+      },
+      {
+        "url": "wss://ws-rpc.graffiti.farm",
+        "tracking": "limited"
+      },
+      {
+        "url": "wss://ethereum.callstaticrpc.com",
+        "tracking": "none"
+      },
+      {
+        "url": "https://eth.blockrazor.xyz",
+        "tracking": "none"
+      },
+      {
+        "url": "https://endpoints.omniatech.io/v1/eth/mainnet/public",
+        "tracking": "none"
+      },
+      {
+        "url": "https://eth1.lava.build",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://0xrpc.io/eth",
+        "tracking": "none"
+      },
+      {
+        "url": "wss://0xrpc.io/eth",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.owlracle.info/eth/70d38ce1826c4a60bb2a8e05a6c8b20f",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://ethereum.therpc.io",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://eth.api.onfinality.io/public",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://ethereum-json-rpc.stakely.io",
+        "tracking": "none"
+      },
+      {
+        "url": "https://rpc.poolz.finance/eth",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://eth.api.pocket.network",
+        "tracking": "none"
+      },
+      {
+        "url": "https://api-ethereum-mainnet-reth.n.dwellir.com/2ccf18bf-2916-4198-8856-42172854353c",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://rpc.fullsend.to",
+        "tracking": "none"
+      },
+      {
+        "url": "https://mainnet.rpc.sentio.xyz",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://rpc.swiftnodes.io/rpc/eth",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://rpcfree.com/ethereum-rpc",
+        "tracking": "limited"
+      },
+      {
+        "url": "https://gw-aql.tomo.services/v1/ethereum/aql_live_2dba7f55b5cf0f356538a727da2079fe",
+        "tracking": "yes"
+      },
+      {
+        "url": "wss://gw-aql.tomo.services/v1/ethereum/aql_live_2dba7f55b5cf0f356538a727da2079fe",
+        "tracking": "yes"
+      },
+      {
+        "url": "https://api.mycryptoapi.com/eth"
+      },
+      {
+        "url": "wss://mainnet.gateway.tenderly.co"
+      },
+      {
+        "url": "https://rpc.blocknative.com/boost"
+      },
+      {
+        "url": "https://rpc.flashbots.net/fast"
+      },
+      {
+        "url": "https://rpc.mevblocker.io/fast"
+      },
+      {
+        "url": "https://rpc.mevblocker.io/noreverts"
+      },
+      {
+        "url": "https://rpc.mevblocker.io/fullprivacy"
+      },
+      {
+        "url": "wss://eth.drpc.org"
+      }
+    ],
+    "features": [
+      {
+        "name": "EIP155"
+      },
+      {
+        "name": "EIP1559"
+      }
+    ],
+    "faucets": [],
+    "nativeCurrency": {
+      "name": "Ether",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "infoURL": "https://ethereum.org",
+    "shortName": "eth",
+    "chainId": 1,
+    "networkId": 1,
+    "slip44": 60,
+    "ens": {
+      "registry": "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
+    },
+    "explorers": [
+      {
+        "name": "etherscan",
+        "url": "https://etherscan.io",
+        "standard": "EIP3091"
+      },
+      {
+        "name": "blockscout",
+        "url": "https://eth.blockscout.com",
+        "icon": "blockscout",
+        "standard": "EIP3091"
+      },
+      {
+        "name": "dexguru",
+        "url": "https://ethereum.dex.guru",
+        "icon": "dexguru",
+        "standard": "EIP3091"
+      },
+      {
+        "name": "Routescan",
+        "url": "https://ethereum.routescan.io",
+        "standard": "EIP3091"
+      }
+    ],
+    "tvl": 84423750187.09717,
+    "chainSlug": "ethereum",
+    "isTestnet": false
+  }
+]
