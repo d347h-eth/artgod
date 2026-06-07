@@ -46,7 +46,6 @@ export const INDEXER_RPC_METHOD = {
 export const INDEXER_METADATA_RPC_METRIC = {
     ResolveLatency: "metadata.resolve.latency",
     ResolveFailure: "metadata.resolve.failure",
-    EndpointFailure: "metadata.resolve.endpoint_failure",
 } as const;
 
 // Metadata resolver result labels used by its latency metric.

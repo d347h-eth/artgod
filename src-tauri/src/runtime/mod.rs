@@ -2,6 +2,7 @@ mod app_config;
 mod app_config_manifest;
 mod bot_runtime;
 mod config;
+mod env_keys;
 mod log_files;
 mod process_registry;
 mod supervisor;
@@ -15,5 +16,6 @@ pub use bot_runtime::{
     build_trading_secret_envelope,
 };
 pub use config::{DesktopRuntimeConfig, DesktopWalletConfig};
+pub(crate) use env_keys::RPC_ENDPOINT_LIST_ENV_KEY;
 pub(crate) use log_files::ensure_runtime_log_files;
 pub use supervisor::{RuntimeEndpoints, RuntimeManager, RuntimeStatus};

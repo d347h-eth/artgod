@@ -70,7 +70,7 @@ Required keys for smoke/integration paths:
 
 - `ARTGOD_DB_PATH`
 - `SMOKE_NATS_PORT`
-- `SMOKE_RPC_URL`
+- `SMOKE_RPC_URL_LIST`
 - `SMOKE_TARGET_COLLECTIONS`
 - `SMOKE_RANGE_FROM`
 - `SMOKE_RANGE_TO`

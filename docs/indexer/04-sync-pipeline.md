@@ -47,7 +47,7 @@ The backfill worker classifies each job by collection anchor before execution:
 - ranges that may touch current-state projection are serialized inside the worker
 - jobs without settled anchors are not treated as parallel-safe
 
-Backfill jobs use the `RPC_BACKFILL_URL` endpoint pool when configured; realtime jobs always use the `RPC_URL` endpoint pool.
+Backfill jobs use the `RPC_BACKFILL_URL_LIST` endpoint pool when configured; realtime jobs always use the `RPC_URL_LIST` endpoint pool.
 Realtime sync targets live collections and anchored bootstrapping collections so collection-scoped blockspace coverage keeps moving while bootstrap work is still in progress.
 
 ## Log Fetching and Decoding

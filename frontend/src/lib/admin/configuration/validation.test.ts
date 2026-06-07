@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import {
+	RPC_ENDPOINT_LIST_ENV_KEY,
+	RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY
+} from '@artgod/shared/config/rpc-endpoints';
 
 import {
 	formatLaunchConfigIssueSummary,
@@ -8,7 +12,7 @@ import {
 import type { AdminConfigField, AdminConfigState } from './ports';
 
 const RPC_URL_FIELD: AdminConfigField = {
-	key: 'RPC_URL',
+	key: RPC_ENDPOINT_LIST_ENV_KEY,
 	label: 'rpc endpoints',
 	inputKind: 'weighted_endpoint_list',
 	secret: false,
@@ -20,7 +24,7 @@ const RPC_URL_FIELD: AdminConfigField = {
 };
 
 const RPC_WS_URL_FIELD: AdminConfigField = {
-	key: 'RPC_WS_URL',
+	key: RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
 	label: 'rpc ws endpoints',
 	inputKind: 'weighted_endpoint_list',
 	secret: false,
@@ -68,22 +72,25 @@ function config(
 
 describe('admin config validation', () => {
 	it('reports missing launch-required values', () => {
-		const issues = resolveAdminLaunchConfigIssues(config({ RPC_URL: '' }));
+		const issues = resolveAdminLaunchConfigIssues(config({ [RPC_ENDPOINT_LIST_ENV_KEY]: '' }));
 
-		expect(issues.map((issue) => issue.key)).toEqual(['RPC_URL']);
+		expect(issues.map((issue) => issue.key)).toEqual([RPC_ENDPOINT_LIST_ENV_KEY]);
 		expect(formatLaunchConfigIssueSummary(issues)).toBe(
-			'Required configuration is missing: RPC_URL'
+			`Required configuration is missing: ${RPC_ENDPOINT_LIST_ENV_KEY}`
 		);
 	});
 
 	it('reports invalid launch-required URLs', () => {
-		const issues = resolveAdminConfigValidationIssues(config({ RPC_URL: 'not a url' }), {
-			RPC_URL: 'not a url'
-		});
+		const issues = resolveAdminConfigValidationIssues(
+			config({ [RPC_ENDPOINT_LIST_ENV_KEY]: 'not a url' }),
+			{
+				[RPC_ENDPOINT_LIST_ENV_KEY]: 'not a url'
+			}
+		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 		expect(formatLaunchConfigIssueSummary(issues)).toBe(
-			'Required configuration is missing or invalid: RPC_URL'
+			`Required configuration is missing or invalid: ${RPC_ENDPOINT_LIST_ENV_KEY}`
 		);
 	});
 
@@ -91,7 +98,7 @@ describe('admin config validation', () => {
 		expect(
 			resolveAdminLaunchConfigIssues(
 				config({
-					RPC_URL:
+					[RPC_ENDPOINT_LIST_ENV_KEY]:
 						'[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]'
 				})
 			)
@@ -99,17 +106,19 @@ describe('admin config validation', () => {
 	});
 
 	it('rejects plain URL RPC endpoint values', () => {
-		const issues = resolveAdminLaunchConfigIssues(config({ RPC_URL: 'https://rpc.example' }));
+		const issues = resolveAdminLaunchConfigIssues(
+			config({ [RPC_ENDPOINT_LIST_ENV_KEY]: 'https://rpc.example' })
+		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 		expect(issues.map((issue) => issue.message)).toEqual([
-			'Invalid RPC_URL: endpoint list must be a JSON array'
+			`Invalid ${RPC_ENDPOINT_LIST_ENV_KEY}: endpoint list must be a JSON array`
 		]);
 	});
 
 	it('rejects websocket RPC endpoints for the HTTP JSON-RPC pool', () => {
 		const issues = resolveAdminLaunchConfigIssues(
-			config({ RPC_URL: '[{"url":"wss://rpc.example","weight":1}]' })
+			config({ [RPC_ENDPOINT_LIST_ENV_KEY]: '[{"url":"wss://rpc.example","weight":1}]' })
 		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
@@ -117,7 +126,7 @@ describe('admin config validation', () => {
 
 	it('rejects URLs without an explicit scheme separator', () => {
 		const issues = resolveAdminLaunchConfigIssues(
-			config({ RPC_URL: '[{"url":"https:localhost:8545","weight":1}]' })
+			config({ [RPC_ENDPOINT_LIST_ENV_KEY]: '[{"url":"https:localhost:8545","weight":1}]' })
 		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
@@ -128,12 +137,14 @@ describe('admin config validation', () => {
 			resolveAdminConfigValidationIssues(
 				config(
 					{
-						RPC_WS_URL: '[{"url":"wss://ws-a.example","weight":2},{"url":"ws://127.0.0.1:8546"}]'
+						[RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]:
+							'[{"url":"wss://ws-a.example","weight":2},{"url":"ws://127.0.0.1:8546"}]'
 					},
 					[RPC_WS_URL_FIELD]
 				),
 				{
-					RPC_WS_URL: '[{"url":"wss://ws-a.example","weight":2},{"url":"ws://127.0.0.1:8546"}]'
+					[RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]:
+						'[{"url":"wss://ws-a.example","weight":2},{"url":"ws://127.0.0.1:8546"}]'
 				}
 			)
 		).toEqual([]);
@@ -141,29 +152,32 @@ describe('admin config validation', () => {
 
 	it('rejects plain websocket URL endpoint values', () => {
 		const issues = resolveAdminConfigValidationIssues(
-			config({ RPC_WS_URL: 'wss://ws.example' }, [RPC_WS_URL_FIELD]),
+			config({ [RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]: 'wss://ws.example' }, [RPC_WS_URL_FIELD]),
 			{
-				RPC_WS_URL: 'wss://ws.example'
+				[RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]: 'wss://ws.example'
 			}
 		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 		expect(issues.map((issue) => issue.message)).toEqual([
-			'Invalid RPC_WS_URL: endpoint list must be a JSON array'
+			`Invalid ${RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY}: endpoint list must be a JSON array`
 		]);
 	});
 
 	it('rejects non-websocket schemes for websocket endpoint pools', () => {
 		const issues = resolveAdminConfigValidationIssues(
-			config({ RPC_WS_URL: '[{"url":"https://rpc.example","weight":1}]' }, [RPC_WS_URL_FIELD]),
+			config(
+				{ [RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]: '[{"url":"https://rpc.example","weight":1}]' },
+				[RPC_WS_URL_FIELD]
+			),
 			{
-				RPC_WS_URL: '[{"url":"https://rpc.example","weight":1}]'
+				[RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]: '[{"url":"https://rpc.example","weight":1}]'
 			}
 		);
 
 		expect(issues.map((issue) => issue.kind)).toEqual(['url']);
 		expect(issues.map((issue) => issue.message)).toEqual([
-			'Invalid RPC_WS_URL: endpoint 1 URL is invalid'
+			`Invalid ${RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY}: endpoint 1 URL is invalid`
 		]);
 	});
 

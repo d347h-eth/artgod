@@ -206,16 +206,6 @@ export class ViemTokenUriResolver implements TokenUriResolverPort {
             circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
             rateLimiter: (endpoint) => endpoint.value.rateLimiter,
             execute: (endpoint) => read(endpoint.value.client),
-            onEndpointFailure: (endpoint) => {
-                this.metrics?.increment(
-                    INDEXER_METADATA_RPC_METRIC.EndpointFailure,
-                    1,
-                    {
-                        endpoint: endpoint.id,
-                        component: this.rpcComponent,
-                    },
-                );
-            },
         });
     }
 }

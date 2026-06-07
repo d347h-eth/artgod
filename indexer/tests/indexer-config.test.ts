@@ -8,11 +8,17 @@ import {
     getDefaultRpcEndpointResilienceConfig,
     getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
+import {
+    RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY,
+    RPC_ENDPOINT_LIST_ENV_KEY,
+    RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
+} from "@artgod/shared/config/rpc-endpoints";
 import { loadConfig } from "../src/config/index.js";
 
 const REQUIRED_ENV = {
     ARTGOD_DB_PATH: "database/sqlite/test/db",
-    RPC_URL: '[{"url":"http://127.0.0.1:42721","weight":1}]',
+    [RPC_ENDPOINT_LIST_ENV_KEY]:
+        '[{"url":"http://127.0.0.1:42721","weight":1}]',
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     SEAPORT_CONDUIT_CONTROLLER: "0x00000000f9490004c11cef243f5400493c00ad63",
 };
@@ -44,11 +50,11 @@ describe("Indexer config", () => {
     it("parses weighted RPC endpoint pools", () => {
         const config = loadConfig({
             ...REQUIRED_ENV,
-            RPC_URL:
+            [RPC_ENDPOINT_LIST_ENV_KEY]:
                 '[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]',
-            RPC_BACKFILL_URL:
+            [RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY]:
                 '[{"url":"https://backfill-a.example","weight":3},{"url":"https://backfill-b.example","weight":1}]',
-            RPC_WS_URL:
+            [RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]:
                 '[{"url":"wss://ws-a.example","weight":2},{"url":"ws://ws-b.example","weight":1}]',
         });
 

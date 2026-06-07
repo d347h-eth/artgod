@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import { createMigrationRunner } from "@artgod/shared/migrations";
 import { db, setDbPath } from "@artgod/shared/database";
 import { NatsJetStreamQueue } from "../src/infra/queue/nats.js";
@@ -39,7 +40,7 @@ describe("indexer smoke", () => {
             ARTGOD_DB_PATH: dbPath,
             NATS_URL: nats.url,
             NATS_STREAM_PREFIX: streamPrefix,
-            RPC_URL: config.rpcEndpoints,
+            [RPC_ENDPOINT_LIST_ENV_KEY]: config.rpcEndpoints,
             WETH_ADDRESS: runtimeEnv.WETH_ADDRESS,
             CHAIN_ID: String(config.chainId),
             REORG_DEPTH: "3",

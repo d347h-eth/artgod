@@ -27,13 +27,13 @@ The indexer reads these variables from the root `.env`:
 - `ARTGOD_DB_PATH` (required)
     - Path to SQLite file. Relative paths are resolved from repo root.
 - `CHAIN_ID` (default: 1)
-- `RPC_URL` (required)
+- `RPC_URL_LIST` (required)
     - HTTP JSON-RPC endpoint pool used by backend, indexer, and trading runtimes.
     - Supply a JSON array of endpoint objects, for example `[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]`.
     - `weight` is optional and defaults to `1`.
-- `RPC_BACKFILL_URL` (optional)
+- `RPC_BACKFILL_URL_LIST` (optional)
     - Optional JSON array of weighted HTTP JSON-RPC endpoints used by backfill sync jobs.
-- `RPC_WS_URL` (optional)
+- `RPC_WS_URL_LIST` (optional)
     - Optional JSON array of weighted WebSocket RPC endpoints used by the scheduler as a single-active new-head listener with fallback.
 - `WETH_ADDRESS` (required)
 - `NATS_URL` (default: `nats://127.0.0.1:42720`)
@@ -54,7 +54,7 @@ The indexer reads these variables from the root `.env`:
 - `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` (default: 200)
 - `SEAPORT_CONDUIT_CONTROLLER` (required)
 
-`RPC_BACKFILL_URL`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL`.
+`RPC_BACKFILL_URL_LIST`, when set, is used by backfill sync jobs; realtime sync continues to use `RPC_URL_LIST`.
 Endpoint weights define the baseline request share. Runtime adapters lower an endpoint's effective weight after observed request failures and recover it after successful requests; these adjusted weights are process-local and are not persisted.
 
 ### OpenSea Integration Mode (.env)
@@ -91,7 +91,7 @@ Example (from `.env.example`):
 ```
 ARTGOD_DB_PATH=database/sqlite/main/db
 CHAIN_ID=1
-RPC_URL=[{"url":"http://127.0.0.1:42721","weight":1}]
+RPC_URL_LIST=[{"url":"http://127.0.0.1:42721","weight":1}]
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 NATS_URL=nats://127.0.0.1:42720
 NATS_STREAM_PREFIX=artgod
@@ -127,7 +127,7 @@ The smoke tests use a separate `.env.test` file loaded by `indexer/tests/helpers
 
 - `ARTGOD_DB_PATH` (required)
 - `SMOKE_NATS_PORT` (required, host port for the NATS container)
-- `SMOKE_RPC_URL` (required)
+- `SMOKE_RPC_URL_LIST` (required)
 - `WETH_ADDRESS` (required)
 - `SMOKE_TARGET_COLLECTIONS` (required JSON string)
 - `SMOKE_RANGE_FROM` (required)
@@ -144,7 +144,7 @@ ARTGOD_DB_PATH=database/sqlite/test/db
 OPENSEA_INTEGRATION_MODE=auto
 OPENSEA_API_KEY=test-opensea-api-key
 SMOKE_NATS_PORT=42724
-SMOKE_RPC_URL=[{"url":"http://127.0.0.1:42721","weight":1}]
+SMOKE_RPC_URL_LIST=[{"url":"http://127.0.0.1:42721","weight":1}]
 WETH_ADDRESS=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 SEAPORT_CONDUIT_CONTROLLER=0x00000000f9490004c11cef243f5400493c00ad63
 SMOKE_TARGET_COLLECTIONS='[{"id":"terraforms","address":"0x4E1f41613c9084FdB9E34E11fAE9412427480e56","deploymentBlock":13823015}]'

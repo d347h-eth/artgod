@@ -14,6 +14,7 @@ import {
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
     parseRpcEndpointConfigList,
+    RPC_ENDPOINT_LIST_ENV_KEY,
     type RpcEndpointConfig,
 } from "@artgod/shared/config/rpc-endpoints";
 import {
@@ -213,7 +214,10 @@ export function loadBackendConfig(
         DEFAULT_CHAIN_ID,
     );
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
-    const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
+    const rpcEndpoints = parseRpcEndpointConfigList(
+        env[RPC_ENDPOINT_LIST_ENV_KEY],
+        RPC_ENDPOINT_LIST_ENV_KEY,
+    );
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
     const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
     const natsStreamPrefix = parseRequiredString(

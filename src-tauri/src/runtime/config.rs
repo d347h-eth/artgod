@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process_env};
+use super::env_keys::RPC_ENDPOINT_LIST_ENV_KEY;
 
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
@@ -149,7 +150,7 @@ impl DesktopRuntimeConfig {
         get_required(&process_env, "ARTGOD_DB_PATH")?;
         let nats_url = get_required(&process_env, "NATS_URL")?.to_owned();
         let (nats_host, nats_port) = parse_nats_url(&nats_url)?;
-        get_required(&process_env, "RPC_URL")?;
+        get_required(&process_env, RPC_ENDPOINT_LIST_ENV_KEY)?;
         get_required(&process_env, "WETH_ADDRESS")?;
         get_required(&process_env, "SEAPORT_CONDUIT_CONTROLLER")?;
         get_required(&process_env, "USERLAND_UI_DIST_DIR")?;

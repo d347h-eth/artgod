@@ -13,6 +13,9 @@ import {
 import {
     parseRpcEndpointConfigList,
     parseRpcWebSocketEndpointConfigList,
+    RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY,
+    RPC_ENDPOINT_LIST_ENV_KEY,
+    RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
     type RpcEndpointConfig,
     type RpcWebSocketEndpointConfig,
 } from "@artgod/shared/config/rpc-endpoints";
@@ -149,12 +152,21 @@ export function loadConfig(
 ): IndexerConfig {
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", DEFAULT_CHAIN_ID);
-    const rpcEndpoints = parseRpcEndpointConfigList(env.RPC_URL, "RPC_URL");
-    const backfillEndpoints = env.RPC_BACKFILL_URL?.trim()
-        ? parseRpcEndpointConfigList(env.RPC_BACKFILL_URL, "RPC_BACKFILL_URL")
+    const rpcEndpoints = parseRpcEndpointConfigList(
+        env[RPC_ENDPOINT_LIST_ENV_KEY],
+        RPC_ENDPOINT_LIST_ENV_KEY,
+    );
+    const backfillEndpoints = env[RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY]?.trim()
+        ? parseRpcEndpointConfigList(
+              env[RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY],
+              RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY,
+          )
         : undefined;
-    const wsEndpoints = env.RPC_WS_URL?.trim()
-        ? parseRpcWebSocketEndpointConfigList(env.RPC_WS_URL, "RPC_WS_URL")
+    const wsEndpoints = env[RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]?.trim()
+        ? parseRpcWebSocketEndpointConfigList(
+              env[RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY],
+              RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
+          )
         : undefined;
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);

@@ -9,6 +9,7 @@ import {
     getDefaultRpcRetryPolicy,
     RPC_RESILIENCE_ENV_KEY,
 } from "@artgod/shared/config/rpc-resilience";
+import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
 
@@ -30,7 +31,7 @@ describe("loadBackendConfig", () => {
     it("parses weighted RPC endpoint pools", () => {
         const config = loadBackendConfig({
             ...createBaseEnv(),
-            RPC_URL:
+            [RPC_ENDPOINT_LIST_ENV_KEY]:
                 '[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]',
         });
 
@@ -328,7 +329,8 @@ function createBaseEnv(): Record<string, string> {
         BACKEND_PORT: "42710",
         CHAIN_ID: "1",
         ARTGOD_DB_PATH: "database/sqlite/main/db",
-        RPC_URL: '[{"url":"https://rpc-a.example","weight":1}]',
+        [RPC_ENDPOINT_LIST_ENV_KEY]:
+            '[{"url":"https://rpc-a.example","weight":1}]',
         WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
         NATS_URL: "nats://127.0.0.1:42720",
         NATS_STREAM_PREFIX: "artgod",

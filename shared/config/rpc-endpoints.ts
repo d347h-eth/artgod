@@ -17,15 +17,24 @@ export type WeightedRpcEndpointSelection<T> = WeightedEndpointSelection<T>;
 export const DEFAULT_RPC_ENDPOINT_WEIGHT = DEFAULT_ENDPOINT_WEIGHT;
 export const WeightedRpcEndpointSelector = WeightedEndpointSelector;
 
+// Env key for the primary weighted HTTP JSON-RPC endpoint list.
+export const RPC_ENDPOINT_LIST_ENV_KEY = "RPC_URL_LIST";
+
+// Env key for the optional weighted HTTP JSON-RPC backfill endpoint list.
+export const RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY = "RPC_BACKFILL_URL_LIST";
+
+// Env key for the optional weighted WebSocket JSON-RPC endpoint list.
+export const RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY = "RPC_WS_URL_LIST";
+
 const HTTP_RPC_ENDPOINT_VALIDATION: WeightedEndpointListValidation = {
-    key: "RPC_URL",
+    key: RPC_ENDPOINT_LIST_ENV_KEY,
     allowedProtocols: ["http:", "https:"],
     explicitSchemePattern: /^https?:\/\//,
     protocolLabel: "http or https",
 };
 
 const WS_RPC_ENDPOINT_VALIDATION: WeightedEndpointListValidation = {
-    key: "RPC_WS_URL",
+    key: RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
     allowedProtocols: ["ws:", "wss:"],
     explicitSchemePattern: /^wss?:\/\//,
     protocolLabel: "ws or wss",
@@ -34,7 +43,7 @@ const WS_RPC_ENDPOINT_VALIDATION: WeightedEndpointListValidation = {
 // Parses the runtime HTTP JSON-RPC endpoint list from the structured env value.
 export function parseRpcEndpointConfigList(
     value: string | undefined,
-    key = "RPC_URL",
+    key = RPC_ENDPOINT_LIST_ENV_KEY,
 ): RpcEndpointConfig[] {
     return parseWeightedEndpointConfigList(value, {
         ...HTTP_RPC_ENDPOINT_VALIDATION,
@@ -45,7 +54,7 @@ export function parseRpcEndpointConfigList(
 // Parses the runtime WebSocket JSON-RPC endpoint list from the structured env value.
 export function parseRpcWebSocketEndpointConfigList(
     value: string | undefined,
-    key = "RPC_WS_URL",
+    key = RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
 ): RpcWebSocketEndpointConfig[] {
     return parseWeightedEndpointConfigList(value, {
         ...WS_RPC_ENDPOINT_VALIDATION,

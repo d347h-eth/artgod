@@ -390,7 +390,7 @@ label = "chain id"
 default = "1"
 
 [[settings]]
-key = "RPC_URL"
+key = "RPC_URL_LIST"
 group = "chain-rpc"
 label = "rpc endpoints"
 defaults = { local = "", deploy = "[{\"url\":\"http://ethereum-rpc:8545\",\"weight\":1}]", desktop = "" }
@@ -401,16 +401,16 @@ validation = "rpc_endpoint_list"
 view = "basic"
 
 [[settings]]
-key = "RPC_BACKFILL_URL"
+key = "RPC_BACKFILL_URL_LIST"
 group = "chain-rpc"
 label = "rpc backfill endpoints"
 default = ""
-help = "Optional JSON array of HTTP JSON-RPC endpoints used for backfill sync jobs; realtime sync keeps using RPC_URL."
+help = "Optional JSON array of HTTP JSON-RPC endpoints used for backfill sync jobs; realtime sync keeps using RPC_URL_LIST."
 input = "weighted_endpoint_list"
 validation = "rpc_endpoint_list"
 
 [[settings]]
-key = "RPC_WS_URL"
+key = "RPC_WS_URL_LIST"
 group = "chain-rpc"
 label = "rpc ws endpoints"
 defaults = { local = "", deploy = "[{\"url\":\"ws://ethereum-rpc:8546\",\"weight\":1}]", desktop = "" }

@@ -409,8 +409,6 @@ Metadata fetch/resolve:
 
 - `metadata.resolve.latency` histogram
 - `metadata.resolve.failure` counter
-- `metadata.resolve.endpoint_failure` counter (by low-cardinality endpoint id
-  and component)
 - `metadata.fetch.latency` histogram
 - `metadata.fetch.success`, `metadata.fetch.failure` counters
 

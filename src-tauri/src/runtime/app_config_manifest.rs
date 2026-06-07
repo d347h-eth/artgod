@@ -282,6 +282,7 @@ fn resolve_default_for_target(setting: &ManifestSettingDocument, target: &str) -
 
 #[cfg(test)]
 mod tests {
+    use super::super::env_keys::{RPC_ENDPOINT_LIST_ENV_KEY, RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY};
     use super::*;
 
     #[test]
@@ -332,13 +333,13 @@ mod tests {
     }
 
     #[test]
-    fn manifest_marks_rpc_url_required_for_launch() {
+    fn manifest_marks_rpc_url_list_required_for_launch() {
         let model = load_app_config_manifest().expect("load settings manifest");
         let setting = model
             .settings
             .iter()
-            .find(|setting| setting.key == "RPC_URL")
-            .expect("RPC_URL setting should exist");
+            .find(|setting| setting.key == RPC_ENDPOINT_LIST_ENV_KEY)
+            .expect("RPC_URL_LIST setting should exist");
 
         assert!(setting.required_for_launch);
         assert_eq!(setting.input, "weighted_endpoint_list");
@@ -346,13 +347,13 @@ mod tests {
     }
 
     #[test]
-    fn manifest_marks_rpc_ws_url_optional_websocket_endpoint_list() {
+    fn manifest_marks_rpc_ws_url_list_optional_websocket_endpoint_list() {
         let model = load_app_config_manifest().expect("load settings manifest");
         let setting = model
             .settings
             .iter()
-            .find(|setting| setting.key == "RPC_WS_URL")
-            .expect("RPC_WS_URL setting");
+            .find(|setting| setting.key == RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY)
+            .expect("RPC_WS_URL_LIST setting");
 
         assert!(!setting.required_for_launch);
         assert_eq!(setting.input, "weighted_endpoint_list");

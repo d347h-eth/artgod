@@ -6,6 +6,7 @@ import {
     getDefaultRpcRetryPolicy,
     RPC_RESILIENCE_ENV_KEY,
 } from "@artgod/shared/config/rpc-resilience";
+import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import {
     loadTradingConfig,
     TRADING_METRICS_ENV_KEY,
@@ -14,7 +15,8 @@ import {
 const requiredBaseEnv = {
     ARTGOD_DB_PATH: "database/sqlite/main/db",
     CHAIN_ID: "1",
-    RPC_URL: '[{"url":"http://127.0.0.1:42721","weight":1}]',
+    [RPC_ENDPOINT_LIST_ENV_KEY]:
+        '[{"url":"http://127.0.0.1:42721","weight":1}]',
     NATS_URL: "nats://127.0.0.1:42720",
     NATS_STREAM_PREFIX: "artgod",
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
@@ -99,7 +101,7 @@ describe("loadTradingConfig", () => {
         const config = loadTradingConfig(
             {
                 ...requiredBaseEnv,
-                RPC_URL: TEST_WEIGHTED_RPC_ENDPOINTS_JSON,
+                [RPC_ENDPOINT_LIST_ENV_KEY]: TEST_WEIGHTED_RPC_ENDPOINTS_JSON,
                 [RPC_RESILIENCE_ENV_KEY.HttpRequestTimeoutMs]: String(
                     TEST_RPC_REQUEST_TIMEOUT_MS,
                 ),

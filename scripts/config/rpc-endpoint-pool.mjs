@@ -1,11 +1,14 @@
 const HTTP_RPC_PROTOCOLS = new Set(["http:", "https:"]);
 const EXPLICIT_HTTP_RPC_SCHEME_PATTERN = /^https?:\/\//;
 
+// Env key for the primary weighted HTTP JSON-RPC endpoint list used by helper scripts.
+export const RPC_ENDPOINT_LIST_ENV_KEY = "RPC_URL_LIST";
+
 // Resolves a direct CLI override or the first endpoint from the structured env pool.
 export function resolveRpcEndpointUrl({
     cliValue,
     envValue,
-    envKey = "RPC_URL",
+    envKey = RPC_ENDPOINT_LIST_ENV_KEY,
 }) {
     const cliRpcUrl = normalizeNonEmpty(cliValue);
     if (cliRpcUrl) {
