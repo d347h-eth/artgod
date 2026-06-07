@@ -91,9 +91,20 @@ export const RPC_OBSERVABILITY_SENTINEL = {
     NoMethod: "none",
 } as const;
 
+// Canonical error_class labels emitted by the shared RPC observer.
+export const RPC_OBSERVABILITY_ERROR_CLASS = {
+    RequestTimeout: "RpcRequestTimeoutError",
+} as const;
+
 const DEFAULT_RPC_LOG_COMPONENT = "RpcAdapter";
 const DEFAULT_RPC_ENDPOINT_EVENT_LOG_LEVEL: LogLevel = "debug";
 const INVALID_URL_ORIGIN = "invalid-url";
+const VIEM_TIMEOUT_ERROR_CLASS_NAME = "TimeoutError";
+const PROVIDER_TIMEOUT_ERROR_CLASS_NAMES = new Set<string>([
+    RPC_OBSERVABILITY_ERROR_CLASS.RequestTimeout,
+    VIEM_TIMEOUT_ERROR_CLASS_NAME,
+]);
+const MAX_ERROR_CAUSE_CLASSIFICATION_DEPTH = 4;
 
 export type RpcProtocol = (typeof RPC_PROTOCOL)[keyof typeof RPC_PROTOCOL];
 export type RpcObservabilityWorkspace =
@@ -526,6 +537,10 @@ export class RpcObservability {
 }
 
 export function errorClassName(error: unknown): string {
+    const normalizedClassName = normalizedRpcErrorClassName(error);
+    if (normalizedClassName) {
+        return normalizedClassName;
+    }
     if (error instanceof Error && error.name.trim().length > 0) {
         return error.name;
     }
@@ -565,4 +580,26 @@ function sanitizeRpcErrorMessage(message: string): string {
     return message.replace(/(https?|wss?):\/\/[^\s)]+/g, (rawUrl) =>
         safeEndpointOrigin(rawUrl),
     );
+}
+
+function normalizedRpcErrorClassName(
+    error: unknown,
+    depth = 0,
+): string | undefined {
+    if (depth > MAX_ERROR_CAUSE_CLASSIFICATION_DEPTH) {
+        return undefined;
+    }
+
+    if (error instanceof Error) {
+        if (PROVIDER_TIMEOUT_ERROR_CLASS_NAMES.has(error.name)) {
+            return RPC_OBSERVABILITY_ERROR_CLASS.RequestTimeout;
+        }
+
+        const cause = (error as Error & { cause?: unknown }).cause;
+        if (cause !== undefined) {
+            return normalizedRpcErrorClassName(cause, depth + 1);
+        }
+    }
+
+    return undefined;
 }

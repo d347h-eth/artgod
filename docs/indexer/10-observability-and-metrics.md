@@ -396,6 +396,10 @@ The canonical RPC metrics are:
 - `rpc.circuit_open` counter
 - `rpc.rate_limiter.wait_ms` histogram
 
+RPC timeout labels are normalized to `RpcRequestTimeoutError` across viem-backed
+and custom fetch-backed paths so timeout dashboards do not split by provider
+implementation detail.
+
 The canonical metrics above are the only RPC metric model. Do not add parallel
 RPC counters or histograms with overlapping semantics; extend the shared RPC
 observer vocabulary instead.

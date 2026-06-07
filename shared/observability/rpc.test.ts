@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+    errorClassName,
+    errorLogFields,
+    RPC_OBSERVABILITY_ERROR_CLASS,
     RPC_OBSERVABILITY_METRIC,
     RPC_OBSERVABILITY_RESULT,
     RPC_OBSERVABILITY_SENTINEL,
@@ -18,6 +21,15 @@ const TEST_RPC_ORIGIN = "https://rpc.example";
 const TEST_RPC_METHOD = "getBlock";
 const TEST_LOG_COMPONENT = "TestRpc";
 const TEST_ERROR_CLASS = Error.name;
+const TEST_PROVIDER_HTTP_ERROR_CLASS = "HttpRequestError";
+const TEST_PROVIDER_TIMEOUT_ERROR_CLASS = "TimeoutError";
+
+class TestProviderTimeoutError extends Error {
+    constructor() {
+        super("The request timed out.");
+        this.name = TEST_PROVIDER_TIMEOUT_ERROR_CLASS;
+    }
+}
 
 class CapturingMetrics implements Metrics {
     readonly increments: Array<{
@@ -146,5 +158,24 @@ describe("RpcObservability", () => {
         expect(serializedLogs).toContain(TEST_RPC_ORIGIN);
         expect(serializedLogs).not.toContain("api-key");
         expect(serializedLogs).not.toContain("secret");
+    });
+
+    it("normalizes provider timeout errors to the canonical RPC timeout class", () => {
+        const directTimeout = new TestProviderTimeoutError();
+        const wrappedTimeout = new Error("HTTP request failed") as Error & {
+            cause: unknown;
+        };
+        wrappedTimeout.name = TEST_PROVIDER_HTTP_ERROR_CLASS;
+        wrappedTimeout.cause = directTimeout;
+
+        expect(errorClassName(directTimeout)).toBe(
+            RPC_OBSERVABILITY_ERROR_CLASS.RequestTimeout,
+        );
+        expect(errorClassName(wrappedTimeout)).toBe(
+            RPC_OBSERVABILITY_ERROR_CLASS.RequestTimeout,
+        );
+        expect(errorLogFields(wrappedTimeout)).toMatchObject({
+            errorClass: RPC_OBSERVABILITY_ERROR_CLASS.RequestTimeout,
+        });
     });
 });
