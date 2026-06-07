@@ -8,6 +8,7 @@ import {
     CircuitBreaker,
     fetchWithRpcRequestTimeout,
     TokenBucketRateLimiter,
+    VIEM_TRANSPORT_RETRY_DISABLED,
     type RpcEndpointResilienceConfig,
     type RpcRetryPolicy,
 } from "./rpc-resilience.js";
@@ -63,7 +64,6 @@ const JSON_RPC_VERSION = "2.0";
 const HTTP_METHOD_POST = "POST";
 const CONTENT_TYPE_HEADER = "content-type";
 const JSON_CONTENT_TYPE = "application/json";
-const VIEM_TRANSPORT_RETRY_DISABLED = 0;
 const RPC_HTTP_STATUS_ERROR_PREFIX = "RPC endpoint returned HTTP";
 const JSON_RPC_ERROR_PREFIX = "JSON-RPC error";
 

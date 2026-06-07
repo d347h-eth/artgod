@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { RpcEndpointResilienceConfig } from "@artgod/shared/evm/rpc-resilience";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     type ViemRpcClientFactory,
     ViemRpcProvider,
@@ -10,11 +10,19 @@ const TEST_RETRY_POLICY = {
     baseDelayMs: 0,
     maxDelayMs: 0,
 };
+const TEST_SINGLE_ATTEMPT_RETRY_POLICY = {
+    maxAttempts: 1,
+    baseDelayMs: 0,
+    maxDelayMs: 0,
+};
 const TEST_REQUEST_TIMEOUT_MS = 5_000;
 const TEST_RPC_ENDPOINT_A_URL = "https://rpc-a.example";
 const TEST_RPC_ENDPOINT_B_URL = "https://rpc-b.example";
 const TEST_RPC_ENDPOINT_FAILURE_MESSAGE = "rpc-a unavailable";
 const TEST_BLOCK_NUMBER = 123;
+const TEST_HTTP_FAILURE_RESPONSE_BODY = "upstream failed";
+const TEST_HTTP_FAILURE_STATUS = 500;
+const TEST_LOG_CHUNK_SIZE = 100;
 
 const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
     requestTimeoutMs: TEST_REQUEST_TIMEOUT_MS,
@@ -30,6 +38,10 @@ const DISABLED_RATE_LIMIT_RESILIENCE: RpcEndpointResilienceConfig = {
 };
 
 describe("ViemRpcProvider RPC resilience", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
     it("retries failed reads through the next weighted endpoint", async () => {
         const attemptedUrls: string[] = [];
         const createClient: ViemRpcClientFactory = (url) =>
@@ -47,7 +59,7 @@ describe("ViemRpcProvider RPC resilience", () => {
                 { url: TEST_RPC_ENDPOINT_A_URL, weight: 1 },
                 { url: TEST_RPC_ENDPOINT_B_URL, weight: 1 },
             ],
-            logChunkSize: 100,
+            logChunkSize: TEST_LOG_CHUNK_SIZE,
             retryPolicy: TEST_RETRY_POLICY,
             resilience: DISABLED_RATE_LIMIT_RESILIENCE,
             createClient,
@@ -60,5 +72,25 @@ describe("ViemRpcProvider RPC resilience", () => {
             TEST_RPC_ENDPOINT_A_URL,
             TEST_RPC_ENDPOINT_B_URL,
         ]);
+    });
+
+    it("disables viem internal retries under the indexer RPC retry policy", async () => {
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(TEST_HTTP_FAILURE_RESPONSE_BODY, {
+                    status: TEST_HTTP_FAILURE_STATUS,
+                }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+        const provider = new ViemRpcProvider({
+            endpoints: [{ url: TEST_RPC_ENDPOINT_A_URL, weight: 1 }],
+            logChunkSize: TEST_LOG_CHUNK_SIZE,
+            retryPolicy: TEST_SINGLE_ATTEMPT_RETRY_POLICY,
+            resilience: DISABLED_RATE_LIMIT_RESILIENCE,
+        });
+
+        await expect(provider.getBlockNumber()).rejects.toThrow();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 });

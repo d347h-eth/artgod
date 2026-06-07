@@ -41,6 +41,9 @@ export type ExecuteWithRpcRetryOptions<T> = {
     sleep?: SleepFn;
 };
 
+// Retry count passed to viem transports when ArtGod owns RPC retry policy.
+export const VIEM_TRANSPORT_RETRY_DISABLED = 0;
+
 const RPC_CIRCUIT_OPEN_ERROR_MESSAGE = "RPC circuit is open";
 const RPC_CIRCUIT_HALF_OPEN_LIMIT_ERROR_MESSAGE =
     "RPC circuit is half-open and probe limit is reached";

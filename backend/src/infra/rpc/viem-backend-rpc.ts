@@ -13,6 +13,7 @@ import {
     type RpcEndpointResilienceConfig,
     type RpcRetryPolicy,
     TokenBucketRateLimiter,
+    VIEM_TRANSPORT_RETRY_DISABLED,
 } from "@artgod/shared/evm/rpc-resilience";
 import { NOOP_APM, type ApmPort } from "@artgod/shared/observability/apm";
 import type { Metrics } from "@artgod/shared/observability/metrics";
@@ -311,6 +312,9 @@ function createBackendViemClient(
     requestTimeoutMs: number,
 ): BackendViemClient {
     return createPublicClient({
-        transport: http(url, { timeout: requestTimeoutMs }),
+        transport: http(url, {
+            timeout: requestTimeoutMs,
+            retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
+        }),
     });
 }
