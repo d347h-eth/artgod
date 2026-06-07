@@ -46,8 +46,45 @@ export type AdminConfigSaveInput = {
 	autoLaunchOnStartup: boolean;
 };
 
+export type AdminRpcEndpointBenchmarkInput = {
+	source: string;
+	trackingPolicy: string;
+	rpcUrlList?: string;
+};
+
+export type AdminRpcEndpointTrackingCounts = {
+	none: number;
+	limited: number;
+	yes: number;
+	unspecified: number;
+};
+
+export type AdminRpcEndpointBenchmarkEndpoint = {
+	url: string;
+	weight: number;
+	latencyMs: number;
+	blockNumber: number;
+};
+
+export type AdminRpcEndpointBenchmarkResult = {
+	source: string;
+	sourceDescription: string;
+	trackingPolicy: string;
+	encodedEndpoints: string;
+	endpoints: AdminRpcEndpointBenchmarkEndpoint[];
+	candidateCount: number;
+	eligibleCount: number;
+	benchmarkedCount: number;
+	successCount: number;
+	failureCount: number;
+	trackingCounts: AdminRpcEndpointTrackingCounts;
+};
+
 export interface AdminConfigPort {
 	getConfig(): Promise<AdminConfigState>;
 	saveConfig(input: AdminConfigSaveInput): Promise<AdminConfigState>;
 	useDefaults(): Promise<AdminConfigState>;
+	benchmarkRpcEndpoints(
+		input: AdminRpcEndpointBenchmarkInput
+	): Promise<AdminRpcEndpointBenchmarkResult>;
 }

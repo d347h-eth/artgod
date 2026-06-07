@@ -5,6 +5,7 @@
 	import type {
 		AdminConfigField,
 		AdminConfigGroup,
+		AdminRpcEndpointBenchmarkResult,
 		AdminConfigSaveInput,
 		AdminConfigState
 	} from '$lib/admin/configuration/ports';
@@ -12,6 +13,12 @@
 		resolveAdminConfigValidationIssues,
 		type AdminConfigValidationIssue
 	} from '$lib/admin/configuration/validation';
+	import {
+		RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY,
+		RPC_ENDPOINT_BENCHMARK_SOURCES,
+		normalizeRpcAutoSourcingTrackingPolicy
+	} from '@artgod/shared/config/rpc-auto-sourcing';
+	import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
 
 	type AdminConfigView = 'basic' | 'advanced';
 
@@ -21,6 +28,7 @@
 		busyAction = null,
 		errorMessage = null,
 		onSave,
+		onBenchmarkRpcEndpoints,
 		onClose
 	}: {
 		config: AdminConfigState | null;
@@ -28,6 +36,10 @@
 		busyAction?: string | null;
 		errorMessage?: string | null;
 		onSave: (input: AdminConfigSaveInput) => Promise<void>;
+		onBenchmarkRpcEndpoints: (input: {
+			source: string;
+			trackingPolicy: string;
+		}) => Promise<AdminRpcEndpointBenchmarkResult>;
 		onClose: () => void;
 	} = $props();
 
@@ -35,6 +47,7 @@
 	let values = $state<Record<string, string>>({});
 	let autoLaunchOnStartup = $state(false);
 	let configView = $state<AdminConfigView>('basic');
+	let rpcSourcingSummary = $state<string | null>(null);
 
 	const editableGroups = $derived(resolveEditableGroups(config?.groups ?? [], configView));
 	const formDisabled = $derived(loading || busyAction !== null || config === null);
@@ -52,6 +65,7 @@
 		appliedConfig = next;
 		values = { ...next.values };
 		autoLaunchOnStartup = next.autoLaunchOnStartup;
+		rpcSourcingSummary = null;
 	}
 
 	function setValue(key: string, value: string): void {
@@ -67,6 +81,7 @@
 		}
 		values = { ...config.defaults };
 		autoLaunchOnStartup = false;
+		rpcSourcingSummary = null;
 	}
 
 	async function saveConfig(): Promise<void> {
@@ -91,6 +106,35 @@
 		return validationIssues.find((issue) => issue.key === field.key) ?? null;
 	}
 
+	async function benchmarkRpcEndpointSource(source: string): Promise<void> {
+		if (formDisabled) {
+			return;
+		}
+		rpcSourcingSummary = null;
+		let result: AdminRpcEndpointBenchmarkResult;
+		try {
+			result = await onBenchmarkRpcEndpoints({
+				source,
+				trackingPolicy: resolveRpcAutoSourcingTrackingPolicy()
+			});
+		} catch {
+			return;
+		}
+		setValue(RPC_ENDPOINT_LIST_ENV_KEY, result.encodedEndpoints);
+		rpcSourcingSummary = formatRpcSourcingSummary(result);
+	}
+
+	function resolveRpcAutoSourcingTrackingPolicy(): string {
+		return normalizeRpcAutoSourcingTrackingPolicy(
+			values[RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY]?.trim()
+		);
+	}
+
+	function formatRpcSourcingSummary(result: AdminRpcEndpointBenchmarkResult): string {
+		const trackedCount = result.trackingCounts.yes + result.trackingCounts.unspecified;
+		return `${result.sourceDescription}: ${result.successCount}/${result.eligibleCount} endpoints passed, tracking none ${result.trackingCounts.none}, limited ${result.trackingCounts.limited}, tracked ${trackedCount}`;
+	}
+
 	function resolveEditableGroups(groups: AdminConfigGroup[], view: AdminConfigView): AdminConfigGroup[] {
 		return groups
 			.map((group) => ({
@@ -101,6 +145,10 @@
 						: group.fields.filter((field) => field.view === 'basic')
 			}))
 			.filter((group) => group.fields.length > 0);
+	}
+
+	function fieldSupportsRpcAutoSourcing(field: AdminConfigField): boolean {
+		return field.key === RPC_ENDPOINT_LIST_ENV_KEY;
 	}
 </script>
 
@@ -190,6 +238,17 @@
 											endpointLabel={field.validation === 'websocket_endpoint_list'
 												? 'WebSocket endpoint'
 												: 'RPC endpoint'}
+											sourcingSummary={fieldSupportsRpcAutoSourcing(field) ? rpcSourcingSummary : null}
+											onBenchmarkSavedList={fieldSupportsRpcAutoSourcing(field)
+												? async () => {
+														await benchmarkRpcEndpointSource(RPC_ENDPOINT_BENCHMARK_SOURCES.savedChainlist);
+													}
+												: undefined}
+											onBenchmarkFreshList={fieldSupportsRpcAutoSourcing(field)
+												? async () => {
+														await benchmarkRpcEndpointSource(RPC_ENDPOINT_BENCHMARK_SOURCES.freshChainlist);
+													}
+												: undefined}
 											onChange={(value) => {
 												setValue(field.key, value);
 											}}

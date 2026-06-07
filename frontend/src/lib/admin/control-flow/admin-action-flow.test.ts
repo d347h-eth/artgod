@@ -69,6 +69,7 @@ function flow(input: {
 	runtimeStatus?: RuntimeStatus | null;
 	runtimeBusyAction?: string | null;
 	lifecyclePhase?: LifecyclePhase;
+	rpcAutoSourcingFailed?: boolean;
 }) {
 	return resolveAdminActionFlow({
 		config: input.config ?? configState(true),
@@ -77,7 +78,8 @@ function flow(input: {
 		runtimeInitialized: input.runtimeInitialized ?? true,
 		runtimeStatus: input.runtimeStatus ?? runtimeStatus('stopped'),
 		runtimeBusyAction: input.runtimeBusyAction ?? null,
-		lifecyclePhase: input.lifecyclePhase ?? 'booting'
+		lifecyclePhase: input.lifecyclePhase ?? 'booting',
+		rpcAutoSourcingFailed: input.rpcAutoSourcingFailed ?? false
 	});
 }
 
@@ -100,7 +102,7 @@ describe('resolveAdminActionFlow', () => {
 		expect(state.boot.disabled).toBe(false);
 	});
 
-	it('requires a non-empty RPC URL before default boot is available', () => {
+	it('allows missing RPC endpoints before default boot because auto-sourcing can fill them', () => {
 		const state = flow({
 			config: configState(false, {
 				[REQUIRED_RPC_KEY]: ''
@@ -109,11 +111,23 @@ describe('resolveAdminActionFlow', () => {
 
 		expect(state.state).toBe(ADMIN_FLOW_STATES.needsConfig);
 		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.bootWithDefaults);
-		expect(state.boot.disabled).toBe(true);
+		expect(state.boot.disabled).toBe(false);
+		expect(state.boot.disabledReason).toBeNull();
+		expect(state.boot.requiredConfigIssueKeys).toEqual([]);
+	});
+
+	it('warns after automated RPC sourcing fails on default boot', () => {
+		const state = flow({
+			config: configState(false, {
+				[REQUIRED_RPC_KEY]: ''
+			}),
+			rpcAutoSourcingFailed: true
+		});
+
+		expect(state.boot.disabled).toBe(false);
 		expect(state.boot.disabledReason).toBe(
-			`Required configuration is missing: ${RPC_ENDPOINT_LIST_ENV_KEY}`
+			`Automated RPC sourcing failed: ${RPC_ENDPOINT_LIST_ENV_KEY}`
 		);
-		expect(state.boot.requiredConfigIssueKeys).toEqual([REQUIRED_RPC_KEY]);
 	});
 
 	it('requires a non-empty RPC URL before saved boot is available', () => {

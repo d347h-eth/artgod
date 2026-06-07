@@ -17,6 +17,9 @@
 		invalid = false,
 		validation = 'rpc_endpoint_list',
 		endpointLabel = 'RPC endpoint',
+		sourcingSummary = null,
+		onBenchmarkSavedList,
+		onBenchmarkFreshList,
 		onChange
 	}: {
 		value: string;
@@ -24,8 +27,13 @@
 		invalid?: boolean;
 		validation?: AdminConfigValidationRule | null;
 		endpointLabel?: string;
+		sourcingSummary?: string | null;
+		onBenchmarkSavedList?: () => Promise<void>;
+		onBenchmarkFreshList?: () => Promise<void>;
 		onChange: (value: string) => void;
 	} = $props();
+
+	const sourcingEnabled = $derived(onBenchmarkSavedList !== undefined && onBenchmarkFreshList !== undefined);
 
 	let appliedValue = $state<string | null>(null);
 	let drafts = $state<RpcEndpointDraft[]>([emptyDraft()]);
@@ -112,6 +120,20 @@
 			? parseRpcWebSocketEndpointConfigList(raw)
 			: parseRpcEndpointConfigList(raw);
 	}
+
+	async function benchmarkSavedList(): Promise<void> {
+		if (disabled || !onBenchmarkSavedList) {
+			return;
+		}
+		await onBenchmarkSavedList();
+	}
+
+	async function benchmarkFreshList(): Promise<void> {
+		if (disabled || !onBenchmarkFreshList) {
+			return;
+		}
+		await onBenchmarkFreshList();
+	}
 </script>
 
 <div class="rpc-endpoint-list">
@@ -157,6 +179,19 @@
 			</div>
 		</div>
 	{/each}
+	{#if sourcingEnabled}
+		<div class="rpc-endpoint-source-actions">
+			<button type="button" disabled={disabled} onclick={() => void benchmarkSavedList()}>
+				benchmark saved list
+			</button>
+			<button type="button" disabled={disabled} onclick={() => void benchmarkFreshList()}>
+				fetch & benchmark fresh list
+			</button>
+		</div>
+		{#if sourcingSummary}
+			<p class="rpc-endpoint-source-summary">{sourcingSummary}</p>
+		{/if}
+	{/if}
 </div>
 
 <style>
@@ -189,6 +224,25 @@
 
 	.rpc-endpoint-actions button {
 		min-width: 2rem;
+	}
+
+	.rpc-endpoint-source-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		gap: 0.45rem;
+		flex-wrap: wrap;
+	}
+
+	.rpc-endpoint-source-actions button {
+		min-width: 8.75rem;
+	}
+
+	.rpc-endpoint-source-summary {
+		margin: 0;
+		font-size: 0.78rem;
+		color: var(--c-sand);
+		line-height: 1.35;
 	}
 
 	@media (max-width: 640px) {
