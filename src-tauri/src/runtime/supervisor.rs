@@ -24,6 +24,12 @@ use crate::runtime::process_registry::{
 };
 use crate::wallet::domain::BotKind;
 
+/// Enables JetStream for the embedded NATS server.
+const NATS_JETSTREAM_ENABLE_ARG: &str = "-js";
+/// NATS server port flag used by the embedded runtime supervisor.
+const NATS_PORT_ARG: &str = "-p";
+/// NATS server storage flag that keeps JetStream data inside app-data.
+const NATS_STORE_DIR_ARG: &str = "--store_dir";
 const STARTUP_PORT_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_RUNTIME_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -1658,11 +1664,7 @@ fn spawn_nats_process(
     app: &AppHandle,
     config: &DesktopRuntimeConfig,
 ) -> Result<ManagedProcess, String> {
-    let args = vec![
-        "-js".to_owned(),
-        "-p".to_owned(),
-        config.nats_port.to_string(),
-    ];
+    let args = build_nats_process_args(config);
     spawn_process(
         app,
         config,
@@ -1673,6 +1675,16 @@ fn spawn_nats_process(
             cleanup: None,
         },
     )
+}
+
+fn build_nats_process_args(config: &DesktopRuntimeConfig) -> Vec<String> {
+    vec![
+        NATS_JETSTREAM_ENABLE_ARG.to_owned(),
+        NATS_PORT_ARG.to_owned(),
+        config.nats_port.to_string(),
+        NATS_STORE_DIR_ARG.to_owned(),
+        config.nats_store_dir.to_string_lossy().into_owned(),
+    ]
 }
 
 fn spawn_node_process(
@@ -2113,7 +2125,8 @@ mod tests {
 
     use super::*;
     use crate::runtime::config::{
-        DesktopRuntimeCapabilities, DesktopWalletConfig, RuntimeCapability,
+        DesktopRuntimeCapabilities, DesktopWalletConfig, NATS_JETSTREAM_STORE_DIR_NAME,
+        NATS_STORAGE_DIR_NAME, RuntimeCapability,
     };
 
     #[derive(Deserialize)]
@@ -2132,10 +2145,15 @@ mod tests {
     }
 
     fn build_test_runtime_config() -> DesktopRuntimeConfig {
+        let app_data_dir = PathBuf::from("/app-data");
+
         DesktopRuntimeConfig {
             env_file_path: PathBuf::from("config/.env"),
             node_bin: PathBuf::from("/runtime/node/node"),
             nats_bin: PathBuf::from("/runtime/nats/nats-server"),
+            nats_store_dir: app_data_dir
+                .join(NATS_STORAGE_DIR_NAME)
+                .join(NATS_JETSTREAM_STORE_DIR_NAME),
             runtime_dir: PathBuf::from("/runtime"),
             pnp_cjs_path: PathBuf::from("/runtime/.pnp.cjs"),
             pnp_loader_path: PathBuf::from("/runtime/.pnp.loader.mjs"),
@@ -2168,6 +2186,23 @@ mod tests {
                 bot_unlock_stabilization_delay_ms: 15000,
             },
         }
+    }
+
+    #[test]
+    fn nats_launch_uses_configured_jetstream_store_dir() {
+        let config = build_test_runtime_config();
+        let args = build_nats_process_args(&config);
+
+        assert_eq!(
+            args,
+            vec![
+                NATS_JETSTREAM_ENABLE_ARG.to_owned(),
+                NATS_PORT_ARG.to_owned(),
+                config.nats_port.to_string(),
+                NATS_STORE_DIR_ARG.to_owned(),
+                config.nats_store_dir.to_string_lossy().into_owned(),
+            ]
+        );
     }
 
     #[test]

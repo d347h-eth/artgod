@@ -11,6 +11,7 @@ pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
     pub node_bin: PathBuf,
     pub nats_bin: PathBuf,
+    pub nats_store_dir: PathBuf,
     pub runtime_dir: PathBuf,
     pub pnp_cjs_path: PathBuf,
     pub pnp_loader_path: PathBuf,
@@ -27,6 +28,11 @@ pub struct DesktopRuntimeConfig {
     #[allow(dead_code)]
     pub wallet: DesktopWalletConfig,
 }
+
+/// App-data child directory reserved for embedded NATS storage.
+pub(crate) const NATS_STORAGE_DIR_NAME: &str = "nats";
+/// JetStream store directory passed to the bundled NATS server.
+pub(crate) const NATS_JETSTREAM_STORE_DIR_NAME: &str = "jetstream";
 
 #[derive(Clone, Debug)]
 pub struct DesktopRuntimeCapabilities {
@@ -107,6 +113,7 @@ impl DesktopRuntimeConfig {
                 nats_bin.display()
             ));
         }
+        let nats_store_dir = build_nats_store_dir(&app_data_dir)?;
         let pnp_cjs_path = resolve_from_base_dir(
             &runtime_dir,
             process_env
@@ -198,6 +205,7 @@ impl DesktopRuntimeConfig {
             env_file_path,
             node_bin,
             nats_bin,
+            nats_store_dir,
             runtime_dir,
             pnp_cjs_path,
             pnp_loader_path,
@@ -222,6 +230,19 @@ impl DesktopRuntimeConfig {
     pub fn nats_url(&self) -> String {
         self.nats_url.clone()
     }
+}
+
+fn build_nats_store_dir(app_data_dir: &Path) -> Result<PathBuf, String> {
+    let nats_store_dir = app_data_dir
+        .join(NATS_STORAGE_DIR_NAME)
+        .join(NATS_JETSTREAM_STORE_DIR_NAME);
+    fs::create_dir_all(&nats_store_dir).map_err(|error| {
+        format!(
+            "Failed to create NATS JetStream store dir {}: {error}",
+            nats_store_dir.display()
+        )
+    })?;
+    Ok(nats_store_dir)
 }
 
 fn build_wallet_config(
