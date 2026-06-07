@@ -464,11 +464,17 @@ Provisioned dashboard:
 
 - `observability/grafana/provisioning/dashboards/runtime-metrics-overview.json`
 
+Use `yarn observability:up` for local startup so Grafana provisioning
+permissions are normalized before Docker mounts the dashboard and datasource
+files. Use `yarn observability:stop` to stop the local observability containers,
+and `yarn observability:down` to remove only those service containers. Use
+`yarn observability:fix-permissions` before raw compose commands.
+
 The runtime metrics dashboard has separate RPC sections for indexer, backend,
 and trading workspaces. Each section shows call rate by result, endpoint failure
 counts, endpoint failure percentage, call latency p95, retry-attempt counts,
-configured versus effective endpoint weight, endpoint failures by error class,
-circuit-open counts, and rate-limit wait p95. The indexer section also includes
+effective endpoint weight, endpoint failures by error class, circuit-open
+counts, and rate-limit wait p95. The indexer section also includes
 websocket endpoint events because websocket failover is currently indexer-owned.
 
 Current Tempo `tracesToProfiles` mapping is:
@@ -542,7 +548,7 @@ To reach full trace-profile correlation:
     - `yarn workspace @artgod/frontend test src/lib/backend-api.test.ts src/lib/backend-api-browser.test.ts src/lib/query-cache-response-headers.test.ts src/lib/blockspace-page-load.test.ts`
     - These tests are part of their normal workspace test suites; the commands above are just the focused subset for this observability path.
 - Start stack:
-    - `docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana`
+    - `yarn observability:up`
 - Start runtimes with file logs:
     - `./scripts/backend-dev.sh`
     - `./scripts/frontend-dev.sh`

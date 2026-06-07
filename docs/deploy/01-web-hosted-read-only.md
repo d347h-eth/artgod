@@ -163,6 +163,7 @@ docker compose --env-file .env.deploy -f docker-compose.deploy.yml up --build -d
 To start the same stack with Loki, Alloy, Prometheus, Tempo, Pyroscope, and Grafana:
 
 ```sh
+yarn observability:fix-permissions
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml --profile observability up --build -d
 ```
 
@@ -175,6 +176,7 @@ docker compose --env-file .env.deploy -f docker-compose.deploy.yml --profile bun
 Profiles can be combined:
 
 ```sh
+yarn observability:fix-permissions
 docker compose --env-file .env.deploy -f docker-compose.deploy.yml --profile bundled-caddy --profile observability up --build -d
 ```
 

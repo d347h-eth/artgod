@@ -167,8 +167,11 @@ docker compose up -d
 Start optional observability stack (Grafana + Loki + Alloy + Prometheus + Tempo + Pyroscope):
 
 ```sh
-docker compose --profile observability up -d loki tempo pyroscope alloy prometheus grafana
+yarn observability:up
 ```
+
+Use `yarn observability:stop` to stop those containers and
+`yarn observability:down` to remove only those observability service containers.
 
 Open Grafana at `http://localhost:42735` (default `admin` / `admin`).
 
