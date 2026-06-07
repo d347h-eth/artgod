@@ -16,9 +16,9 @@ use crate::desktop_log::{
     process_name_for_log_file, start_desktop_log_maintenance,
 };
 use runtime::{
-    AppConfigState, DesktopRuntimeConfig, RuntimeEndpoints, RuntimeManager, RuntimeStatus,
-    SaveAppConfigInput, ensure_desktop_config_paths, load_app_config_state, save_app_config,
-    use_default_app_config,
+    AppConfigState, DesktopRuntimeConfig, RPC_ENDPOINT_LIST_ENV_KEY, RuntimeEndpoints,
+    RuntimeManager, RuntimeStatus, SaveAppConfigInput, ensure_desktop_config_paths,
+    load_app_config_state, save_app_config, use_default_app_config,
 };
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
@@ -239,7 +239,7 @@ fn runtime_preflight(app: AppHandle, state: State<'_, DesktopState>) -> RuntimeP
 
     push_env_check(&mut checks, &config, "ARTGOD_DB_PATH");
     push_env_check(&mut checks, &config, "USERLAND_UI_DIST_DIR");
-    push_env_check(&mut checks, &config, "RPC_URL");
+    push_env_check(&mut checks, &config, RPC_ENDPOINT_LIST_ENV_KEY);
     push_env_check(&mut checks, &config, "RPC_RATE_LIMIT_REQUESTS_PER_SECOND");
     push_env_check(&mut checks, &config, "RPC_RATE_LIMIT_BURST");
     push_env_check(&mut checks, &config, "WETH_ADDRESS");

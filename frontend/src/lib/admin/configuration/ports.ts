@@ -1,5 +1,15 @@
-export type AdminConfigInputKind = 'text' | 'password' | 'checkbox' | 'textarea' | 'select';
-export type AdminConfigValidationRule = 'url' | 'websocket_url' | 'positive_integer';
+export type AdminConfigInputKind =
+	| 'text'
+	| 'password'
+	| 'checkbox'
+	| 'textarea'
+	| 'select'
+	| 'weighted_endpoint_list';
+export type AdminConfigValidationRule =
+	| 'url'
+	| 'positive_integer'
+	| 'rpc_endpoint_list'
+	| 'websocket_endpoint_list';
 
 export type AdminConfigField = {
 	key: string;

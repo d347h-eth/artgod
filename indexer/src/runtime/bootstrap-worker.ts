@@ -53,6 +53,10 @@ import type { Hex, RpcProviderPort } from "../ports/rpc.js";
 import type { StoragePort } from "../ports/storage.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
@@ -88,9 +92,11 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const rpc = new ViemRpcProvider({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.BootstrapHttp,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.BootstrapHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
@@ -100,8 +106,12 @@ async function main() {
         const bootstrapRuns = new SqliteBootstrapRuns();
         const storage = new SqliteStorage();
         const metadataResolver = new ViemTokenUriResolver({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             metrics: runtimeMetrics.metrics,
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.Metadata,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.Metadata,
+            retryPolicy: config.rpc.retryPolicy,
+            resilience: config.rpc.resilience,
         });
         const metadataFetcher = new HttpMetadataFetcher({
             metrics: runtimeMetrics.metrics,
@@ -216,7 +226,7 @@ async function main() {
         logger.info("Collection bootstrap worker ready", {
             component: "CollectionBootstrapWorker",
             action: "main",
-            rpcUrl: summarizeRpcUrl(config.rpc.primaryUrl),
+            rpcEndpoint: summarizeRpcUrl(config.rpc.endpoints[0]?.url ?? ""),
             rpcRateLimitRps:
                 config.rpc.resilience.rateLimiter.requestsPerSecond,
             rpcRateLimitBurst: config.rpc.resilience.rateLimiter.burst,

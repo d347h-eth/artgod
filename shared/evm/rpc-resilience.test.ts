@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
     CircuitBreaker,
     CircuitOpenError,
+    executeWithRpcRetry,
+    fetchWithRpcRequestTimeout,
+    RpcRequestTimeoutError,
     TokenBucketRateLimiter,
-} from "../src/infra/rpc/resilience.js";
+} from "./rpc-resilience.js";
+
+const TEST_IGNORED_CIRCUIT_FAILURE_MESSAGE = "ignored circuit failure";
 
 describe("TokenBucketRateLimiter", () => {
     it("returns immediate permits inside burst and waits after it is exhausted", async () => {
@@ -132,5 +137,87 @@ describe("CircuitBreaker", () => {
         await expect(
             breaker.execute(async () => "blocked"),
         ).rejects.toBeInstanceOf(CircuitOpenError);
+    });
+
+    it("leaves the circuit closed when failure accounting ignores an error", async () => {
+        const breaker = new CircuitBreaker(
+            {
+                failureThreshold: 1,
+                openMs: 1_000,
+                halfOpenMaxRequests: 1,
+            },
+            () => 0,
+        );
+
+        await expect(
+            breaker.execute(
+                async () => {
+                    throw new Error(TEST_IGNORED_CIRCUIT_FAILURE_MESSAGE);
+                },
+                { shouldRecordFailure: () => false },
+            ),
+        ).rejects.toThrow(TEST_IGNORED_CIRCUIT_FAILURE_MESSAGE);
+        await expect(breaker.execute(async () => "ok")).resolves.toBe("ok");
+    });
+});
+
+describe("executeWithRpcRetry", () => {
+    it("runs retry attempts with bounded backoff", async () => {
+        const scheduled: Array<{
+            attempt: number;
+            nextAttempt: number;
+            delayMs: number;
+        }> = [];
+        const sleeps: number[] = [];
+        let attempts = 0;
+
+        const result = await executeWithRpcRetry({
+            policy: {
+                maxAttempts: 3,
+                baseDelayMs: 100,
+                maxDelayMs: 150,
+            },
+            executeAttempt: async () => {
+                attempts += 1;
+                if (attempts < 3) {
+                    throw new Error("temporary rpc failure");
+                }
+                return "ok";
+            },
+            onRetryScheduled: ({ attempt, nextAttempt, delayMs }) => {
+                scheduled.push({ attempt, nextAttempt, delayMs });
+            },
+            sleep: async (ms) => {
+                sleeps.push(ms);
+            },
+        });
+
+        expect(result).toBe("ok");
+        expect(attempts).toBe(3);
+        expect(scheduled).toEqual([
+            { attempt: 1, nextAttempt: 2, delayMs: 100 },
+            { attempt: 2, nextAttempt: 3, delayMs: 150 },
+        ]);
+        expect(sleeps).toEqual([100, 150]);
+    });
+});
+
+describe("fetchWithRpcRequestTimeout", () => {
+    it("aborts and rejects when a fetch attempt exceeds its timeout", async () => {
+        let requestSignal: AbortSignal | undefined;
+        const fetchRpc: typeof fetch = async (_input, init) => {
+            requestSignal = init?.signal ?? undefined;
+            return new Promise<Response>(() => {});
+        };
+
+        await expect(
+            fetchWithRpcRequestTimeout(
+                fetchRpc,
+                "https://rpc-a.example",
+                {},
+                1,
+            ),
+        ).rejects.toBeInstanceOf(RpcRequestTimeoutError);
+        expect(requestSignal?.aborted).toBe(true);
     });
 });

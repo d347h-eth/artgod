@@ -263,6 +263,7 @@ Desktop-specific optional overrides:
 
 - `DESKTOP_NODE_BIN` (defaults to bundled `runtime/node/node(.exe)`)
 - `DESKTOP_NATS_BINARY_PATH` (defaults to bundled `runtime/nats/nats-server(.exe)`)
+  : JetStream storage is not left to the NATS default temp path. The desktop supervisor always starts bundled NATS with its store root at `<app-data>/nats`; JetStream files live under the NATS-created `jetstream` child.
 - `DESKTOP_RUNTIME_RESOURCES_DIR` (default `runtime`, resolved from app resource dir)
 - `DESKTOP_NODE_PNP_CJS` (default `.pnp.cjs`, resolved from runtime resources dir)
 - `DESKTOP_NODE_PNP_LOADER` (default `.pnp.loader.mjs`, resolved from runtime resources dir)
@@ -294,7 +295,7 @@ Core runtime keys are also validated (for backend/indexer startup), for example:
 
 - `ARTGOD_DB_PATH`
 - `USERLAND_UI_DIST_DIR`
-- `RPC_URL`
+- `RPC_URL_LIST` (JSON array of weighted HTTP JSON-RPC endpoints)
 - `NATS_URL` (must include full host:port, for example `nats://127.0.0.1:42720`)
 - `WETH_ADDRESS`
 - `SEAPORT_CONDUIT_CONTROLLER`

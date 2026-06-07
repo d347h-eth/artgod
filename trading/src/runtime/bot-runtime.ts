@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import process from "node:process";
+import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 import { loadTradingConfig } from "../config/trading-config.js";
@@ -12,6 +13,11 @@ import {
     type TradingBotKind,
     type TradingSecretEnvelopeMetadata,
 } from "./secret-envelope.js";
+import {
+    TRADING_METRICS_LOG_COMPONENT,
+    TRADING_METRICS_PREFIX,
+    TRADING_METRICS_WORKER,
+} from "./observability.js";
 
 type BaseLifecyclePayload = {
     botKind: TradingBotKind;
@@ -82,22 +88,39 @@ export async function bootstrapTradingBot(
                 envelope.metadata,
                 account.address,
             );
-            // Bootstrap the real bidder runtime before emitting bot_ready to the desktop supervisor.
-            const runtime = await startBiddingRuntime({
-                config,
-                biddingConfig: config.bidding,
-                privateKeyHex: privateKeyHex as Hex,
-                makerAddress: account.address,
-                walletId: envelope.metadata.walletId,
-                lifecycle,
+            const runtimeMetrics = await initRuntimeMetrics({
+                enabled: config.metrics.enabled,
+                host: config.metrics.host,
+                port: config.metrics.ports.biddingBot,
+                prefix: TRADING_METRICS_PREFIX,
+                worker: TRADING_METRICS_WORKER.BiddingBot,
+                chainId: config.chainId,
+                logComponent: TRADING_METRICS_LOG_COMPONENT,
             });
+            try {
+                // Bootstrap the real bidder runtime before emitting bot_ready to the desktop supervisor.
+                const runtime = await startBiddingRuntime({
+                    config,
+                    biddingConfig: config.bidding,
+                    privateKeyHex: privateKeyHex as Hex,
+                    makerAddress: account.address,
+                    walletId: envelope.metadata.walletId,
+                    lifecycle,
+                    metrics: runtimeMetrics.metrics,
+                });
 
-            writeLifecyclePayload(
-                createReadyPayload(envelope.metadata, account.address),
-            );
+                try {
+                    writeLifecyclePayload(
+                        createReadyPayload(envelope.metadata, account.address),
+                    );
 
-            await waitForShutdownSignal();
-            await runtime.shutdown();
+                    await waitForShutdownSignal();
+                } finally {
+                    await runtime.shutdown();
+                }
+            } finally {
+                await runtimeMetrics.stop();
+            }
             return;
         }
 

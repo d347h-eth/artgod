@@ -1,8 +1,24 @@
 import { createPublicClient, http } from "viem";
-import { getSettingDefaultNumber } from "@artgod/shared/config/generated-settings-defaults";
-import type { RetryPolicy } from "../../domain/retry.js";
-import { getRetryDelayMs } from "../../domain/retry.js";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
+import type { RpcEndpointConfig } from "@artgod/shared/config/rpc-endpoints";
+import { WeightedEndpointSelector } from "@artgod/shared/config/weighted-endpoints";
+import { executeObservedRpcEndpointCall } from "@artgod/shared/evm/rpc-execution";
+import {
+    CircuitBreaker,
+    type RpcEndpointResilienceConfig,
+    type RpcRetryPolicy,
+    TokenBucketRateLimiter,
+    VIEM_TRANSPORT_RETRY_DISABLED,
+} from "@artgod/shared/evm/rpc-resilience";
 import type { Metrics } from "@artgod/shared/observability/metrics";
+import {
+    RPC_OBSERVABILITY_WORKSPACE,
+    RPC_PROTOCOL,
+    RpcObservability,
+} from "@artgod/shared/observability/rpc";
 import type { CachePort } from "../../ports/cache.js";
 import type {
     Hex,
@@ -14,74 +30,87 @@ import type {
     RpcTransactionReceipt,
 } from "../../ports/rpc.js";
 import {
-    CircuitBreaker,
-    CircuitOpenError,
-    type RpcCircuitBreakerConfig,
-    type RpcRateLimiterConfig,
-    TokenBucketRateLimiter,
-} from "./resilience.js";
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_LOG_COMPONENT,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "./observability.js";
 
 export type ViemRpcConfig = {
-    url: string;
+    endpoints: RpcEndpointConfig[];
     logChunkSize: number;
     cache?: CachePort;
     metrics?: Metrics;
-    retryPolicy?: RetryPolicy;
-    resilience?: {
-        rateLimiter: RpcRateLimiterConfig;
-        circuitBreaker: RpcCircuitBreakerConfig;
-    };
+    component?: string;
+    endpointIdPrefix?: string;
+    retryPolicy?: RpcRetryPolicy;
+    resilience?: RpcEndpointResilienceConfig;
+    createClient?: ViemRpcClientFactory;
 };
 
-const DEFAULT_RETRY_POLICY: RetryPolicy = {
-    maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
-    baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
-    maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
+type ViemPublicClient = ReturnType<typeof createPublicClient>;
+
+// Factory hook for injecting viem clients while this adapter owns RPC resilience.
+export type ViemRpcClientFactory = (url: string) => ViemPublicClient;
+
+type ViemRpcEndpoint = {
+    client: ViemPublicClient;
+    rateLimiter: TokenBucketRateLimiter;
+    circuitBreaker: CircuitBreaker;
 };
 
-const DEFAULT_RATE_LIMITER: RpcRateLimiterConfig = {
-    requestsPerSecond: getSettingDefaultNumber(
-        "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-    ),
-    burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
-};
-
-const DEFAULT_CIRCUIT_BREAKER: RpcCircuitBreakerConfig = {
-    failureThreshold: getSettingDefaultNumber(
-        "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-    ),
-    openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
-    halfOpenMaxRequests: getSettingDefaultNumber(
-        "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-    ),
-};
+const DEFAULT_RETRY_POLICY = getDefaultRpcRetryPolicy();
+const DEFAULT_RESILIENCE = getDefaultRpcEndpointResilienceConfig();
 
 export class ViemRpcProvider implements RpcProviderPort {
-    private client: ReturnType<typeof createPublicClient>;
     private cache?: CachePort;
-    private metrics?: Metrics;
-    private retryPolicy: RetryPolicy;
-    private rateLimiter: TokenBucketRateLimiter;
-    private circuitBreaker: CircuitBreaker;
+    private retryPolicy: RpcRetryPolicy;
+    private endpointSelector: WeightedEndpointSelector<ViemRpcEndpoint>;
+    private rpcObservability: RpcObservability;
+    private rpcComponent: string;
 
     constructor(private config: ViemRpcConfig) {
-        this.client = createPublicClient({
-            transport: http(this.config.url),
-        });
+        const endpoints = resolveRpcEndpoints(config);
+        this.rpcComponent =
+            config.component ?? INDEXER_RPC_OBSERVABILITY_COMPONENT.DefaultHttp;
+        const endpointIdPrefix =
+            config.endpointIdPrefix ??
+            INDEXER_RPC_ENDPOINT_ID_PREFIX.DefaultHttp;
+        const resilience = config.resilience ?? DEFAULT_RESILIENCE;
+        const createClient =
+            config.createClient ??
+            ((url) => createViemRpcClient(url, resilience.requestTimeoutMs));
+        this.endpointSelector = new WeightedEndpointSelector(
+            endpoints.map((endpoint, index) => ({
+                ...endpoint,
+                id: `${endpointIdPrefix}-${index + 1}`,
+                value: {
+                    client: createClient(endpoint.url),
+                    rateLimiter: new TokenBucketRateLimiter(
+                        resilience.rateLimiter,
+                    ),
+                    circuitBreaker: new CircuitBreaker(
+                        resilience.circuitBreaker,
+                    ),
+                },
+            })),
+        );
         this.cache = config.cache;
-        this.metrics = config.metrics;
         this.retryPolicy = config.retryPolicy ?? DEFAULT_RETRY_POLICY;
-        this.rateLimiter = new TokenBucketRateLimiter(
-            config.resilience?.rateLimiter ?? DEFAULT_RATE_LIMITER,
-        );
-        this.circuitBreaker = new CircuitBreaker(
-            config.resilience?.circuitBreaker ?? DEFAULT_CIRCUIT_BREAKER,
-        );
+        this.rpcObservability = new RpcObservability({
+            workspace: RPC_OBSERVABILITY_WORKSPACE.Indexer,
+            component: this.rpcComponent,
+            protocol: RPC_PROTOCOL.Http,
+            metrics: config.metrics,
+            logComponent: INDEXER_RPC_LOG_COMPONENT.Http,
+        });
+        for (const endpoint of this.endpointSelector.snapshot()) {
+            this.rpcObservability.recordConfiguredEndpoint(endpoint);
+        }
     }
 
     async getBlockNumber(): Promise<number> {
-        const value = await this.executeRpc("getBlockNumber", () =>
-            this.client.getBlockNumber(),
+        const value = await this.executeRpc("getBlockNumber", (client) =>
+            client.getBlockNumber(),
         );
         return toSafeNumber(value, "blockNumber");
     }
@@ -90,8 +119,8 @@ export class ViemRpcProvider implements RpcProviderPort {
         const cached = this.cache?.get<RpcBlock>("block", String(blockNumber));
         if (cached) return cached;
 
-        const block = await this.executeRpc("getBlock", () =>
-            this.client.getBlock({
+        const block = await this.executeRpc("getBlock", (client) =>
+            client.getBlock({
                 blockNumber: BigInt(blockNumber),
             }),
         );
@@ -115,8 +144,8 @@ export class ViemRpcProvider implements RpcProviderPort {
         const cached = this.cache?.get<RpcTransaction>("tx", txHash);
         if (cached) return cached;
 
-        const tx = await this.executeRpc("getTransaction", () =>
-            this.client.getTransaction({
+        const tx = await this.executeRpc("getTransaction", (client) =>
+            client.getTransaction({
                 hash: txHash as `0x${string}`,
             }),
         );
@@ -141,10 +170,12 @@ export class ViemRpcProvider implements RpcProviderPort {
         );
         if (cached) return cached;
 
-        const receipt = await this.executeRpc("getTransactionReceipt", () =>
-            this.client.getTransactionReceipt({
-                hash: txHash as `0x${string}`,
-            }),
+        const receipt = await this.executeRpc(
+            "getTransactionReceipt",
+            (client) =>
+                client.getTransactionReceipt({
+                    hash: txHash as `0x${string}`,
+                }),
         );
 
         const mapped: RpcTransactionReceipt = {
@@ -173,8 +204,8 @@ export class ViemRpcProvider implements RpcProviderPort {
                 fromBlock: BigInt(start),
                 toBlock: BigInt(end),
             };
-            const chunk = await this.executeRpc("getLogs", () =>
-                this.client.getLogs(params as any),
+            const chunk = await this.executeRpc("getLogs", (client) =>
+                client.getLogs(params as any),
             );
             logs.push(...chunk.map(mapLog));
         }
@@ -188,8 +219,8 @@ export class ViemRpcProvider implements RpcProviderPort {
         args?: readonly unknown[];
         blockNumber?: number;
     }): Promise<T> {
-        const result = await this.executeRpc("readContract", () =>
-            this.client.readContract({
+        const result = await this.executeRpc("readContract", (client) =>
+            client.readContract({
                 address: params.address as `0x${string}`,
                 abi: params.abi as any,
                 functionName: params.functionName as any,
@@ -204,8 +235,8 @@ export class ViemRpcProvider implements RpcProviderPort {
     }
 
     async getBalance(address: Hex): Promise<bigint> {
-        return this.executeRpc("getBalance", () =>
-            this.client.getBalance({
+        return this.executeRpc("getBalance", (client) =>
+            client.getBalance({
                 address: address as `0x${string}`,
             }),
         );
@@ -213,58 +244,37 @@ export class ViemRpcProvider implements RpcProviderPort {
 
     private async executeRpc<T>(
         method: string,
-        fn: () => Promise<T>,
+        fn: (client: ViemPublicClient) => Promise<T>,
     ): Promise<T> {
-        const start = Date.now();
-        try {
-            const result = await this.circuitBreaker.execute(() =>
-                this.withRetry(() => this.withRateLimit(method, fn), method),
-            );
-            this.metrics?.histogram("rpc.latency", Date.now() - start, {
-                method,
-            });
-            return result;
-        } catch (error) {
-            if (error instanceof CircuitOpenError) {
-                this.metrics?.increment("rpc.circuit_open", 1, { method });
-            }
-            this.metrics?.increment("rpc.failure", 1, { method });
-            throw error;
-        }
+        return executeObservedRpcEndpointCall({
+            selector: this.endpointSelector,
+            method,
+            rpcObservability: this.rpcObservability,
+            retryPolicy: this.retryPolicy,
+            circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+            rateLimiter: (endpoint) => endpoint.value.rateLimiter,
+            execute: (endpoint) => fn(endpoint.value.client),
+        });
     }
+}
 
-    private async withRateLimit<T>(
-        method: string,
-        fn: () => Promise<T>,
-    ): Promise<T> {
-        const waitedMs = await this.rateLimiter.acquire();
-        if (waitedMs > 0) {
-            this.metrics?.histogram("rpc.rate_limiter.wait_ms", waitedMs, {
-                method,
-            });
-        }
-        return fn();
+function resolveRpcEndpoints(config: ViemRpcConfig): RpcEndpointConfig[] {
+    if (config.endpoints.length > 0) {
+        return config.endpoints;
     }
+    throw new Error("At least one RPC endpoint URL is required");
+}
 
-    private async withRetry<T>(
-        fn: () => Promise<T>,
-        method: string,
-    ): Promise<T> {
-        let attempt = 1;
-        for (;;) {
-            try {
-                return await fn();
-            } catch (err) {
-                if (attempt >= this.retryPolicy.maxAttempts) {
-                    throw err;
-                }
-                const delay = getRetryDelayMs(attempt, this.retryPolicy);
-                this.metrics?.increment("rpc.retry", 1, { attempt, method });
-                await sleep(delay);
-                attempt += 1;
-            }
-        }
-    }
+function createViemRpcClient(
+    url: string,
+    requestTimeoutMs: number,
+): ViemPublicClient {
+    return createPublicClient({
+        transport: http(url, {
+            timeout: requestTimeoutMs,
+            retryCount: VIEM_TRANSPORT_RETRY_DISABLED,
+        }),
+    });
 }
 
 function mapLog(log: any): RpcLog {
@@ -285,8 +295,4 @@ function toSafeNumber(value: bigint, label: string): number {
         throw new Error(`${label} exceeds JS safe integer: ${String(value)}`);
     }
     return num;
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }

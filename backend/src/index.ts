@@ -167,8 +167,13 @@ export function createBackendApp(
         backendObservability.apm,
     );
     const backendRpcClient = new ViemBackendRpcClient(
-        config.rpcUrl,
+        config.rpc.endpoints,
         backendObservability.apm,
+        backendObservability.metrics,
+        {
+            retryPolicy: config.rpc.retryPolicy,
+            resilience: config.rpc.resilience,
+        },
     );
     const collectionExtensionRecords = new SqliteCollectionExtensionRecords();
     const collectionCustomizationRecords =

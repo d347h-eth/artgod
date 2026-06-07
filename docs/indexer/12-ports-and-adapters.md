@@ -20,12 +20,16 @@ Supports `getBlockNumber`, `getBlock`, `getLogs`, `getTransaction`, and `getTran
 
 `readContract` is used for bootstrap ownership snapshots and offchain order validation. `getBalance` is used for native-ETH order checks.
 
+The viem adapter accepts a weighted HTTP JSON-RPC endpoint pool from `RPC_URL_LIST`. Selection uses the configured weights as the baseline and lowers an endpoint's effective weight after request failures so later attempts drift toward healthier endpoints. Adjusted weights are in-memory only.
+
 ## Head Source Port
 
 - Interface: `indexer/src/ports/head-source.ts`
 - Adapter: `indexer/src/infra/rpc/viem-ws.ts`
 
 Provides a WebSocket head listener used by the scheduler-worker.
+
+The viem WebSocket adapter accepts a separate weighted endpoint pool from `RPC_WS_URL_LIST`. It keeps one active connection to the highest effective-weight endpoint, records socket/listener failures against that endpoint, and reconnects through the same in-memory weight adjustment policy used by the HTTP pool. HTTP polling remains authoritative and fills any missed heads.
 
 ## Storage Port
 

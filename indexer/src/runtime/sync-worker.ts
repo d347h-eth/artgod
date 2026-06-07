@@ -46,6 +46,10 @@ import type { QueuePort } from "../ports/queue.js";
 import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { SqliteCollectionExtensions } from "../infra/collection-extensions/sqlite.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
@@ -92,19 +96,23 @@ async function main() {
             metrics: runtimeMetrics.metrics,
         });
         const primaryRpc = new ViemRpcProvider({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: runtimeMetrics.metrics,
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.PrimaryHttp,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.PrimaryHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
-        const backfillRpc = config.rpc.backfillUrl
+        const backfillRpc = config.rpc.backfillEndpoints
             ? new ViemRpcProvider({
-                  url: config.rpc.backfillUrl,
+                  endpoints: config.rpc.backfillEndpoints,
                   logChunkSize: config.sync.logChunkSize,
                   cache,
                   metrics: runtimeMetrics.metrics,
+                  component: INDEXER_RPC_OBSERVABILITY_COMPONENT.BackfillHttp,
+                  endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.BackfillHttp,
                   retryPolicy: config.rpc.retryPolicy,
                   resilience: config.rpc.resilience,
               })

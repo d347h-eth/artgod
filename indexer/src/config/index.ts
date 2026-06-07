@@ -11,11 +11,28 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    parseRpcEndpointConfigList,
+    parseRpcWebSocketEndpointConfigList,
+    RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY,
+    RPC_ENDPOINT_LIST_ENV_KEY,
+    RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
+    type RpcEndpointConfig,
+    type RpcWebSocketEndpointConfig,
+} from "@artgod/shared/config/rpc-endpoints";
+import {
+    parseRpcEndpointResilienceConfig,
+    parseRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
+import {
     parseBoolean,
     parseNumber,
     parsePositiveInteger,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
+import type {
+    RpcEndpointResilienceConfig,
+    RpcRetryPolicy,
+} from "@artgod/shared/evm/rpc-resilience";
 import {
     parseIndexerApmConfig,
     parseIndexerMetricsConfig,
@@ -26,29 +43,6 @@ import {
 dotenv.config({ path: resolveRuntimeEnvPath(process.env, ".env") });
 
 const DEFAULT_CHAIN_ID = getSettingDefaultNumber("CHAIN_ID");
-const DEFAULT_RPC_RETRY_MAX_ATTEMPTS = getSettingDefaultNumber(
-    "RPC_RETRY_MAX_ATTEMPTS",
-);
-const DEFAULT_RPC_RETRY_BASE_DELAY_MS = getSettingDefaultNumber(
-    "RPC_RETRY_BASE_DELAY_MS",
-);
-const DEFAULT_RPC_RETRY_MAX_DELAY_MS = getSettingDefaultNumber(
-    "RPC_RETRY_MAX_DELAY_MS",
-);
-const DEFAULT_RPC_RATE_LIMIT_REQUESTS_PER_SECOND = getSettingDefaultNumber(
-    "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-);
-const DEFAULT_RPC_RATE_LIMIT_BURST = getSettingDefaultNumber(
-    "RPC_RATE_LIMIT_BURST",
-);
-const DEFAULT_RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD = getSettingDefaultNumber(
-    "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-);
-const DEFAULT_RPC_CIRCUIT_BREAKER_OPEN_MS = getSettingDefaultNumber(
-    "RPC_CIRCUIT_BREAKER_OPEN_MS",
-);
-const DEFAULT_RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS =
-    getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS");
 const DEFAULT_NATS_URL = getSettingDefault("NATS_URL");
 const DEFAULT_NATS_STREAM_PREFIX = getSettingDefault("NATS_STREAM_PREFIX");
 const DEFAULT_REORG_DEPTH = getSettingDefaultNumber("REORG_DEPTH");
@@ -93,25 +87,11 @@ export type IndexerConfig = {
     dbPath: string;
     chainId: number;
     rpc: {
-        primaryUrl: string;
-        backfillUrl?: string;
-        wsUrl?: string;
-        retryPolicy: {
-            maxAttempts: number;
-            baseDelayMs: number;
-            maxDelayMs: number;
-        };
-        resilience: {
-            rateLimiter: {
-                requestsPerSecond: number;
-                burst: number;
-            };
-            circuitBreaker: {
-                failureThreshold: number;
-                openMs: number;
-                halfOpenMaxRequests: number;
-            };
-        };
+        endpoints: RpcEndpointConfig[];
+        backfillEndpoints?: RpcEndpointConfig[];
+        wsEndpoints?: RpcWebSocketEndpointConfig[];
+        retryPolicy: RpcRetryPolicy;
+        resilience: RpcEndpointResilienceConfig;
     };
     tokens: {
         wethAddress: string;
@@ -172,10 +152,22 @@ export function loadConfig(
 ): IndexerConfig {
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
     const chainId = parseNumber(env.CHAIN_ID, "CHAIN_ID", DEFAULT_CHAIN_ID);
-    const rpcUrl = env.RPC_URL;
-    if (!rpcUrl) {
-        throw new Error("Missing RPC_URL");
-    }
+    const rpcEndpoints = parseRpcEndpointConfigList(
+        env[RPC_ENDPOINT_LIST_ENV_KEY],
+        RPC_ENDPOINT_LIST_ENV_KEY,
+    );
+    const backfillEndpoints = env[RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY]?.trim()
+        ? parseRpcEndpointConfigList(
+              env[RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY],
+              RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY,
+          )
+        : undefined;
+    const wsEndpoints = env[RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]?.trim()
+        ? parseRpcWebSocketEndpointConfigList(
+              env[RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY],
+              RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
+          )
+        : undefined;
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
 
@@ -183,57 +175,11 @@ export function loadConfig(
         dbPath,
         chainId,
         rpc: {
-            primaryUrl: rpcUrl,
-            backfillUrl: env.RPC_BACKFILL_URL,
-            wsUrl: env.RPC_WS_URL,
-            retryPolicy: {
-                maxAttempts: parseNumber(
-                    env.RPC_RETRY_MAX_ATTEMPTS,
-                    "RPC_RETRY_MAX_ATTEMPTS",
-                    DEFAULT_RPC_RETRY_MAX_ATTEMPTS,
-                ),
-                baseDelayMs: parseNumber(
-                    env.RPC_RETRY_BASE_DELAY_MS,
-                    "RPC_RETRY_BASE_DELAY_MS",
-                    DEFAULT_RPC_RETRY_BASE_DELAY_MS,
-                ),
-                maxDelayMs: parseNumber(
-                    env.RPC_RETRY_MAX_DELAY_MS,
-                    "RPC_RETRY_MAX_DELAY_MS",
-                    DEFAULT_RPC_RETRY_MAX_DELAY_MS,
-                ),
-            },
-            resilience: {
-                rateLimiter: {
-                    requestsPerSecond: parseNumber(
-                        env.RPC_RATE_LIMIT_REQUESTS_PER_SECOND,
-                        "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-                        DEFAULT_RPC_RATE_LIMIT_REQUESTS_PER_SECOND,
-                    ),
-                    burst: parseNumber(
-                        env.RPC_RATE_LIMIT_BURST,
-                        "RPC_RATE_LIMIT_BURST",
-                        DEFAULT_RPC_RATE_LIMIT_BURST,
-                    ),
-                },
-                circuitBreaker: {
-                    failureThreshold: parseNumber(
-                        env.RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
-                        "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-                        DEFAULT_RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
-                    ),
-                    openMs: parseNumber(
-                        env.RPC_CIRCUIT_BREAKER_OPEN_MS,
-                        "RPC_CIRCUIT_BREAKER_OPEN_MS",
-                        DEFAULT_RPC_CIRCUIT_BREAKER_OPEN_MS,
-                    ),
-                    halfOpenMaxRequests: parseNumber(
-                        env.RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS,
-                        "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-                        DEFAULT_RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS,
-                    ),
-                },
-            },
+            endpoints: rpcEndpoints,
+            backfillEndpoints,
+            wsEndpoints,
+            retryPolicy: parseRpcRetryPolicy(env),
+            resilience: parseRpcEndpointResilienceConfig(env),
         },
         tokens: {
             wethAddress: parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS"),

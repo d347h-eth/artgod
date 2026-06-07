@@ -4,17 +4,82 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+    RPC_RESILIENCE_ENV_KEY,
+} from "@artgod/shared/config/rpc-resilience";
+import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
+
+const TEST_RPC_REQUEST_TIMEOUT_MS = 2_500;
 
 describe("loadBackendConfig", () => {
     it("normalizes canonical address config to lowercase", () => {
         const config = loadBackendConfig(createBaseEnv());
 
-        expect(config.rpcUrl).toBe("http://127.0.0.1:42721");
+        expect(config.rpc).toEqual({
+            endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
+            ...expectedDefaultRpcPolicy(),
+        });
         expect(config.wethAddress).toBe(
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
         );
+    });
+
+    it("parses weighted RPC endpoint pools", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            [RPC_ENDPOINT_LIST_ENV_KEY]:
+                '[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]',
+        });
+
+        expect(config.rpc).toEqual({
+            endpoints: [
+                { url: "https://rpc-a.example", weight: 2 },
+                { url: "https://rpc-b.example", weight: 1 },
+            ],
+            ...expectedDefaultRpcPolicy(),
+        });
+    });
+
+    it("parses backend RPC resilience overrides", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            [RPC_RESILIENCE_ENV_KEY.HttpRequestTimeoutMs]: String(
+                TEST_RPC_REQUEST_TIMEOUT_MS,
+            ),
+            [RPC_RESILIENCE_ENV_KEY.RetryMaxAttempts]: "3",
+            [RPC_RESILIENCE_ENV_KEY.RetryBaseDelayMs]: "50",
+            [RPC_RESILIENCE_ENV_KEY.RetryMaxDelayMs]: "500",
+            [RPC_RESILIENCE_ENV_KEY.RateLimitRequestsPerSecond]: "0",
+            [RPC_RESILIENCE_ENV_KEY.RateLimitBurst]: "25",
+            [RPC_RESILIENCE_ENV_KEY.CircuitBreakerFailureThreshold]: "2",
+            [RPC_RESILIENCE_ENV_KEY.CircuitBreakerOpenMs]: "1000",
+            [RPC_RESILIENCE_ENV_KEY.CircuitBreakerHalfOpenMaxRequests]: "1",
+        });
+
+        expect(config.rpc).toEqual({
+            endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
+            retryPolicy: {
+                maxAttempts: 3,
+                baseDelayMs: 50,
+                maxDelayMs: 500,
+            },
+            resilience: {
+                requestTimeoutMs: TEST_RPC_REQUEST_TIMEOUT_MS,
+                rateLimiter: {
+                    requestsPerSecond: 0,
+                    burst: 25,
+                },
+                circuitBreaker: {
+                    failureThreshold: 2,
+                    openMs: 1000,
+                    halfOpenMaxRequests: 1,
+                },
+            },
+        });
     });
 
     it("defaults backend query cache to disabled", () => {
@@ -264,7 +329,8 @@ function createBaseEnv(): Record<string, string> {
         BACKEND_PORT: "42710",
         CHAIN_ID: "1",
         ARTGOD_DB_PATH: "database/sqlite/main/db",
-        RPC_URL: "http://127.0.0.1:42721",
+        [RPC_ENDPOINT_LIST_ENV_KEY]:
+            '[{"url":"https://rpc-a.example","weight":1}]',
         WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
         NATS_URL: "nats://127.0.0.1:42720",
         NATS_STREAM_PREFIX: "artgod",
@@ -272,5 +338,12 @@ function createBaseEnv(): Record<string, string> {
         BACKEND_ALLOWED_ORIGINS:
             "http://127.0.0.1:42710,http://localhost:42710,http://127.0.0.1:42701,http://localhost:42701",
         BACKEND_CSRF_COOKIE_SECURE: "false",
+    };
+}
+
+function expectedDefaultRpcPolicy() {
+    return {
+        retryPolicy: getDefaultRpcRetryPolicy(),
+        resilience: getDefaultRpcEndpointResilienceConfig(),
     };
 }

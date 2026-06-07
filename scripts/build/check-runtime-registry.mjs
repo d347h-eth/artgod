@@ -50,7 +50,7 @@ const INDEXER_OBSERVABILITY_CONFIG_PATH = path.join(
     "observability-env.ts",
 );
 const ENV_EXAMPLE_PATH = path.join(rootDir, ".env.example");
-const NON_INDEXER_PROMETHEUS_RUNTIMES = new Set(["backend-api"]);
+const NON_RUNTIME_PROMETHEUS_RUNTIMES = new Set(["backend-api"]);
 
 function stableSorted(values) {
     return [...values].sort((a, b) => a.localeCompare(b));
@@ -78,6 +78,17 @@ function toMetricsEnvVar(workerArtifactName) {
     return `INDEXER_METRICS_PORT_${workerArtifactName
         .replace(/-/g, "_")
         .toUpperCase()}`;
+}
+
+function toTradingMetricsRuntime(botArtifactName) {
+    return botArtifactName.replace(/-runtime$/, "");
+}
+
+function toTradingMetricsRuntimeFromEnvVar(envVar) {
+    return envVar
+        .replace(/^TRADING_METRICS_PORT_/, "")
+        .toLowerCase()
+        .replace(/_/g, "-");
 }
 
 function assertNoUnknownEntries({ source, expected, actual, errors }) {
@@ -159,7 +170,9 @@ async function parseSupervisorWorkers() {
     }
 
     if (artifactNames.size === 0) {
-        throw new Error("Failed to parse INDEXER_WORKERS from process_registry.rs");
+        throw new Error(
+            "Failed to parse INDEXER_WORKERS from process_registry.rs",
+        );
     }
 
     return { processNames, artifactNames };
@@ -176,7 +189,9 @@ async function parseBotRuntimeArtifacts() {
     }
 
     if (artifacts.size === 0) {
-        throw new Error("Failed to parse bot runtime artifacts from bot_runtime.rs");
+        throw new Error(
+            "Failed to parse bot runtime artifacts from bot_runtime.rs",
+        );
     }
 
     return artifacts;
@@ -269,6 +284,18 @@ async function parseMetricsEnvVars() {
     return vars;
 }
 
+async function parseTradingMetricsEnvVars() {
+    const source = await readFile(ENV_EXAMPLE_PATH, "utf8");
+    const vars = new Set();
+    const pattern = /^(TRADING_METRICS_PORT_[A-Z0-9_]+)=/gm;
+
+    for (const match of source.matchAll(pattern)) {
+        vars.add(match[1]);
+    }
+
+    return vars;
+}
+
 async function main() {
     const errors = [];
 
@@ -290,6 +317,7 @@ async function main() {
     const prometheusRuntimes = await parsePrometheusRuntimes();
     const metricsConfigKeys = await parseMetricsConfigKeys();
     const metricsEnvVars = await parseMetricsEnvVars();
+    const tradingMetricsEnvVars = await parseTradingMetricsEnvVars();
 
     assertNoMissingEntries({
         source: "desktop process registry INDEXER_WORKERS artifacts",
@@ -382,23 +410,26 @@ async function main() {
         errors,
     });
 
-    const expectedPrometheusRuntimes = new Set(
-        [...runtimeWorkers].map((name) => toMetricsRuntime(name)),
-    );
-    const prometheusIndexerRuntimes = withoutSet(
+    const expectedPrometheusRuntimes = new Set([
+        ...[...runtimeWorkers].map((name) => toMetricsRuntime(name)),
+        ...[...tradingMetricsEnvVars].map((name) =>
+            toTradingMetricsRuntimeFromEnvVar(name),
+        ),
+    ]);
+    const prometheusRuntimeLabels = withoutSet(
         prometheusRuntimes,
-        NON_INDEXER_PROMETHEUS_RUNTIMES,
+        NON_RUNTIME_PROMETHEUS_RUNTIMES,
     );
     assertNoMissingEntries({
         source: "observability/prometheus runtime labels",
         expected: expectedPrometheusRuntimes,
-        actual: prometheusIndexerRuntimes,
+        actual: prometheusRuntimeLabels,
         errors,
     });
     assertNoUnknownEntries({
         source: "observability/prometheus runtime labels",
         expected: expectedPrometheusRuntimes,
-        actual: prometheusIndexerRuntimes,
+        actual: prometheusRuntimeLabels,
         errors,
     });
 
@@ -417,6 +448,20 @@ async function main() {
             [...runtimeWorkers].map((name) => toMetricsEnvVar(name)),
         ),
         actual: metricsEnvVars,
+        errors,
+    });
+    assertNoUnknownEntries({
+        source: ".env.example trading metrics env vars",
+        expected: new Set(
+            [...runtimeTradingArtifacts].map((name) =>
+                toTradingMetricsRuntime(name),
+            ),
+        ),
+        actual: new Set(
+            [...tradingMetricsEnvVars].map((name) =>
+                toTradingMetricsRuntimeFromEnvVar(name),
+            ),
+        ),
         errors,
     });
 

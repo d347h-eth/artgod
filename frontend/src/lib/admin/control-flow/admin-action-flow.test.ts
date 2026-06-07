@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { RPC_ENDPOINT_LIST_ENV_KEY } from '@artgod/shared/config/rpc-endpoints';
 
 import {
 	ADMIN_ACTION_FLOW_LABELS,
@@ -9,12 +10,12 @@ import type { AdminConfigState } from '$lib/admin/configuration/ports';
 import type { LifecyclePhase } from '$lib/runtime/lifecycle/core/types';
 import type { RuntimeStatus } from '$lib/runtime/lifecycle/ports';
 
-const REQUIRED_RPC_KEY = 'RPC_URL';
+const REQUIRED_RPC_KEY = RPC_ENDPOINT_LIST_ENV_KEY;
 
 function configState(
 	configured: boolean,
 	values: Record<string, string> = {
-		[REQUIRED_RPC_KEY]: 'https://rpc.example'
+		[REQUIRED_RPC_KEY]: '[{"url":"https://rpc.example","weight":1}]'
 	}
 ): AdminConfigState {
 	return {
@@ -33,13 +34,13 @@ function configState(
 				fields: [
 					{
 						key: REQUIRED_RPC_KEY,
-						label: 'rpc url',
-						inputKind: 'text',
+						label: 'rpc endpoints',
+						inputKind: 'weighted_endpoint_list',
 						secret: false,
 						options: [],
 						help: '',
 						requiredForLaunch: true,
-						validation: 'url',
+						validation: 'rpc_endpoint_list',
 						view: 'basic'
 					}
 				]
@@ -109,7 +110,9 @@ describe('resolveAdminActionFlow', () => {
 		expect(state.state).toBe(ADMIN_FLOW_STATES.needsConfig);
 		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.bootWithDefaults);
 		expect(state.boot.disabled).toBe(true);
-		expect(state.boot.disabledReason).toBe('Required configuration is missing: RPC_URL');
+		expect(state.boot.disabledReason).toBe(
+			`Required configuration is missing: ${RPC_ENDPOINT_LIST_ENV_KEY}`
+		);
 		expect(state.boot.requiredConfigIssueKeys).toEqual([REQUIRED_RPC_KEY]);
 	});
 
@@ -123,7 +126,9 @@ describe('resolveAdminActionFlow', () => {
 		expect(state.state).toBe(ADMIN_FLOW_STATES.needsRequiredConfig);
 		expect(state.boot.label).toBe(ADMIN_ACTION_FLOW_LABELS.boot);
 		expect(state.boot.disabled).toBe(true);
-		expect(state.boot.disabledReason).toBe('Required configuration is missing: RPC_URL');
+		expect(state.boot.disabledReason).toBe(
+			`Required configuration is missing: ${RPC_ENDPOINT_LIST_ENV_KEY}`
+		);
 	});
 
 	it('explains invalid required launch configuration', () => {
@@ -136,7 +141,7 @@ describe('resolveAdminActionFlow', () => {
 		expect(state.state).toBe(ADMIN_FLOW_STATES.needsRequiredConfig);
 		expect(state.boot.disabled).toBe(true);
 		expect(state.boot.disabledReason).toBe(
-			'Required configuration is missing or invalid: RPC_URL'
+			`Required configuration is missing or invalid: ${RPC_ENDPOINT_LIST_ENV_KEY}`
 		);
 	});
 

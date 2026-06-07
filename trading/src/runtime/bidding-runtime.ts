@@ -1,5 +1,15 @@
 import { setDbPath } from "@artgod/shared/database";
 import {
+    createResilientWeightedRpcTransport,
+    createWeightedRpcTransport,
+} from "@artgod/shared/evm/weighted-rpc-transport";
+import type { Metrics } from "@artgod/shared/observability/metrics";
+import {
+    RPC_OBSERVABILITY_WORKSPACE,
+    RPC_PROTOCOL,
+    RpcObservability,
+} from "@artgod/shared/observability/rpc";
+import {
     TRADING_BOT_KIND,
     TRADING_BOT_RUNTIME_STATE,
 } from "@artgod/shared/types";
@@ -14,7 +24,6 @@ import {
     createPublicClient,
     createWalletClient,
     formatEther,
-    http,
     type Hex,
     type PublicClient,
     type WalletClient,
@@ -55,6 +64,12 @@ import {
     toErrorLogFields,
 } from "../utils/bidding-log.js";
 import { startBiddingCommandReconciliationLoop } from "./bidding-command-reconciliation-loop.js";
+import { createOpenSeaSdkRpcConnection } from "./opensea-sdk-rpc-connection.js";
+import {
+    TRADING_RPC_ENDPOINT_ID_PREFIX,
+    TRADING_RPC_LOG_COMPONENT,
+    TRADING_RPC_OBSERVABILITY_COMPONENT,
+} from "./observability.js";
 import type {
     OpenSeaApiClient,
     OpenSeaBiddingSdkClient,
@@ -73,6 +88,7 @@ type StartBiddingRuntimeParams = {
     makerAddress: string;
     walletId: string;
     lifecycle: BiddingRuntimeLifecyclePort;
+    metrics: Metrics;
 };
 
 type RegisteredBidStream = {
@@ -81,9 +97,7 @@ type RegisteredBidStream = {
     listener: StreamListener;
 };
 
-const log = createBiddingComponentLogger(
-    BIDDING_LOG_COMPONENT.BiddingRuntime,
-);
+const log = createBiddingComponentLogger(BIDDING_LOG_COMPONENT.BiddingRuntime);
 const openSeaSdkLog = createBiddingComponentLogger(
     BIDDING_LOG_COMPONENT.OpenSeaSdk,
 );
@@ -148,23 +162,49 @@ export async function startBiddingRuntime(
     const tokenMetadataRepository = new SqliteTokenMetadataRepository(
         params.config.chainId,
     );
-    const publicClient = createPublicClient({
+    assertConfiguredRpcEndpoints(params.config.rpc.endpoints);
+    const readOnlyRpcTransport = createResilientWeightedRpcTransport(
+        params.config.rpc.endpoints,
+        {
+            endpointIdPrefix:
+                TRADING_RPC_ENDPOINT_ID_PREFIX.BiddingReadOnlyViem,
+            rpcObservability: createTradingRpcObservability(
+                params.metrics,
+                TRADING_RPC_OBSERVABILITY_COMPONENT.BiddingReadOnlyViem,
+            ),
+            resilience: params.config.rpc.resilience,
+            retryPolicy: params.config.rpc.retryPolicy,
+        },
+    );
+    const readOnlyPublicClient = createPublicClient({
         chain: mainnet,
-        transport: http(params.config.rpc.primaryUrl),
+        transport: readOnlyRpcTransport,
     });
     const makerWethBalanceService = new ViemMakerWethBalanceService(
-        publicClient,
+        readOnlyPublicClient,
         params.config.tokens.wethAddress,
     );
-    const walletClient = createWalletClient({
+    const writeCapableRpcTransport = createWeightedRpcTransport(
+        params.config.rpc.endpoints,
+        {
+            endpointIdPrefix:
+                TRADING_RPC_ENDPOINT_ID_PREFIX.BiddingWriteCapableViem,
+            rpcObservability: createTradingRpcObservability(
+                params.metrics,
+                TRADING_RPC_OBSERVABILITY_COMPONENT.BiddingWriteCapableViem,
+            ),
+            requestTimeoutMs: params.config.rpc.resilience.requestTimeoutMs,
+        },
+    );
+    const writeCapableWalletClient = createWalletClient({
         account: privateKeyToAccount(params.privateKeyHex),
         chain: mainnet,
-        transport: http(params.config.rpc.primaryUrl),
+        transport: writeCapableRpcTransport,
     });
     const openSeaConduit = getDefaultConduit(Chain.Mainnet);
     const wethAllowanceApprovalService = new ViemWethAllowanceApprovalService(
-        publicClient,
-        walletClient,
+        readOnlyPublicClient,
+        writeCapableWalletClient,
         params.config.tokens.wethAddress,
         openSeaConduit.address,
         params.biddingConfig.transactionPolicy,
@@ -200,22 +240,39 @@ export async function startBiddingRuntime(
         total: allowanceApprovalTotal,
         detail: `status=${allowanceResult.status}, desired=${formatWeth(allowanceResult.desiredAllowanceWei)}, current=${formatOptionalWeth(allowanceResult.currentAllowanceWei)}`,
     });
-    log.info("allowanceBootstrapComplete", "Allowance approval bootstrap complete", {
-        status: allowanceResult.status,
-        desiredAllowanceWei: allowanceResult.desiredAllowanceWei.toString(),
-        desiredAllowanceWeth: formatWeth(allowanceResult.desiredAllowanceWei),
-        currentAllowanceWei:
-            allowanceResult.currentAllowanceWei?.toString() ?? null,
-        currentAllowanceWeth: formatOptionalWeth(
-            allowanceResult.currentAllowanceWei,
-        ),
-    });
+    log.info(
+        "allowanceBootstrapComplete",
+        "Allowance approval bootstrap complete",
+        {
+            status: allowanceResult.status,
+            desiredAllowanceWei: allowanceResult.desiredAllowanceWei.toString(),
+            desiredAllowanceWeth: formatWeth(
+                allowanceResult.desiredAllowanceWei,
+            ),
+            currentAllowanceWei:
+                allowanceResult.currentAllowanceWei?.toString() ?? null,
+            currentAllowanceWeth: formatOptionalWeth(
+                allowanceResult.currentAllowanceWei,
+            ),
+        },
+    );
 
     // Create the write-capable OpenSea SDK lane for live offer discovery, placement, and cancellation.
+    const sdkRpcConnection = createOpenSeaSdkRpcConnection(
+        params.config.rpc.endpoints,
+        {
+            endpointIdPrefix: TRADING_RPC_ENDPOINT_ID_PREFIX.OpenSeaSdk,
+            rpcObservability: createTradingRpcObservability(
+                params.metrics,
+                TRADING_RPC_OBSERVABILITY_COMPONENT.OpenSeaSdk,
+            ),
+            requestTimeoutMs: params.config.rpc.resilience.requestTimeoutMs,
+        },
+    );
     const biddingSdk = createBiddingSdkClient(
-        publicClient as unknown as PublicClient,
-        walletClient as WalletClient,
-        params.config.rpc.primaryUrl,
+        readOnlyPublicClient as unknown as PublicClient,
+        writeCapableWalletClient as WalletClient,
+        sdkRpcConnection,
         params.biddingConfig.openSea.biddingSecretKey,
     );
     const bidBookProjection = new BiddingBidBookProjectionScheduler(
@@ -332,10 +389,14 @@ export async function startBiddingRuntime(
             collectionSlug,
             registerBidStream(streamClient, collectionSlug, bidPipeline),
         );
-        log.info("bidStreamSubscribed", "Subscribed direct OpenSea bid stream", {
-            collectionSlug,
-            streamCollectionCount: bidStreams.size,
-        });
+        log.info(
+            "bidStreamSubscribed",
+            "Subscribed direct OpenSea bid stream",
+            {
+                collectionSlug,
+                streamCollectionCount: bidStreams.size,
+            },
+        );
         return true;
     };
     const disposeBidStream = (collectionSlug: string): boolean => {
@@ -357,7 +418,9 @@ export async function startBiddingRuntime(
         );
         return true;
     };
-    const reconcileBidStreams = (collectionSlugs: string[]): {
+    const reconcileBidStreams = (
+        collectionSlugs: string[],
+    ): {
         added: number;
         removed: number;
     } => {
@@ -632,14 +695,15 @@ async function startBiddingJobCommandSignalListener(
 function createBiddingSdkClient(
     publicClient: PublicClient,
     walletClient: WalletClient,
-    rpcUrl: string,
+    rpcUrl: unknown,
     apiKey: string,
 ): OpenSeaBiddingSdkClient {
     const sdk = new OpenSeaSDK(
         {
             publicClient,
             walletClient,
-            rpcUrl,
+            // OpenSea types this as a string, but passes the runtime value into its provider bridge unchanged.
+            rpcUrl: rpcUrl as string,
         },
         {
             chain: Chain.Mainnet,
@@ -675,6 +739,27 @@ function createBiddingSdkClient(
                 useSignerToDeriveOffererSignature,
             ),
     };
+}
+
+function createTradingRpcObservability(
+    metrics: Metrics,
+    component: string,
+): RpcObservability {
+    return new RpcObservability({
+        workspace: RPC_OBSERVABILITY_WORKSPACE.Trading,
+        component,
+        protocol: RPC_PROTOCOL.Http,
+        metrics,
+        logComponent: TRADING_RPC_LOG_COMPONENT,
+    });
+}
+
+function assertConfiguredRpcEndpoints(
+    endpoints: readonly { url: string }[],
+): void {
+    if (endpoints.length === 0) {
+        throw new Error("Bidding runtime requires at least one RPC endpoint");
+    }
 }
 
 function createSnapshotApiClient(apiKey: string): OpenSeaApiClient {

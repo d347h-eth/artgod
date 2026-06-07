@@ -1,16 +1,34 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "vitest";
 import { parseEther } from "viem";
-import { loadTradingConfig } from "./trading-config.js";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+    RPC_RESILIENCE_ENV_KEY,
+} from "@artgod/shared/config/rpc-resilience";
+import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
+import {
+    loadTradingConfig,
+    TRADING_METRICS_ENV_KEY,
+} from "./trading-config.js";
 
 const requiredBaseEnv = {
     ARTGOD_DB_PATH: "database/sqlite/main/db",
     CHAIN_ID: "1",
-    RPC_URL: "http://127.0.0.1:42721",
+    [RPC_ENDPOINT_LIST_ENV_KEY]:
+        '[{"url":"http://127.0.0.1:42721","weight":1}]',
     NATS_URL: "nats://127.0.0.1:42720",
     NATS_STREAM_PREFIX: "artgod",
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
 } satisfies Record<string, string>;
+
+const TEST_RPC_REQUEST_TIMEOUT_MS = 2_500;
+const TEST_RPC_ENDPOINT_A = "https://rpc-a.example";
+const TEST_RPC_ENDPOINT_B = "https://rpc-b.example";
+const TEST_WEIGHTED_RPC_ENDPOINTS_JSON = JSON.stringify([
+    { url: TEST_RPC_ENDPOINT_A, weight: 3 },
+    { url: TEST_RPC_ENDPOINT_B, weight: 1 },
+]);
 
 describe("loadTradingConfig", () => {
     it("loads enabled bidding config with defaults", () => {
@@ -28,7 +46,21 @@ describe("loadTradingConfig", () => {
         );
 
         assert.equal(config.chainId, 1);
-        assert.equal(config.rpc.primaryUrl, "http://127.0.0.1:42721");
+        assert.deepEqual(config.rpc.endpoints, [
+            { url: "http://127.0.0.1:42721", weight: 1 },
+        ]);
+        assert.deepEqual(
+            config.rpc.resilience,
+            getDefaultRpcEndpointResilienceConfig(),
+        );
+        assert.deepEqual(config.rpc.retryPolicy, getDefaultRpcRetryPolicy());
+        assert.deepEqual(config.metrics, {
+            enabled: false,
+            host: "0.0.0.0",
+            ports: {
+                biddingBot: 42753,
+            },
+        });
         assert.equal(config.queue.natsUrl, "nats://127.0.0.1:42720");
         assert.equal(config.queue.streamPrefix, "artgod");
         assert.equal(
@@ -63,6 +95,54 @@ describe("loadTradingConfig", () => {
             config.bidding.criteriaRefreshTraitsByCollection.terraforms,
             ["Zone", "Biome", "Level"],
         );
+    });
+
+    it("parses weighted RPC endpoint pools", () => {
+        const config = loadTradingConfig(
+            {
+                ...requiredBaseEnv,
+                [RPC_ENDPOINT_LIST_ENV_KEY]: TEST_WEIGHTED_RPC_ENDPOINTS_JSON,
+                [RPC_RESILIENCE_ENV_KEY.HttpRequestTimeoutMs]: String(
+                    TEST_RPC_REQUEST_TIMEOUT_MS,
+                ),
+                BIDDING_ENABLED: "false",
+            },
+            {
+                envFilePath: "/tmp/artgod/runtime.env",
+            },
+        );
+
+        assert.deepEqual(config.rpc.endpoints, [
+            { url: TEST_RPC_ENDPOINT_A, weight: 3 },
+            { url: TEST_RPC_ENDPOINT_B, weight: 1 },
+        ]);
+        assert.equal(
+            config.rpc.resilience.requestTimeoutMs,
+            TEST_RPC_REQUEST_TIMEOUT_MS,
+        );
+    });
+
+    it("parses trading metrics endpoint config", () => {
+        const config = loadTradingConfig(
+            {
+                ...requiredBaseEnv,
+                BIDDING_ENABLED: "false",
+                [TRADING_METRICS_ENV_KEY.Enabled]: "true",
+                [TRADING_METRICS_ENV_KEY.Host]: "127.0.0.1",
+                [TRADING_METRICS_ENV_KEY.PortBiddingBot]: "49001",
+            },
+            {
+                envFilePath: "/tmp/artgod/runtime.env",
+            },
+        );
+
+        assert.deepEqual(config.metrics, {
+            enabled: true,
+            host: "127.0.0.1",
+            ports: {
+                biddingBot: 49001,
+            },
+        });
     });
 
     it("does not require bot keys or jobs file when bidding is disabled", () => {

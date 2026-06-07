@@ -339,7 +339,7 @@ Recommended config groups:
 
 Compatibility decisions:
 
-- use ArtGod `RPC_URL`, not upstream `ETH_RPC_URL`
+- use ArtGod `RPC_URL_LIST`, not upstream `ETH_RPC_URL`
 - do not introduce `ETH_MAKER_KEY`
 - do not introduce `ETH_MAKER_ADDRESS`
 

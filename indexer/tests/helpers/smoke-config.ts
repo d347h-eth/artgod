@@ -1,5 +1,5 @@
 export type SmokeConfig = {
-    rpcUrl: string;
+    rpcEndpoints: string;
     chainId: number;
     collections: string;
     fromBlock: number;
@@ -7,27 +7,37 @@ export type SmokeConfig = {
     natsPort: number;
 };
 
+// Env key for the smoke-test weighted HTTP JSON-RPC endpoint list.
+export const SMOKE_RPC_ENDPOINT_LIST_ENV_KEY = "SMOKE_RPC_URL_LIST";
+
 export function loadSmokeConfig(
     env: Record<string, string | undefined>,
 ): SmokeConfig {
-    const rpcUrl = env.SMOKE_RPC_URL;
+    const rpcEndpoints = env[SMOKE_RPC_ENDPOINT_LIST_ENV_KEY];
     const collections = env.SMOKE_TARGET_COLLECTIONS;
     const fromBlock = parseNumber(env.SMOKE_RANGE_FROM);
     const toBlock = parseNumber(env.SMOKE_RANGE_TO);
     const natsPort = parsePort(env.SMOKE_NATS_PORT);
     if (
-        !rpcUrl ||
+        !rpcEndpoints ||
         !collections ||
         fromBlock === null ||
         toBlock === null ||
         natsPort === null
     ) {
         throw new Error(
-            "Missing or invalid SMOKE_* configuration (SMOKE_RPC_URL, SMOKE_TARGET_COLLECTIONS, SMOKE_RANGE_FROM, SMOKE_RANGE_TO, SMOKE_NATS_PORT)",
+            `Missing or invalid SMOKE_* configuration (${SMOKE_RPC_ENDPOINT_LIST_ENV_KEY}, SMOKE_TARGET_COLLECTIONS, SMOKE_RANGE_FROM, SMOKE_RANGE_TO, SMOKE_NATS_PORT)`,
         );
     }
     const chainId = parseNumber(env.SMOKE_CHAIN_ID) ?? 1;
-    return { rpcUrl, chainId, collections, fromBlock, toBlock, natsPort };
+    return {
+        rpcEndpoints,
+        chainId,
+        collections,
+        fromBlock,
+        toBlock,
+        natsPort,
+    };
 }
 
 function parseNumber(value: string | undefined): number | null {

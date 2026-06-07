@@ -12,6 +12,10 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
+import {
+    resolveRpcEndpointUrl,
+    RPC_ENDPOINT_LIST_ENV_KEY,
+} from "../config/rpc-endpoint-pool.mjs";
 
 function parseArgs(argv) {
     const args = {
@@ -107,7 +111,7 @@ function usage() {
         "       yarn debug:ethereum-node --private-key <0x...> --send-self-transfer --confirm-mainnet-send",
         "",
         "Options:",
-        "  --rpc                  JSON-RPC URL, defaults to RPC_URL",
+        `  --rpc                  JSON-RPC URL override; ${RPC_ENDPOINT_LIST_ENV_KEY} env uses the endpoint JSON array`,
         "  --address              Account address to inspect",
         "  --tx                   Transaction hash to inspect; may be repeated",
         "  --send-self-transfer   Broadcast a 0 ETH self-transfer to test send path",
@@ -132,10 +136,13 @@ function loadConfig(env, argv) {
         ? privateKeyToAccount(asPrivateKey(privateKey))
         : null;
     const address = args.address ?? account?.address;
-    const rpcUrl = args.rpc ?? env.RPC_URL;
+    const rpcUrl = resolveRpcEndpointUrl({
+        cliValue: args.rpc,
+        envValue: env[RPC_ENDPOINT_LIST_ENV_KEY],
+    });
 
     if (!rpcUrl) {
-        throw new Error(`Missing RPC_URL.\n${usage()}`);
+        throw new Error(`Missing ${RPC_ENDPOINT_LIST_ENV_KEY}.\n${usage()}`);
     }
     if (!address) {
         throw new Error(`Missing account address.\n${usage()}`);

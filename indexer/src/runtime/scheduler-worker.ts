@@ -6,6 +6,10 @@ import { InMemoryCache } from "../infra/cache/memory.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
 import { ViemWebSocketHeadSource } from "../infra/rpc/viem-ws.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "../infra/rpc/observability.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
 
@@ -39,16 +43,24 @@ async function main() {
             metrics: runtimeMetrics.metrics,
         });
         const rpc = new ViemRpcProvider({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             cache,
             metrics: runtimeMetrics.metrics,
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.SchedulerHttp,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.SchedulerHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });
 
-        const headSource = config.rpc.wsUrl
-            ? new ViemWebSocketHeadSource(config.rpc.wsUrl)
+        const headSource = config.rpc.wsEndpoints
+            ? new ViemWebSocketHeadSource(config.rpc.wsEndpoints, {
+                  metrics: runtimeMetrics.metrics,
+                  component:
+                      INDEXER_RPC_OBSERVABILITY_COMPONENT.SchedulerWebSocket,
+                  endpointIdPrefix:
+                      INDEXER_RPC_ENDPOINT_ID_PREFIX.SchedulerWebSocket,
+              })
             : undefined;
         const stopSchedulerWorker = await startSchedulerWorker(
             rpc,

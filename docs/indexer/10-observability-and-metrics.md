@@ -79,9 +79,11 @@ Observability containers run behind the `observability` compose profile in `dock
     - `42750` opensea-reconcile-worker
     - `42751` opensea-reconcile-scheduler-worker
     - `42752` collection-extension-worker
+    - `42753` bidding-bot
 - Runtime metrics bootstrap:
     - `shared/observability/metrics/runtime.ts` initializes generic runtime metrics only when enabled.
     - `backend/src/observability/metrics.ts` initializes backend-specific metrics with the `artgod_backend_` prefix.
+    - `trading/src/runtime/bot-runtime.ts` initializes bidding-bot metrics with the `artgod_trading_` prefix.
     - `shared/observability/metrics/prometheus.ts` lazily imports `prom-client`.
     - `shared/observability/metrics/server.ts` exposes `/metrics` and `/healthz`.
 
@@ -116,6 +118,9 @@ Main env flags (declared in `config/settings.manifest.toml`, generated into `.en
 - `BACKEND_METRICS_ENABLED`
 - `BACKEND_METRICS_HOST`
 - `BACKEND_METRICS_PORT`
+- `TRADING_METRICS_ENABLED`
+- `TRADING_METRICS_HOST`
+- `TRADING_METRICS_PORT_BIDDING_BOT`
 - `INDEXER_APM_ENABLED`
 - `INDEXER_APM_SERVICE_NAMESPACE`
 - `INDEXER_APM_TRACES_ENABLED`
@@ -135,7 +140,7 @@ Design notes:
 
 - metrics and APM exporters are optional and degrade to no-op paths when disabled.
 - packages are loaded lazily at runtime; missing packages do not crash observability-disabled runs.
-- Observability config accepts workspace-specific names (`INDEXER_*`, `BACKEND_*`) and composition-level endpoint names (`OBSERVABILITY_*`) only.
+- Observability config accepts workspace-specific names (`INDEXER_*`, `BACKEND_*`, `TRADING_*`) and composition-level endpoint names (`OBSERVABILITY_*`) only.
 
 ## What Is Instrumented Today
 
@@ -340,15 +345,64 @@ bounds for UI range filtering.
 
 The backend APM service name is `${BACKEND_APM_SERVICE_NAMESPACE}.api`; by default that is `artgod.backend.api`.
 
-### Metrics (current hooks)
+### RPC Logs and Metrics
 
-RPC (`indexer/src/infra/rpc/viem.ts`):
+Backend, indexer, and trading RPC adapters emit dedicated structured logs and matching
+Prometheus metrics for JSON-RPC calls, endpoint attempts, retry scheduling,
+rate-limit waits, circuit-open events, endpoint weight drift, and websocket
+failover. Trading records the bidding viem transport separately from the
+OpenSea SDK bridge lane so SDK-driven Seaport RPC calls do not disappear into
+the generic bidding metrics.
 
-- `rpc.latency` histogram (by method)
-- `rpc.failure` counter
-- `rpc.retry` counter
+The full HTTP JSON-RPC interaction map, including retry and circuit-breaker
+coverage by workspace and runtime lane, is maintained in
+`docs/rpc/01-http-rpc-interaction-catalog.md`.
+
+RPC logs use stable fields:
+
+- `workspace`: `backend`, `indexer`, or `trading`
+- `rpcComponent`: low-cardinality adapter lane, such as `backend-rpc`,
+  `primary-http-rpc`, `backfill-http-rpc`, `metadata-rpc`, or
+  `scheduler-ws-rpc`, `bidding-viem-rpc`, or `bidding-opensea-sdk-rpc`
+- `protocol`: `http` or `websocket`
+- `method`: RPC method or websocket watch operation
+- `endpointId`: low-cardinality configured endpoint id
+- `endpointOrigin`: URL origin only; paths, query strings, credentials, and raw
+  API-key-bearing URLs are not logged
+- `configuredWeight` and `effectiveWeight`
+- `attempt`, `durationMs`, `error`, `errorClass`, and retry delay fields where
+  applicable
+
+RPC metrics export with the workspace runtime prefixes:
+
+- backend: `artgod_backend_...`
+- indexer: `artgod_indexer_...`
+- trading: `artgod_trading_...`
+
+The canonical RPC metrics are:
+
+- `rpc.call` counter by `component`, `protocol`, `method`, `endpoint`,
+  `result`, and `error_class`
+- `rpc.call.duration_ms` histogram with the same labels
+- `rpc.endpoint.attempt` counter by endpoint attempt result
+- `rpc.endpoint.attempt.duration_ms` histogram with the same labels
+- `rpc.endpoint.event` counter for lifecycle events such as `configured`,
+  `attempt_started`, `attempt_succeeded`, `attempt_failed`,
+  `retry_scheduled`, `connect_started`, `connected`, `head_received`,
+  `connection_failed`, `reconnect_scheduled`, and `connection_stopped`
+- `rpc.endpoint.configured_weight` and `rpc.endpoint.effective_weight` gauges
+- `rpc.retry.attempt` counter for retry attempts scheduled after failed
+  endpoint attempts; this is not a "retry succeeded" metric
 - `rpc.circuit_open` counter
 - `rpc.rate_limiter.wait_ms` histogram
+
+RPC timeout labels are normalized to `RpcRequestTimeoutError` across viem-backed
+and custom fetch-backed paths so timeout dashboards do not split by provider
+implementation detail.
+
+The canonical metrics above are the only RPC metric model. Do not add parallel
+RPC counters or histograms with overlapping semantics; extend the shared RPC
+observer vocabulary instead.
 
 Cache (`indexer/src/infra/cache/memory.ts`):
 
@@ -409,6 +463,13 @@ Provisioned datasources:
 Provisioned dashboard:
 
 - `observability/grafana/provisioning/dashboards/runtime-metrics-overview.json`
+
+The runtime metrics dashboard has separate RPC sections for indexer, backend,
+and trading workspaces. Each section shows call rate by result, endpoint failure
+counts, endpoint failure percentage, call latency p95, retry-attempt counts,
+configured versus effective endpoint weight, endpoint failures by error class,
+circuit-open counts, and rate-limit wait p95. The indexer section also includes
+websocket endpoint events because websocket failover is currently indexer-owned.
 
 Current Tempo `tracesToProfiles` mapping is:
 
@@ -492,9 +553,11 @@ To reach full trace-profile correlation:
     - `curl http://127.0.0.1:42740/metrics`
     - `curl http://127.0.0.1:42742/metrics`
     - `curl http://127.0.0.1:42752/metrics`
+    - `curl http://127.0.0.1:42753/metrics`
 - Check Grafana:
     - logs in Loki Explore
     - `up{job="artgod-backend"}` in Prometheus Explore
     - `up{job="artgod-indexer"}` in Prometheus Explore
+    - `up{job="artgod-trading"}` in Prometheus Explore
     - traces visible in Tempo
     - profiles visible in Pyroscope with `wall:cpu` profile type

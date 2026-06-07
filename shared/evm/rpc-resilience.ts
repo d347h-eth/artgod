@@ -1,14 +1,58 @@
+// Policy values that configure JSON-RPC retry attempts.
+export type RpcRetryPolicy = {
+    maxAttempts: number;
+    baseDelayMs: number;
+    maxDelayMs: number;
+};
+
+// Policy values that configure a per-endpoint JSON-RPC token bucket.
 export type RpcRateLimiterConfig = {
     requestsPerSecond: number;
     burst: number;
 };
 
+// Policy values that configure a per-endpoint JSON-RPC circuit breaker.
 export type RpcCircuitBreakerConfig = {
     failureThreshold: number;
     openMs: number;
     halfOpenMaxRequests: number;
 };
 
+// Groups the per-endpoint resilience controls used by JSON-RPC adapters.
+export type RpcEndpointResilienceConfig = {
+    requestTimeoutMs: number;
+    rateLimiter: RpcRateLimiterConfig;
+    circuitBreaker: RpcCircuitBreakerConfig;
+};
+
+// Describes one scheduled retry after a failed JSON-RPC attempt.
+export type RpcRetryScheduledContext = {
+    attempt: number;
+    nextAttempt: number;
+    delayMs: number;
+    error: unknown;
+};
+
+// Inputs for running JSON-RPC work through a bounded retry loop.
+export type ExecuteWithRpcRetryOptions<T> = {
+    policy: RpcRetryPolicy;
+    executeAttempt: (attempt: number) => Promise<T>;
+    onRetryScheduled?: (context: RpcRetryScheduledContext) => void;
+    sleep?: SleepFn;
+};
+
+// Retry count passed to viem transports when ArtGod owns RPC retry policy.
+export const VIEM_TRANSPORT_RETRY_DISABLED = 0;
+
+const RPC_CIRCUIT_OPEN_ERROR_MESSAGE = "RPC circuit is open";
+const RPC_CIRCUIT_HALF_OPEN_LIMIT_ERROR_MESSAGE =
+    "RPC circuit is half-open and probe limit is reached";
+const RPC_REQUEST_TIMEOUT_ERROR_MESSAGE = "RPC request timed out";
+
+type ClockFn = () => number;
+type SleepFn = (ms: number) => Promise<void>;
+
+// Error raised when a JSON-RPC endpoint circuit rejects traffic.
 export class CircuitOpenError extends Error {
     constructor(message: string) {
         super(message);
@@ -16,9 +60,20 @@ export class CircuitOpenError extends Error {
     }
 }
 
-type ClockFn = () => number;
-type SleepFn = (ms: number) => Promise<void>;
+// Error raised when an HTTP JSON-RPC attempt exceeds its request timeout.
+export class RpcRequestTimeoutError extends Error {
+    constructor(timeoutMs: number, cause?: unknown) {
+        super(`${RPC_REQUEST_TIMEOUT_ERROR_MESSAGE} after ${timeoutMs}ms`);
+        this.name = "RpcRequestTimeoutError";
+        this.cause = cause;
+    }
+}
 
+export type CircuitBreakerExecuteOptions = {
+    shouldRecordFailure?: (error: unknown) => boolean;
+};
+
+// TokenBucketRateLimiter smooths JSON-RPC request throughput per endpoint.
 export class TokenBucketRateLimiter {
     private readonly requestsPerSecond: number;
     private readonly burst: number;
@@ -92,6 +147,7 @@ export class TokenBucketRateLimiter {
 
 type CircuitState = "closed" | "open" | "half-open";
 
+// CircuitBreaker stops repeated JSON-RPC failures from hammering one endpoint.
 export class CircuitBreaker {
     private state: CircuitState = "closed";
     private consecutiveFailures = 0;
@@ -104,7 +160,10 @@ export class CircuitBreaker {
         private nowMs: ClockFn = Date.now,
     ) {}
 
-    async execute<T>(fn: () => Promise<T>): Promise<T> {
+    async execute<T>(
+        fn: () => Promise<T>,
+        options: CircuitBreakerExecuteOptions = {},
+    ): Promise<T> {
         // Closed -> Open after repeated failures.
         // Open -> Half-open after cooldown.
         // Half-open -> Closed after enough successful probes.
@@ -112,7 +171,7 @@ export class CircuitBreaker {
         this.ensureRequestAllowed();
 
         if (this.state === "half-open") {
-            return this.executeHalfOpen(fn);
+            return this.executeHalfOpen(fn, options);
         }
 
         try {
@@ -120,6 +179,9 @@ export class CircuitBreaker {
             this.consecutiveFailures = 0;
             return result;
         } catch (error) {
+            if (!shouldRecordCircuitFailure(error, options)) {
+                throw error;
+            }
             this.consecutiveFailures += 1;
             if (
                 this.consecutiveFailures >=
@@ -144,7 +206,7 @@ export class CircuitBreaker {
 
     private ensureRequestAllowed(): void {
         if (this.state === "open") {
-            throw new CircuitOpenError("RPC circuit is open");
+            throw new CircuitOpenError(RPC_CIRCUIT_OPEN_ERROR_MESSAGE);
         }
         if (
             this.state === "half-open" &&
@@ -153,12 +215,15 @@ export class CircuitBreaker {
         ) {
             // Limit probe concurrency while testing service recovery.
             throw new CircuitOpenError(
-                "RPC circuit is half-open and probe limit is reached",
+                RPC_CIRCUIT_HALF_OPEN_LIMIT_ERROR_MESSAGE,
             );
         }
     }
 
-    private async executeHalfOpen<T>(fn: () => Promise<T>): Promise<T> {
+    private async executeHalfOpen<T>(
+        fn: () => Promise<T>,
+        options: CircuitBreakerExecuteOptions,
+    ): Promise<T> {
         // Any probe failure re-opens the circuit immediately.
         // Successful probes close the circuit once threshold is met.
         this.halfOpenInFlight += 1;
@@ -168,7 +233,9 @@ export class CircuitBreaker {
             succeeded = true;
             return result;
         } catch (error) {
-            this.openCircuit();
+            if (shouldRecordCircuitFailure(error, options)) {
+                this.openCircuit();
+            }
             throw error;
         } finally {
             this.halfOpenInFlight = Math.max(0, this.halfOpenInFlight - 1);
@@ -199,6 +266,100 @@ export class CircuitBreaker {
         this.halfOpenInFlight = 0;
         this.halfOpenSuccesses = 0;
     }
+}
+
+function shouldRecordCircuitFailure(
+    error: unknown,
+    options: CircuitBreakerExecuteOptions,
+): boolean {
+    return options.shouldRecordFailure?.(error) ?? true;
+}
+
+// Fetches one HTTP JSON-RPC attempt with a bounded per-attempt timeout.
+export async function fetchWithRpcRequestTimeout(
+    fetchRpc: typeof fetch,
+    input: RequestInfo | URL,
+    init: RequestInit,
+    timeoutMs: number,
+): Promise<Response> {
+    if (timeoutMs <= 0) {
+        return fetchRpc(input, init);
+    }
+
+    const controller = new AbortController();
+    const externalSignal = init.signal;
+    const abortFromExternalSignal = () => controller.abort();
+    if (externalSignal?.aborted) {
+        controller.abort();
+    } else {
+        externalSignal?.addEventListener("abort", abortFromExternalSignal, {
+            once: true,
+        });
+    }
+    let didTimeout = false;
+    const timedInit = {
+        ...init,
+        signal: controller.signal,
+    };
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<Response>((_, reject) => {
+        timeout = setTimeout(() => {
+            didTimeout = true;
+            controller.abort();
+            reject(new RpcRequestTimeoutError(timeoutMs));
+        }, timeoutMs);
+    });
+    const fetchPromise = fetchRpc(input, timedInit);
+
+    try {
+        return await Promise.race([fetchPromise, timeoutPromise]);
+    } catch (error) {
+        if (didTimeout && !(error instanceof RpcRequestTimeoutError)) {
+            throw new RpcRequestTimeoutError(timeoutMs, error);
+        }
+        throw error;
+    } finally {
+        externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+    }
+}
+
+// Runs JSON-RPC work through bounded retry with exponential backoff.
+export async function executeWithRpcRetry<T>(
+    options: ExecuteWithRpcRetryOptions<T>,
+): Promise<T> {
+    const sleep = options.sleep ?? sleepMs;
+    let attempt = 1;
+    for (;;) {
+        try {
+            return await options.executeAttempt(attempt);
+        } catch (error) {
+            if (attempt >= options.policy.maxAttempts) {
+                throw error;
+            }
+            const delayMs = getRpcRetryDelayMs(attempt, options.policy);
+            options.onRetryScheduled?.({
+                attempt,
+                nextAttempt: attempt + 1,
+                delayMs,
+                error,
+            });
+            await sleep(delayMs);
+            attempt += 1;
+        }
+    }
+}
+
+// Computes the bounded exponential backoff delay for one retry attempt.
+export function getRpcRetryDelayMs(
+    attempt: number,
+    policy: RpcRetryPolicy,
+): number {
+    const exp = Math.max(0, attempt - 1);
+    const delay = policy.baseDelayMs * Math.pow(2, exp);
+    return Math.min(delay, policy.maxDelayMs);
 }
 
 function sleepMs(ms: number): Promise<void> {

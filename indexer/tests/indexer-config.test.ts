@@ -4,11 +4,21 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
+import {
+    RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY,
+    RPC_ENDPOINT_LIST_ENV_KEY,
+    RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
+} from "@artgod/shared/config/rpc-endpoints";
 import { loadConfig } from "../src/config/index.js";
 
 const REQUIRED_ENV = {
     ARTGOD_DB_PATH: "database/sqlite/test/db",
-    RPC_URL: "http://127.0.0.1:42721",
+    [RPC_ENDPOINT_LIST_ENV_KEY]:
+        '[{"url":"http://127.0.0.1:42721","weight":1}]',
     WETH_ADDRESS: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     SEAPORT_CONDUIT_CONTROLLER: "0x00000000f9490004c11cef243f5400493c00ad63",
 };
@@ -37,32 +47,39 @@ describe("Indexer config", () => {
         );
     });
 
+    it("parses weighted RPC endpoint pools", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            [RPC_ENDPOINT_LIST_ENV_KEY]:
+                '[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]',
+            [RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY]:
+                '[{"url":"https://backfill-a.example","weight":3},{"url":"https://backfill-b.example","weight":1}]',
+            [RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY]:
+                '[{"url":"wss://ws-a.example","weight":2},{"url":"ws://ws-b.example","weight":1}]',
+        });
+
+        expect(config.rpc.endpoints).toEqual([
+            { url: "https://rpc-a.example", weight: 2 },
+            { url: "https://rpc-b.example", weight: 1 },
+        ]);
+        expect(config.rpc.backfillEndpoints).toEqual([
+            { url: "https://backfill-a.example", weight: 3 },
+            { url: "https://backfill-b.example", weight: 1 },
+        ]);
+        expect(config.rpc.wsEndpoints).toEqual([
+            { url: "wss://ws-a.example", weight: 2 },
+            { url: "ws://ws-b.example", weight: 1 },
+        ]);
+    });
+
     it("uses manifest defaults for unprovided runtime tunables", () => {
         const config = loadConfig(REQUIRED_ENV);
 
         expect(config.chainId).toBe(getSettingDefaultNumber("CHAIN_ID"));
-        expect(config.rpc.retryPolicy).toEqual({
-            maxAttempts: getSettingDefaultNumber("RPC_RETRY_MAX_ATTEMPTS"),
-            baseDelayMs: getSettingDefaultNumber("RPC_RETRY_BASE_DELAY_MS"),
-            maxDelayMs: getSettingDefaultNumber("RPC_RETRY_MAX_DELAY_MS"),
-        });
-        expect(config.rpc.resilience).toEqual({
-            rateLimiter: {
-                requestsPerSecond: getSettingDefaultNumber(
-                    "RPC_RATE_LIMIT_REQUESTS_PER_SECOND",
-                ),
-                burst: getSettingDefaultNumber("RPC_RATE_LIMIT_BURST"),
-            },
-            circuitBreaker: {
-                failureThreshold: getSettingDefaultNumber(
-                    "RPC_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
-                ),
-                openMs: getSettingDefaultNumber("RPC_CIRCUIT_BREAKER_OPEN_MS"),
-                halfOpenMaxRequests: getSettingDefaultNumber(
-                    "RPC_CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS",
-                ),
-            },
-        });
+        expect(config.rpc.retryPolicy).toEqual(getDefaultRpcRetryPolicy());
+        expect(config.rpc.resilience).toEqual(
+            getDefaultRpcEndpointResilienceConfig(),
+        );
         expect(config.queue).toEqual({
             natsUrl: getSettingDefault("NATS_URL"),
             streamPrefix: getSettingDefault("NATS_STREAM_PREFIX"),
@@ -70,7 +87,9 @@ describe("Indexer config", () => {
         expect(config.sync).toEqual({
             reorgDepth: getSettingDefaultNumber("REORG_DEPTH"),
             backfillBatchSize: getSettingDefaultNumber("BACKFILL_BATCH_SIZE"),
-            backfillWorkerCount: getSettingDefaultNumber("BACKFILL_WORKER_COUNT"),
+            backfillWorkerCount: getSettingDefaultNumber(
+                "BACKFILL_WORKER_COUNT",
+            ),
             logChunkSize: getSettingDefaultNumber("LOG_CHUNK_SIZE"),
         });
         expect(config.cache).toEqual({

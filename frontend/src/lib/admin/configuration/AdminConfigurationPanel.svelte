@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AdminSectionFrame from '$lib/admin/components/AdminSectionFrame.svelte';
+	import RpcEndpointListInput from '$lib/admin/configuration/RpcEndpointListInput.svelte';
 	import InfoTooltip from '$lib/components/InfoTooltip.svelte';
 	import type {
 		AdminConfigField,
@@ -165,72 +166,103 @@
 							<h3>{group.label}</h3>
 							{#each group.fields as field (field.key)}
 								{@const validationIssue = fieldValidationIssue(field)}
-								<label
-									class="admin-config-row"
-									class:admin-config-textarea-row={field.inputKind === 'textarea'}
-									class:admin-config-row-warning={validationIssue !== null}
-								>
-									<span class="admin-config-label-cell">
-										<span>{field.label}</span>
-										{#if validationIssue}
-											<InfoTooltip
-												text={validationIssue.message}
-												tone="warning"
-												className="admin-config-label-tooltip"
+								{#if field.inputKind === 'weighted_endpoint_list'}
+									<div
+										class="admin-config-row admin-config-textarea-row"
+										class:admin-config-row-warning={validationIssue !== null}
+									>
+										<span class="admin-config-label-cell">
+											<span>{field.label}</span>
+											{#if validationIssue}
+												<InfoTooltip
+													text={validationIssue.message}
+													tone="warning"
+													className="admin-config-label-tooltip"
+												/>
+											{/if}
+											<InfoTooltip text={field.help} className="admin-config-label-tooltip" />
+										</span>
+										<RpcEndpointListInput
+											value={fieldValue(field)}
+											disabled={formDisabled}
+											invalid={validationIssue !== null}
+											validation={field.validation}
+											endpointLabel={field.validation === 'websocket_endpoint_list'
+												? 'WebSocket endpoint'
+												: 'RPC endpoint'}
+											onChange={(value) => {
+												setValue(field.key, value);
+											}}
+										/>
+									</div>
+								{:else}
+									<label
+										class="admin-config-row"
+										class:admin-config-textarea-row={field.inputKind === 'textarea'}
+										class:admin-config-row-warning={validationIssue !== null}
+									>
+										<span class="admin-config-label-cell">
+											<span>{field.label}</span>
+											{#if validationIssue}
+												<InfoTooltip
+													text={validationIssue.message}
+													tone="warning"
+													className="admin-config-label-tooltip"
+												/>
+											{/if}
+											<InfoTooltip text={field.help} className="admin-config-label-tooltip" />
+										</span>
+										{#if field.inputKind === 'checkbox'}
+											<input
+												type="checkbox"
+												class="bootstrap-checkbox"
+												checked={fieldChecked(field)}
+												disabled={formDisabled}
+												onchange={(event) => {
+													setValue(field.key, (event.currentTarget as HTMLInputElement).checked ? 'true' : 'false');
+												}}
+											/>
+										{:else if field.inputKind === 'select'}
+											<select
+												class="bootstrap-control-select admin-config-control"
+												class:admin-config-control-warning={validationIssue !== null}
+												value={fieldValue(field)}
+												disabled={formDisabled}
+												aria-invalid={validationIssue !== null}
+												onchange={(event) => {
+													setValue(field.key, (event.currentTarget as HTMLSelectElement).value);
+												}}
+											>
+												{#each field.options as option}
+													<option value={option}>{option}</option>
+												{/each}
+											</select>
+										{:else if field.inputKind === 'textarea'}
+											<textarea
+												class="bootstrap-control-textarea admin-config-control admin-config-textarea"
+												class:admin-config-control-warning={validationIssue !== null}
+												value={fieldValue(field)}
+												disabled={formDisabled}
+												aria-invalid={validationIssue !== null}
+												oninput={(event) => {
+													setValue(field.key, (event.currentTarget as HTMLTextAreaElement).value);
+												}}
+											></textarea>
+										{:else}
+											<input
+												class="bootstrap-control admin-config-control"
+												class:admin-config-control-warning={validationIssue !== null}
+												type={field.inputKind === 'password' ? 'password' : 'text'}
+												value={fieldValue(field)}
+												disabled={formDisabled}
+												aria-invalid={validationIssue !== null}
+												oninput={(event) => {
+													setValue(field.key, (event.currentTarget as HTMLInputElement).value);
+												}}
 											/>
 										{/if}
-										<InfoTooltip text={field.help} className="admin-config-label-tooltip" />
-									</span>
-									{#if field.inputKind === 'checkbox'}
-										<input
-											type="checkbox"
-											class="bootstrap-checkbox"
-											checked={fieldChecked(field)}
-											disabled={formDisabled}
-											onchange={(event) => {
-												setValue(field.key, (event.currentTarget as HTMLInputElement).checked ? 'true' : 'false');
-											}}
-										/>
-									{:else if field.inputKind === 'select'}
-										<select
-											class="bootstrap-control-select admin-config-control"
-											class:admin-config-control-warning={validationIssue !== null}
-											value={fieldValue(field)}
-											disabled={formDisabled}
-											aria-invalid={validationIssue !== null}
-											onchange={(event) => {
-												setValue(field.key, (event.currentTarget as HTMLSelectElement).value);
-											}}
-										>
-											{#each field.options as option}
-												<option value={option}>{option}</option>
-											{/each}
-										</select>
-									{:else if field.inputKind === 'textarea'}
-										<textarea
-											class="bootstrap-control-textarea admin-config-control admin-config-textarea"
-											class:admin-config-control-warning={validationIssue !== null}
-											value={fieldValue(field)}
-											disabled={formDisabled}
-											aria-invalid={validationIssue !== null}
-											oninput={(event) => {
-												setValue(field.key, (event.currentTarget as HTMLTextAreaElement).value);
-											}}
-										></textarea>
-									{:else}
-										<input
-											class="bootstrap-control admin-config-control"
-											class:admin-config-control-warning={validationIssue !== null}
-											type={field.inputKind === 'password' ? 'password' : 'text'}
-											value={fieldValue(field)}
-											disabled={formDisabled}
-											aria-invalid={validationIssue !== null}
-											oninput={(event) => {
-												setValue(field.key, (event.currentTarget as HTMLInputElement).value);
-											}}
-										/>
-									{/if}
-								</label>
+									</label>
+								{/if}
 							{/each}
 						</section>
 					{/each}

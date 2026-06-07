@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process_env};
+use super::env_keys::RPC_ENDPOINT_LIST_ENV_KEY;
 
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
     pub node_bin: PathBuf,
     pub nats_bin: PathBuf,
+    pub nats_store_dir: PathBuf,
     pub runtime_dir: PathBuf,
     pub pnp_cjs_path: PathBuf,
     pub pnp_loader_path: PathBuf,
@@ -26,6 +28,9 @@ pub struct DesktopRuntimeConfig {
     #[allow(dead_code)]
     pub wallet: DesktopWalletConfig,
 }
+
+/// App-data child directory passed as the embedded NATS store root.
+pub(crate) const NATS_STORAGE_DIR_NAME: &str = "nats";
 
 #[derive(Clone, Debug)]
 pub struct DesktopRuntimeCapabilities {
@@ -106,6 +111,7 @@ impl DesktopRuntimeConfig {
                 nats_bin.display()
             ));
         }
+        let nats_store_dir = build_nats_store_dir(&app_data_dir)?;
         let pnp_cjs_path = resolve_from_base_dir(
             &runtime_dir,
             process_env
@@ -149,7 +155,7 @@ impl DesktopRuntimeConfig {
         get_required(&process_env, "ARTGOD_DB_PATH")?;
         let nats_url = get_required(&process_env, "NATS_URL")?.to_owned();
         let (nats_host, nats_port) = parse_nats_url(&nats_url)?;
-        get_required(&process_env, "RPC_URL")?;
+        get_required(&process_env, RPC_ENDPOINT_LIST_ENV_KEY)?;
         get_required(&process_env, "WETH_ADDRESS")?;
         get_required(&process_env, "SEAPORT_CONDUIT_CONTROLLER")?;
         get_required(&process_env, "USERLAND_UI_DIST_DIR")?;
@@ -197,6 +203,7 @@ impl DesktopRuntimeConfig {
             env_file_path,
             node_bin,
             nats_bin,
+            nats_store_dir,
             runtime_dir,
             pnp_cjs_path,
             pnp_loader_path,
@@ -221,6 +228,17 @@ impl DesktopRuntimeConfig {
     pub fn nats_url(&self) -> String {
         self.nats_url.clone()
     }
+}
+
+fn build_nats_store_dir(app_data_dir: &Path) -> Result<PathBuf, String> {
+    let nats_store_dir = app_data_dir.join(NATS_STORAGE_DIR_NAME);
+    fs::create_dir_all(&nats_store_dir).map_err(|error| {
+        format!(
+            "Failed to create NATS store dir {}: {error}",
+            nats_store_dir.display()
+        )
+    })?;
+    Ok(nats_store_dir)
 }
 
 fn build_wallet_config(
@@ -552,5 +570,14 @@ mod tests {
         assert!(capabilities.opensea.enabled);
         assert_eq!(capabilities.opensea.mode, "auto");
         assert!(capabilities.opensea.reason.is_none());
+    }
+
+    #[test]
+    fn nats_store_dir_is_the_nats_root_under_app_data() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store_dir = build_nats_store_dir(temp.path()).expect("NATS store dir should resolve");
+
+        assert_eq!(store_dir, temp.path().join(NATS_STORAGE_DIR_NAME));
+        assert!(store_dir.exists());
     }
 }

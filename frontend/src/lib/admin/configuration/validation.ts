@@ -1,9 +1,14 @@
 import type { AdminConfigField, AdminConfigState } from '$lib/admin/configuration/ports';
+import {
+	parseRpcEndpointConfigList,
+	parseRpcWebSocketEndpointConfigList
+} from '@artgod/shared/config/rpc-endpoints';
 
 export const ADMIN_CONFIG_VALIDATION_RULES = {
 	url: 'url',
-	websocketUrl: 'websocket_url',
-	positiveInteger: 'positive_integer'
+	positiveInteger: 'positive_integer',
+	rpcEndpointList: 'rpc_endpoint_list',
+	websocketEndpointList: 'websocket_endpoint_list'
 } as const;
 
 export const ADMIN_CONFIG_VALIDATION_ISSUE_KINDS = {
@@ -24,9 +29,7 @@ export type AdminConfigValidationIssue = {
 };
 
 const SUPPORTED_URL_PROTOCOLS = new Set(['http:', 'https:', 'ws:', 'wss:']);
-const SUPPORTED_WEBSOCKET_URL_PROTOCOLS = new Set(['ws:', 'wss:']);
 const EXPLICIT_URL_SCHEME_PATTERN = /^(https?|wss?):\/\//;
-const EXPLICIT_WEBSOCKET_URL_SCHEME_PATTERN = /^wss?:\/\//;
 
 // Validates every manifest-backed setting against lightweight frontend rules.
 export function resolveAdminConfigValidationIssues(
@@ -94,16 +97,6 @@ export function validateAdminConfigField(
 		);
 	}
 	if (
-		field.validation === ADMIN_CONFIG_VALIDATION_RULES.websocketUrl &&
-		!isSupportedWebSocketUrl(trimmed)
-	) {
-		return buildValidationIssue(
-			field,
-			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.url,
-			`${field.key} must be a valid WebSocket URL.`
-		);
-	}
-	if (
 		field.validation === ADMIN_CONFIG_VALIDATION_RULES.positiveInteger &&
 		!isPositiveInteger(trimmed)
 	) {
@@ -112,6 +105,28 @@ export function validateAdminConfigField(
 			ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.integer,
 			`${field.key} must be a positive whole number.`
 		);
+	}
+	if (field.validation === ADMIN_CONFIG_VALIDATION_RULES.rpcEndpointList) {
+		try {
+			parseRpcEndpointConfigList(trimmed, field.key);
+		} catch (error) {
+			return buildValidationIssue(
+				field,
+				ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.url,
+				error instanceof Error ? error.message : `${field.key} must be valid RPC endpoints.`
+			);
+		}
+	}
+	if (field.validation === ADMIN_CONFIG_VALIDATION_RULES.websocketEndpointList) {
+		try {
+			parseRpcWebSocketEndpointConfigList(trimmed, field.key);
+		} catch (error) {
+			return buildValidationIssue(
+				field,
+				ADMIN_CONFIG_VALIDATION_ISSUE_KINDS.url,
+				error instanceof Error ? error.message : `${field.key} must be valid WebSocket endpoints.`
+			);
+		}
 	}
 	return null;
 }
@@ -141,18 +156,6 @@ function isSupportedUrl(value: string): boolean {
 	try {
 		const url = new URL(value);
 		return SUPPORTED_URL_PROTOCOLS.has(url.protocol) && url.hostname.trim().length > 0;
-	} catch {
-		return false;
-	}
-}
-
-function isSupportedWebSocketUrl(value: string): boolean {
-	if (!EXPLICIT_WEBSOCKET_URL_SCHEME_PATTERN.test(value)) {
-		return false;
-	}
-	try {
-		const url = new URL(value);
-		return SUPPORTED_WEBSOCKET_URL_PROTOCOLS.has(url.protocol) && url.hostname.trim().length > 0;
 	} catch {
 		return false;
 	}

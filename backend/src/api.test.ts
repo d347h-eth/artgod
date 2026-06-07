@@ -10,6 +10,10 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    getDefaultRpcEndpointResilienceConfig,
+    getDefaultRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
+import {
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_BEACON_EVENT_GROUPS,
     TERRAFORMS_BEACON_EVENT_TYPES,
@@ -747,7 +751,11 @@ beforeAll(async () => {
         port: 42710,
         defaultChainId: 1,
         dbPath,
-        rpcUrl: "http://127.0.0.1:42721",
+        rpc: {
+            endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
+            retryPolicy: getDefaultRpcRetryPolicy(),
+            resilience: getDefaultRpcEndpointResilienceConfig(),
+        },
         wethAddress: WETH_ADDRESS,
         natsUrl: "nats://127.0.0.1:42720",
         natsStreamPrefix: "artgod",
@@ -3926,19 +3934,29 @@ describe("backend api routes", () => {
     });
 
     it("keeps an existing CSRF token stable across browser tabs", async () => {
-        const firstCsrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:42710",
-            origin: "http://127.0.0.1:42701",
-        });
+        const firstCsrf = await resolve(
+            "GET",
+            "/api/security/csrf",
+            undefined,
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+            },
+        );
         expect(firstCsrf.statusCode).toBe(200);
         const firstToken = firstCsrf.payload.token as string;
         const firstCookie = firstCsrf.headers["set-cookie"] as string;
 
-        const secondCsrf = await resolve("GET", "/api/security/csrf", undefined, {
-            host: "127.0.0.1:42710",
-            origin: "http://127.0.0.1:42701",
-            cookie: firstCookie,
-        });
+        const secondCsrf = await resolve(
+            "GET",
+            "/api/security/csrf",
+            undefined,
+            {
+                host: "127.0.0.1:42710",
+                origin: "http://127.0.0.1:42701",
+                cookie: firstCookie,
+            },
+        );
         expect(secondCsrf.statusCode).toBe(200);
         expect(secondCsrf.payload.token).toBe(firstToken);
         expect(secondCsrf.headers["set-cookie"]).toContain(

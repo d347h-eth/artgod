@@ -13,10 +13,24 @@ import {
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
+    parseRpcEndpointConfigList,
+    RPC_ENDPOINT_LIST_ENV_KEY,
+    type RpcEndpointConfig,
+} from "@artgod/shared/config/rpc-endpoints";
+import {
+    parseRpcEndpointResilienceConfig,
+    parseRpcRetryPolicy,
+} from "@artgod/shared/config/rpc-resilience";
+import {
     parseBoolean,
+    parseNumber,
     parsePositiveInteger,
     parseRequiredString,
 } from "@artgod/shared/utils/env";
+import type {
+    RpcEndpointResilienceConfig,
+    RpcRetryPolicy,
+} from "@artgod/shared/evm/rpc-resilience";
 import {
     QUERY_CACHE_PROVIDERS,
     type QueryCacheProvider,
@@ -155,7 +169,11 @@ export type BackendConfig = {
     port: number;
     defaultChainId: number;
     dbPath: string;
-    rpcUrl: string;
+    rpc: {
+        endpoints: RpcEndpointConfig[];
+        retryPolicy: RpcRetryPolicy;
+        resilience: RpcEndpointResilienceConfig;
+    };
     wethAddress: string;
     natsUrl: string;
     natsStreamPrefix: string;
@@ -196,7 +214,10 @@ export function loadBackendConfig(
         DEFAULT_CHAIN_ID,
     );
     const dbPath = parseRequiredString(env.ARTGOD_DB_PATH, "ARTGOD_DB_PATH");
-    const rpcUrl = parseRequiredString(env.RPC_URL, "RPC_URL");
+    const rpcEndpoints = parseRpcEndpointConfigList(
+        env[RPC_ENDPOINT_LIST_ENV_KEY],
+        RPC_ENDPOINT_LIST_ENV_KEY,
+    );
     const wethAddress = parseAddress(env.WETH_ADDRESS, "WETH_ADDRESS");
     const natsUrl = parseRequiredString(env.NATS_URL, "NATS_URL");
     const natsStreamPrefix = parseRequiredString(
@@ -229,7 +250,11 @@ export function loadBackendConfig(
         port,
         defaultChainId,
         dbPath,
-        rpcUrl,
+        rpc: {
+            endpoints: rpcEndpoints,
+            retryPolicy: parseRpcRetryPolicy(env),
+            resilience: parseRpcEndpointResilienceConfig(env),
+        },
         wethAddress,
         natsUrl,
         natsStreamPrefix,

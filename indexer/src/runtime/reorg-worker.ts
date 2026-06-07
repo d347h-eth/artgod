@@ -17,6 +17,10 @@ import {
 } from "../domain/sync-jobs.js";
 import { NatsJetStreamQueue } from "../infra/queue/nats.js";
 import { ViemRpcProvider } from "../infra/rpc/viem.js";
+import {
+    INDEXER_RPC_ENDPOINT_ID_PREFIX,
+    INDEXER_RPC_OBSERVABILITY_COMPONENT,
+} from "../infra/rpc/observability.js";
 import { SqliteStorage } from "../infra/storage/sqlite.js";
 import { initRuntimeMetrics } from "@artgod/shared/observability/metrics";
 import { initRuntimeApm } from "@artgod/shared/observability/apm";
@@ -51,9 +55,11 @@ async function main() {
             streamPrefix: config.queue.streamPrefix,
         });
         const rpc = new ViemRpcProvider({
-            url: config.rpc.primaryUrl,
+            endpoints: config.rpc.endpoints,
             logChunkSize: config.sync.logChunkSize,
             metrics: runtimeMetrics.metrics,
+            component: INDEXER_RPC_OBSERVABILITY_COMPONENT.ReorgHttp,
+            endpointIdPrefix: INDEXER_RPC_ENDPOINT_ID_PREFIX.ReorgHttp,
             retryPolicy: config.rpc.retryPolicy,
             resilience: config.rpc.resilience,
         });

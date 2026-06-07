@@ -3,6 +3,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createPublicClient, http } from "viem";
 import { fileURLToPath } from "node:url";
+import {
+    resolveRpcEndpointUrl,
+    RPC_ENDPOINT_LIST_ENV_KEY,
+} from "./config/rpc-endpoint-pool.mjs";
 
 function parseArgs(argv) {
     const args = {};
@@ -53,7 +57,7 @@ function usage() {
         "Usage: yarn node scripts/dump-tx.js --rpc <url> --tx <hash> [--out <path>] [--compact]",
         "",
         "Options:",
-        "  --rpc     JSON-RPC URL (or set RPC_URL in env)",
+        `  --rpc     JSON-RPC URL override; ${RPC_ENDPOINT_LIST_ENV_KEY} env uses the endpoint JSON array`,
         "  --tx      Transaction hash (or set TX_HASH in env)",
         "  --out     Output path (default: tmp/tx/<hash>.json)",
         "  --compact Write compact JSON (default: pretty-printed)",
@@ -65,10 +69,15 @@ function loadConfig(env, argv) {
     if (args.help) {
         return { help: true };
     }
-    const rpcUrl = args.rpc ?? env.RPC_URL;
+    const rpcUrl = resolveRpcEndpointUrl({
+        cliValue: args.rpc,
+        envValue: env[RPC_ENDPOINT_LIST_ENV_KEY],
+    });
     const txHash = args.tx ?? env.TX_HASH;
     if (!rpcUrl || !txHash) {
-        throw new Error(`Missing RPC_URL or TX_HASH.\n${usage()}`);
+        throw new Error(
+            `Missing ${RPC_ENDPOINT_LIST_ENV_KEY} or TX_HASH.\n${usage()}`,
+        );
     }
     const outPath = resolveOutputPath(args.out, txHash);
     return {
