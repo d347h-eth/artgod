@@ -433,27 +433,20 @@
                     "showLegend": true
                 },
                 "tooltip": {
-                    "mode": "single",
+                    "mode": "multi",
                     "sort": "none"
                 }
             },
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "max by (worker, component, endpoint) (artgod_indexer_rpc_endpoint_configured_weight{worker=~\"$worker\", chain_id=~\"$chain_id\"})",
-                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} configured",
+                    "expr": "max by (worker, component, endpoint) (artgod_indexer_rpc_endpoint_effective_weight{worker=~\"$worker\", chain_id=~\"$chain_id\"})",
+                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}}",
                     "range": true,
                     "refId": "A"
-                },
-                {
-                    "editorMode": "code",
-                    "expr": "max by (worker, component, endpoint) (artgod_indexer_rpc_endpoint_effective_weight{worker=~\"$worker\", chain_id=~\"$chain_id\"})",
-                    "legendFormat": "{{worker}} / {{component}} / {{endpoint}} effective",
-                    "range": true,
-                    "refId": "B"
                 }
             ],
-            "title": "Indexer Endpoint Configured vs Effective Weight",
+            "title": "Indexer Endpoint Effective Weight",
             "type": "timeseries"
         },
         {
