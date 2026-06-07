@@ -451,9 +451,14 @@ mod tests {
     #[test]
     fn append_sidecar_output_rejects_oversized_chunks() {
         let mut buffer = Vec::from([1_u8, 2_u8, 3_u8]);
-        let error =
-            append_sidecar_output(&mut buffer, &[4, 5], 4, "stdout", SecretPromptAction::Import)
-                .unwrap_err();
+        let error = append_sidecar_output(
+            &mut buffer,
+            &[4, 5],
+            4,
+            "stdout",
+            SecretPromptAction::Import,
+        )
+        .unwrap_err();
         assert!(matches!(error, SecretPromptError::ProtocolFailure { .. }));
         assert_eq!(buffer, vec![1_u8, 2_u8, 3_u8]);
     }

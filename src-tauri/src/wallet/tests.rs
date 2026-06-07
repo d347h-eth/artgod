@@ -320,8 +320,10 @@ fn assign_wallet_to_bot_reassigns_and_clears_prior_owner() {
         .unwrap();
 
     let listed = list_wallets.execute().unwrap();
-    assert!(listed
-        .wallets
-        .iter()
-        .all(|wallet| !wallet.is_assigned_to_bot(BotKind::Bidding)));
+    assert!(
+        listed
+            .wallets
+            .iter()
+            .all(|wallet| !wallet.is_assigned_to_bot(BotKind::Bidding))
+    );
 }
