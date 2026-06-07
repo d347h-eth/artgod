@@ -11,8 +11,8 @@ import {
 } from "@artgod/shared/config/generated-settings-defaults";
 import {
     getDefaultRpcEndpointResilienceConfig,
-    getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
+import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import {
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
     TERRAFORMS_BEACON_EVENT_GROUPS,
@@ -79,6 +79,12 @@ const ENABLED_OPENSEA_INTEGRATION: OpenSeaIntegrationStatus = {
     reason: null,
     missingKeys: [],
     requiredKeys: ["OPENSEA_API_KEY"],
+};
+// Keeps API cache-header assertions from waiting through production RPC backoff.
+const API_TEST_RPC_RETRY_POLICY: RpcRetryPolicy = {
+    maxAttempts: 1,
+    baseDelayMs: 0,
+    maxDelayMs: 0,
 };
 
 let dbPath = "";
@@ -805,7 +811,7 @@ beforeAll(async () => {
         dbPath,
         rpc: {
             endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
-            retryPolicy: getDefaultRpcRetryPolicy(),
+            retryPolicy: API_TEST_RPC_RETRY_POLICY,
             resilience: getDefaultRpcEndpointResilienceConfig(),
         },
         wethAddress: WETH_ADDRESS,
