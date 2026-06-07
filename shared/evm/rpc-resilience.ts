@@ -69,6 +69,10 @@ export class RpcRequestTimeoutError extends Error {
     }
 }
 
+export type CircuitBreakerExecuteOptions = {
+    shouldRecordFailure?: (error: unknown) => boolean;
+};
+
 // TokenBucketRateLimiter smooths JSON-RPC request throughput per endpoint.
 export class TokenBucketRateLimiter {
     private readonly requestsPerSecond: number;
@@ -156,7 +160,10 @@ export class CircuitBreaker {
         private nowMs: ClockFn = Date.now,
     ) {}
 
-    async execute<T>(fn: () => Promise<T>): Promise<T> {
+    async execute<T>(
+        fn: () => Promise<T>,
+        options: CircuitBreakerExecuteOptions = {},
+    ): Promise<T> {
         // Closed -> Open after repeated failures.
         // Open -> Half-open after cooldown.
         // Half-open -> Closed after enough successful probes.
@@ -164,7 +171,7 @@ export class CircuitBreaker {
         this.ensureRequestAllowed();
 
         if (this.state === "half-open") {
-            return this.executeHalfOpen(fn);
+            return this.executeHalfOpen(fn, options);
         }
 
         try {
@@ -172,6 +179,9 @@ export class CircuitBreaker {
             this.consecutiveFailures = 0;
             return result;
         } catch (error) {
+            if (!shouldRecordCircuitFailure(error, options)) {
+                throw error;
+            }
             this.consecutiveFailures += 1;
             if (
                 this.consecutiveFailures >=
@@ -210,7 +220,10 @@ export class CircuitBreaker {
         }
     }
 
-    private async executeHalfOpen<T>(fn: () => Promise<T>): Promise<T> {
+    private async executeHalfOpen<T>(
+        fn: () => Promise<T>,
+        options: CircuitBreakerExecuteOptions,
+    ): Promise<T> {
         // Any probe failure re-opens the circuit immediately.
         // Successful probes close the circuit once threshold is met.
         this.halfOpenInFlight += 1;
@@ -220,7 +233,9 @@ export class CircuitBreaker {
             succeeded = true;
             return result;
         } catch (error) {
-            this.openCircuit();
+            if (shouldRecordCircuitFailure(error, options)) {
+                this.openCircuit();
+            }
             throw error;
         } finally {
             this.halfOpenInFlight = Math.max(0, this.halfOpenInFlight - 1);
@@ -251,6 +266,13 @@ export class CircuitBreaker {
         this.halfOpenInFlight = 0;
         this.halfOpenSuccesses = 0;
     }
+}
+
+function shouldRecordCircuitFailure(
+    error: unknown,
+    options: CircuitBreakerExecuteOptions,
+): boolean {
+    return options.shouldRecordFailure?.(error) ?? true;
 }
 
 // Fetches one HTTP JSON-RPC attempt with a bounded per-attempt timeout.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { WeightedEndpointSelector } from "../config/weighted-endpoints.js";
 import type { MetricLabels, Metrics } from "../observability/metrics/types.js";
 import {
+    RPC_OBSERVABILITY_ERROR_CLASS,
     RPC_OBSERVABILITY_METRIC,
     RPC_OBSERVABILITY_RESULT,
     RPC_OBSERVABILITY_SENTINEL,
@@ -14,6 +15,10 @@ import {
     CircuitOpenError,
     TokenBucketRateLimiter,
 } from "./rpc-resilience.js";
+import {
+    JSON_RPC_ERROR_CODE,
+    RPC_PROVIDER_HEAD_LAG_ERROR_DATA,
+} from "./rpc-errors.js";
 import {
     executeObservedRpcEndpointCall,
     startObservedRpcEndpointAttempt,
@@ -35,6 +40,9 @@ const TEST_RPC_COMPONENT = "test-rpc-executor";
 const TEST_RPC_LOG_COMPONENT = "TestRpcExecutor";
 const TEST_RPC_RESULT = "0x1";
 const TEST_RPC_FAILURE_MESSAGE = "rpc unavailable";
+const TEST_RPC_INVALID_PARAMS_MESSAGE = "invalid params";
+const TEST_PROVIDER_INVALID_PARAMS_ERROR_CLASS = "InvalidParamsRpcError";
+const TEST_PROVIDER_RPC_REQUEST_ERROR_CLASS = "RpcRequestError";
 const TEST_RETRY_POLICY = {
     maxAttempts: 2,
     baseDelayMs: 0,
@@ -244,6 +252,55 @@ describe("executeObservedRpcEndpointCall", () => {
         });
     });
 
+    it("does not penalize provider head-lag failures or open circuits", async () => {
+        const metrics = new CapturingMetrics();
+        const observer = createTestRpcObservability(metrics);
+        const circuitBreaker = new CircuitBreaker(
+            TEST_CIRCUIT_BREAKER_CONFIG,
+            () => 0,
+        );
+        const selector = createTestSelector([
+            { url: TEST_RPC_ENDPOINT_A_URL, circuitBreaker },
+        ]);
+
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
+                rpcObservability: observer,
+                circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+                execute: async () => {
+                    throw buildProviderHeadLagError();
+                },
+            }),
+        ).rejects.toThrow(TEST_RPC_INVALID_PARAMS_MESSAGE);
+
+        expect(selector.snapshot()[0]?.effectiveWeight).toBe(1);
+        expect(metrics.increments).toContainEqual({
+            name: RPC_OBSERVABILITY_METRIC.EndpointAttempt,
+            value: 1,
+            labels: {
+                component: TEST_RPC_COMPONENT,
+                protocol: RPC_PROTOCOL.Http,
+                method: TEST_RPC_METHOD,
+                endpoint: TEST_RPC_ENDPOINT_A_ID,
+                result: RPC_OBSERVABILITY_RESULT.Failure,
+                error_class:
+                    RPC_OBSERVABILITY_ERROR_CLASS.ProviderHeadLag,
+            },
+        });
+
+        await expect(
+            executeObservedRpcEndpointCall({
+                selector,
+                method: TEST_RPC_METHOD,
+                rpcObservability: observer,
+                circuitBreaker: (endpoint) => endpoint.value.circuitBreaker,
+                execute: async () => TEST_RPC_RESULT,
+            }),
+        ).resolves.toBe(TEST_RPC_RESULT);
+    });
+
     it("records single-attempt failures without scheduling retries", async () => {
         const metrics = new CapturingMetrics();
         const observer = createTestRpcObservability(metrics);
@@ -353,4 +410,18 @@ function createTestSelector(
             value: endpoint,
         })),
     );
+}
+
+function buildProviderHeadLagError(): Error {
+    const cause = Object.assign(new Error(TEST_RPC_INVALID_PARAMS_MESSAGE), {
+        name: TEST_PROVIDER_RPC_REQUEST_ERROR_CLASS,
+        code: JSON_RPC_ERROR_CODE.InvalidParams,
+        data: RPC_PROVIDER_HEAD_LAG_ERROR_DATA
+            .FromBlockGreaterThanLatestBlock,
+    });
+    return Object.assign(new Error(TEST_RPC_INVALID_PARAMS_MESSAGE), {
+        name: TEST_PROVIDER_INVALID_PARAMS_ERROR_CLASS,
+        code: JSON_RPC_ERROR_CODE.InvalidParams,
+        cause,
+    });
 }

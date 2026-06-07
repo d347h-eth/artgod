@@ -8,6 +8,8 @@ import {
     TokenBucketRateLimiter,
 } from "./rpc-resilience.js";
 
+const TEST_IGNORED_CIRCUIT_FAILURE_MESSAGE = "ignored circuit failure";
+
 describe("TokenBucketRateLimiter", () => {
     it("returns immediate permits inside burst and waits after it is exhausted", async () => {
         let now = 1_000;
@@ -135,6 +137,27 @@ describe("CircuitBreaker", () => {
         await expect(
             breaker.execute(async () => "blocked"),
         ).rejects.toBeInstanceOf(CircuitOpenError);
+    });
+
+    it("leaves the circuit closed when failure accounting ignores an error", async () => {
+        const breaker = new CircuitBreaker(
+            {
+                failureThreshold: 1,
+                openMs: 1_000,
+                halfOpenMaxRequests: 1,
+            },
+            () => 0,
+        );
+
+        await expect(
+            breaker.execute(
+                async () => {
+                    throw new Error(TEST_IGNORED_CIRCUIT_FAILURE_MESSAGE);
+                },
+                { shouldRecordFailure: () => false },
+            ),
+        ).rejects.toThrow(TEST_IGNORED_CIRCUIT_FAILURE_MESSAGE);
+        await expect(breaker.execute(async () => "ok")).resolves.toBe("ok");
     });
 });
 

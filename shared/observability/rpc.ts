@@ -1,4 +1,8 @@
 import { logger as defaultLogger, type LogLevel } from "../utils/logger.js";
+import {
+    classifiedRpcErrorClassName,
+    RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME,
+} from "../evm/rpc-errors.js";
 import type { Metrics } from "./metrics/types.js";
 
 // Canonical workspace labels used by RPC logs and metrics.
@@ -93,6 +97,7 @@ export const RPC_OBSERVABILITY_SENTINEL = {
 
 // Canonical error_class labels emitted by the shared RPC observer.
 export const RPC_OBSERVABILITY_ERROR_CLASS = {
+    ProviderHeadLag: RPC_PROVIDER_HEAD_LAG_ERROR_CLASS_NAME,
     RequestTimeout: "RpcRequestTimeoutError",
 } as const;
 
@@ -586,6 +591,11 @@ function normalizedRpcErrorClassName(
     error: unknown,
     depth = 0,
 ): string | undefined {
+    const classified = classifiedRpcErrorClassName(error);
+    if (classified) {
+        return classified;
+    }
+
     if (depth > MAX_ERROR_CAUSE_CLASSIFICATION_DEPTH) {
         return undefined;
     }

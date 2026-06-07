@@ -14,6 +14,7 @@ import {
     TokenBucketRateLimiter,
     type RpcRetryPolicy,
 } from "./rpc-resilience.js";
+import { shouldPenalizeRpcEndpointFailure } from "./rpc-errors.js";
 
 // Result returned after one observed endpoint execution attempt.
 export type ObservedRpcEndpointExecution<TEndpoint, TValue> = {
@@ -198,8 +199,10 @@ async function executeObservedRpcEndpointAttempt<TEndpoint, TValue>(
             endpoint: updatedEndpoint,
         };
     } catch (error) {
-        const updatedEndpoint =
-            input.options.selector.recordFailure(endpoint.id) ?? endpoint;
+        const shouldPenalize = shouldPenalizeRpcEndpointFailure(error);
+        const updatedEndpoint = shouldPenalize
+            ? (input.options.selector.recordFailure(endpoint.id) ?? endpoint)
+            : endpoint;
         input.onEndpointObserved(updatedEndpoint);
         if (error instanceof CircuitOpenError) {
             input.options.rpcObservability?.recordCircuitOpen(
@@ -215,7 +218,9 @@ async function executeObservedRpcEndpointAttempt<TEndpoint, TValue>(
                 error,
             );
         }
-        input.options.onEndpointFailure?.(updatedEndpoint, error);
+        if (shouldPenalize) {
+            input.options.onEndpointFailure?.(updatedEndpoint, error);
+        }
         throw error;
     }
 }
@@ -239,7 +244,11 @@ async function runWithOptionalCircuit<TEndpoint, TValue>(
     run: () => Promise<TValue>,
 ): Promise<TValue> {
     const circuitBreaker = options.circuitBreaker?.(endpoint);
-    return circuitBreaker ? circuitBreaker.execute(run) : run();
+    return circuitBreaker
+        ? circuitBreaker.execute(run, {
+              shouldRecordFailure: shouldPenalizeRpcEndpointFailure,
+          })
+        : run();
 }
 
 async function runWithOptionalRateLimit<TEndpoint, TValue>(
@@ -286,8 +295,9 @@ function recordObservedRpcEndpointAttemptFailure<TEndpoint>(input: {
     endpoint: WeightedEndpointSelection<TEndpoint>;
     error: unknown;
 }): WeightedEndpointSelection<TEndpoint> {
-    const endpoint =
-        input.selector.recordFailure(input.endpoint.id) ?? input.endpoint;
+    const endpoint = shouldPenalizeRpcEndpointFailure(input.error)
+        ? (input.selector.recordFailure(input.endpoint.id) ?? input.endpoint)
+        : input.endpoint;
     input.rpcObservability.recordEndpointAttemptFailure(
         input.attempt,
         endpoint,

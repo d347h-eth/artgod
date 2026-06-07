@@ -12,6 +12,10 @@ import {
 } from "./rpc.js";
 import type { MetricLabels, Metrics } from "./metrics/types.js";
 import type { LogLevel } from "../utils/logger.js";
+import {
+    JSON_RPC_ERROR_CODE,
+    RPC_PROVIDER_HEAD_LAG_ERROR_DATA,
+} from "../evm/rpc-errors.js";
 
 const TEST_RPC_COMPONENT = "primary-http-rpc";
 const TEST_RPC_ENDPOINT_ID = "primary-rpc-1";
@@ -23,6 +27,9 @@ const TEST_LOG_COMPONENT = "TestRpc";
 const TEST_ERROR_CLASS = Error.name;
 const TEST_PROVIDER_HTTP_ERROR_CLASS = "HttpRequestError";
 const TEST_PROVIDER_TIMEOUT_ERROR_CLASS = "TimeoutError";
+const TEST_PROVIDER_INVALID_PARAMS_ERROR_CLASS = "InvalidParamsRpcError";
+const TEST_PROVIDER_RPC_REQUEST_ERROR_CLASS = "RpcRequestError";
+const TEST_INVALID_PARAMS_MESSAGE = "invalid params";
 
 class TestProviderTimeoutError extends Error {
     constructor() {
@@ -176,6 +183,28 @@ describe("RpcObservability", () => {
         );
         expect(errorLogFields(wrappedTimeout)).toMatchObject({
             errorClass: RPC_OBSERVABILITY_ERROR_CLASS.RequestTimeout,
+        });
+    });
+
+    it("normalizes provider head-lag errors to the canonical RPC class", () => {
+        const cause = Object.assign(new Error(TEST_INVALID_PARAMS_MESSAGE), {
+            name: TEST_PROVIDER_RPC_REQUEST_ERROR_CLASS,
+            code: JSON_RPC_ERROR_CODE.InvalidParams,
+            data: RPC_PROVIDER_HEAD_LAG_ERROR_DATA
+                .FromBlockGreaterThanLatestBlock,
+        });
+        const error = Object.assign(new Error(TEST_INVALID_PARAMS_MESSAGE), {
+            name: TEST_PROVIDER_INVALID_PARAMS_ERROR_CLASS,
+            code: JSON_RPC_ERROR_CODE.InvalidParams,
+            cause,
+        });
+
+        expect(errorClassName(error)).toBe(
+            RPC_OBSERVABILITY_ERROR_CLASS.ProviderHeadLag,
+        );
+        expect(errorLogFields(error)).toMatchObject({
+            errorClass: RPC_OBSERVABILITY_ERROR_CLASS.ProviderHeadLag,
+            errorCode: JSON_RPC_ERROR_CODE.InvalidParams,
         });
     });
 });
