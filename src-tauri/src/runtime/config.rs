@@ -29,10 +29,8 @@ pub struct DesktopRuntimeConfig {
     pub wallet: DesktopWalletConfig,
 }
 
-/// App-data child directory reserved for embedded NATS storage.
+/// App-data child directory passed as the embedded NATS store root.
 pub(crate) const NATS_STORAGE_DIR_NAME: &str = "nats";
-/// JetStream store directory passed to the bundled NATS server.
-pub(crate) const NATS_JETSTREAM_STORE_DIR_NAME: &str = "jetstream";
 
 #[derive(Clone, Debug)]
 pub struct DesktopRuntimeCapabilities {
@@ -233,12 +231,10 @@ impl DesktopRuntimeConfig {
 }
 
 fn build_nats_store_dir(app_data_dir: &Path) -> Result<PathBuf, String> {
-    let nats_store_dir = app_data_dir
-        .join(NATS_STORAGE_DIR_NAME)
-        .join(NATS_JETSTREAM_STORE_DIR_NAME);
+    let nats_store_dir = app_data_dir.join(NATS_STORAGE_DIR_NAME);
     fs::create_dir_all(&nats_store_dir).map_err(|error| {
         format!(
-            "Failed to create NATS JetStream store dir {}: {error}",
+            "Failed to create NATS store dir {}: {error}",
             nats_store_dir.display()
         )
     })?;
@@ -574,5 +570,14 @@ mod tests {
         assert!(capabilities.opensea.enabled);
         assert_eq!(capabilities.opensea.mode, "auto");
         assert!(capabilities.opensea.reason.is_none());
+    }
+
+    #[test]
+    fn nats_store_dir_is_the_nats_root_under_app_data() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store_dir = build_nats_store_dir(temp.path()).expect("NATS store dir should resolve");
+
+        assert_eq!(store_dir, temp.path().join(NATS_STORAGE_DIR_NAME));
+        assert!(store_dir.exists());
     }
 }

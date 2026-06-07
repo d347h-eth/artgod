@@ -2125,8 +2125,7 @@ mod tests {
 
     use super::*;
     use crate::runtime::config::{
-        DesktopRuntimeCapabilities, DesktopWalletConfig, NATS_JETSTREAM_STORE_DIR_NAME,
-        NATS_STORAGE_DIR_NAME, RuntimeCapability,
+        DesktopRuntimeCapabilities, DesktopWalletConfig, NATS_STORAGE_DIR_NAME, RuntimeCapability,
     };
 
     #[derive(Deserialize)]
@@ -2151,9 +2150,7 @@ mod tests {
             env_file_path: PathBuf::from("config/.env"),
             node_bin: PathBuf::from("/runtime/node/node"),
             nats_bin: PathBuf::from("/runtime/nats/nats-server"),
-            nats_store_dir: app_data_dir
-                .join(NATS_STORAGE_DIR_NAME)
-                .join(NATS_JETSTREAM_STORE_DIR_NAME),
+            nats_store_dir: app_data_dir.join(NATS_STORAGE_DIR_NAME),
             runtime_dir: PathBuf::from("/runtime"),
             pnp_cjs_path: PathBuf::from("/runtime/.pnp.cjs"),
             pnp_loader_path: PathBuf::from("/runtime/.pnp.loader.mjs"),
@@ -2189,10 +2186,14 @@ mod tests {
     }
 
     #[test]
-    fn nats_launch_uses_configured_jetstream_store_dir() {
+    fn nats_launch_uses_configured_store_root_dir() {
         let config = build_test_runtime_config();
         let args = build_nats_process_args(&config);
 
+        assert_eq!(
+            config.nats_store_dir,
+            PathBuf::from("/app-data").join(NATS_STORAGE_DIR_NAME)
+        );
         assert_eq!(
             args,
             vec![
