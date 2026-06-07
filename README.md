@@ -106,6 +106,7 @@ Hosted deployment is currently documented as a public read-only instance that ca
 Desktop runtime configuration is managed from the native Admin UI `config` section.
 The Rust app embeds `config/settings.manifest.toml` as the Admin config schema/default source, stores only operator overrides in a versioned app-data JSON file, and renders the runtime `.env` from effective manifest defaults plus overrides only after the operator chooses defaults, saves configuration, or launches from saved configuration.
 A stale `.env` without `settings.json` is treated as an inactive legacy file: Admin can show that it exists, but the supervisor will not boot from it.
+On first launch, Admin can populate an empty `RPC_URL_LIST` automatically by benchmarking the embedded Chainlist Ethereum HTTP RPC payload. The config form also exposes manual Chainlist benchmark actions and a tracking-policy selector before the generated endpoint list is saved.
 
 Rendered desktop runtime env file:
 

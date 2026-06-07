@@ -31,6 +31,8 @@ The indexer reads these variables from the root `.env`:
     - HTTP JSON-RPC endpoint pool used by backend, indexer, and trading runtimes.
     - Supply a JSON array of endpoint objects, for example `[{"url":"https://rpc-a.example","weight":2},{"url":"https://rpc-b.example","weight":1}]`.
     - `weight` is optional and defaults to `1`.
+    - Desktop Admin can generate this list by benchmarking the embedded or
+      locally refreshed Chainlist Ethereum HTTP RPC payload before startup.
 - `RPC_BACKFILL_URL_LIST` (optional)
     - Optional JSON array of weighted HTTP JSON-RPC endpoints used by backfill sync jobs.
 - `RPC_WS_URL_LIST` (optional)
