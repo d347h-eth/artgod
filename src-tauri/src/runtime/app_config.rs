@@ -1,17 +1,16 @@
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use uuid::Uuid;
 
 use super::app_config_manifest::{
     AppConfigManifestModel, AppConfigManifestSetting, load_app_config_manifest,
 };
 use super::log_files::ensure_runtime_log_files;
+use super::private_file::write_private_file_atomic;
 
 const SETTINGS_VERSION: u8 = 1;
 
@@ -480,106 +479,6 @@ fn now_rfc3339() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .expect("RFC 3339 formatter should always be valid")
-}
-
-fn write_private_file_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("Config path has no parent directory: {}", path.display()))?;
-    fs::create_dir_all(parent).map_err(|error| {
-        format!(
-            "Failed to create config directory {}: {error}",
-            parent.display()
-        )
-    })?;
-    let temp_path = parent.join(format!(
-        ".{}.tmp-{}",
-        path.file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("config"),
-        Uuid::new_v4()
-    ));
-    write_private_file(&temp_path, bytes)?;
-    replace_file(&temp_path, path)?;
-    apply_private_file_permissions(path)?;
-    Ok(())
-}
-
-fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    #[cfg(unix)]
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options
-        .open(path)
-        .map_err(|error| format!("Failed to create config file {}: {error}", path.display()))?;
-    file.write_all(bytes)
-        .map_err(|error| format!("Failed to write config file {}: {error}", path.display()))?;
-    file.sync_all()
-        .map_err(|error| format!("Failed to sync config file {}: {error}", path.display()))?;
-    Ok(())
-}
-
-fn replace_file(temp_path: &Path, target_path: &Path) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        if target_path.exists() {
-            let backup_path = temp_path.with_extension("bak");
-            fs::rename(target_path, &backup_path).map_err(|error| {
-                format!(
-                    "Failed to prepare config file replacement {}: {error}",
-                    target_path.display()
-                )
-            })?;
-            match fs::rename(temp_path, target_path) {
-                Ok(()) => {
-                    let _ = fs::remove_file(&backup_path);
-                    Ok(())
-                }
-                Err(error) => {
-                    let _ = fs::rename(&backup_path, target_path);
-                    Err(format!(
-                        "Failed to replace config file {}: {error}",
-                        target_path.display()
-                    ))
-                }
-            }
-        } else {
-            fs::rename(temp_path, target_path).map_err(|error| {
-                format!(
-                    "Failed to move config file into place {}: {error}",
-                    target_path.display()
-                )
-            })
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        fs::rename(temp_path, target_path).map_err(|error| {
-            format!(
-                "Failed to move config file into place {}: {error}",
-                target_path.display()
-            )
-        })
-    }
-}
-
-fn apply_private_file_permissions(path: &Path) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
-            format!(
-                "Failed to restrict config file permissions {}: {error}",
-                path.display()
-            )
-        })?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

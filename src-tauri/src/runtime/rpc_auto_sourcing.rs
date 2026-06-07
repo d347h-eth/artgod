@@ -11,10 +11,15 @@ use tauri::AppHandle;
 
 use super::app_config::ensure_desktop_config_paths;
 use super::env_keys::{RPC_AUTO_SOURCING_TRACKING_POLICY_ENV_KEY, RPC_ENDPOINT_LIST_ENV_KEY};
+use super::private_file::write_private_file_atomic;
 
 const EMBEDDED_ETHEREUM_CHAINLIST_RPCS: &str = include_str!("chainlist/ethereum-rpcs.json");
 const CHAINLIST_RPCS_SOURCE_URL: &str = "https://chainlist.org/rpcs.json";
 const CHAINLIST_RPCS_CACHE_FILE_NAME: &str = "chainlist-rpcs.json";
+const CHAINLIST_SOURCE_DESCRIPTION_SAVED: &str = "saved Chainlist file";
+const CHAINLIST_SOURCE_DESCRIPTION_EMBEDDED: &str = "embedded Chainlist file";
+const CHAINLIST_SOURCE_DESCRIPTION_FRESH: &str = "fresh Chainlist download";
+const RPC_ENDPOINT_SOURCE_DESCRIPTION_CONFIGURED: &str = "configured RPC_URL_LIST";
 const ETHEREUM_MAINNET_CHAIN_ID: u64 = 1;
 const CHAINLIST_RPC_TEMPLATE_MARKER: &str = "${";
 const HTTP_RPC_SCHEME: &str = "http";
@@ -26,6 +31,7 @@ const JSON_RPC_METHOD_GET_LOGS: &str = "eth_getLogs";
 const CHAINLIST_TRACKING_VALUE_YES: &str = "yes";
 const RPC_AUTO_SOURCE_BENCHMARK_CONCURRENCY: usize = 10;
 const RPC_AUTO_SOURCE_BENCHMARK_TIMEOUT_MS: u64 = 1_500;
+const RPC_AUTO_SOURCE_CHAINLIST_DOWNLOAD_TIMEOUT_MS: u64 = 30_000;
 const RPC_AUTO_SOURCE_LOGS_BACK_BLOCKS: u64 = 10;
 const RPC_AUTO_SOURCE_MAX_WEIGHT: u32 = 5;
 const RPC_AUTO_SOURCE_WEIGHT_RATIO_HIGH: u128 = 125;
@@ -233,26 +239,46 @@ fn load_saved_chainlist_candidates(
     policy: TrackingPolicy,
 ) -> Result<LoadedRpcEndpointCandidates, String> {
     let cache_path = chainlist_cache_file_path(app)?;
-    let (source_description, payload) = if cache_path.exists() {
-        (
-            "saved Chainlist file".to_owned(),
-            fs::read_to_string(&cache_path).map_err(|error| {
-                format!(
-                    "Failed to read saved Chainlist RPC file {}: {error}",
-                    cache_path.display()
-                )
-            })?,
-        )
-    } else {
-        (
-            "embedded Chainlist file".to_owned(),
-            EMBEDDED_ETHEREUM_CHAINLIST_RPCS.to_owned(),
-        )
-    };
+    if cache_path.exists() {
+        let payload = fs::read_to_string(&cache_path).map_err(|error| {
+            format!(
+                "Failed to read saved Chainlist RPC file {}: {error}",
+                cache_path.display()
+            )
+        })?;
+        return load_saved_chainlist_payload_candidates(&payload, policy);
+    }
+    load_embedded_chainlist_candidates(policy)
+}
 
-    let candidate_set = collect_chainlist_candidates(&payload, policy)?;
+fn load_saved_chainlist_payload_candidates(
+    payload: &str,
+    policy: TrackingPolicy,
+) -> Result<LoadedRpcEndpointCandidates, String> {
+    match load_chainlist_payload_candidates(CHAINLIST_SOURCE_DESCRIPTION_SAVED, payload, policy) {
+        Ok(candidates) => Ok(candidates),
+        Err(_) => load_embedded_chainlist_candidates(policy),
+    }
+}
+
+fn load_embedded_chainlist_candidates(
+    policy: TrackingPolicy,
+) -> Result<LoadedRpcEndpointCandidates, String> {
+    load_chainlist_payload_candidates(
+        CHAINLIST_SOURCE_DESCRIPTION_EMBEDDED,
+        EMBEDDED_ETHEREUM_CHAINLIST_RPCS,
+        policy,
+    )
+}
+
+fn load_chainlist_payload_candidates(
+    source_description: &str,
+    payload: &str,
+    policy: TrackingPolicy,
+) -> Result<LoadedRpcEndpointCandidates, String> {
+    let candidate_set = collect_chainlist_candidates(payload, policy)?;
     Ok(LoadedRpcEndpointCandidates {
-        source_description,
+        source_description: source_description.to_owned(),
         candidates: candidate_set.candidates,
         candidate_count: candidate_set.candidate_count,
         eligible_count: candidate_set.eligible_count,
@@ -264,7 +290,7 @@ async fn load_fresh_chainlist_candidates(
     app: &AppHandle,
     policy: TrackingPolicy,
 ) -> Result<LoadedRpcEndpointCandidates, String> {
-    let client = build_http_client()?;
+    let client = build_chainlist_download_client()?;
     let payload = client
         .get(CHAINLIST_RPCS_SOURCE_URL)
         .send()
@@ -278,15 +304,7 @@ async fn load_fresh_chainlist_candidates(
 
     let candidate_set = collect_chainlist_candidates(&payload, policy)?;
     let cache_path = chainlist_cache_file_path(app)?;
-    if let Some(parent) = cache_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            format!(
-                "Failed to create Chainlist RPC cache dir {}: {error}",
-                parent.display()
-            )
-        })?;
-    }
-    fs::write(&cache_path, payload).map_err(|error| {
+    write_private_file_atomic(&cache_path, payload.as_bytes()).map_err(|error| {
         format!(
             "Failed to save Chainlist RPC file {}: {error}",
             cache_path.display()
@@ -294,7 +312,7 @@ async fn load_fresh_chainlist_candidates(
     })?;
 
     Ok(LoadedRpcEndpointCandidates {
-        source_description: "fresh Chainlist download".to_owned(),
+        source_description: CHAINLIST_SOURCE_DESCRIPTION_FRESH.to_owned(),
         candidates: candidate_set.candidates,
         candidate_count: candidate_set.candidate_count,
         eligible_count: candidate_set.eligible_count,
@@ -326,7 +344,7 @@ fn load_configured_rpc_candidates(
         .collect::<Vec<_>>();
 
     Ok(LoadedRpcEndpointCandidates {
-        source_description: "configured RPC_URL_LIST".to_owned(),
+        source_description: RPC_ENDPOINT_SOURCE_DESCRIPTION_CONFIGURED.to_owned(),
         candidate_count: candidates.len(),
         eligible_count: candidates.len(),
         tracking_counts: RpcEndpointTrackingCounts::default(),
@@ -594,10 +612,24 @@ fn duration_millis(duration: Duration) -> u64 {
 }
 
 fn build_http_client() -> Result<Client, String> {
+    build_timeout_http_client(
+        RPC_AUTO_SOURCE_BENCHMARK_TIMEOUT_MS,
+        "RPC benchmark HTTP client",
+    )
+}
+
+fn build_chainlist_download_client() -> Result<Client, String> {
+    build_timeout_http_client(
+        RPC_AUTO_SOURCE_CHAINLIST_DOWNLOAD_TIMEOUT_MS,
+        "Chainlist download HTTP client",
+    )
+}
+
+fn build_timeout_http_client(timeout_ms: u64, label: &str) -> Result<Client, String> {
     Client::builder()
-        .timeout(Duration::from_millis(RPC_AUTO_SOURCE_BENCHMARK_TIMEOUT_MS))
+        .timeout(Duration::from_millis(timeout_ms))
         .build()
-        .map_err(|error| format!("Failed to create RPC benchmark HTTP client: {error}"))
+        .map_err(|error| format!("Failed to create {label}: {error}"))
 }
 
 fn chainlist_cache_file_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -733,6 +765,25 @@ mod tests {
         let weighted = build_weighted_benchmark_endpoints(successes);
 
         assert_eq!(weighted.len(), 12);
+    }
+
+    #[test]
+    fn chainlist_download_timeout_is_separate_from_rpc_probe_timeout() {
+        assert!(
+            RPC_AUTO_SOURCE_CHAINLIST_DOWNLOAD_TIMEOUT_MS > RPC_AUTO_SOURCE_BENCHMARK_TIMEOUT_MS
+        );
+    }
+
+    #[test]
+    fn saved_chainlist_payload_falls_back_to_embedded_when_invalid() {
+        let candidates =
+            load_saved_chainlist_payload_candidates("{", TrackingPolicy::None).unwrap();
+
+        assert_eq!(
+            candidates.source_description,
+            CHAINLIST_SOURCE_DESCRIPTION_EMBEDDED
+        );
+        assert!(candidates.eligible_count > 0);
     }
 
     #[test]
