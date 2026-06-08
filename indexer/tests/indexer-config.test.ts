@@ -9,6 +9,10 @@ import {
     getDefaultRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
 import {
+    getDefaultHttpFetchResilienceConfig,
+    HTTP_FETCH_RESILIENCE_ENV_KEY,
+} from "@artgod/shared/config/http-fetch-resilience";
+import {
     RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY,
     RPC_ENDPOINT_LIST_ENV_KEY,
     RPC_WEBSOCKET_ENDPOINT_LIST_ENV_KEY,
@@ -96,6 +100,7 @@ describe("Indexer config", () => {
             maxEntries: getSettingDefaultNumber("CACHE_MAX_ENTRIES"),
             ttlMs: getSettingDefaultNumber("CACHE_TTL_MS"),
         });
+        expect(config.httpFetch).toEqual(getDefaultHttpFetchResilienceConfig());
         expect(config.bootstrap).toEqual({
             snapshotBatchSize: getSettingDefaultNumber(
                 "BOOTSTRAP_SNAPSHOT_BATCH_SIZE",
@@ -178,6 +183,25 @@ describe("Indexer config", () => {
         expect(config.bootstrap.imageCacheBatchSize).toBe(25);
         expect(config.bootstrap.imageCacheConcurrency).toBe(3);
         expect(config.bootstrap.imageCacheMaxSourceBytes).toBe(123456);
+    });
+
+    it("parses shared HTTP fetch resilience config", () => {
+        const config = loadConfig({
+            ...REQUIRED_ENV,
+            [HTTP_FETCH_RESILIENCE_ENV_KEY.RequestTimeoutMs]: "1500",
+            [HTTP_FETCH_RESILIENCE_ENV_KEY.RetryMaxAttempts]: "4",
+            [HTTP_FETCH_RESILIENCE_ENV_KEY.RetryBaseDelayMs]: "125",
+            [HTTP_FETCH_RESILIENCE_ENV_KEY.RetryMaxDelayMs]: "900",
+        });
+
+        expect(config.httpFetch).toEqual({
+            requestTimeoutMs: 1500,
+            retryPolicy: {
+                maxAttempts: 4,
+                baseDelayMs: 125,
+                maxDelayMs: 900,
+            },
+        });
     });
 
     it("treats missing OpenSea API key as disabled in auto mode", () => {

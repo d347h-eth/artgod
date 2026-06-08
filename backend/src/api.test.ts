@@ -12,6 +12,7 @@ import {
 import {
     getDefaultRpcEndpointResilienceConfig,
 } from "@artgod/shared/config/rpc-resilience";
+import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import type { RpcRetryPolicy } from "@artgod/shared/evm/rpc-resilience";
 import {
     TERRAFORMS_BEACON_EVENT_GROUP_OPTIONS,
@@ -824,6 +825,7 @@ beforeAll(async () => {
         mediaCache: {
             tokenImagesDir: "/tmp/artgod-api-test-media-cache",
         },
+        httpFetch: getDefaultHttpFetchResilienceConfig(),
         security: API_SECURITY_CONFIG,
         deployment: {
             mode: "public_single_collection",

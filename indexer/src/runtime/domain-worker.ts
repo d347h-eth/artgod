@@ -100,6 +100,7 @@ async function main() {
             resilience: config.rpc.resilience,
         });
         const metadataFetcher = new HttpMetadataFetcher({
+            fetchResilience: config.httpFetch,
             metrics: runtimeMetrics.metrics,
         });
         const metadataDomain = new SqliteMetadataDomain(

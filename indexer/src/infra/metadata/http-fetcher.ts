@@ -9,20 +9,31 @@ import {
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
+import {
+    fetchWithHttpResilience,
+    type HttpFetchResilienceConfig,
+} from "@artgod/shared/network/http-fetch-resilience";
 
 export type HttpMetadataFetcherConfig = {
     timeoutMs?: number;
     ipfsGateway?: string;
+    fetchResilience?: HttpFetchResilienceConfig;
     metrics?: Metrics;
 };
 
 export class HttpMetadataFetcher implements MetadataFetcherPort {
-    private timeoutMs: number;
+    private fetchResilience: HttpFetchResilienceConfig;
     private ipfsGatewayOrigin: string;
     private metrics?: Metrics;
 
     constructor(config: HttpMetadataFetcherConfig = {}) {
-        this.timeoutMs = config.timeoutMs ?? 10_000;
+        const defaultFetchResilience = getDefaultHttpFetchResilienceConfig();
+        this.fetchResilience = config.fetchResilience ?? {
+            ...defaultFetchResilience,
+            requestTimeoutMs:
+                config.timeoutMs ?? defaultFetchResilience.requestTimeoutMs,
+        };
         this.ipfsGatewayOrigin = config.ipfsGateway ?? "https://ipfs.io";
         this.metrics = config.metrics;
     }
@@ -47,7 +58,7 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
         try {
             const raw = resolved.startsWith("data:")
                 ? parseDataUri(resolved)
-                : await fetchJson(resolved, this.timeoutMs);
+                : await fetchJson(resolved, this.fetchResilience);
             const metadata = normalizeMetadata(uri, raw);
             if (!metadata) {
                 this.metrics?.increment("metadata.fetch.failure", 1, {
@@ -82,21 +93,21 @@ export class HttpMetadataFetcher implements MetadataFetcherPort {
     }
 }
 
-async function fetchJson(uri: string, timeoutMs: number): Promise<unknown> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        const response = await fetch(uri, {
-            signal: controller.signal,
+async function fetchJson(
+    uri: string,
+    fetchResilience: HttpFetchResilienceConfig,
+): Promise<unknown> {
+    const response = await fetchWithHttpResilience({
+        input: uri,
+        config: fetchResilience,
+        init: {
             headers: { accept: "application/json" },
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        return response.json();
-    } finally {
-        clearTimeout(timer);
+        },
+    });
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
     }
+    return response.json();
 }
 
 function parseDataUri(uri: string): unknown {

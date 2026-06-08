@@ -9,6 +9,11 @@ import {
     parseImageDataUriBuffer,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
+import {
+    fetchWithHttpResilience,
+    type HttpFetchResilienceConfig,
+} from "@artgod/shared/network/http-fetch-resilience";
 import type {
     TokenImageCacheInput,
     TokenImageCachePort,
@@ -19,6 +24,7 @@ export type SharpTokenImageCacheConfig = {
     rootDir: string;
     ipfsGatewayOrigin: string;
     maxSourceBytes: number;
+    fetchResilience?: HttpFetchResilienceConfig;
 };
 
 type SourceImagePayload = {
@@ -27,10 +33,14 @@ type SourceImagePayload = {
 };
 
 const DEFAULT_WEBP_QUALITY = 85;
-const TOKEN_IMAGE_FETCH_TIMEOUT_MS = 30_000;
 
 export class SharpTokenImageCache implements TokenImageCachePort {
-    constructor(private readonly config: SharpTokenImageCacheConfig) {}
+    private readonly fetchResilience: HttpFetchResilienceConfig;
+
+    constructor(private readonly config: SharpTokenImageCacheConfig) {
+        this.fetchResilience =
+            config.fetchResilience ?? getDefaultHttpFetchResilienceConfig();
+    }
 
     async cacheTokenImage(
         input: TokenImageCacheInput,
@@ -86,41 +96,35 @@ export class SharpTokenImageCache implements TokenImageCachePort {
             throw new Error("Unsupported image URI");
         }
 
-        const controller = new AbortController();
-        const timer = setTimeout(
-            () => controller.abort(),
-            TOKEN_IMAGE_FETCH_TIMEOUT_MS,
-        );
-        try {
-            const response = await fetch(resolved, {
-                signal: controller.signal,
+        const response = await fetchWithHttpResilience({
+            input: resolved,
+            config: this.fetchResilience,
+            init: {
                 headers: { accept: "image/*,*/*;q=0.1" },
-            });
-            if (!response.ok) {
-                throw new Error(`Image fetch failed: HTTP ${response.status}`);
-            }
-            const contentLength = Number(response.headers.get("content-length"));
-            if (
-                Number.isFinite(contentLength) &&
-                contentLength > this.config.maxSourceBytes
-            ) {
-                throw new Error(
-                    `Image payload exceeds ${this.config.maxSourceBytes} bytes`,
-                );
-            }
-
-            return {
-                buffer: await readResponseBufferWithLimit(
-                    response,
-                    this.config.maxSourceBytes,
-                ),
-                contentType: normalizeContentType(
-                    response.headers.get("content-type"),
-                ),
-            };
-        } finally {
-            clearTimeout(timer);
+            },
+        });
+        if (!response.ok) {
+            throw new Error(`Image fetch failed: HTTP ${response.status}`);
         }
+        const contentLength = Number(response.headers.get("content-length"));
+        if (
+            Number.isFinite(contentLength) &&
+            contentLength > this.config.maxSourceBytes
+        ) {
+            throw new Error(
+                `Image payload exceeds ${this.config.maxSourceBytes} bytes`,
+            );
+        }
+
+        return {
+            buffer: await readResponseBufferWithLimit(
+                response,
+                this.config.maxSourceBytes,
+            ),
+            contentType: normalizeContentType(
+                response.headers.get("content-type"),
+            ),
+        };
     }
 }
 

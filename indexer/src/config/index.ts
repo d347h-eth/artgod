@@ -23,6 +23,7 @@ import {
     parseRpcEndpointResilienceConfig,
     parseRpcRetryPolicy,
 } from "@artgod/shared/config/rpc-resilience";
+import { parseHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
 import {
     parseBoolean,
     parseNumber,
@@ -33,6 +34,7 @@ import type {
     RpcEndpointResilienceConfig,
     RpcRetryPolicy,
 } from "@artgod/shared/evm/rpc-resilience";
+import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
 import { normalizeIpfsGatewayOrigin } from "@artgod/shared/media/token-resource-uri";
 import { resolveTokenImageCacheDir } from "@artgod/shared/media/token-image-cache";
 import {
@@ -147,6 +149,7 @@ export type IndexerConfig = {
     mediaCache: {
         tokenImagesDir: string;
     };
+    httpFetch: HttpFetchResilienceConfig;
     metadata: {
         refreshRangeChunkSize: number;
     };
@@ -316,6 +319,7 @@ export function loadConfig(
         mediaCache: {
             tokenImagesDir,
         },
+        httpFetch: parseHttpFetchResilienceConfig(env),
         metadata: {
             refreshRangeChunkSize: parseNumber(
                 env.METADATA_REFRESH_RANGE_CHUNK_SIZE,

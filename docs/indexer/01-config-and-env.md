@@ -59,6 +59,14 @@ The indexer reads these variables from the root `.env`:
 - `ARTGOD_MEDIA_CACHE_DIR` (optional)
     - Filesystem root for locally cached token images.
     - When omitted, resolves beside `ARTGOD_DB_PATH` as `../media-cache/token-images`.
+- `ARTGOD_HTTP_FETCH_TIMEOUT_MS` (default: 10000)
+    - Per-attempt timeout for ordinary metadata and media HTTP fetches.
+- `ARTGOD_HTTP_FETCH_RETRY_MAX_ATTEMPTS` (default: 3)
+    - Maximum attempts for ordinary metadata and media HTTP fetches.
+- `ARTGOD_HTTP_FETCH_RETRY_BASE_DELAY_MS` (default: 250)
+    - Initial exponential-backoff delay for ordinary metadata and media HTTP retries.
+- `ARTGOD_HTTP_FETCH_RETRY_MAX_DELAY_MS` (default: 2000)
+    - Maximum exponential-backoff delay for ordinary metadata and media HTTP retries.
 - `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` (default: 200)
 - `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE` (default: 50)
 - `BOOTSTRAP_IMAGE_CACHE_CONCURRENCY` (default: 4)
@@ -116,6 +124,10 @@ BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS=60000
 OFFCHAIN_PERSIST_RAW_OBSERVATIONS=false
 ARTGOD_IPFS_GATEWAY_ORIGIN=https://ipfs.io
 ARTGOD_MEDIA_CACHE_DIR=
+ARTGOD_HTTP_FETCH_TIMEOUT_MS=10000
+ARTGOD_HTTP_FETCH_RETRY_MAX_ATTEMPTS=3
+ARTGOD_HTTP_FETCH_RETRY_BASE_DELAY_MS=250
+ARTGOD_HTTP_FETCH_RETRY_MAX_DELAY_MS=2000
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
 BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE=50
 BOOTSTRAP_IMAGE_CACHE_CONCURRENCY=4

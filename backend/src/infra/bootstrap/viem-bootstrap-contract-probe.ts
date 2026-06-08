@@ -15,6 +15,11 @@ import {
     parseJsonDataUriText,
     resolveTokenResourceUri,
 } from "@artgod/shared/media/token-resource-uri";
+import { getDefaultHttpFetchResilienceConfig } from "@artgod/shared/config/http-fetch-resilience";
+import {
+    fetchWithHttpResilience,
+    type HttpFetchResilienceConfig,
+} from "@artgod/shared/network/http-fetch-resilience";
 
 type BootstrapProbeRpc = {
     readContract<T = unknown>(params: {
@@ -102,13 +107,14 @@ const ERC721_ENUMERABLE_INTERFACE_ID = "0x780e9d63";
 // Preflight only needs enough payload to render a safe preview and estimate scale.
 const MAX_TOKEN_URI_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_MEDIA_PROBE_BYTES = 25 * 1024 * 1024;
-const TOKEN_URI_FETCH_TIMEOUT_MS = 10_000;
 const DEFAULT_IPFS_GATEWAY_ORIGIN = "https://ipfs.io";
 
 export class ViemBootstrapContractProbe implements CollectionContractProbePort {
     constructor(
         private readonly rpc: BootstrapProbeRpc,
         private readonly ipfsGatewayOrigin: string = DEFAULT_IPFS_GATEWAY_ORIGIN,
+        private readonly fetchResilience: HttpFetchResilienceConfig =
+            getDefaultHttpFetchResilienceConfig(),
     ) {}
 
     async probeErc721Contract(input: {
@@ -308,12 +314,17 @@ export class ViemBootstrapContractProbe implements CollectionContractProbePort {
             const payload = await fetchTokenUriPayload(
                 uri,
                 this.ipfsGatewayOrigin,
+                this.fetchResilience,
                 MAX_TOKEN_URI_PAYLOAD_BYTES,
             );
             const metadata = parseMetadataPayload(payload.text);
             const image = resolveDisplayUrl(metadata.image, this.ipfsGatewayOrigin);
             const imageSize = image
-                ? await probeMediaSize(image, MAX_MEDIA_PROBE_BYTES)
+                ? await probeMediaSize(
+                      image,
+                      MAX_MEDIA_PROBE_BYTES,
+                      this.fetchResilience,
+                  )
                 : null;
             return {
                 tokenId,
@@ -424,6 +435,7 @@ function emptyFirstTokenWithError(
 async function fetchTokenUriPayload(
     uri: string,
     ipfsGatewayOrigin: string,
+    fetchResilience: HttpFetchResilienceConfig,
     maxBytes: number,
 ): Promise<TokenUriPayload> {
     if (uri.startsWith("data:")) {
@@ -440,24 +452,21 @@ async function fetchTokenUriPayload(
         throw new Error("unsupported tokenURI scheme");
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TOKEN_URI_FETCH_TIMEOUT_MS);
-    try {
-        const response = await fetch(resolved, {
-            signal: controller.signal,
+    const response = await fetchWithHttpResilience({
+        input: resolved,
+        config: fetchResilience,
+        init: {
             headers: { accept: "application/json,text/plain;q=0.9,*/*;q=0.1" },
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const contentLength = Number(response.headers.get("content-length"));
-        if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-            throw new Error(`tokenURI payload exceeds ${maxBytes} bytes`);
-        }
-        return await readResponseTextWithLimit(response, maxBytes);
-    } finally {
-        clearTimeout(timer);
+        },
+    });
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
     }
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+        throw new Error(`tokenURI payload exceeds ${maxBytes} bytes`);
+    }
+    return await readResponseTextWithLimit(response, maxBytes);
 }
 
 async function readResponseTextWithLimit(
@@ -529,6 +538,7 @@ function resolveDisplayUrl(
 async function probeMediaSize(
     uri: string,
     maxBytes: number,
+    fetchResilience: HttpFetchResilienceConfig,
 ): Promise<{
     bytes: number | null;
     source: "content_length" | "download" | "data_uri" | null;
@@ -558,27 +568,31 @@ async function probeMediaSize(
         };
     }
 
-    const head = await readContentLength(uri);
+    const head = await readContentLength(uri, fetchResilience);
     if (head.bytes !== null) {
         return head;
     }
 
-    return downloadMediaSize(uri, maxBytes);
+    return downloadMediaSize(uri, maxBytes, fetchResilience);
 }
 
-async function readContentLength(uri: string): Promise<{
+async function readContentLength(
+    uri: string,
+    fetchResilience: HttpFetchResilienceConfig,
+): Promise<{
     bytes: number | null;
     source: "content_length" | null;
     contentType: string | null;
     error: string | null;
 }> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TOKEN_URI_FETCH_TIMEOUT_MS);
     try {
-        const response = await fetch(uri, {
-            method: "HEAD",
-            signal: controller.signal,
-            headers: { accept: "image/*,*/*;q=0.1" },
+        const response = await fetchWithHttpResilience({
+            input: uri,
+            config: fetchResilience,
+            init: {
+                method: "HEAD",
+                headers: { accept: "image/*,*/*;q=0.1" },
+            },
         });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -603,26 +617,26 @@ async function readContentLength(uri: string): Promise<{
             contentType: null,
             error: compactError(error),
         };
-    } finally {
-        clearTimeout(timer);
     }
 }
 
 async function downloadMediaSize(
     uri: string,
     maxBytes: number,
+    fetchResilience: HttpFetchResilienceConfig,
 ): Promise<{
     bytes: number | null;
     source: "download" | null;
     contentType: string | null;
     error: string | null;
 }> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TOKEN_URI_FETCH_TIMEOUT_MS);
     try {
-        const response = await fetch(uri, {
-            signal: controller.signal,
-            headers: { accept: "image/*,*/*;q=0.1" },
+        const response = await fetchWithHttpResilience({
+            input: uri,
+            config: fetchResilience,
+            init: {
+                headers: { accept: "image/*,*/*;q=0.1" },
+            },
         });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -636,8 +650,6 @@ async function downloadMediaSize(
         };
     } catch (error) {
         return emptyMediaSizeError(error);
-    } finally {
-        clearTimeout(timer);
     }
 }
 

@@ -63,6 +63,8 @@ When the bootstrap request enables image caching, the worker seeds a dedicated c
 
 - the cache uses canonical `image`, not `animation_url`
 - IPFS image refs are resolved through `ARTGOD_IPFS_GATEWAY_ORIGIN`
+- metadata and image HTTP fetches use shared `ARTGOD_HTTP_FETCH_*` timeout and
+  bounded retry settings
 - files are written under `ARTGOD_MEDIA_CACHE_DIR`, or beside the SQLite DB when unset
 - a configured max dimension resizes images into WebP through `sharp`
 - a null max dimension stores original source bytes when possible

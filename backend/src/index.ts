@@ -231,6 +231,7 @@ export function createBackendApp(
     const bootstrapContractProbe = new ViemBootstrapContractProbe(
         backendRpcClient,
         config.ipfs.gatewayOrigin,
+        config.httpFetch,
     );
     const createBootstrapRunUseCase = new CreateBootstrapRunUseCase(
         config.defaultChainId,

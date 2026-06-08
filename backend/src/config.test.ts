@@ -9,6 +9,10 @@ import {
     getDefaultRpcRetryPolicy,
     RPC_RESILIENCE_ENV_KEY,
 } from "@artgod/shared/config/rpc-resilience";
+import {
+    getDefaultHttpFetchResilienceConfig,
+    HTTP_FETCH_RESILIENCE_ENV_KEY,
+} from "@artgod/shared/config/http-fetch-resilience";
 import { RPC_ENDPOINT_LIST_ENV_KEY } from "@artgod/shared/config/rpc-endpoints";
 import { loadBackendConfig } from "./config.js";
 import { QUERY_CACHE_PROVIDERS } from "./ports/query-cache.js";
@@ -23,6 +27,7 @@ describe("loadBackendConfig", () => {
             endpoints: [{ url: "https://rpc-a.example", weight: 1 }],
             ...expectedDefaultRpcPolicy(),
         });
+        expect(config.httpFetch).toEqual(getDefaultHttpFetchResilienceConfig());
         expect(config.wethAddress).toBe(
             "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
         );
@@ -78,6 +83,25 @@ describe("loadBackendConfig", () => {
                     openMs: 1000,
                     halfOpenMaxRequests: 1,
                 },
+            },
+        });
+    });
+
+    it("parses shared HTTP fetch resilience overrides", () => {
+        const config = loadBackendConfig({
+            ...createBaseEnv(),
+            [HTTP_FETCH_RESILIENCE_ENV_KEY.RequestTimeoutMs]: "1500",
+            [HTTP_FETCH_RESILIENCE_ENV_KEY.RetryMaxAttempts]: "4",
+            [HTTP_FETCH_RESILIENCE_ENV_KEY.RetryBaseDelayMs]: "125",
+            [HTTP_FETCH_RESILIENCE_ENV_KEY.RetryMaxDelayMs]: "900",
+        });
+
+        expect(config.httpFetch).toEqual({
+            requestTimeoutMs: 1500,
+            retryPolicy: {
+                maxAttempts: 4,
+                baseDelayMs: 125,
+                maxDelayMs: 900,
             },
         });
     });

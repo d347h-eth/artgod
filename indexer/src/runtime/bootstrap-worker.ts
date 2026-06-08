@@ -119,6 +119,7 @@ async function main() {
         });
         const metadataFetcher = new HttpMetadataFetcher({
             ipfsGateway: config.ipfs.gatewayOrigin,
+            fetchResilience: config.httpFetch,
             metrics: runtimeMetrics.metrics,
         });
         const metadataDomain = new SqliteMetadataDomain(
@@ -129,6 +130,7 @@ async function main() {
             rootDir: config.mediaCache.tokenImagesDir,
             ipfsGatewayOrigin: config.ipfs.gatewayOrigin,
             maxSourceBytes: config.bootstrap.imageCacheMaxSourceBytes,
+            fetchResilience: config.httpFetch,
         });
 
         const stop = await runWorker(
