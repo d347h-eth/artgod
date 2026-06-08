@@ -63,7 +63,6 @@ const TOKEN_IMAGE_CACHE_JOIN_SQL =
     "LEFT JOIN token_image_cache ic ON ic.chain_id = t.chain_id " +
     "AND ic.collection_id = t.collection_id " +
     "AND ic.token_id = t.token_id " +
-    "AND ic.status = 'succeeded' " +
     "AND ic.public_path IS NOT NULL " +
     "AND ic.source_image_url = m.image ";
 

@@ -128,15 +128,18 @@ describe("SqliteCollectionsReadModel observability", () => {
         ).run("ipfs://source-image", 1, 1, "1");
         db.prepare(
             "INSERT INTO token_image_cache " +
-                "(run_id, chain_id, collection_id, contract_address, token_id, source_image_url, status, attempts, next_attempt_at, public_path) " +
-                "VALUES (?, ?, ?, ?, ?, ?, 'succeeded', 1, 0, ?)",
+                "(chain_id, collection_id, token_id, source_image_url, requested_max_dimension, cache_key, content_type, source_bytes, cached_bytes, relative_path, public_path) " +
+                "VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)",
         ).run(
-            12,
             1,
             1,
-            "0x1111111111111111111111111111111111111111",
             "1",
             "ipfs://source-image",
+            "cache-key",
+            "image/webp",
+            100,
+            80,
+            "1/1/1/cache.webp",
             "/media/token-images/1/1/1/cache.webp",
         );
         const readModel = new SqliteCollectionsReadModel([ZERO_ADDRESS]);
@@ -683,26 +686,19 @@ function createSchema(): void {
             PRIMARY KEY (chain_id, collection_id, token_id)
         );
         CREATE TABLE token_image_cache (
-            run_id INTEGER NOT NULL,
             chain_id INTEGER NOT NULL,
             collection_id INTEGER NOT NULL,
-            contract_address TEXT NOT NULL,
             token_id TEXT NOT NULL,
             source_image_url TEXT NOT NULL,
             requested_max_dimension INTEGER,
-            status TEXT NOT NULL,
-            attempts INTEGER NOT NULL,
-            next_attempt_at INTEGER NOT NULL,
-            cache_key TEXT,
-            content_type TEXT,
-            source_bytes INTEGER,
-            cached_bytes INTEGER,
+            cache_key TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            source_bytes INTEGER NOT NULL,
+            cached_bytes INTEGER NOT NULL,
             width INTEGER,
             height INTEGER,
-            relative_path TEXT,
-            public_path TEXT,
-            last_error TEXT,
-            last_error_at INTEGER,
+            relative_path TEXT NOT NULL,
+            public_path TEXT NOT NULL,
             created_at TEXT,
             updated_at TEXT,
             PRIMARY KEY (chain_id, collection_id, token_id)
