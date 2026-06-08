@@ -210,7 +210,7 @@ Important contract:
 
 ### `bootstrap_image_cache_tasks`
 
-Defined in `032_token_image_cache.sql`.
+Defined in `036_token_image_cache.sql`.
 
 Purpose:
 
@@ -246,7 +246,7 @@ Key columns:
 
 ### `token_image_cache`
 
-Defined in `032_token_image_cache.sql`.
+Defined in `036_token_image_cache.sql`.
 
 Purpose:
 

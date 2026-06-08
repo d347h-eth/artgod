@@ -37,7 +37,7 @@ import type {
 } from "@artgod/shared/evm/rpc-resilience";
 import type { HttpFetchResilienceConfig } from "@artgod/shared/network/http-fetch-resilience";
 import { normalizeIpfsGatewayOrigin } from "@artgod/shared/media/token-resource-uri";
-import { resolveTokenImageCacheDir } from "@artgod/shared/media/token-image-cache";
+import { resolveTokenImageCacheDir } from "@artgod/shared/media/token-image-cache-storage";
 import {
     parseIndexerApmConfig,
     parseIndexerMetricsConfig,
