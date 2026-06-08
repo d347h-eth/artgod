@@ -528,6 +528,38 @@ defaults = { local = "", deploy = "/data/media-cache/token-images", desktop = ""
 help = "Optional token-image cache directory. Empty stores cached token images beside the SQLite database."
 
 [[settings]]
+key = "ARTGOD_HTTP_FETCH_TIMEOUT_MS"
+group = "indexer"
+label = "artgod http fetch timeout ms"
+default = "10000"
+help = "Per-attempt timeout for ordinary metadata and media HTTP fetches."
+validation = "positive_integer"
+
+[[settings]]
+key = "ARTGOD_HTTP_FETCH_RETRY_MAX_ATTEMPTS"
+group = "indexer"
+label = "artgod http fetch retry max attempts"
+default = "3"
+help = "Maximum attempts for ordinary metadata and media HTTP fetches."
+validation = "positive_integer"
+
+[[settings]]
+key = "ARTGOD_HTTP_FETCH_RETRY_BASE_DELAY_MS"
+group = "indexer"
+label = "artgod http fetch retry base delay ms"
+default = "250"
+help = "Initial exponential-backoff delay for ordinary metadata and media HTTP fetch retries."
+validation = "positive_integer"
+
+[[settings]]
+key = "ARTGOD_HTTP_FETCH_RETRY_MAX_DELAY_MS"
+group = "indexer"
+label = "artgod http fetch retry max delay ms"
+default = "2000"
+help = "Maximum exponential-backoff delay for ordinary metadata and media HTTP fetch retries."
+validation = "positive_integer"
+
+[[settings]]
 key = "NATS_URL"
 group = "queue"
 label = "nats url"
