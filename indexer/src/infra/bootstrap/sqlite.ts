@@ -128,13 +128,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "ORDER BY token_id ASC",
     );
     private resetImageCacheTasksStmt = db.prepare<{ runId: number }>(
-        "DELETE FROM token_image_cache WHERE run_id = @runId",
+        "DELETE FROM bootstrap_image_cache_tasks WHERE run_id = @runId",
     );
     private seedImageCacheTasksStmt = db.prepare<{
         runId: number;
         requestedMaxDimension: number | null;
     }>(
-        "INSERT INTO token_image_cache " +
+        "INSERT INTO bootstrap_image_cache_tasks " +
             "(run_id, chain_id, collection_id, contract_address, token_id, source_image_url, requested_max_dimension, status, attempts, next_attempt_at, cache_key, content_type, source_bytes, cached_bytes, width, height, relative_path, public_path, last_error, last_error_at) " +
             "SELECT t.run_id, t.chain_id, t.collection_id, lower(t.contract_address), t.token_id, m.image, @requestedMaxDimension, 'pending', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL " +
             "FROM bootstrap_metadata_snapshot_tasks t " +
@@ -143,20 +143,12 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
             "AND m.token_id = t.token_id " +
             "WHERE t.run_id = @runId AND t.status = 'succeeded' " +
             "AND m.image IS NOT NULL AND trim(m.image) <> '' " +
-            "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
-            "run_id = excluded.run_id, contract_address = excluded.contract_address, " +
+            "ON CONFLICT(run_id, token_id) DO UPDATE SET " +
+            "chain_id = excluded.chain_id, collection_id = excluded.collection_id, contract_address = excluded.contract_address, " +
             "source_image_url = excluded.source_image_url, requested_max_dimension = excluded.requested_max_dimension, " +
-            "status = CASE WHEN token_image_cache.source_image_url = excluded.source_image_url " +
-            "AND COALESCE(token_image_cache.requested_max_dimension, -1) = COALESCE(excluded.requested_max_dimension, -1) " +
-            "AND token_image_cache.status = 'succeeded' THEN 'succeeded' ELSE 'pending' END, " +
-            "attempts = CASE WHEN token_image_cache.source_image_url = excluded.source_image_url " +
-            "AND COALESCE(token_image_cache.requested_max_dimension, -1) = COALESCE(excluded.requested_max_dimension, -1) " +
-            "AND token_image_cache.status = 'succeeded' THEN token_image_cache.attempts ELSE 0 END, " +
-            "next_attempt_at = CASE WHEN token_image_cache.source_image_url = excluded.source_image_url " +
-            "AND COALESCE(token_image_cache.requested_max_dimension, -1) = COALESCE(excluded.requested_max_dimension, -1) " +
-            "AND token_image_cache.status = 'succeeded' THEN token_image_cache.next_attempt_at ELSE 0 END, " +
-            "last_error = CASE WHEN token_image_cache.status = 'succeeded' THEN token_image_cache.last_error ELSE NULL END, " +
-            "last_error_at = CASE WHEN token_image_cache.status = 'succeeded' THEN token_image_cache.last_error_at ELSE NULL END, " +
+            "status = 'pending', attempts = 0, next_attempt_at = 0, cache_key = NULL, content_type = NULL, " +
+            "source_bytes = NULL, cached_bytes = NULL, width = NULL, height = NULL, relative_path = NULL, public_path = NULL, " +
+            "last_error = NULL, last_error_at = NULL, " +
             "updated_at = CURRENT_TIMESTAMP",
     );
     private selectImageCacheTasksDueStmt = db.prepare<{
@@ -165,7 +157,7 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         limit: number;
     }>(
         "SELECT run_id, chain_id, collection_id, contract_address, token_id, source_image_url, requested_max_dimension, status, attempts, next_attempt_at " +
-            "FROM token_image_cache " +
+            "FROM bootstrap_image_cache_tasks " +
             "WHERE run_id = @runId " +
             "AND status IN ('pending', 'retry') AND next_attempt_at <= @nowMs " +
             "ORDER BY next_attempt_at ASC, token_id ASC LIMIT @limit",
@@ -183,12 +175,34 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         relativePath: string;
         publicPath: string;
     }>(
-        "UPDATE token_image_cache SET " +
+        "UPDATE bootstrap_image_cache_tasks SET " +
             "status = 'succeeded', attempts = @attempts, next_attempt_at = 0, cache_key = @cacheKey, " +
             "content_type = @contentType, source_bytes = @sourceBytes, cached_bytes = @cachedBytes, " +
             "width = @width, height = @height, relative_path = @relativePath, public_path = @publicPath, " +
             "last_error = NULL, last_error_at = NULL, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND token_id = @tokenId",
+    );
+    private upsertSettledImageCacheStmt = db.prepare<{
+        runId: number;
+        tokenId: string;
+        cacheKey: string;
+        contentType: string;
+        sourceBytes: number;
+        cachedBytes: number;
+        width: number | null;
+        height: number | null;
+        relativePath: string;
+        publicPath: string;
+    }>(
+        "INSERT INTO token_image_cache " +
+            "(chain_id, collection_id, token_id, source_image_url, requested_max_dimension, cache_key, content_type, source_bytes, cached_bytes, width, height, relative_path, public_path) " +
+            "SELECT chain_id, collection_id, token_id, source_image_url, requested_max_dimension, @cacheKey, @contentType, @sourceBytes, @cachedBytes, @width, @height, @relativePath, @publicPath " +
+            "FROM bootstrap_image_cache_tasks WHERE run_id = @runId AND token_id = @tokenId " +
+            "ON CONFLICT(chain_id, collection_id, token_id) DO UPDATE SET " +
+            "source_image_url = excluded.source_image_url, requested_max_dimension = excluded.requested_max_dimension, " +
+            "cache_key = excluded.cache_key, content_type = excluded.content_type, source_bytes = excluded.source_bytes, " +
+            "cached_bytes = excluded.cached_bytes, width = excluded.width, height = excluded.height, " +
+            "relative_path = excluded.relative_path, public_path = excluded.public_path, updated_at = CURRENT_TIMESTAMP",
     );
     private markImageCacheTaskRetryStmt = db.prepare<{
         runId: number;
@@ -199,13 +213,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         failedTerminal: number;
         nowMs: number;
     }>(
-        "UPDATE token_image_cache SET " +
+        "UPDATE bootstrap_image_cache_tasks SET " +
             "status = CASE WHEN @failedTerminal = 1 THEN 'failed_terminal' ELSE 'retry' END, " +
             "attempts = @attempts, next_attempt_at = @nextAttemptAt, last_error = @lastError, last_error_at = @nowMs, updated_at = CURRENT_TIMESTAMP " +
             "WHERE run_id = @runId AND token_id = @tokenId",
     );
     private selectImageCacheTaskCountsStmt = db.prepare<{ runId: number }>(
-        "SELECT status, COUNT(*) AS count FROM token_image_cache " +
+        "SELECT status, COUNT(*) AS count FROM bootstrap_image_cache_tasks " +
             "WHERE run_id = @runId GROUP BY status",
     );
 
@@ -369,7 +383,13 @@ export class SqliteBootstrapStorage implements BootstrapSnapshotPort {
         relativePath: string;
         publicPath: string;
     }): void {
-        this.markImageCacheTaskSucceededStmt.run(input);
+        const applySuccess = db.raw.transaction(
+            (params: typeof input) => {
+                this.markImageCacheTaskSucceededStmt.run(params);
+                this.upsertSettledImageCacheStmt.run(params);
+            },
+        );
+        applySuccess(input);
     }
 
     markImageCacheTaskRetry(input: {

@@ -1,4 +1,5 @@
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
+import type { ImageCacheMode } from "@artgod/shared/media/token-image-cache";
 
 export type BootstrapRunDefinition = {
     runId: number;
@@ -13,7 +14,7 @@ export type BootstrapRunDefinition = {
     manualTokenIdsJson: string | null;
     manualRangeStartTokenId: string | null;
     manualRangeTotalSupply: number | null;
-    imageCacheEnabled: boolean;
+    imageCacheMode: ImageCacheMode;
     imageCacheMaxDimension: number | null;
     deploymentBlock: number | null;
     status: string;

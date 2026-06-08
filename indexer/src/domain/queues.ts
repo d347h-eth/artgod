@@ -1,3 +1,5 @@
+import { TOKEN_IMAGE_CACHE_QUEUE_NAME } from "@artgod/shared/media/token-image-cache-jobs";
+
 export const QUEUE_NAMES = {
     RealtimeSync: "events-sync-realtime",
     BackfillSync: "events-sync-backfill",
@@ -12,6 +14,7 @@ export const QUEUE_NAMES = {
     OrdersUpdateById: "order-updates-by-id",
     ActivityUpsert: "activity-upsert",
     CollectionExtensionArtifacts: "collection-extension-artifacts",
+    TokenImageCache: TOKEN_IMAGE_CACHE_QUEUE_NAME,
     MetadataDomain: "metadata-domain",
     MetadataRefresh: "metadata-refresh",
     MetadataStats: "metadata-stats",

@@ -2,6 +2,7 @@ import type {
     CollectionExtensionInstall,
     CollectionExtensionKey,
 } from "@artgod/shared/extensions";
+import type { ImageCachePolicyConfig } from "@artgod/shared/media/token-image-cache";
 import type {
     CollectionExtensionEvent,
     CollectionExtensionEventMedia,
@@ -55,6 +56,9 @@ export type CollectionExtensionArtifactRefreshContext = {
 
 export interface IndexerCollectionExtension {
     key: CollectionExtensionKey;
+    resolveImageCachePolicyConfig?(
+        install: CollectionExtensionInstall,
+    ): ImageCachePolicyConfig | null;
     buildSyncWatchSpecs(
         install: CollectionExtensionInstall,
     ): CollectionExtensionSyncWatchSpec[];

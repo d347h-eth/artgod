@@ -4,6 +4,10 @@ import { logger } from "@artgod/shared/utils";
 import type { OpenSeaIntegrationStatus } from "@artgod/shared/config/opensea-integration";
 import type { CollectionExtensionKey } from "@artgod/shared/extensions";
 import { resolveEmbeddedCollectionExtensionInstallByKey } from "@artgod/shared/extensions/built-ins";
+import {
+    isImageCachePolicyActive,
+    type ImageCacheMode,
+} from "@artgod/shared/media/token-image-cache";
 import { ERC721_ENUMERABLE_ABI } from "../abi/index.js";
 import { publishCollectionExtensionRefreshArtifacts } from "../application/collection-extensions/jobs.js";
 import { runWorker } from "../application/worker-runner.js";
@@ -766,7 +770,7 @@ async function handleBootstrapMetadataProcess(
         return;
     }
 
-    if (run.imageCacheEnabled) {
+    if (isRunImageCacheActive(run)) {
         const seeded = bootstrapStorage.seedImageCacheTasks({
             runId: run.runId,
             requestedMaxDimension: run.imageCacheMaxDimension,
@@ -830,6 +834,16 @@ async function handleBootstrapMetadataProcess(
         traceId,
         sourceJobId,
     );
+}
+
+function isRunImageCacheActive(run: {
+    imageCacheMode: ImageCacheMode;
+    imageCacheMaxDimension: number | null;
+}): boolean {
+    return isImageCachePolicyActive({
+        imageCacheMode: run.imageCacheMode,
+        maxDimension: run.imageCacheMaxDimension,
+    });
 }
 
 async function processDueMetadataTasks(

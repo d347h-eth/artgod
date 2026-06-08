@@ -234,6 +234,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
                 collectionId: row.collection_id,
                 contract,
                 tokenId,
+                image: metadata.image ?? null,
             });
             fetched += 1;
         }
@@ -342,6 +343,7 @@ export class SqliteMetadataDomain implements MetadataDomainPort {
             collectionId: collection.collection_id,
             contract,
             tokenId,
+            image: metadata.image ?? null,
         };
     }
 
