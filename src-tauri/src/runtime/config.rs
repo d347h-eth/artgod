@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use super::app_config::{ensure_desktop_config_paths, load_or_materialize_process_env};
-use super::env_keys::RPC_ENDPOINT_LIST_ENV_KEY;
+use super::env_keys::{COMMON_MEDIA_CACHE_DIR_ENV_KEY, RPC_ENDPOINT_LIST_ENV_KEY};
 
 pub struct DesktopRuntimeConfig {
     pub env_file_path: PathBuf,
@@ -171,7 +171,7 @@ impl DesktopRuntimeConfig {
             })?;
         }
         let media_cache_dir = process_env
-            .get("ARTGOD_MEDIA_CACHE_DIR")
+            .get(COMMON_MEDIA_CACHE_DIR_ENV_KEY)
             .map(String::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -209,7 +209,7 @@ impl DesktopRuntimeConfig {
         );
         if let Some(media_cache_dir) = media_cache_dir {
             merged_env.insert(
-                "ARTGOD_MEDIA_CACHE_DIR".to_owned(),
+                COMMON_MEDIA_CACHE_DIR_ENV_KEY.to_owned(),
                 media_cache_dir.to_string_lossy().into_owned(),
             );
         }

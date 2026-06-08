@@ -284,7 +284,7 @@ Useful optional env groups:
 - Backend observability (`BACKEND_METRICS_*`, `BACKEND_APM_*`)
 - RPC endpoint pools and resilience (`RPC_URL_LIST`, `RPC_BACKFILL_URL_LIST`, `RPC_HTTP_REQUEST_TIMEOUT_MS`, `RPC_RETRY_*`, `RPC_RATE_LIMIT_*`, `RPC_CIRCUIT_BREAKER_*`)
 - Metadata and bootstrap media tuning (`METADATA_REFRESH_RANGE_CHUNK_SIZE`, `BOOTSTRAP_METADATA_*`, `BOOTSTRAP_IMAGE_CACHE_*`)
-- IPFS/media cache and HTTP fetch resilience (`ARTGOD_IPFS_GATEWAY_ORIGIN`, `ARTGOD_MEDIA_CACHE_DIR`, `ARTGOD_HTTP_FETCH_*`)
+- IPFS/media cache and HTTP fetch resilience (`COMMON_IPFS_GATEWAY_ORIGIN`, `COMMON_MEDIA_CACHE_DIR`, `COMMON_HTTP_FETCH_*`)
 - Offchain storage (`OFFCHAIN_PERSIST_RAW_OBSERVATIONS`)
 - OpenSea integration (`OPENSEA_INTEGRATION_MODE`, `OPENSEA_API_KEY`)
 - Trading bot OpenSea lanes (`OPENSEA_STREAM_SECRET_KEY`, `OPENSEA_BIDDING_SECRET_KEY`, `OPENSEA_SNAPSHOT_SECRET_KEY`)
@@ -396,7 +396,7 @@ Historical backfill for blocks at or before the bootstrap anchor is facts-only: 
 ## Database & Migrations
 
 - SQLite file path is required via `ARTGOD_DB_PATH`.
-- Token image cache files live under `ARTGOD_MEDIA_CACHE_DIR` when set, otherwise beside the SQLite database under `media-cache/token-images`.
+- Token image cache files live under `COMMON_MEDIA_CACHE_DIR` when set, otherwise beside the SQLite database under `media-cache/token-images`.
 - Migrations live in `database/migrations/*.sql`.
 - Migrations are applied automatically by runtime startup paths via `shared/database/migrations.ts`.
 

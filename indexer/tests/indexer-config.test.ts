@@ -12,6 +12,7 @@ import {
     getDefaultHttpFetchResilienceConfig,
     HTTP_FETCH_RESILIENCE_ENV_KEY,
 } from "@artgod/shared/config/http-fetch-resilience";
+import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import {
     RPC_BACKFILL_ENDPOINT_LIST_ENV_KEY,
     RPC_ENDPOINT_LIST_ENV_KEY,
@@ -169,8 +170,9 @@ describe("Indexer config", () => {
     it("parses IPFS gateway, media cache, and image cache bootstrap config", () => {
         const config = loadConfig({
             ...REQUIRED_ENV,
-            ARTGOD_IPFS_GATEWAY_ORIGIN: "https://gateway.example/ipfs",
-            ARTGOD_MEDIA_CACHE_DIR: "/tmp/artgod-token-media",
+            [COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin]:
+                "https://gateway.example/ipfs",
+            [COMMON_MEDIA_ENV_KEY.MediaCacheDir]: "/tmp/artgod-token-media",
             BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE: "25",
             BOOTSTRAP_IMAGE_CACHE_CONCURRENCY: "3",
             BOOTSTRAP_IMAGE_CACHE_MAX_SOURCE_BYTES: "123456",

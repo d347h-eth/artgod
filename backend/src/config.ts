@@ -12,6 +12,7 @@ import {
     getSettingDefaultCsv,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import {
     parseRpcEndpointConfigList,
     RPC_ENDPOINT_LIST_ENV_KEY,
@@ -106,11 +107,11 @@ const DEFAULT_OBSERVABILITY_PYROSCOPE_URL = getSettingDefault(
 const DEFAULT_PUBLIC_APP_DEPLOYMENT_MODE = getSettingDefault(
     "PUBLIC_APP_DEPLOYMENT_MODE",
 );
-const DEFAULT_ARTGOD_IPFS_GATEWAY_ORIGIN = getSettingDefault(
-    "ARTGOD_IPFS_GATEWAY_ORIGIN",
+const DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN = getSettingDefault(
+    COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin,
 );
-const DEFAULT_ARTGOD_MEDIA_CACHE_DIR = getSettingDefault(
-    "ARTGOD_MEDIA_CACHE_DIR",
+const DEFAULT_COMMON_MEDIA_CACHE_DIR = getSettingDefault(
+    COMMON_MEDIA_ENV_KEY.MediaCacheDir,
 );
 
 export type BackendSecurityConfig = {
@@ -255,12 +256,14 @@ export function loadBackendConfig(
     const queryCache = parseQueryCacheConfig(env);
     const sync = parseBackendSyncConfig(env);
     const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
-        env.ARTGOD_IPFS_GATEWAY_ORIGIN ?? DEFAULT_ARTGOD_IPFS_GATEWAY_ORIGIN,
+        env[COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin] ??
+            DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN,
     );
     const tokenImagesDir = resolveTokenImageCacheDir({
         dbPath,
         overrideDir:
-            env.ARTGOD_MEDIA_CACHE_DIR ?? DEFAULT_ARTGOD_MEDIA_CACHE_DIR,
+            env[COMMON_MEDIA_ENV_KEY.MediaCacheDir] ??
+            DEFAULT_COMMON_MEDIA_CACHE_DIR,
     });
     const metrics = parseBackendMetricsConfig(env);
     const apm = parseBackendApmConfig(env);

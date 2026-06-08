@@ -79,10 +79,10 @@ Metrics are recorded for latency and failures.
 
 - Supports `http://`, `https://`, and `ipfs://` (via gateway).
 - Supports `data:application/json` URIs.
-- Normalizes IPFS references through `ARTGOD_IPFS_GATEWAY_ORIGIN`.
+- Normalizes IPFS references through `COMMON_IPFS_GATEWAY_ORIGIN`.
 - Enforces a configurable timeout (default 10s).
 - Retries ordinary HTTP fetch failures with bounded exponential backoff via
-  `ARTGOD_HTTP_FETCH_RETRY_*`.
+  `COMMON_HTTP_FETCH_RETRY_*`.
 - Normalizes attribute structures to a standard shape.
 
 Results are stored in `token_metadata` with JSON strings for attributes and raw metadata.

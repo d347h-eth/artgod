@@ -483,7 +483,7 @@ The token image cache is separate from canonical metadata and extension artifact
 - It caches `token_metadata.image`, not `animation_url`.
 - The indexer writes resized files through `indexer/src/infra/media/sharp-token-image-cache.ts`.
 - Resized cache output is WebP; original-size cache output preserves the source bytes and inferred content type.
-- File roots come from `ARTGOD_MEDIA_CACHE_DIR` or the default path beside `ARTGOD_DB_PATH`.
+- File roots come from `COMMON_MEDIA_CACHE_DIR` or the default path beside `ARTGOD_DB_PATH`.
 - Backend static serving is path-scoped to `/media/token-images/*`.
 - Generic collection read models prefer cached image paths before remote canonical image URLs.
 

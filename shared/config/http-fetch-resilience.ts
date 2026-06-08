@@ -10,10 +10,10 @@ import type {
 
 // Env keys that define ordinary HTTP fetch timeout and retry policy.
 export const HTTP_FETCH_RESILIENCE_ENV_KEY = {
-    RequestTimeoutMs: "ARTGOD_HTTP_FETCH_TIMEOUT_MS",
-    RetryMaxAttempts: "ARTGOD_HTTP_FETCH_RETRY_MAX_ATTEMPTS",
-    RetryBaseDelayMs: "ARTGOD_HTTP_FETCH_RETRY_BASE_DELAY_MS",
-    RetryMaxDelayMs: "ARTGOD_HTTP_FETCH_RETRY_MAX_DELAY_MS",
+    RequestTimeoutMs: "COMMON_HTTP_FETCH_TIMEOUT_MS",
+    RetryMaxAttempts: "COMMON_HTTP_FETCH_RETRY_MAX_ATTEMPTS",
+    RetryBaseDelayMs: "COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS",
+    RetryMaxDelayMs: "COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS",
 } as const satisfies Record<string, SettingsDefaultKey>;
 
 // Parses the shared normal HTTP retry policy from manifest-backed env values.

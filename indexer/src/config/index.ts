@@ -10,6 +10,7 @@ import {
     getSettingDefaultBoolean,
     getSettingDefaultNumber,
 } from "@artgod/shared/config/generated-settings-defaults";
+import { COMMON_MEDIA_ENV_KEY } from "@artgod/shared/config/common-media";
 import {
     parseRpcEndpointConfigList,
     parseRpcWebSocketEndpointConfigList,
@@ -80,11 +81,11 @@ const DEFAULT_BOOTSTRAP_METADATA_RETRY_BASE_DELAY_MS = getSettingDefaultNumber(
 const DEFAULT_BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS = getSettingDefaultNumber(
     "BOOTSTRAP_METADATA_RETRY_MAX_DELAY_MS",
 );
-const DEFAULT_ARTGOD_IPFS_GATEWAY_ORIGIN = getSettingDefault(
-    "ARTGOD_IPFS_GATEWAY_ORIGIN",
+const DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN = getSettingDefault(
+    COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin,
 );
-const DEFAULT_ARTGOD_MEDIA_CACHE_DIR = getSettingDefault(
-    "ARTGOD_MEDIA_CACHE_DIR",
+const DEFAULT_COMMON_MEDIA_CACHE_DIR = getSettingDefault(
+    COMMON_MEDIA_ENV_KEY.MediaCacheDir,
 );
 const DEFAULT_BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE = getSettingDefaultNumber(
     "BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE",
@@ -200,12 +201,14 @@ export function loadConfig(
     const openseaIntegration = resolveOpenSeaIntegrationStatus(env);
     assertOpenSeaIntegrationModeSatisfied(openseaIntegration);
     const ipfsGatewayOrigin = normalizeIpfsGatewayOrigin(
-        env.ARTGOD_IPFS_GATEWAY_ORIGIN ?? DEFAULT_ARTGOD_IPFS_GATEWAY_ORIGIN,
+        env[COMMON_MEDIA_ENV_KEY.IpfsGatewayOrigin] ??
+            DEFAULT_COMMON_IPFS_GATEWAY_ORIGIN,
     );
     const tokenImagesDir = resolveTokenImageCacheDir({
         dbPath,
         overrideDir:
-            env.ARTGOD_MEDIA_CACHE_DIR ?? DEFAULT_ARTGOD_MEDIA_CACHE_DIR,
+            env[COMMON_MEDIA_ENV_KEY.MediaCacheDir] ??
+            DEFAULT_COMMON_MEDIA_CACHE_DIR,
     });
 
     return {

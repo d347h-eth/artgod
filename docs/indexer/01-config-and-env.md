@@ -53,19 +53,19 @@ The indexer reads these variables from the root `.env`:
 - `OFFCHAIN_PERSIST_RAW_OBSERVATIONS` (default: `false`)
     - Controls whether `offchain-ingest-worker` persists raw OpenSea payloads into `offchain_order_observations`.
     - Set to `true` when raw audit payload history is needed.
-- `ARTGOD_IPFS_GATEWAY_ORIGIN` (default: `https://ipfs.io`)
+- `COMMON_IPFS_GATEWAY_ORIGIN` (default: `https://ipfs.io`)
     - Dedicated origin used when resolving `ipfs://` metadata and token-image references.
     - `/ipfs` suffixes are accepted in config but normalized away before requests are built.
-- `ARTGOD_MEDIA_CACHE_DIR` (optional)
+- `COMMON_MEDIA_CACHE_DIR` (optional)
     - Filesystem root for locally cached token images.
     - When omitted, resolves beside `ARTGOD_DB_PATH` as `../media-cache/token-images`.
-- `ARTGOD_HTTP_FETCH_TIMEOUT_MS` (default: 10000)
+- `COMMON_HTTP_FETCH_TIMEOUT_MS` (default: 10000)
     - Per-attempt timeout for ordinary metadata and media HTTP fetches.
-- `ARTGOD_HTTP_FETCH_RETRY_MAX_ATTEMPTS` (default: 3)
+- `COMMON_HTTP_FETCH_RETRY_MAX_ATTEMPTS` (default: 3)
     - Maximum attempts for ordinary metadata and media HTTP fetches.
-- `ARTGOD_HTTP_FETCH_RETRY_BASE_DELAY_MS` (default: 250)
+- `COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS` (default: 250)
     - Initial exponential-backoff delay for ordinary metadata and media HTTP retries.
-- `ARTGOD_HTTP_FETCH_RETRY_MAX_DELAY_MS` (default: 2000)
+- `COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS` (default: 2000)
     - Maximum exponential-backoff delay for ordinary metadata and media HTTP retries.
 - `BOOTSTRAP_SNAPSHOT_BATCH_SIZE` (default: 200)
 - `BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE` (default: 50)
@@ -122,12 +122,12 @@ CACHE_MAX_ENTRIES=5000
 CACHE_TTL_MS=30000
 BACKEND_PUBLIC_BLOCKSPACE_CACHE_REFRESH_MS=60000
 OFFCHAIN_PERSIST_RAW_OBSERVATIONS=false
-ARTGOD_IPFS_GATEWAY_ORIGIN=https://ipfs.io
-ARTGOD_MEDIA_CACHE_DIR=
-ARTGOD_HTTP_FETCH_TIMEOUT_MS=10000
-ARTGOD_HTTP_FETCH_RETRY_MAX_ATTEMPTS=3
-ARTGOD_HTTP_FETCH_RETRY_BASE_DELAY_MS=250
-ARTGOD_HTTP_FETCH_RETRY_MAX_DELAY_MS=2000
+COMMON_IPFS_GATEWAY_ORIGIN=https://ipfs.io
+COMMON_MEDIA_CACHE_DIR=
+COMMON_HTTP_FETCH_TIMEOUT_MS=10000
+COMMON_HTTP_FETCH_RETRY_MAX_ATTEMPTS=3
+COMMON_HTTP_FETCH_RETRY_BASE_DELAY_MS=250
+COMMON_HTTP_FETCH_RETRY_MAX_DELAY_MS=2000
 BOOTSTRAP_SNAPSHOT_BATCH_SIZE=200
 BOOTSTRAP_IMAGE_CACHE_BATCH_SIZE=50
 BOOTSTRAP_IMAGE_CACHE_CONCURRENCY=4
@@ -189,6 +189,6 @@ SMOKE_CHAIN_ID=1
 - Relative paths are resolved from the repo root.
 - The database file directory is created if it does not exist.
 - SQLite is configured with WAL mode, normal synchronous, and a busy timeout.
-- The default token-image cache directory is derived from this path, so database and local media can be moved together unless `ARTGOD_MEDIA_CACHE_DIR` overrides it.
+- The default token-image cache directory is derived from this path, so database and local media can be moved together unless `COMMON_MEDIA_CACHE_DIR` overrides it.
 
 See `shared/database/db.ts` for details.
