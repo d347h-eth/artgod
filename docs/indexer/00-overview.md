@@ -148,9 +148,9 @@ These assumptions are relied on by the implementation and should be preserved in
 ### Collection extension flow
 
 1. Bootstrap request resolution checks whether the collection contract plus token scope matches an embedded extension definition, persists the requested extension key on the run, and bootstrap start upserts a `collection_extension_installs` row before metadata snapshot work begins.
-2. Any successful canonical metadata write can publish `collection-extension.refresh-artifacts` on the dedicated `collection-extension-artifacts` queue.
+2. Any successful canonical metadata write can publish extension artifact jobs and, when collection policy asks for it, token image cache jobs.
 3. Collection extension worker resolves the enabled install and executes extension-specific artifact refresh logic against normalized token state and onchain/metadata ports.
-4. Extension artifact results are upserted into `token_extension_artifacts`.
+4. Extension artifact results are upserted into `token_extension_artifacts`; token image cache jobs upsert settled `token_image_cache` rows.
 5. Backend read paths can resolve effective collection-specific presentation from extension artifacts while frontend components remain generic.
 
 Current embedded extension:

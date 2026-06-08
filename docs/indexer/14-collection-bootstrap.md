@@ -199,6 +199,7 @@ Bootstrap and OpenSea lifecycle state is tracked primarily in:
 - `collections`
 - `collection_extension_installs`
 - `nft_balance_snapshots`
+- `bootstrap_image_cache_tasks`
 - `token_image_cache`
 - `token_extension_artifacts`
 - `opensea_orderbook_runs`
@@ -210,6 +211,7 @@ Queues:
 
 - `collection-bootstrap`
 - `events-sync-backfill`
+- `token-image-cache`
 - `collection-extension-artifacts`
 - `opensea-bootstrap`
 - `opensea-reconcile`

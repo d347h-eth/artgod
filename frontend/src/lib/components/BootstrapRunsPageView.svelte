@@ -6,8 +6,10 @@
 		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
 		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
 	} from '@artgod/shared/config/bootstrap';
+	import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 	import type {
 		ApiChain,
+		ApiImageCacheMode,
 		ApiOpenSeaIntegrationStatus,
 		BootstrapContractProbeApiResponse,
 		BootstrapRunsApiResponse
@@ -71,7 +73,7 @@
 	let manualTokenIds = $state('');
 	let manualRangeStartTokenId = $state('');
 	let manualRangeTotalSupply = $state('');
-	let imageCacheEnabled = $state(true);
+	let imageCacheMode = $state<ApiImageCacheMode>(IMAGE_CACHE_MODE.CacheOnce);
 	let imageCacheMaxDimension = $state(String(BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION));
 	let submitting = $state(false);
 	let submitError = $state<string | null>(null);
@@ -326,7 +328,7 @@
 		}
 
 		let imageCacheMaxDimensionValue: number | null = null;
-		if (imageCacheEnabled) {
+		if (imageCacheMode !== IMAGE_CACHE_MODE.Off) {
 			try {
 				imageCacheMaxDimensionValue = parseImageCacheMaxDimension();
 			} catch (error) {
@@ -346,8 +348,9 @@
 				supportsEnumerable,
 				manualInput,
 				imageCache: {
-					enabled: imageCacheEnabled,
-					maxDimension: imageCacheEnabled ? imageCacheMaxDimensionValue : null
+					imageCacheMode,
+					maxDimension:
+						imageCacheMode === IMAGE_CACHE_MODE.Off ? null : imageCacheMaxDimensionValue
 				}
 			});
 			submitSuccess = `bootstrap queued (run ${result.runId})`;
@@ -533,11 +536,15 @@
 			</div>
 
 			<div class="bootstrap-form-section">
-				<label class="bootstrap-form-checkbox-row bootstrap-form-row">
-					<span>cache token images</span>
-					<input bind:checked={imageCacheEnabled} class={bootstrapCheckboxClass} type="checkbox" />
+				<label class="bootstrap-form-row">
+					<span>image cache mode</span>
+					<select bind:value={imageCacheMode} class={`${bootstrapSelectClass} bootstrap-input-select-medium`}>
+						<option value={IMAGE_CACHE_MODE.Off}>off</option>
+						<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
+						<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
+					</select>
 				</label>
-				{#if imageCacheEnabled}
+				{#if imageCacheMode !== IMAGE_CACHE_MODE.Off}
 					<label class="bootstrap-form-row">
 						<span>image max dimension</span>
 						<input

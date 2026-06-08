@@ -1,9 +1,16 @@
 <script lang="ts">
 	import { DEFAULT_PAGE_LIMIT } from '@artgod/shared/config/pagination';
+	import {
+		BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION,
+		BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION,
+		BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION
+	} from '@artgod/shared/config/bootstrap';
+	import { IMAGE_CACHE_MODE } from '@artgod/shared/media/token-image-cache';
 	import type {
 		ApiChain,
 		ApiCollection,
 		ApiCollectionCustomizationSource,
+		ApiImageCacheMode,
 		ApiTokenAttribute,
 		ApiTraitFilterDisplayKind,
 		ApiTraitRangeFilter,
@@ -28,6 +35,8 @@
 		CollectionCustomizationApiResponse['customization']['traitFilterPresentation'];
 	type TraitSummaryTemplateState =
 		CollectionCustomizationApiResponse['customization']['tokenCardTraitSummaryTemplate'];
+	type ImageCachePolicyState =
+		CollectionCustomizationApiResponse['customization']['imageCachePolicy'];
 
 	let {
 		chain,
@@ -58,6 +67,9 @@
 	let activityRowTraitSummaryTemplate = $state<TraitSummaryTemplateState>(
 		customization?.activityRowTraitSummaryTemplate ?? fallbackTraitSummaryTemplateState()
 	);
+	let imageCachePolicy = $state<ImageCachePolicyState>(
+		customization?.imageCachePolicy ?? fallbackImageCachePolicyState()
+	);
 	let traitFilterSaving = $state(false);
 	let traitFilterSaveMessage = $state<string | null>(null);
 	let traitFilterSaveError = $state<string | null>(null);
@@ -67,6 +79,9 @@
 	let activityRowSaving = $state(false);
 	let activityRowSaveMessage = $state<string | null>(null);
 	let activityRowSaveError = $state<string | null>(null);
+	let imageCachePolicySaving = $state(false);
+	let imageCachePolicySaveMessage = $state<string | null>(null);
+	let imageCachePolicySaveError = $state<string | null>(null);
 
 	$effect(() => {
 		traitFilterPresentation =
@@ -75,6 +90,7 @@
 			customization?.tokenCardTraitSummaryTemplate ?? fallbackTraitSummaryTemplateState();
 		activityRowTraitSummaryTemplate =
 			customization?.activityRowTraitSummaryTemplate ?? fallbackTraitSummaryTemplateState();
+		imageCachePolicy = customization?.imageCachePolicy ?? fallbackImageCachePolicyState();
 		resetSaveState();
 	});
 
@@ -125,6 +141,21 @@
 		};
 	}
 
+	function fallbackImageCachePolicyState(): ImageCachePolicyState {
+		return {
+			selectedSource: 'user',
+			userConfig: {
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			},
+			extensionConfig: null,
+			effectiveConfig: {
+				imageCacheMode: IMAGE_CACHE_MODE.CacheOnce,
+				maxDimension: BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION
+			}
+		};
+	}
+
 	function displayKindForConfig(
 		rangeKeys: string[],
 		key: string
@@ -134,6 +165,20 @@
 
 	function sourceButtonLabel(source: ApiCollectionCustomizationSource): string {
 		return source === 'user' ? 'user-defined' : 'extension-defined';
+	}
+
+	function imageCacheModeLabel(mode: ApiImageCacheMode): string {
+		if (mode === IMAGE_CACHE_MODE.Off) return 'off';
+		if (mode === IMAGE_CACHE_MODE.CacheOnce) return 'cache once';
+		return 'refresh on metadata';
+	}
+
+	function imageCacheMaxDimensionLabel(value: number | null): string {
+		return value === null ? 'original' : String(value);
+	}
+
+	function imageCacheMaxDimensionInputValue(value: number | null): string {
+		return value === null ? '' : String(value);
 	}
 
 	function extensionDisplayKindValue(key: string): ApiTraitFilterDisplayKind | '' {
@@ -191,6 +236,16 @@
 		};
 	}
 
+	function setImageCachePolicySelectedSource(nextSource: ApiCollectionCustomizationSource): void {
+		if (nextSource === 'extension' && !extensionSourceAvailable(imageCachePolicy)) {
+			return;
+		}
+		imageCachePolicy = {
+			...imageCachePolicy,
+			selectedSource: nextSource
+		};
+	}
+
 	function onUserDisplayKindChange(key: string, nextKind: ApiTraitFilterDisplayKind): void {
 		const nextRangeKeys = new Set(traitFilterPresentation.userConfig.rangeKeys);
 		if (nextKind === 'range') {
@@ -226,12 +281,74 @@
 		};
 	}
 
+	function onImageCacheModeChange(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLSelectElement)) return;
+		const nextMode = parseImageCacheMode(target.value);
+		imageCachePolicy = {
+			...imageCachePolicy,
+			userConfig: {
+				imageCacheMode: nextMode,
+				maxDimension:
+					nextMode === IMAGE_CACHE_MODE.Off
+						? null
+						: (imageCachePolicy.userConfig.maxDimension ??
+							BOOTSTRAP_IMAGE_CACHE_DEFAULT_DIMENSION)
+			}
+		};
+	}
+
+	function onImageCacheMaxDimensionInput(event: Event): void {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLInputElement)) return;
+		const raw = target.value.trim();
+		if (!raw) {
+			imageCachePolicy = {
+				...imageCachePolicy,
+				userConfig: {
+					...imageCachePolicy.userConfig,
+					maxDimension: null
+				}
+			};
+			return;
+		}
+		const parsed = Number(raw);
+		if (
+			!Number.isInteger(parsed) ||
+			parsed < BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION ||
+			parsed > BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION
+		) {
+			imageCachePolicySaveError = `image max dimension must be ${BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}-${BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}`;
+			return;
+		}
+		imageCachePolicySaveError = null;
+		imageCachePolicy = {
+			...imageCachePolicy,
+			userConfig: {
+				...imageCachePolicy.userConfig,
+				maxDimension: parsed
+			}
+		};
+	}
+
+	function parseImageCacheMode(value: string): ApiImageCacheMode {
+		if (
+			value === IMAGE_CACHE_MODE.Off ||
+			value === IMAGE_CACHE_MODE.CacheOnce ||
+			value === IMAGE_CACHE_MODE.RefreshOnMetadata
+		) {
+			return value;
+		}
+		return IMAGE_CACHE_MODE.CacheOnce;
+	}
+
 	function applyCustomizationState(
 		nextCustomization: CollectionCustomizationApiResponse['customization']
 	): void {
 		traitFilterPresentation = nextCustomization.traitFilterPresentation;
 		tokenCardTraitSummaryTemplate = nextCustomization.tokenCardTraitSummaryTemplate;
 		activityRowTraitSummaryTemplate = nextCustomization.activityRowTraitSummaryTemplate;
+		imageCachePolicy = nextCustomization.imageCachePolicy;
 	}
 
 	function buildCustomizationBody() {
@@ -253,6 +370,16 @@
 				userConfig: {
 					template: activityRowTraitSummaryTemplate.userConfig.template
 				}
+			},
+			imageCachePolicy: {
+				selectedSource: selectedSource(imageCachePolicy),
+				userConfig: {
+					imageCacheMode: imageCachePolicy.userConfig.imageCacheMode,
+					maxDimension:
+						imageCachePolicy.userConfig.imageCacheMode === IMAGE_CACHE_MODE.Off
+							? null
+							: imageCachePolicy.userConfig.maxDimension
+				}
 			}
 		};
 	}
@@ -264,16 +391,19 @@
 		tokenCardSaveError = null;
 		activityRowSaveMessage = null;
 		activityRowSaveError = null;
+		imageCachePolicySaveMessage = null;
+		imageCachePolicySaveError = null;
 	}
 
 	async function onSave(
-		feature: 'traitFilter' | 'tokenCard' | 'activityRow'
+		feature: 'traitFilter' | 'tokenCard' | 'activityRow' | 'imageCachePolicy'
 	): Promise<void> {
 		if (!chain || !collection) return;
 		if (
 			(feature === 'traitFilter' && traitFilterSaving) ||
 			(feature === 'tokenCard' && tokenCardSaving) ||
-			(feature === 'activityRow' && activityRowSaving)
+			(feature === 'activityRow' && activityRowSaving) ||
+			(feature === 'imageCachePolicy' && imageCachePolicySaving)
 		) {
 			return;
 		}
@@ -286,10 +416,14 @@
 			tokenCardSaving = true;
 			tokenCardSaveMessage = null;
 			tokenCardSaveError = null;
-		} else {
+		} else if (feature === 'activityRow') {
 			activityRowSaving = true;
 			activityRowSaveMessage = null;
 			activityRowSaveError = null;
+		} else {
+			imageCachePolicySaving = true;
+			imageCachePolicySaveMessage = null;
+			imageCachePolicySaveError = null;
 		}
 
 		try {
@@ -304,8 +438,10 @@
 				traitFilterSaveMessage = 'saved';
 			} else if (feature === 'tokenCard') {
 				tokenCardSaveMessage = 'saved';
-			} else {
+			} else if (feature === 'activityRow') {
 				activityRowSaveMessage = 'saved';
+			} else {
+				imageCachePolicySaveMessage = 'saved';
 			}
 		} catch (error) {
 			const message =
@@ -314,16 +450,20 @@
 				traitFilterSaveError = message;
 			} else if (feature === 'tokenCard') {
 				tokenCardSaveError = message;
-			} else {
+			} else if (feature === 'activityRow') {
 				activityRowSaveError = message;
+			} else {
+				imageCachePolicySaveError = message;
 			}
 		} finally {
 			if (feature === 'traitFilter') {
 				traitFilterSaving = false;
 			} else if (feature === 'tokenCard') {
 				tokenCardSaving = false;
-			} else {
+			} else if (feature === 'activityRow') {
 				activityRowSaving = false;
+			} else {
+				imageCachePolicySaving = false;
 			}
 		}
 	}
@@ -458,6 +598,111 @@
 					disabled={traitFilterSaving}
 					aria-busy={traitFilterSaving}
 					onclick={() => void onSave('traitFilter')}
+				>
+					save
+				</button>
+			</footer>
+		</section>
+
+		<section class="customization-feature-panel">
+			<header class="panel-header">
+				<div>
+					<h2 class="customization-title">image cache policy</h2>
+				</div>
+			</header>
+
+			<div class="customization-section">
+				<h3 class="customization-section-title">active source</h3>
+				<div class="secondary-tabs" aria-label="Image cache policy source">
+					{#if selectedSource(imageCachePolicy) === 'user'}
+						<span class="secondary-tab-active">{sourceButtonLabel('user')}</span>
+					{:else}
+						<button type="button" onclick={() => setImageCachePolicySelectedSource('user')}>
+							{sourceButtonLabel('user')}
+						</button>
+					{/if}
+					{#if extensionSourceAvailable(imageCachePolicy)}
+						{#if selectedSource(imageCachePolicy) === 'extension'}
+							<span class="secondary-tab-active">{sourceButtonLabel('extension')}</span>
+						{:else}
+							<button type="button" onclick={() => setImageCachePolicySelectedSource('extension')}>
+								{sourceButtonLabel('extension')}
+							</button>
+						{/if}
+					{:else}
+						<span class="secondary-tab-disabled">{sourceButtonLabel('extension')}</span>
+					{/if}
+				</div>
+				{#if !extensionSourceAvailable(imageCachePolicy)}
+					<p class="muted">no extension override available for this feature</p>
+				{/if}
+			</div>
+
+			<div class="customization-grid-wrap">
+				<div class="customization-grid">
+					<div class="customization-grid-header mono">field</div>
+					<div class="customization-grid-header">user-defined</div>
+					<div class="customization-grid-header">extension-defined</div>
+
+					<div class="mono customization-trait-key">mode</div>
+					<select
+						class="customization-select"
+						value={imageCachePolicy.userConfig.imageCacheMode}
+						onchange={onImageCacheModeChange}
+					>
+						<option value={IMAGE_CACHE_MODE.Off}>off</option>
+						<option value={IMAGE_CACHE_MODE.CacheOnce}>cache once</option>
+						<option value={IMAGE_CACHE_MODE.RefreshOnMetadata}>refresh on metadata</option>
+					</select>
+					<input
+						class="customization-readonly-input"
+						type="text"
+						value={imageCachePolicy.extensionConfig
+							? imageCacheModeLabel(imageCachePolicy.extensionConfig.imageCacheMode)
+							: ''}
+						placeholder="not available"
+						readonly
+					/>
+
+					<div class="mono customization-trait-key">max dimension</div>
+					<input
+						class="customization-text-input"
+						type="number"
+						min={BOOTSTRAP_IMAGE_CACHE_MIN_DIMENSION}
+						max={BOOTSTRAP_IMAGE_CACHE_MAX_DIMENSION}
+						value={imageCacheMaxDimensionInputValue(imageCachePolicy.userConfig.maxDimension)}
+						disabled={imageCachePolicy.userConfig.imageCacheMode === IMAGE_CACHE_MODE.Off}
+						oninput={onImageCacheMaxDimensionInput}
+					/>
+					<input
+						class="customization-readonly-input"
+						type="text"
+						value={imageCachePolicy.extensionConfig
+							? imageCacheMaxDimensionLabel(imageCachePolicy.extensionConfig.maxDimension)
+							: ''}
+						placeholder="not available"
+						readonly
+					/>
+				</div>
+			</div>
+
+			<footer class="panel-footer customization-footer">
+				<span class="muted">
+					effective source:
+					<span class="mono">{sourceButtonLabel(selectedSource(imageCachePolicy))}</span>
+				</span>
+				{#if imageCachePolicySaveMessage}
+					<span class="muted">{imageCachePolicySaveMessage}</span>
+				{/if}
+				{#if imageCachePolicySaveError}
+					<span class="muted">{imageCachePolicySaveError}</span>
+				{/if}
+				<button
+					type="button"
+					class="button-link"
+					disabled={imageCachePolicySaving}
+					aria-busy={imageCachePolicySaving}
+					onclick={() => void onSave('imageCachePolicy')}
 				>
 					save
 				</button>

@@ -517,6 +517,7 @@ paths:
                                     traitFilterPresentation,
                                     tokenCardTraitSummaryTemplate,
                                     activityRowTraitSummaryTemplate,
+                                    imageCachePolicy,
                                 ]
                             additionalProperties: false
                             properties:
@@ -547,6 +548,15 @@ paths:
                                             $ref: "#/components/schemas/CollectionCustomizationSource"
                                         userConfig:
                                             $ref: "#/components/schemas/TraitSummaryTemplateConfig"
+                                imageCachePolicy:
+                                    type: object
+                                    required: [selectedSource, userConfig]
+                                    additionalProperties: false
+                                    properties:
+                                        selectedSource:
+                                            $ref: "#/components/schemas/CollectionCustomizationSource"
+                                        userConfig:
+                                            $ref: "#/components/schemas/ImageCachePolicyConfig"
             responses:
                 "200":
                     description: Updated effective collection customization state
@@ -3400,6 +3410,10 @@ components:
             type: string
             enum: [user, extension]
 
+        ImageCacheMode:
+            type: string
+            enum: [off, cache_once, refresh_on_metadata]
+
         TraitFilterPresentationConfig:
             type: object
             required: [rangeKeys]
@@ -3462,6 +3476,36 @@ components:
                 effectiveConfig:
                     $ref: "#/components/schemas/TraitSummaryTemplateConfig"
 
+        ImageCachePolicyConfig:
+            type: object
+            required: [imageCacheMode, maxDimension]
+            additionalProperties: false
+            properties:
+                imageCacheMode:
+                    $ref: "#/components/schemas/ImageCacheMode"
+                maxDimension:
+                    type: integer
+                    nullable: true
+                    minimum: 64
+                    maximum: 4096
+
+        ImageCachePolicyFeatureState:
+            type: object
+            required:
+                [selectedSource, userConfig, extensionConfig, effectiveConfig]
+            additionalProperties: false
+            properties:
+                selectedSource:
+                    $ref: "#/components/schemas/CollectionCustomizationSource"
+                userConfig:
+                    $ref: "#/components/schemas/ImageCachePolicyConfig"
+                extensionConfig:
+                    allOf:
+                        - $ref: "#/components/schemas/ImageCachePolicyConfig"
+                    nullable: true
+                effectiveConfig:
+                    $ref: "#/components/schemas/ImageCachePolicyConfig"
+
         CollectionCustomization:
             type: object
             required:
@@ -3469,6 +3513,7 @@ components:
                     traitFilterPresentation,
                     tokenCardTraitSummaryTemplate,
                     activityRowTraitSummaryTemplate,
+                    imageCachePolicy,
                 ]
             additionalProperties: false
             properties:
@@ -3478,6 +3523,8 @@ components:
                     $ref: "#/components/schemas/TraitSummaryTemplateFeatureState"
                 activityRowTraitSummaryTemplate:
                     $ref: "#/components/schemas/TraitSummaryTemplateFeatureState"
+                imageCachePolicy:
+                    $ref: "#/components/schemas/ImageCachePolicyFeatureState"
 
         CollectionHolder:
             type: object
@@ -3959,7 +4006,7 @@ components:
                 - manualTokenIdsJson
                 - manualRangeStartTokenId
                 - manualRangeTotalSupply
-                - imageCacheEnabled
+                - imageCacheMode
                 - imageCacheMaxDimension
                 - deploymentBlock
                 - status
@@ -4004,8 +4051,8 @@ components:
                 manualRangeTotalSupply:
                     type: integer
                     nullable: true
-                imageCacheEnabled:
-                    type: boolean
+                imageCacheMode:
+                    $ref: "#/components/schemas/ImageCacheMode"
                 imageCacheMaxDimension:
                     type: integer
                     nullable: true
@@ -4346,11 +4393,11 @@ components:
                                   minimum: 1
                 imageCache:
                     type: object
-                    required: [enabled, maxDimension]
+                    required: [imageCacheMode, maxDimension]
                     additionalProperties: false
                     properties:
-                        enabled:
-                            type: boolean
+                        imageCacheMode:
+                            $ref: "#/components/schemas/ImageCacheMode"
                         maxDimension:
                             type: integer
                             nullable: true

@@ -198,7 +198,7 @@ Key columns:
 - `manual_token_ids_json`
 - `manual_range_start_token_id`
 - `manual_range_total_supply`
-- `request_image_cache_enabled`
+- `request_image_cache_mode`
 - `request_image_cache_max_dimension`
 - `status`
 
@@ -206,17 +206,17 @@ Important contract:
 
 - `request_extension_key` is resolved during bootstrap run creation from `chain_id + contract_address + token_scope`
 - bootstrap-worker later installs that requested embedded extension by `collection_id`, without re-resolving by contract
-- `request_image_cache_*` records whether the run should cache canonical token `image` media and the optional max resize dimension used by the later image-cache phase
+- `request_image_cache_*` records the requested image cache mode and optional max resize dimension used by the later image-cache phase
 
-### `token_image_cache`
+### `bootstrap_image_cache_tasks`
 
 Defined in `032_token_image_cache.sql`.
 
 Purpose:
 
-- tracks bootstrap-local caching of canonical token metadata `image` media
-- stores the local public path that backend read models can prefer over remote/IPFS image URLs
+- tracks bootstrap-local caching tasks for canonical token metadata `image` media
 - keeps cache failures retryable without blocking canonical metadata persistence
+- produces settled `token_image_cache` rows when an image cache task succeeds
 
 Key columns:
 
@@ -244,13 +244,40 @@ Key columns:
     - `relative_path`
     - `public_path`
 
+### `token_image_cache`
+
+Defined in `032_token_image_cache.sql`.
+
+Purpose:
+
+- stores the local public path that backend read models can prefer over remote/IPFS image URLs
+- represents settled cached token images produced by bootstrap image cache tasks or later token image cache queue jobs
+
+Key columns:
+
+- identity
+    - `chain_id`
+    - `collection_id`
+    - `token_id`
+- cache input
+    - `source_image_url`
+    - `requested_max_dimension`
+- cache output
+    - `cache_key`
+    - `content_type`
+    - `source_bytes`
+    - `cached_bytes`
+    - `width`
+    - `height`
+    - `relative_path`
+    - `public_path`
+
 Important semantics:
 
 - primary key is `(chain_id, collection_id, token_id)`, so each token has one active cached canonical image variant
 - seeding reads only successful bootstrap metadata snapshot tasks with a non-empty `token_metadata.image`
-- if source URL and requested max dimension are unchanged, successful cache rows are preserved across reseeding
 - backend serves `public_path` under `/media/token-images/...` from the configured local media cache directory
-- read models prefer a succeeded `public_path` only when `source_image_url` still matches the canonical `token_metadata.image`
+- read models prefer `public_path` only when `source_image_url` still matches the canonical `token_metadata.image`
 
 ### `nft_balance_snapshots`
 

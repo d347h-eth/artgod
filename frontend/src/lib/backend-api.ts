@@ -22,6 +22,7 @@ import type {
 	CollectionTraitCatalogApiResponse,
 	CollectionsApiResponse,
 	DefaultChainResponse,
+	ApiImageCacheMode,
 	OwnerRefResolutionApiResponse,
 	RuntimeConfigApiResponse,
 	ScheduleBlockspaceBackfillApiResponse,
@@ -593,6 +594,13 @@ export async function updateCollectionCustomization(
 				template: string;
 			};
 		};
+		imageCachePolicy: {
+			selectedSource: 'user' | 'extension';
+			userConfig: {
+				imageCacheMode: ApiImageCacheMode;
+				maxDimension: number | null;
+			};
+		};
 	}
 ): Promise<CollectionCustomizationApiResponse> {
 	await ensureCsrfToken(fetchFn);
@@ -705,9 +713,9 @@ export async function createBootstrapRun(
 					mode: 'manual_range';
 					startTokenId: string;
 					totalSupply: number;
-			  };
+		};
 		imageCache?: {
-			enabled: boolean;
+			imageCacheMode: ApiImageCacheMode;
 			maxDimension: number | null;
 		};
 		deploymentBlock?: number;

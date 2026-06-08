@@ -11,6 +11,7 @@ import {
 	type TradingBiddingJobPricingSource,
 	type TradingBiddingTierSelectionMode
 } from '@artgod/shared/types';
+import type { ImageCacheMode } from '@artgod/shared/media/token-image-cache';
 
 export type ApiChain = {
 	id: number;
@@ -68,6 +69,8 @@ export type OwnerRefResolutionApiResponse = {
 };
 
 export type ApiCollectionCustomizationSource = 'user' | 'extension';
+
+export type ApiImageCacheMode = ImageCacheMode;
 export type ApiBiddingJobStatus = 'enabled' | 'paused' | 'archived';
 
 export type ApiTraitFilterDisplayKind = 'set' | 'range';
@@ -409,6 +412,18 @@ export type ApiTraitSummaryTemplateFeatureState = {
 	effectiveConfig: ApiTraitSummaryTemplateConfig;
 };
 
+export type ApiImageCachePolicyConfig = {
+	imageCacheMode: ApiImageCacheMode;
+	maxDimension: number | null;
+};
+
+export type ApiImageCachePolicyFeatureState = {
+	selectedSource: ApiCollectionCustomizationSource;
+	userConfig: ApiImageCachePolicyConfig;
+	extensionConfig: ApiImageCachePolicyConfig | null;
+	effectiveConfig: ApiImageCachePolicyConfig;
+};
+
 export type CollectionsApiResponse = {
 	chain: ApiChain;
 	filters: {
@@ -465,6 +480,7 @@ export type CollectionCustomizationApiResponse = {
 		traitFilterPresentation: ApiTraitFilterPresentationFeatureState;
 		tokenCardTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
 		activityRowTraitSummaryTemplate: ApiTraitSummaryTemplateFeatureState;
+		imageCachePolicy: ApiImageCachePolicyFeatureState;
 	};
 };
 
@@ -787,7 +803,7 @@ export type ApiBootstrapRun = {
 	manualTokenIdsJson: string | null;
 	manualRangeStartTokenId: string | null;
 	manualRangeTotalSupply: number | null;
-	imageCacheEnabled: boolean;
+	imageCacheMode: ApiImageCacheMode;
 	imageCacheMaxDimension: number | null;
 	deploymentBlock: number | null;
 	status:
